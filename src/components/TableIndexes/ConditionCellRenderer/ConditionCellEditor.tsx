@@ -209,9 +209,36 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
         } else {
           handleCancel();
         }
+      } else if (e.key === "Tab" && !showConfirm) {
+        // Allow Tab navigation between cells (skip if in confirmation dialog)
+        e.preventDefault();
+        e.stopPropagation();
+
+        const trimmed = text.trim();
+        const movement: readonly [-1 | 0 | 1, -1 | 0 | 1] = e.shiftKey
+          ? [-1, 0]
+          : [1, 0];
+
+        // If no change or validation error, just move
+        if (trimmed === originalValueRef.current || validationError) {
+          finishedRef.current = true;
+          onFinishedEditing(undefined, movement);
+          return;
+        }
+
+        // If requires recreate, show confirmation first
+        if (requiresRecreate) {
+          setPendingText(trimmed);
+          setShowConfirm(true);
+          return;
+        }
+
+        // Otherwise save and move
+        finishedRef.current = true;
+        onFinishedEditing(buildCell(trimmed), movement);
       }
     },
-    [handleCancel, handleConfirmCancel, showConfirm],
+    [handleCancel, handleConfirmCancel, showConfirm, text, validationError, requiresRecreate, onFinishedEditing, buildCell],
   );
 
   // Determine theme for CodeMirror
