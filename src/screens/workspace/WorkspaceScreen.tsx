@@ -131,9 +131,9 @@ export function WorkspaceScreen() {
         }
       }
 
-      // Handle schema from URL
+      // Handle schema from URL or saved state or profile default
+      const currentSchema = useWorkspaceSelectionStore.getState().schema;
       if (urlSchema) {
-        const currentSchema = useWorkspaceSelectionStore.getState().schema;
         if (currentSchema !== urlSchema) {
           useWorkspaceSelectionStore.setState({ schema: urlSchema });
           setSelectedSchema(urlSchema);
@@ -142,6 +142,12 @@ export function WorkspaceScreen() {
         // Restore saved schema for this connection
         useWorkspaceSelectionStore.setState({ schema: savedState.schema });
         setSelectedSchema(savedState.schema);
+      } else if (!currentSchema) {
+        // Fall back to profile's default_schema or common defaults
+        const stored = useConnectionStore.getState().getConnection(connectionId);
+        const defaultSchema = stored?.profile.default_schema || 'public';
+        useWorkspaceSelectionStore.setState({ schema: defaultSchema });
+        setSelectedSchema(defaultSchema);
       }
     }
   }, [
