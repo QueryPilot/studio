@@ -383,13 +383,58 @@ export function DatabaseSidebar({
     void navigator.clipboard.writeText(names.join("\n"));
   };
 
-  const handleCopyDefinition = () => {
-    logger.info(
-      "Copy definition for selected items:",
-      Array.from(selectedItems),
-    );
-    // TODO: Implement copy definition functionality
-    // This would generate CREATE TABLE/VIEW/FUNCTION statements and copy to clipboard
+  const handleCopyDefinition = async () => {
+    const items = Array.from(selectedItems);
+    if (items.length === 0) return;
+
+    try {
+      const definitions: string[] = [];
+
+      for (const itemKey of items) {
+        const [type, rest] = itemKey.split(":");
+        if (!rest) continue;
+        const [schema, name] = rest.split(".");
+        if (!schema || !name) continue;
+
+        // Map sidebar type to ObjectDefinitionType
+        let objectType: import("@/adapters/types").ObjectDefinitionType;
+        switch (type) {
+          case "table":
+            objectType = "table";
+            break;
+          case "view":
+            objectType = "view";
+            break;
+          case "function":
+            objectType = "function";
+            break;
+          default:
+            continue;
+        }
+
+        const definition = await databaseService.getObjectDefinition(
+          connectionId,
+          selectedDatabase,
+          schema,
+          name,
+          objectType,
+        );
+
+        if (definition) {
+          definitions.push(definition);
+        }
+      }
+
+      if (definitions.length > 0) {
+        await navigator.clipboard.writeText(definitions.join("\n\n"));
+        toast.success(
+          `Copied ${definitions.length} definition${definitions.length > 1 ? "s" : ""} to clipboard`,
+        );
+      }
+    } catch (error) {
+      logger.error("Failed to copy definitions:", error);
+      toast.error("Failed to copy definitions");
+    }
   };
 
   const handlePin = () => {

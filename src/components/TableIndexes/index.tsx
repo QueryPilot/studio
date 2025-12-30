@@ -424,16 +424,19 @@ export const TableIndexes = memo(function TableIndexes({
         } as const;
       }
 
-      // Statistics cell with color coding (always readonly)
+      // Statistics cell with color coding (always readonly) - uses custom cell for proper truncation
       if (column.field === "statistics") {
         const statsValue = typeof fieldValue === "string" ? fieldValue : "—";
         const isUnused = row.stats?.is_unused ?? false;
         return {
-          kind: GridCellKind.Text,
-          data: statsValue,
-          displayData: statsValue,
+          kind: GridCellKind.Custom,
+          data: {
+            kind: "text-single-cell",
+            value: statsValue,
+          },
+          copyData: statsValue,
           readonly: true,
-          allowOverlay: false,
+          allowOverlay: true,
           themeOverride: isUnused
             ? {
                 ...rowTheme,
