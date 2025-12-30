@@ -108,10 +108,13 @@ export function detectSqlDialect(
     return "postgresql";
   }
 
-  // MySQL
+  // MySQL / MariaDB
   if (
     normalizedDbType === DbType.MySQL.toLowerCase() ||
-    normalizedDbType === "mysql"
+    normalizedDbType === "mysql" ||
+    normalizedDbType === "mariadb" ||
+    normalizedDbType.includes("mysql") ||
+    normalizedDbType.includes("mariadb")
   ) {
     return "mysql";
   }
@@ -119,18 +122,30 @@ export function detectSqlDialect(
   // SQLite
   if (
     normalizedDbType === DbType.SQLite.toLowerCase() ||
-    normalizedDbType === "sqlite"
+    normalizedDbType === "sqlite" ||
+    normalizedDbType.includes("sqlite")
   ) {
     return "sqlite";
   }
 
-  // SQL Server / MSSQL
+  // SQL Server / MSSQL / T-SQL
   if (
     normalizedDbType === DbType.SQLServer.toLowerCase() ||
     normalizedDbType === "mssql" ||
-    normalizedDbType === "sqlserver"
+    normalizedDbType === "sqlserver" ||
+    normalizedDbType === "tsql" ||
+    normalizedDbType.includes("sqlserver") ||
+    normalizedDbType.includes("mssql")
   ) {
     return "mssql";
+  }
+
+  // Oracle (map to plsql dialect for better PL/SQL support)
+  if (
+    normalizedDbType === "oracle" ||
+    normalizedDbType.includes("oracle")
+  ) {
+    return "plsql";
   }
 
   // Default to PostgreSQL
