@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { IndexColumnsCell } from "./types";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,6 +43,26 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
     useState<string[]>(initialColumns);
   const [showConfirm, setShowConfirm] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeValue, setActiveValue] = useState("");
+
+  // Filter available columns based on search query
+  const filteredColumns = useMemo(() => {
+    if (!searchQuery.trim()) return availableColumns;
+    return availableColumns.filter((col) =>
+      col.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [availableColumns, searchQuery]);
+
+  // Keep activeValue in sync with filtered options
+  useEffect(() => {
+    if (filteredColumns.length === 0) {
+      setActiveValue("");
+      return;
+    }
+    if (!filteredColumns.includes(activeValue)) {
+      setActiveValue(filteredColumns[0] ?? "");
+    }
+  }, [activeValue, filteredColumns]);
 
   // Check if there are actual changes
   const hasChanges = useCallback(() => {
@@ -187,10 +207,12 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
           handleCancel();
         }
       } else if (e.key === "Enter" && !showConfirm) {
-        // Enter to save
+        // Enter to toggle the highlighted column
         e.preventDefault();
         e.stopPropagation();
-        handleSave();
+        if (activeValue) {
+          handleToggleColumn(activeValue);
+        }
       } else if (e.key === "Tab" && !showConfirm) {
         e.preventDefault();
         e.stopPropagation();
@@ -350,16 +372,22 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
         <Command
           ref={commandRef}
           className="w-full border-0 shadow-none rounded-none"
-          value={searchQuery}
-          onValueChange={setSearchQuery}
+          value={activeValue}
+          onValueChange={setActiveValue}
+          shouldFilter={false}
         >
-          <CommandInput placeholder="Search columns..." className="h-8" />
+          <CommandInput
+            placeholder="Search columns..."
+            className="h-8"
+            value={searchQuery}
+            onValueChange={setSearchQuery}
+          />
           <CommandList className="max-h-[140px]">
             <CommandEmpty className="py-3 text-xs text-muted-foreground">
               No columns found
             </CommandEmpty>
             <CommandGroup>
-              {availableColumns.map((col) => {
+              {filteredColumns.map((col) => {
                 const isSelected = selectedColumns.includes(col);
                 return (
                   <CommandItem

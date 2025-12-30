@@ -5,7 +5,7 @@ import {
   useCallback,
   useState,
   useEffect,
-  type KeyboardEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import {
   GridCellKind,
@@ -17,7 +17,7 @@ import {
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { useForeignKeyTargets } from "@/hooks/useForeignKeyTargets";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconAlertCircle } from "@tabler/icons-react";
+import { IconAlertCircle, IconSearch } from "@tabler/icons-react";
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
 import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
 import { NullableCellRenderer } from "./NullableCellRenderer";
@@ -46,7 +46,6 @@ import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 import { BatchActionsToolbar } from "./BatchActionsToolbar";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
@@ -192,7 +191,7 @@ export const TableStructure = memo(function TableStructure({
     schema,
   });
 
-  const { stagedCommands, stageCommand, unstageCommand } = useCrudStore();
+  const { stagedCommands, stageCommand, unstageCommand, discardChanges } = useCrudStore();
   const updateTabMetadata = useWorkbenchStore(
     (state) => state.updateTabMetadata,
   );
@@ -206,6 +205,7 @@ export const TableStructure = memo(function TableStructure({
     columns: CompactSelection.empty(),
     rows: CompactSelection.empty(),
   });
+  const [searchQuery, setSearchQuery] = useState("");
 
   const columns = useMemo(() => structure?.columns ?? [], [structure?.columns]);
   const foreignKeys = useMemo(
@@ -306,7 +306,7 @@ export const TableStructure = memo(function TableStructure({
   }, [columns, pendingCommands]);
 
   // Transform to grid rows (includes pending additions)
-  const gridRows = useMemo(
+  const allGridRows = useMemo(
     () =>
       transformStructureToRows(
         columns,
@@ -316,6 +316,15 @@ export const TableStructure = memo(function TableStructure({
       ),
     [columns, foreignKeys, constraints, pendingCommands],
   );
+
+  // Filter rows based on search query
+  const gridRows = useMemo(() => {
+    if (!searchQuery.trim()) return allGridRows;
+    const query = searchQuery.toLowerCase();
+    return allGridRows.filter((row) =>
+      row.column_name.toLowerCase().includes(query)
+    );
+  }, [allGridRows, searchQuery]);
 
   // Get selected row indices from GridSelection
   const selectedRowIndices = useMemo(() => {
@@ -436,7 +445,7 @@ export const TableStructure = memo(function TableStructure({
   );
 
   const handleTableNameKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLInputElement>) => {
+    (event: ReactKeyboardEvent<HTMLInputElement>) => {
       if (event.key === "Enter") {
         event.preventDefault();
         commitTableName(event.currentTarget.value);
@@ -1426,7 +1435,8 @@ export const TableStructure = memo(function TableStructure({
   return (
     <>
       <div className="h-full flex flex-col">
-        <div className="flex items-center gap-2 py-1">
+        {/* Combined toolbar: table name + actions + search */}
+        <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/30">
           <Input
             id="tableName"
             value={tableNameDraft}
@@ -1437,25 +1447,46 @@ export const TableStructure = memo(function TableStructure({
               commitTableName(tableNameDraft);
             }}
             onKeyDown={handleTableNameKeyDown}
-            className="mt-1 h-8 text-xs"
+            className="h-7 w-48 text-xs font-medium"
+            placeholder="Table name"
           />
-        </div>
-        <TableActionsToolbar
-          addButtonLabel="Add Column"
-          onAdd={handleAddColumn}
-          onReviewChanges={() => {
-            setGlobalChangesDialogOpen(true);
-          }}
-          pendingChangesCount={pendingCommands.length}
-          batchActions={
-            <BatchActionsToolbar
-              selectedCount={selectedRowIndices.length}
-              onDeleteSelected={handleDeleteSelected}
-              onSetNullable={handleBatchSetNullable}
-              onSetType={handleBatchSetType}
+
+          <TableActionsToolbar
+            addButtonLabel="Add Column"
+            onAdd={handleAddColumn}
+            onReviewChanges={() => {
+              setGlobalChangesDialogOpen(true);
+            }}
+            onDiscard={() => {
+              discardChanges(tableKey);
+              setTableNameDraft(table);
+              toast.success("Changes discarded");
+            }}
+            pendingChangesCount={pendingCommands.length}
+            batchActions={
+              <BatchActionsToolbar
+                selectedCount={selectedRowIndices.length}
+                onDeleteSelected={handleDeleteSelected}
+                onSetNullable={handleBatchSetNullable}
+                onSetType={handleBatchSetType}
+              />
+            }
+            inline
+          />
+
+          <div className="flex-1" />
+
+          {/* Search input */}
+          <div className="relative">
+            <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Filter columns..."
+              className="h-7 w-40 pl-7 text-xs"
             />
-          }
-        />
+          </div>
+        </div>
         <div className="flex-1">
           <DataGridBase
             columns={sizedColumns}
@@ -1473,6 +1504,11 @@ export const TableStructure = memo(function TableStructure({
             onCellClicked={handleCellClick}
             overscrollX={0}
             overscrollY={300}
+            trailingRowOptions={{
+              sticky: false,
+              tint: false,
+            }}
+            onRowAppended={handleAddColumn}
           />
         </div>
         <div className="px-4 py-2 text-xs text-muted-foreground border-t">

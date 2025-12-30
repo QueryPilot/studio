@@ -1,5 +1,5 @@
 import { logger } from "@/lib/logger";
-import { memo, useCallback, forwardRef, useMemo } from "react";
+import { memo, useCallback, forwardRef, useMemo, useEffect } from "react";
 import { CodeEditor } from "@/components/CodeEditor";
 import type { SqlDialect, CodeEditorRef } from "@/components/CodeEditor";
 import { detectSqlDialect } from "@/utils/dialectDetector";
@@ -41,14 +41,23 @@ export const QueryEditor = memo(
   ) {
     // Smart dialect detection - uses plsql for PL/pgSQL code (DO blocks, functions, etc.)
     const detectedDialect = useMemo<SqlDialect>(() => {
-      return detectSqlDialect(dbType, value);
+      const detected = detectSqlDialect(dbType, value);
+      // Debug logging - remove after fixing
+      if (value && value.length > 10) {
+        console.log('[QueryEditor] Dialect detection:', {
+          dbType,
+          valuePreview: value.substring(0, 100),
+          detected,
+        });
+      }
+      return detected;
     }, [dbType, value]);
 
     // Use override if provided, otherwise use detected
     const dialect = dialectOverride ?? detectedDialect;
 
     // Report detected dialect to parent (for showing in toolbar)
-    useMemo(() => {
+    useEffect(() => {
       onDialectDetected?.(detectedDialect);
     }, [detectedDialect, onDialectDetected]);
 

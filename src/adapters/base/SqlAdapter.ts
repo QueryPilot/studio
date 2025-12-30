@@ -448,7 +448,7 @@ export abstract class SqlAdapter implements DatabaseAdapter {
   abstract getTableStatsQuery(schema: string, table: string): string;
   abstract getForeignKeyTargetsQuery(schema: string): string;
   abstract getObjectDefinitionQuery(
-    objectType: 'table' | 'view' | 'materialized_view' | 'function' | 'procedure',
+    objectType: import('../types').ObjectDefinitionType,
     schema: string,
     name: string
   ): string;

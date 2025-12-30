@@ -428,16 +428,11 @@ export const IntrospectionService = {
   },
 
   /**
-   * Get object definition (view, function, table DDL)
+   * Get object definition (view, function, table DDL, sequence, type, index)
    */
   async getObjectDefinition(
     connectionId: string,
-    objectType:
-      | "table"
-      | "view"
-      | "materialized_view"
-      | "function"
-      | "procedure",
+    objectType: import("@/adapters/types").ObjectDefinitionType,
     schema: string,
     name: string,
   ): Promise<string> {
