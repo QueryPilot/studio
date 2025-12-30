@@ -41,16 +41,7 @@ export const QueryEditor = memo(
   ) {
     // Smart dialect detection - uses plsql for PL/pgSQL code (DO blocks, functions, etc.)
     const detectedDialect = useMemo<SqlDialect>(() => {
-      const detected = detectSqlDialect(dbType, value);
-      // Debug logging - remove after fixing
-      if (value && value.length > 10) {
-        console.log('[QueryEditor] Dialect detection:', {
-          dbType,
-          valuePreview: value.substring(0, 100),
-          detected,
-        });
-      }
-      return detected;
+      return detectSqlDialect(dbType, value);
     }, [dbType, value]);
 
     // Use override if provided, otherwise use detected

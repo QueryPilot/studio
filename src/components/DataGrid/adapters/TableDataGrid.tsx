@@ -83,7 +83,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { IconFilterX, IconPlus } from "@tabler/icons-react";
-import type { CellValue as BackendCellValue } from "@/services/backend";
+import { BackendAPI, type CellValue as BackendCellValue } from "@/services/backend";
 import type { TableDataRow } from "@/services/tableDataTypes";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { cn } from "@/lib/utils";
@@ -1788,6 +1788,24 @@ export const TableDataGrid = memo(function TableDataGrid(
 
   // Removed useCommand hooks - now using event bus subscriptions below
 
+  // Handler for refreshing materialized views
+  const handleRefreshMaterializedView = useCallback(async () => {
+    if (entityType !== "materialized_view" || !schema || !table) return;
+
+    try {
+      const qualifiedName = `"${schema}"."${table}"`;
+      await BackendAPI.query(connectionId, `REFRESH MATERIALIZED VIEW ${qualifiedName}`);
+      toast.success("Materialized view refreshed");
+      // Refetch the data after refresh
+      await tableDataQueryRef.current.refetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error("Failed to refresh materialized view", {
+        description: message,
+      });
+    }
+  }, [connectionId, entityType, schema, table]);
+
   // Register copy as JSON command - standard Cmd+C handled by Glide natively
   useCommand(
     "dataGrid.action.copyAsJson",
@@ -1811,23 +1829,25 @@ export const TableDataGrid = memo(function TableDataGrid(
 
     onActionsChange(
       <div className="flex items-center gap-2">
-        {/* Add Row Button - Always visible */}
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-6 text-xs px-2"
-          onClick={() => {
-            // If there's a selection, insert below it; otherwise insert at top
-            if (selectedRowsSet.size > 0) {
-              handleInsertRowBelow();
-            } else {
-              handleAddRow();
-            }
-          }}
-        >
-          <IconPlus className="h-3 w-3" />
-          Add Row
-        </Button>
+        {/* Add Row Button - Only for tables (not views or materialized views) */}
+        {entityType === "table" && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 text-xs px-2"
+            onClick={() => {
+              // If there's a selection, insert below it; otherwise insert at top
+              if (selectedRowsSet.size > 0) {
+                handleInsertRowBelow();
+              } else {
+                handleAddRow();
+              }
+            }}
+          >
+            <IconPlus className="h-3 w-3" />
+            Add Row
+          </Button>
+        )}
 
         {/* Staging Actions - Only when there are changes */}
         {pendingChanges.length > 0 && (
@@ -1860,6 +1880,7 @@ export const TableDataGrid = memo(function TableDataGrid(
     handleInsertRowBelow,
     selectedRowsSet,
     commitActiveEdit,
+    entityType,
   ]);
 
   const cellHighlightRegions: Array<{ color: string; range: Rectangle }> = [];
@@ -2433,6 +2454,11 @@ export const TableDataGrid = memo(function TableDataGrid(
             ? "Read-only: Materialized View"
             : entityType === "view"
             ? "Read-only: View"
+            : undefined
+        }
+        onRefreshMaterializedView={
+          entityType === "materialized_view"
+            ? handleRefreshMaterializedView
             : undefined
         }
         fetchCount={fetchCount}

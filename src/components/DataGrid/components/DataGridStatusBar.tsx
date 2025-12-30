@@ -1,6 +1,6 @@
 import { memo, useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { IconLoader2, IconEye } from "@tabler/icons-react";
+import { IconLoader2, IconEye, IconRefresh } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -260,6 +260,8 @@ interface DataGridStatusBarProps {
   isProcessing?: boolean;
   onViewDetails?: () => void;
   readOnlyReason?: string;
+  /** Callback to refresh materialized view - only shown for materialized views */
+  onRefreshMaterializedView?: () => void;
 }
 
 export const DataGridStatusBar = memo(function DataGridStatusBar({
@@ -280,6 +282,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   isProcessing = false,
   onViewDetails,
   readOnlyReason,
+  onRefreshMaterializedView,
   className,
 }: DataGridStatusBarProps) {
   // Show progress bar ONLY when we have estimatedTotal (table browsing)
@@ -300,10 +303,33 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
         className,
       )}
     >
-      {/* Left side: Read-only badge, processing indicator, and selection info */}
+      {/* Left side: Read-only badge, refresh button, processing indicator, and selection info */}
       <div className="flex items-center gap-3">
         {isProcessing && <ProcessingIndicator />}
-        {readOnlyReason && <ReadOnlyBadge reason={readOnlyReason} />}
+        {readOnlyReason && (
+          <div className="flex items-center gap-1.5">
+            <ReadOnlyBadge reason={readOnlyReason} />
+            {onRefreshMaterializedView && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300"
+                      onClick={onRefreshMaterializedView}
+                    >
+                      <IconRefresh className="h-3.5 w-3.5" />
+                    </Button>
+                  }
+                />
+                <TooltipContent side="top" className="text-xs">
+                  Refresh Materialized View
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        )}
 
         {selectedRows > 0 && (
           <div className="flex items-center gap-3">

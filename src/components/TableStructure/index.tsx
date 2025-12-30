@@ -170,10 +170,19 @@ export const TableStructure = memo(function TableStructure({
   database,
   table,
   schema,
-  isView: _isView = false,
-  kind: _kind,
+  isView = false,
+  kind,
   onActionsChange: _onActionsChange,
 }: TableStructureProps) {
+  // Determine entity type for read-only behavior
+  const entityType: "table" | "view" | "materialized_view" =
+    kind === "MaterializedView"
+      ? "materialized_view"
+      : kind === "View" || isView
+      ? "view"
+      : "table";
+
+  const isReadOnly = entityType !== "table";
   const { structure, isLoading, error, refresh } = useTableFullStructure({
     connectionId,
     database,
@@ -1441,38 +1450,45 @@ export const TableStructure = memo(function TableStructure({
             id="tableName"
             value={tableNameDraft}
             onChange={(e) => {
-              setTableNameDraft(e.target.value);
+              if (!isReadOnly) {
+                setTableNameDraft(e.target.value);
+              }
             }}
             onBlur={() => {
-              commitTableName(tableNameDraft);
+              if (!isReadOnly) {
+                commitTableName(tableNameDraft);
+              }
             }}
-            onKeyDown={handleTableNameKeyDown}
+            onKeyDown={isReadOnly ? undefined : handleTableNameKeyDown}
             className="h-7 w-48 text-xs font-medium"
             placeholder="Table name"
+            readOnly={isReadOnly}
           />
 
-          <TableActionsToolbar
-            addButtonLabel="Add Column"
-            onAdd={handleAddColumn}
-            onReviewChanges={() => {
-              setGlobalChangesDialogOpen(true);
-            }}
-            onDiscard={() => {
-              discardChanges(tableKey);
-              setTableNameDraft(table);
-              toast.success("Changes discarded");
-            }}
-            pendingChangesCount={pendingCommands.length}
-            batchActions={
-              <BatchActionsToolbar
-                selectedCount={selectedRowIndices.length}
-                onDeleteSelected={handleDeleteSelected}
-                onSetNullable={handleBatchSetNullable}
-                onSetType={handleBatchSetType}
-              />
-            }
-            inline
-          />
+          {!isReadOnly && (
+            <TableActionsToolbar
+              addButtonLabel="Add Column"
+              onAdd={handleAddColumn}
+              onReviewChanges={() => {
+                setGlobalChangesDialogOpen(true);
+              }}
+              onDiscard={() => {
+                discardChanges(tableKey);
+                setTableNameDraft(table);
+                toast.success("Changes discarded");
+              }}
+              pendingChangesCount={pendingCommands.length}
+              batchActions={
+                <BatchActionsToolbar
+                  selectedCount={selectedRowIndices.length}
+                  onDeleteSelected={handleDeleteSelected}
+                  onSetNullable={handleBatchSetNullable}
+                  onSetType={handleBatchSetType}
+                />
+              }
+              inline
+            />
+          )}
 
           <div className="flex-1" />
 
@@ -1499,16 +1515,20 @@ export const TableStructure = memo(function TableStructure({
             onGridSelectionChange={setSelection}
             onColumnResize={handleColumnResize}
             onColumnResizeEnd={handleColumnResizeEnd}
-            onCellActivated={handleCellActivated}
-            onCellEdited={handleCellEdited}
-            onCellClicked={handleCellClick}
+            onCellActivated={isReadOnly ? undefined : handleCellActivated}
+            onCellEdited={isReadOnly ? undefined : handleCellEdited}
+            onCellClicked={isReadOnly ? undefined : handleCellClick}
             overscrollX={0}
             overscrollY={300}
-            trailingRowOptions={{
-              sticky: false,
-              tint: false,
-            }}
-            onRowAppended={handleAddColumn}
+            trailingRowOptions={
+              isReadOnly
+                ? undefined
+                : {
+                    sticky: false,
+                    tint: false,
+                  }
+            }
+            onRowAppended={isReadOnly ? undefined : handleAddColumn}
           />
         </div>
         <div className="px-4 py-2 text-xs text-muted-foreground border-t">
