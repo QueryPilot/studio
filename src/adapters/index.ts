@@ -23,6 +23,9 @@ import type {
   TriggerTogglePayload,
   ForeignKeyAddPayload,
   ForeignKeyDropPayload,
+  TableCreatePayload,
+  TableRenamePayload,
+  TableDropPayload,
 } from '@/types/crud';
 import { sqlDiffGenerator } from '@/services/sqlDiffGenerator';
 import type { DatabaseAdapter, TableRef, RowData, WhereClause } from './types';
@@ -269,10 +272,41 @@ function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): string | 
       return stmt?.statement ?? null;
     }
 
+    // Table DDL operations
+    case 'table.create': {
+      const payload = command.payload as TableCreatePayload;
+      if (!payload.tableName || !payload.columns?.length) return null;
+      const result = sqlDiffGenerator.generateSql([command], adapter.dbType);
+      const stmt = result.statements[0];
+      return stmt?.statement ?? null;
+    }
+
+    case 'table.rename': {
+      const payload = command.payload as TableRenamePayload;
+      if (!payload.newName || !command.target.table) return null;
+      const result = sqlDiffGenerator.generateSql([command], adapter.dbType);
+      const stmt = result.statements[0];
+      return stmt?.statement ?? null;
+    }
+
+    case 'table.drop': {
+      const payload = command.payload as TableDropPayload;
+      if (!payload.tableName) return null;
+      // Generate DROP TABLE SQL directly since sqlDiffGenerator doesn't support it
+      const schemaPrefix = target.schema ? `${adapter.quoteIdentifier(target.schema)}.` : '';
+      const tableName = adapter.quoteIdentifier(payload.tableName);
+      const ifExists = payload.ifExists ? 'IF EXISTS ' : '';
+      const cascade = payload.cascade ? ' CASCADE' : '';
+      return `DROP TABLE ${ifExists}${schemaPrefix}${tableName}${cascade}`;
+    }
+
     default:
       return null;
   }
 }
+
+const buildTableRenameKey = (command: CrudCommand): string =>
+  `${command.target.schema ?? ''}.${command.target.table ?? ''}`;
 
 /**
  * Helper to rename columns in an array of column names
@@ -312,6 +346,57 @@ function renameColumnsInRecord(
     }
   }
   return { record: newRecord, changed };
+}
+
+/**
+ * Apply table renames from previous commands to the current command.
+ * This ensures subsequent commands target the new table name after a rename.
+ */
+export function applyTableRenames(
+  command: CrudCommand,
+  tableRenames: Map<string, string>,
+): CrudCommand {
+  if (tableRenames.size === 0 || !command.target.table) {
+    return command;
+  }
+
+  const key = buildTableRenameKey(command);
+  const newName = tableRenames.get(key);
+  if (!newName || newName === command.target.table) {
+    return command;
+  }
+
+  return {
+    ...command,
+    target: {
+      ...command.target,
+      table: newName,
+    },
+  } as CrudCommand;
+}
+
+/**
+ * Update table rename tracking for chained renames.
+ */
+export function trackTableRename(
+  tableRenames: Map<string, string>,
+  originalCmd: CrudCommand,
+  adjustedCmd: CrudCommand,
+): void {
+  if (originalCmd.type !== 'table.rename') return;
+  if (!adjustedCmd.target.table) return;
+
+  const payload = originalCmd.payload as TableRenamePayload;
+  const newName = payload.newName;
+  const adjustedKey = buildTableRenameKey(adjustedCmd);
+
+  for (const [key, value] of tableRenames.entries()) {
+    if (value === adjustedCmd.target.table) {
+      tableRenames.set(key, newName);
+    }
+  }
+
+  tableRenames.set(adjustedKey, newName);
 }
 
 /**
@@ -532,14 +617,17 @@ export async function generateSqlPreview(
 
     // Track column renames so subsequent commands use new names
     const columnRenames = new Map<string, string>();
+    const tableRenames = new Map<string, string>();
     const statements: string[] = [];
 
     for (const cmd of commands) {
       // Apply any pending renames to this command
-      const adjustedCmd = applyColumnRenames(cmd, columnRenames);
+      const tableAdjustedCmd = applyTableRenames(cmd, tableRenames);
+      const adjustedCmd = applyColumnRenames(tableAdjustedCmd, columnRenames);
 
       // Track renames for subsequent commands (handles chained renames)
       trackColumnRename(columnRenames, cmd, adjustedCmd);
+      trackTableRename(tableRenames, cmd, tableAdjustedCmd);
 
       const sql = commandToSql(adapter, adjustedCmd);
       if (sql) {

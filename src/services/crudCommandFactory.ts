@@ -21,6 +21,7 @@ import type {
   IndexDropPayload,
   IndexRenamePayload,
   JsonValue,
+  TableRenamePayload,
   TriggerCreatePayload,
   TriggerDefinitionInput,
   TriggerDropPayload,
@@ -81,6 +82,11 @@ interface ColumnDropParams extends CommandBuildOptions {
 interface ColumnRenameParams extends CommandBuildOptions {
   readonly target: CrudCommandTarget;
   readonly columnName: string;
+  readonly newName: string;
+}
+
+interface TableRenameParams extends CommandBuildOptions {
+  readonly target: CrudCommandTarget;
   readonly newName: string;
 }
 
@@ -487,6 +493,34 @@ export const CrudCommandFactory = {
 
     return buildCommand(
       "column.rename",
+      buildTarget(params.target, params.newName),
+      payload,
+      {
+        ...params,
+        description,
+      },
+    );
+  },
+
+  createTableRenameCommand(
+    params: TableRenameParams,
+  ): CrudCommandFor<"table.rename"> {
+    ensureTargetHasTable(params.target, "table.rename");
+    assertNonEmpty(
+      params.newName,
+      "CrudCommandFactory: newName is required for table.rename",
+    );
+
+    const payload: TableRenamePayload = {
+      newName: params.newName,
+    };
+
+    const description =
+      params.description ??
+      `Rename table ${params.target.table} to ${params.newName}`;
+
+    return buildCommand(
+      "table.rename",
       buildTarget(params.target, params.newName),
       payload,
       {

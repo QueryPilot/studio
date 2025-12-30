@@ -6,6 +6,7 @@ export type CrudOperationType =
   | 'data.insert'
   | 'data.delete'
   | 'table.create'
+  | 'table.rename'
   | 'table.drop'
   | 'column.add'
   | 'column.modify'
@@ -224,6 +225,10 @@ export interface TableCreatePayload extends CrudCommandPayload {
   readonly ifNotExists?: boolean;
 }
 
+export interface TableRenamePayload extends CrudCommandPayload {
+  readonly newName: string;
+}
+
 export interface TableDropPayload extends CrudCommandPayload {
   readonly tableName: string;
   readonly cascade?: boolean;
@@ -235,6 +240,7 @@ export type CrudCommandPayloadMap = {
   'data.insert': DataInsertPayload;
   'data.delete': DataDeletePayload;
   'table.create': TableCreatePayload;
+  'table.rename': TableRenamePayload;
   'table.drop': TableDropPayload;
   'column.add': ColumnAddPayload;
   'column.modify': ColumnModifyPayload;
@@ -405,5 +411,4 @@ export interface CrudDiffSnapshot {
   readonly conflicts: CrudDiffConflict[];
   readonly impacts: CrudImpactSummary[];
 }
-
 

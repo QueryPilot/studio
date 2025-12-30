@@ -1,5 +1,12 @@
 import { logger } from "@/lib/logger";
-import { memo, useMemo, useCallback, useState, useEffect } from "react";
+import {
+  memo,
+  useMemo,
+  useCallback,
+  useState,
+  useEffect,
+  type KeyboardEvent,
+} from "react";
 import {
   GridCellKind,
   type Item,
@@ -38,13 +45,17 @@ import { TableActionsToolbar } from "@/components/shared/TableActionsToolbar";
 import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 import { BatchActionsToolbar } from "./BatchActionsToolbar";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
+import useWorkbenchStore from "@/stores/workbenchStore";
 import type {
   CrudCommandTarget,
   ColumnAddPayload,
   ColumnDropPayload,
   ForeignKeyDefinitionInput,
+  TableRenamePayload,
 } from "@/types/crud";
 import {
   CompactSelection,
@@ -77,7 +88,10 @@ const buildForeignKeyConstraintName = (
 const parseForeignKeyValue = (
   rawValue: string,
 ): { schema?: string; table: string; column: string } | null => {
-  const parts = rawValue.split(".").map((part) => part.trim()).filter(Boolean);
+  const parts = rawValue
+    .split(".")
+    .map((part) => part.trim())
+    .filter(Boolean);
   if (parts.length < 2) return null;
   const column = parts.pop();
   const table = parts.pop();
@@ -86,7 +100,61 @@ const parseForeignKeyValue = (
   return { schema, table, column };
 };
 
+const validateTableName = (
+  name: string,
+): { valid: boolean; error?: string } => {
+  if (!name || name.trim() === "") {
+    return { valid: false, error: "Table name is required" };
+  }
+
+  const trimmedName = name.trim();
+
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(trimmedName)) {
+    return {
+      valid: false,
+      error:
+        "Table name must start with a letter or underscore and contain only letters, numbers, and underscores",
+    };
+  }
+
+  const reservedKeywords = [
+    "select",
+    "from",
+    "where",
+    "insert",
+    "update",
+    "delete",
+    "table",
+    "column",
+    "index",
+    "primary",
+    "foreign",
+    "key",
+    "constraint",
+    "create",
+    "drop",
+    "alter",
+    "null",
+    "not",
+    "and",
+    "or",
+    "order",
+    "by",
+  ];
+
+  if (reservedKeywords.includes(trimmedName.toLowerCase())) {
+    return {
+      valid: false,
+      error: `"${trimmedName}" is a reserved SQL keyword`,
+    };
+  }
+
+  return { valid: true };
+};
+
 interface TableStructureProps {
+  panelId?: string;
+  tabId?: string;
   connectionId: string;
   database: string;
   table: string;
@@ -97,6 +165,8 @@ interface TableStructureProps {
 }
 
 export const TableStructure = memo(function TableStructure({
+  panelId,
+  tabId,
   connectionId,
   database,
   table,
@@ -123,6 +193,9 @@ export const TableStructure = memo(function TableStructure({
   });
 
   const { stagedCommands, stageCommand, unstageCommand } = useCrudStore();
+  const updateTabMetadata = useWorkbenchStore(
+    (state) => state.updateTabMetadata,
+  );
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<StructureGridRow | null>(
@@ -133,7 +206,6 @@ export const TableStructure = memo(function TableStructure({
     columns: CompactSelection.empty(),
     rows: CompactSelection.empty(),
   });
-
 
   const columns = useMemo(() => structure?.columns ?? [], [structure?.columns]);
   const foreignKeys = useMemo(
@@ -155,24 +227,56 @@ export const TableStructure = memo(function TableStructure({
     return stagedCommands.get(tableKey) ?? [];
   }, [stagedCommands, tableKey]);
 
+  const pendingTableRename = useMemo(
+    () => pendingCommands.find((cmd) => cmd.type === "table.rename"),
+    [pendingCommands],
+  );
+
+  const pendingTableName = useMemo(() => {
+    if (!pendingTableRename) return null;
+    const payload = pendingTableRename.payload as TableRenamePayload;
+    return payload.newName ?? null;
+  }, [pendingTableRename]);
+
+  const [tableNameDraft, setTableNameDraft] = useState(
+    pendingTableName ?? table,
+  );
+
   useEffect(() => {
-    const unsubscribe = useDataInvalidationStore.getState().subscribe(
+    setTableNameDraft(pendingTableName ?? table);
+  }, [pendingTableName, table]);
+
+  const tableRenameTarget = useMemo(
+    () => ({
       connectionId,
       database,
-      schema ?? "public",
+      schema,
       table,
-      async () => {
-        await refresh();
-        const { clearCommittedChanges, getTableKey } = useCrudStore.getState();
-        const commitTableKey = getTableKey({
-          connectionId,
-          database,
-          schema: schema ?? "public",
-          table,
-        });
-        clearCommittedChanges(commitTableKey);
-      },
-    );
+    }),
+    [connectionId, database, schema, table],
+  );
+
+  useEffect(() => {
+    const unsubscribe = useDataInvalidationStore
+      .getState()
+      .subscribe(
+        connectionId,
+        database,
+        schema ?? "public",
+        table,
+        async () => {
+          await refresh();
+          const { clearCommittedChanges, getTableKey } =
+            useCrudStore.getState();
+          const commitTableKey = getTableKey({
+            connectionId,
+            database,
+            schema: schema ?? "public",
+            table,
+          });
+          clearCommittedChanges(commitTableKey);
+        },
+      );
 
     return unsubscribe;
   }, [connectionId, database, schema, table, refresh]);
@@ -254,6 +358,99 @@ export const TableStructure = memo(function TableStructure({
       description: "Fill in the column details and commit when ready",
     });
   }, [connectionId, database, schema, table, stageCommand]);
+
+  const commitTableName = useCallback(
+    (nextNameRaw: string) => {
+      const trimmedName = nextNameRaw.trim();
+
+      if (!trimmedName) {
+        toast.error("Table name is required");
+        setTableNameDraft(pendingTableName ?? table);
+        return;
+      }
+
+      const validation = validateTableName(trimmedName);
+      if (!validation.valid) {
+        toast.error("Invalid table name", {
+          description: validation.error,
+        });
+        setTableNameDraft(pendingTableName ?? table);
+        return;
+      }
+
+      const renameCommands = pendingCommands.filter(
+        (cmd) => cmd.type === "table.rename",
+      );
+      const existingRename = renameCommands[0];
+      renameCommands.slice(1).forEach((cmd) => {
+        unstageCommand(cmd.id);
+      });
+
+      if (existingRename) {
+        const payload = existingRename.payload as TableRenamePayload;
+        if (trimmedName === table) {
+          unstageCommand(existingRename.id);
+          setTableNameDraft(table);
+          return;
+        }
+        if (trimmedName === payload.newName) {
+          setTableNameDraft(trimmedName);
+          return;
+        }
+        const updatedCmd = {
+          ...existingRename,
+          payload: {
+            ...payload,
+            newName: trimmedName,
+          },
+          metadata: {
+            ...existingRename.metadata,
+            description: `Rename table ${table} to ${trimmedName}`,
+          },
+        };
+        stageCommand(updatedCmd);
+        setTableNameDraft(trimmedName);
+        return;
+      }
+
+      if (trimmedName === table) {
+        setTableNameDraft(trimmedName);
+        return;
+      }
+
+      const renameCommand = CrudCommandFactory.createTableRenameCommand({
+        target: tableRenameTarget,
+        newName: trimmedName,
+      });
+      stageCommand(renameCommand);
+      setTableNameDraft(trimmedName);
+    },
+    [
+      pendingCommands,
+      pendingTableName,
+      stageCommand,
+      table,
+      tableRenameTarget,
+      unstageCommand,
+    ],
+  );
+
+  const handleTableNameKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        commitTableName(event.currentTarget.value);
+        event.currentTarget.blur();
+      } else if (event.key === "Tab") {
+        commitTableName(event.currentTarget.value);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        setTableNameDraft(pendingTableName ?? table);
+        event.currentTarget.blur();
+      }
+    },
+    [commitTableName, pendingTableName, table],
+  );
 
   // Handler: Delete column
   const handleDeleteColumn = useCallback(
@@ -603,7 +800,9 @@ export const TableStructure = memo(function TableStructure({
 
         const pendingFkAdds = pendingCommands.filter((cmd) => {
           if (cmd.type !== "fk.add") return false;
-          const definition = (cmd.payload as { definition?: ForeignKeyDefinitionInput }).definition;
+          const definition = (
+            cmd.payload as { definition?: ForeignKeyDefinitionInput }
+          ).definition;
           if (!definition?.columns) return false;
           return (
             definition.columns.includes(columnName) ||
@@ -620,11 +819,15 @@ export const TableStructure = memo(function TableStructure({
         });
 
         const clearPendingFkAdds = () => {
-          pendingFkAdds.forEach((cmd) => unstageCommand(cmd.id));
+          pendingFkAdds.forEach((cmd) => {
+            unstageCommand(cmd.id);
+          });
         };
 
         const clearPendingFkDrops = () => {
-          pendingFkDrops.forEach((cmd) => unstageCommand(cmd.id));
+          pendingFkDrops.forEach((cmd) => {
+            unstageCommand(cmd.id);
+          });
         };
 
         if (!newForeignKeyValue) {
@@ -651,7 +854,10 @@ export const TableStructure = memo(function TableStructure({
           ? `${parsed.schema}.${parsed.table}.${parsed.column}`
           : `${parsed.table}.${parsed.column}`;
 
-        if (currentFkValue && normalizedNewValue.toLowerCase() === currentFkValue.toLowerCase()) {
+        if (
+          currentFkValue &&
+          normalizedNewValue.toLowerCase() === currentFkValue.toLowerCase()
+        ) {
           clearPendingFkAdds();
           clearPendingFkDrops();
           return;
@@ -742,7 +948,9 @@ export const TableStructure = memo(function TableStructure({
 
           const existingRename = renameCommands[0];
           if (existingRename) {
-            renameCommands.slice(1).forEach((cmd) => unstageCommand(cmd.id));
+            renameCommands.slice(1).forEach((cmd) => {
+              unstageCommand(cmd.id);
+            });
             const payload = existingRename.payload as {
               columnName: string;
               newName: string;
@@ -807,7 +1015,9 @@ export const TableStructure = memo(function TableStructure({
 
         const existingModify = modifyCommands[0];
         if (existingModify) {
-          modifyCommands.slice(1).forEach((cmd) => unstageCommand(cmd.id));
+          modifyCommands.slice(1).forEach((cmd) => {
+            unstageCommand(cmd.id);
+          });
           const payload = existingModify.payload as {
             columnName: string;
             newDefinition: Record<string, unknown>;
@@ -1216,6 +1426,20 @@ export const TableStructure = memo(function TableStructure({
   return (
     <>
       <div className="h-full flex flex-col">
+        <div className="flex items-center gap-2 py-1">
+          <Input
+            id="tableName"
+            value={tableNameDraft}
+            onChange={(e) => {
+              setTableNameDraft(e.target.value);
+            }}
+            onBlur={() => {
+              commitTableName(tableNameDraft);
+            }}
+            onKeyDown={handleTableNameKeyDown}
+            className="mt-1 h-8 text-xs"
+          />
+        </div>
         <TableActionsToolbar
           addButtonLabel="Add Column"
           onAdd={handleAddColumn}
@@ -1289,6 +1513,18 @@ export const TableStructure = memo(function TableStructure({
         schema={schema}
         table={table}
         onCommitSuccess={() => {
+          if (
+            pendingTableName &&
+            pendingTableName !== table &&
+            panelId &&
+            tabId
+          ) {
+            updateTabMetadata(panelId, tabId, {
+              title: pendingTableName,
+              table: pendingTableName,
+            });
+            return;
+          }
           refresh().catch(() => undefined);
         }}
       />

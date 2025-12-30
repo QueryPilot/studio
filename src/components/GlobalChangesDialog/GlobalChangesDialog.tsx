@@ -773,7 +773,8 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
       cmd.type.startsWith("column.") ||
       cmd.type.startsWith("index.") ||
       cmd.type.startsWith("trigger.") ||
-      cmd.type.startsWith("fk."),
+      cmd.type.startsWith("fk.") ||
+      cmd.type.startsWith("table."),
   );
 
   // Get primary key info
@@ -807,7 +808,41 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
           type: cmd.type,
           payload,
         });
-        if (payload.column) {
+        if (cmd.type === "table.create") {
+          // table.create - show table definition
+          if (payload.tableName) {
+            ddlLines.push(`  Table: ${payload.tableName}`);
+          }
+          if (Array.isArray(payload.columns)) {
+            ddlLines.push(`  Columns:`);
+            payload.columns.forEach((col: { name?: string; dataType?: string; nullable?: boolean; defaultValue?: unknown; isPrimaryKey?: boolean; checkExpression?: string; comment?: string }) => {
+              let colDef = `    - ${col.name}: ${col.dataType}`;
+              if (col.nullable === false) colDef += " NOT NULL";
+              if (col.defaultValue !== undefined && col.defaultValue !== null) colDef += ` DEFAULT ${col.defaultValue}`;
+              if (col.isPrimaryKey) colDef += " (PK)";
+              if (col.checkExpression) colDef += ` CHECK (${col.checkExpression})`;
+              if (col.comment) colDef += ` -- ${col.comment}`;
+              ddlLines.push(colDef);
+            });
+          }
+          if (Array.isArray(payload.primaryKey) && payload.primaryKey.length > 0) {
+            ddlLines.push(`  Primary Key: (${(payload.primaryKey as string[]).join(", ")})`);
+          }
+        } else if (cmd.type === "table.rename") {
+          // table.rename - show old → new
+          const oldName = cmd.target.table;
+          if (oldName && payload.newName) {
+            ddlLines.push(`  ${oldName} → ${payload.newName}`);
+          }
+        } else if (cmd.type === "table.drop") {
+          // table.drop - show table name
+          if (payload.tableName) {
+            ddlLines.push(`  Table: ${payload.tableName}`);
+          }
+          if (payload.cascade) {
+            ddlLines.push(`  Cascade: true`);
+          }
+        } else if (payload.column) {
           // column.add - show full column definition
           ddlLines.push(`  Column: ${JSON.stringify(payload.column, null, 2)}`);
         } else if (payload.definition) {
@@ -1050,35 +1085,43 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
             useDarkTheme={resolvedTheme === "dark"}
             styles={{
               variables: {
+                // Light theme - matches CodeEditor light theme from themes.ts
                 light: {
-                  diffViewerBackground: "#fafafa",
-                  addedBackground: "#e6ffec",
-                  addedColor: "#24292e",
-                  removedBackground: "#ffeef0",
-                  removedColor: "#24292e",
-                  wordAddedBackground: "#acf2bd",
-                  wordRemovedBackground: "#fdb8c0",
-                  addedGutterBackground: "#cdffd8",
-                  removedGutterBackground: "#ffdce0",
-                  gutterBackground: "#f5f5f5",
-                  gutterBackgroundDark: "#eeeeee",
-                  highlightBackground: "#fffbdd",
-                  highlightGutterBackground: "#fff5b1",
+                  diffViewerBackground: "#FAF8F5",  // CodeEditor light background
+                  addedBackground: "#16A34A1A",     // Green with transparency
+                  addedColor: "#27231E",            // CodeEditor light foreground
+                  removedBackground: "#DC26261A",   // Red with transparency
+                  removedColor: "#27231E",          // CodeEditor light foreground
+                  wordAddedBackground: "#16A34A33", // Green word highlight
+                  wordRemovedBackground: "#DC262633", // Red word highlight
+                  addedGutterBackground: "#16A34A14",
+                  removedGutterBackground: "#DC262614",
+                  gutterBackground: "#FAF8F5",      // CodeEditor light gutterBackground
+                  gutterBackgroundDark: "#F5F3F0",
+                  highlightBackground: "#D4A52B1A", // Brand golden with transparency
+                  highlightGutterBackground: "#D4A52B14",
+                  emptyLineBackground: "#FAF8F5",
+                  codeFoldBackground: "#F5F3F0",
+                  codeFoldGutterBackground: "#F5F3F0",
                 },
+                // Dark theme - matches CodeEditor dark theme from themes.ts
                 dark: {
-                  diffViewerBackground: "#1e1e1e",
-                  addedBackground: "#044B53",
-                  addedColor: "#e6ffec",
-                  removedBackground: "#5A1E1E",
-                  removedColor: "#ffeef0",
-                  wordAddedBackground: "#055d67",
-                  wordRemovedBackground: "#7d2727",
-                  addedGutterBackground: "#033e47",
-                  removedGutterBackground: "#4b1818",
-                  gutterBackground: "#2d2d2d",
-                  gutterBackgroundDark: "#262626",
-                  highlightBackground: "#3d3d00",
-                  highlightGutterBackground: "#4d4d00",
+                  diffViewerBackground: "#110F0C",  // CodeEditor dark background
+                  addedBackground: "#22C55E1A",     // Green with transparency
+                  addedColor: "#EBE7E2",            // CodeEditor dark foreground
+                  removedBackground: "#EF44441A",   // Red with transparency
+                  removedColor: "#EBE7E2",          // CodeEditor dark foreground
+                  wordAddedBackground: "#22C55E33", // Green word highlight
+                  wordRemovedBackground: "#EF444433", // Red word highlight
+                  addedGutterBackground: "#22C55E14",
+                  removedGutterBackground: "#EF444414",
+                  gutterBackground: "#110F0C",      // CodeEditor dark gutterBackground
+                  gutterBackgroundDark: "#0D0B09",
+                  highlightBackground: "#D4A52B1A", // Brand golden with transparency
+                  highlightGutterBackground: "#D4A52B14",
+                  emptyLineBackground: "#110F0C",
+                  codeFoldBackground: "#1A1714",
+                  codeFoldGutterBackground: "#1A1714",
                 },
               },
             }}

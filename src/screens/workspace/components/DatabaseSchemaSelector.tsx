@@ -1,6 +1,17 @@
 import { logger } from "@/lib/logger";
 import { useEffect, useCallback, useRef, useState } from "react";
-import { IconCheck, IconChevronDown, IconPlus, IconTable, IconEye, IconMathFunction, IconBolt, IconDatabase, IconStar, IconStarFilled } from '@tabler/icons-react';
+import {
+  IconCheck,
+  IconChevronDown,
+  IconPlus,
+  IconTable,
+  IconEye,
+  IconMathFunction,
+  IconBolt,
+  IconDatabase,
+  IconStar,
+  IconStarFilled,
+} from "@tabler/icons-react";
 import {
   Command,
   CommandEmpty,
@@ -58,10 +69,14 @@ export function DatabaseSchemaSelector({
 
   // Subscribe to connection health changes to update isConnectionActive
   useEffect(() => {
-    const unsubscribe = databaseService.onHealthChange(connectionId, (health) => {
-      const nowActive = health.status === "ready" || health.status === "degraded";
-      setIsConnectionActive(nowActive);
-    });
+    const unsubscribe = databaseService.onHealthChange(
+      connectionId,
+      (health) => {
+        const nowActive =
+          health.status === "ready" || health.status === "degraded";
+        setIsConnectionActive(nowActive);
+      },
+    );
 
     // Also sync on mount in case connection is already active
     setIsConnectionActive(databaseService.isConnectionActive(connectionId));
@@ -78,7 +93,9 @@ export function DatabaseSchemaSelector({
   const connectionDefaultSchema = useConnectionStore(
     (state) => state.getConnection(connectionId)?.profile.default_schema,
   );
-  const setDefaultSchema = useConnectionStore((state) => state.setDefaultSchema);
+  const setDefaultSchema = useConnectionStore(
+    (state) => state.setDefaultSchema,
+  );
 
   // Query for schemas list
   const {
@@ -129,7 +146,7 @@ export function DatabaseSchemaSelector({
   }, [schemasError]);
 
   const selectSchema = useCallback(
-    async (schema: string, options: { force?: boolean } = {}) => {
+    async (schema: string, options: { force?: boolean }) => {
       if (!schema) {
         onSchemaChange("");
         return;
@@ -177,12 +194,19 @@ export function DatabaseSchemaSelector({
       : undefined;
     const publicSchema = schemas.find((s) => s.toLowerCase() === "public");
     const dboSchema = schemas.find((s) => s.toLowerCase() === "dbo");
-    const fallback = configuredDefault || publicSchema || dboSchema || schemas[0];
+    const fallback =
+      configuredDefault || publicSchema || dboSchema || schemas[0];
 
     if (fallback && fallback !== selectedSchema) {
       void selectSchema(fallback);
     }
-  }, [schemas, selectedSchema, isLoadingSchemas, selectSchema, connectionDefaultSchema]);
+  }, [
+    schemas,
+    selectedSchema,
+    isLoadingSchemas,
+    selectSchema,
+    connectionDefaultSchema,
+  ]);
 
   const handleSchemaSelect = useCallback(
     (schema: string) => {
@@ -195,7 +219,8 @@ export function DatabaseSchemaSelector({
     async (schema: string, e: React.MouseEvent) => {
       e.stopPropagation();
       try {
-        const newDefault = connectionDefaultSchema === schema ? undefined : schema;
+        const newDefault =
+          connectionDefaultSchema === schema ? undefined : schema;
         await setDefaultSchema(connectionId, newDefault);
         toast.success(
           newDefault
@@ -222,7 +247,9 @@ export function DatabaseSchemaSelector({
             "[DatabaseSchemaSelector] Received reconnection event - refreshing schemas",
           );
           // Update connection active state to trigger re-render and enable query
-          setIsConnectionActive(databaseService.isConnectionActive(connectionId));
+          setIsConnectionActive(
+            databaseService.isConnectionActive(connectionId),
+          );
           // Invalidate and refetch schemas
           void queryClient.invalidateQueries({
             queryKey: ["schemas", connectionId],
@@ -245,7 +272,7 @@ export function DatabaseSchemaSelector({
       connectionId,
       database: selectedDatabase,
       schema: selectedSchema,
-      objectType: 'schema',
+      objectType: "schema",
     });
   }, [connectionId, selectedDatabase, selectedSchema]);
 
@@ -263,7 +290,7 @@ export function DatabaseSchemaSelector({
       connectionId,
       database: selectedDatabase,
       schema: selectedSchema,
-      objectType: 'view',
+      objectType: "view",
     });
   }, [connectionId, selectedDatabase, selectedSchema]);
 
@@ -272,7 +299,7 @@ export function DatabaseSchemaSelector({
       connectionId,
       database: selectedDatabase,
       schema: selectedSchema,
-      objectType: 'materializedView',
+      objectType: "materializedView",
     });
   }, [connectionId, selectedDatabase, selectedSchema]);
 
@@ -281,7 +308,7 @@ export function DatabaseSchemaSelector({
       connectionId,
       database: selectedDatabase,
       schema: selectedSchema,
-      objectType: 'function',
+      objectType: "function",
     });
   }, [connectionId, selectedDatabase, selectedSchema]);
 
@@ -290,7 +317,7 @@ export function DatabaseSchemaSelector({
       connectionId,
       database: selectedDatabase,
       schema: selectedSchema,
-      objectType: 'procedure',
+      objectType: "procedure",
     });
   }, [connectionId, selectedDatabase, selectedSchema]);
 
@@ -299,7 +326,7 @@ export function DatabaseSchemaSelector({
       connectionId,
       database: selectedDatabase,
       schema: selectedSchema,
-      objectType: 'trigger',
+      objectType: "trigger",
     });
   }, [connectionId, selectedDatabase, selectedSchema]);
 
@@ -320,7 +347,9 @@ export function DatabaseSchemaSelector({
               disabled={isSwitchingSchema}
               className="text-xs min-w-[100px] max-w-[160px] justify-between border-0 !bg-background hover:bg-muted/50 h-8 px-3"
             >
-              <span className="truncate">{selectedSchema || "Select schema"}</span>
+              <span className="truncate">
+                {selectedSchema || "Select schema"}
+              </span>
               <IconChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
             </Button>
           }
@@ -352,7 +381,11 @@ export function DatabaseSchemaSelector({
                       type="button"
                       onClick={(e) => void handleToggleDefaultSchema(schema, e)}
                       className="ml-2 p-0.5 rounded hover:bg-muted"
-                      title={connectionDefaultSchema === schema ? "Remove as default" : "Set as default schema"}
+                      title={
+                        connectionDefaultSchema === schema
+                          ? "Remove as default"
+                          : "Set as default schema"
+                      }
                     >
                       {connectionDefaultSchema === schema ? (
                         <IconStarFilled className="h-3 w-3 text-yellow-500" />
@@ -395,13 +428,16 @@ export function DatabaseSchemaSelector({
         <DropdownMenuContent align="start" className="w-48">
           <DropdownMenuItem onClick={handleCreateTable} className="text-xs">
             <IconTable className="mr-2 h-3.5 w-3.5 text-primary" />
-            New IconTable
+            New Table
           </DropdownMenuItem>
           <DropdownMenuItem onClick={handleCreateView} className="text-xs">
             <IconEye className="mr-2 h-3.5 w-3.5 text-green-500" />
             New View
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleCreateMaterializedView} className="text-xs">
+          <DropdownMenuItem
+            onClick={handleCreateMaterializedView}
+            className="text-xs"
+          >
             <IconEye className="mr-2 h-3.5 w-3.5 text-blue-500" />
             New Materialized View
           </DropdownMenuItem>
