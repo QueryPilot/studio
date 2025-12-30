@@ -97,6 +97,7 @@ import {
   deriveValueType,
   normalizeBackendValue,
 } from "@/services/tableDataTransform";
+import { getAdapterForConnection } from "@/adapters";
 
 interface BaseTableDataGridProps {
   gridId: string;
@@ -1793,8 +1794,9 @@ export const TableDataGrid = memo(function TableDataGrid(
     if (entityType !== "materialized_view" || !schema || !table) return;
 
     try {
-      const qualifiedName = `"${schema}"."${table}"`;
-      await BackendAPI.query(connectionId, `REFRESH MATERIALIZED VIEW ${qualifiedName}`);
+      const adapter = await getAdapterForConnection(connectionId);
+      const sql = adapter.refreshMaterializedView(schema, table);
+      await BackendAPI.executeSql(connectionId, sql as string);
       toast.success("Materialized view refreshed");
       // Refetch the data after refresh
       await tableDataQueryRef.current.refetch();

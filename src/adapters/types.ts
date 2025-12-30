@@ -389,6 +389,18 @@ export interface DatabaseAdapter {
     schema: string,
     name: string
   ): string;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Materialized View Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Generate REFRESH MATERIALIZED VIEW statement
+   * @param schema - Schema name
+   * @param viewName - Materialized view name
+   * @param concurrently - Whether to refresh concurrently (PostgreSQL only)
+   */
+  refreshMaterializedView(schema: string, viewName: string, concurrently?: boolean): QueryPayload;
 }
 
 /**
