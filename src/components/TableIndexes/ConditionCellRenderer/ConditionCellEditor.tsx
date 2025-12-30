@@ -209,6 +209,11 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
         } else {
           handleCancel();
         }
+      } else if (e.key === "Enter" && !e.shiftKey && !showConfirm) {
+        // Enter to save (Shift+Enter for newline)
+        e.preventDefault();
+        e.stopPropagation();
+        commitCurrent();
       } else if (e.key === "Tab" && !showConfirm) {
         // Allow Tab navigation between cells (skip if in confirmation dialog)
         e.preventDefault();
@@ -238,8 +243,29 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
         onFinishedEditing(buildCell(trimmed), movement);
       }
     },
-    [handleCancel, handleConfirmCancel, showConfirm, text, validationError, requiresRecreate, onFinishedEditing, buildCell],
+    [handleCancel, handleConfirmCancel, showConfirm, text, validationError, requiresRecreate, onFinishedEditing, buildCell, commitCurrent],
   );
+
+  // Global keydown handler to catch Enter before CodeMirror
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (finishedRef.current) return;
+      if (!containerRef.current?.contains(document.activeElement)) return;
+      if (showConfirm) return;
+
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        commitCurrent();
+      }
+    };
+
+    // Use capture phase to intercept before CodeMirror
+    document.addEventListener("keydown", handleGlobalKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", handleGlobalKeyDown, true);
+    };
+  }, [commitCurrent, showConfirm]);
 
   // Determine theme for CodeMirror
   const actualTheme = useMemo(() => {
@@ -370,32 +396,9 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
         </div>
       )}
 
-      {/* Footer with actions */}
-      <div className="flex items-center justify-between px-2 py-1.5 bg-muted/30">
-        <span className="text-[10px] text-muted-foreground">
-          Esc to cancel
-        </span>
-        <div className="flex items-center gap-1.5">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-[11px]"
-            onClick={handleCancel}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="default"
-            size="sm"
-            className="h-6 px-2 text-[11px]"
-            onClick={handleSave}
-            disabled={!!validationError}
-          >
-            Save
-          </Button>
-        </div>
+      {/* Footer */}
+      <div className="flex items-center justify-between text-xs text-muted-foreground px-2 py-1 shrink-0 bg-popover border-t border-border/50">
+        <div className="flex-1">Enter to save, Shift+Enter for new line, Esc to cancel</div>
       </div>
     </div>
   );

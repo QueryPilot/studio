@@ -6,6 +6,7 @@ import type {
   TriggerCreatePayload,
   TriggerDropPayload,
   TriggerTogglePayload,
+  TriggerRenamePayload,
 } from "@/types/crud";
 
 export function generateCommandId(): string {
@@ -98,6 +99,27 @@ export function createTriggerDisableCommand(
     metadata: {
       timestamp: new Date().toISOString(),
       description: `Disable trigger ${triggerName}`,
+    },
+    state: "staged",
+  };
+}
+
+export function createTriggerRenameCommand(
+  target: CrudCommandTarget,
+  triggerName: string,
+  newName: string,
+): CrudCommand<TriggerRenamePayload> {
+  return {
+    id: generateCommandId(),
+    type: "trigger.rename",
+    target,
+    payload: {
+      triggerName,
+      newName,
+    },
+    metadata: {
+      timestamp: new Date().toISOString(),
+      description: `Rename trigger ${triggerName} to ${newName}`,
     },
     state: "staged",
   };
