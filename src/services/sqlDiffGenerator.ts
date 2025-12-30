@@ -478,6 +478,8 @@ export class SqlDiffGenerator {
         return this.generateTriggerToggle(command as CrudCommandFor<'trigger.enable'>, dbType);
       case 'table.create':
         return this.generateTableCreate(command as CrudCommandFor<'table.create'>, dbType);
+      case 'table.rename':
+        return this.generateTableRename(command as CrudCommandFor<'table.rename'>, dbType);
       case 'fk.add':
         return this.generateForeignKeyAdd(command as CrudCommandFor<'fk.add'>, dbType);
       case 'fk.drop':
@@ -689,6 +691,40 @@ export class SqlDiffGenerator {
     } else {
       const prefix = useIfNotExists ? "CREATE TABLE IF NOT EXISTS " : "CREATE TABLE ";
       sql = `${prefix}${tableName} (\n  ${allDefinitions}\n);`;
+    }
+
+    return this.createStatement(command, dbType, sql);
+  }
+
+  private generateTableRename(
+    command: CrudCommandFor<'table.rename'>,
+    dbType: SupportedDbType,
+  ): SqlDiffStatement {
+    const tableName = getTableName(command.target, dbType);
+    const newTableName = command.payload.newName;
+
+    let sql: string;
+    switch (dbType) {
+      case DbType.MySQL: {
+        const qualifiedNewName = getTableName(
+          { ...command.target, table: newTableName },
+          dbType,
+        );
+        sql = `RENAME TABLE ${tableName} TO ${qualifiedNewName};`;
+        break;
+      }
+      case DbType.SQLServer: {
+        const schemaName = command.target.schema ?? "dbo";
+        const qualifiedOldName = `${schemaName}.${command.target.table ?? ""}`;
+        sql = `EXEC sp_rename '${qualifiedOldName}', '${newTableName}';`;
+        break;
+      }
+      default:
+        sql = `ALTER TABLE ${tableName} RENAME TO ${quoteIdentifier(
+          newTableName,
+          dbType,
+        )};`;
+        break;
     }
 
     return this.createStatement(command, dbType, sql);

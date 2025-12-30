@@ -66,6 +66,19 @@ const IndexNameCellEditor: React.FC<IndexNameCellEditorProps> = ({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (finishedRef.current) return;
 
+    // Convert space to underscore
+    if (e.key === " ") {
+      e.preventDefault();
+      const input = e.currentTarget;
+      const start = input.selectionStart ?? input.value.length;
+      const end = input.selectionEnd ?? start;
+      input.value =
+        input.value.slice(0, start) + "_" + input.value.slice(end);
+      input.setSelectionRange(start + 1, start + 1);
+      currentValueRef.current = input.value;
+      return;
+    }
+
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
