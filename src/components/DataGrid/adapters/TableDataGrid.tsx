@@ -98,6 +98,7 @@ import {
   normalizeBackendValue,
 } from "@/services/tableDataTransform";
 import { getAdapterForConnection } from "@/adapters";
+import { queryStreamClient } from "@/services/queryStreamClient";
 
 interface BaseTableDataGridProps {
   gridId: string;
@@ -162,6 +163,7 @@ export const TableDataGrid = memo(function TableDataGrid(
   const [isGridFocused, setIsGridFocused] = useState(false);
   const [isEditingCell, setIsEditingCell] = useState(false);
   const [isPastePending, setIsPastePending] = useState(false);
+  const [isRefreshingMatView, setIsRefreshingMatView] = useState(false);
   const scopeId = useScopedKeybindings(gridId);
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
 
@@ -1792,21 +1794,38 @@ export const TableDataGrid = memo(function TableDataGrid(
   // Handler for refreshing materialized views
   const handleRefreshMaterializedView = useCallback(async () => {
     if (entityType !== "materialized_view" || !schema || !table) return;
+    if (isRefreshingMatView) return;
 
+    setIsRefreshingMatView(true);
     try {
       const adapter = await getAdapterForConnection(connectionId);
-      const sql = adapter.refreshMaterializedView(schema, table);
-      await BackendAPI.executeSql(connectionId, sql as string);
+      const sql = adapter.refreshMaterializedView(schema, table) as string;
+      logger.info("[TableDataGrid] Refreshing materialized view:", { schema, table, sql });
+
+      // Use queryStreamClient to execute DDL - consistent with rest of codebase
+      await queryStreamClient.streamWithCallbacks(
+        {
+          connId: connectionId,
+          tabId: "system",
+          sql,
+          batchSize: 1,
+        },
+        {},
+      );
+
       toast.success("Materialized view refreshed");
       // Refetch the data after refresh
       await tableDataQueryRef.current.refetch();
     } catch (err) {
+      logger.error("[TableDataGrid] Failed to refresh materialized view:", err);
       const message = err instanceof Error ? err.message : String(err);
       toast.error("Failed to refresh materialized view", {
         description: message,
       });
+    } finally {
+      setIsRefreshingMatView(false);
     }
-  }, [connectionId, entityType, schema, table]);
+  }, [connectionId, entityType, schema, table, isRefreshingMatView]);
 
   // Register copy as JSON command - standard Cmd+C handled by Glide natively
   useCommand(
@@ -2463,6 +2482,7 @@ export const TableDataGrid = memo(function TableDataGrid(
             ? handleRefreshMaterializedView
             : undefined
         }
+        isRefreshingMatView={isRefreshingMatView}
         fetchCount={fetchCount}
         networkMs={networkMs}
         conversionMs={conversionMs}

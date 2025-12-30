@@ -5,13 +5,13 @@
  * Dialect-specific adapters extend this class and override formatting methods.
  */
 
-import { queryStreamClient } from '@/services/queryStreamClient';
-import type { DbType } from '@/types/connection';
+import { queryStreamClient } from "@/services/queryStreamClient";
+import type { DbType } from "@/types/connection";
 import type {
   ColumnDefinitionInput,
   IndexDefinitionInput,
   TriggerDefinitionInput,
-} from '@/types/crud';
+} from "@/types/crud";
 import type {
   DatabaseAdapter,
   DatabaseParadigm,
@@ -23,13 +23,13 @@ import type {
   QueryPayload,
   QueryResult,
   ColumnInfo,
-} from '../types';
+} from "../types";
 
 /**
  * Abstract base class for SQL database adapters
  */
 export abstract class SqlAdapter implements DatabaseAdapter {
-  readonly paradigm: DatabaseParadigm = 'sql';
+  readonly paradigm: DatabaseParadigm = "sql";
   readonly connectionId: string;
   abstract readonly dbType: DbType;
 
@@ -41,8 +41,8 @@ export abstract class SqlAdapter implements DatabaseAdapter {
    * Execute SQL via backend execute_query command
    */
   async execute(sql: QueryPayload): Promise<QueryResult> {
-    if (typeof sql !== 'string') {
-      throw new Error('SQL adapter expects string query');
+    if (typeof sql !== "string") {
+      throw new Error("SQL adapter expects string query");
     }
 
     const result = await queryStreamClient.streamWithCallbacks(
@@ -67,15 +67,15 @@ export abstract class SqlAdapter implements DatabaseAdapter {
   insert(target: TableRef, data: RowData, options?: InsertOptions): string {
     const table = this.formatTableRef(target);
     const columns = Object.keys(data);
-    const columnList = columns.map((c) => this.quoteIdentifier(c)).join(', ');
+    const columnList = columns.map((c) => this.quoteIdentifier(c)).join(", ");
     const valueList = columns
       .map((c) => this.formatValue(data[c], { name: c }))
-      .join(', ');
+      .join(", ");
 
     let sql = `INSERT INTO ${table} (${columnList}) VALUES (${valueList})`;
 
     if (options?.returning && this.supportsReturning()) {
-      sql += ' RETURNING *';
+      sql += " RETURNING *";
     }
 
     return sql;
@@ -90,16 +90,18 @@ export abstract class SqlAdapter implements DatabaseAdapter {
     const setClause = Object.entries(data)
       .map(
         ([col, val]) =>
-          `${this.quoteIdentifier(col)} = ${this.formatValue(val, { name: col })}`
+          `${this.quoteIdentifier(col)} = ${this.formatValue(val, {
+            name: col,
+          })}`,
       )
-      .join(', ');
+      .join(", ");
 
     const whereClause = this.buildWhereClause(where);
 
     let sql = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
 
     if (this.supportsReturning()) {
-      sql += ' RETURNING *';
+      sql += " RETURNING *";
     }
 
     return sql;
@@ -121,7 +123,7 @@ export abstract class SqlAdapter implements DatabaseAdapter {
   select(target: TableRef, options?: SelectOptions): string {
     const table = this.formatTableRef(target);
     const columns =
-      options?.columns?.map((c) => this.quoteIdentifier(c)).join(', ') || '*';
+      options?.columns?.map((c) => this.quoteIdentifier(c)).join(", ") || "*";
 
     let sql = `SELECT ${columns} FROM ${table}`;
 
@@ -132,7 +134,7 @@ export abstract class SqlAdapter implements DatabaseAdapter {
     if (options?.orderBy && options.orderBy.length > 0) {
       const orderClauses = options.orderBy
         .map((o) => `${this.quoteIdentifier(o.column)} ${o.direction}`)
-        .join(', ');
+        .join(", ");
       sql += ` ORDER BY ${orderClauses}`;
     }
 
@@ -148,14 +150,14 @@ export abstract class SqlAdapter implements DatabaseAdapter {
    */
   transaction(operations: QueryPayload[]): string {
     const statements = operations.filter(
-      (op): op is string => typeof op === 'string'
+      (op): op is string => typeof op === "string",
     );
 
     if (statements.length === 0) {
-      return '';
+      return "";
     }
 
-    return `BEGIN;\n${statements.join(';\n')};\nCOMMIT;`;
+    return `BEGIN;\n${statements.join(";\n")};\nCOMMIT;`;
   }
 
   /**
@@ -163,7 +165,9 @@ export abstract class SqlAdapter implements DatabaseAdapter {
    */
   protected formatTableRef(target: TableRef): string {
     if (target.schema) {
-      return `${this.quoteIdentifier(target.schema)}.${this.quoteIdentifier(target.table)}`;
+      return `${this.quoteIdentifier(target.schema)}.${this.quoteIdentifier(
+        target.table,
+      )}`;
     }
     return this.quoteIdentifier(target.table);
   }
@@ -176,10 +180,12 @@ export abstract class SqlAdapter implements DatabaseAdapter {
       if (val === null) {
         return `${this.quoteIdentifier(col)} IS NULL`;
       }
-      return `${this.quoteIdentifier(col)} = ${this.formatValue(val, { name: col })}`;
+      return `${this.quoteIdentifier(col)} = ${this.formatValue(val, {
+        name: col,
+      })}`;
     });
 
-    return conditions.join(' AND ');
+    return conditions.join(" AND ");
   }
 
   /**
@@ -228,7 +234,7 @@ export abstract class SqlAdapter implements DatabaseAdapter {
   modifyColumn(
     target: TableRef,
     columnName: string,
-    changes: Partial<ColumnDefinitionInput>
+    changes: Partial<ColumnDefinitionInput>,
   ): string {
     const table = this.formatTableRef(target);
     const colName = this.quoteIdentifier(columnName);
@@ -236,32 +242,38 @@ export abstract class SqlAdapter implements DatabaseAdapter {
 
     if (changes.dataType) {
       statements.push(
-        `ALTER TABLE ${table} ALTER COLUMN ${colName} TYPE ${changes.dataType}`
+        `ALTER TABLE ${table} ALTER COLUMN ${colName} TYPE ${changes.dataType}`,
       );
     }
 
     if (changes.nullable !== undefined) {
       if (changes.nullable) {
-        statements.push(`ALTER TABLE ${table} ALTER COLUMN ${colName} DROP NOT NULL`);
+        statements.push(
+          `ALTER TABLE ${table} ALTER COLUMN ${colName} DROP NOT NULL`,
+        );
       } else {
-        statements.push(`ALTER TABLE ${table} ALTER COLUMN ${colName} SET NOT NULL`);
+        statements.push(
+          `ALTER TABLE ${table} ALTER COLUMN ${colName} SET NOT NULL`,
+        );
       }
     }
 
     if (changes.defaultValue !== undefined) {
       if (changes.defaultValue === null) {
-        statements.push(`ALTER TABLE ${table} ALTER COLUMN ${colName} DROP DEFAULT`);
+        statements.push(
+          `ALTER TABLE ${table} ALTER COLUMN ${colName} DROP DEFAULT`,
+        );
       } else {
         statements.push(
           `ALTER TABLE ${table} ALTER COLUMN ${colName} SET DEFAULT ${this.formatValue(
             changes.defaultValue,
-            { name: columnName }
-          )}`
+            { name: columnName },
+          )}`,
         );
       }
     }
 
-    return statements.join(';\n');
+    return statements.join(";\n");
   }
 
   /**
@@ -269,8 +281,10 @@ export abstract class SqlAdapter implements DatabaseAdapter {
    */
   dropColumn(target: TableRef, columnName: string, cascade?: boolean): string {
     const table = this.formatTableRef(target);
-    const cascadeClause = cascade ? ' CASCADE' : '';
-    return `ALTER TABLE ${table} DROP COLUMN ${this.quoteIdentifier(columnName)}${cascadeClause}`;
+    const cascadeClause = cascade ? " CASCADE" : "";
+    return `ALTER TABLE ${table} DROP COLUMN ${this.quoteIdentifier(
+      columnName,
+    )}${cascadeClause}`;
   }
 
   /**
@@ -278,7 +292,9 @@ export abstract class SqlAdapter implements DatabaseAdapter {
    */
   renameColumn(target: TableRef, oldName: string, newName: string): string {
     const table = this.formatTableRef(target);
-    return `ALTER TABLE ${table} RENAME COLUMN ${this.quoteIdentifier(oldName)} TO ${this.quoteIdentifier(newName)}`;
+    return `ALTER TABLE ${table} RENAME COLUMN ${this.quoteIdentifier(
+      oldName,
+    )} TO ${this.quoteIdentifier(newName)}`;
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -293,8 +309,10 @@ export abstract class SqlAdapter implements DatabaseAdapter {
   createIndex(target: TableRef, definition: IndexDefinitionInput): string {
     const table = this.formatTableRef(target);
     const indexName = this.quoteIdentifier(definition.name);
-    const uniqueClause = definition.unique ? 'UNIQUE ' : '';
-    const columns = definition.columns.map((c) => this.quoteIdentifier(c)).join(', ');
+    const uniqueClause = definition.unique ? "UNIQUE " : "";
+    const columns = definition.columns
+      .map((c) => this.quoteIdentifier(c))
+      .join(", ");
 
     let sql = `CREATE ${uniqueClause}INDEX ${indexName} ON ${table}`;
 
@@ -307,7 +325,9 @@ export abstract class SqlAdapter implements DatabaseAdapter {
 
     // INCLUDE columns (PostgreSQL 11+, SQL Server)
     if (definition.includeColumns && definition.includeColumns.length > 0) {
-      const includes = definition.includeColumns.map((c) => this.quoteIdentifier(c)).join(', ');
+      const includes = definition.includeColumns
+        .map((c) => this.quoteIdentifier(c))
+        .join(", ");
       sql += ` INCLUDE (${includes})`;
     }
 
@@ -324,7 +344,7 @@ export abstract class SqlAdapter implements DatabaseAdapter {
    * Default implementation - may need override for MySQL (requires ON table)
    */
   dropIndex(_target: TableRef, indexName: string, ifExists?: boolean): string {
-    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    const ifExistsClause = ifExists ? "IF EXISTS " : "";
     // PostgreSQL/SQLite style - index name only
     // MySQL requires: DROP INDEX name ON table
     return `DROP INDEX ${ifExistsClause}${this.quoteIdentifier(indexName)}`;
@@ -335,7 +355,9 @@ export abstract class SqlAdapter implements DatabaseAdapter {
    * PostgreSQL style - override for other dialects
    */
   renameIndex(_target: TableRef, oldName: string, newName: string): string {
-    return `ALTER INDEX ${this.quoteIdentifier(oldName)} RENAME TO ${this.quoteIdentifier(newName)}`;
+    return `ALTER INDEX ${this.quoteIdentifier(
+      oldName,
+    )} RENAME TO ${this.quoteIdentifier(newName)}`;
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -351,8 +373,8 @@ export abstract class SqlAdapter implements DatabaseAdapter {
     const table = this.formatTableRef(target);
     const triggerName = this.quoteIdentifier(definition.name);
     const timing = definition.timing;
-    const events = definition.events.join(' OR ');
-    const level = definition.level || 'STATEMENT';
+    const events = definition.events.join(" OR ");
+    const level = definition.level || "STATEMENT";
 
     let sql = `CREATE TRIGGER ${triggerName} ${timing} ${events} ON ${table}`;
 
@@ -374,21 +396,33 @@ export abstract class SqlAdapter implements DatabaseAdapter {
    * Generate DROP TRIGGER statement
    * PostgreSQL style - override for MySQL (no ON table), SQL Server
    */
-  dropTrigger(target: TableRef, triggerName: string, ifExists?: boolean): string {
+  dropTrigger(
+    target: TableRef,
+    triggerName: string,
+    ifExists?: boolean,
+  ): string {
     const table = this.formatTableRef(target);
-    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    const ifExistsClause = ifExists ? "IF EXISTS " : "";
     // PostgreSQL requires ON table
-    return `DROP TRIGGER ${ifExistsClause}${this.quoteIdentifier(triggerName)} ON ${table}`;
+    return `DROP TRIGGER ${ifExistsClause}${this.quoteIdentifier(
+      triggerName,
+    )} ON ${table}`;
   }
 
   /**
    * Generate ENABLE/DISABLE TRIGGER statement
    * PostgreSQL style - override for SQL Server, not supported in MySQL/SQLite
    */
-  toggleTrigger(target: TableRef, triggerName: string, enable: boolean): string {
+  toggleTrigger(
+    target: TableRef,
+    triggerName: string,
+    enable: boolean,
+  ): string {
     const table = this.formatTableRef(target);
-    const action = enable ? 'ENABLE' : 'DISABLE';
-    return `ALTER TABLE ${table} ${action} TRIGGER ${this.quoteIdentifier(triggerName)}`;
+    const action = enable ? "ENABLE" : "DISABLE";
+    return `ALTER TABLE ${table} ${action} TRIGGER ${this.quoteIdentifier(
+      triggerName,
+    )}`;
   }
 
   /**
@@ -397,30 +431,34 @@ export abstract class SqlAdapter implements DatabaseAdapter {
   protected formatColumnDefinition(column: ColumnDefinitionInput): string {
     const parts: string[] = [
       this.quoteIdentifier(column.name),
-      column.dataType || 'text',
+      column.dataType || "text",
     ];
 
-    if (column.nullable === false) {
-      parts.push('NOT NULL');
+    if (!column.nullable) {
+      parts.push("NOT NULL");
     }
 
     if (column.defaultValue !== undefined && column.defaultValue !== null) {
-      parts.push(`DEFAULT ${this.formatValue(column.defaultValue, { name: column.name })}`);
+      parts.push(
+        `DEFAULT ${this.formatValue(column.defaultValue, {
+          name: column.name,
+        })}`,
+      );
     }
 
     if (column.isPrimaryKey) {
-      parts.push('PRIMARY KEY');
+      parts.push("PRIMARY KEY");
     }
 
     if (column.isUnique && !column.isPrimaryKey) {
-      parts.push('UNIQUE');
+      parts.push("UNIQUE");
     }
 
     if (column.checkExpression) {
       parts.push(`CHECK (${column.checkExpression})`);
     }
 
-    return parts.join(' ');
+    return parts.join(" ");
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -431,8 +469,12 @@ export abstract class SqlAdapter implements DatabaseAdapter {
    * Generate REFRESH MATERIALIZED VIEW statement
    * Default implementation throws - only PostgreSQL supports materialized views
    */
-  refreshMaterializedView(_schema: string, _viewName: string, _concurrently?: boolean): string {
-    throw new Error('Materialized views are not supported by this database');
+  refreshMaterializedView(
+    _schema: string,
+    _viewName: string,
+    _concurrently?: boolean,
+  ): string {
+    throw new Error("Materialized views are not supported by this database");
   }
 
   // Abstract methods - must be implemented by each dialect
@@ -456,12 +498,16 @@ export abstract class SqlAdapter implements DatabaseAdapter {
   abstract getTriggersQuery(schema: string, table: string): string;
   abstract getSupportedIndexTypesQuery(): string;
   abstract getSupportedColumnTypesQuery(): string;
-  abstract getTableCountQuery(schema: string, table: string, exact?: boolean): string;
+  abstract getTableCountQuery(
+    schema: string,
+    table: string,
+    exact?: boolean,
+  ): string;
   abstract getTableStatsQuery(schema: string, table: string): string;
   abstract getForeignKeyTargetsQuery(schema: string): string;
   abstract getObjectDefinitionQuery(
-    objectType: import('../types').ObjectDefinitionType,
+    objectType: import("../types").ObjectDefinitionType,
     schema: string,
-    name: string
+    name: string,
   ): string;
 }

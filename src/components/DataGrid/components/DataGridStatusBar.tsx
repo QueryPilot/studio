@@ -262,6 +262,8 @@ interface DataGridStatusBarProps {
   readOnlyReason?: string;
   /** Callback to refresh materialized view - only shown for materialized views */
   onRefreshMaterializedView?: () => void;
+  /** Whether the materialized view is currently being refreshed */
+  isRefreshingMatView?: boolean;
 }
 
 export const DataGridStatusBar = memo(function DataGridStatusBar({
@@ -283,6 +285,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   onViewDetails,
   readOnlyReason,
   onRefreshMaterializedView,
+  isRefreshingMatView = false,
   className,
 }: DataGridStatusBarProps) {
   // Show progress bar ONLY when we have estimatedTotal (table browsing)
@@ -303,40 +306,16 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
         className,
       )}
     >
-      {/* Left side: Read-only badge, refresh button, processing indicator, and selection info */}
+      {/* Left side: Processing indicator and selection info */}
       <div className="flex items-center gap-3">
         {isProcessing && <ProcessingIndicator />}
-        {readOnlyReason && (
-          <div className="flex items-center gap-1.5">
-            <ReadOnlyBadge reason={readOnlyReason} />
-            {onRefreshMaterializedView && (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300"
-                      onClick={onRefreshMaterializedView}
-                    >
-                      <IconRefresh className="h-3.5 w-3.5" />
-                    </Button>
-                  }
-                />
-                <TooltipContent side="top" className="text-xs">
-                  Refresh Materialized View
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </div>
-        )}
 
         {selectedRows > 0 && (
           <div className="flex items-center gap-3">
             <SelectionInfo
               selectedRows={selectedRows}
               onViewDetails={onViewDetails}
-              showSeparator={!readOnlyReason}
+              showSeparator={false}
             />
             {selectedRowIndices && showSelectionSummary && (
               <SelectionSummary
@@ -351,8 +330,34 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
         )}
       </div>
 
-      {/* Right side: Progress, row count, timing */}
+      {/* Right side: Read-only badge, refresh, progress, row count, timing */}
       <div className="flex items-center gap-2">
+        {readOnlyReason && (
+          <div className="flex items-center gap-1.5">
+            <ReadOnlyBadge reason={readOnlyReason} />
+            {onRefreshMaterializedView && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 disabled:opacity-50"
+                      onClick={onRefreshMaterializedView}
+                      disabled={isRefreshingMatView}
+                    >
+                      <IconRefresh className={cn("h-3.5 w-3.5", isRefreshingMatView && "animate-spin")} />
+                    </Button>
+                  }
+                />
+                <TooltipContent side="top" className="text-xs">
+                  {isRefreshingMatView ? "Refreshing..." : "Refresh Materialized View"}
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        )}
+
         {showProgressBar && estimatedTotal && (
           <StreamingProgress
             loadedRows={loadedRows}
