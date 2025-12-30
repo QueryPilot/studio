@@ -1,5 +1,14 @@
 import type { GridColumnV2 } from "@/components/DataGrid/types";
 
+const trailingRowTheme = {
+  bgIconHeader: "#D4A52B",
+};
+
+const trailingRowOptions = {
+  hint: " ",
+  themeOverride: trailingRowTheme,
+};
+
 export const structureColumns: GridColumnV2[] = [
   {
     id: "row_number",
@@ -9,6 +18,7 @@ export const structureColumns: GridColumnV2[] = [
     width: 48,
     minWidth: 48,
     maxWidth: 80,
+    trailingRowOptions,
   } as GridColumnV2,
   {
     id: "column_name",

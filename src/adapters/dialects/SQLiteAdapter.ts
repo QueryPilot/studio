@@ -428,10 +428,27 @@ ORDER BY table_name, column_name`;
   }
 
   getObjectDefinitionQuery(
-    _objectType: 'table' | 'view' | 'materialized_view' | 'function' | 'procedure',
+    objectType: import('../types').ObjectDefinitionType,
     _schema: string,
     name: string
   ): string {
-    return `SELECT sql as definition FROM sqlite_master WHERE name = '${this.escapeString(name)}'`;
+    switch (objectType) {
+      case 'table':
+      case 'view':
+      case 'index':
+        // SQLite stores all DDL in sqlite_master
+        return `SELECT sql || ';' as definition FROM sqlite_master WHERE name = '${this.escapeString(name)}'`;
+      case 'sequence':
+      case 'enum':
+      case 'domain':
+      case 'composite':
+      case 'function':
+      case 'procedure':
+      case 'materialized_view':
+        // SQLite doesn't support these object types
+        return `SELECT '-- ${objectType} is not supported in SQLite' as definition`;
+      default:
+        return `SELECT sql || ';' as definition FROM sqlite_master WHERE name = '${this.escapeString(name)}'`;
+    }
   }
 }

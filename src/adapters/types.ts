@@ -385,8 +385,24 @@ export interface DatabaseAdapter {
 
   /** Query to get object definition (view, function, etc.) */
   getObjectDefinitionQuery(
-    objectType: 'table' | 'view' | 'materialized_view' | 'function' | 'procedure',
+    objectType: ObjectDefinitionType,
     schema: string,
     name: string
   ): string;
 }
+
+/**
+ * Supported object types for DDL definition retrieval.
+ * Not all databases support all types - adapters return appropriate errors for unsupported types.
+ */
+export type ObjectDefinitionType =
+  | 'table'
+  | 'view'
+  | 'materialized_view'
+  | 'function'
+  | 'procedure'
+  | 'sequence'
+  | 'enum'
+  | 'domain'
+  | 'composite'
+  | 'index';

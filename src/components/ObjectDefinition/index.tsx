@@ -6,13 +6,14 @@ import { CodeEditor } from "@/components/CodeEditor";
 import type { SqlDialect } from "@/components/CodeEditor";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { detectDialectForObject } from "@/utils/dialectDetector";
+import type { ObjectDefinitionType } from "@/adapters/types";
 
 interface ObjectDefinitionProps {
   connectionId: string;
   database: string;
   schema: string;
   objectName: string;
-  objectType: "table" | "view" | "materialized_view" | "function" | "procedure";
+  objectType: ObjectDefinitionType;
   className?: string;
   onDefinitionLoad?: (definition: string) => void;
 }

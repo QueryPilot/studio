@@ -1,6 +1,6 @@
 import { memo, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { IconPlus, IconCheck } from '@tabler/icons-react';
+import { IconPlus, IconCheck, IconX } from '@tabler/icons-react';
 
 interface TableActionsToolbarProps {
   /** Label for the add button. If not provided, add button is hidden. */
@@ -8,22 +8,28 @@ interface TableActionsToolbarProps {
   /** Handler for add button click. Required if addButtonLabel is provided. */
   onAdd?: () => void;
   onReviewChanges: () => void;
+  /** Handler for discard button click. */
+  onDiscard?: () => void;
   pendingChangesCount: number;
   disabled?: boolean;
   /** Optional slot for batch actions (rendered between add button and commit/discard) */
   batchActions?: ReactNode;
+  /** If true, renders without wrapper div (for embedding in parent toolbar) */
+  inline?: boolean;
 }
 
 export const TableActionsToolbar = memo(function TableActionsToolbar({
   addButtonLabel,
   onAdd,
   onReviewChanges,
+  onDiscard,
   pendingChangesCount,
   disabled = false,
   batchActions,
+  inline = false,
 }: TableActionsToolbarProps) {
-  return (
-    <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/30">
+  const content = (
+    <>
       {addButtonLabel && onAdd && (
         <Button
           size="sm"
@@ -45,13 +51,23 @@ export const TableActionsToolbar = memo(function TableActionsToolbar({
         </>
       )}
 
-      {/* Spacer */}
-      <div className="flex-1" />
+      {/* Spacer - only when not inline */}
+      {!inline && <div className="flex-1" />}
 
       {/* Commit/Discard actions when there are pending changes */}
       {pendingChangesCount > 0 && (
         <>
-          <div className="h-4 w-px bg-border" />
+          {onDiscard && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onDiscard}
+              className="h-6 text-xs px-2 text-muted-foreground hover:text-destructive"
+            >
+              <IconX className="h-3 w-3 mr-1" />
+              Discard
+            </Button>
+          )}
           <Button
             size="sm"
             variant="default"
@@ -63,6 +79,16 @@ export const TableActionsToolbar = memo(function TableActionsToolbar({
           </Button>
         </>
       )}
+    </>
+  );
+
+  if (inline) {
+    return <div className="flex items-center gap-2">{content}</div>;
+  }
+
+  return (
+    <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/30">
+      {content}
     </div>
   );
 });

@@ -613,26 +613,88 @@ ORDER BY table_name, column_name`;
   }
 
   getObjectDefinitionQuery(
-    objectType: 'table' | 'view' | 'materialized_view' | 'function' | 'procedure',
+    objectType: import('../types').ObjectDefinitionType,
     schema: string,
     name: string
   ): string {
-    if (objectType === 'table') {
-      // MSSQL doesn't have a simple way to get CREATE TABLE - need to construct it
-      return `
+    switch (objectType) {
+      case 'table':
+        // MSSQL doesn't have a simple way to get CREATE TABLE - need to construct it
+        return `
 SELECT 'CREATE TABLE ' + QUOTENAME(s.name) + '.' + QUOTENAME(t.name) as definition
 FROM sys.tables t
 JOIN sys.schemas s ON t.schema_id = s.schema_id
 WHERE s.name = '${this.escapeString(schema)}'
     AND t.name = '${this.escapeString(name)}'`;
-    }
-    // For views, functions, procedures - use sp_helptext or sys.sql_modules
-    return `
+      case 'sequence':
+        return `
+SELECT
+    'CREATE SEQUENCE ' + QUOTENAME(s.name) + '.' + QUOTENAME(seq.name) +
+    ' AS ' + t.name +
+    ' START WITH ' + CAST(seq.start_value AS VARCHAR) +
+    ' INCREMENT BY ' + CAST(seq.increment AS VARCHAR) +
+    ' MINVALUE ' + CAST(seq.minimum_value AS VARCHAR) +
+    ' MAXVALUE ' + CAST(seq.maximum_value AS VARCHAR) +
+    CASE WHEN seq.is_cycling = 1 THEN ' CYCLE' ELSE ' NO CYCLE' END +
+    CASE WHEN seq.cache_size IS NOT NULL THEN ' CACHE ' + CAST(seq.cache_size AS VARCHAR) ELSE '' END +
+    ';' as definition
+FROM sys.sequences seq
+JOIN sys.schemas s ON seq.schema_id = s.schema_id
+JOIN sys.types t ON seq.user_type_id = t.user_type_id
+WHERE s.name = '${this.escapeString(schema)}'
+    AND seq.name = '${this.escapeString(name)}'`;
+      case 'index':
+        return `
+SELECT
+    'CREATE ' +
+    CASE WHEN i.is_unique = 1 THEN 'UNIQUE ' ELSE '' END +
+    CASE WHEN i.type_desc = 'CLUSTERED' THEN 'CLUSTERED ' ELSE 'NONCLUSTERED ' END +
+    'INDEX ' + QUOTENAME(i.name) +
+    ' ON ' + QUOTENAME(s.name) + '.' + QUOTENAME(t.name) + ' (' +
+    STUFF((
+        SELECT ', ' + QUOTENAME(c.name) + CASE WHEN ic.is_descending_key = 1 THEN ' DESC' ELSE ' ASC' END
+        FROM sys.index_columns ic
+        JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+        WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 0
+        ORDER BY ic.key_ordinal
+        FOR XML PATH('')
+    ), 1, 2, '') +
+    ')' +
+    CASE WHEN EXISTS (
+        SELECT 1 FROM sys.index_columns ic WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 1
+    ) THEN ' INCLUDE (' + STUFF((
+        SELECT ', ' + QUOTENAME(c.name)
+        FROM sys.index_columns ic
+        JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+        WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 1
+        ORDER BY ic.key_ordinal
+        FOR XML PATH('')
+    ), 1, 2, '') + ')' ELSE '' END +
+    CASE WHEN i.has_filter = 1 THEN ' WHERE ' + i.filter_definition ELSE '' END +
+    ';' as definition
+FROM sys.indexes i
+JOIN sys.tables t ON i.object_id = t.object_id
+JOIN sys.schemas s ON t.schema_id = s.schema_id
+WHERE s.name = '${this.escapeString(schema)}'
+    AND i.name = '${this.escapeString(name)}'`;
+      case 'enum':
+      case 'domain':
+      case 'composite':
+        // MSSQL doesn't support these PostgreSQL-specific types
+        return `SELECT '-- ${objectType} is not supported in SQL Server' as definition`;
+      case 'view':
+      case 'materialized_view':
+      case 'function':
+      case 'procedure':
+      default:
+        // For views, functions, procedures - use sys.sql_modules
+        return `
 SELECT m.definition
 FROM sys.sql_modules m
 JOIN sys.objects o ON m.object_id = o.object_id
 JOIN sys.schemas s ON o.schema_id = s.schema_id
 WHERE s.name = '${this.escapeString(schema)}'
     AND o.name = '${this.escapeString(name)}'`;
+    }
   }
 }

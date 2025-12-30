@@ -677,7 +677,7 @@ ORDER BY table_name, column_name`;
   }
 
   getObjectDefinitionQuery(
-    objectType: 'table' | 'view' | 'materialized_view' | 'function' | 'procedure',
+    objectType: import('../types').ObjectDefinitionType,
     schema: string,
     name: string
   ): string {
@@ -690,11 +690,184 @@ ORDER BY table_name, column_name`;
       case 'function':
       case 'procedure':
         return `SELECT pg_get_functiondef('${this.escapeString(qualifiedName)}'::regprocedure) as definition`;
+      case 'sequence':
+        return `
+SELECT
+    'CREATE SEQUENCE ' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) ||
+    ' AS ' || pg_catalog.format_type(s.seqtypid, NULL) ||
+    ' INCREMENT BY ' || s.seqincrement ||
+    ' MINVALUE ' || s.seqmin ||
+    ' MAXVALUE ' || s.seqmax ||
+    ' START WITH ' || s.seqstart ||
+    CASE WHEN s.seqcycle THEN ' CYCLE' ELSE ' NO CYCLE' END ||
+    CASE WHEN s.seqcache > 1 THEN ' CACHE ' || s.seqcache ELSE '' END ||
+    ';' as definition
+FROM pg_sequence s
+JOIN pg_class c ON c.oid = s.seqrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = '${this.escapeString(schema)}'
+    AND c.relname = '${this.escapeString(name)}'`;
+      case 'enum':
+        return `
+SELECT
+    'CREATE TYPE ' || quote_ident(n.nspname) || '.' || quote_ident(t.typname) || ' AS ENUM (' || E'\\n' ||
+    string_agg('    ' || quote_literal(e.enumlabel), ',' || E'\\n' ORDER BY e.enumsortorder) ||
+    E'\\n);' as definition
+FROM pg_type t
+JOIN pg_namespace n ON n.oid = t.typnamespace
+JOIN pg_enum e ON e.enumtypid = t.oid
+WHERE n.nspname = '${this.escapeString(schema)}'
+    AND t.typname = '${this.escapeString(name)}'
+GROUP BY n.nspname, t.typname`;
+      case 'domain':
+        return `
+SELECT
+    'CREATE DOMAIN ' || quote_ident(n.nspname) || '.' || quote_ident(t.typname) ||
+    ' AS ' || pg_catalog.format_type(t.typbasetype, t.typtypmod) ||
+    CASE WHEN t.typnotnull THEN ' NOT NULL' ELSE '' END ||
+    COALESCE(' DEFAULT ' || t.typdefault, '') ||
+    COALESCE(E'\\n    ' || string_agg(pg_get_constraintdef(con.oid, true), E'\\n    '), '') ||
+    ';' as definition
+FROM pg_type t
+JOIN pg_namespace n ON n.oid = t.typnamespace
+LEFT JOIN pg_constraint con ON con.contypid = t.oid
+WHERE n.nspname = '${this.escapeString(schema)}'
+    AND t.typname = '${this.escapeString(name)}'
+    AND t.typtype = 'd'
+GROUP BY n.nspname, t.typname, t.typbasetype, t.typtypmod, t.typnotnull, t.typdefault`;
+      case 'composite':
+        return `
+SELECT
+    'CREATE TYPE ' || quote_ident(n.nspname) || '.' || quote_ident(t.typname) || ' AS (' || E'\\n' ||
+    string_agg(
+        '    ' || quote_ident(a.attname) || ' ' || pg_catalog.format_type(a.atttypid, a.atttypmod),
+        ',' || E'\\n'
+        ORDER BY a.attnum
+    ) ||
+    E'\\n);' as definition
+FROM pg_type t
+JOIN pg_namespace n ON n.oid = t.typnamespace
+JOIN pg_class c ON c.oid = t.typrelid
+JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+WHERE n.nspname = '${this.escapeString(schema)}'
+    AND t.typname = '${this.escapeString(name)}'
+    AND t.typtype = 'c'
+GROUP BY n.nspname, t.typname`;
+      case 'index':
+        return `
+SELECT pg_get_indexdef(i.indexrelid) || ';' as definition
+FROM pg_index i
+JOIN pg_class c ON c.oid = i.indexrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = '${this.escapeString(schema)}'
+    AND c.relname = '${this.escapeString(name)}'`;
       case 'table':
       default:
-        // For tables, generate CREATE TABLE statement
+        // For tables, generate comprehensive DDL including sequences, constraints, indexes, and comments
         return `
-WITH columns AS (
+WITH table_oid AS (
+    SELECT c.oid, c.relname, n.nspname
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = '${this.escapeString(schema)}'
+        AND c.relname = '${this.escapeString(name)}'
+),
+-- Extract sequences from nextval() defaults
+sequences AS (
+    SELECT DISTINCT
+        substring(pg_get_expr(d.adbin, d.adrelid) FROM 'nextval\\(''([^'']+)''') as seq_name
+    FROM pg_attrdef d
+    JOIN table_oid t ON d.adrelid = t.oid
+    WHERE pg_get_expr(d.adbin, d.adrelid) LIKE 'nextval%'
+),
+sequence_defs AS (
+    SELECT
+        '-- Sequences' || E'\\n' ||
+        string_agg(
+            'CREATE SEQUENCE IF NOT EXISTS ' || seq_name || ';',
+            E'\\n'
+        ) || E'\\n\\n' as definition
+    FROM sequences
+    WHERE seq_name IS NOT NULL
+),
+-- Extract custom types used by columns (enums, domains, composites)
+custom_types AS (
+    SELECT DISTINCT
+        n.nspname || '.' || t.typname as type_name,
+        t.typtype,
+        t.oid as type_oid,
+        n.nspname as type_schema,
+        t.typname as type_simple_name
+    FROM pg_attribute a
+    JOIN table_oid tbl ON a.attrelid = tbl.oid
+    JOIN pg_type t ON a.atttypid = t.oid
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE a.attnum > 0
+        AND NOT a.attisdropped
+        AND t.typtype IN ('e', 'd', 'c')  -- enum, domain, composite
+        AND n.nspname NOT IN ('pg_catalog', 'information_schema')  -- exclude built-in types
+),
+enum_defs AS (
+    SELECT
+        ct.type_name,
+        'CREATE TYPE ' || quote_ident(ct.type_schema) || '.' || quote_ident(ct.type_simple_name) || ' AS ENUM (' || E'\\n' ||
+        string_agg('    ' || quote_literal(e.enumlabel), ',' || E'\\n' ORDER BY e.enumsortorder) ||
+        E'\\n);' as definition
+    FROM custom_types ct
+    JOIN pg_enum e ON e.enumtypid = ct.type_oid
+    WHERE ct.typtype = 'e'
+    GROUP BY ct.type_name, ct.type_schema, ct.type_simple_name
+),
+domain_defs AS (
+    SELECT
+        ct.type_name,
+        'CREATE DOMAIN ' || quote_ident(ct.type_schema) || '.' || quote_ident(ct.type_simple_name) ||
+        ' AS ' || pg_catalog.format_type(t.typbasetype, t.typtypmod) ||
+        CASE WHEN t.typnotnull THEN ' NOT NULL' ELSE '' END ||
+        COALESCE(' DEFAULT ' || t.typdefault, '') ||
+        COALESCE(' ' || (
+            SELECT string_agg(pg_get_constraintdef(con.oid, true), ' ')
+            FROM pg_constraint con WHERE con.contypid = t.oid
+        ), '') ||
+        ';' as definition
+    FROM custom_types ct
+    JOIN pg_type t ON t.oid = ct.type_oid
+    WHERE ct.typtype = 'd'
+),
+composite_defs AS (
+    SELECT
+        ct.type_name,
+        'CREATE TYPE ' || quote_ident(ct.type_schema) || '.' || quote_ident(ct.type_simple_name) || ' AS (' || E'\\n' ||
+        string_agg(
+            '    ' || quote_ident(a.attname) || ' ' || pg_catalog.format_type(a.atttypid, a.atttypmod),
+            ',' || E'\\n'
+            ORDER BY a.attnum
+        ) ||
+        E'\\n);' as definition
+    FROM custom_types ct
+    JOIN pg_type t ON t.oid = ct.type_oid
+    JOIN pg_class c ON c.oid = t.typrelid
+    JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+    WHERE ct.typtype = 'c'
+    GROUP BY ct.type_name, ct.type_schema, ct.type_simple_name
+),
+all_type_defs AS (
+    SELECT type_name, definition FROM enum_defs
+    UNION ALL
+    SELECT type_name, definition FROM domain_defs
+    UNION ALL
+    SELECT type_name, definition FROM composite_defs
+),
+type_defs AS (
+    SELECT
+        CASE WHEN COUNT(*) > 0 THEN
+            '-- Custom Types' || E'\\n' ||
+            string_agg(definition, E'\\n\\n' ORDER BY type_name) || E'\\n\\n'
+        ELSE NULL END as definition
+    FROM all_type_defs
+    WHERE definition IS NOT NULL
+),
+columns AS (
     SELECT
         a.attname as name,
         pg_catalog.format_type(a.atttypid, a.atttypmod) as type,
@@ -702,42 +875,145 @@ WITH columns AS (
         pg_get_expr(d.adbin, d.adrelid) as default_val,
         a.attnum
     FROM pg_attribute a
-    JOIN pg_class c ON c.oid = a.attrelid
-    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN table_oid t ON a.attrelid = t.oid
     LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
-    WHERE n.nspname = '${this.escapeString(schema)}'
-        AND c.relname = '${this.escapeString(name)}'
-        AND a.attnum > 0
+    WHERE a.attnum > 0
         AND NOT a.attisdropped
     ORDER BY a.attnum
 ),
 pk AS (
-    SELECT array_agg(a.attname ORDER BY array_position(con.conkey, a.attnum)) as columns
+    SELECT array_agg(quote_ident(a.attname) ORDER BY array_position(con.conkey, a.attnum)) as columns
     FROM pg_constraint con
-    JOIN pg_class c ON c.oid = con.conrelid
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(con.conkey)
-    WHERE n.nspname = '${this.escapeString(schema)}'
-        AND c.relname = '${this.escapeString(name)}'
-        AND con.contype = 'p'
+    JOIN table_oid t ON con.conrelid = t.oid
+    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(con.conkey)
+    WHERE con.contype = 'p'
+),
+table_def AS (
+    SELECT
+        '-- Table Definition' || E'\\n' ||
+        'CREATE TABLE ' || quote_ident('${this.escapeString(schema)}') || '.' || quote_ident('${this.escapeString(name)}') || ' (' || E'\\n' ||
+        string_agg(
+            '    ' || quote_ident(c.name) || ' ' || c.type ||
+            CASE WHEN c.not_null THEN ' NOT NULL' ELSE '' END ||
+            CASE WHEN c.default_val IS NOT NULL THEN ' DEFAULT ' || c.default_val ELSE '' END,
+            ',' || E'\\n'
+            ORDER BY c.attnum
+        ) ||
+        CASE WHEN pk.columns IS NOT NULL
+            THEN ',' || E'\\n' || '    PRIMARY KEY (' || array_to_string(pk.columns, ', ') || ')'
+            ELSE ''
+        END ||
+        E'\\n);' as definition
+    FROM columns c
+    CROSS JOIN pk
+    GROUP BY pk.columns
+),
+-- UNIQUE constraints (not covered by unique indexes)
+unique_constraints AS (
+    SELECT
+        'ALTER TABLE ' || quote_ident('${this.escapeString(schema)}') || '.' || quote_ident('${this.escapeString(name)}') ||
+        ' ADD CONSTRAINT ' || quote_ident(con.conname) ||
+        ' UNIQUE (' ||
+        string_agg(quote_ident(a.attname), ', ' ORDER BY array_position(con.conkey, a.attnum)) ||
+        ');' as constraint_def
+    FROM pg_constraint con
+    JOIN table_oid t ON con.conrelid = t.oid
+    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(con.conkey)
+    WHERE con.contype = 'u'
+    GROUP BY con.conname, con.conkey
+),
+-- CHECK constraints
+check_constraints AS (
+    SELECT
+        'ALTER TABLE ' || quote_ident('${this.escapeString(schema)}') || '.' || quote_ident('${this.escapeString(name)}') ||
+        ' ADD CONSTRAINT ' || quote_ident(con.conname) ||
+        ' CHECK ' || pg_get_constraintdef(con.oid, true) || ';' as constraint_def
+    FROM pg_constraint con
+    JOIN table_oid t ON con.conrelid = t.oid
+    WHERE con.contype = 'c'
+),
+-- FOREIGN KEY constraints
+fk_constraints AS (
+    SELECT
+        'ALTER TABLE ' || quote_ident('${this.escapeString(schema)}') || '.' || quote_ident('${this.escapeString(name)}') ||
+        ' ADD CONSTRAINT ' || quote_ident(con.conname) ||
+        ' ' || pg_get_constraintdef(con.oid, true) || ';' as constraint_def
+    FROM pg_constraint con
+    JOIN table_oid t ON con.conrelid = t.oid
+    WHERE con.contype = 'f'
+),
+all_constraints AS (
+    SELECT constraint_def FROM unique_constraints
+    UNION ALL
+    SELECT constraint_def FROM check_constraints
+    UNION ALL
+    SELECT constraint_def FROM fk_constraints
+),
+constraint_defs AS (
+    SELECT
+        E'\\n\\n-- Constraints\\n' ||
+        string_agg(constraint_def, E'\\n') as definition
+    FROM all_constraints
+    WHERE constraint_def IS NOT NULL
+),
+-- Get all non-primary-key indexes (excluding those backing unique constraints)
+indexes AS (
+    SELECT
+        pg_get_indexdef(i.indexrelid) || ';' as idx_def
+    FROM pg_index i
+    JOIN table_oid t ON i.indrelid = t.oid
+    JOIN pg_class ic ON ic.oid = i.indexrelid
+    WHERE NOT i.indisprimary
+        AND NOT EXISTS (
+            SELECT 1 FROM pg_constraint con
+            WHERE con.conindid = i.indexrelid AND con.contype = 'u'
+        )
+    ORDER BY ic.relname
+),
+index_defs AS (
+    SELECT
+        E'\\n\\n-- Indexes\\n' ||
+        string_agg(idx_def, E'\\n') as definition
+    FROM indexes
+    WHERE idx_def IS NOT NULL
+),
+-- Table comment
+table_comment AS (
+    SELECT
+        E'\\n\\n-- Table Comment\\n' ||
+        'COMMENT ON TABLE ' || quote_ident(t.nspname) || '.' || quote_ident(t.relname) ||
+        ' IS ' || quote_literal(d.description) || ';' as definition
+    FROM table_oid t
+    JOIN pg_description d ON d.objoid = t.oid AND d.objsubid = 0
+),
+-- Column comments
+column_comments AS (
+    SELECT
+        'COMMENT ON COLUMN ' || quote_ident('${this.escapeString(schema)}') || '.' || quote_ident('${this.escapeString(name)}') ||
+        '.' || quote_ident(a.attname) ||
+        ' IS ' || quote_literal(d.description) || ';' as comment_def
+    FROM pg_attribute a
+    JOIN table_oid t ON a.attrelid = t.oid
+    JOIN pg_description d ON d.objoid = t.oid AND d.objsubid = a.attnum
+    WHERE a.attnum > 0
+        AND NOT a.attisdropped
+    ORDER BY a.attnum
+),
+comment_defs AS (
+    SELECT
+        E'\\n\\n-- Column Comments\\n' ||
+        string_agg(comment_def, E'\\n') as definition
+    FROM column_comments
+    WHERE comment_def IS NOT NULL
 )
 SELECT
-    'CREATE TABLE ' || quote_ident('${this.escapeString(schema)}') || '.' || quote_ident('${this.escapeString(name)}') || ' (' || E'\\n' ||
-    string_agg(
-        '    ' || quote_ident(c.name) || ' ' || c.type ||
-        CASE WHEN c.not_null THEN ' NOT NULL' ELSE '' END ||
-        CASE WHEN c.default_val IS NOT NULL THEN ' DEFAULT ' || c.default_val ELSE '' END,
-        ',' || E'\\n'
-        ORDER BY c.attnum
-    ) ||
-    CASE WHEN pk.columns IS NOT NULL
-        THEN ',' || E'\\n' || '    PRIMARY KEY (' || array_to_string(pk.columns, ', ') || ')'
-        ELSE ''
-    END ||
-    E'\\n);' as definition
-FROM columns c
-CROSS JOIN pk
-GROUP BY pk.columns`;
+    COALESCE((SELECT definition FROM sequence_defs), '') ||
+    COALESCE((SELECT definition FROM type_defs), '') ||
+    (SELECT definition FROM table_def) ||
+    COALESCE((SELECT definition FROM constraint_defs), '') ||
+    COALESCE((SELECT definition FROM index_defs), '') ||
+    COALESCE((SELECT definition FROM table_comment), '') ||
+    COALESCE((SELECT definition FROM comment_defs), '') as definition`;
     }
   }
 }
