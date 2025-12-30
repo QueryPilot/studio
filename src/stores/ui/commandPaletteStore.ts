@@ -1,61 +1,26 @@
-import { create } from 'zustand';
-
-export type CommandPaletteMode = 'quickOpen' | 'command';
-type CommandPaletteOrigin = 'quickOpen' | 'command';
+import { create } from "zustand";
 
 interface CommandPaletteState {
   isOpen: boolean;
   query: string;
-  mode: CommandPaletteMode;
-  origin: CommandPaletteOrigin;
-  openQuickOpen: () => void;
-  openCommandPalette: () => void;
+  openPalette: () => void;
   closePalette: () => void;
-  toggleCommandPalette: () => void;
-  setQuery: (value: string) => void;
-  setMode: (mode: CommandPaletteMode) => void;
+  setQuery: (query: string) => void;
 }
 
-export const useCommandPaletteStore = create<CommandPaletteState>((set, get) => ({
+export const useCommandPaletteStore = create<CommandPaletteState>((set) => ({
   isOpen: false,
-  query: '',
-  mode: 'quickOpen',
-  origin: 'quickOpen',
-  openQuickOpen: () =>
-    { set(() => ({
-      isOpen: true,
-      query: '',
-      mode: 'quickOpen',
-      origin: 'quickOpen',
-    })); },
-  openCommandPalette: () =>
-    { set((state) => ({
-      isOpen: true,
-      mode: 'command',
-      origin: 'command',
-      query: state.query.startsWith('>') ? state.query : '>',
-    })); },
-  closePalette: () =>
-    { set(() => ({
-      isOpen: false,
-    })); },
-  toggleCommandPalette: () => {
-    const state = get();
-    if (state.isOpen && state.mode === 'command' && state.origin === 'command') {
-      set({ isOpen: false });
-      return;
-    }
-    set({
-      isOpen: true,
-      mode: 'command',
-      origin: 'command',
-      query: state.query.startsWith('>') ? state.query : '>',
-    });
+  query: "",
+
+  openPalette: () => {
+    set({ isOpen: true, query: "" });
   },
-  setQuery: (value: string) => { set({ query: value }); },
-  setMode: (mode: CommandPaletteMode) =>
-    { set((state) => ({
-      mode,
-      origin: mode === 'command' ? state.origin : 'quickOpen',
-    })); },
+
+  closePalette: () => {
+    set({ isOpen: false, query: "" });
+  },
+
+  setQuery: (query: string) => {
+    set({ query });
+  },
 }));
