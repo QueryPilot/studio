@@ -28,18 +28,17 @@ export const defaultCommands: Command[] = [
     category: "Navigation",
     handler: () => {
       const state = useCommandPaletteStore.getState();
-      const isQuickOpenActive = state.isOpen && state.mode === "quickOpen";
 
-      if (isQuickOpenActive) {
+      if (state.isOpen) {
         commandPaletteStore.closePalette();
         contextService.setValue("inQuickOpen", false);
         contextService.setValue("inCommandPalette", false);
         return;
       }
 
-      commandPaletteStore.openQuickOpen();
+      commandPaletteStore.openPalette();
       contextService.setValue("inQuickOpen", true);
-      contextService.setValue("inCommandPalette", false);
+      contextService.setValue("inCommandPalette", true);
     },
   },
   {
@@ -49,7 +48,7 @@ export const defaultCommands: Command[] = [
     handler: () => {
       contextService.setValue("inQuickOpen", true);
       contextService.setValue("inCommandPalette", true);
-      commandPaletteStore.openCommandPalette();
+      commandPaletteStore.openPalette();
     },
     when: "!inQuickOpen || !inCommandPalette",
   },
@@ -70,15 +69,11 @@ export const defaultCommands: Command[] = [
     category: "Command Palette",
     handler: () => {
       const state = useCommandPaletteStore.getState();
-      const nextOpen = !(
-        state.isOpen &&
-        state.mode === "command" &&
-        state.origin === "command"
-      );
+      const nextOpen = !state.isOpen;
       contextService.setValue("inQuickOpen", nextOpen);
       contextService.setValue("inCommandPalette", nextOpen);
       if (nextOpen) {
-        commandPaletteStore.openCommandPalette();
+        commandPaletteStore.openPalette();
       } else {
         commandPaletteStore.closePalette();
       }
