@@ -11,6 +11,22 @@ export interface CategorizedCommand extends CommandDescriptor {
   keybinding?: ResolvedKeybinding;
 }
 
+// Unified item types for command palette
+export type UnifiedItemType = "table" | "view" | "materializedView" | "function" | "command";
+
+export interface UnifiedItem {
+  id: string;
+  type: UnifiedItemType;
+  name: string;
+  subtitle: string;
+  schema?: string;
+  keywords: string[];
+  // Type-specific payload
+  table?: TableMeta;
+  func?: FunctionMeta;
+  command?: CategorizedCommand;
+}
+
 type QuickOpenGroup = "Tables" | "Views" | "Functions";
 type TableEntityType = "table" | "view" | "materializedView";
 type QuickEntityType = TableEntityType | "function";
@@ -152,5 +168,66 @@ export function useQuickOpenItems() {
     quickItems,
     isLoading,
     error,
+  };
+}
+
+/**
+ * Hook that combines all searchable items into a unified list
+ */
+export function useUnifiedItems() {
+  const { data: commands = [], isLoading: isLoadingCommands } = useCommands();
+  const { quickItems, isLoading: isLoadingQuickOpen } = useQuickOpenItems();
+
+  const unifiedItems = useMemo<UnifiedItem[]>(() => {
+    const items: UnifiedItem[] = [];
+
+    // Add database objects
+    for (const item of quickItems) {
+      if (item.entityType === "function") {
+        items.push({
+          id: item.id,
+          type: "function",
+          name: item.name,
+          subtitle: item.schema,
+          schema: item.schema,
+          keywords: [item.searchKey, "function", "func"],
+          func: item.func,
+        });
+      } else {
+        items.push({
+          id: item.id,
+          type: item.entityType,
+          name: item.name,
+          subtitle: item.subtitle || item.schema,
+          schema: item.schema,
+          keywords: [item.searchKey, item.entityType],
+          table: item.table,
+        });
+      }
+    }
+
+    // Add commands
+    for (const command of commands) {
+      items.push({
+        id: `command:${command.id}`,
+        type: "command",
+        name: command.label,
+        subtitle: command.keybinding?.resolvedLabel ?? "",
+        keywords: [
+          command.id,
+          command.description ?? "",
+          command.category ?? "",
+          "command",
+        ].filter(Boolean),
+        command,
+      });
+    }
+
+    return items;
+  }, [commands, quickItems]);
+
+  return {
+    unifiedItems,
+    isLoading: isLoadingCommands || isLoadingQuickOpen,
   };
 }
