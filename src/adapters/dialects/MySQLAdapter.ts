@@ -380,7 +380,7 @@ ORDER BY TABLE_NAME, COLUMN_NAME`;
   }
 
   getObjectDefinitionQuery(
-    objectType: 'table' | 'view' | 'materialized_view' | 'function' | 'procedure',
+    objectType: import('../types').ObjectDefinitionType,
     schema: string,
     name: string
   ): string {
@@ -391,7 +391,34 @@ ORDER BY TABLE_NAME, COLUMN_NAME`;
         return `SHOW CREATE FUNCTION ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(name)}`;
       case 'procedure':
         return `SHOW CREATE PROCEDURE ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(name)}`;
+      case 'index':
+        // MySQL doesn't have CREATE INDEX syntax retrieval, construct from SHOW INDEX
+        return `
+SELECT CONCAT(
+    'CREATE ',
+    CASE WHEN Non_unique = 0 THEN 'UNIQUE ' ELSE '' END,
+    'INDEX ',
+    Index_name,
+    ' ON ',
+    Table_name,
+    ' (',
+    GROUP_CONCAT(Column_name ORDER BY Seq_in_index),
+    ')',
+    CASE WHEN Index_type != 'BTREE' THEN CONCAT(' USING ', Index_type) ELSE '' END,
+    ';'
+) as definition
+FROM information_schema.STATISTICS
+WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
+    AND Index_name = '${this.escapeString(name)}'
+GROUP BY Index_name, Non_unique, Table_name, Index_type`;
+      case 'sequence':
+      case 'enum':
+      case 'domain':
+      case 'composite':
+        // MySQL doesn't support these object types
+        return `SELECT '-- ${objectType} is not supported in MySQL' as definition`;
       case 'table':
+      case 'materialized_view':
       default:
         return `SHOW CREATE TABLE ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(name)}`;
     }

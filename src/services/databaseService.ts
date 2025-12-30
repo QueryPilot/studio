@@ -1041,12 +1041,7 @@ class DatabaseService {
     _database: string,
     schema: string,
     objectName: string,
-    objectType:
-      | "table"
-      | "view"
-      | "materialized_view"
-      | "function"
-      | "procedure",
+    objectType: import("@/adapters/types").ObjectDefinitionType,
   ): Promise<string> {
     try {
       const definition = await IntrospectionService.getObjectDefinition(

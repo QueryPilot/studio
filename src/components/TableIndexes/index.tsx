@@ -7,7 +7,7 @@ import {
   type EditableGridCell,
 } from "@glideapps/glide-data-grid";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconAlertCircle } from "@tabler/icons-react";
+import { IconAlertCircle, IconSearch } from "@tabler/icons-react";
 import { databaseService, type TableIndex } from "@/services/databaseService";
 import type { IndexUsageStats } from "@/services/backend";
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
@@ -20,6 +20,7 @@ import { IndexColumnsCellRenderer } from "./IndexColumnsCellRenderer";
 import { IndexTypeCellRenderer } from "./IndexTypeCellRenderer";
 import { IndexUniqueCellRenderer } from "./IndexUniqueCellRenderer";
 import { ConditionCellRenderer } from "./ConditionCellRenderer";
+import { ActionsCellRenderer } from "@/components/TableStructure/ActionsCellRenderer";
 import type { IndexGridRow } from "./types";
 import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
@@ -33,6 +34,7 @@ import { TableActionsToolbar } from "@/components/shared/TableActionsToolbar";
 import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 import { toast } from "sonner";
+import { Input } from "@/components/ui/input";
 import type {
   CrudCommandTarget,
   IndexDropPayload,
@@ -88,9 +90,10 @@ export const TableIndexes = memo(function TableIndexes({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<IndexGridRow | null>(null);
   const [globalChangesDialogOpen, setGlobalChangesDialogOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // crudStore integration
-  const { stagedCommands, stageCommand, unstageCommand } = useCrudStore();
+  const { stagedCommands, stageCommand, unstageCommand, discardChanges } = useCrudStore();
 
   // Get connection info for dbType
   const connection = useConnectionStore((s) => s.getConnection(connectionId));
@@ -162,10 +165,19 @@ export const TableIndexes = memo(function TableIndexes({
   }, [loadIndexes]);
 
   // Transform indexes to grid rows with stats and pending commands
-  const gridRows = useMemo(
+  const allGridRows = useMemo(
     () => transformIndexesToRows(indexes, pendingCommands, statsMap),
     [indexes, pendingCommands, statsMap],
   );
+
+  // Filter rows based on search query
+  const gridRows = useMemo(() => {
+    if (!searchQuery.trim()) return allGridRows;
+    const query = searchQuery.toLowerCase();
+    return allGridRows.filter((row) =>
+      row.name.toLowerCase().includes(query)
+    );
+  }, [allGridRows, searchQuery]);
 
   // Handler: Delete index
   const handleDeleteIndex = useCallback(
@@ -262,12 +274,14 @@ export const TableIndexes = memo(function TableIndexes({
         }
 
         return {
-          kind: GridCellKind.Text,
-          data: isPendingDelete ? "↩️" : "🗑️",
-          displayData: isPendingDelete ? "↩️" : "🗑️",
+          kind: GridCellKind.Custom,
+          data: {
+            kind: "actions-cell",
+            isPendingDelete: isPendingDelete,
+          },
+          copyData: "",
           readonly: true,
           allowOverlay: false,
-          contentAlign: "center" as const,
           themeOverride: rowTheme,
         } as const;
       }
@@ -454,6 +468,7 @@ export const TableIndexes = memo(function TableIndexes({
       IndexUniqueCellRenderer as unknown as CustomRenderer<AnyCell>,
       ConditionCellRenderer as unknown as CustomRenderer<AnyCell>,
       TextSingleLineCellRenderer as unknown as CustomRenderer<AnyCell>,
+      ActionsCellRenderer as unknown as CustomRenderer<AnyCell>,
     ],
     [],
   );
@@ -834,12 +849,21 @@ export const TableIndexes = memo(function TableIndexes({
     return (
       <>
         <div className="h-full flex flex-col">
-          <TableActionsToolbar
-            addButtonLabel="Create Index"
-            onAdd={handleAddIndex}
-            onReviewChanges={() => { setGlobalChangesDialogOpen(true); }}
-            pendingChangesCount={pendingIndexCommands.length}
-          />
+          {/* Combined toolbar */}
+          <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/30">
+            <TableActionsToolbar
+              addButtonLabel="Create Index"
+              onAdd={handleAddIndex}
+              onReviewChanges={() => { setGlobalChangesDialogOpen(true); }}
+              onDiscard={() => {
+                discardChanges(tableKey);
+                toast.success("Changes discarded");
+              }}
+              pendingChangesCount={pendingIndexCommands.length}
+              inline
+            />
+            <div className="flex-1" />
+          </div>
           <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">
             <p className="text-xs">No indexes defined for this table.</p>
           </div>
@@ -863,12 +887,33 @@ export const TableIndexes = memo(function TableIndexes({
   return (
     <>
       <div className="h-full flex flex-col">
-        <TableActionsToolbar
-          addButtonLabel="Create Index"
-          onAdd={handleAddIndex}
-          onReviewChanges={() => { setGlobalChangesDialogOpen(true); }}
-          pendingChangesCount={pendingIndexCommands.length}
-        />
+        {/* Combined toolbar: actions + search */}
+        <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/30">
+          <TableActionsToolbar
+            addButtonLabel="Create Index"
+            onAdd={handleAddIndex}
+            onReviewChanges={() => { setGlobalChangesDialogOpen(true); }}
+            onDiscard={() => {
+              discardChanges(tableKey);
+              toast.success("Changes discarded");
+            }}
+            pendingChangesCount={pendingIndexCommands.length}
+            inline
+          />
+
+          <div className="flex-1" />
+
+          {/* Search input */}
+          <div className="relative">
+            <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Filter indexes..."
+              className="h-7 w-40 pl-7 text-xs"
+            />
+          </div>
+        </div>
         <div className="flex-1">
           <DataGridBase
             columns={sizedColumns}
@@ -881,6 +926,11 @@ export const TableIndexes = memo(function TableIndexes({
             onColumnResizeEnd={handleColumnResizeEnd}
             onCellClicked={handleCellClick}
             onCellEdited={handleCellEdited}
+            trailingRowOptions={{
+              sticky: false,
+              tint: false,
+            }}
+            onRowAppended={handleAddIndex}
           />
         </div>
         <div className="px-4 py-2 text-xs text-muted-foreground border-t">
