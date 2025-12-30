@@ -423,6 +423,18 @@ export abstract class SqlAdapter implements DatabaseAdapter {
     return parts.join(' ');
   }
 
+  // ─────────────────────────────────────────────────────────────────
+  // Materialized View Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Generate REFRESH MATERIALIZED VIEW statement
+   * Default implementation throws - only PostgreSQL supports materialized views
+   */
+  refreshMaterializedView(_schema: string, _viewName: string, _concurrently?: boolean): string {
+    throw new Error('Materialized views are not supported by this database');
+  }
+
   // Abstract methods - must be implemented by each dialect
   abstract quoteIdentifier(name: string): string;
   abstract quoteString(value: string): string;
