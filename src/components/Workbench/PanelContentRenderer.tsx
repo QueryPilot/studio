@@ -198,6 +198,8 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     if (type === "design") {
       return (
         <TableDesigner
+          panelId={panelId}
+          tabId={tabId}
           connectionId={metadata?.connectionId || activeConnectionId || ""}
           database={metadata?.database || ""}
           schema={metadata?.schema}
@@ -350,6 +352,8 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
 
                 {activeView === "structure" && (
                   <TableStructure
+                    panelId={panelId}
+                    tabId={tabId}
                     connectionId={
                       activeConnectionId || metadata.connectionId || ""
                     }

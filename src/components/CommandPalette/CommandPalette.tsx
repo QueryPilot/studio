@@ -289,7 +289,7 @@ export function CommandPalette(): React.ReactElement {
   };
 
   const handleSelect = useCallback(
-    async (value: string, openInSplit) => {
+    async (value: string, openInSplit: boolean) => {
       if (mode === "command") {
         if (!services) return;
         try {
@@ -426,7 +426,7 @@ export function CommandPalette(): React.ReactElement {
                   <CommandItem
                     key={command.id}
                     value={command.id}
-                    onSelect={handleSelect}
+                    onSelect={(value) => handleSelect(value, false)}
                   >
                     <div className="flex justify-between items-center w-full">
                       <div className="font-medium flex-1 truncate">
@@ -462,7 +462,7 @@ export function CommandPalette(): React.ReactElement {
                   <CommandItem
                     key={item.id}
                     value={item.id}
-                    onSelect={handleSelect}
+                    onSelect={(value) => handleSelect(value, false)}
                   >
                     <div className="flex justify-between items-center w-full">
                       <div className="text-xs font-medium flex items-center gap-2 flex-1 truncate">

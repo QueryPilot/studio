@@ -1,7 +1,13 @@
 import { nanoid } from "nanoid";
 import { create } from "zustand";
 
-import { getAdapter, applyColumnRenames, trackColumnRename } from "@/adapters";
+import {
+  getAdapter,
+  applyColumnRenames,
+  applyTableRenames,
+  trackColumnRename,
+  trackTableRename,
+} from "@/adapters";
 import type { TableRef, RowData, WhereClause } from "@/adapters/types";
 import { logger } from "@/lib/logger";
 import type {
@@ -19,6 +25,7 @@ import type {
   IndexCreatePayload,
   IndexDropPayload,
   IndexRenamePayload,
+  TableRenamePayload,
   TriggerCreatePayload,
   TriggerDropPayload,
   TriggerTogglePayload,
@@ -150,8 +157,23 @@ function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): string | 
 
     case "table.create": {
       const generator = new SqlDiffGenerator();
-      const { statements } = generator.generateSql([command], adapter.dbType);
-      return statements[0]?.statement ?? null;
+      const result = generator.generateSql([command], adapter.dbType);
+      if (result.statements.length === 0) {
+        logger.warn("[CrudStore] SqlDiffGenerator returned no statements for table.create:", {
+          command,
+          dbType: adapter.dbType,
+        });
+        return null;
+      }
+      return result.statements[0]?.statement ?? null;
+    }
+
+    case "table.rename": {
+      const payload = command.payload as TableRenamePayload;
+      if (!payload.newName || !command.target.table) return null;
+      const generator = new SqlDiffGenerator();
+      const result = generator.generateSql([command], adapter.dbType);
+      return result.statements[0]?.statement ?? null;
     }
 
     case "fk.add": {
@@ -260,6 +282,18 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
         const tableKey = createTableKey(command.target);
         const stagedCommands = cloneStagedCommands(state.stagedCommands);
         const commandIndex = new Map(state.commandIndex);
+
+        const previousTableKey = commandIndex.get(command.id);
+        if (previousTableKey && previousTableKey !== tableKey) {
+          const previousCommands = stagedCommands.get(previousTableKey) ?? [];
+          const filtered = previousCommands.filter((item) => item.id !== command.id);
+          if (filtered.length > 0) {
+            stagedCommands.set(previousTableKey, filtered);
+          } else {
+            stagedCommands.delete(previousTableKey);
+          }
+          commandIndex.delete(command.id);
+        }
 
         const existing = stagedCommands.get(tableKey) ?? [];
 
@@ -411,6 +445,18 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
 
         for (const command of commands) {
           const tableKey = createTableKey(command.target);
+          const previousTableKey = commandIndex.get(command.id);
+          if (previousTableKey && previousTableKey !== tableKey) {
+            const previousCommands = stagedCommands.get(previousTableKey) ?? [];
+            const filtered = previousCommands.filter((item) => item.id !== command.id);
+            if (filtered.length > 0) {
+              stagedCommands.set(previousTableKey, filtered);
+            } else {
+              stagedCommands.delete(previousTableKey);
+            }
+            commandIndex.delete(command.id);
+          }
+
           const existing = stagedCommands.get(tableKey) ?? [];
 
           // Handle UPDATE commands on inserted rows
@@ -706,18 +752,35 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
       // Convert commands to SQL statements using adapter
       // Track column renames so subsequent commands use new names
       const columnRenames = new Map<string, string>();
+      const tableRenames = new Map<string, string>();
       const sqlStatements: string[] = [];
       for (const cmd of commands) {
         // Apply any pending renames to this command
-        const adjustedCmd = applyColumnRenames(cmd, columnRenames);
+        const tableAdjustedCmd = applyTableRenames(cmd, tableRenames);
+        const adjustedCmd = applyColumnRenames(tableAdjustedCmd, columnRenames);
 
         // Track renames for subsequent commands (handles chained renames)
         trackColumnRename(columnRenames, cmd, adjustedCmd);
+        trackTableRename(tableRenames, cmd, tableAdjustedCmd);
 
         const sql = commandToSql(adapter, adjustedCmd);
+        logger.info("[CrudStore] Command to SQL:", {
+          type: cmd.type,
+          payload: cmd.payload,
+          sql: sql ?? "(null - skipped)",
+        });
         if (sql) {
           sqlStatements.push(sql);
         }
+      }
+
+      // Check if we have any SQL to execute
+      if (sqlStatements.length === 0) {
+        logger.warn("[CrudStore] No SQL statements generated from commands:", {
+          commandCount: commands.length,
+          commandTypes: commands.map((c) => c.type),
+        });
+        throw new Error("No SQL statements were generated from the commands");
       }
 
       // Wrap in transaction
@@ -726,12 +789,18 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
       logger.info("[CrudStore] Executing SQL transaction:", {
         connectionId,
         commandCount: commands.length,
+        statementCount: sqlStatements.length,
         sql: transactionSql,
       });
 
       try {
         // Execute via adapter
-        await adapter.execute(transactionSql);
+        logger.info("[CrudStore] About to execute SQL via adapter...");
+        const execResult = await adapter.execute(transactionSql);
+        logger.info("[CrudStore] Adapter execute returned:", {
+          columns: execResult.columns?.length ?? 0,
+          rowCount: execResult.rowCount,
+        });
 
         const durationMs = Math.round(performance.now() - startTime);
 
