@@ -56,7 +56,7 @@ function CommandDialog({
         <DialogDescription>{description}</DialogDescription>
       </DialogHeader>
       <DialogContent
-        className={cn("rounded-xl! p-0 overflow-hidden", className)}
+        className={cn("rounded-xl! p-0 overflow-hidden w-[540px] max-w-[540px]", className)}
         showCloseButton={showCloseButton}
       >
         <Command
@@ -106,7 +106,7 @@ function CommandList({
     <CommandPrimitive.List
       data-slot="command-list"
       className={cn(
-        "no-scrollbar max-h-72 scroll-py-1 outline-none overflow-x-hidden overflow-y-auto",
+        "no-scrollbar min-h-[360px] max-h-[360px] scroll-py-1 outline-none overflow-x-hidden overflow-y-auto",
         className
       )}
       {...props}
@@ -186,6 +186,40 @@ function CommandShortcut({
   )
 }
 
+function CommandFooter({
+  className,
+  ...props
+}: React.ComponentProps<"div">) {
+  const isMac = typeof navigator !== "undefined" && navigator.platform.includes("Mac");
+  const modKey = isMac ? "⌘" : "Ctrl";
+
+  return (
+    <div
+      data-slot="command-footer"
+      className={cn(
+        "border-t border-border/50 bg-muted/30 px-3 py-2 text-[10px] text-muted-foreground flex items-center gap-4",
+        className
+      )}
+      {...props}
+    >
+      <span className="flex items-center gap-1">
+        <kbd className="px-1 py-0.5 bg-muted rounded text-[9px]">↑</kbd>
+        <kbd className="px-1 py-0.5 bg-muted rounded text-[9px]">↓</kbd>
+        <span className="ml-1">Navigate</span>
+      </span>
+      <span className="flex items-center gap-1">
+        <kbd className="px-1 py-0.5 bg-muted rounded text-[9px]">⏎</kbd>
+        <span className="ml-1">Open</span>
+      </span>
+      <span className="flex items-center gap-1">
+        <kbd className="px-1 py-0.5 bg-muted rounded text-[9px]">{modKey}</kbd>
+        <kbd className="px-1 py-0.5 bg-muted rounded text-[9px]">⏎</kbd>
+        <span className="ml-1">Open in Split</span>
+      </span>
+    </div>
+  );
+}
+
 export {
   Command,
   CommandDialog,
@@ -196,4 +230,5 @@ export {
   CommandItem,
   CommandShortcut,
   CommandSeparator,
+  CommandFooter,
 }
