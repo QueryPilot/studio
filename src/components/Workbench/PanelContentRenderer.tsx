@@ -26,6 +26,7 @@ import { TableTriggers } from "@/components/TableTriggers";
 import { ObjectDefinition } from "@/components/ObjectDefinition";
 import { QueryPanel } from "@/components/QueryPanel";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { Skeleton } from "../ui/skeleton";
 import { type TabMetadata } from "@/types/workbench";
 import { ERDPanel } from "@/components/Erd";
@@ -57,7 +58,13 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     const activeConnectionId = useWorkspaceSelectionStore(
       (state) => state.connectionId,
     );
+    const getConnection = useConnectionStore((state) => state.getConnection);
     const focusedPanelId = useWorkbenchStore((state) => state.focusedPanelId);
+
+    // Get dbType from connection profile
+    const connectionId = metadata?.connectionId || activeConnectionId || "";
+    const connection = getConnection(connectionId);
+    const dbType = connection?.profile?.db_type;
     const isPanelFocused = focusedPanelId === panelId;
     const type = metadata?.type || "table";
     const [activeView, setActiveView] = useState(metadata?.viewType || "data");
@@ -154,10 +161,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
           connectionId={metadata?.connectionId || activeConnectionId || ""}
           database={metadata?.database || ""}
           schema={metadata?.schema}
-          dbType={(() => {
-            const m = metadata as unknown as { dbType?: unknown } | undefined;
-            return typeof m?.dbType === "string" ? m.dbType : "";
-          })()}
+          dbType={dbType}
           className="h-full"
         />
       );

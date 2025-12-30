@@ -689,7 +689,28 @@ ORDER BY table_name, column_name`;
         return `SELECT pg_get_viewdef('${this.escapeString(qualifiedName)}'::regclass, true) as definition`;
       case 'function':
       case 'procedure':
-        return `SELECT pg_get_functiondef('${this.escapeString(qualifiedName)}'::regprocedure) as definition`;
+        // Look up function by name and schema, return all overloads
+        // Filter out aggregate functions and C functions which don't support pg_get_functiondef
+        return `
+SELECT string_agg(
+    CASE
+        WHEN p.prokind = 'a' THEN
+            '-- Aggregate function: ' || quote_ident(n.nspname) || '.' || quote_ident(p.proname) ||
+            '(' || pg_get_function_identity_arguments(p.oid) || ')' || E'\\n' ||
+            '-- (Aggregate definitions cannot be extracted with pg_get_functiondef)'
+        WHEN p.prolang = (SELECT oid FROM pg_language WHERE lanname = 'c') THEN
+            '-- C function: ' || quote_ident(n.nspname) || '.' || quote_ident(p.proname) ||
+            '(' || pg_get_function_identity_arguments(p.oid) || ')' || E'\\n' ||
+            '-- Library: ' || p.probin || ', Symbol: ' || p.prosrc
+        ELSE
+            pg_get_functiondef(p.oid)
+    END,
+    E'\\n\\n' ORDER BY p.oid
+) as definition
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = '${this.escapeString(schema)}'
+    AND p.proname = '${this.escapeString(name)}'`;
       case 'sequence':
         return `
 SELECT
@@ -927,7 +948,7 @@ check_constraints AS (
     SELECT
         'ALTER TABLE ' || quote_ident('${this.escapeString(schema)}') || '.' || quote_ident('${this.escapeString(name)}') ||
         ' ADD CONSTRAINT ' || quote_ident(con.conname) ||
-        ' CHECK ' || pg_get_constraintdef(con.oid, true) || ';' as constraint_def
+        ' ' || pg_get_constraintdef(con.oid, true) || ';' as constraint_def
     FROM pg_constraint con
     JOIN table_oid t ON con.conrelid = t.oid
     WHERE con.contype = 'c'

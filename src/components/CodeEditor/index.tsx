@@ -320,6 +320,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
         style={{ userSelect: "text" }}
       >
         <CodeMirror
+          key={`${language}-${dialect}`}
           value={value}
           onChange={onChange}
           extensions={extensions}

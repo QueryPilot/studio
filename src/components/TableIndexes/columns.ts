@@ -57,6 +57,14 @@ export const indexColumns: GridColumnV2[] = [
     maxWidth: 120,
   } as GridColumnV2,
   {
+    id: "condition",
+    field: "condition",
+    title: "Condition",
+    name: "Condition",
+    width: 280,
+    minWidth: 160,
+  } as GridColumnV2,
+  {
     id: "statistics",
     field: "statistics",
     title: "Usage Stats",
@@ -64,14 +72,6 @@ export const indexColumns: GridColumnV2[] = [
     width: 180,
     minWidth: 120,
     maxWidth: 280,
-  } as GridColumnV2,
-  {
-    id: "condition",
-    field: "condition",
-    title: "Condition",
-    name: "Condition",
-    width: 280,
-    minWidth: 160,
   } as GridColumnV2,
   {
     id: "actions",
