@@ -30,6 +30,7 @@ const DataTypeCellEditor: React.FC<DataTypeCellEditorProps> = ({
   );
 
   const [inputValue, setInputValue] = useState("");
+  const [activeValue, setActiveValue] = useState("");
   const [hasTyped, setHasTyped] = useState(false);
   const finishedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -47,6 +48,26 @@ const DataTypeCellEditor: React.FC<DataTypeCellEditorProps> = ({
       clearTimeout(timer);
     };
   }, []);
+
+  // Show all types initially, filter only after user starts typing
+  const filteredTypes = useMemo(() => {
+    return hasTyped
+      ? allTypes.filter((type) =>
+          type.toLowerCase().includes(inputValue.toLowerCase()),
+        )
+      : allTypes;
+  }, [allTypes, hasTyped, inputValue]);
+
+  // Keep activeValue in sync with filtered options
+  useEffect(() => {
+    if (filteredTypes.length === 0) {
+      setActiveValue(inputValue || "");
+      return;
+    }
+    if (!filteredTypes.includes(activeValue)) {
+      setActiveValue(filteredTypes[0]);
+    }
+  }, [activeValue, filteredTypes, inputValue]);
 
   const handleSelect = async (selectedValue: string) => {
     if (finishedRef.current) return;
@@ -72,13 +93,6 @@ const DataTypeCellEditor: React.FC<DataTypeCellEditorProps> = ({
     setHasTyped(true);
   };
 
-  // Show all types initially, filter only after user starts typing
-  const filteredTypes = hasTyped
-    ? allTypes.filter((type) =>
-        type.toLowerCase().includes(inputValue.toLowerCase()),
-      )
-    : allTypes;
-
   return (
     <div className="w-full h-full flex flex-col relative click-outside-ignore z-50">
       <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
@@ -93,7 +107,12 @@ const DataTypeCellEditor: React.FC<DataTypeCellEditorProps> = ({
       </div>
 
       <div className="flex items-center flex-1">
-        <Command className="w-full border-0 rounded-none shadow-none">
+        <Command
+          className="w-full border-0 rounded-none shadow-none"
+          shouldFilter={false}
+          value={activeValue}
+          onValueChange={setActiveValue}
+        >
           <div className="flex items-center border-b">
             <CommandPrimitive.Input
               ref={inputRef}
@@ -110,7 +129,11 @@ const DataTypeCellEditor: React.FC<DataTypeCellEditorProps> = ({
                 if (e.key === "Enter") {
                   e.preventDefault();
                   e.stopPropagation();
-                  void handleSelect(inputValue);
+                  // Use activeValue (selected item) if available, otherwise use inputValue
+                  const valueToCommit = activeValue || inputValue;
+                  if (valueToCommit) {
+                    void handleSelect(valueToCommit);
+                  }
                 } else if (e.key === "Escape") {
                   e.preventDefault();
                   e.stopPropagation();
@@ -123,13 +146,15 @@ const DataTypeCellEditor: React.FC<DataTypeCellEditorProps> = ({
                   const movement: readonly [-1 | 0 | 1, -1 | 0 | 1] = e.shiftKey
                     ? [-1, 0]
                     : [1, 0];
+                  // Use activeValue (selected item) if available, otherwise use inputValue
+                  const valueToCommit = activeValue || inputValue;
                   const newCell: DataTypeCell = {
                     kind: value.kind,
                     data: {
                       ...value.data,
-                      value: inputValue,
+                      value: valueToCommit,
                     },
-                    copyData: inputValue,
+                    copyData: valueToCommit,
                     allowOverlay: value.allowOverlay,
                     readonly: value.readonly,
                   };

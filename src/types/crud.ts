@@ -17,6 +17,7 @@ export type CrudOperationType =
   | 'index.rename'
   | 'trigger.create'
   | 'trigger.drop'
+  | 'trigger.rename'
   | 'trigger.enable'
   | 'trigger.disable'
   | 'fk.add'
@@ -209,6 +210,11 @@ export interface TriggerTogglePayload extends CrudCommandPayload {
   readonly enable: boolean;
 }
 
+export interface TriggerRenamePayload extends CrudCommandPayload {
+  readonly triggerName: string;
+  readonly newName: string;
+}
+
 export interface ForeignKeyAddPayload extends CrudCommandPayload {
   readonly definition: ForeignKeyDefinitionInput;
 }
@@ -251,6 +257,7 @@ export type CrudCommandPayloadMap = {
   'index.rename': IndexRenamePayload;
   'trigger.create': TriggerCreatePayload;
   'trigger.drop': TriggerDropPayload;
+  'trigger.rename': TriggerRenamePayload;
   'trigger.enable': TriggerTogglePayload;
   'trigger.disable': TriggerTogglePayload;
   'fk.add': ForeignKeyAddPayload;

@@ -32,10 +32,15 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
 }) => {
   const finishedRef = useRef(false);
   const commandRef = useRef<HTMLDivElement>(null);
-  const { requiresRecreate, columns: initialColumns, availableColumns } = value.data;
+  const {
+    requiresRecreate,
+    columns: initialColumns,
+    availableColumns,
+  } = value.data;
 
   // Local state for editing
-  const [selectedColumns, setSelectedColumns] = useState<string[]>(initialColumns);
+  const [selectedColumns, setSelectedColumns] =
+    useState<string[]>(initialColumns);
   const [showConfirm, setShowConfirm] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -80,21 +85,18 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
     [onFinishedEditing, value],
   );
 
-  const handleToggleColumn = useCallback(
-    (columnName: string) => {
-      setSelectedColumns((prev) => {
-        if (prev.includes(columnName)) {
-          // Remove column (but don't allow removing the last one)
-          if (prev.length <= 1) return prev;
-          return prev.filter((c) => c !== columnName);
-        } else {
-          // Add column at the end
-          return [...prev, columnName];
-        }
-      });
-    },
-    [],
-  );
+  const handleToggleColumn = useCallback((columnName: string) => {
+    setSelectedColumns((prev) => {
+      if (prev.includes(columnName)) {
+        // Remove column (but don't allow removing the last one)
+        if (prev.length <= 1) return prev;
+        return prev.filter((c) => c !== columnName);
+      } else {
+        // Add column at the end
+        return [...prev, columnName];
+      }
+    });
+  }, []);
 
   const handleMoveUp = useCallback((index: number) => {
     if (index <= 0) return;
@@ -150,7 +152,13 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
     } else {
       void applyChange(selectedColumns);
     }
-  }, [selectedColumns, hasChanges, requiresRecreate, applyChange, onFinishedEditing]);
+  }, [
+    selectedColumns,
+    hasChanges,
+    requiresRecreate,
+    applyChange,
+    onFinishedEditing,
+  ]);
 
   const handleCancel = useCallback(() => {
     if (finishedRef.current) return;
@@ -178,6 +186,11 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
         } else {
           handleCancel();
         }
+      } else if (e.key === "Enter" && !showConfirm) {
+        // Enter to save
+        e.preventDefault();
+        e.stopPropagation();
+        handleSave();
       } else if (e.key === "Tab" && !showConfirm) {
         e.preventDefault();
         e.stopPropagation();
@@ -193,7 +206,16 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
         }
       }
     },
-    [showConfirm, handleConfirmCancel, handleCancel, hasChanges, selectedColumns, requiresRecreate, applyChange],
+    [
+      showConfirm,
+      handleConfirmCancel,
+      handleCancel,
+      hasChanges,
+      selectedColumns,
+      requiresRecreate,
+      applyChange,
+      handleSave,
+    ],
   );
 
   // Render confirmation dialog for existing indexes
@@ -267,7 +289,7 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
       {selectedColumns.length > 0 && (
         <div className="flex flex-col border-b border-border/50">
           <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide bg-muted/30">
-            Selected (drag to reorder)
+            Selected
           </div>
           <div className="max-h-[120px] overflow-y-auto">
             {selectedColumns.map((col, index) => (
@@ -285,7 +307,9 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
                     variant="ghost"
                     size="sm"
                     className="h-5 w-5 p-0"
-                    onClick={() => { handleMoveUp(index); }}
+                    onClick={() => {
+                      handleMoveUp(index);
+                    }}
                     disabled={index === 0}
                   >
                     <IconChevronUp className="h-3 w-3" />
@@ -295,7 +319,9 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
                     variant="ghost"
                     size="sm"
                     className="h-5 w-5 p-0"
-                    onClick={() => { handleMoveDown(index); }}
+                    onClick={() => {
+                      handleMoveDown(index);
+                    }}
                     disabled={index === selectedColumns.length - 1}
                   >
                     <IconChevronDown className="h-3 w-3" />
@@ -305,7 +331,9 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
                     variant="ghost"
                     size="sm"
                     className="h-5 w-5 p-0 text-destructive hover:text-destructive"
-                    onClick={() => { handleRemoveColumn(index); }}
+                    onClick={() => {
+                      handleRemoveColumn(index);
+                    }}
                     disabled={selectedColumns.length <= 1}
                   >
                     <IconX className="h-3 w-3" />
@@ -325,10 +353,7 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
           value={searchQuery}
           onValueChange={setSearchQuery}
         >
-          <CommandInput
-            placeholder="Search columns..."
-            className="h-8"
-          />
+          <CommandInput placeholder="Search columns..." className="h-8" />
           <CommandList className="max-h-[140px]">
             <CommandEmpty className="py-3 text-xs text-muted-foreground">
               No columns found
@@ -340,7 +365,9 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
                   <CommandItem
                     key={col}
                     value={col}
-                    onSelect={() => { handleToggleColumn(col); }}
+                    onSelect={() => {
+                      handleToggleColumn(col);
+                    }}
                     className="text-xs font-medium flex items-center justify-between"
                   >
                     <span className="font-mono">{col}</span>

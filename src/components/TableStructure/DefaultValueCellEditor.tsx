@@ -119,16 +119,18 @@ export const DefaultValueCellEditor: React.FC<DefaultValueCellEditorProps> = ({
           ? [-1, 0]
           : [1, 0];
         commitWithMovement(movement);
-      } else if (e.key === "Enter" && !e.shiftKey && !e.defaultPrevented) {
+      } else if (e.key === "Enter" && !e.shiftKey) {
+        // Always commit on Enter (don't check defaultPrevented as CodeMirror may have set it)
         e.preventDefault();
         e.stopPropagation();
         commitCurrent();
       }
     };
 
-    document.addEventListener("keydown", handleKeyDown);
+    // Use capture phase to intercept before CodeMirror
+    document.addEventListener("keydown", handleKeyDown, true);
     return () => {
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [commitWithMovement, commitCurrent, onFinishedEditing]);
 

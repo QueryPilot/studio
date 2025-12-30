@@ -3,8 +3,10 @@ import { Button } from "@/components/ui/button";
 import { IconPlus, IconCheck } from '@tabler/icons-react';
 
 interface TableActionsToolbarProps {
-  addButtonLabel: string;
-  onAdd: () => void;
+  /** Label for the add button. If not provided, add button is hidden. */
+  addButtonLabel?: string;
+  /** Handler for add button click. Required if addButtonLabel is provided. */
+  onAdd?: () => void;
   onReviewChanges: () => void;
   pendingChangesCount: number;
   disabled?: boolean;
@@ -22,16 +24,18 @@ export const TableActionsToolbar = memo(function TableActionsToolbar({
 }: TableActionsToolbarProps) {
   return (
     <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/30">
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={onAdd}
-        disabled={disabled}
-        className="h-6 text-xs px-2"
-      >
-        <IconPlus className="h-3 w-3 mr-1" />
-        {addButtonLabel}
-      </Button>
+      {addButtonLabel && onAdd && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onAdd}
+          disabled={disabled}
+          className="h-6 text-xs px-2"
+        >
+          <IconPlus className="h-3 w-3 mr-1" />
+          {addButtonLabel}
+        </Button>
+      )}
 
       {/* Batch actions slot */}
       {batchActions && (
