@@ -1037,4 +1037,14 @@ SELECT
     COALESCE((SELECT definition FROM comment_defs), '') as definition`;
     }
   }
+
+  /**
+   * Generate REFRESH MATERIALIZED VIEW statement
+   * PostgreSQL supports CONCURRENTLY option for non-blocking refresh
+   */
+  refreshMaterializedView(schema: string, viewName: string, concurrently?: boolean): string {
+    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(viewName)}`;
+    const concurrent = concurrently ? 'CONCURRENTLY ' : '';
+    return `REFRESH MATERIALIZED VIEW ${concurrent}${qualifiedName}`;
+  }
 }
