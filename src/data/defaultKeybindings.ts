@@ -7,10 +7,6 @@ export const defaultKeybindings: Keybinding[] = [
   },
   {
     command: 'quickOpen.show',
-    key: 'cmd+k',
-  },
-  {
-    command: 'quickOpen.show',
     key: 'cmd+p',
   },
   {

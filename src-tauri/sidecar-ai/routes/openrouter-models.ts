@@ -37,10 +37,6 @@ export async function handleOpenRouterModels(
     const limit = parseInt(url.searchParams.get("limit") || "50");
     const offset = parseInt(url.searchParams.get("offset") || "0");
 
-    console.log(
-      `📡 Fetching OpenRouter models (query="${query}", limit=${limit}, offset=${offset})`,
-    );
-
     // Fetch models from OpenRouter API
     const response = await fetch("https://openrouter.ai/api/v1/models", {
       method: "GET",
@@ -68,8 +64,6 @@ export async function handleOpenRouterModels(
     const data: OpenRouterModelsResponse = await response.json();
     let models = data.data || [];
 
-    console.log(`✅ Fetched ${models.length} models from OpenRouter`);
-
     // Filter by search query if provided
     if (query) {
       models = models.filter(
@@ -78,7 +72,6 @@ export async function handleOpenRouterModels(
           model.name.toLowerCase().includes(query) ||
           model.description?.toLowerCase().includes(query),
       );
-      console.log(`🔍 Filtered to ${models.length} models matching "${query}"`);
     }
 
     // Sort by name for better UX

@@ -37,8 +37,6 @@ export async function handleChatStream(request: Request): Promise<Response> {
     const body: ChatRequest = await request.json();
     const { messages, provider, model } = body;
 
-    console.log(`📨 Chat request: provider=${provider}, model=${model}`);
-
     // Extract and validate connection context from headers
     const rawContext = {
       connectionId: request.headers.get("X-Connection-Id") || "",
@@ -60,10 +58,6 @@ export async function handleChatStream(request: Request): Promise<Response> {
     }
 
     const { connectionId, database, schema } = validation.sanitized;
-
-    console.log(
-      `🔗 Connection context (validated): id=${connectionId}, db=${database}, schema=${schema}`,
-    );
 
     // Create AI provider (uses stored API keys)
     const aiProvider = ProviderService.createProvider(provider);
@@ -87,14 +81,11 @@ export async function handleChatStream(request: Request): Promise<Response> {
       messages: modelMessages,
       tools,
       stopWhen: stepCountIs(MAX_TOOL_STEPS),
-      onFinish: ({ finishReason, usage }) => {
+      onFinish: ({ finishReason }) => {
         // Track completion metrics
         const isSuccess = finishReason !== "error";
         metrics.endOperation(aiMetric, isSuccess, isSuccess ? undefined : finishReason);
         metrics.endOperation(metric, isSuccess, isSuccess ? undefined : finishReason);
-        console.log(
-          `📊 Chat completed: reason=${finishReason}, tokens=${usage?.totalTokens || "unknown"}`,
-        );
       },
     });
 

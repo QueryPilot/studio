@@ -65,7 +65,7 @@ const DataTypeCellEditor: React.FC<DataTypeCellEditorProps> = ({
       return;
     }
     if (!filteredTypes.includes(activeValue)) {
-      setActiveValue(filteredTypes[0]);
+      setActiveValue(filteredTypes[0] ?? "");
     }
   }, [activeValue, filteredTypes, inputValue]);
 

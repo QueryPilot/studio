@@ -55,9 +55,9 @@ describe("useFrecency", () => {
 
       const sorted = result.current.sortByFrecency(items);
 
-      expect(sorted[0].id).toBe("item-b"); // 3 accesses
-      expect(sorted[1].id).toBe("item-a"); // 1 access
-      expect(sorted[2].id).toBe("item-c"); // 0 accesses
+      expect(sorted[0]!.id).toBe("item-b"); // 3 accesses
+      expect(sorted[1]!.id).toBe("item-a"); // 1 access
+      expect(sorted[2]!.id).toBe("item-c"); // 0 accesses
     });
 
     it("should fallback to alphabetical for equal scores", () => {

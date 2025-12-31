@@ -29,7 +29,7 @@ describe('applyColumnRenames', () => {
           columnName: 'old_name',
           newDefinition: { name: 'old_name', dataType: 'text', nullable: true },
         },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
 
       const result = applyColumnRenames(command, renames);
@@ -50,7 +50,7 @@ describe('applyColumnRenames', () => {
           columnName: 'unchanged_column',
           newDefinition: { name: 'unchanged_column', dataType: 'text', nullable: true },
         },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
 
       const result = applyColumnRenames(command, renames);
@@ -70,7 +70,7 @@ describe('applyColumnRenames', () => {
           columnName: 'to_drop',
           cascade: true,
         },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
 
       const result = applyColumnRenames(command, renames);
@@ -95,7 +95,7 @@ describe('applyColumnRenames', () => {
           columnName: 'A',
           newName: 'C',
         },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
 
       const result = applyColumnRenames(command, renames);
@@ -122,7 +122,7 @@ describe('applyColumnRenames', () => {
             referenceColumns: ['id'],
           },
         },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
 
       const result = applyColumnRenames(command, renames);
@@ -148,7 +148,7 @@ describe('applyColumnRenames', () => {
             referenceColumns: ['ref_a', 'ref_b'],
           },
         },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
 
       const result = applyColumnRenames(command, renames);
@@ -170,7 +170,7 @@ describe('applyColumnRenames', () => {
             referenceColumns: ['parent_id'], // Self-referencing
           },
         },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
 
       const result = applyColumnRenames(command, renames);
@@ -194,7 +194,7 @@ describe('applyColumnRenames', () => {
             unique: true,
           },
         },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
 
       const result = applyColumnRenames(command, renames);
@@ -217,7 +217,7 @@ describe('applyColumnRenames', () => {
             columns: ['first_name', 'last_name'],
           },
         },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
 
       const result = applyColumnRenames(command, renames);
@@ -238,7 +238,7 @@ describe('applyColumnRenames', () => {
             includeColumns: ['status', 'created_at'],
           },
         },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
 
       const result = applyColumnRenames(command, renames);
@@ -260,7 +260,7 @@ describe('applyColumnRenames', () => {
             email: 'john@example.com',
           },
         },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
 
       const result = applyColumnRenames(command, renames);
@@ -287,7 +287,7 @@ describe('applyColumnRenames', () => {
             email: 'john@example.com',
           },
         },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
 
       const result = applyColumnRenames(command, renames);
@@ -312,7 +312,7 @@ describe('applyColumnRenames', () => {
           newValue: 'completed',
           primaryKeys: { id: 1 },
         },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
 
       const result = applyColumnRenames(command, renames);
@@ -333,7 +333,7 @@ describe('applyColumnRenames', () => {
           columnName: 'some_column',
           newDefinition: { name: 'some_column', dataType: 'text', nullable: true },
         },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
 
       const result = applyColumnRenames(command, renames);
@@ -350,7 +350,7 @@ describe('applyColumnRenames', () => {
         payload: {
           primaryKeys: { id: 1 },
         },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
 
       const result = applyColumnRenames(command, renames);
@@ -369,7 +369,7 @@ describe('trackColumnRename', () => {
         type: 'column.rename',
         target: createTarget(),
         payload: { columnName: 'old_name', newName: 'new_name' },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
       const adjustedCmd = originalCmd; // No prior renames
 
@@ -385,7 +385,7 @@ describe('trackColumnRename', () => {
         type: 'column.modify',
         target: createTarget(),
         payload: { columnName: 'col', newDefinition: { name: 'col', dataType: 'text', nullable: true } },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
 
       trackColumnRename(renames, command, command);
@@ -404,7 +404,7 @@ describe('trackColumnRename', () => {
         type: 'column.rename',
         target: createTarget(),
         payload: { columnName: 'A', newName: 'B' },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
       trackColumnRename(renames, cmd1, cmd1);
 
@@ -417,7 +417,7 @@ describe('trackColumnRename', () => {
         type: 'column.rename',
         target: createTarget(),
         payload: { columnName: 'B', newName: 'C' },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
       // After applyColumnRenames, B stays B (not in map as key)
       const cmd2Adjusted = cmd2Original;
@@ -437,7 +437,7 @@ describe('trackColumnRename', () => {
         type: 'column.rename',
         target: createTarget(),
         payload: { columnName: 'A', newName: 'B' },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
       trackColumnRename(renames, cmd1, cmd1);
 
@@ -448,7 +448,7 @@ describe('trackColumnRename', () => {
         type: 'column.rename',
         target: createTarget(),
         payload: { columnName: 'A', newName: 'C' },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
       const cmd2Adjusted: CrudCommand = {
         ...cmd2Original,
@@ -472,7 +472,7 @@ describe('trackColumnRename', () => {
         type: 'column.rename',
         target: createTarget(),
         payload: { columnName: 'col_a', newName: 'new_col_a' },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
       trackColumnRename(renames, cmd1, cmd1);
 
@@ -481,7 +481,7 @@ describe('trackColumnRename', () => {
         type: 'column.rename',
         target: createTarget(),
         payload: { columnName: 'col_b', newName: 'new_col_b' },
-        metadata: { createdAt: Date.now() },
+        metadata: { timestamp: new Date().toISOString() },
       };
       trackColumnRename(renames, cmd2, cmd2);
 
@@ -501,7 +501,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
       type: 'column.rename',
       target: createTarget(),
       payload: { columnName: 'old_col', newName: 'new_col' },
-      metadata: { createdAt: Date.now() },
+      metadata: { timestamp: new Date().toISOString() },
     };
     const adjustedRename = applyColumnRenames(renameCmd, renames);
     trackColumnRename(renames, renameCmd, adjustedRename);
@@ -515,7 +515,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
         columnName: 'old_col', // User's command still references old name
         newDefinition: { name: 'new_col', dataType: 'varchar', nullable: false },
       },
-      metadata: { createdAt: Date.now() },
+      metadata: { timestamp: new Date().toISOString() },
     };
     const adjustedModify = applyColumnRenames(modifyCmd, renames);
 
@@ -532,7 +532,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
       type: 'column.rename',
       target: createTarget(),
       payload: { columnName: 'name', newName: 'full_name' },
-      metadata: { createdAt: Date.now() },
+      metadata: { timestamp: new Date().toISOString() },
     };
     const adjustedRename = applyColumnRenames(renameCmd, renames);
     trackColumnRename(renames, renameCmd, adjustedRename);
@@ -545,7 +545,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
       payload: {
         values: { name: 'John Doe', email: 'john@example.com' },
       },
-      metadata: { createdAt: Date.now() },
+      metadata: { timestamp: new Date().toISOString() },
     };
     const adjustedInsert = applyColumnRenames(insertCmd, renames);
 
@@ -565,7 +565,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
       type: 'column.rename',
       target: createTarget(),
       payload: { columnName: 'email', newName: 'email_address' },
-      metadata: { createdAt: Date.now() },
+      metadata: { timestamp: new Date().toISOString() },
     };
     const adjustedRename = applyColumnRenames(renameCmd, renames);
     trackColumnRename(renames, renameCmd, adjustedRename);
@@ -582,7 +582,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
           unique: true,
         },
       },
-      metadata: { createdAt: Date.now() },
+      metadata: { timestamp: new Date().toISOString() },
     };
     const adjustedIndex = applyColumnRenames(indexCmd, renames);
 
@@ -599,7 +599,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
       type: 'column.rename',
       target: createTarget('orders'),
       payload: { columnName: 'user_id', newName: 'customer_id' },
-      metadata: { createdAt: Date.now() },
+      metadata: { timestamp: new Date().toISOString() },
     };
     const adjustedRename = applyColumnRenames(renameCmd, renames);
     trackColumnRename(renames, renameCmd, adjustedRename);
@@ -617,7 +617,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
           referenceColumns: ['id'],
         },
       },
-      metadata: { createdAt: Date.now() },
+      metadata: { timestamp: new Date().toISOString() },
     };
     const adjustedFK = applyColumnRenames(fkCmd, renames);
 
@@ -634,7 +634,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
       type: 'column.rename',
       target: createTarget(),
       payload: { columnName: 'A', newName: 'B' },
-      metadata: { createdAt: Date.now() },
+      metadata: { timestamp: new Date().toISOString() },
     };
     let adjusted = applyColumnRenames(cmd1, renames);
     trackColumnRename(renames, cmd1, adjusted);
@@ -645,7 +645,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
       type: 'column.rename',
       target: createTarget(),
       payload: { columnName: 'B', newName: 'C' },
-      metadata: { createdAt: Date.now() },
+      metadata: { timestamp: new Date().toISOString() },
     };
     adjusted = applyColumnRenames(cmd2, renames);
     trackColumnRename(renames, cmd2, adjusted);
@@ -656,7 +656,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
       type: 'column.rename',
       target: createTarget(),
       payload: { columnName: 'C', newName: 'D' },
-      metadata: { createdAt: Date.now() },
+      metadata: { timestamp: new Date().toISOString() },
     };
     adjusted = applyColumnRenames(cmd3, renames);
     trackColumnRename(renames, cmd3, adjusted);
@@ -675,7 +675,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
         columnName: 'A', // Original name
         newDefinition: { name: 'D', dataType: 'text', nullable: true },
       },
-      metadata: { createdAt: Date.now() },
+      metadata: { timestamp: new Date().toISOString() },
     };
     const adjustedModify = applyColumnRenames(modifyCmd, renames);
     expect((adjustedModify.payload as any).columnName).toBe('D');

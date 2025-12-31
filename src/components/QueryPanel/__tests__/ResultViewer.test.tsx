@@ -52,16 +52,29 @@ vi.mock("@/components/CodeEditor", () => ({
   ),
 }));
 
+// Helper to create ColumnMeta
+function createColMeta(name: string, dbType: string, isPk = false) {
+  return {
+    name,
+    db_type: dbType,
+    nullable: true,
+    default: null,
+    is_pk: isPk,
+    is_fk: false,
+    ordinal: 0,
+  };
+}
+
 describe("ResultViewer - Geometric Types Display", () => {
   const geometricResult = {
     columns: ["box_col", "circle_col", "line_col", "lseg_col", "path_col", "polygon_col"],
     columnMeta: [
-      { db_type: "box", is_nullable: true, is_pk: false, is_fk: false },
-      { db_type: "circle", is_nullable: true, is_pk: false, is_fk: false },
-      { db_type: "line", is_nullable: true, is_pk: false, is_fk: false },
-      { db_type: "lseg", is_nullable: true, is_pk: false, is_fk: false },
-      { db_type: "path", is_nullable: true, is_pk: false, is_fk: false },
-      { db_type: "polygon", is_nullable: true, is_pk: false, is_fk: false },
+      createColMeta("box_col", "box"),
+      createColMeta("circle_col", "circle"),
+      createColMeta("line_col", "line"),
+      createColMeta("lseg_col", "lseg"),
+      createColMeta("path_col", "path"),
+      createColMeta("polygon_col", "polygon"),
     ],
     rows: [
       [

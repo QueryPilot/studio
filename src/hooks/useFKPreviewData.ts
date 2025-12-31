@@ -187,7 +187,3 @@ export function useFKPreviewData(params: FKPreviewDataParams): FKPreviewDataResu
     error,
   };
 }
-
-export function clearFKPreviewCache(): void {
-  fkPreviewCache.clear();
-}

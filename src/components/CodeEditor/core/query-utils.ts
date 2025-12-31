@@ -424,6 +424,7 @@ export function getStatementAtPosition(
       }
       break;
     }
+    if (!node.parent) break;
     node = node.parent;
   }
 
