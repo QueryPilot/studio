@@ -123,13 +123,3 @@ pub fn set_ai_api_key(provider: String, api_key: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-pub fn delete_ai_api_key(provider: String) -> Result<(), String> {
-    let mut keys = get_all_ai_api_keys()?;
-    keys.remove(&provider);
-
-    write_all_api_keys(&keys)?;
-    delete_legacy_entry(&provider);
-
-    Ok(())
-}

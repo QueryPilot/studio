@@ -437,11 +437,17 @@ ORDER BY v.name`;
 SELECT
     s.name as schema_name,
     o.name as function_name,
-    o.type_desc as type,
+    '' as arguments,
+    CASE WHEN o.type = 'P' THEN 'void' ELSE COALESCE(TYPE_NAME(c.user_type_id), 'void') END as return_type,
+    'T-SQL' as language,
+    CAST(0 as bit) as is_aggregate,
+    CAST(0 as bit) as is_window,
+    CAST(0 as bit) as is_trigger,
     m.definition as source
 FROM sys.objects o
 JOIN sys.schemas s ON o.schema_id = s.schema_id
 LEFT JOIN sys.sql_modules m ON o.object_id = m.object_id
+LEFT JOIN sys.parameters c ON o.object_id = c.object_id AND c.parameter_id = 0
 WHERE s.name = '${this.escapeString(schema)}'
     AND o.type IN ('FN', 'IF', 'TF', 'P')
 ORDER BY o.name`;
