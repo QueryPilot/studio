@@ -810,7 +810,14 @@ export function DatabaseSidebar({
 
                 const icon =
                   item.type === "function" ? (
-                    <IconMathFunction className="h-3.5 w-4 min-w-4 text-purple-500 flex-shrink-0" />
+                    <IconMathFunction
+                      className={cn(
+                        "h-3.5 w-4 min-w-4 flex-shrink-0",
+                        (itemData as FunctionMeta).return_type === "void"
+                          ? "text-orange-500"
+                          : "text-purple-500",
+                      )}
+                    />
                   ) : item.type === "view" ? (
                     <IconEye
                       className={cn(
@@ -1116,7 +1123,14 @@ export function DatabaseSidebar({
                   <SidebarItem
                     key={`${func.schema}.${func.name}`}
                     icon={
-                      <IconMathFunction className="h-3.5 w-4 min-w-4 text-purple-500 flex-shrink-0" />
+                      <IconMathFunction
+                        className={cn(
+                          "h-3.5 w-4 min-w-4 flex-shrink-0",
+                          func.return_type === "void"
+                            ? "text-orange-500"
+                            : "text-purple-500",
+                        )}
+                      />
                     }
                     name={func.name}
                     isActive={isFunctionActive(func.name, func.schema)}

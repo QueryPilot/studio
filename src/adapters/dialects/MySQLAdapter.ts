@@ -250,8 +250,12 @@ ORDER BY TABLE_NAME`;
 SELECT
     ROUTINE_SCHEMA as schema_name,
     ROUTINE_NAME as function_name,
-    ROUTINE_TYPE as type,
-    DATA_TYPE as return_type,
+    '' as arguments,
+    CASE WHEN ROUTINE_TYPE = 'PROCEDURE' THEN 'void' ELSE COALESCE(DATA_TYPE, 'void') END as return_type,
+    'SQL' as language,
+    false as is_aggregate,
+    false as is_window,
+    false as is_trigger,
     ROUTINE_DEFINITION as source
 FROM information_schema.ROUTINES
 WHERE ROUTINE_SCHEMA = '${this.escapeString(schema)}'
