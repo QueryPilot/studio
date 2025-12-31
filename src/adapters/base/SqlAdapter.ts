@@ -127,7 +127,10 @@ export abstract class SqlAdapter implements DatabaseAdapter {
 
     let sql = `SELECT ${columns} FROM ${table}`;
 
-    if (options?.where && Object.keys(options.where).length > 0) {
+    // rawWhere takes precedence over structured where
+    if (options?.rawWhere) {
+      sql += ` WHERE ${options.rawWhere}`;
+    } else if (options?.where && Object.keys(options.where).length > 0) {
       sql += ` WHERE ${this.buildWhereClause(options.where)}`;
     }
 

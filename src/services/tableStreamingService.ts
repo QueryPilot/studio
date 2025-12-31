@@ -8,6 +8,7 @@ import { mapBackendColumnsToColumnMeta } from "./tableDataTransform";
 import { type CellValue } from "./backend";
 import { getStreamDecodeWorker } from "./streamDecodeWorkerClient";
 import { getAdapterForConnection } from "@/adapters";
+import { filterConfigToWhereClause, sortConfigToOrderBy } from "@/adapters/formatting";
 import { IntrospectionService } from "./introspectionService";
 
 export interface StreamProgress {
@@ -95,11 +96,13 @@ export async function streamEntityPage(
   }
 
   // Use dialect-aware SQL generation for proper quoting per database type
-  // Note: filters and sorts are handled separately by the query execution
   const adapter = await getAdapterForConnection(connectionId);
+  const rawWhere = filterConfigToWhereClause(params.filters, adapter.dbType);
+  const orderBy = sortConfigToOrderBy(params.sorts);
+
   const sql = adapter.select(
     { schema, table: entityName },
-    { columns: params.select, limit: fetchLimit, offset }
+    { columns: params.select, rawWhere, orderBy, limit: fetchLimit, offset }
   ) as string;
 
   // CRITICAL FIX: Wrap in promise to ensure we only resolve after ALL callbacks complete
