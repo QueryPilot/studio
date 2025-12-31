@@ -213,10 +213,16 @@ export function useUnifiedItems() {
 
     // Filter commands based on context
     const contextFilteredCommands = commands.filter((cmd) => {
+      // Hide commands that shouldn't appear in the palette
+      if (cmd.id === "quickOpen.show") {
+        return false;
+      }
       // Workspace-only commands - only show when in a workspace
       if (
-        cmd.id === "workspace.switchDatabase" ||
-        cmd.id === "workspace.switchSchema"
+        cmd.id === "workspace.openDatabase" ||
+        cmd.id === "workspace.openSchema" ||
+        cmd.id === "workspace.createDatabase" ||
+        cmd.id === "workspace.createSchema"
       ) {
         return isInWorkspace;
       }

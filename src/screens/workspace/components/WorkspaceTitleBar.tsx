@@ -61,7 +61,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useTheme } from "@/components/theme-provider";
+import { useAppStore } from "@/stores/appStore";
 import { toast } from "sonner";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
@@ -128,7 +128,8 @@ export function WorkspaceTitleBar({
   const [connectionHealth, setConnectionHealth] =
     useState<ConnectionHealth | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
-  const { theme, setTheme } = useTheme();
+  const theme = useAppStore((state) => state.theme);
+  const setTheme = useAppStore((state) => state.setTheme);
   const [isOpeningWindow, setIsOpeningWindow] = useState(false);
 
   // Query for databases list

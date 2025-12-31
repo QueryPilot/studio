@@ -200,7 +200,8 @@ export const TableStructure = memo(function TableStructure({
     schema,
   });
 
-  const { stagedCommands, stageCommand, unstageCommand, discardChanges } = useCrudStore();
+  const { stagedCommands, stageCommand, unstageCommand, discardChanges } =
+    useCrudStore();
   const updateTabMetadata = useWorkbenchStore(
     (state) => state.updateTabMetadata,
   );
@@ -331,7 +332,7 @@ export const TableStructure = memo(function TableStructure({
     if (!searchQuery.trim()) return allGridRows;
     const query = searchQuery.toLowerCase();
     return allGridRows.filter((row) =>
-      row.column_name.toLowerCase().includes(query)
+      row.column_name.toLowerCase().includes(query),
     );
   }, [allGridRows, searchQuery]);
 
@@ -1445,7 +1446,7 @@ export const TableStructure = memo(function TableStructure({
     <>
       <div className="h-full flex flex-col">
         {/* Combined toolbar: table name + actions + search */}
-        <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/30">
+        <div className="flex items-center gap-2 px-0 pb-1.5 pt-0.5 bg-transparent">
           <Input
             id="tableName"
             value={tableNameDraft}
@@ -1497,7 +1498,9 @@ export const TableStructure = memo(function TableStructure({
             <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+              }}
               placeholder="Filter columns..."
               className="h-7 w-40 pl-7 text-xs"
             />

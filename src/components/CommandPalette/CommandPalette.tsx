@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   IconEye,
   IconMathFunction,
@@ -24,6 +30,7 @@ import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import { contextService } from "@/services/contextService";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { databaseService } from "@/services/databaseService";
 import { windowManager } from "@/services/windowManager";
 import { vaultStorage } from "@/services/vaultStorage";
@@ -40,7 +47,14 @@ import { NestedDatabaseList } from "./NestedDatabaseList";
 import { NestedSchemaList } from "./NestedSchemaList";
 import { NestedConnectionList } from "./NestedConnectionList";
 import { ActionsPopover } from "./ActionsPopover";
-import { useItemActions } from "./useItemActions";
+import {
+  useItemActions,
+  getNestedDatabaseActions,
+  getNestedSchemaActions,
+  executeDatabaseAction,
+  executeSchemaAction,
+  type ActionContext,
+} from "./useItemActions";
 
 const MAX_RECENT_ITEMS_EMPTY = 12;
 const MAX_RECENT_ITEMS_SEARCH = 8;
@@ -61,6 +75,7 @@ const UNIFIED_FUSE_OPTIONS: IFuseOptions<UnifiedItem> = {
 
 type ItemGroup =
   | "Recently Used"
+  | "Theme"
   | "Tables"
   | "Views"
   | "Functions"
@@ -68,6 +83,7 @@ type ItemGroup =
 
 const GROUP_ORDER: ItemGroup[] = [
   "Recently Used",
+  "Theme",
   "Tables",
   "Views",
   "Functions",
@@ -84,6 +100,11 @@ function getItemGroup(item: UnifiedItem): ItemGroup {
     case "function":
       return "Functions";
     case "command":
+      if (
+        item.command?.metadata?.paletteGroup === "Theme"
+      ) {
+        return "Theme";
+      }
       return "Commands";
   }
 }
@@ -99,6 +120,9 @@ function getItemIcon(item: UnifiedItem): React.ReactNode {
     case "function":
       return <IconMathFunction className="text-purple-500" />;
     case "command":
+      if (item.command?.icon) {
+        return item.command.icon;
+      }
       return <IconTerminal2 className="text-muted-foreground" />;
   }
 }
@@ -130,6 +154,7 @@ export function CommandPalette(): React.ReactElement {
   const setSelectedDatabase = useWorkspaceSelectionStore(
     (state) => state.setSelectedDatabase,
   );
+  const currentSchema = useWorkspaceSelectionStore((state) => state.schema);
   const setSchema = useWorkspaceSelectionStore((state) => state.setSchema);
 
   const { unifiedItems, isLoading } = useUnifiedItems();
@@ -250,7 +275,67 @@ export function CommandPalette(): React.ReactElement {
   }, [selectedValue, unifiedItems]);
 
   // Get actions for the selected item
-  const { actions, executeAction } = useItemActions(selectedItem, closePalette);
+  const { actions: itemActions, executeAction } = useItemActions(
+    selectedItem,
+    closePalette,
+  );
+
+  // Get actions for nested mode
+  const nestedActions = useMemo(() => {
+    if (!nestedMode) return [];
+
+    const currentConnection = activeConnectionId
+      ? useConnectionStore.getState().getConnection(activeConnectionId)
+      : null;
+    const dbType = currentConnection?.profile.db_type ?? null;
+
+    if (nestedMode.type === "switch-database") {
+      return getNestedDatabaseActions(dbType, query);
+    }
+    if (nestedMode.type === "switch-schema") {
+      return getNestedSchemaActions(dbType, query);
+    }
+    return [];
+  }, [nestedMode, activeConnectionId, query]);
+
+  // Combined actions - use nested actions when in nested mode, otherwise item actions
+  const actions = nestedMode ? nestedActions : itemActions;
+
+  // Get the current connection for nested action context
+  const currentConnection = useConnectionStore((state) =>
+    activeConnectionId ? state.getConnection(activeConnectionId) : undefined,
+  );
+
+  // Handler for executing nested actions
+  const executeNestedAction = useCallback(
+    (actionId: string) => {
+      const context: ActionContext = {
+        connectionId: activeConnectionId,
+        database: selectedDatabase,
+        schema: currentSchema,
+        dbType: currentConnection?.profile.db_type ?? null,
+        closePalette,
+      };
+
+      if (nestedMode?.type === "switch-database") {
+        executeDatabaseAction(actionId, query, context);
+      } else if (nestedMode?.type === "switch-schema") {
+        executeSchemaAction(actionId, query, context);
+      }
+    },
+    [
+      activeConnectionId,
+      selectedDatabase,
+      currentSchema,
+      currentConnection,
+      closePalette,
+      nestedMode,
+      query,
+    ],
+  );
+
+  // Use appropriate action handler based on mode
+  const handleActionExecute = nestedMode ? executeNestedAction : executeAction;
 
   // Close actions popover when palette closes or selection changes
   useEffect(() => {
@@ -406,12 +491,12 @@ export function CommandPalette(): React.ReactElement {
         return;
       }
 
-      // Open actions popover with ⌘K
-      if (e.key === "k" && (e.metaKey || e.ctrlKey) && !nestedMode) {
+      // Toggle actions popover with ⌘K
+      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         e.stopPropagation();
-        if (selectedItem && actions.length > 0) {
-          setActionsOpen(true);
+        if (actions.length > 0) {
+          setActionsOpen((prev) => !prev);
         }
         return;
       }
@@ -424,7 +509,15 @@ export function CommandPalette(): React.ReactElement {
         }
       }
     },
-    [selectedValue, handleSelect, query, nestedMode, exitNestedMode, selectedItem, actions],
+    [
+      selectedValue,
+      handleSelect,
+      query,
+      nestedMode,
+      exitNestedMode,
+      selectedItem,
+      actions,
+    ],
   );
 
   if (!services) {
@@ -456,7 +549,7 @@ export function CommandPalette(): React.ReactElement {
       onKeyDown={handleKeyDown}
       value={selectedValue}
       onValueChange={setSelectedValue}
-      className="min-w-[30vw]!"
+      className="min-w-[560px]!"
     >
       <CommandInput
         placeholder={getInputPlaceholder()}
@@ -465,27 +558,42 @@ export function CommandPalette(): React.ReactElement {
         onBack={nestedMode ? exitNestedMode : undefined}
       />
       {nestedMode ? (
-        nestedMode.type === "switch-database" ? (
-          <NestedDatabaseList
-            listRef={listRef}
-            query={query}
-            onSelect={handleDatabaseSelect}
-            onClose={closePalette}
-          />
-        ) : nestedMode.type === "switch-schema" ? (
-          <NestedSchemaList
-            listRef={listRef}
-            query={query}
-            onClose={closePalette}
-            onSelect={handleSchemaSelect}
-          />
-        ) : (
-          <NestedConnectionList
-            listRef={listRef}
-            query={query}
-            onSelect={handleConnectionSelect}
-          />
-        )
+        <>
+          {nestedMode.type === "switch-database" ? (
+            <NestedDatabaseList
+              listRef={listRef}
+              query={query}
+              onSelect={handleDatabaseSelect}
+            />
+          ) : nestedMode.type === "switch-schema" ? (
+            <NestedSchemaList
+              listRef={listRef}
+              query={query}
+              onSelect={handleSchemaSelect}
+            />
+          ) : (
+            <NestedConnectionList
+              listRef={listRef}
+              query={query}
+              onSelect={handleConnectionSelect}
+            />
+          )}
+          <ActionsPopover
+            open={actionsOpen}
+            onOpenChange={setActionsOpen}
+            actions={actions}
+            onActionSelect={handleActionExecute}
+            triggerRef={actionsButtonRef}
+          >
+            <CommandFooter
+              actionsButtonRef={actionsButtonRef}
+              onActionsClick={() => {
+                setActionsOpen(true);
+              }}
+              showActions={actions.length > 0}
+            />
+          </ActionsPopover>
+        </>
       ) : (
         <>
           <CommandList ref={listRef}>
@@ -528,13 +636,15 @@ export function CommandPalette(): React.ReactElement {
             open={actionsOpen}
             onOpenChange={setActionsOpen}
             actions={actions}
-            onActionSelect={executeAction}
+            onActionSelect={handleActionExecute}
             triggerRef={actionsButtonRef}
           >
             <CommandFooter
               actionsButtonRef={actionsButtonRef}
-              onActionsClick={() => setActionsOpen(true)}
-              showActions={!nestedMode && actions.length > 0}
+              onActionsClick={() => {
+                setActionsOpen(true);
+              }}
+              showActions={actions.length > 0}
             />
           </ActionsPopover>
         </>

@@ -83,7 +83,10 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { IconFilterX, IconPlus } from "@tabler/icons-react";
-import { BackendAPI, type CellValue as BackendCellValue } from "@/services/backend";
+import {
+  BackendAPI,
+  type CellValue as BackendCellValue,
+} from "@/services/backend";
 import type { TableDataRow } from "@/services/tableDataTypes";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { cn } from "@/lib/utils";
@@ -606,15 +609,20 @@ export const TableDataGrid = memo(function TableDataGrid(
         isLoadingMore: props.isStreaming ?? false,
         error: props.error ?? null,
         // Use columnMeta if available, otherwise generate basic column info from column names
-        columns: queryData?.columnMeta ?? (queryData?.columns?.map((name, idx): ColumnMeta => ({
-          name,
-          db_type: "text",
-          nullable: true,
-          default: null,
-          ordinal: idx,
-          is_pk: false,
-          is_fk: false,
-        })) ?? []),
+        columns:
+          queryData?.columnMeta ??
+          queryData?.columns?.map(
+            (name, idx): ColumnMeta => ({
+              name,
+              db_type: "text",
+              nullable: true,
+              default: null,
+              ordinal: idx,
+              is_pk: false,
+              is_fk: false,
+            }),
+          ) ??
+          [],
         rows: transformedQueryRows,
         estimatedTotal: undefined,
         executionTime: props.executionTime,
@@ -1334,7 +1342,6 @@ export const TableDataGrid = memo(function TableDataGrid(
     gridRef: gridRef,
   });
 
-
   // Combine hover handlers and track context menu target
   const handleItemHovered = useCallback(
     (args: Parameters<typeof handleCellHovered>[0]) => {
@@ -1800,7 +1807,11 @@ export const TableDataGrid = memo(function TableDataGrid(
     try {
       const adapter = await getAdapterForConnection(connectionId);
       const sql = adapter.refreshMaterializedView(schema, table) as string;
-      logger.info("[TableDataGrid] Refreshing materialized view:", { schema, table, sql });
+      logger.info("[TableDataGrid] Refreshing materialized view:", {
+        schema,
+        table,
+        sql,
+      });
 
       // Use queryStreamClient to execute DDL - consistent with rest of codebase
       await queryStreamClient.streamWithCallbacks(
@@ -2187,7 +2198,7 @@ export const TableDataGrid = memo(function TableDataGrid(
         >
           {/* Keep the filter toolbar visible */}
           {(filterColumns.length > 0 || toolbarActions) && (
-            <div className="flex-none flex items-center gap-2 pb-1.5 pt-1">
+            <div className="flex-none flex items-center gap-2 pb-1.5 pt-0.5">
               {filterColumns.length > 0 && (
                 <div className="flex-1 min-w-0">
                   <QuickFilter
@@ -2245,7 +2256,7 @@ export const TableDataGrid = memo(function TableDataGrid(
     >
       {/* Result toolbar - filter + actions (Pin, Export) */}
       {(filterColumns.length > 0 || toolbarActions) && (
-        <div className="flex-none flex items-center gap-2 pb-1.5 pt-1">
+        <div className="flex-none flex items-center gap-2 pb-1.5 pt-0.5">
           {filterColumns.length > 0 && (
             <div className="flex-1 min-w-0">
               <QuickFilter
@@ -2390,7 +2401,6 @@ export const TableDataGrid = memo(function TableDataGrid(
             />
           </UnifiedContextMenu>
         )}
-
       </div>
 
       {/* FK Preview Popover - uses fixed positioning with viewport coordinates */}

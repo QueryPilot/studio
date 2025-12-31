@@ -8,10 +8,14 @@ import {
   type ActionItem,
   type ActionContext,
 } from "./actions";
+
+export type { ActionContext };
 import {
   openTableObject,
   openFunctionObject,
-  openQueryWithTemplate,
+  openQueryWithSql,
+  getCreateDatabaseTemplate,
+  getCreateSchemaTemplate,
 } from "@/utils/workbench/openers";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
@@ -303,21 +307,31 @@ async function executeActionHandler(
 }
 
 /**
- * Get actions for schema items in nested schema list
+ * Sanitize a name for database/schema creation
+ * - Trim whitespace
+ * - Replace spaces with underscores
+ * - Remove invalid characters
  */
-export function getSchemaActions(dbType: DbType | null): ActionItem[] {
-  const actions: ActionItem[] = [
-    {
-      id: ACTION_IDS.MARK_AS_DEFAULT,
-      label: "Mark as Default",
-      shortcut: "D",
-    },
-  ];
+function sanitizeName(name: string): string {
+  return name
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-zA-Z0-9_]/g, "")
+    .toLowerCase();
+}
 
-  if (dbType && SCHEMA_CREATION_SUPPORTED.includes(dbType)) {
+/**
+ * Get actions for nested database list view
+ */
+export function getNestedDatabaseActions(dbType: DbType | null, query: string): ActionItem[] {
+  const actions: ActionItem[] = [];
+
+  if (dbType && DATABASE_CREATION_SUPPORTED.includes(dbType)) {
+    const sanitizedName = sanitizeName(query);
+    const displayName = sanitizedName || "new_database";
     actions.push({
-      id: ACTION_IDS.CREATE_SCHEMA,
-      label: "Create New Schema",
+      id: ACTION_IDS.CREATE_DATABASE,
+      label: `Create Database "${displayName}"`,
       shortcut: "N",
     });
   }
@@ -326,15 +340,17 @@ export function getSchemaActions(dbType: DbType | null): ActionItem[] {
 }
 
 /**
- * Get actions for database items in nested database list
+ * Get actions for nested schema list view
  */
-export function getDatabaseActions(dbType: DbType | null): ActionItem[] {
+export function getNestedSchemaActions(dbType: DbType | null, query: string): ActionItem[] {
   const actions: ActionItem[] = [];
 
-  if (dbType && DATABASE_CREATION_SUPPORTED.includes(dbType)) {
+  if (dbType && SCHEMA_CREATION_SUPPORTED.includes(dbType)) {
+    const sanitizedName = sanitizeName(query);
+    const displayName = sanitizedName || "new_schema";
     actions.push({
-      id: ACTION_IDS.CREATE_DATABASE,
-      label: "Create New Database",
+      id: ACTION_IDS.CREATE_SCHEMA,
+      label: `Create Schema "${displayName}"`,
       shortcut: "N",
     });
   }
@@ -347,16 +363,17 @@ export function getDatabaseActions(dbType: DbType | null): ActionItem[] {
  */
 export function executeSchemaAction(
   actionId: string,
-  schemaName: string,
+  query: string,
   context: ActionContext
 ): void {
-  const { connectionId, database, closePalette } = context;
+  const { connectionId, database, closePalette, dbType } = context;
 
   switch (actionId) {
     case ACTION_IDS.MARK_AS_DEFAULT: {
       // This would update the connection profile's default_schema
       // For now, just show a toast - the actual implementation
       // would need to update the vault storage
+      const schemaName = sanitizeName(query) || "schema";
       toast.info(`Marked "${schemaName}" as default schema`);
       closePalette();
       break;
@@ -364,11 +381,15 @@ export function executeSchemaAction(
 
     case ACTION_IDS.CREATE_SCHEMA: {
       if (!connectionId) return;
-      openQueryWithTemplate({
+      // Use sanitized query as the schema name, fallback to "new_schema"
+      const schemaName = sanitizeName(query) || "new_schema";
+      const sql = getCreateSchemaTemplate(dbType, schemaName);
+      openQueryWithSql({
         connectionId,
         database,
-        schema: schemaName,
-        objectType: "schema",
+        schema: null,
+        sql,
+        title: `Create Schema "${schemaName}"`,
       });
       closePalette();
       break;
@@ -379,48 +400,28 @@ export function executeSchemaAction(
 /**
  * Execute database-specific actions
  */
-export async function executeDatabaseAction(
+export function executeDatabaseAction(
   actionId: string,
-  _databaseName: string,
+  query: string,
   context: ActionContext
-): Promise<void> {
-  const { connectionId, closePalette, dbType } = context;
+): void {
+  const { connectionId, database, closePalette, dbType } = context;
 
   switch (actionId) {
     case ACTION_IDS.CREATE_DATABASE: {
       if (!connectionId) return;
-      // Open a query tab with CREATE DATABASE template
-      // The template varies by database type
-      const template = getCreateDatabaseTemplate(dbType, "new_database");
-      // For now, copy to clipboard since we need a way to open query without schema context
-      await navigator.clipboard.writeText(template);
-      toast.success("CREATE DATABASE template copied to clipboard");
+      // Use sanitized query as the database name, fallback to "new_database"
+      const dbName = sanitizeName(query) || "new_database";
+      const sql = getCreateDatabaseTemplate(dbType, dbName);
+      openQueryWithSql({
+        connectionId,
+        database,
+        schema: null,
+        sql,
+        title: `Create Database "${dbName}"`,
+      });
       closePalette();
       break;
     }
-  }
-}
-
-function getCreateDatabaseTemplate(dbType: DbType | null, dbName: string): string {
-  switch (dbType) {
-    case DbType.PostgreSQL:
-      return `CREATE DATABASE "${dbName}"
-  WITH
-  OWNER = current_user
-  ENCODING = 'UTF8'
-  LC_COLLATE = 'en_US.UTF-8'
-  LC_CTYPE = 'en_US.UTF-8'
-  TEMPLATE = template0;`;
-
-    case DbType.MySQL:
-      return `CREATE DATABASE \`${dbName}\`
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;`;
-
-    case DbType.SQLServer:
-      return `CREATE DATABASE [${dbName}];`;
-
-    default:
-      return `CREATE DATABASE ${dbName};`;
   }
 }

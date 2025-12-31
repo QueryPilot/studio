@@ -1,10 +1,11 @@
 import { IconSettings, IconMoon, IconSun } from '@tabler/icons-react';
-import { useTheme } from '@/components/theme-provider';
+import { useAppStore } from '@/stores/appStore';
 import { usePreferencesStore } from '@/stores/preferencesStore';
 import { cn } from '@/lib/utils';
 
 export function ActionBarFooter() {
-  const { theme, setTheme } = useTheme();
+  const theme = useAppStore((state) => state.theme);
+  const setTheme = useAppStore((state) => state.setTheme);
   const { openPreferences } = usePreferencesStore();
 
   const handleToggleTheme = () => {

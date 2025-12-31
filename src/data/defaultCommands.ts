@@ -17,6 +17,11 @@ import React from "react";
 import { ConfirmationToast } from "@/components/ConfirmationToast";
 import { eventBus } from "@/services/eventBus";
 import { windowManager } from "@/services/windowManager";
+import {
+  openQueryWithSql,
+  getCreateDatabaseTemplate,
+  getCreateSchemaTemplate,
+} from "@/utils/workbench/openers";
 
 const commandPaletteStore = useCommandPaletteStore.getState();
 const dialogStore = useDialogStore.getState();
@@ -523,25 +528,78 @@ export const defaultCommands: Command[] = [
       window.location.reload();
     },
   },
-  // Switch Database/Schema Commands
+  // Open Database/Schema Commands
   {
-    id: "workspace.switchDatabase",
-    label: "Switch Database",
+    id: "workspace.openDatabase",
+    label: "Open Database",
     category: "Workspace",
-    description: "Switch to a different database on this server",
+    description: "Open a different database on this server",
     handler: () => {
       const store = useCommandPaletteStore.getState();
       store.setNestedMode({ type: "switch-database" });
     },
   },
   {
-    id: "workspace.switchSchema",
-    label: "Switch Schema",
+    id: "workspace.openSchema",
+    label: "Open Schema",
     category: "Workspace",
-    description: "Switch to a different schema",
+    description: "Open a different schema",
     handler: () => {
       const store = useCommandPaletteStore.getState();
       store.setNestedMode({ type: "switch-schema" });
+    },
+  },
+  // Create Database/Schema Commands
+  {
+    id: "workspace.createDatabase",
+    label: "Create Database",
+    category: "Workspace",
+    description: "Create a new database",
+    handler: () => {
+      const workspaceSelection = useWorkspaceSelectionStore.getState();
+      const connectionStore = useConnectionStore.getState();
+      const connectionId = workspaceSelection.connectionId;
+      if (!connectionId) {
+        toast.error("No active connection");
+        return;
+      }
+      const connection = connectionStore.getConnection(connectionId);
+      const dbType = connection?.profile.db_type ?? null;
+      const sql = getCreateDatabaseTemplate(dbType, "new_database");
+      openQueryWithSql({
+        connectionId,
+        database: workspaceSelection.database,
+        schema: null,
+        sql,
+        title: "Create Database",
+      });
+      commandPaletteStore.closePalette();
+    },
+  },
+  {
+    id: "workspace.createSchema",
+    label: "Create Schema",
+    category: "Workspace",
+    description: "Create a new schema",
+    handler: () => {
+      const workspaceSelection = useWorkspaceSelectionStore.getState();
+      const connectionStore = useConnectionStore.getState();
+      const connectionId = workspaceSelection.connectionId;
+      if (!connectionId) {
+        toast.error("No active connection");
+        return;
+      }
+      const connection = connectionStore.getConnection(connectionId);
+      const dbType = connection?.profile.db_type ?? null;
+      const sql = getCreateSchemaTemplate(dbType, "new_schema");
+      openQueryWithSql({
+        connectionId,
+        database: workspaceSelection.database,
+        schema: null,
+        sql,
+        title: "Create Schema",
+      });
+      commandPaletteStore.closePalette();
     },
   },
   {

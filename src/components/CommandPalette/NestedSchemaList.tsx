@@ -1,8 +1,7 @@
 import React, { useMemo } from "react";
-import { IconCheck, IconLoader2, IconPlus, IconStarFilled } from "@tabler/icons-react";
+import { IconCheck, IconLoader2, IconStarFilled } from "@tabler/icons-react";
 import Fuse, { type IFuseOptions } from "fuse.js";
 import { useQuery } from "@tanstack/react-query";
-import { toast } from "sonner";
 
 import {
   CommandEmpty,
@@ -14,8 +13,6 @@ import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { databaseService } from "@/services/databaseService";
 import { cn } from "@/lib/utils";
-import { DbType } from "@/types/connection";
-import { SCHEMA_CREATION_SUPPORTED } from "./actions";
 
 interface SchemaItem {
   name: string;
@@ -34,14 +31,12 @@ interface NestedSchemaListProps {
   listRef?: React.RefObject<HTMLDivElement | null>;
   query: string;
   onSelect: (schema: string) => void;
-  onClose: () => void;
 }
 
 export function NestedSchemaList({
   listRef,
   query,
   onSelect,
-  onClose,
 }: NestedSchemaListProps): React.ReactElement {
   const connectionId = useWorkspaceSelectionStore(
     (state) => state.connectionId,
@@ -54,8 +49,6 @@ export function NestedSchemaList({
     connectionId ? state.getConnection(connectionId) : undefined,
   );
   const connectionDefaultSchema = currentConnection?.profile.default_schema;
-  const dbType = currentConnection?.profile.db_type ?? null;
-  const supportsCreateSchema = dbType && SCHEMA_CREATION_SUPPORTED.includes(dbType);
 
   // Query for schemas list
   const {
@@ -124,13 +117,6 @@ export function NestedSchemaList({
     );
   }
 
-  const handleCreateSchema = async () => {
-    const template = getCreateSchemaTemplate(dbType);
-    await navigator.clipboard.writeText(template);
-    toast.success("CREATE SCHEMA template copied to clipboard");
-    onClose();
-  };
-
   return (
     <CommandList ref={listRef}>
       <CommandEmpty>No schemas found.</CommandEmpty>
@@ -168,44 +154,6 @@ export function NestedSchemaList({
           </CommandItem>
         ))}
       </CommandGroup>
-
-      {supportsCreateSchema && (
-        <CommandGroup heading="Commands">
-          <CommandItem
-            value="create-schema"
-            onSelect={handleCreateSchema}
-          >
-            <div className="flex items-center gap-2">
-              <IconPlus className="size-4 text-muted-foreground" />
-              <span>Create Schema</span>
-            </div>
-          </CommandItem>
-        </CommandGroup>
-      )}
     </CommandList>
   );
-}
-
-function getCreateSchemaTemplate(dbType: DbType | null): string {
-  const schemaName = "new_schema";
-  switch (dbType) {
-    case DbType.PostgreSQL:
-      return `CREATE SCHEMA "${schemaName}"
-  AUTHORIZATION current_user;
-
--- Optional: Grant permissions
--- GRANT USAGE ON SCHEMA "${schemaName}" TO some_role;
--- GRANT ALL ON ALL TABLES IN SCHEMA "${schemaName}" TO some_role;`;
-
-    case DbType.MySQL:
-      return `CREATE SCHEMA \`${schemaName}\`
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;`;
-
-    case DbType.SQLServer:
-      return `CREATE SCHEMA [${schemaName}];`;
-
-    default:
-      return `CREATE SCHEMA ${schemaName};`;
-  }
 }

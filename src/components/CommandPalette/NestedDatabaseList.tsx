@@ -3,11 +3,9 @@ import {
   IconCheck,
   IconCircleFilled,
   IconLoader2,
-  IconPlus,
 } from "@tabler/icons-react";
 import Fuse, { type IFuseOptions } from "fuse.js";
 import { useQuery } from "@tanstack/react-query";
-import { toast } from "sonner";
 
 import {
   CommandEmpty,
@@ -19,8 +17,6 @@ import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { databaseService } from "@/services/databaseService";
 import { cn } from "@/lib/utils";
-import { DbType } from "@/types/connection";
-import { DATABASE_CREATION_SUPPORTED } from "./actions";
 
 interface DatabaseItem {
   name: string;
@@ -39,14 +35,12 @@ interface NestedDatabaseListProps {
   listRef?: React.RefObject<HTMLDivElement | null>;
   query: string;
   onSelect: (database: string) => void;
-  onClose: () => void;
 }
 
 export function NestedDatabaseList({
   listRef,
   query,
   onSelect,
-  onClose,
 }: NestedDatabaseListProps): React.ReactElement {
   const connectionId = useWorkspaceSelectionStore((state) => state.connectionId);
   const currentDatabase = useWorkspaceSelectionStore((state) => state.database);
@@ -54,9 +48,6 @@ export function NestedDatabaseList({
   const currentConnection = useConnectionStore((state) =>
     connectionId ? state.getConnection(connectionId) : undefined
   );
-
-  const dbType = currentConnection?.profile.db_type ?? null;
-  const supportsCreateDatabase = dbType && DATABASE_CREATION_SUPPORTED.includes(dbType);
 
   // Query for databases list
   const {
@@ -129,13 +120,6 @@ export function NestedDatabaseList({
     );
   }
 
-  const handleCreateDatabase = async () => {
-    const template = getCreateDatabaseTemplate(dbType);
-    await navigator.clipboard.writeText(template);
-    toast.success("CREATE DATABASE template copied to clipboard");
-    onClose();
-  };
-
   return (
     <CommandList ref={listRef}>
       <CommandEmpty>No databases found.</CommandEmpty>
@@ -171,45 +155,6 @@ export function NestedDatabaseList({
           </CommandItem>
         ))}
       </CommandGroup>
-
-      {supportsCreateDatabase && (
-        <CommandGroup heading="Commands">
-          <CommandItem
-            value="create-database"
-            onSelect={handleCreateDatabase}
-          >
-            <div className="flex items-center gap-2">
-              <IconPlus className="size-4 text-muted-foreground" />
-              <span>Create Database</span>
-            </div>
-          </CommandItem>
-        </CommandGroup>
-      )}
     </CommandList>
   );
-}
-
-function getCreateDatabaseTemplate(dbType: DbType | null): string {
-  const dbName = "new_database";
-  switch (dbType) {
-    case DbType.PostgreSQL:
-      return `CREATE DATABASE "${dbName}"
-  WITH
-  OWNER = current_user
-  ENCODING = 'UTF8'
-  LC_COLLATE = 'en_US.UTF-8'
-  LC_CTYPE = 'en_US.UTF-8'
-  TEMPLATE = template0;`;
-
-    case DbType.MySQL:
-      return `CREATE DATABASE \`${dbName}\`
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;`;
-
-    case DbType.SQLServer:
-      return `CREATE DATABASE [${dbName}];`;
-
-    default:
-      return `CREATE DATABASE ${dbName};`;
-  }
 }

@@ -188,7 +188,7 @@ function CommandItem({
       {...props}
     >
       {children}
-      <IconCheck className="ml-auto opacity-0 group-has-data-[slot=command-shortcut]/command-item:hidden group-data-[checked=true]/command-item:opacity-100" />
+      <IconCheck className="ml-auto hidden group-data-[checked=true]/command-item:block" />
     </CommandPrimitive.Item>
   );
 }
@@ -223,14 +223,14 @@ function CommandFooter({
   ...props
 }: CommandFooterProps) {
   const isMac =
-    typeof navigator !== "undefined" && navigator.platform.includes("Mac");
+    typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
   const modKey = isMac ? "⌘" : "Ctrl";
 
   return (
     <div
       data-slot="command-footer"
       className={cn(
-        "border-t border-border/50 bg-muted/30 px-3 py-2 text-[10px] text-muted-foreground flex items-center gap-4",
+        "border-t border-border/50 bg-muted/30 px-3 py-2 text-[10px] text-muted-foreground flex items-center gap-4 -mb-1",
         className,
       )}
       {...props}

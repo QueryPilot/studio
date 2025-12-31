@@ -2,10 +2,60 @@ import { type TableMeta, type FunctionMeta } from '@/services/databaseService';
 import useWorkbenchStore from '@/stores/workbenchStore';
 import { usePanelStore } from '@/stores/panelStore';
 import { nanoid } from 'nanoid';
+import { DbType } from '@/types/connection';
 
 type TableViewType = 'data' | 'structure' | 'indexes';
 
-// SQL templates for creating database objects
+// Dialect-aware SQL templates for CREATE DATABASE
+export function getCreateDatabaseTemplate(dbType: DbType | null, dbName: string): string {
+  switch (dbType) {
+    case DbType.PostgreSQL:
+      return `CREATE DATABASE "${dbName}"
+  WITH
+  OWNER = current_user
+  ENCODING = 'UTF8'
+  LC_COLLATE = 'en_US.UTF-8'
+  LC_CTYPE = 'en_US.UTF-8'
+  TEMPLATE = template0;`;
+
+    case DbType.MySQL:
+      return `CREATE DATABASE \`${dbName}\`
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;`;
+
+    case DbType.SQLServer:
+      return `CREATE DATABASE [${dbName}];`;
+
+    default:
+      return `CREATE DATABASE ${dbName};`;
+  }
+}
+
+// Dialect-aware SQL templates for CREATE SCHEMA
+export function getCreateSchemaTemplate(dbType: DbType | null, schemaName: string): string {
+  switch (dbType) {
+    case DbType.PostgreSQL:
+      return `CREATE SCHEMA "${schemaName}"
+  AUTHORIZATION current_user;
+
+-- Optional: Grant permissions
+-- GRANT USAGE ON SCHEMA "${schemaName}" TO some_role;
+-- GRANT ALL ON ALL TABLES IN SCHEMA "${schemaName}" TO some_role;`;
+
+    case DbType.MySQL:
+      return `CREATE SCHEMA \`${schemaName}\`
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;`;
+
+    case DbType.SQLServer:
+      return `CREATE SCHEMA [${schemaName}];`;
+
+    default:
+      return `CREATE SCHEMA ${schemaName};`;
+  }
+}
+
+// SQL templates for creating database objects (PostgreSQL-specific for now)
 const SQL_TEMPLATES = {
   schema: (_schema: string) => `CREATE SCHEMA "new_schema_name"
   AUTHORIZATION current_user;
@@ -92,6 +142,50 @@ interface OpenQueryWithTemplateParams {
   database: string | null;
   schema: string | null;
   objectType: CreateObjectType;
+}
+
+interface OpenQueryWithSqlParams {
+  connectionId: string;
+  database: string | null;
+  schema: string | null;
+  sql: string;
+  title: string;
+}
+
+/**
+ * Open a new query tab with custom SQL content
+ */
+export function openQueryWithSql({
+  connectionId,
+  database,
+  schema,
+  sql,
+  title,
+}: OpenQueryWithSqlParams): void {
+  const { focusedPanelId, addTab, panelContents, focusPanel } =
+    useWorkbenchStore.getState();
+
+  let targetPanelId = focusedPanelId;
+  if (!targetPanelId && panelContents.size > 0) {
+    const firstPanelId = Array.from(panelContents.keys())[0];
+    if (firstPanelId) {
+      targetPanelId = firstPanelId;
+      focusPanel(firstPanelId);
+    }
+  }
+
+  if (!targetPanelId) return;
+
+  const tabId = `query-custom-${Date.now()}`;
+
+  addTab(targetPanelId, tabId, {
+    type: 'query',
+    title,
+    connectionId,
+    database: database ?? undefined,
+    schema: schema ?? undefined,
+    sql,
+  });
 }
 
 interface OpenTableDesignerParams {
