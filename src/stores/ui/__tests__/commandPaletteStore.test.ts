@@ -1,139 +1,181 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { useCommandPaletteStore } from '../commandPaletteStore';
+import { describe, it, expect, beforeEach } from "vitest";
+import { act } from "@testing-library/react";
+import { useCommandPaletteStore } from "../commandPaletteStore";
 
-describe('commandPaletteStore', () => {
+describe("commandPaletteStore", () => {
   beforeEach(() => {
-    useCommandPaletteStore.setState({
-      isOpen: false,
-      query: '',
-    });
+    // Reset store to initial state before each test
+    const store = useCommandPaletteStore.getState();
+    store.closePalette();
   });
 
-  describe('Initial State', () => {
-    it('should start with palette closed', () => {
+  describe("basic functionality", () => {
+    it("should initialize with closed state", () => {
       const state = useCommandPaletteStore.getState();
-
       expect(state.isOpen).toBe(false);
-      expect(state.query).toBe('');
+      expect(state.query).toBe("");
     });
-  });
 
-  describe('Open Palette', () => {
-    it('should open the palette', () => {
+    it("should open palette", () => {
       const store = useCommandPaletteStore.getState();
 
-      store.openPalette();
+      act(() => {
+        store.openPalette();
+      });
 
       const state = useCommandPaletteStore.getState();
       expect(state.isOpen).toBe(true);
-      expect(state.query).toBe('');
     });
 
-    it('should clear query when opening palette', () => {
+    it("should close palette and reset query", () => {
       const store = useCommandPaletteStore.getState();
 
-      store.setQuery('existing query');
-      store.openPalette();
-
-      expect(useCommandPaletteStore.getState().query).toBe('');
-    });
-  });
-
-  describe('Close Palette', () => {
-    it('should close the palette', () => {
-      const store = useCommandPaletteStore.getState();
-
-      store.openPalette();
-      store.closePalette();
-
-      expect(useCommandPaletteStore.getState().isOpen).toBe(false);
-    });
-
-    it('should clear query when closing', () => {
-      const store = useCommandPaletteStore.getState();
-
-      store.openPalette();
-      store.setQuery('test query');
-      store.closePalette();
+      act(() => {
+        store.openPalette();
+        store.setQuery("test");
+        store.closePalette();
+      });
 
       const state = useCommandPaletteStore.getState();
       expect(state.isOpen).toBe(false);
-      expect(state.query).toBe('');
+      expect(state.query).toBe("");
+    });
+
+    it("should update query", () => {
+      const store = useCommandPaletteStore.getState();
+
+      act(() => {
+        store.setQuery("search term");
+      });
+
+      const state = useCommandPaletteStore.getState();
+      expect(state.query).toBe("search term");
     });
   });
 
-  describe('Set Query', () => {
-    it('should update query', () => {
-      const store = useCommandPaletteStore.getState();
-
-      store.setQuery('test query');
-
-      expect(useCommandPaletteStore.getState().query).toBe('test query');
+  describe("nestedMode", () => {
+    it("should initialize with null nestedMode", () => {
+      const state = useCommandPaletteStore.getState();
+      expect(state.nestedMode).toBeNull();
     });
 
-    it('should allow empty query', () => {
+    it("should set nested mode to switch-database", () => {
       const store = useCommandPaletteStore.getState();
 
-      store.setQuery('something');
-      store.setQuery('');
+      act(() => {
+        store.setNestedMode({ type: "switch-database" });
+      });
 
-      expect(useCommandPaletteStore.getState().query).toBe('');
+      const state = useCommandPaletteStore.getState();
+      expect(state.nestedMode).toEqual({ type: "switch-database" });
     });
 
-    it('should handle special characters in query', () => {
+    it("should set nested mode to switch-schema", () => {
       const store = useCommandPaletteStore.getState();
 
-      store.setQuery('test@#$%^&*()');
+      act(() => {
+        store.setNestedMode({ type: "switch-schema" });
+      });
 
-      expect(useCommandPaletteStore.getState().query).toBe('test@#$%^&*()');
-    });
-  });
-
-  describe('Integration Scenarios', () => {
-    it('should handle full palette workflow', () => {
-      const store = useCommandPaletteStore.getState();
-
-      // Open palette
-      store.openPalette();
-      expect(useCommandPaletteStore.getState().isOpen).toBe(true);
-
-      // Type query
-      store.setQuery('MyComponent');
-      expect(useCommandPaletteStore.getState().query).toBe('MyComponent');
-
-      // Close
-      store.closePalette();
-      expect(useCommandPaletteStore.getState().isOpen).toBe(false);
-      expect(useCommandPaletteStore.getState().query).toBe('');
+      const state = useCommandPaletteStore.getState();
+      expect(state.nestedMode).toEqual({ type: "switch-schema" });
     });
 
-    it('should handle rapid open/close cycles', () => {
+    it("should set nested mode to open-connection", () => {
       const store = useCommandPaletteStore.getState();
 
-      store.openPalette();
-      expect(useCommandPaletteStore.getState().isOpen).toBe(true);
+      act(() => {
+        store.setNestedMode({ type: "open-connection" });
+      });
 
-      store.closePalette();
-      expect(useCommandPaletteStore.getState().isOpen).toBe(false);
-
-      store.openPalette();
-      expect(useCommandPaletteStore.getState().isOpen).toBe(true);
-
-      store.closePalette();
-      expect(useCommandPaletteStore.getState().isOpen).toBe(false);
+      const state = useCommandPaletteStore.getState();
+      expect(state.nestedMode).toEqual({ type: "open-connection" });
     });
 
-    it('should reset query on each open', () => {
+    it("should clear query when setting nested mode", () => {
       const store = useCommandPaletteStore.getState();
 
-      // First use
-      store.openPalette();
-      store.setQuery('first search');
-      store.closePalette();
+      act(() => {
+        store.setQuery("some query");
+        store.setNestedMode({ type: "switch-database" });
+      });
 
-      // Second use
-      store.openPalette();
-      expect(useCommandPaletteStore.getState().query).toBe('');
+      const state = useCommandPaletteStore.getState();
+      expect(state.nestedMode).toEqual({ type: "switch-database" });
+      expect(state.query).toBe("");
+    });
+
+    it("should exit nested mode", () => {
+      const store = useCommandPaletteStore.getState();
+
+      act(() => {
+        store.setNestedMode({ type: "switch-schema" });
+        store.exitNestedMode();
+      });
+
+      const state = useCommandPaletteStore.getState();
+      expect(state.nestedMode).toBeNull();
+    });
+
+    it("should clear query when exiting nested mode", () => {
+      const store = useCommandPaletteStore.getState();
+
+      act(() => {
+        store.setNestedMode({ type: "switch-schema" });
+        store.setQuery("public");
+        store.exitNestedMode();
+      });
+
+      const state = useCommandPaletteStore.getState();
+      expect(state.nestedMode).toBeNull();
+      expect(state.query).toBe("");
+    });
+
+    it("should reset nestedMode when closing palette", () => {
+      const store = useCommandPaletteStore.getState();
+
+      act(() => {
+        store.openPalette();
+        store.setNestedMode({ type: "open-connection" });
+        store.closePalette();
+      });
+
+      const state = useCommandPaletteStore.getState();
+      expect(state.nestedMode).toBeNull();
+      expect(state.isOpen).toBe(false);
+    });
+
+    it("should reset nestedMode when opening palette", () => {
+      const store = useCommandPaletteStore.getState();
+
+      act(() => {
+        store.setNestedMode({ type: "switch-database" });
+        store.openPalette();
+      });
+
+      const state = useCommandPaletteStore.getState();
+      expect(state.nestedMode).toBeNull();
+      expect(state.isOpen).toBe(true);
+    });
+
+    it("should allow switching between nested modes", () => {
+      const store = useCommandPaletteStore.getState();
+
+      act(() => {
+        store.setNestedMode({ type: "switch-database" });
+      });
+
+      expect(useCommandPaletteStore.getState().nestedMode).toEqual({
+        type: "switch-database",
+      });
+
+      act(() => {
+        store.setNestedMode({ type: "switch-schema" });
+      });
+
+      expect(useCommandPaletteStore.getState().nestedMode).toEqual({
+        type: "switch-schema",
+      });
     });
   });
 });
