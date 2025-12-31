@@ -6,6 +6,7 @@ import { useKeyboardServices } from "@/components/KeyboardProvider";
 import type { FunctionMeta, TableMeta } from "@/services/databaseService";
 import { useSchemaData } from "@/hooks/useSchemaData";
 import { formatNumber } from "@/utils/formatters";
+import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 
 export interface CategorizedCommand extends CommandDescriptor {
   keybinding?: ResolvedKeybinding;
@@ -177,6 +178,10 @@ export function useQuickOpenItems() {
 export function useUnifiedItems() {
   const { data: commands = [], isLoading: isLoadingCommands } = useCommands();
   const { quickItems, isLoading: isLoadingQuickOpen } = useQuickOpenItems();
+  const connectionId = useWorkspaceSelectionStore((state) => state.connectionId);
+
+  // Determine if we're in a workspace context
+  const isInWorkspace = !!connectionId;
 
   const unifiedItems = useMemo<UnifiedItem[]>(() => {
     const items: UnifiedItem[] = [];
@@ -206,8 +211,24 @@ export function useUnifiedItems() {
       }
     }
 
-    // Add commands
-    for (const command of commands) {
+    // Filter commands based on context
+    const contextFilteredCommands = commands.filter((cmd) => {
+      // Workspace-only commands - only show when in a workspace
+      if (
+        cmd.id === "workspace.switchDatabase" ||
+        cmd.id === "workspace.switchSchema"
+      ) {
+        return isInWorkspace;
+      }
+      // Home-only commands - only show when NOT in a workspace
+      if (cmd.id === "connection.open") {
+        return !isInWorkspace;
+      }
+      return true;
+    });
+
+    // Add filtered commands
+    for (const command of contextFilteredCommands) {
       items.push({
         id: `command:${command.id}`,
         type: "command",
@@ -224,7 +245,7 @@ export function useUnifiedItems() {
     }
 
     return items;
-  }, [commands, quickItems]);
+  }, [commands, quickItems, isInWorkspace]);
 
   return {
     unifiedItems,
