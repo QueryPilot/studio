@@ -1,6 +1,6 @@
 import { memo, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { IconPlus, IconCheck, IconX } from '@tabler/icons-react';
+import { IconPlus, IconCheck, IconX } from "@tabler/icons-react";
 
 interface TableActionsToolbarProps {
   /** Label for the add button. If not provided, add button is hidden. */
@@ -87,7 +87,7 @@ export const TableActionsToolbar = memo(function TableActionsToolbar({
   }
 
   return (
-    <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/30">
+    <div className="flex items-center gap-2 px-0 pb-1.5 pt-0.5 bg-transparent">
       {content}
     </div>
   );

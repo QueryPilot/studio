@@ -20,4 +20,5 @@ export {
   getAllStatements,
   getStatementAtPosition,
   getStatementsInRange,
+  isDestructiveQuery,
 } from "./query-utils";

@@ -1,9 +1,10 @@
 import { IconMoon, IconSun } from '@tabler/icons-react';
-import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
+import { useAppStore } from "@/stores/appStore";
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
+  const theme = useAppStore((state) => state.theme);
+  const setTheme = useAppStore((state) => state.setTheme);
 
   return (
     <Button

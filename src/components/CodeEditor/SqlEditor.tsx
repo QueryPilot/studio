@@ -17,6 +17,7 @@ import {
   forwardRef,
   useImperativeHandle,
   useState,
+  useCallback,
   memo,
 } from "react";
 import { EditorState, Compartment, Prec } from "@codemirror/state";
@@ -64,10 +65,12 @@ import { lintGutter } from "@codemirror/lint";
 
 import { useTheme } from "@/components/theme-provider";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
+import { eventBus } from "@/services/eventBus";
 import { debounce } from "@/utils/debounce";
 import { detectSqlDialect } from "@/utils/dialectDetector";
 import { getThemeExtensions } from "./themes";
-import { getQueryAtCursor, getStatementAtPosition } from "./core";
+import { getQueryAtCursor, getStatementAtPosition, isDestructiveQuery } from "./core";
+import { sqlFoldService } from "./extensions";
 
 // Extensions
 import { createMultiCursorExtension } from "./extensions/multi-cursor";
@@ -89,6 +92,15 @@ import { createSqlHoverExtension } from "./languages/sql/hover";
 import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";
 import { createExpandStarExtension } from "./languages/sql/code-actions";
 import { createOptimizedCompletionSource } from "./languages/sql/optimized-completion";
+import {
+  acquireLinterWorker,
+  releaseLinterWorker,
+} from "./languages/sql/linter-worker-manager";
+import {
+  acquirePgParserWorker,
+  releasePgParserWorker,
+} from "./languages/sql/pg-parser-worker-manager";
+import { usesWorkerLinter } from "./languages/sql/linter-strategy";
 
 import type { SqlDialect } from "./types";
 
@@ -252,49 +264,98 @@ export const SqlEditor = memo(
     const { resolvedTheme } = useTheme();
     const keyboardServices = useKeyboardServicesOptional();
     const contextServiceRef = useRef(keyboardServices?.contextService);
-    contextServiceRef.current = keyboardServices?.contextService;
     const [currentDialect, setCurrentDialect] = useState<SqlDialect>(() =>
       detectSqlDialect(dbType, initialValue),
     );
 
     // Instance-level compartments - fixes state corruption across multiple editors
-    const compartmentsRef = useRef<EditorCompartments | null>(null);
-    if (!compartmentsRef.current) {
-      compartmentsRef.current = createCompartments();
-    }
-    const compartments = compartmentsRef.current;
+    // Using useState initializer ensures these are created exactly once per instance
+    const [compartments] = useState<EditorCompartments>(() => createCompartments());
 
     // Keep refs updated
-    onChangeRef.current = onChange;
-    onExecuteRef.current = onExecute;
-    onGotoDefinitionRef.current = onGotoDefinition;
-    onDialectDetectedRef.current = onDialectDetected;
+    useEffect(() => {
+      onChangeRef.current = onChange;
+      onExecuteRef.current = onExecute;
+      onGotoDefinitionRef.current = onGotoDefinition;
+      onDialectDetectedRef.current = onDialectDetected;
+      contextServiceRef.current = keyboardServices?.contextService;
+    }, [onChange, onExecute, onGotoDefinition, onDialectDetected, keyboardServices]);
 
     // Debounced dialect detection
-    const detectDialect = useMemo(
-      () =>
-        debounce((value: string) => {
-          const detected = detectSqlDialect(dbType, value);
-          setCurrentDialect(detected);
-          onDialectDetectedRef.current?.(detected);
-        }, 500),
+    const handleDialectDetection = useCallback(
+      (value: string) => {
+        const detected = detectSqlDialect(dbType, value);
+        setCurrentDialect(detected);
+        onDialectDetectedRef.current?.(detected);
+      },
       [dbType],
+    );
+
+    const detectDialect = useMemo(
+      () => debounce(handleDialectDetection, 500),
+      [handleDialectDetection],
     );
 
     // Use override or detected dialect
     const effectiveDialect = dialectOverride ?? currentDialect;
 
+    // Acquire/release linter worker for dialects using worker-based linting
+    useEffect(() => {
+      if (!usesWorkerLinter(effectiveDialect)) {
+        return;
+      }
+
+      acquireLinterWorker();
+      return () => {
+        releaseLinterWorker();
+      };
+    }, [effectiveDialect]);
+
+    // Acquire/release pg-parser worker for PostgreSQL dialect
+    useEffect(() => {
+      if (effectiveDialect !== "postgresql") {
+        return;
+      }
+
+      acquirePgParserWorker();
+      return () => {
+        releasePgParserWorker();
+      };
+    }, [effectiveDialect]);
+
     // Create debounced onChange
+    const handleChange = useCallback((value: string) => {
+      onChangeRef.current?.(value);
+    }, []);
+
     const debouncedOnChange = useMemo(
       () =>
         onChangeDelay > 0
-          ? debounce(
-              (value: string) => onChangeRef.current?.(value),
-              onChangeDelay,
-            )
-          : (value: string) => onChangeRef.current?.(value),
-      [onChangeDelay],
+          ? debounce(handleChange, onChangeDelay)
+          : handleChange,
+      [onChangeDelay, handleChange],
     );
+
+    // Execute query with safety check
+    const executeQuery = useCallback((query: string) => {
+      if (!onExecuteRef.current) return;
+
+      const check = isDestructiveQuery(query);
+      if (check.isDestructive) {
+        const message =
+          check.type === "TRUNCATE"
+            ? `⚠️ Warning: You are running a TRUNCATE command. This will delete ALL rows in the table. Proceed?`
+            : check.type === "DROP"
+            ? `⚠️ Warning: You are running a DROP command. This will permanently delete the database object. Proceed?`
+            : `⚠️ Warning: You are running a ${check.type} without a WHERE clause. This will affect ALL rows. Proceed?`;
+
+        if (!window.confirm(message)) {
+          return;
+        }
+      }
+
+      onExecuteRef.current(query);
+    }, []);
 
     // Create execute keymap
     const executeKeymap = useMemo(() => {
@@ -313,7 +374,7 @@ export const SqlEditor = memo(
                   .sliceString(selection.from, selection.to)
                   .trim();
                 if (selectedText) {
-                  onExecuteRef.current?.(selectedText);
+                  executeQuery(selectedText);
                   return true;
                 }
               }
@@ -324,7 +385,7 @@ export const SqlEditor = memo(
                 selection.head,
               );
               if (statementAtCursor) {
-                onExecuteRef.current?.(statementAtCursor.text);
+                executeQuery(statementAtCursor.text);
                 return true;
               }
 
@@ -334,7 +395,45 @@ export const SqlEditor = memo(
           },
         ]),
       );
-    }, [onExecute]);
+    }, [onExecute, executeQuery]);
+
+    // Handle external execute events (e.g. from Command Palette)
+    useEffect(() => {
+      const handleExecute = () => {
+        if (!viewRef.current || !onExecuteRef.current) return;
+        const view = viewRef.current;
+
+        // Use exact same logic as keymap
+        const selection = view.state.selection.main;
+
+        // Priority 1: If text is selected, execute the selection
+        if (selection.from !== selection.to) {
+          const selectedText = view.state.doc
+            .sliceString(selection.from, selection.to)
+            .trim();
+          if (selectedText) {
+            executeQuery(selectedText);
+            return;
+          }
+        }
+
+        // Priority 2: Execute statement at cursor (current active block)
+        const statementAtCursor = getStatementAtPosition(
+          view.state,
+          selection.head,
+        );
+        if (statementAtCursor) {
+          executeQuery(statementAtCursor.text);
+        }
+      };
+
+      eventBus.on("query-editor:execute", handleExecute);
+      eventBus.on("query-editor:execute-background", handleExecute);
+      return () => {
+        eventBus.off("query-editor:execute", handleExecute);
+        eventBus.off("query-editor:execute-background", handleExecute);
+      };
+    }, [executeQuery]);
 
     // Stable reference for schema
     const defaultSchema = schema || "public";
@@ -490,6 +589,7 @@ export const SqlEditor = memo(
           indentOnInput(),
           indentUnit.of("  "),
           codeFolding({ placeholderText: "..." }),
+          sqlFoldService,
 
           // Line numbers and gutter
           lineNumbers(),
@@ -552,9 +652,9 @@ export const SqlEditor = memo(
           // Run gutter - play button for each statement (includes lintGutter)
           ...(onExecute
             ? [
-                createRunGutterExtension((query) =>
-                  onExecuteRef.current?.(query),
-                ),
+                createRunGutterExtension((query) => {
+                  if (query) executeQuery(query);
+                }),
               ]
             : [lintGutter()]),
 
@@ -617,6 +717,7 @@ export const SqlEditor = memo(
         view.destroy();
         viewRef.current = null;
       };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); // Empty deps - only mount once
 
     // Update theme

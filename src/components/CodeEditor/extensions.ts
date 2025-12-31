@@ -52,10 +52,10 @@ import { createSqlCompletionSource } from "./languages/sql/completion";
 import { createSqlHoverExtension } from "./languages/sql/hover";
 import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";
 import { createExpandStarExtension } from "./languages/sql/code-actions";
-import { getQueryAtCursor } from "./core";
+import { getQueryAtCursor, isDestructiveQuery } from "./core";
 
 // Enhanced SQL folding service using syntax tree for better nested support
-const sqlFoldService = foldService.of((state, from) => {
+export const sqlFoldService = foldService.of((state, from) => {
   const line = state.doc.lineAt(from);
   const lineText = line.text.trim();
   const lineTextUpper = lineText.toUpperCase();
@@ -307,37 +307,8 @@ export const getLanguageExtension = (
 };
 
 // Check if a query is a potentially destructive mutation without WHERE clause
-const isDestructiveQuery = (query: string): { isDestructive: boolean; type: string } => {
-  const upperQuery = query.toUpperCase().trim();
-
-  // Check for DELETE without WHERE
-  if (upperQuery.startsWith("DELETE")) {
-    const hasWhere = /\bWHERE\b/i.test(query);
-    if (!hasWhere) {
-      return { isDestructive: true, type: "DELETE" };
-    }
-  }
-
-  // Check for UPDATE without WHERE
-  if (upperQuery.startsWith("UPDATE")) {
-    const hasWhere = /\bWHERE\b/i.test(query);
-    if (!hasWhere) {
-      return { isDestructive: true, type: "UPDATE" };
-    }
-  }
-
-  // Check for TRUNCATE (always destructive)
-  if (upperQuery.startsWith("TRUNCATE")) {
-    return { isDestructive: true, type: "TRUNCATE" };
-  }
-
-  // Check for DROP (always destructive)
-  if (upperQuery.startsWith("DROP")) {
-    return { isDestructive: true, type: "DROP" };
-  }
-
-  return { isDestructive: false, type: "" };
-};
+// Moved to core/query-utils.ts but kept here for backward compatibility or direct usage if needed
+// const isDestructiveQuery = ... (imported from core)
 
 // Execute query with destructive action protection
 const executeWithSafetyCheck = (
