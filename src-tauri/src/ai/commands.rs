@@ -3,15 +3,6 @@ use tauri::State;
 
 use crate::ai::{manager::AIManager, secure_storage};
 
-/// Get the AI sidecar URL
-#[tauri::command]
-pub async fn get_ai_sidecar_url(
-    manager: State<'_, Arc<AIManager>>,
-) -> Result<Option<String>, String> {
-    let url = manager.sidecar_manager().get_url().await;
-    Ok(url)
-}
-
 /// Reload API keys and send to sidecar (called after user updates keys in settings)
 #[tauri::command]
 pub async fn reload_ai_api_keys(manager: State<'_, Arc<AIManager>>) -> Result<(), String> {

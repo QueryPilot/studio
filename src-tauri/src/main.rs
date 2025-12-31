@@ -117,9 +117,6 @@ fn main() {
             commands::disconnect_all,
             commands::test_connection,
             commands::test_ssh_connection,
-            commands::start_oauth_flow,
-            commands::get_oauth_token_status,
-            commands::clear_oauth_token,
             // Azure AD SAML authentication
             commands::get_azure_ad_login_url,
             commands::get_aws_saml_endpoints,
@@ -128,28 +125,21 @@ fn main() {
             commands::get_aws_credentials_status,
             commands::clear_aws_credentials,
             commands::open_saml_auth_window,
-            // Introspection now uses frontend dialect system via commands::query
-            // See: src/services/introspectionService.ts
-            commands::get_type_info,
+            // Query execution
             commands::query,
             commands::execute_query,
             commands::get_connection_health,
             commands::ping,
-            ai::commands::get_ai_sidecar_url,
+            // AI sidecar
             ai::commands::reload_ai_api_keys,
             ai::commands::get_sidecar_status,
             ai::commands::configure_telemetry,
             ai::secure_storage::get_ai_api_key,
             ai::secure_storage::set_ai_api_key,
-            ai::secure_storage::delete_ai_api_key,
-            // Keychain commands (used by TypeScript)
-            keychain::get_vault_password,
-            keychain::delete_vault_password,
             // Updater commands (for private repo releases)
             updater::check_for_updates,
             updater::download_update,
             updater::install_update,
-            // NOTE: Window tracking now uses BroadcastChannel API on frontend
         ])
         .build(context)
         .expect("error while building tauri application");

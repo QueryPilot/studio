@@ -6,7 +6,7 @@ const KEYCHAIN_SERVICE: &str = "dev.querypilot.studio.vault";
 const KEYCHAIN_ACCOUNT: &str = "master_password";
 
 /// Get or generate vault master password from OS keychain (cross-platform via keyring)
-#[tauri::command]
+/// Used internally by vault.rs - not exposed as a Tauri command
 pub fn get_vault_password() -> Result<String, String> {
     let entry = Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
         .map_err(|e| format!("Failed to access keychain: {}", e))?;
@@ -27,7 +27,7 @@ pub fn get_vault_password() -> Result<String, String> {
 }
 
 /// Delete vault password from keychain (ignore not-found)
-#[tauri::command]
+/// Used for vault reset - not exposed as a Tauri command
 pub fn delete_vault_password() -> Result<(), String> {
     let entry = Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
         .map_err(|e| format!("Failed to access keychain: {}", e))?;

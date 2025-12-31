@@ -352,12 +352,12 @@ SELECT DISTINCT ON (n.nspname, p.proname, pg_get_function_identity_arguments(p.o
     n.nspname as schema_name,
     p.proname as function_name,
     pg_get_function_identity_arguments(p.oid) as arguments,
-    pg_get_function_result(p.oid) as return_type,
+    CASE WHEN p.prokind = 'p' THEN 'void' ELSE pg_get_function_result(p.oid) END as return_type,
     l.lanname as language,
     p.prokind = 'a' as is_aggregate,
     p.prokind = 'w' as is_window,
     p.proisstrict as is_trigger,
-    p.prosrc as source
+    pg_get_functiondef(p.oid) as source
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 JOIN pg_language l ON l.oid = p.prolang
@@ -690,7 +690,7 @@ ORDER BY table_name, column_name`;
       case 'function':
       case 'procedure':
         // Look up function by name and schema, return all overloads
-        // Filter out aggregate functions and C functions which don't support pg_get_functiondef
+        // Filter out aggregate functions which don't support pg_get_functiondef
         return `
 SELECT string_agg(
     CASE
@@ -698,10 +698,6 @@ SELECT string_agg(
             '-- Aggregate function: ' || quote_ident(n.nspname) || '.' || quote_ident(p.proname) ||
             '(' || pg_get_function_identity_arguments(p.oid) || ')' || E'\\n' ||
             '-- (Aggregate definitions cannot be extracted with pg_get_functiondef)'
-        WHEN p.prolang = (SELECT oid FROM pg_language WHERE lanname = 'c') THEN
-            '-- C function: ' || quote_ident(n.nspname) || '.' || quote_ident(p.proname) ||
-            '(' || pg_get_function_identity_arguments(p.oid) || ')' || E'\\n' ||
-            '-- Library: ' || p.probin || ', Symbol: ' || p.prosrc
         ELSE
             pg_get_functiondef(p.oid)
     END,
