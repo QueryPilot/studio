@@ -379,48 +379,6 @@ export class BackendAPI {
   // SQL generation is handled by frontend adapters (src/adapters/).
 
   /**
-   * Execute a single SQL statement and return the number of affected rows.
-   * This is the primary method for DDL operations (CREATE, ALTER, DROP).
-   * Use the adapter system to generate the SQL before calling this method.
-   *
-   * @example
-   * ```typescript
-   * import { getAdapter } from '@/adapters';
-   *
-   * const adapter = getAdapter(connectionId, DbType.PostgreSQL);
-   * const sql = adapter.createIndex({ schema: 'public', table: 'users' }, { name: 'idx', columns: ['id'] });
-   * const affectedRows = await BackendAPI.executeSql(connectionId, sql);
-   * ```
-   */
-  static async executeSql(connectionId: string, sql: string): Promise<number> {
-    return invoke<number>("execute_sql", {
-      connId: connectionId,
-      sql,
-    });
-  }
-
-  /**
-   * Execute multiple SQL statements in sequence.
-   * Returns an array of affected rows for each statement.
-   * All statements are executed in the same connection context.
-   *
-   * Use this for operations that require multiple statements (e.g., column modification).
-   *
-   * @example
-   * ```typescript
-   * const dialect = getDialect(DbType.PostgreSQL);
-   * const statements = dialect.modifyColumn({ ... }); // Returns string[]
-   * const results = await BackendAPI.executeSqlBatch(connectionId, statements);
-   * ```
-   */
-  static async executeSqlBatch(connectionId: string, statements: string[]): Promise<number[]> {
-    return invoke<number[]>("execute_sql_batch", {
-      connId: connectionId,
-      statements,
-    });
-  }
-
-  /**
    * Execute a SQL query and return results directly.
    * Use for introspection queries and small result sets.
    * For large result sets, use streamQuery instead.

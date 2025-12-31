@@ -5,44 +5,9 @@ describe('preferencesStore', () => {
   beforeEach(() => {
     // Reset store state before each test
     usePreferencesStore.setState({
-      smartQueryLimit: 500,
       isOpen: false,
       activeCategory: 'general',
       unsavedChanges: false,
-    });
-  });
-
-  describe('Smart Query Limit', () => {
-    it('should have default query limit of 500', () => {
-      const store = usePreferencesStore.getState();
-      expect(store.smartQueryLimit).toBe(500);
-    });
-
-    it('should update query limit', () => {
-      const store = usePreferencesStore.getState();
-
-      store.setSmartQueryLimit(50000);
-      expect(usePreferencesStore.getState().smartQueryLimit).toBe(50000);
-    });
-
-    it('should allow null query limit (no limit)', () => {
-      const store = usePreferencesStore.getState();
-
-      store.setSmartQueryLimit(null);
-      expect(usePreferencesStore.getState().smartQueryLimit).toBeNull();
-    });
-
-    it('should update query limit multiple times', () => {
-      const store = usePreferencesStore.getState();
-
-      store.setSmartQueryLimit(1000);
-      expect(usePreferencesStore.getState().smartQueryLimit).toBe(1000);
-
-      store.setSmartQueryLimit(5000);
-      expect(usePreferencesStore.getState().smartQueryLimit).toBe(5000);
-
-      store.setSmartQueryLimit(null);
-      expect(usePreferencesStore.getState().smartQueryLimit).toBeNull();
     });
   });
 
@@ -147,10 +112,8 @@ describe('preferencesStore', () => {
       expect(usePreferencesStore.getState().isOpen).toBe(true);
       expect(usePreferencesStore.getState().activeCategory).toBe('general');
 
-      // 2. Change query limit
-      store.setSmartQueryLimit(25000);
+      // 2. Make changes
       store.setUnsavedChanges(true);
-      expect(usePreferencesStore.getState().smartQueryLimit).toBe(25000);
       expect(usePreferencesStore.getState().unsavedChanges).toBe(true);
 
       // 3. Navigate to different category
@@ -162,9 +125,6 @@ describe('preferencesStore', () => {
       store.closePreferences();
       expect(usePreferencesStore.getState().isOpen).toBe(false);
       expect(usePreferencesStore.getState().unsavedChanges).toBe(false);
-
-      // 5. Query limit should persist
-      expect(usePreferencesStore.getState().smartQueryLimit).toBe(25000);
     });
   });
 });

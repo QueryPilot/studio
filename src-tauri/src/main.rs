@@ -135,9 +135,6 @@ fn main() {
             commands::execute_query,
             commands::get_connection_health,
             commands::ping,
-            // Generic SQL execution (frontend-driven dialect support)
-            commands::execute_sql,
-            commands::execute_sql_batch,
             ai::commands::get_ai_sidecar_url,
             ai::commands::reload_ai_api_keys,
             ai::commands::get_sidecar_status,
@@ -148,8 +145,6 @@ fn main() {
             // Keychain commands (used by TypeScript)
             keychain::get_vault_password,
             keychain::delete_vault_password,
-            // DDL operations now use execute_sql with frontend dialect
-            // See: src/dialects/ for TypeScript SQL generation
             // Updater commands (for private repo releases)
             updater::check_for_updates,
             updater::download_update,

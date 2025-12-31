@@ -17,7 +17,6 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
 } from "@/components/ui/command";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
@@ -51,7 +50,12 @@ const UNIFIED_FUSE_OPTIONS: IFuseOptions<UnifiedItem> = {
   minMatchCharLength: 1,
 };
 
-type ItemGroup = "Recently Used" | "Tables" | "Views" | "Functions" | "Commands";
+type ItemGroup =
+  | "Recently Used"
+  | "Tables"
+  | "Views"
+  | "Functions"
+  | "Commands";
 
 const GROUP_ORDER: ItemGroup[] = [
   "Recently Used",
@@ -103,15 +107,14 @@ export function CommandPalette(): React.ReactElement {
   const openPalette = useCommandPaletteStore((state) => state.openPalette);
 
   const activeConnectionId = useWorkspaceSelectionStore(
-    (state) => state.connectionId
+    (state) => state.connectionId,
   );
   const selectedDatabase = useWorkspaceSelectionStore(
-    (state) => state.database
+    (state) => state.database,
   );
 
   const { unifiedItems, isLoading } = useUnifiedItems();
-  const { recordAccess, getTopFrecencyItems, sortByFrecency } =
-    useFrecency();
+  const { recordAccess, getTopFrecencyItems, sortByFrecency } = useFrecency();
 
   // Invalidate cache when commands or keybindings change
   useEffect(() => {
@@ -160,7 +163,9 @@ export function CommandPalette(): React.ReactElement {
 
   // Get recently used items
   const recentItems = useMemo(() => {
-    const limit = searchQuery ? MAX_RECENT_ITEMS_SEARCH : MAX_RECENT_ITEMS_EMPTY;
+    const limit = searchQuery
+      ? MAX_RECENT_ITEMS_SEARCH
+      : MAX_RECENT_ITEMS_EMPTY;
 
     if (!searchQuery) {
       return getTopFrecencyItems(unifiedItems, limit);
@@ -173,18 +178,20 @@ export function CommandPalette(): React.ReactElement {
 
     return getTopFrecencyItems(
       unifiedItems.filter((item) => matchedIds.has(item.id)),
-      limit
+      limit,
     );
   }, [unifiedItems, searchQuery, getTopFrecencyItems]);
 
   const recentItemIds = useMemo(
     () => new Set(recentItems.map((item) => item.id)),
-    [recentItems]
+    [recentItems],
   );
 
   // Get grouped items (excluding recent)
   const groupedItems = useMemo(() => {
-    let itemsToGroup = unifiedItems.filter((item) => !recentItemIds.has(item.id));
+    let itemsToGroup = unifiedItems.filter(
+      (item) => !recentItemIds.has(item.id),
+    );
 
     if (searchQuery) {
       const fuse = new Fuse(itemsToGroup, UNIFIED_FUSE_OPTIONS);
@@ -206,18 +213,15 @@ export function CommandPalette(): React.ReactElement {
 
     // Sort within groups by frecency then alphabetically
     for (const [group, items] of groups) {
-      groups.set(
-        group,
-        sortByFrecency(items).slice(0, MAX_RESULTS_PER_GROUP)
-      );
+      groups.set(group, sortByFrecency(items).slice(0, MAX_RESULTS_PER_GROUP));
     }
 
-    return GROUP_ORDER.filter((group) => group !== "Recently Used" && groups.has(group)).map(
-      (group) => {
-        const items = groups.get(group);
-        return [group, items ?? []] as [ItemGroup, UnifiedItem[]];
-      }
-    );
+    return GROUP_ORDER.filter(
+      (group) => group !== "Recently Used" && groups.has(group),
+    ).map((group) => {
+      const items = groups.get(group);
+      return [group, items ?? []] as [ItemGroup, UnifiedItem[]];
+    });
   }, [unifiedItems, searchQuery, recentItemIds, sortByFrecency]);
 
   // Scroll to top when results change
@@ -233,7 +237,7 @@ export function CommandPalette(): React.ReactElement {
         openPalette();
       }
     },
-    [closePalette, openPalette]
+    [closePalette, openPalette],
   );
 
   const handleSelect = useCallback(
@@ -303,7 +307,7 @@ export function CommandPalette(): React.ReactElement {
       services,
       selectedDatabase,
       recordAccess,
-    ]
+    ],
   );
 
   const handleKeyDown = useCallback(
@@ -316,7 +320,7 @@ export function CommandPalette(): React.ReactElement {
         }
       }
     },
-    [selectedValue, handleSelect]
+    [selectedValue, handleSelect],
   );
 
   if (!services) {
@@ -326,8 +330,8 @@ export function CommandPalette(): React.ReactElement {
   const emptyMessage = isLoading
     ? ""
     : searchQuery
-      ? "No results found."
-      : "No items available.";
+    ? "No results found."
+    : "No items available.";
 
   return (
     <CommandDialog
@@ -336,11 +340,13 @@ export function CommandPalette(): React.ReactElement {
       onKeyDown={handleKeyDown}
       value={selectedValue}
       onValueChange={setSelectedValue}
+      className="min-w-[30vw]!"
     >
       <CommandInput
         placeholder="Search tables, commands, and more..."
         value={query}
         onValueChange={setQuery}
+        className="border-none!"
       />
       <CommandList ref={listRef}>
         {isLoading ? (
@@ -362,10 +368,6 @@ export function CommandPalette(): React.ReactElement {
                   />
                 ))}
               </CommandGroup>
-            )}
-
-            {recentItems.length > 0 && groupedItems.length > 0 && (
-              <CommandSeparator />
             )}
 
             {groupedItems.map(([group, items]) => (
@@ -406,9 +408,11 @@ function UnifiedItemRow({ item, onSelect }: UnifiedItemRowProps) {
         <div className="text-xs text-muted-foreground text-right max-w-1/3 truncate">
           {item.type === "command" && item.command?.keybinding ? (
             <KbdGroup>
-              {item.command.keybinding.resolvedLabel.split("+").map((key, i) => (
-                <Kbd key={i}>{key.trim()}</Kbd>
-              ))}
+              {item.command.keybinding.resolvedLabel
+                .split("+")
+                .map((key, i) => (
+                  <Kbd key={i}>{key.trim()}</Kbd>
+                ))}
             </KbdGroup>
           ) : (
             item.subtitle
