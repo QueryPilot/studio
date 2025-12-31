@@ -34,7 +34,7 @@ const DATABASE_FUSE_OPTIONS: IFuseOptions<DatabaseItem> = {
 };
 
 interface NestedDatabaseListProps {
-  listRef?: React.RefObject<HTMLDivElement>;
+  listRef?: React.RefObject<HTMLDivElement | null>;
   query: string;
   onSelect: (database: string) => void;
 }

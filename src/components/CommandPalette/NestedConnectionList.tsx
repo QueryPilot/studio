@@ -29,7 +29,7 @@ const CONNECTION_FUSE_OPTIONS: IFuseOptions<ConnectionItem> = {
 };
 
 interface NestedConnectionListProps {
-  listRef?: React.RefObject<HTMLDivElement>;
+  listRef?: React.RefObject<HTMLDivElement | null>;
   query: string;
   onSelect: (connectionId: string) => void;
 }

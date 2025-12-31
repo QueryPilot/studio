@@ -34,7 +34,7 @@ const SCHEMA_FUSE_OPTIONS: IFuseOptions<SchemaItem> = {
 };
 
 interface NestedSchemaListProps {
-  listRef?: React.RefObject<HTMLDivElement>;
+  listRef?: React.RefObject<HTMLDivElement | null>;
   query: string;
   onSelect: (schema: string) => void;
 }

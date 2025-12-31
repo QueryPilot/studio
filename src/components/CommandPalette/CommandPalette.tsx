@@ -8,6 +8,7 @@ import {
 } from "@tabler/icons-react";
 import Fuse, { type IFuseOptions } from "fuse.js";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 import {
   CommandDialog,
@@ -23,6 +24,9 @@ import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import { contextService } from "@/services/contextService";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
+import { databaseService } from "@/services/databaseService";
+import { windowManager } from "@/services/windowManager";
+import { vaultStorage } from "@/services/vaultStorage";
 
 import {
   openFunctionObject,
@@ -32,6 +36,9 @@ import {
 } from "@/utils/workbench/openers";
 import { useUnifiedItems, type UnifiedItem } from "./useCommandPaletteQueries";
 import { useFrecency } from "./useFrecency";
+import { NestedDatabaseList } from "./NestedDatabaseList";
+import { NestedSchemaList } from "./NestedSchemaList";
+import { NestedConnectionList } from "./NestedConnectionList";
 
 const MAX_RECENT_ITEMS_EMPTY = 12;
 const MAX_RECENT_ITEMS_SEARCH = 8;
@@ -105,6 +112,8 @@ export function CommandPalette(): React.ReactElement {
   const setQuery = useCommandPaletteStore((state) => state.setQuery);
   const closePalette = useCommandPaletteStore((state) => state.closePalette);
   const openPalette = useCommandPaletteStore((state) => state.openPalette);
+  const nestedMode = useCommandPaletteStore((state) => state.nestedMode);
+  const exitNestedMode = useCommandPaletteStore((state) => state.exitNestedMode);
 
   const activeConnectionId = useWorkspaceSelectionStore(
     (state) => state.connectionId,
@@ -112,6 +121,10 @@ export function CommandPalette(): React.ReactElement {
   const selectedDatabase = useWorkspaceSelectionStore(
     (state) => state.database,
   );
+  const setSelectedDatabase = useWorkspaceSelectionStore(
+    (state) => state.setSelectedDatabase,
+  );
+  const setSchema = useWorkspaceSelectionStore((state) => state.setSchema);
 
   const { unifiedItems, isLoading } = useUnifiedItems();
   const { recordAccess, getTopFrecencyItems, sortByFrecency } = useFrecency();
@@ -310,8 +323,63 @@ export function CommandPalette(): React.ReactElement {
     ],
   );
 
+  const handleDatabaseSelect = useCallback(
+    async (database: string) => {
+      if (!activeConnectionId) return;
+      try {
+        await databaseService.switchDatabase(activeConnectionId, database);
+        setSelectedDatabase(database);
+        closePalette();
+      } catch (err) {
+        console.error("Failed to switch database:", err);
+        toast.error("Failed to switch database");
+      }
+    },
+    [activeConnectionId, setSelectedDatabase, closePalette],
+  );
+
+  const handleSchemaSelect = useCallback(
+    async (schema: string) => {
+      if (!activeConnectionId) return;
+      try {
+        await databaseService.switchSchema(activeConnectionId, schema);
+        setSchema(schema);
+        closePalette();
+      } catch (err) {
+        console.error("Failed to switch schema:", err);
+        toast.error("Failed to switch schema");
+      }
+    },
+    [activeConnectionId, setSchema, closePalette],
+  );
+
+  const handleConnectionSelect = useCallback(
+    async (connectionId: string) => {
+      try {
+        const connection = await vaultStorage.getConnection(connectionId);
+        if (!connection) {
+          toast.error("Connection not found");
+          return;
+        }
+        await windowManager.openWorkspace(connectionId, connection.profile.name);
+        closePalette();
+      } catch (err) {
+        console.error("Failed to open connection:", err);
+        toast.error("Failed to open connection");
+      }
+    },
+    [closePalette],
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      // Exit nested mode on backspace when query is empty
+      if (e.key === "Backspace" && query === "" && nestedMode) {
+        e.preventDefault();
+        exitNestedMode();
+        return;
+      }
+
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         e.stopPropagation();
@@ -320,12 +388,24 @@ export function CommandPalette(): React.ReactElement {
         }
       }
     },
-    [selectedValue, handleSelect],
+    [selectedValue, handleSelect, query, nestedMode, exitNestedMode],
   );
 
   if (!services) {
     return <></>;
   }
+
+  const getInputPlaceholder = () => {
+    if (!nestedMode) return "Search tables, commands, and more...";
+    switch (nestedMode.type) {
+      case "switch-database":
+        return "Search databases...";
+      case "switch-schema":
+        return "Search schemas...";
+      case "open-connection":
+        return "Search connections...";
+    }
+  };
 
   const emptyMessage = isLoading
     ? ""
@@ -343,48 +423,72 @@ export function CommandPalette(): React.ReactElement {
       className="min-w-[30vw]!"
     >
       <CommandInput
-        placeholder="Search tables, commands, and more..."
+        placeholder={getInputPlaceholder()}
         value={query}
         onValueChange={setQuery}
         className="border-none!"
       />
-      <CommandList ref={listRef}>
-        {isLoading ? (
-          <div className="flex items-center justify-center py-6 text-xs text-muted-foreground gap-2">
-            <IconLoader2 className="size-4 animate-spin" />
-            Loading...
-          </div>
+      {nestedMode ? (
+        nestedMode.type === "switch-database" ? (
+          <NestedDatabaseList
+            listRef={listRef}
+            query={query}
+            onSelect={handleDatabaseSelect}
+          />
+        ) : nestedMode.type === "switch-schema" ? (
+          <NestedSchemaList
+            listRef={listRef}
+            query={query}
+            onSelect={handleSchemaSelect}
+          />
         ) : (
-          <>
-            <CommandEmpty>{emptyMessage}</CommandEmpty>
+          <NestedConnectionList
+            listRef={listRef}
+            query={query}
+            onSelect={handleConnectionSelect}
+          />
+        )
+      ) : (
+        <>
+          <CommandList ref={listRef}>
+            {isLoading ? (
+              <div className="flex items-center justify-center py-6 text-xs text-muted-foreground gap-2">
+                <IconLoader2 className="size-4 animate-spin" />
+                Loading...
+              </div>
+            ) : (
+              <>
+                <CommandEmpty>{emptyMessage}</CommandEmpty>
 
-            {recentItems.length > 0 && (
-              <CommandGroup heading="Recently Used">
-                {recentItems.map((item) => (
-                  <UnifiedItemRow
-                    key={item.id}
-                    item={item}
-                    onSelect={(id) => handleSelect(id, false)}
-                  />
+                {recentItems.length > 0 && (
+                  <CommandGroup heading="Recently Used">
+                    {recentItems.map((item) => (
+                      <UnifiedItemRow
+                        key={item.id}
+                        item={item}
+                        onSelect={(id) => handleSelect(id, false)}
+                      />
+                    ))}
+                  </CommandGroup>
+                )}
+
+                {groupedItems.map(([group, items]) => (
+                  <CommandGroup key={group} heading={group}>
+                    {items.map((item) => (
+                      <UnifiedItemRow
+                        key={item.id}
+                        item={item}
+                        onSelect={(id) => handleSelect(id, false)}
+                      />
+                    ))}
+                  </CommandGroup>
                 ))}
-              </CommandGroup>
+              </>
             )}
-
-            {groupedItems.map(([group, items]) => (
-              <CommandGroup key={group} heading={group}>
-                {items.map((item) => (
-                  <UnifiedItemRow
-                    key={item.id}
-                    item={item}
-                    onSelect={(id) => handleSelect(id, false)}
-                  />
-                ))}
-              </CommandGroup>
-            ))}
-          </>
-        )}
-      </CommandList>
-      <CommandFooter />
+          </CommandList>
+          <CommandFooter />
+        </>
+      )}
     </CommandDialog>
   );
 }
