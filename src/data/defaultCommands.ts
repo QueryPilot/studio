@@ -523,6 +523,37 @@ export const defaultCommands: Command[] = [
       window.location.reload();
     },
   },
+  // Switch Database/Schema Commands
+  {
+    id: "workspace.switchDatabase",
+    label: "Switch Database",
+    category: "Workspace",
+    description: "Switch to a different database on this server",
+    handler: () => {
+      const store = useCommandPaletteStore.getState();
+      store.setNestedMode({ type: "switch-database" });
+    },
+  },
+  {
+    id: "workspace.switchSchema",
+    label: "Switch Schema",
+    category: "Workspace",
+    description: "Switch to a different schema",
+    handler: () => {
+      const store = useCommandPaletteStore.getState();
+      store.setNestedMode({ type: "switch-schema" });
+    },
+  },
+  {
+    id: "connection.open",
+    label: "Open Connection",
+    category: "Connection",
+    description: "Open a saved database connection",
+    handler: () => {
+      const store = useCommandPaletteStore.getState();
+      store.setNestedMode({ type: "open-connection" });
+    },
+  },
   // Tab Group Navigation Commands (Cmd/Ctrl + 1-9)
   {
     id: "tabs.switchToTab1",
