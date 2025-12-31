@@ -203,7 +203,7 @@ export function useUnifiedItems() {
           id: item.id,
           type: item.entityType,
           name: item.name,
-          subtitle: item.subtitle || item.schema,
+          subtitle: item.schema,
           schema: item.schema,
           keywords: [item.searchKey, item.entityType],
           table: item.table,

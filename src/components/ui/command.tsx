@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
-import { IconSearch, IconCheck } from "@tabler/icons-react";
+import { IconSearch, IconCheck, IconArrowLeft } from "@tabler/icons-react";
 
 function Command({
   className,
@@ -78,21 +78,34 @@ function CommandDialog({
 
 function CommandInput({
   className,
+  onBack,
   ...props
-}: React.ComponentProps<typeof CommandPrimitive.Input>) {
+}: React.ComponentProps<typeof CommandPrimitive.Input> & {
+  onBack?: () => void;
+}) {
   return (
     <div data-slot="command-input-wrapper" className="p-1 pb-0">
       <div
         data-slot="input-group"
         className="h-8 relative flex w-full min-w-0 items-center outline-none -mt-0.5"
       >
-        <div className="text-muted-foreground pl-2 flex cursor-text items-center justify-center select-none order-first">
-          <IconSearch className="size-3.5 shrink-0 opacity-50" />
-        </div>
+        {onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className="text-muted-foreground pl-2 flex cursor-pointer items-center justify-center select-none order-first hover:text-foreground transition-colors"
+          >
+            <IconArrowLeft className="size-4! shrink-0" />
+          </button>
+        ) : (
+          <div className="text-muted-foreground pl-2 flex cursor-text items-center justify-center select-none order-first">
+            <IconSearch className="size-4! shrink-0" />
+          </div>
+        )}
         <CommandPrimitive.Input
           data-slot="command-input"
           className={cn(
-            "w-full h-full bg-transparent pl-2 pr-2 text-xs/relaxed outline-none disabled:cursor-not-allowed disabled:opacity-50",
+            "w-full h-full bg-transparent pl-2 pr-2 text-sm/relaxed outline-none disabled:cursor-not-allowed disabled:opacity-50",
             className,
           )}
           {...props}
@@ -196,7 +209,19 @@ function CommandShortcut({
   );
 }
 
-function CommandFooter({ className, ...props }: React.ComponentProps<"div">) {
+interface CommandFooterProps extends React.ComponentProps<"div"> {
+  actionsButtonRef?: React.RefObject<HTMLButtonElement | null>;
+  onActionsClick?: () => void;
+  showActions?: boolean;
+}
+
+function CommandFooter({
+  className,
+  actionsButtonRef,
+  onActionsClick,
+  showActions = false,
+  ...props
+}: CommandFooterProps) {
   const isMac =
     typeof navigator !== "undefined" && navigator.platform.includes("Mac");
   const modKey = isMac ? "⌘" : "Ctrl";
@@ -228,6 +253,20 @@ function CommandFooter({ className, ...props }: React.ComponentProps<"div">) {
         </KbdGroup>
         <span className="ml-1">Open in Split</span>
       </span>
+      {showActions && (
+        <button
+          ref={actionsButtonRef}
+          type="button"
+          onClick={onActionsClick}
+          className="ml-auto flex items-center gap-1 hover:text-foreground transition-colors cursor-default"
+        >
+          <span>Actions</span>
+          <KbdGroup>
+            <Kbd>{modKey}</Kbd>
+            <Kbd>K</Kbd>
+          </KbdGroup>
+        </button>
+      )}
     </div>
   );
 }

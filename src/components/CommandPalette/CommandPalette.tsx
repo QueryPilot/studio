@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   IconEye,
   IconMathFunction,
@@ -39,6 +39,8 @@ import { useFrecency } from "./useFrecency";
 import { NestedDatabaseList } from "./NestedDatabaseList";
 import { NestedSchemaList } from "./NestedSchemaList";
 import { NestedConnectionList } from "./NestedConnectionList";
+import { ActionsPopover } from "./ActionsPopover";
+import { useItemActions } from "./useItemActions";
 
 const MAX_RECENT_ITEMS_EMPTY = 12;
 const MAX_RECENT_ITEMS_SEARCH = 8;
@@ -105,7 +107,9 @@ export function CommandPalette(): React.ReactElement {
   const queryClient = useQueryClient();
   const services = useKeyboardServicesOptional();
   const listRef = React.useRef<HTMLDivElement>(null);
+  const actionsButtonRef = useRef<HTMLButtonElement>(null);
   const [selectedValue, setSelectedValue] = useState<string>("");
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   const isOpen = useCommandPaletteStore((state) => state.isOpen);
   const query = useCommandPaletteStore((state) => state.query);
@@ -113,7 +117,9 @@ export function CommandPalette(): React.ReactElement {
   const closePalette = useCommandPaletteStore((state) => state.closePalette);
   const openPalette = useCommandPaletteStore((state) => state.openPalette);
   const nestedMode = useCommandPaletteStore((state) => state.nestedMode);
-  const exitNestedMode = useCommandPaletteStore((state) => state.exitNestedMode);
+  const exitNestedMode = useCommandPaletteStore(
+    (state) => state.exitNestedMode,
+  );
 
   const activeConnectionId = useWorkspaceSelectionStore(
     (state) => state.connectionId,
@@ -237,6 +243,22 @@ export function CommandPalette(): React.ReactElement {
     });
   }, [unifiedItems, searchQuery, recentItemIds, sortByFrecency]);
 
+  // Find the selected item for actions
+  const selectedItem = useMemo(() => {
+    if (!selectedValue) return null;
+    return unifiedItems.find((item) => item.id === selectedValue) ?? null;
+  }, [selectedValue, unifiedItems]);
+
+  // Get actions for the selected item
+  const { actions, executeAction } = useItemActions(selectedItem, closePalette);
+
+  // Close actions popover when palette closes or selection changes
+  useEffect(() => {
+    if (!isOpen) {
+      setActionsOpen(false);
+    }
+  }, [isOpen]);
+
   // Scroll to top when results change
   useEffect(() => {
     listRef.current?.scrollTo({ top: 0 });
@@ -266,9 +288,10 @@ export function CommandPalette(): React.ReactElement {
 
       if (item.type === "command" && item.command) {
         if (!services) return;
-        try {
-          await services.commandService.execute(item.command.id);
-        } finally {
+        await services.commandService.execute(item.command.id);
+        // Don't close palette if command entered nested mode
+        const currentNestedMode = useCommandPaletteStore.getState().nestedMode;
+        if (!currentNestedMode) {
           closePalette();
         }
         return;
@@ -361,7 +384,10 @@ export function CommandPalette(): React.ReactElement {
           toast.error("Connection not found");
           return;
         }
-        await windowManager.openWorkspace(connectionId, connection.profile.name);
+        await windowManager.openWorkspace(
+          connectionId,
+          connection.profile.name,
+        );
         closePalette();
       } catch (err) {
         console.error("Failed to open connection:", err);
@@ -380,6 +406,16 @@ export function CommandPalette(): React.ReactElement {
         return;
       }
 
+      // Open actions popover with ⌘K
+      if (e.key === "k" && (e.metaKey || e.ctrlKey) && !nestedMode) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (selectedItem && actions.length > 0) {
+          setActionsOpen(true);
+        }
+        return;
+      }
+
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         e.stopPropagation();
@@ -388,7 +424,7 @@ export function CommandPalette(): React.ReactElement {
         }
       }
     },
-    [selectedValue, handleSelect, query, nestedMode, exitNestedMode],
+    [selectedValue, handleSelect, query, nestedMode, exitNestedMode, selectedItem, actions],
   );
 
   if (!services) {
@@ -426,7 +462,7 @@ export function CommandPalette(): React.ReactElement {
         placeholder={getInputPlaceholder()}
         value={query}
         onValueChange={setQuery}
-        className="border-none!"
+        onBack={nestedMode ? exitNestedMode : undefined}
       />
       {nestedMode ? (
         nestedMode.type === "switch-database" ? (
@@ -434,11 +470,13 @@ export function CommandPalette(): React.ReactElement {
             listRef={listRef}
             query={query}
             onSelect={handleDatabaseSelect}
+            onClose={closePalette}
           />
         ) : nestedMode.type === "switch-schema" ? (
           <NestedSchemaList
             listRef={listRef}
             query={query}
+            onClose={closePalette}
             onSelect={handleSchemaSelect}
           />
         ) : (
@@ -486,7 +524,19 @@ export function CommandPalette(): React.ReactElement {
               </>
             )}
           </CommandList>
-          <CommandFooter />
+          <ActionsPopover
+            open={actionsOpen}
+            onOpenChange={setActionsOpen}
+            actions={actions}
+            onActionSelect={executeAction}
+            triggerRef={actionsButtonRef}
+          >
+            <CommandFooter
+              actionsButtonRef={actionsButtonRef}
+              onActionsClick={() => setActionsOpen(true)}
+              showActions={!nestedMode && actions.length > 0}
+            />
+          </ActionsPopover>
         </>
       )}
     </CommandDialog>
@@ -505,9 +555,6 @@ function UnifiedItemRow({ item, onSelect }: UnifiedItemRowProps) {
         <div className="flex items-center gap-2 flex-1 truncate">
           {getItemIcon(item)}
           <span className="font-medium">{item.name}</span>
-          {item.schema && (
-            <span className="text-muted-foreground text-xs">{item.schema}</span>
-          )}
         </div>
         <div className="text-xs text-muted-foreground text-right max-w-1/3 truncate">
           {item.type === "command" && item.command?.keybinding ? (

@@ -177,10 +177,6 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
     onFinishedEditing(undefined);
   }, [onFinishedEditing]);
 
-  const handleSave = useCallback(() => {
-    commitCurrent();
-  }, [commitCurrent]);
-
   const handleConfirmContinue = useCallback(() => {
     if (pendingText !== null && !finishedRef.current) {
       finishedRef.current = true;

@@ -382,23 +382,6 @@ export function formatCellWithType(value: CellValue, dbType: string): string {
   }
 }
 
-/**
- * Register a custom formatter for a specific database type
- */
-export function registerFormatter(
-  dbType: string,
-  formatter: CellFormatter,
-): void {
-  formatters[dbType.toLowerCase()] = formatter;
-}
-
-/**
- * Get available formatter types
- */
-export function getAvailableFormatters(): string[] {
-  return Object.keys(formatters).filter((k) => k !== "default");
-}
-
 export function formatNumber(value: number): string {
   return cachedNumberFormatter.format(value);
 }

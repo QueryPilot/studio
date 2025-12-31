@@ -224,8 +224,6 @@ async function generateWhereClauseWithTools(
   signal: AbortSignal,
   columns: ColumnMeta[]
 ): Promise<{ object: z.infer<typeof responseSchema> }> {
-  console.log(`🔍 [Text-to-SQL] Starting agentic exploration for: "${prompt}"`);
-  console.log(`   Connection: ${connectionId}, Schema: ${schema}, Table: ${tableName}`);
 
   // Create tools with bound context using the tool factory
   const toolContext: ToolContext = { connectionId, schema };
@@ -274,56 +272,25 @@ Steps:
     stopWhen: stepCountIs(MAX_TOOL_ROUNDS),
     abortSignal: signal,
     onStepFinish: (step) => {
-      const hasToolResults = step.toolResults && step.toolResults.length > 0;
-      console.log(
-        `📍 [Text-to-SQL] Step finished. finishReason: ${step.finishReason}, hasToolResults: ${hasToolResults}`
-      );
-
-      // Log tool calls
-      if (step.toolCalls && step.toolCalls.length > 0) {
-        for (const tc of step.toolCalls) {
-          console.log(`🔧 [Text-to-SQL] Tool call: ${tc.toolName}`, JSON.stringify(tc.input || {}));
-        }
-      }
-
       // Check for submit_where_clause result
       if (step.toolResults && step.toolResults.length > 0) {
         for (const tr of step.toolResults) {
-          const resultStr = tr.output != null ? JSON.stringify(tr.output) : "undefined";
-          const preview = resultStr.slice(0, 300);
-          console.log(
-            `📦 [Text-to-SQL] Tool result (${tr.toolName}): ${preview}${resultStr.length > 300 ? "..." : ""}`
-          );
-
           // Capture submit_where_clause result
           if (tr.toolName === "submit_where_clause" && tr.output) {
             const output = tr.output as SubmitWhereClauseResult;
             if (output.success && output.whereClause) {
               submittedResult = output;
-              console.log(`✅ [Text-to-SQL] Captured submit_where_clause: ${output.whereClause}`);
             }
           }
         }
       }
-
-      if (step.text) {
-        console.log(
-          `📝 [Text-to-SQL] Step text: ${step.text.slice(0, 200)}${step.text.length > 200 ? "..." : ""}`
-        );
-      }
     },
   });
 
-  // Log stats
-  console.log(`📊 [Text-to-SQL] Steps count: ${result.steps?.length ?? 0}`);
-  console.log(`📊 [Text-to-SQL] Finish reason: ${result.finishReason}`);
-
   const toolCalls = result.steps?.flatMap((s) => s.toolCalls || []) || [];
-  console.log(`📊 [Text-to-SQL] Total tool calls: ${toolCalls.length}`);
 
   // Check if submit_where_clause was called
   if (submittedResult) {
-    console.log(`✅ [Text-to-SQL] Using submitted WHERE clause: ${submittedResult.whereClause}`);
     return {
       object: {
         whereClause: submittedResult.whereClause,
@@ -339,7 +306,6 @@ Steps:
       if (tr.toolName === "submit_where_clause" && tr.output) {
         const output = tr.output as SubmitWhereClauseResult;
         if (output.success && output.whereClause) {
-          console.log(`✅ [Text-to-SQL] Found in steps: ${output.whereClause}`);
           return {
             object: {
               whereClause: output.whereClause,
@@ -353,10 +319,6 @@ Steps:
   }
 
   // No fallback parsing - if the model didn't call submit_where_clause, it failed
-  const text = result.text;
-  console.error(`❌ [Text-to-SQL] submit_where_clause was NOT called. Response:\n${text.slice(0, 1000)}`);
-  console.error(`❌ [Text-to-SQL] Tool calls made: ${toolCalls.map((tc) => tc.toolName).join(", ") || "NONE"}`);
-
   throw new Error(
     "AI did not call submit_where_clause. Please try rephrasing your filter request."
   );
@@ -395,9 +357,6 @@ export async function handleTextToSQL(request: Request): Promise<Response> {
       // enableCrossTable is now ignored - always use agentic mode
     } = body;
 
-    console.log(
-      `🔤 Text-to-SQL: "${prompt}" for ${tableName} (${dialect}) [${provider}/${model}] [agentic]`
-    );
 
     // Validation with actionable errors
     if (!prompt?.trim()) {
@@ -449,7 +408,6 @@ export async function handleTextToSQL(request: Request): Promise<Response> {
       );
 
       metrics.endOperation(aiMetric, true);
-      console.log(`✅ Generated WHERE: ${result.object.whereClause}`);
 
       // Success - end metrics
       metrics.endOperation(metric, true);

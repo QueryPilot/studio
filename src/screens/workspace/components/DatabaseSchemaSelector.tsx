@@ -198,7 +198,7 @@ export function DatabaseSchemaSelector({
       configuredDefault || publicSchema || dboSchema || schemas[0];
 
     if (fallback && fallback !== selectedSchema) {
-      void selectSchema(fallback);
+      void selectSchema(fallback, {});
     }
   }, [
     schemas,

@@ -48,14 +48,15 @@ function initializeServices(): void {
   servicesInitialized = true;
 }
 
+// Initialize services synchronously on module load
+// This ensures commands are available before the first render
+initializeServices();
+
 export function KeyboardProvider({ children }: KeyboardProviderProps): React.JSX.Element {
   // Initialize modifier key tracking globally (called once for entire app)
   useModifierKey();
 
   useEffect(() => {
-    // Initialize services (commands and keybindings)
-    initializeServices();
-
     // CRITICAL FIX: Set up context values BEFORE attaching keyboard listener
     // This prevents race condition where shortcuts with 'when' clauses fail
     // because context isn't ready yet when user presses a key

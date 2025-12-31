@@ -30,7 +30,6 @@ export function getCorsHeaders(request?: Request): Record<string, string> {
   const corsOrigin = ALLOWED_ORIGINS.includes(origin)
     ? origin
     : "tauri://localhost";
-  console.log("corsOrigin", corsOrigin);
   return {
     "Access-Control-Allow-Origin": corsOrigin,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",

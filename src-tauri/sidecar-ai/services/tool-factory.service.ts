@@ -110,7 +110,6 @@ export function createTextToSqlTools(ctx: ToolContext) {
         // Check cache first
         const cached = metadataCache.get<TableInfo[]>(connectionId, CacheTypes.TABLES, schema);
         if (cached) {
-          console.log(`📋 [list_tables] Cache hit for ${connectionId}:${schema}`);
           return { success: true, tables: cached, fromCache: true };
         }
 
@@ -158,7 +157,6 @@ export function createTextToSqlTools(ctx: ToolContext) {
           cacheKey
         );
         if (cached) {
-          console.log(`📋 [get_table_structure] Cache hit for ${cacheKey}`);
           return { success: true, table, ...cached, fromCache: true };
         }
 
@@ -226,7 +224,6 @@ export function createTextToSqlTools(ctx: ToolContext) {
         // Check cache
         const cached = metadataCache.get<IndexInfo[]>(connectionId, CacheTypes.INDEXES, table);
         if (cached) {
-          console.log(`📋 [get_indexes] Cache hit for ${table}`);
           return { success: true, indexes: cached, fromCache: true };
         }
 
@@ -271,7 +268,6 @@ export function createTextToSqlTools(ctx: ToolContext) {
           table
         );
         if (cached) {
-          console.log(`📋 [get_foreign_keys] Cache hit for ${table}`);
           return { success: true, foreignKeys: cached, fromCache: true };
         }
 
@@ -564,7 +560,6 @@ export function createTextToSqlTools(ctx: ToolContext) {
  */
 export function clearConnectionCache(connectionId: string): void {
   metadataCache.clearConnection(connectionId);
-  console.log(`🗑️ [Cache] Cleared cache for connection: ${connectionId}`);
 }
 
 /**

@@ -74,12 +74,6 @@ class MetricsCollector {
     if (success) counts.success++;
     counts.totalMs += metric.durationMs;
     this.operationCounts.set(metric.operation, counts);
-
-    // Log for observability
-    const status = success ? "✅" : "❌";
-    console.log(
-      `${status} [Metrics] ${metric.operation}: ${metric.durationMs}ms${error ? ` - ${error}` : ""}`
-    );
   }
 
   /**

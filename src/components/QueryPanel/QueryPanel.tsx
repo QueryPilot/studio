@@ -432,10 +432,6 @@ export const QueryPanel = memo(function QueryPanel({
             else msg = "Stream error";
             toast.error(msg);
           },
-          smartQueryLimit ?? undefined, // Convert null to undefined for backend
-          (originalSql, appliedLimit) => {
-            setAppliedLimit({ originalSql, limit: appliedLimit });
-          },
         );
 
         const final = await streamPromise;

@@ -24,7 +24,6 @@ const tableSchema = identifierSchema;
 // Helper to call Tauri backend via HTTP proxy
 async function callTauri(command: string, args: Record<string, any>) {
   const startTime = Date.now();
-  console.log(`🔧 [Tool] Calling Tauri command: ${command}`, JSON.stringify(args));
 
   try {
     const response = await fetch(`${TAURI_API_URL}/__tauri__/invoke`, {
@@ -45,7 +44,6 @@ async function callTauri(command: string, args: Record<string, any>) {
     }
 
     const result = await response.json();
-    console.log(`✅ [Tool] ${command} succeeded in ${elapsed}ms`);
     return result;
   } catch (error) {
     const elapsed = Date.now() - startTime;
