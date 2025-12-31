@@ -6,6 +6,7 @@
  */
 
 import { DbType } from '@/types/connection';
+import type { FilterConfig, FilterCondition, FilterGroup, FilterOperator, SortConfig } from '@/types/filter';
 
 /**
  * Map DatabaseType string to DbType enum
@@ -207,4 +208,122 @@ export function getDialectQuoting(dbType: DbType | string) {
     quoteString: (value: string) => quoteString(value, type),
     escapeString: (value: string) => escapeString(value, type),
   };
+}
+
+/**
+ * Convert a FilterOperator to dialect-specific SQL operator
+ */
+function operatorToSql(operator: FilterOperator | string, dbType: DbType): string {
+  switch (operator) {
+    case 'REGEX':
+      return dbType === DbType.PostgreSQL ? '~' : 'REGEXP BINARY';
+    case 'REGEX_I':
+      return dbType === DbType.PostgreSQL ? '~*' : 'REGEXP';
+    case 'ILIKE':
+      // MySQL/SQLite don't have ILIKE, use LIKE (case-insensitive by default in MySQL)
+      return dbType === DbType.PostgreSQL ? 'ILIKE' : 'LIKE';
+    case 'NOT ILIKE':
+      return dbType === DbType.PostgreSQL ? 'NOT ILIKE' : 'NOT LIKE';
+    default:
+      return operator;
+  }
+}
+
+/**
+ * Convert a single FilterCondition to SQL WHERE fragment
+ */
+function conditionToSql(condition: FilterCondition, dbType: DbType): string {
+  const column = condition.castToText
+    ? `${quoteIdentifier(condition.column, dbType)}::text`
+    : quoteIdentifier(condition.column, dbType);
+
+  const operator = condition.operator as FilterOperator;
+
+  // Null checks don't need a value
+  if (operator === 'IS NULL' || operator === 'IS NOT NULL') {
+    const sql = `${column} ${operator}`;
+    return condition.negated ? `NOT (${sql})` : sql;
+  }
+
+  // IN / NOT IN operators need array handling
+  if (operator === 'IN' || operator === 'NOT IN') {
+    const values = Array.isArray(condition.value) ? condition.value : [condition.value];
+    const formatted = values.map((v) => formatValue(v, dbType)).join(', ');
+    const sql = `${column} ${operator} (${formatted})`;
+    return condition.negated ? `NOT (${sql})` : sql;
+  }
+
+  // Standard comparison operators
+  const sqlOp = operatorToSql(operator, dbType);
+  const value = formatValue(condition.value, dbType);
+  const sql = `${column} ${sqlOp} ${value}`;
+
+  return condition.negated ? `NOT (${sql})` : sql;
+}
+
+/**
+ * Convert a FilterGroup to SQL WHERE fragment (recursive)
+ */
+function groupToSql(group: FilterGroup, dbType: DbType): string {
+  if (group.conditions.length === 0) {
+    return '';
+  }
+
+  const parts: string[] = [];
+
+  for (const item of group.conditions) {
+    if ('type' in item && item.type === 'group') {
+      const nested = groupToSql(item as FilterGroup, dbType);
+      if (nested) {
+        parts.push(`(${nested})`);
+      }
+    } else {
+      const sql = conditionToSql(item as FilterCondition, dbType);
+      if (sql) {
+        parts.push(sql);
+      }
+    }
+  }
+
+  return parts.join(` ${group.logical} `);
+}
+
+/**
+ * Convert FilterConfig to a raw SQL WHERE clause string
+ * Returns undefined if no filters are configured
+ */
+export function filterConfigToWhereClause(
+  filter: FilterConfig | undefined,
+  dbType: DbType | string
+): string | undefined {
+  if (!filter) {
+    return undefined;
+  }
+
+  // Raw WHERE clause takes precedence (AI-generated filters)
+  if (filter.rawWhereClause) {
+    return filter.rawWhereClause;
+  }
+
+  // Convert structured filter to SQL
+  const type = toDbType(dbType);
+  const sql = groupToSql(filter.root, type);
+
+  return sql || undefined;
+}
+
+/**
+ * Convert SortConfig array to SQL ORDER BY clause components
+ */
+export function sortConfigToOrderBy(
+  sorts: SortConfig[] | undefined
+): Array<{ column: string; direction: 'ASC' | 'DESC' }> | undefined {
+  if (!sorts || sorts.length === 0) {
+    return undefined;
+  }
+
+  return sorts.map((s) => ({
+    column: s.column,
+    direction: s.direction.toUpperCase() as 'ASC' | 'DESC',
+  }));
 }

@@ -134,6 +134,8 @@ export type RowData = Record<string, unknown>;
 export interface SelectOptions {
   columns?: string[];
   where?: WhereClause;
+  /** Raw WHERE clause string - takes precedence over `where` if provided */
+  rawWhere?: string;
   orderBy?: { column: string; direction: 'ASC' | 'DESC' }[];
   limit?: number;
   offset?: number;

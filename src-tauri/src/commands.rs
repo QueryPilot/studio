@@ -665,7 +665,7 @@ fn is_select_query(sql: &str) -> bool {
     let re = regex::Regex::new(r"/\*.*?\*/").unwrap_or_else(|_| regex::Regex::new(r"a^").unwrap());
     let cleaned = re.replace_all(&without_comments, "");
 
-    // Get first word (ignoring WITH for CTEs)
+    // Get first word
     let first_keyword = cleaned
         .trim()
         .split_whitespace()
@@ -673,17 +673,71 @@ fn is_select_query(sql: &str) -> bool {
         .unwrap_or("")
         .to_uppercase();
 
+    // For CTEs (WITH), we need to find the main statement after the CTE definitions
+    // WITH ... SELECT returns rows, but WITH ... UPDATE/INSERT/DELETE does not
+    if first_keyword == "WITH" {
+        return find_main_statement_keyword(&cleaned)
+            .map(|kw| matches!(kw.as_str(), "SELECT" | "TABLE" | "VALUES"))
+            .unwrap_or(false);
+    }
+
     // Check if it's a query that returns rows:
     // - SELECT: standard select query
-    // - WITH: CTE that typically ends in SELECT
     // - EXPLAIN: query plan output (returns rows with plan text)
     // - SHOW: PostgreSQL config/status queries
     // - TABLE: PostgreSQL shorthand for SELECT * FROM
     // - VALUES: literal values as rows
     matches!(
         first_keyword.as_str(),
-        "SELECT" | "WITH" | "EXPLAIN" | "SHOW" | "TABLE" | "VALUES"
+        "SELECT" | "EXPLAIN" | "SHOW" | "TABLE" | "VALUES"
     )
+}
+
+/// Find the main statement keyword in a CTE query (after WITH ... AS (...))
+/// Returns the keyword of the main statement (SELECT, INSERT, UPDATE, DELETE)
+fn find_main_statement_keyword(sql: &str) -> Option<String> {
+    let upper = sql.to_uppercase();
+
+    // Main DML keywords that can follow CTEs
+    let keywords = ["SELECT", "INSERT", "UPDATE", "DELETE", "TABLE", "VALUES"];
+
+    // Find the FIRST main statement keyword at depth 0 (after CTE definitions)
+    // We need the first one because "INSERT INTO ... SELECT" has SELECT after INSERT
+    let mut first_keyword_pos: Option<(usize, &str)> = None;
+
+    for keyword in &keywords {
+        let mut search_start = 0;
+        while let Some(pos) = upper[search_start..].find(keyword) {
+            let abs_pos = search_start + pos;
+
+            // Check if this keyword is at word boundary
+            let before_ok = abs_pos == 0
+                || !upper.as_bytes()[abs_pos - 1].is_ascii_alphanumeric();
+            let after_ok = abs_pos + keyword.len() >= upper.len()
+                || !upper.as_bytes()[abs_pos + keyword.len()].is_ascii_alphanumeric();
+
+            if before_ok && after_ok {
+                // Count parenthesis depth up to this position
+                let depth = sql[..abs_pos].chars().fold(0i32, |d, c| match c {
+                    '(' => d + 1,
+                    ')' => d - 1,
+                    _ => d,
+                });
+
+                // Only consider keywords at depth 0 (not inside CTE definitions)
+                // Track the FIRST (leftmost) keyword at depth 0
+                if depth == 0 {
+                    if first_keyword_pos.map_or(true, |(p, _)| abs_pos < p) {
+                        first_keyword_pos = Some((abs_pos, keyword));
+                    }
+                }
+            }
+
+            search_start = abs_pos + 1;
+        }
+    }
+
+    first_keyword_pos.map(|(_, kw)| kw.to_string())
 }
 
 /// Execute query with TRUE streaming (rows arrive as they're fetched from PostgreSQL)
@@ -1194,3 +1248,79 @@ pub async fn execute_query(
 // ============================================================================
 // DDL operations (CREATE, ALTER, DROP) are handled via execute_query with
 // frontend adapter SQL generation. See: src/adapters/ for the TypeScript adapter system.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_select_query_simple_select() {
+        assert!(is_select_query("SELECT * FROM users"));
+        assert!(is_select_query("select id from users"));
+        assert!(is_select_query("  SELECT * FROM users  "));
+    }
+
+    #[test]
+    fn test_is_select_query_mutations() {
+        assert!(!is_select_query("UPDATE users SET name = 'test'"));
+        assert!(!is_select_query("INSERT INTO users (name) VALUES ('test')"));
+        assert!(!is_select_query("DELETE FROM users WHERE id = 1"));
+    }
+
+    #[test]
+    fn test_is_select_query_cte_with_select() {
+        let sql = "WITH cte AS (SELECT id FROM users) SELECT * FROM cte";
+        assert!(is_select_query(sql));
+    }
+
+    #[test]
+    fn test_is_select_query_cte_with_update() {
+        let sql = r#"
+            WITH mismatch AS (
+                SELECT s.id, s.code FROM sales s
+            )
+            UPDATE campaigns SET code = m.code FROM mismatch m WHERE id = m.id
+        "#;
+        assert!(!is_select_query(sql));
+    }
+
+    #[test]
+    fn test_is_select_query_cte_with_insert() {
+        let sql = "WITH data AS (SELECT 1 as id) INSERT INTO users (id) SELECT id FROM data";
+        assert!(!is_select_query(sql));
+    }
+
+    #[test]
+    fn test_is_select_query_cte_with_delete() {
+        let sql = "WITH old AS (SELECT id FROM users WHERE age > 100) DELETE FROM users WHERE id IN (SELECT id FROM old)";
+        assert!(!is_select_query(sql));
+    }
+
+    #[test]
+    fn test_is_select_query_explain() {
+        assert!(is_select_query("EXPLAIN SELECT * FROM users"));
+        assert!(is_select_query("EXPLAIN ANALYZE SELECT * FROM users"));
+    }
+
+    #[test]
+    fn test_is_select_query_show() {
+        assert!(is_select_query("SHOW search_path"));
+        assert!(is_select_query("SHOW ALL"));
+    }
+
+    #[test]
+    fn test_find_main_statement_keyword() {
+        assert_eq!(
+            find_main_statement_keyword("WITH cte AS (SELECT 1) SELECT * FROM cte"),
+            Some("SELECT".to_string())
+        );
+        assert_eq!(
+            find_main_statement_keyword("WITH cte AS (SELECT 1) UPDATE t SET x = 1"),
+            Some("UPDATE".to_string())
+        );
+        assert_eq!(
+            find_main_statement_keyword("WITH cte AS (SELECT 1) INSERT INTO t SELECT * FROM cte"),
+            Some("INSERT".to_string())
+        );
+    }
+}
