@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import {
   IconX,
@@ -20,6 +20,7 @@ interface DraggableTabProps {
   tabType?: string;
   isView?: boolean;
   kind?: "Table" | "View" | "MaterializedView";
+  returnType?: string;
   isNextActive?: boolean;
   onActivate: () => void;
   onClose: () => void;
@@ -35,6 +36,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
   tabType = "table",
   isView,
   kind,
+  returnType,
   isNextActive = false,
   onActivate,
   onClose,
@@ -51,7 +53,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const getIcon = () => {
+  const Icon = useMemo(() => {
     switch (tabType) {
       case "table":
         if (isView) {
@@ -67,9 +69,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
       default:
         return IconTable;
     }
-  };
-
-  const Icon = getIcon();
+  }, [tabType, isView]);
 
   // Determine icon color based on type
   const getIconClass = () => {
@@ -91,6 +91,20 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
         isActive && isFocused ? "text-primary" : "text-primary/60",
       );
     }
+    if (tabType === "function") {
+      // Procedures return 'void', functions have a return type
+      const isProcedure = returnType === "void";
+      if (isProcedure) {
+        return cn(
+          "h-3.5 w-3.5",
+          isActive && isFocused ? "text-orange-500" : "text-orange-500/60",
+        );
+      }
+      return cn(
+        "h-3.5 w-3.5",
+        isActive && isFocused ? "text-purple-500" : "text-purple-500/60",
+      );
+    }
     return "h-3.5 w-3.5";
   };
 
@@ -102,7 +116,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
         {...listeners}
         {...attributes}
         className={cn(
-          "group px-2 py-1 text-xs h-8 rounded-t-md transition-colors flex items-center gap-1.5 cursor-move relative group",
+          "group px-2 py-1 text-xs h-8 transition-colors flex items-center gap-1.5 cursor-move relative group",
           {
             "bg-background text-foreground font-medium z-10 sticky left-0 right-0":
               isActive && isFocused,
@@ -118,7 +132,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
           onActivate();
         }}
       >
-        <div className="h-5 w-5 flex items-center justify-center flex-shrink-0">
+        <div className="h-5 w-5 flex items-center justify-center shrink-0">
           <button
             className="hidden group-hover:flex group-focus-within:flex items-center justify-center hover:bg-destructive/10 rounded transition-colors h-5 w-5"
             onClick={(e) => {

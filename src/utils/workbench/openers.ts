@@ -380,6 +380,7 @@ export function openFunctionObject({
       database,
       schema: func.schema,
       functionName: func.name,
+      returnType: func.return_type,
     });
     return;
   }
@@ -415,6 +416,7 @@ export function openFunctionObject({
       database,
       schema: func.schema,
       functionName: func.name,
+      returnType: func.return_type,
     },
   });
 }
@@ -506,6 +508,7 @@ export function openFunctionInSplitRight({
           database,
           schema: func.schema,
           functionName: func.name,
+          returnType: func.return_type,
         },
       },
     },

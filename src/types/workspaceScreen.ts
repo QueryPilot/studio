@@ -39,6 +39,7 @@ export interface TabPayload {
   functionName?: string;
   objectName?: string;
   objectType?: "function" | "procedure";
+  returnType?: string;
 }
 
 export interface TabUIState {
