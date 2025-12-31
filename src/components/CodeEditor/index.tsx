@@ -67,6 +67,28 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
     const [isFocused, setIsFocused] = useState(false);
     const isQueryEditor = Boolean(onExecute);
 
+    // FIX: Use uncontrolled mode to avoid "typing latch" bug in @uiw/react-codemirror
+    // We only pass the initial value to the editor, and handle subsequent updates manually
+    // This prevents the race condition where React renders stale state during the 200ms latch window
+    // Use useState to capture the initial value once on mount - avoiding ref access during render
+    const [initialDoc] = useState(value);
+
+    // Manual synchronization for external value changes
+    useEffect(() => {
+      const view = editorRef.current;
+      if (!view) return;
+
+      const currentValue = view.state.doc.toString();
+
+      // Only dispatch update if value is effectively different
+      // This handles the "loopback" case where user types -> onChange -> parent state update -> prop update
+      if (value !== currentValue) {
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: value }
+        });
+      }
+    }, [value]);
+
     useContextKey("editorTextFocus", isFocused, {
       scopeId,
       resetOnUnmount: true,
@@ -253,10 +275,21 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
     // Stable refs for callbacks to avoid extension rebuilds
     const onExecuteRef = useRef(onExecute);
     const onEnterRef = useRef(onEnter);
+
     useEffect(() => {
       onExecuteRef.current = onExecute;
       onEnterRef.current = onEnter;
     }, [onExecute, onEnter]);
+
+    // Create stable wrappers to pass to extensions
+    // This avoids accessing refs during render while keeping the dependency stable
+    const onExecuteWrapper = useCallback((query?: string) => {
+      onExecuteRef.current?.(query);
+    }, []);
+
+    const onEnterWrapper = useCallback(() => {
+      return onEnterRef.current?.() ?? false;
+    }, []);
 
     useEffect(() => {
       return () => {
@@ -277,8 +310,10 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
           dialect,
           readOnly,
           lineNumbers,
-          onExecuteRef.current,
-          onEnterRef.current,
+          // eslint-disable-next-line react-hooks/refs
+          onExecuteWrapper,
+          // eslint-disable-next-line react-hooks/refs
+          onEnterWrapper,
           connectionId,
           database,
           schema,
@@ -289,6 +324,8 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
         dialect,
         readOnly,
         lineNumbers,
+        onExecuteWrapper,
+        onEnterWrapper,
         connectionId,
         database,
         schema,
@@ -307,6 +344,9 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
     useEffect(() => {
       if (!autoFocus || !editorRef.current) return;
 
+      // Don't auto-focus if the value change came from typing (editor already has focus)
+      if (editorRef.current.hasFocus) return;
+
       const timeoutId = setTimeout(() => {
         editorRef.current?.focus();
       }, FOCUS_DELAY_MS);
@@ -321,7 +361,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
       >
         <CodeMirror
           key={`${language}-${dialect}`}
-          value={value}
+          value={initialDoc}
           onChange={onChange}
           extensions={extensions}
           editable={!readOnly}
