@@ -373,6 +373,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                   tabType={metadata?.type || "table"}
                   isView={metadata?.isView}
                   kind={metadata?.kind}
+                  returnType={metadata?.returnType as string | undefined}
                   isNextActive={isNextActive}
                   onActivate={() => {
                     setActiveTab(content.id, tabId);
