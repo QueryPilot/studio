@@ -23,7 +23,7 @@ describe("commandPaletteFrecencyStore", () => {
       });
 
       expect(result.current.items["item-1"]).toBeDefined();
-      expect(result.current.items["item-1"].accessCount).toBe(1);
+      expect(result.current.items["item-1"]!.accessCount).toBe(1);
     });
 
     it("should increment access count on subsequent accesses", () => {

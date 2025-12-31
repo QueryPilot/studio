@@ -139,12 +139,12 @@ describe("useUnifiedItems", () => {
     // Check for view items
     const viewItems = items.filter((i) => i.type === "view");
     expect(viewItems.length).toBe(1);
-    expect(viewItems[0].name).toBe("user_summary");
+    expect(viewItems[0]!.name).toBe("user_summary");
 
     // Check for materialized view items
     const matViewItems = items.filter((i) => i.type === "materializedView");
     expect(matViewItems.length).toBe(1);
-    expect(matViewItems[0].name).toBe("cached_stats");
+    expect(matViewItems[0]!.name).toBe("cached_stats");
   });
 
   it("should include functions in unified items", async () => {

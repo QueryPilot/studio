@@ -1,12 +1,8 @@
 import React, { useMemo } from "react";
-import {
-  IconArrowLeft,
-  IconCheck,
-  IconLoader2,
-  IconStarFilled,
-} from "@tabler/icons-react";
+import { IconCheck, IconLoader2, IconPlus, IconStarFilled } from "@tabler/icons-react";
 import Fuse, { type IFuseOptions } from "fuse.js";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 import {
   CommandEmpty,
@@ -14,11 +10,12 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { databaseService } from "@/services/databaseService";
 import { cn } from "@/lib/utils";
+import { DbType } from "@/types/connection";
+import { SCHEMA_CREATION_SUPPORTED } from "./actions";
 
 interface SchemaItem {
   name: string;
@@ -37,25 +34,28 @@ interface NestedSchemaListProps {
   listRef?: React.RefObject<HTMLDivElement | null>;
   query: string;
   onSelect: (schema: string) => void;
+  onClose: () => void;
 }
 
 export function NestedSchemaList({
   listRef,
   query,
   onSelect,
+  onClose,
 }: NestedSchemaListProps): React.ReactElement {
-  const exitNestedMode = useCommandPaletteStore((state) => state.exitNestedMode);
-  const connectionId = useWorkspaceSelectionStore((state) => state.connectionId);
+  const connectionId = useWorkspaceSelectionStore(
+    (state) => state.connectionId,
+  );
   const currentDatabase = useWorkspaceSelectionStore((state) => state.database);
   const currentSchema = useWorkspaceSelectionStore((state) => state.schema);
 
-  // Get the default schema from connection profile
-  const connectionDefaultSchema = useConnectionStore(
-    (state) =>
-      connectionId
-        ? state.getConnection(connectionId)?.profile.default_schema
-        : undefined
+  // Get the connection for dbType and default schema
+  const currentConnection = useConnectionStore((state) =>
+    connectionId ? state.getConnection(connectionId) : undefined,
   );
+  const connectionDefaultSchema = currentConnection?.profile.default_schema;
+  const dbType = currentConnection?.profile.db_type ?? null;
+  const supportsCreateSchema = dbType && SCHEMA_CREATION_SUPPORTED.includes(dbType);
 
   // Query for schemas list
   const {
@@ -74,7 +74,7 @@ export function NestedSchemaList({
     enabled:
       !!connectionId &&
       !!currentDatabase &&
-      databaseService.isConnectionActive(connectionId ?? ""),
+      databaseService.isConnectionActive(connectionId),
     staleTime: 60_000,
     retry: 2,
   });
@@ -91,7 +91,7 @@ export function NestedSchemaList({
   // Create Fuse index
   const fuse = useMemo(
     () => new Fuse(schemaItems, SCHEMA_FUSE_OPTIONS),
-    [schemaItems]
+    [schemaItems],
   );
 
   // Filter results based on search query
@@ -101,10 +101,6 @@ export function NestedSchemaList({
     }
     return fuse.search(query).map((r) => r.item);
   }, [schemaItems, fuse, query]);
-
-  const handleBack = () => {
-    exitNestedMode();
-  };
 
   if (isLoading) {
     return (
@@ -120,28 +116,23 @@ export function NestedSchemaList({
   if (error) {
     return (
       <CommandList ref={listRef}>
-        <CommandGroup>
-          <CommandItem onSelect={handleBack}>
-            <IconArrowLeft className="size-4" />
-            <span>Back</span>
-          </CommandItem>
-        </CommandGroup>
         <div className="py-6 text-center text-xs text-destructive">
-          Failed to load schemas: {error instanceof Error ? error.message : "Unknown error"}
+          Failed to load schemas:{" "}
+          {error instanceof Error ? error.message : "Unknown error"}
         </div>
       </CommandList>
     );
   }
 
+  const handleCreateSchema = async () => {
+    const template = getCreateSchemaTemplate(dbType);
+    await navigator.clipboard.writeText(template);
+    toast.success("CREATE SCHEMA template copied to clipboard");
+    onClose();
+  };
+
   return (
     <CommandList ref={listRef}>
-      <CommandGroup heading="Switch Schema">
-        <CommandItem onSelect={handleBack}>
-          <IconArrowLeft className="size-4" />
-          <span>Back</span>
-        </CommandItem>
-      </CommandGroup>
-
       <CommandEmpty>No schemas found.</CommandEmpty>
 
       <CommandGroup heading="Schemas">
@@ -149,32 +140,72 @@ export function NestedSchemaList({
           <CommandItem
             key={schemaItem.name}
             value={schemaItem.name}
-            onSelect={() => onSelect(schemaItem.name)}
+            onSelect={() => {
+              onSelect(schemaItem.name);
+            }}
           >
             <div className="flex items-center justify-between w-full">
               <div className="flex items-center gap-2">
                 <IconCheck
                   className={cn(
-                    "size-4",
-                    schemaItem.isCurrent ? "opacity-100" : "opacity-0"
+                    "size-4!",
+                    schemaItem.isCurrent ? "opacity-100" : "opacity-0",
                   )}
                 />
                 <span
                   className={cn(
                     "truncate",
-                    schemaItem.isCurrent && "font-medium"
+                    schemaItem.isCurrent && "font-medium",
                   )}
                 >
                   {schemaItem.name}
                 </span>
               </div>
               {schemaItem.isDefault && (
-                <IconStarFilled className="size-3 text-yellow-500" />
+                <IconStarFilled className="size-4! text-yellow-500" />
               )}
             </div>
           </CommandItem>
         ))}
       </CommandGroup>
+
+      {supportsCreateSchema && (
+        <CommandGroup heading="Commands">
+          <CommandItem
+            value="create-schema"
+            onSelect={handleCreateSchema}
+          >
+            <div className="flex items-center gap-2">
+              <IconPlus className="size-4 text-muted-foreground" />
+              <span>Create Schema</span>
+            </div>
+          </CommandItem>
+        </CommandGroup>
+      )}
     </CommandList>
   );
+}
+
+function getCreateSchemaTemplate(dbType: DbType | null): string {
+  const schemaName = "new_schema";
+  switch (dbType) {
+    case DbType.PostgreSQL:
+      return `CREATE SCHEMA "${schemaName}"
+  AUTHORIZATION current_user;
+
+-- Optional: Grant permissions
+-- GRANT USAGE ON SCHEMA "${schemaName}" TO some_role;
+-- GRANT ALL ON ALL TABLES IN SCHEMA "${schemaName}" TO some_role;`;
+
+    case DbType.MySQL:
+      return `CREATE SCHEMA \`${schemaName}\`
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;`;
+
+    case DbType.SQLServer:
+      return `CREATE SCHEMA [${schemaName}];`;
+
+    default:
+      return `CREATE SCHEMA ${schemaName};`;
+  }
 }

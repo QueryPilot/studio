@@ -1,5 +1,4 @@
 import React, { useMemo } from "react";
-import { IconArrowLeft } from "@tabler/icons-react";
 import Fuse, { type IFuseOptions } from "fuse.js";
 
 import {
@@ -8,7 +7,6 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
 import type { DbType } from "@/types/connection";
@@ -39,7 +37,6 @@ export function NestedConnectionList({
   query,
   onSelect,
 }: NestedConnectionListProps): React.ReactElement {
-  const exitNestedMode = useCommandPaletteStore((state) => state.exitNestedMode);
   const connections = useConnectionStore((state) => state.connections);
 
   // Build connection items
@@ -67,19 +64,8 @@ export function NestedConnectionList({
     return fuse.search(query).map((r) => r.item);
   }, [connectionItems, fuse, query]);
 
-  const handleBack = () => {
-    exitNestedMode();
-  };
-
   return (
     <CommandList ref={listRef}>
-      <CommandGroup heading="Open Connection">
-        <CommandItem onSelect={handleBack}>
-          <IconArrowLeft className="size-4" />
-          <span>Back</span>
-        </CommandItem>
-      </CommandGroup>
-
       <CommandEmpty>No connections found.</CommandEmpty>
 
       <CommandGroup heading="Connections">

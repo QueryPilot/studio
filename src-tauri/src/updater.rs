@@ -31,6 +31,7 @@ struct GitHubAsset {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // Fields present in JSON but only `platforms` is accessed
 struct UpdateManifest {
     version: String,
     notes: String,

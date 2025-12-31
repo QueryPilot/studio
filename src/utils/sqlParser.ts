@@ -132,21 +132,3 @@ export function parseMutationTables(sql: string): TableReference[] {
   }
 }
 
-/**
- * Check if SQL query is a SELECT query
- */
-export function isSelectQuery(sql: string): boolean {
-  const normalized = sql.trim().toLowerCase();
-  // Check if it starts with SELECT or WITH (CTE)
-  return /^(select|with)\s/i.test(normalized);
-}
-
-/**
- * Check if SQL query is a mutation query (modifies data)
- */
-export function isMutationQuery(sql: string): boolean {
-  const normalized = sql.trim().toLowerCase();
-  return /^(insert|update|delete|truncate|drop|create|alter)\s/i.test(
-    normalized,
-  );
-}

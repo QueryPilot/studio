@@ -14,20 +14,30 @@ import { GridCellKind } from "@glideapps/glide-data-grid";
 function createColumn(id: string, dbType: string): GridColumnV2 {
   return {
     id,
+    field: id,
     title: id,
+    name: id,
     width: 100,
     meta: {
+      name: id,
       db_type: dbType,
-      is_nullable: true,
+      nullable: true,
+      default: null,
       is_pk: false,
       is_fk: false,
+      ordinal: 0,
     },
   };
 }
 
-// Helper to create a cell value
+// Helper to create a cell value (CellValue/GridCellValue)
 function createValue(value: unknown) {
-  return { value, original: value };
+  return {
+    value,
+    db_type: "text",
+    value_type: "Text" as const,
+    is_truncated: false,
+  };
 }
 
 describe("cellFactory - PostgreSQL Geometric Types", () => {

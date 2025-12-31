@@ -80,7 +80,7 @@ export const ForeignKeyCellEditor: React.FC<ForeignKeyCellEditorProps> = ({
       return;
     }
     if (!optionValues.includes(activeValue)) {
-      setActiveValue(optionValues[0]);
+      setActiveValue(optionValues[0] ?? "");
     }
   }, [activeValue, optionValues]);
 
