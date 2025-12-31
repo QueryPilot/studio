@@ -693,10 +693,6 @@ pub enum StreamMessage {
         resumable: bool,
         message: String,
     },
-    LimitApplied {
-        original_sql: String,
-        applied_limit: usize,
-    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

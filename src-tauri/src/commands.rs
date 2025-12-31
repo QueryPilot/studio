@@ -809,17 +809,6 @@ pub async fn ping(
     }
 }
 
-/// Extract LIMIT value from SQL query (simple regex-based parser)
-fn extract_limit_from_sql(sql: &str) -> Option<usize> {
-    use regex::Regex;
-
-    // Match LIMIT clause at end of query (case-insensitive)
-    // Handles: LIMIT 1000, LIMIT 1000;, LIMIT 1000 OFFSET 50
-    let re = Regex::new(r"(?i)\bLIMIT\s+(\d+)").ok()?;
-    let caps = re.captures(sql)?;
-    caps.get(1)?.as_str().parse::<usize>().ok()
-}
-
 /// Check if SQL query is a SELECT statement or other query that returns rows
 fn is_select_query(sql: &str) -> bool {
     // Trim whitespace and comments, get first significant SQL keyword
@@ -1332,15 +1321,13 @@ async fn execute_single_fetch_stream(
     Ok(())
 }
 
-/// Execute query with smart limit detection
-/// Automatically applies LIMIT if query doesn't have one (unless user disabled it)
+/// Execute query with streaming
 #[tauri::command]
 pub async fn execute_query(
     conn_id: String,
     tab_id: String,
     sql: String,
     _batch_size: Option<usize>,
-    user_limit_preference: Option<usize>,
     metadata_channel: tauri::ipc::Channel<StreamMessage>,
     data_channel: tauri::ipc::Channel<tauri::ipc::Response>,
     manager: State<'_, Arc<ConnectionManager>>,
@@ -1353,67 +1340,23 @@ pub async fn execute_query(
         .await
         .map_err(|e| e.to_string())?;
 
-    // Check if query is a SELECT statement
-    let is_select = is_select_query(&sql);
-
-    // Check if query has LIMIT clause
-    let has_limit = extract_limit_from_sql(&sql).is_some();
-
-    // Apply smart limit only if:
-    // 1. Query is a SELECT statement (not INSERT/UPDATE/DELETE/CREATE/etc.)
-    // 2. Query doesn't have LIMIT
-    // 3. User has a preference set (Some(limit)) - if None, user chose "No limit"
-    let applied_limit = if is_select && !has_limit {
-        user_limit_preference // Returns Some(limit) or None based on user preference
-    } else {
-        None
-    };
-
-    // Apply limit if needed
-    let final_sql = if let Some(limit) = applied_limit {
-        format!("{} LIMIT {}", sql.trim().trim_end_matches(';'), limit)
-    } else {
-        sql.clone()
-    };
-
-    // Send metadata about limit application before starting query
-    if let Some(limit) = applied_limit {
-        let _ = metadata_channel.send(StreamMessage::LimitApplied {
-            original_sql: sql.clone(),
-            applied_limit: limit,
-        });
-    }
-
     tracing::info!("==========================================");
     tracing::info!("FAST PATH (query_raw streaming)");
     tracing::info!("  connection_key: {}", connection_key);
-    tracing::info!("  sql: {}", final_sql);
-    if let Some(limit) = applied_limit {
-        tracing::info!("Auto-applied LIMIT {} (SELECT query)", limit);
-    } else if !is_select {
-        tracing::info!("No auto-limit (not a SELECT query)");
-    } else if !has_limit {
-        tracing::info!("No auto-limit (user preference: no limit)");
-    }
+    tracing::info!("  sql: {}", sql);
     tracing::info!("==========================================");
 
-    execute_single_fetch_stream(&final_sql, &metadata_channel, &data_channel, &conn).await
+    execute_single_fetch_stream(&sql, &metadata_channel, &data_channel, &conn).await
 }
 
 // ============================================================================
-// DDL Commands (DEPRECATED - use execute_sql with frontend dialect instead)
+// DDL Operations
 // ============================================================================
-// The following commands have been removed:
-// - create_index, drop_index, rename_index
-// - alter_table_add_column, alter_table_drop_column, alter_table_modify_column, alter_table_rename_column
-// - alter_table_add_foreign_key, alter_table_drop_foreign_key
-// - create_trigger, drop_trigger, enable_disable_trigger
-//
-// Use the new execute_sql / execute_sql_batch commands with frontend dialect SQL generation instead.
-// See: src/dialects/ for the TypeScript dialect system.
+// DDL operations (CREATE, ALTER, DROP) are handled via execute_query with
+// frontend adapter SQL generation. See: src/adapters/ for the TypeScript adapter system.
 
 // ============================================================================
-// vault maintenance helpers
+// Vault maintenance helpers
 // ============================================================================
 
 #[tauri::command]
@@ -1455,53 +1398,6 @@ pub async fn reset_vault_vault(app_handle: AppHandle) -> std::result::Result<(),
     }
 
     Ok(())
-}
-
-// ========================================
-// Generic SQL Execution Commands
-// ========================================
-// These commands allow the frontend to execute SQL directly.
-// SQL generation is handled by frontend dialects (src/dialects/).
-
-/// Execute a single SQL statement and return the number of affected rows.
-/// This is the primary command for DDL operations (CREATE, ALTER, DROP).
-/// The frontend generates dialect-specific SQL and sends it here for execution.
-#[tauri::command]
-pub async fn execute_sql(
-    conn_id: String,
-    sql: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<u64, String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    conn.adapter.execute(&sql).await.map_err(|e| e.to_string())
-}
-
-/// Execute multiple SQL statements in sequence.
-/// Returns the total number of affected rows.
-/// All statements are executed in the same connection context.
-#[tauri::command]
-pub async fn execute_sql_batch(
-    conn_id: String,
-    statements: Vec<String>,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<Vec<u64>, String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    let mut results = Vec::with_capacity(statements.len());
-    for sql in statements {
-        let affected = conn
-            .adapter
-            .execute(&sql)
-            .await
-            .map_err(|e| e.to_string())?;
-        results.push(affected);
-    }
-    Ok(results)
 }
 
 // ========================================

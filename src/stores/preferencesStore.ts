@@ -16,9 +16,6 @@ export interface TelemetryPreferences {
 }
 
 interface PreferencesState {
-  smartQueryLimit: number | null; // null = no auto-limit, number = apply limit
-  setSmartQueryLimit: (limit: number | null) => void;
-
   // Telemetry preferences
   telemetry: TelemetryPreferences;
   setTelemetry: (telemetry: Partial<TelemetryPreferences>) => void;
@@ -38,11 +35,6 @@ interface PreferencesState {
 export const usePreferencesStore = create<PreferencesState>()(
   persist(
     (set) => ({
-      smartQueryLimit: null, // Default: no limit
-      setSmartQueryLimit: (limit) => {
-        set({ smartQueryLimit: limit });
-      },
-
       // Telemetry defaults (all disabled by default for privacy)
       telemetry: {
         sentryEnabled: false,
@@ -77,7 +69,6 @@ export const usePreferencesStore = create<PreferencesState>()(
     {
       name: "query-pilot-preferences",
       partialize: (state) => ({
-        smartQueryLimit: state.smartQueryLimit,
         telemetry: state.telemetry,
       }),
     },

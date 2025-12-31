@@ -14,7 +14,6 @@ export interface QueryStreamParams {
   tabId: string;
   sql: string;
   batchSize?: number;
-  userLimitPreference?: number;
 }
 
 export interface StreamBatch {
@@ -172,7 +171,6 @@ export class QueryStreamClient {
       onBatch?: (batch: StreamBatch, totalSoFar: number) => void;
       onSuccess?: (result: StreamResult) => void;
       onError?: (error: Error) => void;
-      onLimitApplied?: (originalSql: string, appliedLimit: number) => void;
     },
   ): Promise<StreamResult> {
     // Check if running in Tauri context
@@ -184,7 +182,7 @@ export class QueryStreamClient {
       return Promise.reject(error);
     }
 
-    const { connId, tabId, sql, batchSize = 1000, userLimitPreference } = params;
+    const { connId, tabId, sql, batchSize = 1000 } = params;
 
     const decodeWorker = getStreamDecodeWorker();
 
@@ -274,13 +272,6 @@ export class QueryStreamClient {
         }
 
         switch (typedMessage.type) {
-          case "limitApplied":
-            callbacks.onLimitApplied?.(
-              typedMessage.original_sql,
-              typedMessage.applied_limit,
-            );
-            break;
-
           case "started":
             this.columns = typedMessage.columns;
             this.estimatedRows = typedMessage.estimated_rows;
@@ -358,7 +349,6 @@ export class QueryStreamClient {
           tabId,
           sql,
           batchSize,
-          userLimitPreference,
           metadataChannel,
           dataChannel,
         }).catch((error: unknown) => {

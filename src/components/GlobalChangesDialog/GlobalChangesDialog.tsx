@@ -545,7 +545,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!max-w-[80vw] max-h-[80vh] flex flex-col p-4">
+      <DialogContent className="!max-w-[80vw] h-[70vh] flex flex-col p-4">
         <DialogHeader>
           <DialogTitle>
             {isTableSpecific ? "Commit changes" : "Review All Changes"}
