@@ -93,7 +93,8 @@ export const TableIndexes = memo(function TableIndexes({
   const [searchQuery, setSearchQuery] = useState("");
 
   // crudStore integration
-  const { stagedCommands, stageCommand, unstageCommand, discardChanges } = useCrudStore();
+  const { stagedCommands, stageCommand, unstageCommand, discardChanges } =
+    useCrudStore();
 
   // Get connection info for dbType
   const connection = useConnectionStore((s) => s.getConnection(connectionId));
@@ -174,9 +175,7 @@ export const TableIndexes = memo(function TableIndexes({
   const gridRows = useMemo(() => {
     if (!searchQuery.trim()) return allGridRows;
     const query = searchQuery.toLowerCase();
-    return allGridRows.filter((row) =>
-      row.name.toLowerCase().includes(query)
-    );
+    return allGridRows.filter((row) => row.name.toLowerCase().includes(query));
   }, [allGridRows, searchQuery]);
 
   // Handler: Delete index
@@ -293,7 +292,11 @@ export const TableIndexes = memo(function TableIndexes({
           displayValue = "";
         } else if (typeof fieldValue === "object") {
           displayValue = JSON.stringify(fieldValue);
-        } else if (typeof fieldValue === "string" || typeof fieldValue === "number" || typeof fieldValue === "boolean") {
+        } else if (
+          typeof fieldValue === "string" ||
+          typeof fieldValue === "number" ||
+          typeof fieldValue === "boolean"
+        ) {
           displayValue = String(fieldValue);
         }
         return {
@@ -384,7 +387,8 @@ export const TableIndexes = memo(function TableIndexes({
 
       // Index type - editable dropdown
       if (column.field === "index_type") {
-        const typeValue = typeof fieldValue === "string" ? fieldValue : defaultIndexType;
+        const typeValue =
+          typeof fieldValue === "string" ? fieldValue : defaultIndexType;
         return {
           kind: GridCellKind.Custom,
           data: {
@@ -458,7 +462,14 @@ export const TableIndexes = memo(function TableIndexes({
         themeOverride: rowTheme,
       } as const;
     },
-    [gridRows, sizedColumns, availableColumns, indexTypes, defaultIndexType, dialect],
+    [
+      gridRows,
+      sizedColumns,
+      availableColumns,
+      indexTypes,
+      defaultIndexType,
+      dialect,
+    ],
   );
 
   const hasIndexes = useMemo(() => indexes.length > 0, [indexes.length]);
@@ -590,17 +601,22 @@ export const TableIndexes = memo(function TableIndexes({
           const updatedDefinition = { ...payload.definition };
 
           if (column.field === "name") {
-            updatedDefinition.name = typeof extractedValue === "string" ? extractedValue : "";
+            updatedDefinition.name =
+              typeof extractedValue === "string" ? extractedValue : "";
           } else if (column.field === "columns") {
             updatedDefinition.columns = Array.isArray(extractedValue)
               ? extractedValue
               : [];
           } else if (column.field === "index_type") {
-            updatedDefinition.using = typeof extractedValue === "string" ? extractedValue : defaultIndexType;
+            updatedDefinition.using =
+              typeof extractedValue === "string"
+                ? extractedValue
+                : defaultIndexType;
           } else if (column.field === "unique") {
             updatedDefinition.unique = extractedValue === "YES";
           } else if (column.field === "condition") {
-            const condValue = typeof extractedValue === "string" ? extractedValue : "";
+            const condValue =
+              typeof extractedValue === "string" ? extractedValue : "";
             updatedDefinition.where = condValue || undefined;
           }
 
@@ -612,7 +628,9 @@ export const TableIndexes = memo(function TableIndexes({
             },
             metadata: {
               ...command.metadata,
-              description: `Create index ${updatedDefinition.name || "(unnamed)"}`,
+              description: `Create index ${
+                updatedDefinition.name || "(unnamed)"
+              }`,
             },
           };
 
@@ -624,7 +642,8 @@ export const TableIndexes = memo(function TableIndexes({
 
         // For name changes, use rename command
         if (column.field === "name") {
-          const newName = typeof extractedValue === "string" ? extractedValue : "";
+          const newName =
+            typeof extractedValue === "string" ? extractedValue : "";
           if (!newName || newName === originalName) {
             return;
           }
@@ -670,7 +689,11 @@ export const TableIndexes = memo(function TableIndexes({
           }
 
           // Create new rename command
-          const renameCmd = createIndexRenameCommand(target, originalName, newName);
+          const renameCmd = createIndexRenameCommand(
+            target,
+            originalName,
+            newName,
+          );
           stageCommand(renameCmd);
           return;
         }
@@ -705,13 +728,19 @@ export const TableIndexes = memo(function TableIndexes({
         // Build updated definition
         const updatedDef = { ...currentDef };
         if (column.field === "columns") {
-          updatedDef.columns = Array.isArray(extractedValue) ? extractedValue : [];
+          updatedDef.columns = Array.isArray(extractedValue)
+            ? extractedValue
+            : [];
         } else if (column.field === "index_type") {
-          updatedDef.using = typeof extractedValue === "string" ? extractedValue : defaultIndexType;
+          updatedDef.using =
+            typeof extractedValue === "string"
+              ? extractedValue
+              : defaultIndexType;
         } else if (column.field === "unique") {
           updatedDef.unique = extractedValue === "YES";
         } else if (column.field === "condition") {
-          const condValue = typeof extractedValue === "string" ? extractedValue : "";
+          const condValue =
+            typeof extractedValue === "string" ? extractedValue : "";
           updatedDef.where = condValue || undefined;
         }
 
@@ -720,7 +749,8 @@ export const TableIndexes = memo(function TableIndexes({
         const isRevertingToOriginal =
           original &&
           updatedDef.name === original.name &&
-          JSON.stringify(updatedDef.columns) === JSON.stringify(original.columns) &&
+          JSON.stringify(updatedDef.columns) ===
+            JSON.stringify(original.columns) &&
           updatedDef.unique === original.unique &&
           updatedDef.using === original.index_type &&
           (updatedDef.where ?? "") === (original.condition ?? "");
@@ -809,7 +839,8 @@ export const TableIndexes = memo(function TableIndexes({
           const dropCommand = pendingCommands.find(
             (cmd) =>
               cmd.type === "index.drop" &&
-              (cmd.payload as IndexDropPayload).indexName === row._original?.name,
+              (cmd.payload as IndexDropPayload).indexName ===
+                row._original?.name,
           );
           if (dropCommand) {
             unstageCommand(dropCommand.id);
@@ -844,8 +875,8 @@ export const TableIndexes = memo(function TableIndexes({
   }
 
   // Count pending index commands
-  const pendingIndexCommands = pendingCommands.filter(
-    (cmd) => cmd.type.startsWith("index."),
+  const pendingIndexCommands = pendingCommands.filter((cmd) =>
+    cmd.type.startsWith("index."),
   );
 
   if (!hasIndexes && pendingIndexCommands.length === 0) {
@@ -853,11 +884,13 @@ export const TableIndexes = memo(function TableIndexes({
       <>
         <div className="h-full flex flex-col">
           {/* Combined toolbar */}
-          <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/30">
+          <div className="flex items-center gap-2 px-0 pb-1.5 pt-0.5 bg-transparent">
             <TableActionsToolbar
               addButtonLabel="Create Index"
               onAdd={handleAddIndex}
-              onReviewChanges={() => { setGlobalChangesDialogOpen(true); }}
+              onReviewChanges={() => {
+                setGlobalChangesDialogOpen(true);
+              }}
               onDiscard={() => {
                 discardChanges(tableKey);
                 toast.success("Changes discarded");
@@ -891,11 +924,13 @@ export const TableIndexes = memo(function TableIndexes({
     <>
       <div className="h-full flex flex-col">
         {/* Combined toolbar: actions + search */}
-        <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/30">
+        <div className="flex items-center gap-2 px-0 pb-1.5 pt-0.5 bg-transparent">
           <TableActionsToolbar
             addButtonLabel="Create Index"
             onAdd={handleAddIndex}
-            onReviewChanges={() => { setGlobalChangesDialogOpen(true); }}
+            onReviewChanges={() => {
+              setGlobalChangesDialogOpen(true);
+            }}
             onDiscard={() => {
               discardChanges(tableKey);
               toast.success("Changes discarded");

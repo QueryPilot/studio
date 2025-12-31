@@ -481,3 +481,38 @@ export function getStatementsInRange(
   });
 }
 
+/**
+ * Check if a query is a potentially destructive mutation without WHERE clause.
+ */
+export function isDestructiveQuery(query: string): { isDestructive: boolean; type: string } {
+  const upperQuery = query.toUpperCase().trim();
+
+  // Check for DELETE without WHERE
+  if (upperQuery.startsWith("DELETE")) {
+    const hasWhere = /\bWHERE\b/i.test(query);
+    if (!hasWhere) {
+      return { isDestructive: true, type: "DELETE" };
+    }
+  }
+
+  // Check for UPDATE without WHERE
+  if (upperQuery.startsWith("UPDATE")) {
+    const hasWhere = /\bWHERE\b/i.test(query);
+    if (!hasWhere) {
+      return { isDestructive: true, type: "UPDATE" };
+    }
+  }
+
+  // Check for TRUNCATE (always destructive)
+  if (upperQuery.startsWith("TRUNCATE")) {
+    return { isDestructive: true, type: "TRUNCATE" };
+  }
+
+  // Check for DROP (always destructive)
+  if (upperQuery.startsWith("DROP")) {
+    return { isDestructive: true, type: "DROP" };
+  }
+
+  return { isDestructive: false, type: "" };
+}
+

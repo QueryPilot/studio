@@ -1,33 +1,18 @@
-import { type Command } from "@/types/command";
-import { useAppStore } from "@/stores/appStore";
+import { createElement } from "react";
+import { IconDeviceDesktop, IconMoon, IconSun } from "@tabler/icons-react";
 import { toast } from "sonner";
+
+import { useAppStore } from "@/stores/appStore";
+import { type Command } from "@/types/command";
 
 export const appearanceCommands: Command[] = [
   {
-    id: "appearance.toggleTheme",
-    label: "Toggle Theme",
-    category: "Appearance",
-    description: "Switch between light and dark mode",
-    handler: () => {
-      const store = useAppStore.getState();
-      const currentTheme = store.theme;
-
-      // Cycle through: light -> dark -> system -> light
-      const nextTheme =
-        currentTheme === "light"
-          ? "dark"
-          : currentTheme === "dark"
-            ? "system"
-            : "light";
-
-      store.setTheme(nextTheme);
-      toast.success(`Theme: ${nextTheme}`);
-    },
-  },
-  {
     id: "appearance.setThemeLight",
-    label: "Set Light Theme",
+    label: "Light",
     category: "Appearance",
+    description: "Switch to the light theme",
+    icon: createElement(IconSun, { className: "text-amber-500" }),
+    metadata: { paletteGroup: "Theme" },
     handler: () => {
       useAppStore.getState().setTheme("light");
       toast.success("Light theme enabled");
@@ -35,8 +20,11 @@ export const appearanceCommands: Command[] = [
   },
   {
     id: "appearance.setThemeDark",
-    label: "Set Dark Theme",
+    label: "Dark",
     category: "Appearance",
+    description: "Switch to the dark theme",
+    icon: createElement(IconMoon, { className: "text-indigo-400" }),
+    metadata: { paletteGroup: "Theme" },
     handler: () => {
       useAppStore.getState().setTheme("dark");
       toast.success("Dark theme enabled");
@@ -44,8 +32,13 @@ export const appearanceCommands: Command[] = [
   },
   {
     id: "appearance.setThemeSystem",
-    label: "Use System Theme",
+    label: "System",
     category: "Appearance",
+    description: "Match the system theme",
+    icon: createElement(IconDeviceDesktop, {
+      className: "text-muted-foreground",
+    }),
+    metadata: { paletteGroup: "Theme" },
     handler: () => {
       useAppStore.getState().setTheme("system");
       toast.success("Using system theme");

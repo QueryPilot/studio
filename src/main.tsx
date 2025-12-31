@@ -2,6 +2,7 @@ import ReactDOM from "react-dom/client";
 import "./styles/globals.css";
 import App from "./App";
 import { ThemeProvider } from "./components/theme-provider";
+import { ThemeSync } from "./components/theme-sync";
 import { Toaster } from "./components/ui/sonner";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -64,6 +65,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
             enableSystem
             storageKey="query-pilot-theme"
           >
+            <ThemeSync />
             <TooltipProvider delay={300}>
               <App />
               <Toaster richColors closeButton />
