@@ -233,27 +233,18 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 focused={isPanelFocused}
               >
                 <TabsList>
-                  <TabsTrigger
-                    value="data"
-                    tabIndex={0}
-                  >
+                  <TabsTrigger value="data" tabIndex={0}>
                     <IconTable />
                     <span>Data</span>
                   </TabsTrigger>
-                  <TabsTrigger
-                    value="structure"
-                    tabIndex={1}
-                  >
+                  <TabsTrigger value="structure" tabIndex={1}>
                     <IconAssembly />
                     <span>Structure</span>
                   </TabsTrigger>
 
                   {/* Regular views: only show Definition tab */}
                   {isRegularView && (
-                    <TabsTrigger
-                      value="definition"
-                      tabIndex={2}
-                    >
+                    <TabsTrigger value="definition" tabIndex={2}>
                       <IconCode />
                       <span>Definition</span>
                     </TabsTrigger>
@@ -262,24 +253,15 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   {/* Tables: show Indexes, Triggers and Definition */}
                   {!isView && (
                     <>
-                      <TabsTrigger
-                        value="indexes"
-                        tabIndex={2}
-                      >
+                      <TabsTrigger value="indexes" tabIndex={2}>
                         <IconBookmark />
                         <span>Indexes</span>
                       </TabsTrigger>
-                      <TabsTrigger
-                        value="triggers"
-                        tabIndex={3}
-                      >
+                      <TabsTrigger value="triggers" tabIndex={3}>
                         <IconBolt />
                         <span>Triggers</span>
                       </TabsTrigger>
-                      <TabsTrigger
-                        value="definition"
-                        tabIndex={4}
-                      >
+                      <TabsTrigger value="definition" tabIndex={4}>
                         <IconCode />
                         <span>Definition</span>
                       </TabsTrigger>
@@ -288,10 +270,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
 
                   {/* Materialized Views: show Indexes only (no triggers) */}
                   {isMaterializedView && (
-                    <TabsTrigger
-                      value="indexes"
-                      tabIndex={2}
-                    >
+                    <TabsTrigger value="indexes" tabIndex={2}>
                       <IconBookmark />
                       <span>Indexes</span>
                     </TabsTrigger>
@@ -299,10 +278,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
 
                   {/* Materialized views also get Definition tab */}
                   {isMaterializedView && (
-                    <TabsTrigger
-                      value="definition"
-                      tabIndex={3}
-                    >
+                    <TabsTrigger value="definition" tabIndex={3}>
                       <IconCode />
                       Definition
                     </TabsTrigger>
@@ -314,16 +290,11 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 {viewActions}
                 {/* Definition view copy button */}
                 {activeView === "definition" && !viewActions && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-6 text-xs px-2 py-0"
-                    onClick={handleCopy}
-                  >
+                  <Button variant="outline" onClick={handleCopy}>
                     {copied ? (
-                      <IconClipboardCheck className="h-3 w-3 mr-1" />
+                      <IconClipboardCheck className="size-3.5!" />
                     ) : (
-                      <IconCopy className="h-3 w-3 mr-1" />
+                      <IconCopy className="size-3.5!" />
                     )}
                   </Button>
                 )}

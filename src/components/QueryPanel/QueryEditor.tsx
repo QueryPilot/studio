@@ -1,8 +1,8 @@
 import { logger } from "@/lib/logger";
-import { memo, useCallback, forwardRef, useMemo, useEffect } from "react";
-import { CodeEditor } from "@/components/CodeEditor";
-import type { SqlDialect, CodeEditorRef } from "@/components/CodeEditor";
-import { detectSqlDialect } from "@/utils/dialectDetector";
+import { memo, useCallback, forwardRef } from "react";
+import { SqlEditor } from "@/components/CodeEditor/SqlEditor";
+import type { SqlEditorRef } from "@/components/CodeEditor/SqlEditor";
+import type { SqlDialect } from "@/components/CodeEditor";
 
 interface QueryEditorProps {
   connectionId: string;
@@ -10,7 +10,7 @@ interface QueryEditorProps {
   schema?: string;
   dbType?: string;
   value?: string;
-  onChange?: (value: string | undefined) => void;
+  onChange?: (value: string) => void;
   onExecute?: (query: string) => void;
   isExecuting?: boolean;
   height?: string;
@@ -22,7 +22,7 @@ interface QueryEditorProps {
 }
 
 export const QueryEditor = memo(
-  forwardRef<CodeEditorRef, QueryEditorProps>(function QueryEditor(
+  forwardRef<SqlEditorRef, QueryEditorProps>(function QueryEditor(
     {
       connectionId,
       database,
@@ -39,26 +39,13 @@ export const QueryEditor = memo(
     },
     ref,
   ) {
-    // Smart dialect detection - uses plsql for PL/pgSQL code (DO blocks, functions, etc.)
-    const detectedDialect = useMemo<SqlDialect>(() => {
-      return detectSqlDialect(dbType, value);
-    }, [dbType, value]);
-
-    // Use override if provided, otherwise use detected
-    const dialect = dialectOverride ?? detectedDialect;
-
-    // Report detected dialect to parent (for showing in toolbar)
-    useEffect(() => {
-      onDialectDetected?.(detectedDialect);
-    }, [detectedDialect, onDialectDetected]);
-
     const handleExecute = useCallback(
       (query?: string) => {
         logger.info("[QueryEditor.handleExecute] Called with:", {
           query,
           queryLength: query?.length || 0,
           value,
-          valueLength: value?.length || 0,
+          valueLength: value.length || 0,
           willUse: query || value,
         });
 
@@ -74,7 +61,7 @@ export const QueryEditor = memo(
           const finalQuery = query || value;
           logger.info("[QueryEditor.handleExecute] Calling onExecute with:", {
             finalQuery,
-            finalQueryLength: finalQuery?.length || 0,
+            finalQueryLength: finalQuery.length || 0,
           });
           onExecute(finalQuery);
         }
@@ -84,22 +71,21 @@ export const QueryEditor = memo(
 
     return (
       <div className="h-full overflow-hidden">
-        <CodeEditor
+        <SqlEditor
           ref={ref}
           value={value}
           onChange={onChange}
           onExecute={handleExecute}
-          language="sql"
-          dialect={dialect}
+          dialectOverride={dialectOverride}
+          onDialectDetected={onDialectDetected}
           connectionId={connectionId}
           database={database}
           schema={schema}
+          dbType={dbType}
           readOnly={readOnly}
           height={height}
-          theme="auto"
           placeholder="Enter your SQL query..."
           autoFocus={true}
-          lineNumbers={true}
         />
       </div>
     );

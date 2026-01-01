@@ -474,7 +474,7 @@ export const TableStructure = memo(function TableStructure({
   // Handler: Delete column
   const handleDeleteColumn = useCallback(
     (row: StructureGridRow) => {
-      if (row._isPending) {
+      if (row._isPending || !!row._tempId || !row._original) {
         // Remove pending add command
         const command = pendingCommands.find(
           (cmd) =>
@@ -578,7 +578,7 @@ export const TableStructure = memo(function TableStructure({
       const row = gridRows[rowIndex];
       if (!row || row._isPendingDelete) continue;
 
-      if (row._isPending) {
+      if (row._isPending || !!row._tempId || !row._original) {
         const command = pendingCommands.find(
           (cmd) =>
             cmd.type === "column.add" &&
@@ -779,7 +779,7 @@ export const TableStructure = memo(function TableStructure({
       ) {
         const currentColumnName = row._isPending
           ? undefined // New columns don't have an existing name to exclude
-          : row._original?.name;
+          : row._originalData?.name;
         const validation = validateColumnName(
           extractedValue,
           existingColumnNames,
@@ -794,7 +794,7 @@ export const TableStructure = memo(function TableStructure({
       }
 
       if (column.field === "foreign_key") {
-        const columnName = row._original?.name ?? row.column_name;
+        const columnName = row._originalData?.name ?? row.column_name;
         if (!columnName || columnName === "(new column)") {
           toast.error("Set column name before adding a foreign key");
           return;
@@ -951,7 +951,7 @@ export const TableStructure = memo(function TableStructure({
         }
       } else {
         // Modify existing column
-        const baseColumnName = row._original?.name ?? row.column_name;
+        const baseColumnName = row._originalData?.name ?? row.column_name;
 
         if (column.field === "column_name") {
           const newName = String(extractedValue ?? "");
@@ -1368,14 +1368,29 @@ export const TableStructure = memo(function TableStructure({
               description: `${row._original?.name} will no longer be dropped`,
             });
           }
+        } else if (row._isPending || !!row._tempId || !row._original) {
+          logger.info("[TableStructure] Deleting pending column:", {
+            row,
+            isPending: row._isPending,
+            tempId: row._tempId,
+            hasOriginal: !!row._original,
+          });
+          // If it's a pending column (newly added), delete immediately without confirmation
+          handleDeleteColumn(row);
         } else {
+          logger.info("[TableStructure] Showing delete dialog for existing column:", {
+            row,
+            isPending: row._isPending,
+            tempId: row._tempId,
+            hasOriginal: !!row._original,
+          });
           // Show delete confirmation
           setDeleteTarget(row);
           setDeleteDialogOpen(true);
         }
       }
     },
-    [sizedColumns, gridRows, pendingCommands, unstageCommand],
+    [sizedColumns, gridRows, pendingCommands, unstageCommand, handleDeleteColumn],
   );
 
   // Handler: Cell activated (double-click to enter edit mode)

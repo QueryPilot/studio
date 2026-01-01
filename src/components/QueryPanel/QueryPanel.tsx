@@ -32,7 +32,7 @@ import { useTabStateStore, type QueryResult } from "@/stores/tabStateStore";
 import type { ColumnMeta } from "@/types/database";
 import { formatSql } from "@/utils/codeFormatter";
 import type { SqlDialect } from "@/components/CodeEditor/types";
-import type { CodeEditorRef } from "@/components/CodeEditor";
+import type { SqlEditorRef } from "@/components/CodeEditor/SqlEditor";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import { handleMutationCache, isMutationQuery, isSelectQuery } from "@/lib/cacheManager";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
@@ -109,7 +109,7 @@ export const QueryPanel = memo(function QueryPanel({
   const inTransaction = globalState?.inTransaction || false;
 
   // Editor ref for focusing
-  const editorRef = useRef<CodeEditorRef>(null);
+  const editorRef = useRef<SqlEditorRef>(null);
 
   // Wrapper setters that update ONLY local state (Zustand sync happens in useEffect)
   const setQuery = useCallback(
@@ -265,22 +265,42 @@ export const QueryPanel = memo(function QueryPanel({
         queryToExecute,
         queryToExecuteLength: queryToExecute?.length || 0,
         fallbackQuery: query,
-        fallbackQueryLength: query.length || 0,
+        fallbackQueryLength: query.length,
       });
 
       let sql = queryToExecute ?? query;
 
       logger.info("[handleExecute] Before trim:", {
         sql,
-        sqlLength: sql.length || 0,
+        sqlLength: sql.length,
       });
 
       // Clean up the SQL - remove trailing semicolons as they cause issues
       sql = sql.trim().replace(/;\s*$/, "");
 
+      // Smart Query Limit
+      // Only apply if enabled, it's a SELECT query, not an EXPLAIN, and no explicit LIMIT exists
+      const isSelect = isSelectQuery(sql);
+      const hasLimit = /\bLIMIT\b/i.test(sql);
+      const isExplainQuery = sql.trim().toUpperCase().startsWith("EXPLAIN");
+
+      if (
+        smartQueryLimit &&
+        smartQueryLimit > 0 &&
+        isSelect &&
+        !isExplainQuery &&
+        !hasLimit
+      ) {
+        setAppliedLimit({ originalSql: sql, limit: smartQueryLimit });
+        sql = `${sql} LIMIT ${smartQueryLimit}`;
+        logger.info(`[handleExecute] Applied smart limit: ${smartQueryLimit}`);
+      } else {
+        setAppliedLimit(null);
+      }
+
       logger.info("[handleExecute] After trim and semicolon removal:", {
         sql,
-        sqlLength: sql.length || 0,
+        sqlLength: sql.length,
         isEmpty: !sql,
       });
 
@@ -579,7 +599,7 @@ export const QueryPanel = memo(function QueryPanel({
               toast.info("Data modified - Refreshing results...");
               // Schedule refresh after current query completes
               setTimeout(() => {
-                handleExecute(lastSelectQuery);
+                void handleExecute(lastSelectQuery);
               }, 100);
             }
           }
@@ -671,6 +691,10 @@ export const QueryPanel = memo(function QueryPanel({
       setIsStreaming,
       setResult,
       setAppliedLimit,
+      tabId,
+      setQueryState,
+      setViewMode,
+      globalState?.lastSelectQuery,
     ],
   );
 
@@ -756,7 +780,7 @@ export const QueryPanel = memo(function QueryPanel({
     });
 
     // Execute the explain query (handleExecute auto-switches to explain view mode)
-    handleExecute(explainSql);
+    void handleExecute(explainSql);
   }, [query, dbType, handleExecute]);
 
   const toggleHistory = useCallback(() => {
@@ -806,7 +830,7 @@ export const QueryPanel = memo(function QueryPanel({
     const handleExecuteEvent = () => {
       if (!isFocusedRef.current) return;
       logger.info("🟢 QueryPanel handling execute event");
-      handleExecute();
+      void handleExecute();
     };
 
     // Subscribe ALWAYS - handlers check focus
@@ -894,9 +918,8 @@ export const QueryPanel = memo(function QueryPanel({
                     dbType={dbType}
                     value={query}
                     onChange={(value) => {
-                      const nextValue = value ?? "";
-                      setQuery(nextValue);
-                      persistSql(nextValue);
+                      setQuery(value);
+                      persistSql(value);
                     }}
                     onExecute={handleExecute}
                     isExecuting={isExecuting}

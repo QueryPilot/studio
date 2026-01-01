@@ -66,9 +66,9 @@ describe("useFrecency", () => {
 
       const sorted = result.current.sortByFrecency(items);
 
-      expect(sorted[0].id).toBe("apple");
-      expect(sorted[1].id).toBe("mango");
-      expect(sorted[2].id).toBe("zebra");
+      expect(sorted[0]!.id).toBe("apple");
+      expect(sorted[1]!.id).toBe("mango");
+      expect(sorted[2]!.id).toBe("zebra");
     });
 
     it("should handle empty arrays", () => {
@@ -86,8 +86,8 @@ describe("useFrecency", () => {
 
       result.current.sortByFrecency(items);
 
-      expect(items[0].id).toBe("zebra");
-      expect(items[1].id).toBe("apple");
+      expect(items[0]!.id).toBe("zebra");
+      expect(items[1]!.id).toBe("apple");
     });
 
     it("should preserve additional properties on items", () => {
@@ -99,8 +99,8 @@ describe("useFrecency", () => {
 
       const sorted = result.current.sortByFrecency(items);
 
-      expect(sorted[0]).toHaveProperty("name");
-      expect(sorted[0]).toHaveProperty("extra");
+      expect(sorted[0]!).toHaveProperty("name");
+      expect(sorted[0]!).toHaveProperty("extra");
     });
   });
 
@@ -120,7 +120,7 @@ describe("useFrecency", () => {
       const top = result.current.getTopFrecencyItems(items, 10);
 
       expect(top).toHaveLength(1);
-      expect(top[0].id).toBe("item-a");
+      expect(top[0]!.id).toBe("item-a");
     });
 
     it("should respect limit parameter", () => {
@@ -161,9 +161,9 @@ describe("useFrecency", () => {
 
       const top = result.current.getTopFrecencyItems(items, 10);
 
-      expect(top[0].id).toBe("item-b"); // 3 accesses
-      expect(top[1].id).toBe("item-c"); // 2 accesses
-      expect(top[2].id).toBe("item-a"); // 1 access
+      expect(top[0]!.id).toBe("item-b"); // 3 accesses
+      expect(top[1]!.id).toBe("item-c"); // 2 accesses
+      expect(top[2]!.id).toBe("item-a"); // 1 access
     });
 
     it("should return empty array when no items have frecency", () => {

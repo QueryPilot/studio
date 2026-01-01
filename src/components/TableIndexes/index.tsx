@@ -8,6 +8,7 @@ import {
 } from "@glideapps/glide-data-grid";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconAlertCircle, IconSearch } from "@tabler/icons-react";
+import { logger } from "@/lib/logger";
 import { databaseService, type TableIndex } from "@/services/databaseService";
 import type { IndexUsageStats } from "@/services/backend";
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
@@ -189,21 +190,42 @@ export const TableIndexes = memo(function TableIndexes({
         return;
       }
 
-      const target: CrudCommandTarget = {
-        connectionId,
-        database,
-        schema,
-        table,
-      };
-      const command = createIndexDropCommand(target, row.name);
-      stageCommand(command);
-      toast.success("Index deletion staged", {
-        description: `${row.name} will be dropped when committed`,
-      });
+      if (row._isPending || !!row._tempId || !row._original) {
+        // Remove pending create command
+        const command = pendingCommands.find(
+          (cmd) =>
+            cmd.type === "index.create" &&
+            (cmd.payload as IndexCreatePayload).tempId === row._tempId,
+        );
+        if (command) {
+          unstageCommand(command.id);
+          toast.success("Pending index removed");
+        }
+      } else {
+        const target: CrudCommandTarget = {
+          connectionId,
+          database,
+          schema,
+          table,
+        };
+        const command = createIndexDropCommand(target, row.name);
+        stageCommand(command);
+        toast.success("Index deletion staged", {
+          description: `${row.name} will be dropped when committed`,
+        });
+      }
       setDeleteDialogOpen(false);
       setDeleteTarget(null);
     },
-    [connectionId, database, schema, table, stageCommand],
+    [
+      connectionId,
+      database,
+      schema,
+      table,
+      stageCommand,
+      pendingCommands,
+      unstageCommand,
+    ],
   );
 
   // Enable column resizing
@@ -848,14 +870,27 @@ export const TableIndexes = memo(function TableIndexes({
               description: `${row._original?.name} will no longer be dropped`,
             });
           }
+        } else if (row._isPending || !!row._tempId || !row._original) {
+          logger.info("[TableIndexes] Deleting pending index:", {
+            row,
+            isPending: row._isPending,
+            tempId: row._tempId,
+          });
+          // If it's a pending index (newly added), delete immediately without confirmation
+          handleDeleteIndex(row);
         } else {
+          logger.info("[TableIndexes] Showing delete dialog for existing index:", {
+            row,
+            isPending: row._isPending,
+            tempId: row._tempId,
+          });
           // Show delete confirmation
           setDeleteTarget(row);
           setDeleteDialogOpen(true);
         }
       }
     },
-    [sizedColumns, gridRows, pendingCommands, unstageCommand],
+    [sizedColumns, gridRows, pendingCommands, unstageCommand, handleDeleteIndex],
   );
 
   if (isLoading) {

@@ -30,6 +30,7 @@ describe('applyColumnRenames', () => {
           newDefinition: { name: 'old_name', dataType: 'text', nullable: true },
         },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
 
       const result = applyColumnRenames(command, renames);
@@ -51,6 +52,7 @@ describe('applyColumnRenames', () => {
           newDefinition: { name: 'unchanged_column', dataType: 'text', nullable: true },
         },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
 
       const result = applyColumnRenames(command, renames);
@@ -71,6 +73,7 @@ describe('applyColumnRenames', () => {
           cascade: true,
         },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
 
       const result = applyColumnRenames(command, renames);
@@ -96,6 +99,7 @@ describe('applyColumnRenames', () => {
           newName: 'C',
         },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
 
       const result = applyColumnRenames(command, renames);
@@ -123,6 +127,7 @@ describe('applyColumnRenames', () => {
           },
         },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
 
       const result = applyColumnRenames(command, renames);
@@ -149,6 +154,7 @@ describe('applyColumnRenames', () => {
           },
         },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
 
       const result = applyColumnRenames(command, renames);
@@ -171,6 +177,7 @@ describe('applyColumnRenames', () => {
           },
         },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
 
       const result = applyColumnRenames(command, renames);
@@ -195,6 +202,7 @@ describe('applyColumnRenames', () => {
           },
         },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
 
       const result = applyColumnRenames(command, renames);
@@ -218,6 +226,7 @@ describe('applyColumnRenames', () => {
           },
         },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
 
       const result = applyColumnRenames(command, renames);
@@ -239,6 +248,7 @@ describe('applyColumnRenames', () => {
           },
         },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
 
       const result = applyColumnRenames(command, renames);
@@ -261,6 +271,7 @@ describe('applyColumnRenames', () => {
           },
         },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
 
       const result = applyColumnRenames(command, renames);
@@ -288,6 +299,7 @@ describe('applyColumnRenames', () => {
           },
         },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
 
       const result = applyColumnRenames(command, renames);
@@ -313,6 +325,7 @@ describe('applyColumnRenames', () => {
           primaryKeys: { id: 1 },
         },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
 
       const result = applyColumnRenames(command, renames);
@@ -334,6 +347,7 @@ describe('applyColumnRenames', () => {
           newDefinition: { name: 'some_column', dataType: 'text', nullable: true },
         },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
 
       const result = applyColumnRenames(command, renames);
@@ -351,6 +365,7 @@ describe('applyColumnRenames', () => {
           primaryKeys: { id: 1 },
         },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
 
       const result = applyColumnRenames(command, renames);
@@ -370,6 +385,7 @@ describe('trackColumnRename', () => {
         target: createTarget(),
         payload: { columnName: 'old_name', newName: 'new_name' },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
       const adjustedCmd = originalCmd; // No prior renames
 
@@ -386,6 +402,7 @@ describe('trackColumnRename', () => {
         target: createTarget(),
         payload: { columnName: 'col', newDefinition: { name: 'col', dataType: 'text', nullable: true } },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
 
       trackColumnRename(renames, command, command);
@@ -405,6 +422,7 @@ describe('trackColumnRename', () => {
         target: createTarget(),
         payload: { columnName: 'A', newName: 'B' },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
       trackColumnRename(renames, cmd1, cmd1);
 
@@ -418,6 +436,7 @@ describe('trackColumnRename', () => {
         target: createTarget(),
         payload: { columnName: 'B', newName: 'C' },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
       // After applyColumnRenames, B stays B (not in map as key)
       const cmd2Adjusted = cmd2Original;
@@ -438,6 +457,7 @@ describe('trackColumnRename', () => {
         target: createTarget(),
         payload: { columnName: 'A', newName: 'B' },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
       trackColumnRename(renames, cmd1, cmd1);
 
@@ -449,6 +469,7 @@ describe('trackColumnRename', () => {
         target: createTarget(),
         payload: { columnName: 'A', newName: 'C' },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
       const cmd2Adjusted: CrudCommand = {
         ...cmd2Original,
@@ -473,6 +494,7 @@ describe('trackColumnRename', () => {
         target: createTarget(),
         payload: { columnName: 'col_a', newName: 'new_col_a' },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
       trackColumnRename(renames, cmd1, cmd1);
 
@@ -482,6 +504,7 @@ describe('trackColumnRename', () => {
         target: createTarget(),
         payload: { columnName: 'col_b', newName: 'new_col_b' },
         metadata: { timestamp: new Date().toISOString() },
+        state: 'staged',
       };
       trackColumnRename(renames, cmd2, cmd2);
 
@@ -502,6 +525,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
       target: createTarget(),
       payload: { columnName: 'old_col', newName: 'new_col' },
       metadata: { timestamp: new Date().toISOString() },
+      state: 'staged',
     };
     const adjustedRename = applyColumnRenames(renameCmd, renames);
     trackColumnRename(renames, renameCmd, adjustedRename);
@@ -516,6 +540,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
         newDefinition: { name: 'new_col', dataType: 'varchar', nullable: false },
       },
       metadata: { timestamp: new Date().toISOString() },
+      state: 'staged',
     };
     const adjustedModify = applyColumnRenames(modifyCmd, renames);
 
@@ -533,6 +558,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
       target: createTarget(),
       payload: { columnName: 'name', newName: 'full_name' },
       metadata: { timestamp: new Date().toISOString() },
+      state: 'staged',
     };
     const adjustedRename = applyColumnRenames(renameCmd, renames);
     trackColumnRename(renames, renameCmd, adjustedRename);
@@ -546,6 +572,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
         values: { name: 'John Doe', email: 'john@example.com' },
       },
       metadata: { timestamp: new Date().toISOString() },
+      state: 'staged',
     };
     const adjustedInsert = applyColumnRenames(insertCmd, renames);
 
@@ -566,6 +593,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
       target: createTarget(),
       payload: { columnName: 'email', newName: 'email_address' },
       metadata: { timestamp: new Date().toISOString() },
+      state: 'staged',
     };
     const adjustedRename = applyColumnRenames(renameCmd, renames);
     trackColumnRename(renames, renameCmd, adjustedRename);
@@ -583,6 +611,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
         },
       },
       metadata: { timestamp: new Date().toISOString() },
+      state: 'staged',
     };
     const adjustedIndex = applyColumnRenames(indexCmd, renames);
 
@@ -600,6 +629,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
       target: createTarget('orders'),
       payload: { columnName: 'user_id', newName: 'customer_id' },
       metadata: { timestamp: new Date().toISOString() },
+      state: 'staged',
     };
     const adjustedRename = applyColumnRenames(renameCmd, renames);
     trackColumnRename(renames, renameCmd, adjustedRename);
@@ -618,6 +648,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
         },
       },
       metadata: { timestamp: new Date().toISOString() },
+      state: 'staged',
     };
     const adjustedFK = applyColumnRenames(fkCmd, renames);
 
@@ -635,6 +666,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
       target: createTarget(),
       payload: { columnName: 'A', newName: 'B' },
       metadata: { timestamp: new Date().toISOString() },
+      state: 'staged',
     };
     let adjusted = applyColumnRenames(cmd1, renames);
     trackColumnRename(renames, cmd1, adjusted);
@@ -646,6 +678,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
       target: createTarget(),
       payload: { columnName: 'B', newName: 'C' },
       metadata: { timestamp: new Date().toISOString() },
+      state: 'staged',
     };
     adjusted = applyColumnRenames(cmd2, renames);
     trackColumnRename(renames, cmd2, adjusted);
@@ -657,6 +690,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
       target: createTarget(),
       payload: { columnName: 'C', newName: 'D' },
       metadata: { timestamp: new Date().toISOString() },
+      state: 'staged',
     };
     adjusted = applyColumnRenames(cmd3, renames);
     trackColumnRename(renames, cmd3, adjusted);
@@ -676,6 +710,7 @@ describe('Integration: applyColumnRenames + trackColumnRename', () => {
         newDefinition: { name: 'D', dataType: 'text', nullable: true },
       },
       metadata: { timestamp: new Date().toISOString() },
+      state: 'staged',
     };
     const adjustedModify = applyColumnRenames(modifyCmd, renames);
     expect((adjustedModify.payload as any).columnName).toBe('D');
