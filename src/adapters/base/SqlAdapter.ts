@@ -45,18 +45,38 @@ export abstract class SqlAdapter implements DatabaseAdapter {
       throw new Error("SQL adapter expects string query");
     }
 
+    const rows: unknown[][] = [];
+
     const result = await queryStreamClient.streamWithCallbacks(
       {
         connId: this.connectionId,
         tabId: "system",
         sql,
       },
-      {},
+      {
+        onBatch: (batch) => {
+          rows.push(...batch.rows);
+        },
+      },
     );
 
     return {
-      columns: result.columns,
-      rows: [],
+      columns: result.columns.map((c, index) => ({
+        name: c.name,
+        db_type: c.db_type,
+        nullable: c.nullable,
+        default: c.default_value ?? null,
+        is_pk: c.primary_key,
+        is_fk: false,
+        ordinal: index,
+        precision: c.precision ?? null,
+        scale: c.scale ?? null,
+        comment: c.comment ?? null,
+        type_oid: c.type_oid,
+        type_category: c.type_category,
+        enum_values: c.enum_values,
+      })),
+      rows,
       rowCount: result.totalRows,
     };
   }

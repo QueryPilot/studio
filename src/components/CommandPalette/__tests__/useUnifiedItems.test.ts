@@ -161,7 +161,7 @@ describe("useUnifiedItems", () => {
     // Check for function items
     const funcItems = items.filter((i) => i.type === "function");
     expect(funcItems.length).toBe(1);
-    expect(funcItems[0].name).toBe("calculate_total");
+    expect(funcItems[0]!.name).toBe("calculate_total");
   });
 
   it("should have unique IDs for all items", async () => {

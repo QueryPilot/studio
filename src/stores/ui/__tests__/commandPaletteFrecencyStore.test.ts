@@ -35,7 +35,7 @@ describe("commandPaletteFrecencyStore", () => {
         result.current.recordAccess("item-1");
       });
 
-      expect(result.current.items["item-1"].accessCount).toBe(3);
+      expect(result.current.items["item-1"]!.accessCount).toBe(3);
     });
 
     it("should update lastAccessed timestamp", () => {
@@ -47,8 +47,8 @@ describe("commandPaletteFrecencyStore", () => {
       });
 
       const after = Date.now();
-      expect(result.current.items["item-1"].lastAccessed).toBeGreaterThanOrEqual(before);
-      expect(result.current.items["item-1"].lastAccessed).toBeLessThanOrEqual(after);
+      expect(result.current.items["item-1"]!.lastAccessed).toBeGreaterThanOrEqual(before);
+      expect(result.current.items["item-1"]!.lastAccessed).toBeLessThanOrEqual(after);
     });
 
     it("should track multiple items independently", () => {
@@ -60,8 +60,8 @@ describe("commandPaletteFrecencyStore", () => {
         result.current.recordAccess("item-1");
       });
 
-      expect(result.current.items["item-1"].accessCount).toBe(2);
-      expect(result.current.items["item-2"].accessCount).toBe(1);
+      expect(result.current.items["item-1"]!.accessCount).toBe(2);
+      expect(result.current.items["item-2"]!.accessCount).toBe(1);
     });
   });
 
@@ -89,7 +89,7 @@ describe("commandPaletteFrecencyStore", () => {
 
       expect(result.current.items["item-1"]).toBeUndefined();
       expect(result.current.items["item-2"]).toBeDefined();
-      expect(result.current.items["item-2"].accessCount).toBe(1);
+      expect(result.current.items["item-2"]!.accessCount).toBe(1);
     });
   });
 

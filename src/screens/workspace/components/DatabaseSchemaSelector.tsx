@@ -210,7 +210,7 @@ export function DatabaseSchemaSelector({
 
   const handleSchemaSelect = useCallback(
     (schema: string) => {
-      void selectSchema(schema);
+      void selectSchema(schema, {});
     },
     [selectSchema],
   );

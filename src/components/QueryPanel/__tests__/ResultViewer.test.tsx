@@ -62,6 +62,14 @@ function createColMeta(name: string, dbType: string, isPk = false) {
     is_pk: isPk,
     is_fk: false,
     ordinal: 0,
+    // Add missing properties required by ColumnMeta interface
+    is_unique: false,
+    check_constraint: null,
+    comment: null,
+    foreign_key_ref: null,
+    type_oid: 0,
+    type_category: 'U', // User-defined or unknown
+    enum_values: undefined
   };
 }
 
@@ -131,9 +139,9 @@ describe("ResultViewer - tsvector Type Display", () => {
   const tsvectorResult = {
     columns: ["simple", "with_positions", "with_weights"],
     columnMeta: [
-      { db_type: "tsvector", is_nullable: true, is_pk: false, is_fk: false },
-      { db_type: "tsvector", is_nullable: true, is_pk: false, is_fk: false },
-      { db_type: "tsvector", is_nullable: true, is_pk: false, is_fk: false },
+      createColMeta("simple", "tsvector"),
+      createColMeta("with_positions", "tsvector"),
+      createColMeta("with_weights", "tsvector"),
     ],
     rows: [
       [
@@ -183,9 +191,9 @@ describe("ResultViewer - hstore Type Display", () => {
   const hstoreResult = {
     columns: ["simple", "with_null", "empty"],
     columnMeta: [
-      { db_type: "hstore", is_nullable: true, is_pk: false, is_fk: false },
-      { db_type: "hstore", is_nullable: true, is_pk: false, is_fk: false },
-      { db_type: "hstore", is_nullable: true, is_pk: false, is_fk: false },
+      createColMeta("simple", "hstore"),
+      createColMeta("with_null", "hstore"),
+      createColMeta("empty", "hstore"),
     ],
     rows: [
       [
@@ -235,9 +243,9 @@ describe("ResultViewer - NULL handling", () => {
   const nullResult = {
     columns: ["box_col", "tsvector_col", "hstore_col"],
     columnMeta: [
-      { db_type: "box", is_nullable: true, is_pk: false, is_fk: false },
-      { db_type: "tsvector", is_nullable: true, is_pk: false, is_fk: false },
-      { db_type: "hstore", is_nullable: true, is_pk: false, is_fk: false },
+      createColMeta("box_col", "box"),
+      createColMeta("tsvector_col", "tsvector"),
+      createColMeta("hstore_col", "hstore"),
     ],
     rows: [[null, null, null]],
     rowCount: 1,
@@ -278,7 +286,7 @@ describe("ResultViewer - Empty results", () => {
   it("should handle empty result set", () => {
     const emptyResult = {
       columns: ["box_col"],
-      columnMeta: [{ db_type: "box", is_nullable: true, is_pk: false, is_fk: false }],
+      columnMeta: [createColMeta("box_col", "box")],
       rows: [],
       rowCount: 0,
     };
@@ -329,11 +337,11 @@ describe("ResultViewer - Mixed types in single query", () => {
   const mixedResult = {
     columns: ["id", "name", "location", "tags", "metadata"],
     columnMeta: [
-      { db_type: "integer", is_nullable: false, is_pk: true, is_fk: false },
-      { db_type: "text", is_nullable: true, is_pk: false, is_fk: false },
-      { db_type: "point", is_nullable: true, is_pk: false, is_fk: false },
-      { db_type: "tsvector", is_nullable: true, is_pk: false, is_fk: false },
-      { db_type: "hstore", is_nullable: true, is_pk: false, is_fk: false },
+      { ...createColMeta("id", "integer", true), nullable: false },
+      createColMeta("name", "text"),
+      createColMeta("location", "point"),
+      createColMeta("tags", "tsvector"),
+      createColMeta("metadata", "hstore"),
     ],
     rows: [
       [1, "Test Item", "(10.5,20.5)", "'tag1' 'tag2'", '"key"=>"value"'],

@@ -30,6 +30,10 @@ interface PreferencesState {
   // Unsaved changes tracking
   unsavedChanges: boolean;
   setUnsavedChanges: (hasChanges: boolean) => void;
+
+  // Query execution preferences
+  smartQueryLimit: number | null;
+  setSmartQueryLimit: (limit: number | null) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -45,6 +49,12 @@ export const usePreferencesStore = create<PreferencesState>()(
         set((state) => ({
           telemetry: { ...state.telemetry, ...telemetry },
         }));
+      },
+
+      // Query execution defaults
+      smartQueryLimit: 5000,
+      setSmartQueryLimit: (limit) => {
+        set({ smartQueryLimit: limit });
       },
 
       // Dialog state (not persisted)
@@ -70,6 +80,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       name: "query-pilot-preferences",
       partialize: (state) => ({
         telemetry: state.telemetry,
+        smartQueryLimit: state.smartQueryLimit,
       }),
     },
   ),

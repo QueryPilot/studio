@@ -120,8 +120,10 @@ export interface SqlEditorRef {
 }
 
 export interface SqlEditorProps {
-  /** Initial SQL content */
+  /** Initial SQL content (deprecated, use value) */
   initialValue?: string;
+  /** Controlled value */
+  value?: string;
   /** Called when content changes (debounced) */
   onChange?: (value: string) => void;
   /** Debounce delay for onChange (ms) */
@@ -237,6 +239,7 @@ export const SqlEditor = memo(
   forwardRef<SqlEditorRef, SqlEditorProps>(function SqlEditor(
     {
       initialValue = "",
+      value,
       onChange,
       onChangeDelay = 0,
       onExecute,
@@ -264,13 +267,39 @@ export const SqlEditor = memo(
     const { resolvedTheme } = useTheme();
     const keyboardServices = useKeyboardServicesOptional();
     const contextServiceRef = useRef(keyboardServices?.contextService);
+
+    // Determine startup value: value prop takes precedence over initialValue
+    const startValue = value !== undefined ? value : initialValue;
+
     const [currentDialect, setCurrentDialect] = useState<SqlDialect>(() =>
-      detectSqlDialect(dbType, initialValue),
+      detectSqlDialect(dbType, startValue),
     );
 
     // Instance-level compartments - fixes state corruption across multiple editors
     // Using useState initializer ensures these are created exactly once per instance
     const [compartments] = useState<EditorCompartments>(() => createCompartments());
+
+    // FIX: Use uncontrolled mode to avoid "typing latch" bug
+    // We only pass the initial value to the editor, and handle subsequent updates manually
+    const [initialDoc] = useState(startValue);
+
+    // Manual synchronization for external value changes
+    useEffect(() => {
+      const view = viewRef.current;
+      if (!view) return;
+
+      // If value is undefined, we don't sync (uncontrolled mode)
+      if (value === undefined) return;
+
+      const currentValue = view.state.doc.toString();
+
+      // Only dispatch update if value is effectively different
+      if (value !== currentValue) {
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: value }
+        });
+      }
+    }, [value]);
 
     // Keep refs updated
     useEffect(() => {
@@ -572,7 +601,7 @@ export const SqlEditor = memo(
       });
 
       const state = EditorState.create({
-        doc: initialValue,
+        doc: initialDoc,
         extensions: [
           // Base setup
           baseTheme,
