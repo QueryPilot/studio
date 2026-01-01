@@ -154,7 +154,7 @@ export function transformStructureToRows(
       foreign_key: foreignKey,
       check_constraint: checkConstraintValue,
       comment: comment,
-      _original: column,
+      _originalData: column,
       _isModified: !!(modifyCmd || renameCmd || hasFkChange), // Mark row as modified
       _isPendingDelete: isPendingDelete, // Mark row for deletion
     };

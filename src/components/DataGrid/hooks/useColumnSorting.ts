@@ -80,8 +80,8 @@ export function useColumnSorting({
   );
 
   const toggleSort = useCallback(
-    (columnId: string, multiSort: boolean) => {
-      toggleColumnSort(gridId, columnId, multiSort);
+    (columnId: string, multiSort?: boolean) => {
+      toggleColumnSort(gridId, columnId, multiSort ?? false);
     },
     [gridId, toggleColumnSort]
   );

@@ -155,28 +155,32 @@ export const QueryToolbar = memo(function QueryToolbar({
                     </TabsTrigger>
                   </>
                 )}
-                {/* Show Plan/Raw/Stats for EXPLAIN results (or always available) */}
-                <TabsTrigger
-                  value="explain"
-                  className="text-xs !h-5 !px-2"
-                  tabIndex={isExplainResult ? 0 : 2}
-                >
-                  Plan
-                </TabsTrigger>
-                <TabsTrigger
-                  value="raw"
-                  className="text-xs !h-5 !px-2"
-                  tabIndex={isExplainResult ? 1 : 3}
-                >
-                  Raw
-                </TabsTrigger>
-                <TabsTrigger
-                  value="stats"
-                  className="text-xs !h-5 !px-2"
-                  tabIndex={isExplainResult ? 2 : 4}
-                >
-                  Stats
-                </TabsTrigger>
+                {/* Show Plan/Raw/Stats only for EXPLAIN results */}
+                {isExplainResult && (
+                  <>
+                    <TabsTrigger
+                      value="explain"
+                      className="text-xs !h-5 !px-2"
+                      tabIndex={0}
+                    >
+                      Plan
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="raw"
+                      className="text-xs !h-5 !px-2"
+                      tabIndex={1}
+                    >
+                      Raw
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="stats"
+                      className="text-xs !h-5 !px-2"
+                      tabIndex={2}
+                    >
+                      Stats
+                    </TabsTrigger>
+                  </>
+                )}
               </TabsList>
             </Tabs>
           )}

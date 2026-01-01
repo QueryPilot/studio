@@ -83,10 +83,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { IconFilterX, IconPlus } from "@tabler/icons-react";
-import {
-  BackendAPI,
-  type CellValue as BackendCellValue,
-} from "@/services/backend";
+import { type CellValue as BackendCellValue } from "@/services/backend";
 import type { TableDataRow } from "@/services/tableDataTypes";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { cn } from "@/lib/utils";
@@ -1877,7 +1874,6 @@ export const TableDataGrid = memo(function TableDataGrid(
             }}
           >
             <IconPlus className="h-3 w-3" />
-            Add Row
           </Button>
         )}
 
