@@ -5,9 +5,11 @@ import {
   type FunctionMeta,
 } from "@/services/databaseService";
 import { schemaCache } from "@/services/schemaCache";
+import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 
 import { type QueryObserverResult, useQuery } from "@tanstack/react-query";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
+import { useEffect } from "react";
 
 interface SchemaData {
   tables: TableMeta[];
@@ -107,6 +109,23 @@ export function useSchemaData(): SchemaData {
     },
     enabled: !!connectionId && !!database && !!schema,
   });
+
+  // Subscribe to schema invalidations (table create/drop/duplicate)
+  useEffect(() => {
+    if (!connectionId || !database || !schema) return;
+
+    const unsubscribe = useDataInvalidationStore.getState().subscribeSchema(
+      connectionId,
+      database,
+      schema,
+      () => {
+        logger.info(`[useSchemaData] Schema invalidated, refreshing: ${database}.${schema}`);
+        void refetch();
+      }
+    );
+
+    return unsubscribe;
+  }, [connectionId, database, schema, refetch]);
 
   return {
     tables: data?.tables || [],

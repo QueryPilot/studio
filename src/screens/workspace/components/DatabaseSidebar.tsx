@@ -27,6 +27,9 @@ import {
   ActionButton,
 } from "./DatabaseSidebarItem";
 import { DatabaseSidebarContextMenu } from "./DatabaseSidebarContextMenu";
+import { TruncateTableDialog } from "@/components/shared/TruncateTableDialog";
+import { DeleteTableDialog } from "@/components/shared/DeleteTableDialog";
+import { DuplicateTableDialog } from "@/components/shared/DuplicateTableDialog";
 import { useSchemaData } from "@/hooks/useSchemaData";
 import {
   openFunctionObject,
@@ -39,6 +42,11 @@ import {
   type StarredItemType,
 } from "@/stores/starredItemsStore";
 import { useCrudStore } from "@/stores/crudStore";
+import {
+  createTruncateCommand,
+  createDropTableCommand,
+  createDuplicateTableCommand,
+} from "@/utils/crudHelpers/tableOperations";
 
 interface DatabaseSidebarProps {
   connectionId: string;
@@ -66,6 +74,21 @@ export function DatabaseSidebar({
     visible: boolean;
   } | null>(null);
 
+  const [truncateDialog, setTruncateDialog] = useState<{
+    open: boolean;
+    tables: Array<{ schema: string; name: string }>;
+  } | null>(null);
+
+  const [deleteDialog, setDeleteDialog] = useState<{
+    open: boolean;
+    items: Array<{ type: string; schema: string; name: string }>;
+  } | null>(null);
+
+  const [duplicateDialog, setDuplicateDialog] = useState<{
+    open: boolean;
+    table: { schema: string; name: string };
+  } | null>(null);
+
   // Use shared schema data hook
   const {
     tables,
@@ -81,7 +104,7 @@ export function DatabaseSidebar({
   const { focusedPanelId, panelContents } = useWorkbenchStore();
 
   const { toggleStarred, getStarredItems } = useStarredItemsStore();
-  const { stagedCommands } = useCrudStore();
+  const { stagedCommands, stageCommand, stageBatchWithSingleHistoryEntry } = useCrudStore();
 
   // Pre-compute lookup maps for O(1) access (instead of O(N) .find() in loops)
   const tablesByKey = useMemo(() => {
@@ -146,6 +169,23 @@ export function DatabaseSidebar({
     });
     return set;
   }, [stagedCommands, connectionId]);
+
+  // Pre-compute tables being duplicated for O(1) lookups
+  const duplicatingTablesSet = useMemo(() => {
+    const set = new Set<string>();
+    stagedCommands.forEach((commands) => {
+      commands.forEach((cmd) => {
+        if (cmd.type === 'table.duplicate' && cmd.payload) {
+          const payload = cmd.payload as { sourceTableName?: string };
+          const schema = cmd.target.schema || 'public';
+          if (payload.sourceTableName) {
+            set.add(`${schema}.${payload.sourceTableName}`);
+          }
+        }
+      });
+    });
+    return set;
+  }, [stagedCommands]);
 
   // Auto-expand sections when data is loaded
   useEffect(() => {
@@ -456,15 +496,50 @@ export function DatabaseSidebar({
   };
 
   const handleTruncate = () => {
-    logger.info("Truncate selected tables:", Array.from(selectedItems));
-    // TODO: Show confirmation dialog with warning
-    // Options: Restart identity, Cascade
+    // Extract selected tables
+    const selectedTables: Array<{ schema: string; name: string }> = [];
+    selectedItems.forEach((itemKey) => {
+      const [type, rest] = itemKey.split(":");
+      if (type !== "table" || !rest) return;
+      const [schema, name] = rest.split(".");
+      if (schema && name) {
+        selectedTables.push({ schema, name });
+      }
+    });
+
+    if (selectedTables.length === 0) return;
+
+    // Open dialog
+    setTruncateDialog({
+      open: true,
+      tables: selectedTables,
+    });
   };
 
   const handleDeleteSelected = () => {
-    logger.info("Delete selected items:", Array.from(selectedItems));
-    // TODO: Show confirmation dialog with warning
-    // Options: Ignore foreign key checks, Cascade
+    // Extract selected items with types
+    const selectedItemsArray: Array<{ type: string; schema: string; name: string }> = [];
+    selectedItems.forEach((itemKey) => {
+      const [type, rest] = itemKey.split(":");
+      if (!rest || !type) return;
+      const parts = rest.split(".");
+      // Handle schema.name format (e.g., "public.users")
+      if (parts.length >= 2) {
+        const name = parts.pop();
+        const schema = parts.join(".") || "public";
+        if (name && typeof name === 'string' && typeof schema === 'string') {
+          selectedItemsArray.push({ type, schema, name });
+        }
+      }
+    });
+
+    if (selectedItemsArray.length === 0) return;
+
+    // Open dialog
+    setDeleteDialog({
+      open: true,
+      items: selectedItemsArray,
+    });
   };
 
   const handleViewData = () => {
@@ -504,8 +579,21 @@ export function DatabaseSidebar({
   };
 
   const handleDuplicate = () => {
-    logger.info("Duplicate item:", Array.from(selectedItems)[0]);
-    // TODO: Implement duplicate functionality
+    // Get the single selected table
+    const selectedItemKey = Array.from(selectedItems)[0];
+    if (!selectedItemKey) return;
+
+    const [type, rest] = selectedItemKey.split(":");
+    if (type !== "table" || !rest) return;
+
+    const [schema, name] = rest.split(".");
+    if (!schema || !name) return;
+
+    // Open dialog
+    setDuplicateDialog({
+      open: true,
+      table: { schema, name },
+    });
   };
 
   const handleTableClick = (
@@ -684,6 +772,94 @@ export function DatabaseSidebar({
   };
 
   // Note: hasTablePendingChanges is now replaced by pendingChangesSet lookup
+
+  // Dialog confirm handlers
+  const handleConfirmTruncate = (options: { restartIdentity: boolean; cascade: boolean }) => {
+    if (!truncateDialog) return;
+
+    const target = {
+      connectionId,
+      database: selectedDatabase,
+      schema: selectedSchema,
+    };
+
+    const commands = truncateDialog.tables.map((table) =>
+      createTruncateCommand(target, table.name, options)
+    );
+
+    stageBatchWithSingleHistoryEntry(commands);
+
+    toast.success(
+      `${commands.length} table${commands.length > 1 ? "s" : ""} staged for truncation`,
+      { description: "Review and commit the changes when ready" }
+    );
+
+    setTruncateDialog(null);
+  };
+
+  const handleConfirmDelete = (options: { cascade: boolean }) => {
+    if (!deleteDialog) return;
+
+    const target = {
+      connectionId,
+      database: selectedDatabase,
+      schema: selectedSchema,
+    };
+
+    const commands = deleteDialog.items
+      .filter((item) => item.type === "table")
+      .map((item) => createDropTableCommand(target, item.name, options.cascade));
+
+    if (commands.length > 0) {
+      stageBatchWithSingleHistoryEntry(commands);
+
+      toast.success(
+        `${commands.length} table${commands.length > 1 ? "s" : ""} staged for deletion`,
+        { description: "Review and commit the changes when ready" }
+      );
+    }
+
+    // For views and functions, we'd need to generate DROP statements directly
+    // since they're not staged in the CRUD store
+    const nonTables = deleteDialog.items.filter((item) => item.type !== "table");
+    if (nonTables.length > 0) {
+      toast.info(
+        `${nonTables.length} view${nonTables.length > 1 ? "s" : ""}/function${nonTables.length > 1 ? "s" : ""} deletion not yet implemented`
+      );
+    }
+
+    setDeleteDialog(null);
+  };
+
+  const handleConfirmDuplicate = (options: {
+    newName: string;
+    includeData: boolean;
+    includeIndexes: boolean;
+    includeConstraints: boolean;
+    includeTriggers: boolean;
+  }) => {
+    if (!duplicateDialog) return;
+
+    const target = {
+      connectionId,
+      database: selectedDatabase,
+      schema: selectedSchema,
+    };
+
+    const command = createDuplicateTableCommand(
+      target,
+      duplicateDialog.table.name,
+      options
+    );
+
+    stageCommand(command);
+
+    toast.success("Table duplication staged", {
+      description: "Review and commit the changes when ready",
+    });
+
+    setDuplicateDialog(null);
+  };
 
   // Show loading skeleton during initial connection, actively loading, or refreshing
   const showLoadingSkeleton =
@@ -979,6 +1155,9 @@ export function DatabaseSidebar({
                     hasPendingChanges={pendingChangesSet.has(
                       `${table.schema}.${table.name}`,
                     )}
+                    isBeingDuplicated={duplicatingTablesSet.has(
+                      `${table.schema}.${table.name}`,
+                    )}
                     actions={
                       <>
                         <ActionButton
@@ -1196,6 +1375,42 @@ export function DatabaseSidebar({
           onViewData={handleViewData}
           onViewStructure={handleViewStructure}
           onDuplicate={handleDuplicate}
+        />
+      )}
+
+      {/* Truncate Dialog */}
+      {truncateDialog && (
+        <TruncateTableDialog
+          open={truncateDialog.open}
+          onOpenChange={(open) => {
+            if (!open) setTruncateDialog(null);
+          }}
+          tables={truncateDialog.tables}
+          onConfirm={handleConfirmTruncate}
+        />
+      )}
+
+      {/* Delete Dialog */}
+      {deleteDialog && (
+        <DeleteTableDialog
+          open={deleteDialog.open}
+          onOpenChange={(open) => {
+            if (!open) setDeleteDialog(null);
+          }}
+          items={deleteDialog.items}
+          onConfirm={handleConfirmDelete}
+        />
+      )}
+
+      {/* Duplicate Dialog */}
+      {duplicateDialog && (
+        <DuplicateTableDialog
+          open={duplicateDialog.open}
+          onOpenChange={(open) => {
+            if (!open) setDuplicateDialog(null);
+          }}
+          sourceTable={duplicateDialog.table}
+          onConfirm={handleConfirmDuplicate}
         />
       )}
     </div>

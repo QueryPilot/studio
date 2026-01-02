@@ -167,11 +167,6 @@ export function DatabaseSidebarContextMenu({
       {hasOnlyTables && selectedCount === 1 && (
         <>
           <MenuItem
-            icon={<IconFileText className="h-3.5 w-3.5" />}
-            label="SQL: Create"
-            hasSubmenu
-          />
-          <MenuItem
             icon={<IconCopy className="h-3.5 w-3.5" />}
             label="Duplicate"
             onClick={() => {
