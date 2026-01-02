@@ -47,6 +47,9 @@ import {
   createDropTableCommand,
   createDuplicateTableCommand,
 } from "@/utils/crudHelpers/tableOperations";
+import {
+  createViewDropCommand,
+} from "@/utils/crudHelpers/viewOperations";
 
 interface DatabaseSidebarProps {
   connectionId: string;
@@ -806,25 +809,42 @@ export function DatabaseSidebar({
       schema: selectedSchema,
     };
 
-    const commands = deleteDialog.items
+    // Handle table deletions
+    const tableCommands = deleteDialog.items
       .filter((item) => item.type === "table")
       .map((item) => createDropTableCommand(target, item.name, options.cascade));
 
-    if (commands.length > 0) {
-      stageBatchWithSingleHistoryEntry(commands);
+    // Handle view deletions
+    const viewCommands = deleteDialog.items
+      .filter((item) => item.type === "view")
+      .map((item) => {
+        // Check if it's a materialized view by checking the item metadata
+        const isMaterialized = (item as any).is_materialized ?? false;
+        return createViewDropCommand(target, item.name, options.cascade, isMaterialized);
+      });
+
+    const allCommands = [...tableCommands, ...viewCommands];
+
+    if (allCommands.length > 0) {
+      stageBatchWithSingleHistoryEntry(allCommands);
+
+      const tableCount = tableCommands.length;
+      const viewCount = viewCommands.length;
+      const parts: string[] = [];
+      if (tableCount > 0) parts.push(`${tableCount} table${tableCount > 1 ? "s" : ""}`);
+      if (viewCount > 0) parts.push(`${viewCount} view${viewCount > 1 ? "s" : ""}`);
 
       toast.success(
-        `${commands.length} table${commands.length > 1 ? "s" : ""} staged for deletion`,
+        `${parts.join(" and ")} staged for deletion`,
         { description: "Review and commit the changes when ready" }
       );
     }
 
-    // For views and functions, we'd need to generate DROP statements directly
-    // since they're not staged in the CRUD store
-    const nonTables = deleteDialog.items.filter((item) => item.type !== "table");
-    if (nonTables.length > 0) {
+    // For functions/procedures, show info message (not yet implemented)
+    const functions = deleteDialog.items.filter((item) => item.type === "function");
+    if (functions.length > 0) {
       toast.info(
-        `${nonTables.length} view${nonTables.length > 1 ? "s" : ""}/function${nonTables.length > 1 ? "s" : ""} deletion not yet implemented`
+        `${functions.length} function${functions.length > 1 ? "s" : ""}/procedure${functions.length > 1 ? "s" : ""} deletion not yet implemented`
       );
     }
 

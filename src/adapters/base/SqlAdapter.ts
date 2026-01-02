@@ -433,6 +433,19 @@ export abstract class SqlAdapter implements DatabaseAdapter {
   }
 
   /**
+   * Rename a trigger
+   * PostgreSQL style - override for MySQL, SQLite, SQL Server
+   */
+  renameTrigger(
+    target: TableRef,
+    triggerName: string,
+    newName: string,
+  ): string {
+    const table = this.formatTableRef(target);
+    return `ALTER TRIGGER ${this.quoteIdentifier(triggerName)} ON ${table} RENAME TO ${this.quoteIdentifier(newName)}`;
+  }
+
+  /**
    * Generate ENABLE/DISABLE TRIGGER statement
    * PostgreSQL style - override for SQL Server, not supported in MySQL/SQLite
    */
@@ -545,6 +558,87 @@ export abstract class SqlAdapter implements DatabaseAdapter {
   ): string {
     throw new Error("Materialized views are not supported by this database");
   }
+
+  // ─────────────────────────────────────────────────────────────────
+  // View Operations - must be implemented by each dialect
+  // ─────────────────────────────────────────────────────────────────
+
+  abstract createView(
+    schema: string,
+    definition: import("@/types/crud").ViewDefinitionInput
+  ): string;
+
+  abstract dropView(
+    schema: string,
+    viewName: string,
+    ifExists?: boolean,
+    cascade?: boolean,
+    isMaterialized?: boolean
+  ): string;
+
+  abstract replaceView(
+    schema: string,
+    viewName: string,
+    definition: string,
+    isMaterialized?: boolean
+  ): string;
+
+  abstract renameView(
+    schema: string,
+    oldName: string,
+    newName: string,
+    isMaterialized?: boolean
+  ): string;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Constraint Operations - must be implemented by each dialect
+  // ─────────────────────────────────────────────────────────────────
+
+  abstract addConstraint(
+    target: TableRef,
+    definition: import("@/types/crud").ConstraintDefinitionInput
+  ): string;
+
+  abstract dropConstraint(
+    target: TableRef,
+    constraintName: string,
+    cascade?: boolean,
+    ifExists?: boolean
+  ): string;
+
+  abstract renameConstraint(
+    target: TableRef,
+    oldName: string,
+    newName: string
+  ): string;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Sequence Operations - must be implemented by each dialect
+  // ─────────────────────────────────────────────────────────────────
+
+  abstract createSequence(
+    schema: string,
+    definition: import("@/types/crud").SequenceDefinitionInput
+  ): string;
+
+  abstract alterSequence(
+    schema: string,
+    sequenceName: string,
+    changes: Partial<import("@/types/crud").SequenceDefinitionInput>
+  ): string;
+
+  abstract dropSequence(
+    schema: string,
+    sequenceName: string,
+    ifExists?: boolean,
+    cascade?: boolean
+  ): string;
+
+  abstract renameSequence(
+    schema: string,
+    oldName: string,
+    newName: string
+  ): string;
 
   // Abstract methods - must be implemented by each dialect
   abstract quoteIdentifier(name: string): string;

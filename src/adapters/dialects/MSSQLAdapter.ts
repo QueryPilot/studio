@@ -385,6 +385,11 @@ export class MSSQLAdapter extends SqlAdapter {
   /**
    * MSSQL uses ENABLE/DISABLE TRIGGER syntax (different from PostgreSQL)
    */
+  renameTrigger(_target: TableRef, triggerName: string, newName: string): string {
+    // SQL Server uses sp_rename for triggers
+    return `EXEC sp_rename '${triggerName}', '${newName}'`;
+  }
+
   toggleTrigger(target: TableRef, triggerName: string, enable: boolean): string {
     const table = this.formatTableRef(target);
     const action = enable ? 'ENABLE' : 'DISABLE';
@@ -702,5 +707,207 @@ JOIN sys.schemas s ON o.schema_id = s.schema_id
 WHERE s.name = '${this.escapeString(schema)}'
     AND o.name = '${this.escapeString(name)}'`;
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // View DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  createView(schema: string, definition: import("@/types/crud").ViewDefinitionInput): string {
+    if (definition.isMaterialized) {
+      throw new Error('SQL Server does not support materialized views. Use indexed views instead.');
+    }
+    
+    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(definition.name)}`;
+    return `CREATE VIEW ${qualifiedName} AS\n${definition.definition}`;
+  }
+
+  dropView(
+    schema: string,
+    viewName: string,
+    ifExists?: boolean,
+    _cascade?: boolean,
+    isMaterialized?: boolean
+  ): string {
+    if (isMaterialized) {
+      throw new Error('SQL Server does not support materialized views. Use indexed views instead.');
+    }
+    
+    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(viewName)}`;
+    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    return `DROP VIEW ${ifExistsClause}${qualifiedName}`;
+  }
+
+  replaceView(
+    schema: string,
+    viewName: string,
+    definition: string,
+    isMaterialized?: boolean
+  ): string {
+    if (isMaterialized) {
+      throw new Error('SQL Server does not support materialized views. Use indexed views instead.');
+    }
+    
+    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(viewName)}`;
+    return `CREATE OR ALTER VIEW ${qualifiedName} AS\n${definition}`;
+  }
+
+  renameView(
+    schema: string,
+    oldName: string,
+    newName: string,
+    isMaterialized?: boolean
+  ): string {
+    if (isMaterialized) {
+      throw new Error('SQL Server does not support materialized views. Use indexed views instead.');
+    }
+    
+    return `EXEC sp_rename '${schema}.${oldName}', '${newName}', 'OBJECT'`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Constraint DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  addConstraint(
+    target: import('../types').TableRef,
+    definition: import("@/types/crud").ConstraintDefinitionInput
+  ): string {
+    const tableName = this.formatTableRef(target);
+    const constraintName = this.quoteIdentifier(definition.name);
+    
+    let constraintDef = '';
+    switch (definition.type) {
+      case 'primary_key':
+        if (!definition.columns?.length) {
+          throw new Error('Primary key constraint requires columns');
+        }
+        constraintDef = `PRIMARY KEY (${definition.columns.map(c => this.quoteIdentifier(c)).join(', ')})`;
+        break;
+      
+      case 'unique':
+        if (!definition.columns?.length) {
+          throw new Error('Unique constraint requires columns');
+        }
+        constraintDef = `UNIQUE (${definition.columns.map(c => this.quoteIdentifier(c)).join(', ')})`;
+        break;
+      
+      case 'check':
+        if (!definition.expression) {
+          throw new Error('Check constraint requires expression');
+        }
+        constraintDef = `CHECK (${definition.expression})`;
+        break;
+      
+      case 'exclusion':
+        throw new Error('SQL Server does not support exclusion constraints');
+    }
+    
+    return `ALTER TABLE ${tableName} ADD CONSTRAINT ${constraintName} ${constraintDef}`;
+  }
+
+  dropConstraint(
+    target: import('../types').TableRef,
+    constraintName: string,
+    _cascade?: boolean,
+    _ifExists?: boolean
+  ): string {
+    const tableName = this.formatTableRef(target);
+    return `ALTER TABLE ${tableName} DROP CONSTRAINT ${this.quoteIdentifier(constraintName)}`;
+  }
+
+  renameConstraint(
+    target: import('../types').TableRef,
+    oldName: string,
+    newName: string
+  ): string {
+    const schema = target.schema || 'dbo';
+    const table = target.table;
+    return `EXEC sp_rename '${schema}.${table}.${oldName}', '${newName}', 'OBJECT'`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Sequence DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  createSequence(
+    schema: string,
+    definition: import("@/types/crud").SequenceDefinitionInput
+  ): string {
+    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(definition.name)}`;
+    
+    const parts: string[] = [`CREATE SEQUENCE ${qualifiedName}`];
+    
+    if (definition.startValue !== undefined) {
+      parts.push(`START WITH ${definition.startValue}`);
+    }
+    if (definition.increment !== undefined) {
+      parts.push(`INCREMENT BY ${definition.increment}`);
+    }
+    if (definition.minValue !== undefined) {
+      parts.push(`MINVALUE ${definition.minValue}`);
+    }
+    if (definition.maxValue !== undefined) {
+      parts.push(`MAXVALUE ${definition.maxValue}`);
+    }
+    if (definition.cycle !== undefined) {
+      parts.push(definition.cycle ? 'CYCLE' : 'NO CYCLE');
+    }
+    if (definition.cache !== undefined) {
+      parts.push(`CACHE ${definition.cache}`);
+    }
+    
+    return parts.join(' ');
+  }
+
+  alterSequence(
+    schema: string,
+    sequenceName: string,
+    changes: Partial<import("@/types/crud").SequenceDefinitionInput>
+  ): string {
+    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(sequenceName)}`;
+    
+    const parts: string[] = [];
+    
+    if (changes.startValue !== undefined) {
+      parts.push(`RESTART WITH ${changes.startValue}`);
+    }
+    if (changes.increment !== undefined) {
+      parts.push(`INCREMENT BY ${changes.increment}`);
+    }
+    if (changes.minValue !== undefined) {
+      parts.push(`MINVALUE ${changes.minValue}`);
+    }
+    if (changes.maxValue !== undefined) {
+      parts.push(`MAXVALUE ${changes.maxValue}`);
+    }
+    if (changes.cycle !== undefined) {
+      parts.push(changes.cycle ? 'CYCLE' : 'NO CYCLE');
+    }
+    
+    if (parts.length === 0) {
+      throw new Error('No changes specified for ALTER SEQUENCE');
+    }
+    
+    return `ALTER SEQUENCE ${qualifiedName} ${parts.join(' ')}`;
+  }
+
+  dropSequence(
+    schema: string,
+    sequenceName: string,
+    ifExists?: boolean,
+    _cascade?: boolean
+  ): string {
+    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(sequenceName)}`;
+    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    return `DROP SEQUENCE ${ifExistsClause}${qualifiedName}`;
+  }
+
+  renameSequence(
+    schema: string,
+    oldName: string,
+    newName: string
+  ): string {
+    return `EXEC sp_rename '${schema}.${oldName}', '${newName}', 'OBJECT'`;
   }
 }

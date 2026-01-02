@@ -200,6 +200,11 @@ export class MySQLAdapter extends SqlAdapter {
    * MySQL doesn't support ENABLE/DISABLE TRIGGER
    * Returns empty string (no-op)
    */
+  renameTrigger(_target: TableRef, _triggerName: string, _newName: string): string {
+    // MySQL doesn't support ALTER TRIGGER RENAME - must drop and recreate
+    return '-- MySQL does not support RENAME TRIGGER (drop and recreate instead)';
+  }
+
   toggleTrigger(_target: TableRef, _triggerName: string, _enable: boolean): string {
     // MySQL doesn't have enable/disable trigger - must drop and recreate
     return '-- MySQL does not support ENABLE/DISABLE TRIGGER';
@@ -426,5 +431,172 @@ GROUP BY Index_name, Non_unique, Table_name, Index_type`;
       default:
         return `SHOW CREATE TABLE ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(name)}`;
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // View DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  createView(schema: string, definition: import("@/types/crud").ViewDefinitionInput): string {
+    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(definition.name)}`;
+    
+    if (definition.isMaterialized) {
+      throw new Error('MySQL does not support materialized views');
+    }
+    
+    return `CREATE VIEW ${qualifiedName} AS\n${definition.definition}`;
+  }
+
+  dropView(
+    schema: string,
+    viewName: string,
+    ifExists?: boolean,
+    cascade?: boolean,
+    isMaterialized?: boolean
+  ): string {
+    if (isMaterialized) {
+      throw new Error('MySQL does not support materialized views');
+    }
+    
+    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(viewName)}`;
+    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    
+    if (cascade) {
+      throw new Error('MySQL does not support CASCADE option for DROP VIEW');
+    }
+    
+    return `DROP VIEW ${ifExistsClause}${qualifiedName}`;
+  }
+
+  replaceView(
+    schema: string,
+    viewName: string,
+    definition: string,
+    isMaterialized?: boolean
+  ): string {
+    if (isMaterialized) {
+      throw new Error('MySQL does not support materialized views');
+    }
+    
+    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(viewName)}`;
+    return `CREATE OR REPLACE VIEW ${qualifiedName} AS\n${definition}`;
+  }
+
+  renameView(
+    schema: string,
+    oldName: string,
+    newName: string,
+    isMaterialized?: boolean
+  ): string {
+    if (isMaterialized) {
+      throw new Error('MySQL does not support materialized views');
+    }
+    
+    const qualifiedOldName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(oldName)}`;
+    const qualifiedNewName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(newName)}`;
+    return `RENAME TABLE ${qualifiedOldName} TO ${qualifiedNewName}`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Constraint DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  addConstraint(
+    target: import('../types').TableRef,
+    definition: import("@/types/crud").ConstraintDefinitionInput
+  ): string {
+    const tableName = this.formatTableRef(target);
+    const constraintName = this.quoteIdentifier(definition.name);
+    
+    let constraintDef = '';
+    switch (definition.type) {
+      case 'primary_key':
+        if (!definition.columns?.length) {
+          throw new Error('Primary key constraint requires columns');
+        }
+        constraintDef = `PRIMARY KEY (${definition.columns.map(c => this.quoteIdentifier(c)).join(', ')})`;
+        break;
+      
+      case 'unique':
+        if (!definition.columns?.length) {
+          throw new Error('Unique constraint requires columns');
+        }
+        constraintDef = `UNIQUE KEY (${definition.columns.map(c => this.quoteIdentifier(c)).join(', ')})`;
+        break;
+      
+      case 'check':
+        if (!definition.expression) {
+          throw new Error('Check constraint requires expression');
+        }
+        // MySQL 8.0.16+ supports CHECK constraints
+        constraintDef = `CHECK (${definition.expression})`;
+        break;
+      
+      case 'exclusion':
+        throw new Error('MySQL does not support exclusion constraints');
+    }
+    
+    return `ALTER TABLE ${tableName} ADD CONSTRAINT ${constraintName} ${constraintDef}`;
+  }
+
+  dropConstraint(
+    target: import('../types').TableRef,
+    constraintName: string,
+    cascade?: boolean,
+    _ifExists?: boolean
+  ): string {
+    if (cascade) {
+      throw new Error('MySQL does not support CASCADE option for DROP CONSTRAINT');
+    }
+    
+    const tableName = this.formatTableRef(target);
+    // MySQL uses DROP CHECK, DROP PRIMARY KEY, DROP FOREIGN KEY depending on type
+    // For generic drop, we'll use DROP CHECK which works for CHECK constraints
+    return `ALTER TABLE ${tableName} DROP CHECK ${this.quoteIdentifier(constraintName)}`;
+  }
+
+  renameConstraint(
+    target: import('../types').TableRef,
+    oldName: string,
+    newName: string
+  ): string {
+    const tableName = this.formatTableRef(target);
+    return `ALTER TABLE ${tableName} RENAME CONSTRAINT ${this.quoteIdentifier(oldName)} TO ${this.quoteIdentifier(newName)}`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Sequence DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  createSequence(
+    _schema: string,
+    _definition: import("@/types/crud").SequenceDefinitionInput
+  ): string {
+    throw new Error('MySQL does not support sequences. Use AUTO_INCREMENT instead.');
+  }
+
+  alterSequence(
+    _schema: string,
+    _sequenceName: string,
+    _changes: Partial<import("@/types/crud").SequenceDefinitionInput>
+  ): string {
+    throw new Error('MySQL does not support sequences. Use AUTO_INCREMENT instead.');
+  }
+
+  dropSequence(
+    _schema: string,
+    _sequenceName: string,
+    _ifExists?: boolean,
+    _cascade?: boolean
+  ): string {
+    throw new Error('MySQL does not support sequences. Use AUTO_INCREMENT instead.');
+  }
+
+  renameSequence(
+    _schema: string,
+    _oldName: string,
+    _newName: string
+  ): string {
+    throw new Error('MySQL does not support sequences. Use AUTO_INCREMENT instead.');
   }
 }

@@ -1044,6 +1044,235 @@ SELECT
     return `REFRESH MATERIALIZED VIEW ${concurrent}${qualifiedName}`;
   }
 
+  // ─────────────────────────────────────────────────────────────────
+  // View DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  createView(schema: string, definition: import("@/types/crud").ViewDefinitionInput): string {
+    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(definition.name)}`;
+    const viewType = definition.isMaterialized ? 'MATERIALIZED VIEW' : 'VIEW';
+    
+    let sql = `CREATE ${viewType} ${qualifiedName} AS\n${definition.definition}`;
+    
+    if (definition.checkOption && !definition.isMaterialized) {
+      sql += `\nWITH ${definition.checkOption} CHECK OPTION`;
+    }
+    
+    return sql;
+  }
+
+  dropView(
+    schema: string,
+    viewName: string,
+    ifExists?: boolean,
+    cascade?: boolean,
+    isMaterialized?: boolean
+  ): string {
+    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(viewName)}`;
+    const viewType = isMaterialized ? 'MATERIALIZED VIEW' : 'VIEW';
+    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    const cascadeClause = cascade ? ' CASCADE' : '';
+    return `DROP ${viewType} ${ifExistsClause}${qualifiedName}${cascadeClause}`;
+  }
+
+  replaceView(
+    schema: string,
+    viewName: string,
+    definition: string,
+    isMaterialized?: boolean
+  ): string {
+    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(viewName)}`;
+    
+    if (isMaterialized) {
+      // Materialized views don't support CREATE OR REPLACE, so we need to drop and recreate
+      return `DROP MATERIALIZED VIEW IF EXISTS ${qualifiedName};\nCREATE MATERIALIZED VIEW ${qualifiedName} AS\n${definition}`;
+    }
+    
+    return `CREATE OR REPLACE VIEW ${qualifiedName} AS\n${definition}`;
+  }
+
+  renameView(
+    schema: string,
+    oldName: string,
+    newName: string,
+    isMaterialized?: boolean
+  ): string {
+    const qualifiedOldName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(oldName)}`;
+    const viewType = isMaterialized ? 'MATERIALIZED VIEW' : 'VIEW';
+    return `ALTER ${viewType} ${qualifiedOldName} RENAME TO ${this.quoteIdentifier(newName)}`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Constraint DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  addConstraint(
+    target: import('../types').TableRef,
+    definition: import("@/types/crud").ConstraintDefinitionInput
+  ): string {
+    const tableName = this.formatTableRef(target);
+    const constraintName = this.quoteIdentifier(definition.name);
+    
+    let constraintDef = '';
+    switch (definition.type) {
+      case 'primary_key':
+        if (!definition.columns?.length) {
+          throw new Error('Primary key constraint requires columns');
+        }
+        constraintDef = `PRIMARY KEY (${definition.columns.map(c => this.quoteIdentifier(c)).join(', ')})`;
+        break;
+      
+      case 'unique':
+        if (!definition.columns?.length) {
+          throw new Error('Unique constraint requires columns');
+        }
+        constraintDef = `UNIQUE (${definition.columns.map(c => this.quoteIdentifier(c)).join(', ')})`;
+        break;
+      
+      case 'check':
+        if (!definition.expression) {
+          throw new Error('Check constraint requires expression');
+        }
+        constraintDef = `CHECK (${definition.expression})`;
+        break;
+      
+      case 'exclusion':
+        if (!definition.expression || !definition.indexMethod) {
+          throw new Error('Exclusion constraint requires expression and index method');
+        }
+        constraintDef = `EXCLUDE USING ${definition.indexMethod} (${definition.expression})`;
+        break;
+    }
+    
+    const deferrable = definition.deferrable ? ' DEFERRABLE' : '';
+    const initiallyDeferred = definition.initiallyDeferred ? ' INITIALLY DEFERRED' : '';
+    
+    return `ALTER TABLE ${tableName} ADD CONSTRAINT ${constraintName} ${constraintDef}${deferrable}${initiallyDeferred}`;
+  }
+
+  dropConstraint(
+    target: import('../types').TableRef,
+    constraintName: string,
+    cascade?: boolean,
+    ifExists?: boolean
+  ): string {
+    const tableName = this.formatTableRef(target);
+    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    const cascadeClause = cascade ? ' CASCADE' : '';
+    return `ALTER TABLE ${tableName} DROP CONSTRAINT ${ifExistsClause}${this.quoteIdentifier(constraintName)}${cascadeClause}`;
+  }
+
+  renameConstraint(
+    target: import('../types').TableRef,
+    oldName: string,
+    newName: string
+  ): string {
+    const tableName = this.formatTableRef(target);
+    return `ALTER TABLE ${tableName} RENAME CONSTRAINT ${this.quoteIdentifier(oldName)} TO ${this.quoteIdentifier(newName)}`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Sequence DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  createSequence(
+    schema: string,
+    definition: import("@/types/crud").SequenceDefinitionInput
+  ): string {
+    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(definition.name)}`;
+    
+    const parts: string[] = [`CREATE SEQUENCE ${qualifiedName}`];
+    
+    if (definition.increment !== undefined) {
+      parts.push(`INCREMENT BY ${definition.increment}`);
+    }
+    if (definition.minValue !== undefined) {
+      parts.push(`MINVALUE ${definition.minValue}`);
+    }
+    if (definition.maxValue !== undefined) {
+      parts.push(`MAXVALUE ${definition.maxValue}`);
+    }
+    if (definition.startValue !== undefined) {
+      parts.push(`START WITH ${definition.startValue}`);
+    }
+    if (definition.cache !== undefined) {
+      parts.push(`CACHE ${definition.cache}`);
+    }
+    if (definition.cycle !== undefined) {
+      parts.push(definition.cycle ? 'CYCLE' : 'NO CYCLE');
+    }
+    
+    let sql = parts.join(' ');
+    
+    if (definition.ownedBy) {
+      sql += `;\nALTER SEQUENCE ${qualifiedName} OWNED BY ${definition.ownedBy}`;
+    }
+    
+    return sql;
+  }
+
+  alterSequence(
+    schema: string,
+    sequenceName: string,
+    changes: Partial<import("@/types/crud").SequenceDefinitionInput>
+  ): string {
+    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(sequenceName)}`;
+    
+    const parts: string[] = [];
+    
+    if (changes.increment !== undefined) {
+      parts.push(`INCREMENT BY ${changes.increment}`);
+    }
+    if (changes.minValue !== undefined) {
+      parts.push(`MINVALUE ${changes.minValue}`);
+    }
+    if (changes.maxValue !== undefined) {
+      parts.push(`MAXVALUE ${changes.maxValue}`);
+    }
+    if (changes.startValue !== undefined) {
+      parts.push(`RESTART WITH ${changes.startValue}`);
+    }
+    if (changes.cache !== undefined) {
+      parts.push(`CACHE ${changes.cache}`);
+    }
+    if (changes.cycle !== undefined) {
+      parts.push(changes.cycle ? 'CYCLE' : 'NO CYCLE');
+    }
+    
+    if (parts.length === 0) {
+      throw new Error('No changes specified for ALTER SEQUENCE');
+    }
+    
+    let sql = `ALTER SEQUENCE ${qualifiedName} ${parts.join(' ')}`;
+    
+    if (changes.ownedBy !== undefined) {
+      sql += `;\nALTER SEQUENCE ${qualifiedName} OWNED BY ${changes.ownedBy}`;
+    }
+    
+    return sql;
+  }
+
+  dropSequence(
+    schema: string,
+    sequenceName: string,
+    ifExists?: boolean,
+    cascade?: boolean
+  ): string {
+    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(sequenceName)}`;
+    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    const cascadeClause = cascade ? ' CASCADE' : '';
+    return `DROP SEQUENCE ${ifExistsClause}${qualifiedName}${cascadeClause}`;
+  }
+
+  renameSequence(
+    schema: string,
+    oldName: string,
+    newName: string
+  ): string {
+    const qualifiedOldName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(oldName)}`;
+    return `ALTER SEQUENCE ${qualifiedOldName} RENAME TO ${this.quoteIdentifier(newName)}`;
+  }
+
   /**
    * Duplicate a table with all its metadata (PostgreSQL-specific implementation)
    * This overrides the base implementation to properly copy indexes, constraints, and triggers
