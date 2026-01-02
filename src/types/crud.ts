@@ -23,7 +23,23 @@ export type CrudOperationType =
   | "trigger.enable"
   | "trigger.disable"
   | "fk.add"
-  | "fk.drop";
+  | "fk.drop"
+  | "view.create"
+  | "view.drop"
+  | "view.replace"
+  | "view.rename"
+  | "constraint.addPrimaryKey"
+  | "constraint.dropPrimaryKey"
+  | "constraint.addUnique"
+  | "constraint.dropUnique"
+  | "constraint.addCheck"
+  | "constraint.dropCheck"
+  | "constraint.drop"
+  | "constraint.rename"
+  | "sequence.create"
+  | "sequence.alter"
+  | "sequence.drop"
+  | "sequence.rename";
 
 /**
  * Lifecycle states tracked for each staged command.
@@ -147,6 +163,48 @@ export interface ForeignKeyDefinitionInput {
   readonly initiallyDeferred?: boolean;
 }
 
+/**
+ * View definition abstraction for structure commands.
+ */
+export interface ViewDefinitionInput {
+  readonly name: string;
+  readonly definition: string; // SQL query defining the view
+  readonly isMaterialized?: boolean;
+  readonly comment?: string;
+  readonly checkOption?: "CASCADED" | "LOCAL"; // WITH CHECK OPTION
+  readonly securityBarrier?: boolean; // PostgreSQL security_barrier
+  readonly securityInvoker?: boolean; // PostgreSQL security_invoker
+}
+
+/**
+ * Constraint definition abstraction for structure commands.
+ */
+export interface ConstraintDefinitionInput {
+  readonly name: string;
+  readonly type: "primary_key" | "unique" | "check" | "exclusion";
+  readonly columns?: string[]; // For PK, unique
+  readonly expression?: string; // For check constraints
+  readonly indexMethod?: string; // For exclusion constraints (e.g., GIST)
+  readonly comment?: string;
+  readonly deferrable?: boolean;
+  readonly initiallyDeferred?: boolean;
+}
+
+/**
+ * Sequence definition abstraction for structure commands.
+ */
+export interface SequenceDefinitionInput {
+  readonly name: string;
+  readonly increment?: number;
+  readonly minValue?: number;
+  readonly maxValue?: number;
+  readonly startValue?: number;
+  readonly cache?: number;
+  readonly cycle?: boolean;
+  readonly ownedBy?: string; // Format: "table_name.column_name"
+  readonly comment?: string;
+}
+
 export interface DataUpdatePayload extends CrudCommandPayload {
   readonly column: string;
   readonly columnType?: string; // PostgreSQL type for explicit casting (e.g., "money", "inet")
@@ -258,6 +316,76 @@ export interface TableDuplicatePayload extends CrudCommandPayload {
   readonly includeTriggers?: boolean; // Clone triggers
 }
 
+// ============================================================================
+// View Operation Payloads
+// ============================================================================
+
+export interface ViewCreatePayload extends CrudCommandPayload {
+  readonly definition: ViewDefinitionInput;
+}
+
+export interface ViewDropPayload extends CrudCommandPayload {
+  readonly viewName: string;
+  readonly ifExists?: boolean;
+  readonly cascade?: boolean;
+  readonly isMaterialized?: boolean;
+}
+
+export interface ViewReplacePayload extends CrudCommandPayload {
+  readonly viewName: string;
+  readonly definition: string; // New SQL query
+  readonly isMaterialized?: boolean;
+}
+
+export interface ViewRenamePayload extends CrudCommandPayload {
+  readonly viewName: string;
+  readonly newName: string;
+  readonly isMaterialized?: boolean;
+}
+
+// ============================================================================
+// Constraint Operation Payloads
+// ============================================================================
+
+export interface ConstraintAddPayload extends CrudCommandPayload {
+  readonly definition: ConstraintDefinitionInput;
+}
+
+export interface ConstraintDropPayload extends CrudCommandPayload {
+  readonly constraintName: string;
+  readonly cascade?: boolean;
+  readonly ifExists?: boolean;
+}
+
+export interface ConstraintRenamePayload extends CrudCommandPayload {
+  readonly constraintName: string;
+  readonly newName: string;
+}
+
+// ============================================================================
+// Sequence Operation Payloads
+// ============================================================================
+
+export interface SequenceCreatePayload extends CrudCommandPayload {
+  readonly definition: SequenceDefinitionInput;
+}
+
+export interface SequenceAlterPayload extends CrudCommandPayload {
+  readonly sequenceName: string;
+  readonly changes: Partial<SequenceDefinitionInput>;
+}
+
+export interface SequenceDropPayload extends CrudCommandPayload {
+  readonly sequenceName: string;
+  readonly ifExists?: boolean;
+  readonly cascade?: boolean;
+}
+
+export interface SequenceRenamePayload extends CrudCommandPayload {
+  readonly sequenceName: string;
+  readonly newName: string;
+}
+
 export type CrudCommandPayloadMap = {
   "data.update": DataUpdatePayload;
   "data.insert": DataInsertPayload;
@@ -281,6 +409,22 @@ export type CrudCommandPayloadMap = {
   "trigger.disable": TriggerTogglePayload;
   "fk.add": ForeignKeyAddPayload;
   "fk.drop": ForeignKeyDropPayload;
+  "view.create": ViewCreatePayload;
+  "view.drop": ViewDropPayload;
+  "view.replace": ViewReplacePayload;
+  "view.rename": ViewRenamePayload;
+  "constraint.addPrimaryKey": ConstraintAddPayload;
+  "constraint.dropPrimaryKey": ConstraintDropPayload;
+  "constraint.addUnique": ConstraintAddPayload;
+  "constraint.dropUnique": ConstraintDropPayload;
+  "constraint.addCheck": ConstraintAddPayload;
+  "constraint.dropCheck": ConstraintDropPayload;
+  "constraint.drop": ConstraintDropPayload;
+  "constraint.rename": ConstraintRenamePayload;
+  "sequence.create": SequenceCreatePayload;
+  "sequence.alter": SequenceAlterPayload;
+  "sequence.drop": SequenceDropPayload;
+  "sequence.rename": SequenceRenamePayload;
 };
 
 /**

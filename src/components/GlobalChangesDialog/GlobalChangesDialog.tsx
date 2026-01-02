@@ -309,7 +309,11 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
           cmd.type === 'table.create' || 
           cmd.type === 'table.drop' || 
           cmd.type === 'table.duplicate' ||
-          cmd.type === 'table.truncate'
+          cmd.type === 'table.truncate' ||
+          cmd.type === 'view.create' ||
+          cmd.type === 'view.drop' ||
+          cmd.type === 'sequence.create' ||
+          cmd.type === 'sequence.drop'
         );
 
         // Broadcast invalidation to all components displaying this table
@@ -357,7 +361,11 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
           cmd.type === 'table.create' || 
           cmd.type === 'table.drop' || 
           cmd.type === 'table.duplicate' ||
-          cmd.type === 'table.truncate'
+          cmd.type === 'table.truncate' ||
+          cmd.type === 'view.create' ||
+          cmd.type === 'view.drop' ||
+          cmd.type === 'sequence.create' ||
+          cmd.type === 'sequence.drop'
         );
 
         // Broadcast invalidation for all affected tables/schemas
@@ -831,7 +839,10 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
       cmd.type.startsWith("index.") ||
       cmd.type.startsWith("trigger.") ||
       cmd.type.startsWith("fk.") ||
-      cmd.type.startsWith("table."),
+      cmd.type.startsWith("table.") ||
+      cmd.type.startsWith("view.") ||
+      cmd.type.startsWith("constraint.") ||
+      cmd.type.startsWith("sequence."),
   );
 
   // Get primary key info
@@ -922,6 +933,119 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
           if (payload.includeTriggers) options.push("triggers");
           if (options.length > 0) {
             ddlLines.push(`  Include: ${options.join(", ")}`);
+          }
+        } else if (cmd.type === "view.create") {
+          // view.create - show view definition
+          if (payload.definition) {
+            const viewDef = payload.definition as { name?: string; definition?: string; isMaterialized?: boolean };
+            if (viewDef.name) {
+              ddlLines.push(`  View: ${viewDef.name}${viewDef.isMaterialized ? " (MATERIALIZED)" : ""}`);
+            }
+            if (viewDef.definition) {
+              const defPreview = viewDef.definition.length > 100 
+                ? viewDef.definition.slice(0, 100) + "..." 
+                : viewDef.definition;
+              ddlLines.push(`  Definition: ${defPreview}`);
+            }
+          }
+        } else if (cmd.type === "view.drop") {
+          // view.drop - show view name
+          if (payload.viewName) {
+            ddlLines.push(`  View: ${payload.viewName}${payload.isMaterialized ? " (MATERIALIZED)" : ""}`);
+          }
+          if (payload.cascade) {
+            ddlLines.push(`  Cascade: true`);
+          }
+        } else if (cmd.type === "view.replace") {
+          // view.replace - show view name and new definition
+          if (payload.viewName) {
+            ddlLines.push(`  View: ${payload.viewName}${payload.isMaterialized ? " (MATERIALIZED)" : ""}`);
+          }
+          if (payload.definition) {
+            const defPreview = (payload.definition as string).length > 100 
+              ? (payload.definition as string).slice(0, 100) + "..." 
+              : payload.definition;
+            ddlLines.push(`  New Definition: ${defPreview}`);
+          }
+        } else if (cmd.type === "view.rename") {
+          // view.rename - show old → new
+          if (payload.viewName && payload.newName) {
+            ddlLines.push(`  ${payload.viewName} → ${payload.newName}${payload.isMaterialized ? " (MATERIALIZED)" : ""}`);
+          }
+        } else if (cmd.type.startsWith("constraint.")) {
+          // constraint operations
+          if (cmd.type === "constraint.addPrimaryKey" || cmd.type === "constraint.addUnique" || cmd.type === "constraint.addCheck") {
+            if (payload.definition) {
+              const constraintDef = payload.definition as { name?: string; type?: string; columns?: string[]; expression?: string };
+              if (constraintDef.name) {
+                ddlLines.push(`  Constraint: ${constraintDef.name} (${constraintDef.type?.toUpperCase()})`);
+              }
+              if (constraintDef.columns && constraintDef.columns.length > 0) {
+                ddlLines.push(`  Columns: ${constraintDef.columns.join(", ")}`);
+              }
+              if (constraintDef.expression) {
+                ddlLines.push(`  Expression: ${constraintDef.expression}`);
+              }
+            }
+          } else if (cmd.type === "constraint.rename") {
+            if (payload.constraintName && payload.newName) {
+              ddlLines.push(`  ${payload.constraintName} → ${payload.newName}`);
+            }
+          } else {
+            // drop operations
+            if (payload.constraintName) {
+              ddlLines.push(`  Constraint: ${payload.constraintName}`);
+            }
+            if (payload.cascade) {
+              ddlLines.push(`  Cascade: true`);
+            }
+          }
+        } else if (cmd.type === "sequence.create") {
+          // sequence.create - show sequence definition
+          if (payload.definition) {
+            const seqDef = payload.definition as { name?: string; increment?: number; minValue?: number; maxValue?: number; startValue?: number; cycle?: boolean };
+            if (seqDef.name) {
+              ddlLines.push(`  Sequence: ${seqDef.name}`);
+            }
+            if (seqDef.increment !== undefined) {
+              ddlLines.push(`  Increment: ${seqDef.increment}`);
+            }
+            if (seqDef.startValue !== undefined) {
+              ddlLines.push(`  Start: ${seqDef.startValue}`);
+            }
+            if (seqDef.minValue !== undefined) {
+              ddlLines.push(`  Min: ${seqDef.minValue}`);
+            }
+            if (seqDef.maxValue !== undefined) {
+              ddlLines.push(`  Max: ${seqDef.maxValue}`);
+            }
+            if (seqDef.cycle) {
+              ddlLines.push(`  Cycle: true`);
+            }
+          }
+        } else if (cmd.type === "sequence.alter") {
+          // sequence.alter - show changes
+          if (payload.sequenceName) {
+            ddlLines.push(`  Sequence: ${payload.sequenceName}`);
+          }
+          if (payload.changes) {
+            const changes = payload.changes as Record<string, unknown>;
+            Object.entries(changes).forEach(([key, value]) => {
+              ddlLines.push(`  ${key}: ${value}`);
+            });
+          }
+        } else if (cmd.type === "sequence.drop") {
+          // sequence.drop - show sequence name
+          if (payload.sequenceName) {
+            ddlLines.push(`  Sequence: ${payload.sequenceName}`);
+          }
+          if (payload.cascade) {
+            ddlLines.push(`  Cascade: true`);
+          }
+        } else if (cmd.type === "sequence.rename") {
+          // sequence.rename - show old → new
+          if (payload.sequenceName && payload.newName) {
+            ddlLines.push(`  ${payload.sequenceName} → ${payload.newName}`);
           }
         } else if (payload.column) {
           // column.add - show full column definition
