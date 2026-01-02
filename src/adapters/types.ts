@@ -337,6 +337,28 @@ export interface DatabaseAdapter {
   toggleTrigger(target: TableRef, triggerName: string, enable: boolean): QueryPayload;
 
   // ─────────────────────────────────────────────────────────────────
+  // Table Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Generate statements to duplicate a table with optional data, indexes, constraints, and triggers
+   * @param target - Source table reference
+   * @param options - Duplication options (new name, what to include)
+   * @returns SQL statements to create the duplicate table
+   */
+  duplicateTable(
+    target: TableRef,
+    options: {
+      sourceTableName: string;
+      newTableName: string;
+      includeData?: boolean;
+      includeIndexes?: boolean;
+      includeConstraints?: boolean;
+      includeTriggers?: boolean;
+    }
+  ): QueryPayload;
+
+  // ─────────────────────────────────────────────────────────────────
   // Introspection Queries
   // ─────────────────────────────────────────────────────────────────
 

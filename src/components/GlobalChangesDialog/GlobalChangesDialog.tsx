@@ -2,7 +2,7 @@ import { logger } from "@/lib/logger";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useCrudStore } from "@/stores/crudStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
-import type { CrudCommand } from "@/types/crud";
+import type { CrudCommand, CrudCommandPayload } from "@/types/crud";
 import { DbType } from "@/types/connection";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { useValidationStore } from "@/stores/validationStore";
@@ -303,14 +303,33 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         // before triggering refetch in other components
         await new Promise((resolve) => setTimeout(resolve, 100));
 
-        // Broadcast invalidation to all components displaying this table
-        const { invalidateTable } = useDataInvalidationStore.getState();
-        invalidateTable(connectionId, database, schema, table);
-        logger.info(
-          `[GlobalChangesDialog] Invalidated table after commit: ${database}.${
-            schema ?? "public"
-          }.${table}`,
+        // Check if we have schema-altering operations (create, drop, duplicate, truncate)
+        const tableCommands = stagedCommands.get(tableKey) ?? [];
+        const hasSchemaChanges = tableCommands.some(cmd => 
+          cmd.type === 'table.create' || 
+          cmd.type === 'table.drop' || 
+          cmd.type === 'table.duplicate' ||
+          cmd.type === 'table.truncate'
         );
+
+        // Broadcast invalidation to all components displaying this table
+        const { invalidateTable, invalidateSchema } = useDataInvalidationStore.getState();
+        
+        if (hasSchemaChanges) {
+          // For schema-altering operations, refresh the entire schema to show new/removed tables
+          invalidateSchema(connectionId, database, schema);
+          logger.info(
+            `[GlobalChangesDialog] Invalidated schema after DDL commit: ${database}.${schema ?? "public"}`,
+          );
+        } else {
+          // For data-only changes, just invalidate the specific table
+          invalidateTable(connectionId, database, schema, table);
+          logger.info(
+            `[GlobalChangesDialog] Invalidated table after commit: ${database}.${
+              schema ?? "public"
+            }.${table}`,
+          );
+        }
 
         toast.success("Changes committed", {
           description: `Successfully committed ${
@@ -327,20 +346,58 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
           0,
         );
 
-        // Broadcast invalidation for all affected tables
-        const { invalidateTable } = useDataInvalidationStore.getState();
+        // Check if any commands are schema-altering
+        const allCommands: CrudCommand<CrudCommandPayload>[] = [];
         connectionCommands.forEach(([tableKey]) => {
-          const parts = tableKey.split(":");
-          const [connId, db, sch, tbl] = parts;
-          if (connId && db && tbl) {
-            invalidateTable(connId, db, sch, tbl);
-            logger.info(
-              `[GlobalChangesDialog] Invalidated table after commit: ${db}.${
-                sch ?? "public"
-              }.${tbl}`,
-            );
-          }
+          const commands = stagedCommands.get(tableKey) ?? [];
+          allCommands.push(...commands);
         });
+        
+        const hasSchemaChanges = allCommands.some(cmd => 
+          cmd.type === 'table.create' || 
+          cmd.type === 'table.drop' || 
+          cmd.type === 'table.duplicate' ||
+          cmd.type === 'table.truncate'
+        );
+
+        // Broadcast invalidation for all affected tables/schemas
+        const { invalidateTable, invalidateSchema } = useDataInvalidationStore.getState();
+        
+        if (hasSchemaChanges) {
+          // Group by schema and invalidate each schema once
+          const schemas = new Set<string>();
+          connectionCommands.forEach(([tableKey]) => {
+            const parts = tableKey.split(":");
+            const [connId, db, sch] = parts;
+            if (connId && db && sch) {
+              schemas.add(`${connId}:${db}:${sch}`);
+            }
+          });
+          
+          schemas.forEach((schemaKey) => {
+            const [connId, db, sch] = schemaKey.split(":");
+            if (connId && db && sch) {
+              invalidateSchema(connId, db, sch);
+              logger.info(
+                `[GlobalChangesDialog] Invalidated schema after DDL commit: ${db}.${sch}`,
+              );
+            }
+          });
+        } else {
+          // For data-only changes, invalidate each table
+          connectionCommands.forEach(([tableKey]) => {
+            const parts = tableKey.split(":");
+            const [connId, db, sch, tbl] = parts;
+            if (connId && db && tbl) {
+              invalidateTable(connId, db, sch, tbl);
+              logger.info(
+                `[GlobalChangesDialog] Invalidated table after commit: ${db}.${
+                  sch ?? "public"
+                }.${tbl}`,
+              );
+            }
+          });
+        }
 
         toast.success("All changes committed", {
           description: `Successfully committed ${totalCommitted} change${
@@ -841,6 +898,30 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
           }
           if (payload.cascade) {
             ddlLines.push(`  Cascade: true`);
+          }
+        } else if (cmd.type === "table.truncate") {
+          // table.truncate - show table name and options
+          if (payload.tableName) {
+            ddlLines.push(`  Table: ${payload.tableName}`);
+          }
+          if (payload.restartIdentity) {
+            ddlLines.push(`  Restart Identity: true`);
+          }
+          if (payload.cascade) {
+            ddlLines.push(`  Cascade: true`);
+          }
+        } else if (cmd.type === "table.duplicate") {
+          // table.duplicate - show source → target and options
+          if (payload.sourceTableName && payload.newTableName) {
+            ddlLines.push(`  ${payload.sourceTableName} → ${payload.newTableName}`);
+          }
+          const options: string[] = [];
+          if (payload.includeData) options.push("data");
+          if (payload.includeIndexes) options.push("indexes");
+          if (payload.includeConstraints) options.push("constraints");
+          if (payload.includeTriggers) options.push("triggers");
+          if (options.length > 0) {
+            ddlLines.push(`  Include: ${options.join(", ")}`);
           }
         } else if (payload.column) {
           // column.add - show full column definition

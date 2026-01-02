@@ -485,6 +485,52 @@ export abstract class SqlAdapter implements DatabaseAdapter {
   }
 
   // ─────────────────────────────────────────────────────────────────
+  // Table Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Generate statements to duplicate a table
+   * Base implementation creates a simple structure copy - dialects should override for full features
+   */
+  duplicateTable(
+    target: TableRef,
+    options: {
+      sourceTableName: string;
+      newTableName: string;
+      includeData?: boolean;
+      includeIndexes?: boolean;
+      includeConstraints?: boolean;
+      includeTriggers?: boolean;
+    }
+  ): string {
+    const schemaPrefix = target.schema ? `${this.quoteIdentifier(target.schema)}.` : '';
+    const sourceTable = `${schemaPrefix}${this.quoteIdentifier(options.sourceTableName)}`;
+    const newTable = `${schemaPrefix}${this.quoteIdentifier(options.newTableName)}`;
+    
+    const statements: string[] = [];
+    
+    // 1. Create table structure (with or without data)
+    let createSql = `CREATE TABLE ${newTable} AS SELECT * FROM ${sourceTable}`;
+    if (!options.includeData) {
+      createSql += ' WHERE 1=0'; // Structure only
+    }
+    statements.push(createSql);
+    
+    // Note: Base implementation only creates the table structure
+    // Indexes, constraints, and triggers require dialect-specific queries
+    // to introspect the source table's metadata.
+    // Each dialect should override this method to provide full functionality.
+    
+    if (options.includeIndexes || options.includeConstraints || options.includeTriggers) {
+      statements.push(
+        `-- Note: Copying indexes, constraints, and triggers requires database-specific implementation`
+      );
+    }
+    
+    return statements.join(';\n') + ';';
+  }
+
+  // ─────────────────────────────────────────────────────────────────
   // Materialized View Operations
   // ─────────────────────────────────────────────────────────────────
 

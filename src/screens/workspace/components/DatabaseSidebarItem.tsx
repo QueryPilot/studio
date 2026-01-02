@@ -95,6 +95,7 @@ interface SidebarItemProps {
   onMouseDown?: (e: React.MouseEvent) => void;
   onMouseEnter?: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
+  isBeingDuplicated?: boolean; // New: indicates this table is the source of a duplicate operation
 }
 
 export function SidebarItem({
@@ -111,6 +112,7 @@ export function SidebarItem({
   onMouseDown,
   onMouseEnter,
   onContextMenu,
+  isBeingDuplicated = false,
 }: SidebarItemProps) {
   return (
     <div
@@ -120,6 +122,8 @@ export function SidebarItem({
           ? "bg-primary/10 border-l-primary rounded-r"
           : isSelected
           ? "bg-primary/20 border-l-primary/70 rounded-r"
+          : isBeingDuplicated
+          ? "bg-blue-500/10 border-l-blue-500 rounded-r"
           : "rounded border-l-transparent",
         className,
       )}
@@ -132,6 +136,11 @@ export function SidebarItem({
         <span className="relative flex h-2 w-2 flex-shrink-0 ml-1">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
           <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
+        </span>
+      ) : isBeingDuplicated ? (
+        <span className="relative flex h-2 w-2 flex-shrink-0 ml-1">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
         </span>
       ) : (
         icon
