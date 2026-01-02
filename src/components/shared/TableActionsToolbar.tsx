@@ -1,6 +1,6 @@
 import { memo, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { IconPlus, IconCheck, IconX } from "@tabler/icons-react";
+import { IconPlus, IconX, IconDeviceFloppy } from "@tabler/icons-react";
 
 interface TableActionsToolbarProps {
   /** Label for the add button. If not provided, add button is hidden. */
@@ -58,24 +58,14 @@ export const TableActionsToolbar = memo(function TableActionsToolbar({
       {pendingChangesCount > 0 && (
         <>
           {onDiscard && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={onDiscard}
-              className="h-6 text-xs px-2 text-muted-foreground hover:text-destructive"
-            >
-              <IconX className="h-3 w-3 mr-1" />
+            <Button size="sm" variant="ghost" onClick={onDiscard}>
+              <IconX className="size-3.5!" />
               Discard
             </Button>
           )}
-          <Button
-            size="sm"
-            variant="default"
-            onClick={onReviewChanges}
-            className="h-6 text-xs px-2"
-          >
-            <IconCheck className="h-3 w-3 mr-1" />
-            Commit ({pendingChangesCount})
+          <Button size="sm" variant="default" onClick={onReviewChanges}>
+            <IconDeviceFloppy className="size-3.5!" />
+            Commit
           </Button>
         </>
       )}

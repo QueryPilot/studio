@@ -11,6 +11,9 @@ import type {
   ColumnDefinitionInput,
   IndexDefinitionInput,
   TriggerDefinitionInput,
+  ViewDefinitionInput,
+  ConstraintDefinitionInput,
+  SequenceDefinitionInput,
 } from '@/types/crud';
 
 // ============================================================================
@@ -329,12 +332,150 @@ export interface DatabaseAdapter {
   dropTrigger(target: TableRef, triggerName: string, ifExists?: boolean): QueryPayload;
 
   /**
+   * Rename a trigger
+   */
+  renameTrigger(target: TableRef, triggerName: string, newName: string): QueryPayload;
+
+  /**
    * Generate ENABLE/DISABLE TRIGGER statement
    * @param target - Table reference
    * @param triggerName - Trigger name
    * @param enable - true to enable, false to disable
    */
   toggleTrigger(target: TableRef, triggerName: string, enable: boolean): QueryPayload;
+
+  // ─────────────────────────────────────────────────────────────────
+  // View DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Generate CREATE VIEW statement
+   * @param schema - Schema name
+   * @param definition - View definition
+   */
+  createView(schema: string, definition: ViewDefinitionInput): QueryPayload;
+
+  /**
+   * Generate DROP VIEW statement
+   * @param schema - Schema name
+   * @param viewName - View name to drop
+   * @param ifExists - Whether to use IF EXISTS
+   * @param cascade - Whether to cascade
+   * @param isMaterialized - Whether it's a materialized view
+   */
+  dropView(
+    schema: string,
+    viewName: string,
+    ifExists?: boolean,
+    cascade?: boolean,
+    isMaterialized?: boolean
+  ): QueryPayload;
+
+  /**
+   * Generate CREATE OR REPLACE VIEW statement
+   * @param schema - Schema name
+   * @param viewName - View name
+   * @param definition - New view definition SQL
+   * @param isMaterialized - Whether it's a materialized view
+   */
+  replaceView(
+    schema: string,
+    viewName: string,
+    definition: string,
+    isMaterialized?: boolean
+  ): QueryPayload;
+
+  /**
+   * Generate RENAME VIEW statement
+   * @param schema - Schema name
+   * @param oldName - Current view name
+   * @param newName - New view name
+   * @param isMaterialized - Whether it's a materialized view
+   */
+  renameView(
+    schema: string,
+    oldName: string,
+    newName: string,
+    isMaterialized?: boolean
+  ): QueryPayload;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Constraint DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Generate ADD CONSTRAINT statement
+   * @param target - Table reference
+   * @param definition - Constraint definition
+   */
+  addConstraint(target: TableRef, definition: ConstraintDefinitionInput): QueryPayload;
+
+  /**
+   * Generate DROP CONSTRAINT statement
+   * @param target - Table reference
+   * @param constraintName - Constraint name to drop
+   * @param cascade - Whether to cascade
+   * @param ifExists - Whether to use IF EXISTS
+   */
+  dropConstraint(
+    target: TableRef,
+    constraintName: string,
+    cascade?: boolean,
+    ifExists?: boolean
+  ): QueryPayload;
+
+  /**
+   * Generate RENAME CONSTRAINT statement
+   * @param target - Table reference
+   * @param oldName - Current constraint name
+   * @param newName - New constraint name
+   */
+  renameConstraint(target: TableRef, oldName: string, newName: string): QueryPayload;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Sequence DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Generate CREATE SEQUENCE statement
+   * @param schema - Schema name
+   * @param definition - Sequence definition
+   */
+  createSequence(schema: string, definition: SequenceDefinitionInput): QueryPayload;
+
+  /**
+   * Generate ALTER SEQUENCE statement
+   * @param schema - Schema name
+   * @param sequenceName - Sequence name
+   * @param changes - Properties to change
+   */
+  alterSequence(
+    schema: string,
+    sequenceName: string,
+    changes: Partial<SequenceDefinitionInput>
+  ): QueryPayload;
+
+  /**
+   * Generate DROP SEQUENCE statement
+   * @param schema - Schema name
+   * @param sequenceName - Sequence name to drop
+   * @param ifExists - Whether to use IF EXISTS
+   * @param cascade - Whether to cascade
+   */
+  dropSequence(
+    schema: string,
+    sequenceName: string,
+    ifExists?: boolean,
+    cascade?: boolean
+  ): QueryPayload;
+
+  /**
+   * Generate RENAME SEQUENCE statement
+   * @param schema - Schema name
+   * @param oldName - Current sequence name
+   * @param newName - New sequence name
+   */
+  renameSequence(schema: string, oldName: string, newName: string): QueryPayload;
 
   // ─────────────────────────────────────────────────────────────────
   // Table Operations

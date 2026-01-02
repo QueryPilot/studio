@@ -5,7 +5,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { IconCheck, IconX } from '@tabler/icons-react';
+import { IconDeviceFloppy, IconX } from "@tabler/icons-react";
 import { useCrudStore } from "@/stores/crudStore";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 
@@ -27,11 +27,7 @@ export function StagingActionsToolbar(props: StagingActionsToolbarProps) {
     onCommitSuccess,
     onBeforeCommitPreview,
   } = props;
-  const {
-    stagedCommands,
-    getTableKey,
-    discardChanges,
-  } = useCrudStore();
+  const { stagedCommands, getTableKey, discardChanges } = useCrudStore();
 
   const [showCommitPreview, setShowCommitPreview] = useState(false);
 
@@ -64,11 +60,10 @@ export function StagingActionsToolbar(props: StagingActionsToolbarProps) {
             <Button
               variant="default"
               size="sm"
-              className="h-6 text-xs px-2"
               onClick={handleOpenCommitPreview}
             >
-              <IconCheck className="h-3 w-3 mr-1" />
-              Commit ({commands.length})
+              <IconDeviceFloppy className="size-3.5!" />
+              Commit
             </Button>
           }
         />
@@ -84,13 +79,8 @@ export function StagingActionsToolbar(props: StagingActionsToolbarProps) {
       <Tooltip>
         <TooltipTrigger
           render={
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 text-xs px-2"
-              onClick={handleDiscard}
-            >
-              <IconX className="h-3 w-3 mr-1" />
+            <Button variant="outline" size="sm" onClick={handleDiscard}>
+              <IconX className="size-3.5!" />
               Discard
             </Button>
           }

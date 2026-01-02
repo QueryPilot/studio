@@ -273,6 +273,10 @@ export class SQLiteAdapter extends SqlAdapter {
   /**
    * SQLite doesn't support ENABLE/DISABLE TRIGGER
    */
+  renameTrigger(_target: TableRef, _triggerName: string, _newName: string): string {
+    return '-- SQLite does not support RENAME TRIGGER (drop and recreate instead)';
+  }
+
   toggleTrigger(_target: TableRef, _triggerName: string, _enable: boolean): string {
     return '-- SQLite does not support ENABLE/DISABLE TRIGGER';
   }
@@ -450,5 +454,128 @@ ORDER BY table_name, column_name`;
       default:
         return `SELECT sql || ';' as definition FROM sqlite_master WHERE name = '${this.escapeString(name)}'`;
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // View DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  createView(_schema: string, definition: import("@/types/crud").ViewDefinitionInput): string {
+    if (definition.isMaterialized) {
+      throw new Error('SQLite does not support materialized views');
+    }
+    
+    const viewName = this.quoteIdentifier(definition.name);
+    return `CREATE VIEW ${viewName} AS\n${definition.definition}`;
+  }
+
+  dropView(
+    _schema: string,
+    viewName: string,
+    ifExists?: boolean,
+    _cascade?: boolean,
+    isMaterialized?: boolean
+  ): string {
+    if (isMaterialized) {
+      throw new Error('SQLite does not support materialized views');
+    }
+    
+    const quotedName = this.quoteIdentifier(viewName);
+    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    return `DROP VIEW ${ifExistsClause}${quotedName}`;
+  }
+
+  replaceView(
+    _schema: string,
+    viewName: string,
+    definition: string,
+    isMaterialized?: boolean
+  ): string {
+    if (isMaterialized) {
+      throw new Error('SQLite does not support materialized views');
+    }
+    
+    // SQLite doesn't support CREATE OR REPLACE VIEW, so we drop and recreate
+    const quotedName = this.quoteIdentifier(viewName);
+    return `DROP VIEW IF EXISTS ${quotedName};\nCREATE VIEW ${quotedName} AS\n${definition}`;
+  }
+
+  renameView(
+    _schema: string,
+    oldName: string,
+    newName: string,
+    isMaterialized?: boolean
+  ): string {
+    if (isMaterialized) {
+      throw new Error('SQLite does not support materialized views');
+    }
+    
+    const quotedOld = this.quoteIdentifier(oldName);
+    const quotedNew = this.quoteIdentifier(newName);
+    return `ALTER TABLE ${quotedOld} RENAME TO ${quotedNew}`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Constraint DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  addConstraint(
+    _target: import('../types').TableRef,
+    _definition: import("@/types/crud").ConstraintDefinitionInput
+  ): string {
+    throw new Error('SQLite does not support ALTER TABLE ADD CONSTRAINT. Constraints must be defined when creating the table.');
+  }
+
+  dropConstraint(
+    _target: import('../types').TableRef,
+    _constraintName: string,
+    _cascade?: boolean,
+    _ifExists?: boolean
+  ): string {
+    throw new Error('SQLite does not support ALTER TABLE DROP CONSTRAINT. You must recreate the table without the constraint.');
+  }
+
+  renameConstraint(
+    _target: import('../types').TableRef,
+    _oldName: string,
+    _newName: string
+  ): string {
+    throw new Error('SQLite does not support renaming constraints.');
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Sequence DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  createSequence(
+    _schema: string,
+    _definition: import("@/types/crud").SequenceDefinitionInput
+  ): string {
+    throw new Error('SQLite does not support sequences. Use AUTOINCREMENT instead.');
+  }
+
+  alterSequence(
+    _schema: string,
+    _sequenceName: string,
+    _changes: Partial<import("@/types/crud").SequenceDefinitionInput>
+  ): string {
+    throw new Error('SQLite does not support sequences. Use AUTOINCREMENT instead.');
+  }
+
+  dropSequence(
+    _schema: string,
+    _sequenceName: string,
+    _ifExists?: boolean,
+    _cascade?: boolean
+  ): string {
+    throw new Error('SQLite does not support sequences. Use AUTOINCREMENT instead.');
+  }
+
+  renameSequence(
+    _schema: string,
+    _oldName: string,
+    _newName: string
+  ): string {
+    throw new Error('SQLite does not support sequences. Use AUTOINCREMENT instead.');
   }
 }

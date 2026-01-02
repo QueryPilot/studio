@@ -21,6 +21,7 @@ import type {
   TriggerCreatePayload,
   TriggerDropPayload,
   TriggerTogglePayload,
+  TriggerRenamePayload,
   ForeignKeyAddPayload,
   ForeignKeyDropPayload,
   TableCreatePayload,
@@ -28,6 +29,17 @@ import type {
   TableDropPayload,
   TableTruncatePayload,
   TableDuplicatePayload,
+  ViewCreatePayload,
+  ViewDropPayload,
+  ViewReplacePayload,
+  ViewRenamePayload,
+  ConstraintAddPayload,
+  ConstraintDropPayload,
+  ConstraintRenamePayload,
+  SequenceCreatePayload,
+  SequenceAlterPayload,
+  SequenceDropPayload,
+  SequenceRenamePayload,
 } from '@/types/crud';
 import { sqlDiffGenerator } from '@/services/sqlDiffGenerator';
 import type { DatabaseAdapter, TableRef, RowData, WhereClause } from './types';
@@ -250,6 +262,13 @@ export function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): st
       return typeof result === 'string' ? result : null;
     }
 
+    case 'trigger.rename': {
+      const payload = command.payload as TriggerRenamePayload;
+      if (!payload.triggerName || !payload.newName) return null;
+      const result = adapter.renameTrigger(target, payload.triggerName, payload.newName);
+      return typeof result === 'string' ? result : null;
+    }
+
     case 'trigger.enable':
     case 'trigger.disable': {
       const payload = command.payload as TriggerTogglePayload;
@@ -325,6 +344,125 @@ export function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): st
         includeConstraints: payload.includeConstraints,
         includeTriggers: payload.includeTriggers,
       });
+      return typeof result === 'string' ? result : null;
+    }
+
+    // View DDL operations
+    case 'view.create': {
+      const payload = command.payload as ViewCreatePayload;
+      if (!payload.definition?.name || !payload.definition?.definition) return null;
+      const schema = command.target.schema || 'public';
+      const result = adapter.createView(schema, payload.definition);
+      return typeof result === 'string' ? result : null;
+    }
+
+    case 'view.drop': {
+      const payload = command.payload as ViewDropPayload;
+      if (!payload.viewName) return null;
+      const schema = command.target.schema || 'public';
+      const result = adapter.dropView(
+        schema,
+        payload.viewName,
+        payload.ifExists,
+        payload.cascade,
+        payload.isMaterialized
+      );
+      return typeof result === 'string' ? result : null;
+    }
+
+    case 'view.replace': {
+      const payload = command.payload as ViewReplacePayload;
+      if (!payload.viewName || !payload.definition) return null;
+      const schema = command.target.schema || 'public';
+      const result = adapter.replaceView(
+        schema,
+        payload.viewName,
+        payload.definition,
+        payload.isMaterialized
+      );
+      return typeof result === 'string' ? result : null;
+    }
+
+    case 'view.rename': {
+      const payload = command.payload as ViewRenamePayload;
+      if (!payload.viewName || !payload.newName) return null;
+      const schema = command.target.schema || 'public';
+      const result = adapter.renameView(
+        schema,
+        payload.viewName,
+        payload.newName,
+        payload.isMaterialized
+      );
+      return typeof result === 'string' ? result : null;
+    }
+
+    // Constraint DDL operations
+    case 'constraint.addPrimaryKey':
+    case 'constraint.addUnique':
+    case 'constraint.addCheck': {
+      const payload = command.payload as ConstraintAddPayload;
+      if (!payload.definition?.name) return null;
+      const result = adapter.addConstraint(target, payload.definition);
+      return typeof result === 'string' ? result : null;
+    }
+
+    case 'constraint.dropPrimaryKey':
+    case 'constraint.dropUnique':
+    case 'constraint.dropCheck':
+    case 'constraint.drop': {
+      const payload = command.payload as ConstraintDropPayload;
+      if (!payload.constraintName) return null;
+      const result = adapter.dropConstraint(
+        target,
+        payload.constraintName,
+        payload.cascade,
+        payload.ifExists
+      );
+      return typeof result === 'string' ? result : null;
+    }
+
+    case 'constraint.rename': {
+      const payload = command.payload as ConstraintRenamePayload;
+      if (!payload.constraintName || !payload.newName) return null;
+      const result = adapter.renameConstraint(target, payload.constraintName, payload.newName);
+      return typeof result === 'string' ? result : null;
+    }
+
+    // Sequence DDL operations
+    case 'sequence.create': {
+      const payload = command.payload as SequenceCreatePayload;
+      if (!payload.definition?.name) return null;
+      const schema = command.target.schema || 'public';
+      const result = adapter.createSequence(schema, payload.definition);
+      return typeof result === 'string' ? result : null;
+    }
+
+    case 'sequence.alter': {
+      const payload = command.payload as SequenceAlterPayload;
+      if (!payload.sequenceName || !payload.changes) return null;
+      const schema = command.target.schema || 'public';
+      const result = adapter.alterSequence(schema, payload.sequenceName, payload.changes);
+      return typeof result === 'string' ? result : null;
+    }
+
+    case 'sequence.drop': {
+      const payload = command.payload as SequenceDropPayload;
+      if (!payload.sequenceName) return null;
+      const schema = command.target.schema || 'public';
+      const result = adapter.dropSequence(
+        schema,
+        payload.sequenceName,
+        payload.ifExists,
+        payload.cascade
+      );
+      return typeof result === 'string' ? result : null;
+    }
+
+    case 'sequence.rename': {
+      const payload = command.payload as SequenceRenamePayload;
+      if (!payload.sequenceName || !payload.newName) return null;
+      const schema = command.target.schema || 'public';
+      const result = adapter.renameSequence(schema, payload.sequenceName, payload.newName);
       return typeof result === 'string' ? result : null;
     }
 
