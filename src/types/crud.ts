@@ -2,36 +2,38 @@
  * Distinct CRUD operation identifiers supported by the staging engine.
  */
 export type CrudOperationType =
-  | 'data.update'
-  | 'data.insert'
-  | 'data.delete'
-  | 'table.create'
-  | 'table.rename'
-  | 'table.drop'
-  | 'column.add'
-  | 'column.modify'
-  | 'column.drop'
-  | 'column.rename'
-  | 'index.create'
-  | 'index.drop'
-  | 'index.rename'
-  | 'trigger.create'
-  | 'trigger.drop'
-  | 'trigger.rename'
-  | 'trigger.enable'
-  | 'trigger.disable'
-  | 'fk.add'
-  | 'fk.drop';
+  | "data.update"
+  | "data.insert"
+  | "data.delete"
+  | "table.create"
+  | "table.rename"
+  | "table.drop"
+  | "table.truncate"
+  | "table.duplicate"
+  | "column.add"
+  | "column.modify"
+  | "column.drop"
+  | "column.rename"
+  | "index.create"
+  | "index.drop"
+  | "index.rename"
+  | "trigger.create"
+  | "trigger.drop"
+  | "trigger.rename"
+  | "trigger.enable"
+  | "trigger.disable"
+  | "fk.add"
+  | "fk.drop";
 
 /**
  * Lifecycle states tracked for each staged command.
  */
-export type CrudCommandState = 'staged' | 'committed' | 'failed';
+export type CrudCommandState = "staged" | "committed" | "failed";
 
 /**
  * Severity levels applied to conflict and validation diagnostics.
  */
-export type CrudDiagnosticSeverity = 'info' | 'warning' | 'error';
+export type CrudDiagnosticSeverity = "info" | "warning" | "error";
 
 /**
  * Common metadata captured for every CRUD command.
@@ -121,10 +123,10 @@ export interface IndexDefinitionInput {
  */
 export interface TriggerDefinitionInput {
   readonly name: string;
-  readonly timing: 'BEFORE' | 'AFTER' | 'INSTEAD OF';
-  readonly events: Array<'INSERT' | 'UPDATE' | 'DELETE' | 'TRUNCATE'>;
+  readonly timing: "BEFORE" | "AFTER" | "INSTEAD OF";
+  readonly events: Array<"INSERT" | "UPDATE" | "DELETE" | "TRUNCATE">;
   readonly functionName: string;
-  readonly level?: 'ROW' | 'STATEMENT';
+  readonly level?: "ROW" | "STATEMENT";
   readonly condition?: string;
   readonly enabled?: boolean;
   readonly comment?: string;
@@ -241,33 +243,52 @@ export interface TableDropPayload extends CrudCommandPayload {
   readonly ifExists?: boolean;
 }
 
+export interface TableTruncatePayload extends CrudCommandPayload {
+  readonly tableName: string;
+  readonly restartIdentity?: boolean; // Reset sequences/auto-increment
+  readonly cascade?: boolean; // Cascade to dependent tables
+}
+
+export interface TableDuplicatePayload extends CrudCommandPayload {
+  readonly sourceTableName: string;
+  readonly newTableName: string;
+  readonly includeData?: boolean; // Clone rows
+  readonly includeIndexes?: boolean; // Clone indexes
+  readonly includeConstraints?: boolean; // Clone FK, checks, etc
+  readonly includeTriggers?: boolean; // Clone triggers
+}
+
 export type CrudCommandPayloadMap = {
-  'data.update': DataUpdatePayload;
-  'data.insert': DataInsertPayload;
-  'data.delete': DataDeletePayload;
-  'table.create': TableCreatePayload;
-  'table.rename': TableRenamePayload;
-  'table.drop': TableDropPayload;
-  'column.add': ColumnAddPayload;
-  'column.modify': ColumnModifyPayload;
-  'column.drop': ColumnDropPayload;
-  'column.rename': ColumnRenamePayload;
-  'index.create': IndexCreatePayload;
-  'index.drop': IndexDropPayload;
-  'index.rename': IndexRenamePayload;
-  'trigger.create': TriggerCreatePayload;
-  'trigger.drop': TriggerDropPayload;
-  'trigger.rename': TriggerRenamePayload;
-  'trigger.enable': TriggerTogglePayload;
-  'trigger.disable': TriggerTogglePayload;
-  'fk.add': ForeignKeyAddPayload;
-  'fk.drop': ForeignKeyDropPayload;
+  "data.update": DataUpdatePayload;
+  "data.insert": DataInsertPayload;
+  "data.delete": DataDeletePayload;
+  "table.create": TableCreatePayload;
+  "table.rename": TableRenamePayload;
+  "table.drop": TableDropPayload;
+  "table.truncate": TableTruncatePayload;
+  "table.duplicate": TableDuplicatePayload;
+  "column.add": ColumnAddPayload;
+  "column.modify": ColumnModifyPayload;
+  "column.drop": ColumnDropPayload;
+  "column.rename": ColumnRenamePayload;
+  "index.create": IndexCreatePayload;
+  "index.drop": IndexDropPayload;
+  "index.rename": IndexRenamePayload;
+  "trigger.create": TriggerCreatePayload;
+  "trigger.drop": TriggerDropPayload;
+  "trigger.rename": TriggerRenamePayload;
+  "trigger.enable": TriggerTogglePayload;
+  "trigger.disable": TriggerTogglePayload;
+  "fk.add": ForeignKeyAddPayload;
+  "fk.drop": ForeignKeyDropPayload;
 };
 
 /**
  * Core CRUD command abstraction used throughout the staging pipeline.
  */
-export interface CrudCommand<TPayload extends CrudCommandPayload = CrudCommandPayload> {
+export interface CrudCommand<
+  TPayload extends CrudCommandPayload = CrudCommandPayload,
+> {
   readonly id: string;
   readonly type: CrudOperationType;
   readonly target: CrudCommandTarget;
@@ -350,7 +371,7 @@ export interface CrudDiffConflict {
  * Aggregate impact assessment for staged changes.
  */
 export interface CrudImpactSummary {
-  readonly type: 'rowImpact' | 'schemaChange' | 'performance' | 'warning';
+  readonly type: "rowImpact" | "schemaChange" | "performance" | "warning";
   readonly severity: CrudDiagnosticSeverity;
   readonly message: string;
   readonly details?: Record<string, JsonValue>;
@@ -394,7 +415,7 @@ export interface DataRowDiff {
   readonly primaryKey: Record<string, CrudPrimitive>;
   readonly before?: Record<string, CrudPrimitive>;
   readonly after?: Record<string, CrudPrimitive>;
-  readonly operation?: 'insert' | 'update' | 'delete';
+  readonly operation?: "insert" | "update" | "delete";
 }
 
 /**
@@ -402,7 +423,7 @@ export interface DataRowDiff {
  */
 export interface StructureDiffEntry {
   readonly path: string;
-  readonly changeType: 'added' | 'removed' | 'modified';
+  readonly changeType: "added" | "removed" | "modified";
   readonly before?: JsonValue;
   readonly after?: JsonValue;
 }
@@ -418,4 +439,3 @@ export interface CrudDiffSnapshot {
   readonly conflicts: CrudDiffConflict[];
   readonly impacts: CrudImpactSummary[];
 }
-

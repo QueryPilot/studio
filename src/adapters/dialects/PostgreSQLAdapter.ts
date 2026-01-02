@@ -1043,4 +1043,193 @@ SELECT
     const concurrent = concurrently ? 'CONCURRENTLY ' : '';
     return `REFRESH MATERIALIZED VIEW ${concurrent}${qualifiedName}`;
   }
+
+  /**
+   * Duplicate a table with all its metadata (PostgreSQL-specific implementation)
+   * This overrides the base implementation to properly copy indexes, constraints, and triggers
+   */
+  duplicateTable(
+    target: import('../types').TableRef,
+    options: {
+      sourceTableName: string;
+      newTableName: string;
+      includeData?: boolean;
+      includeIndexes?: boolean;
+      includeConstraints?: boolean;
+      includeTriggers?: boolean;
+    }
+  ): string {
+    const schemaPrefix = target.schema ? `${this.quoteIdentifier(target.schema)}.` : '';
+    const sourceTable = `${schemaPrefix}${this.quoteIdentifier(options.sourceTableName)}`;
+    const newTable = `${schemaPrefix}${this.quoteIdentifier(options.newTableName)}`;
+    const schema = target.schema || 'public';
+    const escapedSchema = this.escapeString(schema);
+    const escapedSourceTable = this.escapeString(options.sourceTableName);
+    const escapedNewTable = this.escapeString(options.newTableName);
+    
+    const statements: string[] = [];
+    
+    // 1. Create table structure (INCLUDING DEFAULTS will copy sequence references - we'll fix them in step 3)
+    statements.push(`CREATE TABLE ${newTable} (LIKE ${sourceTable} INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES)`);
+    
+    // 2. Create new sequences for auto-increment columns and update column defaults
+    statements.push(`
+DO $$
+DECLARE
+    seq_record RECORD;
+    new_seq_name TEXT;
+    seq_schema TEXT;
+    seq_name_only TEXT;
+BEGIN
+    -- Find all columns with sequence defaults
+    FOR seq_record IN
+        SELECT 
+            a.attname AS column_name,
+            substring(pg_get_expr(d.adbin, d.adrelid) FROM 'nextval\\(''([^'']+)''') AS seq_qualified_name
+        FROM pg_attribute a
+        JOIN pg_class c ON c.oid = a.attrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_attrdef d ON d.adrelid = c.oid AND d.adnum = a.attnum
+        WHERE n.nspname = '${escapedSchema}'
+          AND c.relname = '${escapedSourceTable}'
+          AND a.attnum > 0
+          AND NOT a.attisdropped
+          AND pg_get_expr(d.adbin, d.adrelid) LIKE '%nextval%'
+    LOOP
+        IF seq_record.seq_qualified_name IS NOT NULL THEN
+            -- Parse schema and sequence name
+            IF position('.' IN seq_record.seq_qualified_name) > 0 THEN
+                seq_schema := split_part(seq_record.seq_qualified_name, '.', 1);
+                seq_name_only := split_part(seq_record.seq_qualified_name, '.', 2);
+            ELSE
+                seq_schema := '${escapedSchema}';
+                seq_name_only := seq_record.seq_qualified_name;
+            END IF;
+            
+            -- Generate new sequence name by replacing source table name with new table name
+            new_seq_name := replace(seq_name_only, '${escapedSourceTable}', '${escapedNewTable}');
+            
+            -- If name didn't change (sequence not named after table), append suffix
+            IF new_seq_name = seq_name_only THEN
+                new_seq_name := seq_name_only || '_' || '${escapedNewTable}';
+            END IF;
+            
+            -- Create new sequence with same properties as source
+            EXECUTE format(
+                'CREATE SEQUENCE IF NOT EXISTS %I.%I AS %s INCREMENT BY %s MINVALUE %s MAXVALUE %s START WITH 1 %s CACHE %s',
+                seq_schema,
+                new_seq_name,
+                (SELECT format_type(seqtypid, NULL) FROM pg_sequence WHERE seqrelid = (seq_schema || '.' || seq_name_only)::regclass),
+                (SELECT seqincrement FROM pg_sequence WHERE seqrelid = (seq_schema || '.' || seq_name_only)::regclass),
+                (SELECT seqmin FROM pg_sequence WHERE seqrelid = (seq_schema || '.' || seq_name_only)::regclass),
+                (SELECT seqmax FROM pg_sequence WHERE seqrelid = (seq_schema || '.' || seq_name_only)::regclass),
+                CASE WHEN (SELECT seqcycle FROM pg_sequence WHERE seqrelid = (seq_schema || '.' || seq_name_only)::regclass) 
+                    THEN 'CYCLE' ELSE 'NO CYCLE' END,
+                (SELECT seqcache FROM pg_sequence WHERE seqrelid = (seq_schema || '.' || seq_name_only)::regclass)
+            );
+            
+            -- Update the new table's column default to use the new sequence
+            EXECUTE format(
+                'ALTER TABLE %I.%I ALTER COLUMN %I SET DEFAULT nextval(%L::regclass)',
+                '${escapedSchema}',
+                '${escapedNewTable}',
+                seq_record.column_name,
+                seq_schema || '.' || new_seq_name
+            );
+            
+            -- Set sequence ownership to new table column (so it's dropped when table is dropped)
+            EXECUTE format(
+                'ALTER SEQUENCE %I.%I OWNED BY %I.%I.%I',
+                seq_schema,
+                new_seq_name,
+                '${escapedSchema}',
+                '${escapedNewTable}',
+                seq_record.column_name
+            );
+            
+            RAISE NOTICE 'Created sequence %.% for column %', seq_schema, new_seq_name, seq_record.column_name;
+        END IF;
+    END LOOP;
+END $$`);
+    
+    // 3. Copy data if requested
+    if (options.includeData) {
+      statements.push(`INSERT INTO ${newTable} SELECT * FROM ${sourceTable}`);
+    }
+    
+    // Note: Including indexes, FK constraints, and triggers via INCLUDING clauses above
+    // PRIMARY KEY, UNIQUE, and CHECK constraints are already copied by INCLUDING CONSTRAINTS
+    // Non-primary indexes are copied by INCLUDING INDEXES
+    // Foreign keys need manual copying (not supported by LIKE...INCLUDING)
+    
+    if (options.includeConstraints) {
+      statements.push(`
+-- Copy foreign key constraints
+DO $$
+DECLARE
+    fk_record RECORD;
+    new_fk_name TEXT;
+BEGIN
+    FOR fk_record IN
+        SELECT 
+            conname,
+            pg_get_constraintdef(oid) AS constraintdef
+        FROM pg_constraint
+        WHERE conrelid = '${escapedSchema}.${escapedSourceTable}'::regclass
+          AND contype = 'f'
+    LOOP
+        -- Generate new constraint name
+        new_fk_name := replace(fk_record.conname, '${escapedSourceTable}', '${escapedNewTable}');
+        
+        -- Add foreign key constraint
+        EXECUTE format(
+            'ALTER TABLE %I.%I ADD CONSTRAINT %I %s',
+            '${escapedSchema}',
+            '${escapedNewTable}',
+            new_fk_name,
+            fk_record.constraintdef
+        );
+        
+        RAISE NOTICE 'Created FK constraint %', new_fk_name;
+    END LOOP;
+END $$`);
+    }
+    
+    if (options.includeTriggers) {
+      statements.push(`
+-- Copy triggers
+DO $$
+DECLARE
+    trg_record RECORD;
+    new_trg_name TEXT;
+    trg_def TEXT;
+BEGIN
+    FOR trg_record IN
+        SELECT 
+            tgname,
+            pg_get_triggerdef(oid) AS triggerdef
+        FROM pg_trigger
+        WHERE tgrelid = '${escapedSchema}.${escapedSourceTable}'::regclass
+          AND NOT tgisinternal
+    LOOP
+        -- Generate new trigger name
+        new_trg_name := replace(trg_record.tgname, '${escapedSourceTable}', '${escapedNewTable}');
+        
+        -- Replace table and trigger names in definition
+        trg_def := replace(
+            replace(trg_record.triggerdef, trg_record.tgname, new_trg_name),
+            '${escapedSourceTable}',
+            '${escapedNewTable}'
+        );
+        
+        -- Create trigger
+        EXECUTE trg_def;
+        
+        RAISE NOTICE 'Created trigger %', new_trg_name;
+    END LOOP;
+END $$`);
+    }
+    
+    return statements.join(';\n\n') + ';';
+  }
 }

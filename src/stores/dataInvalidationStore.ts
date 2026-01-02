@@ -13,6 +13,17 @@ const createTableKey = (
 };
 
 /**
+ * Creates a unique key for a schema across connection, database, and schema
+ */
+const createSchemaKey = (
+  connectionId: string,
+  database: string,
+  schema: string | undefined,
+): string => {
+  return [connectionId, database, schema ?? "public"].join(":");
+};
+
+/**
  * Listener callback type
  */
 type InvalidationListener = () => void;
@@ -32,6 +43,12 @@ interface DataInvalidationState {
   invalidations: Map<string, number>;
 
   /**
+   * Map of schemaKey → last modified timestamp (ms)
+   * Used to track when schema structure was last changed (tables added/removed)
+   */
+  schemaInvalidations: Map<string, number>;
+
+  /**
    * Invalidate a specific table, triggering all subscribers to refetch
    */
   invalidateTable: (
@@ -39,6 +56,16 @@ interface DataInvalidationState {
     database: string,
     schema: string | undefined,
     table: string,
+  ) => void;
+
+  /**
+   * Invalidate an entire schema, triggering schema list refresh
+   * Use this when tables are created/dropped/duplicated
+   */
+  invalidateSchema: (
+    connectionId: string,
+    database: string,
+    schema: string | undefined,
   ) => void;
 
   /**
@@ -50,6 +77,16 @@ interface DataInvalidationState {
     database: string,
     schema: string | undefined,
     table: string,
+  ) => number;
+
+  /**
+   * Get the last modified timestamp for a schema
+   * Returns 0 if schema has never been invalidated
+   */
+  getSchemaLastModified: (
+    connectionId: string,
+    database: string,
+    schema: string | undefined,
   ) => number;
 
   /**
@@ -65,6 +102,17 @@ interface DataInvalidationState {
   ) => () => void;
 
   /**
+   * Subscribe to schema invalidation events
+   * Returns an unsubscribe function
+   */
+  subscribeSchema: (
+    connectionId: string,
+    database: string,
+    schema: string | undefined,
+    callback: InvalidationListener,
+  ) => () => void;
+
+  /**
    * Internal: Notify all listeners for a table
    */
   _notifyListeners: (tableKey: string) => void;
@@ -73,6 +121,7 @@ interface DataInvalidationState {
 export const useDataInvalidationStore = create<DataInvalidationState>(
   (set, get) => ({
     invalidations: new Map<string, number>(),
+    schemaInvalidations: new Map<string, number>(),
 
     invalidateTable: (connectionId, database, schema, table) => {
       if (!connectionId || !database || !table) {
@@ -92,9 +141,32 @@ export const useDataInvalidationStore = create<DataInvalidationState>(
       get()._notifyListeners(tableKey);
     },
 
+    invalidateSchema: (connectionId, database, schema) => {
+      if (!connectionId || !database) {
+        return;
+      }
+
+      const schemaKey = createSchemaKey(connectionId, database, schema);
+      const timestamp = Date.now();
+
+      set((state) => {
+        const schemaInvalidations = new Map(state.schemaInvalidations);
+        schemaInvalidations.set(schemaKey, timestamp);
+        return { schemaInvalidations };
+      });
+
+      // Notify schema listeners
+      get()._notifyListeners(schemaKey);
+    },
+
     getLastModified: (connectionId, database, schema, table) => {
       const tableKey = createTableKey(connectionId, database, schema, table);
       return get().invalidations.get(tableKey) ?? 0;
+    },
+
+    getSchemaLastModified: (connectionId, database, schema) => {
+      const schemaKey = createSchemaKey(connectionId, database, schema);
+      return get().schemaInvalidations.get(schemaKey) ?? 0;
     },
 
     subscribe: (connectionId, database, schema, table, callback) => {
@@ -113,6 +185,27 @@ export const useDataInvalidationStore = create<DataInvalidationState>(
           tableListeners.delete(callback);
           if (tableListeners.size === 0) {
             listenersMap.delete(tableKey);
+          }
+        }
+      };
+    },
+
+    subscribeSchema: (connectionId, database, schema, callback) => {
+      const schemaKey = createSchemaKey(connectionId, database, schema);
+
+      // Direct mutation of external map - no state update needed
+      if (!listenersMap.has(schemaKey)) {
+        listenersMap.set(schemaKey, new Set());
+      }
+      listenersMap.get(schemaKey)!.add(callback);
+
+      // Return unsubscribe function
+      return () => {
+        const schemaListeners = listenersMap.get(schemaKey);
+        if (schemaListeners) {
+          schemaListeners.delete(callback);
+          if (schemaListeners.size === 0) {
+            listenersMap.delete(schemaKey);
           }
         }
       };

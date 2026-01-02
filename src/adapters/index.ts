@@ -26,6 +26,8 @@ import type {
   TableCreatePayload,
   TableRenamePayload,
   TableDropPayload,
+  TableTruncatePayload,
+  TableDuplicatePayload,
 } from '@/types/crud';
 import { sqlDiffGenerator } from '@/services/sqlDiffGenerator';
 import type { DatabaseAdapter, TableRef, RowData, WhereClause } from './types';
@@ -140,8 +142,10 @@ export type {
 
 /**
  * Convert a single CrudCommand to SQL using an adapter
+ * IMPORTANT: This is the single source of truth for SQL generation.
+ * Any changes here should be reflected in both preview and commit flows.
  */
-function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): string | null {
+export function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): string | null {
   const target: TableRef = {
     schema: command.target.schema,
     table: command.target.table ?? '',
@@ -298,6 +302,30 @@ function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): string | 
       const ifExists = payload.ifExists ? 'IF EXISTS ' : '';
       const cascade = payload.cascade ? ' CASCADE' : '';
       return `DROP TABLE ${ifExists}${schemaPrefix}${tableName}${cascade}`;
+    }
+
+    case 'table.truncate': {
+      const payload = command.payload as TableTruncatePayload;
+      if (!payload.tableName) return null;
+      const schemaPrefix = target.schema ? `${adapter.quoteIdentifier(target.schema)}.` : '';
+      const tableName = adapter.quoteIdentifier(payload.tableName);
+      const restart = payload.restartIdentity ? ' RESTART IDENTITY' : '';
+      const cascade = payload.cascade ? ' CASCADE' : '';
+      return `TRUNCATE TABLE ${schemaPrefix}${tableName}${restart}${cascade}`;
+    }
+
+    case 'table.duplicate': {
+      const payload = command.payload as TableDuplicatePayload;
+      if (!payload.sourceTableName || !payload.newTableName) return null;
+      const result = adapter.duplicateTable(target, {
+        sourceTableName: payload.sourceTableName,
+        newTableName: payload.newTableName,
+        includeData: payload.includeData,
+        includeIndexes: payload.includeIndexes,
+        includeConstraints: payload.includeConstraints,
+        includeTriggers: payload.includeTriggers,
+      });
+      return typeof result === 'string' ? result : null;
     }
 
     default:
