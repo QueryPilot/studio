@@ -185,8 +185,9 @@ export function useOptimisticRows({
       // Overlay the actual values from the INSERT command
       if (payload.values) {
         for (const [key, value] of Object.entries(payload.values)) {
+          const field = columnNameToFieldMap.get(key) ?? key;
           // O(1) lookup instead of .find()
-          const column = columnByFieldMap.get(key);
+          const column = columnByFieldMap.get(field);
           const dbType = column?.meta?.db_type ?? column?.type ?? "text";
 
           let valueType: FrontCellValue["value_type"] = "Text";
@@ -198,7 +199,7 @@ export function useOptimisticRows({
             valueType = "Boolean";
           }
 
-          row[key] = {
+          row[field] = {
             value,
             value_type: valueType,
             db_type: dbType,
