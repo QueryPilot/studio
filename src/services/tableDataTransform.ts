@@ -92,6 +92,7 @@ export function normalizeBackendValue(
   }
 
   if (typeof value === "bigint") {
+    // BigInt from MessagePack i64 -> convert to string for Decimal.js
     return value.toString();
   }
 
@@ -109,6 +110,8 @@ export function normalizeBackendValue(
     return Object.fromEntries(normalizedEntries);
   }
 
+  // Numbers and strings pass through as-is
+  // Strings are important for BIGINT values sent from Rust to preserve precision
   return value;
 }
 
