@@ -1,7 +1,4 @@
-import type {
-  QueryColumnMeta,
-  RawCellValue,
-} from "./backend";
+import type { QueryColumnMeta, RawCellValue } from "./backend";
 import type { ColumnMeta } from "@/types/schema";
 import type { TableDataRow } from "./tableDataTypes";
 import type { GridCellValue, GridCellValueType } from "@/types/cellValue";
