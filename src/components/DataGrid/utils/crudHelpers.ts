@@ -10,6 +10,7 @@ import type {
   CellValue,
 } from "@/types";
 import type { GridRowModel, GridColumnV2, GridEditCommitEvent } from "../types";
+import { convertEditValue } from "../hooks/crudConversion";
 
 /**
  * Extract primary key values from a row
@@ -87,28 +88,11 @@ export function createUpdateCommand(
     if (typeof data === "object" && data !== null && "value" in data) {
       const extractedValue = data.value;
 
-      // Convert numeric strings to numbers based on column type
       const columnDbType = event.column.meta?.db_type.toLowerCase() || "";
-      const isNumericColumn =
-        columnDbType.includes("int") ||
-        columnDbType.includes("numeric") ||
-        columnDbType.includes("decimal") ||
-        columnDbType.includes("float") ||
-        columnDbType.includes("double") ||
-        columnDbType.includes("real") ||
-        columnDbType.includes("money");
-
-      if (
-        isNumericColumn &&
-        typeof extractedValue === "string" &&
-        extractedValue !== ""
-      ) {
-        // Convert string to number for numeric columns
-        const numValue = Number(extractedValue);
-        newValue = isNaN(numValue) ? extractedValue : numValue;
-      } else {
-        newValue = extractedValue as JsonValue;
-      }
+      newValue =
+        typeof extractedValue === "string" && extractedValue !== ""
+          ? convertEditValue(extractedValue, columnDbType)
+          : (extractedValue as JsonValue);
     } else if (
       typeof data === "string" ||
       typeof data === "number" ||

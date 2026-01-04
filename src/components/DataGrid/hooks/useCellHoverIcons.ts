@@ -449,7 +449,9 @@ export function useCellHoverIcons(
       const cellIconBounds: { action: string; bounds: Rectangle }[] = [];
 
       // Draw grouped container background
-      ctx.fillStyle = theme.bgCell;
+      const cellFillColor =
+        (args as { cellFillColor?: string }).cellFillColor ?? theme.bgCell;
+      ctx.fillStyle = cellFillColor;
       ctx.beginPath();
       ctx.roundRect(groupX, groupY, groupWidth, groupHeight, 4);
       ctx.fill();

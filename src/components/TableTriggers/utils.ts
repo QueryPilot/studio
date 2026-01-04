@@ -7,6 +7,27 @@ import type {
   TriggerRenamePayload,
 } from "@/types/crud";
 
+export type TriggerModifiedField = "name" | "enabled";
+
+export function getTriggerModifiedFields(
+  row: TriggerGridRow,
+): Set<TriggerModifiedField> {
+  const fields = new Set<TriggerModifiedField>();
+  if (row._isPendingDelete) {
+    return fields;
+  }
+
+  if (row._pendingName !== undefined) {
+    fields.add("name");
+  }
+
+  if (row._pendingEnabled !== undefined) {
+    fields.add("enabled");
+  }
+
+  return fields;
+}
+
 export function transformTriggersToRows(
   triggers: TriggerMeta[],
   pendingCommands: CrudCommand[] = [],

@@ -13,7 +13,11 @@ import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
 import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
 import { TextSingleLineCellRenderer } from "@/components/DataGrid/renderers/TextCell";
 import { triggerColumns } from "./columns";
-import { transformTriggersToRows } from "./utils";
+import {
+  transformTriggersToRows,
+  getTriggerModifiedFields,
+  type TriggerModifiedField,
+} from "./utils";
 import type { TriggerGridRow } from "./types";
 import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";
 import {
@@ -106,6 +110,17 @@ export const TableTriggers = memo(function TableTriggers({
     () => transformTriggersToRows(triggers, pendingCommands),
     [triggers, pendingCommands],
   );
+
+  const modifiedFieldsByRow = useMemo(() => {
+    const map = new Map<number, Set<TriggerModifiedField>>();
+    gridRows.forEach((row, index) => {
+      const fields = getTriggerModifiedFields(row);
+      if (fields.size > 0) {
+        map.set(index, fields);
+      }
+    });
+    return map;
+  }, [gridRows]);
 
   // Handler: Delete trigger
   const handleDeleteTrigger = useCallback(
@@ -304,16 +319,33 @@ export const TableTriggers = memo(function TableTriggers({
       // Row background - visual indicators for pending states
       const rowTheme = isPendingDelete
         ? {
-            bgCell: "rgba(239, 68, 68, 0.08)", // red for pending delete
-            bgCellMedium: "rgba(239, 68, 68, 0.12)",
+            bgCell: "rgba(239, 68, 68, 0.06)", // red for pending delete
+            bgCellMedium: "rgba(239, 68, 68, 0.08)",
+            accentColor: "rgba(239, 68, 68, 0.4)",
+            accentLight: "rgba(239, 68, 68, 0.15)",
             textDark: "#dc2626",
           }
         : isModified
         ? {
             bgCell: "rgba(212, 165, 43, 0.04)", // brand golden for modified
             bgCellMedium: "rgba(212, 165, 43, 0.06)",
+            accentColor: "#D4A52B",
+            accentLight: "rgba(212, 165, 43, 0.12)",
           }
         : undefined;
+
+      const modifiedFields = modifiedFieldsByRow.get(rowIndex);
+      const isCellModified =
+        !isPendingDelete &&
+        Boolean(modifiedFields?.has(column.field as TriggerModifiedField));
+      const cellThemeOverride = isCellModified
+        ? {
+            ...(rowTheme ?? {}),
+            bgCell: "rgba(251, 146, 60, 0.15)", // orange highlight
+            accentColor: "#fb923c",
+            accentLight: "rgba(251, 146, 60, 0.2)",
+          }
+        : rowTheme;
 
       // Actions column - Delete/Undo button (uses ActionsCellRenderer)
       if (column.field === "actions") {
@@ -326,7 +358,7 @@ export const TableTriggers = memo(function TableTriggers({
           copyData: "",
           readonly: true,
           allowOverlay: false,
-          themeOverride: rowTheme,
+          themeOverride: cellThemeOverride,
         } as const;
       }
 
@@ -350,7 +382,7 @@ export const TableTriggers = memo(function TableTriggers({
           displayData: displayValue,
           readonly: true,
           allowOverlay: false,
-          themeOverride: rowTheme,
+          themeOverride: cellThemeOverride,
         } as const;
       }
 
@@ -364,7 +396,7 @@ export const TableTriggers = memo(function TableTriggers({
           allowOverlay: false,
           contentAlign: "right" as const,
           themeOverride: {
-            ...rowTheme,
+            ...(cellThemeOverride ?? {}),
             textDark: "rgba(127, 127, 127, 0.7)",
           },
         } as const;
@@ -382,7 +414,7 @@ export const TableTriggers = memo(function TableTriggers({
           copyData: row.name,
           readonly: false,
           allowOverlay: true,
-          themeOverride: rowTheme,
+          themeOverride: cellThemeOverride,
         } as const;
       }
 
@@ -401,7 +433,7 @@ export const TableTriggers = memo(function TableTriggers({
           copyData: enabledValue,
           readonly: false,
           allowOverlay: true,
-          themeOverride: rowTheme,
+          themeOverride: cellThemeOverride,
         } as const;
       }
 
@@ -418,7 +450,7 @@ export const TableTriggers = memo(function TableTriggers({
           readonly: true,
           allowOverlay: true,
           themeOverride: {
-            ...rowTheme,
+            ...(cellThemeOverride ?? {}),
             baseFontStyle: "400 11px monospace",
           },
         } as const;
@@ -437,7 +469,7 @@ export const TableTriggers = memo(function TableTriggers({
           readonly: true,
           allowOverlay: true,
           themeOverride: {
-            ...rowTheme,
+            ...(cellThemeOverride ?? {}),
             baseFontStyle: "400 11px monospace",
             textDark: definitionValue ? "#3b82f6" : undefined, // blue-500 when has content
           },
@@ -452,10 +484,10 @@ export const TableTriggers = memo(function TableTriggers({
         displayData: displayValue,
         readonly: true,
         allowOverlay: false,
-        themeOverride: rowTheme,
+        themeOverride: cellThemeOverride,
       } as const;
     },
-    [gridRows, sizedColumns],
+    [gridRows, sizedColumns, modifiedFieldsByRow],
   );
 
   const customRenderers = useMemo<CustomRenderer<AnyCell>[]>(

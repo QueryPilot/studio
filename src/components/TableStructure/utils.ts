@@ -1,5 +1,104 @@
 import type { ColumnMeta } from "@/types/database";
 import type { ForeignKeyInfo, Constraint } from "@/types/tableStructure";
+import type { CrudCommand } from "@/types/crud";
+
+export type StructureModifiedField =
+  | "column_name"
+  | "db_type"
+  | "nullable"
+  | "default"
+  | "foreign_key"
+  | "check_constraint"
+  | "comment";
+
+export function buildStructureModifiedFieldsMap(
+  pendingCommands: CrudCommand[],
+  foreignKeys: ForeignKeyInfo[],
+): Map<string, Set<StructureModifiedField>> {
+  const map = new Map<string, Set<StructureModifiedField>>();
+  const fkByConstraint = new Map<string, string[]>();
+
+  foreignKeys.forEach((fk) => {
+    fkByConstraint.set(fk.name, fk.columns);
+  });
+
+  const addField = (columnName: string | undefined, field: StructureModifiedField) => {
+    if (!columnName) return;
+    const existing = map.get(columnName);
+    if (existing) {
+      existing.add(field);
+      return;
+    }
+    map.set(columnName, new Set([field]));
+  };
+
+  pendingCommands.forEach((command) => {
+    switch (command.type) {
+      case "column.rename": {
+        const payload = command.payload as { columnName?: string };
+        addField(payload.columnName, "column_name");
+        break;
+      }
+      case "column.modify": {
+        const payload = command.payload as {
+          columnName?: string;
+          newDefinition?: {
+            name?: string;
+            dataType?: string;
+            nullable?: boolean;
+            defaultValue?: unknown;
+            comment?: string;
+            checkExpression?: string;
+            length?: number;
+            precision?: number;
+            scale?: number;
+          };
+        };
+        const columnName = payload.columnName;
+        const def = payload.newDefinition ?? {};
+        if (def.name !== undefined) addField(columnName, "column_name");
+        if (
+          def.dataType !== undefined ||
+          def.length !== undefined ||
+          def.precision !== undefined ||
+          def.scale !== undefined
+        ) {
+          addField(columnName, "db_type");
+        }
+        if (def.nullable !== undefined) addField(columnName, "nullable");
+        if (def.defaultValue !== undefined) addField(columnName, "default");
+        if (def.comment !== undefined) addField(columnName, "comment");
+        if (def.checkExpression !== undefined) {
+          addField(columnName, "check_constraint");
+        }
+        break;
+      }
+      case "fk.add": {
+        const payload = command.payload as {
+          definition?: { columns?: string[] };
+        };
+        (payload.definition?.columns ?? []).forEach((columnName) => {
+          addField(columnName, "foreign_key");
+        });
+        break;
+      }
+      case "fk.drop": {
+        const payload = command.payload as { constraintName?: string };
+        const columns = payload.constraintName
+          ? fkByConstraint.get(payload.constraintName)
+          : undefined;
+        (columns ?? []).forEach((columnName) => {
+          addField(columnName, "foreign_key");
+        });
+        break;
+      }
+      default:
+        break;
+    }
+  });
+
+  return map;
+}
 import type { StructureGridRow } from "./types";
 import type { CrudCommand, ColumnAddPayload } from "@/types/crud";
 

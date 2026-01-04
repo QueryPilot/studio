@@ -1,0 +1,71 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`GlobalChangesDialog > DDL Operations Display > should display column.add operation 1`] = `
+<div
+  aria-hidden="true"
+  data-base-ui-inert=""
+/>
+`;
+
+exports[`GlobalChangesDialog > DDL Operations Display > should display constraint.addPrimaryKey operation 1`] = `
+<div
+  aria-hidden="true"
+  data-base-ui-inert=""
+/>
+`;
+
+exports[`GlobalChangesDialog > DDL Operations Display > should display sequence.create operation 1`] = `
+<div
+  aria-hidden="true"
+  data-base-ui-inert=""
+/>
+`;
+
+exports[`GlobalChangesDialog > DDL Operations Display > should display table.create operation 1`] = `
+<div
+  aria-hidden="true"
+  data-base-ui-inert=""
+/>
+`;
+
+exports[`GlobalChangesDialog > DDL Operations Display > should display view.create operation 1`] = `
+<div
+  aria-hidden="true"
+  data-base-ui-inert=""
+/>
+`;
+
+exports[`GlobalChangesDialog > DDL Operations Display > should display view.rename operation 1`] = `
+<div
+  aria-hidden="true"
+  data-base-ui-inert=""
+/>
+`;
+
+exports[`GlobalChangesDialog > DML Operations Display > should display DELETE operation 1`] = `
+<div
+  aria-hidden="true"
+  data-base-ui-inert=""
+/>
+`;
+
+exports[`GlobalChangesDialog > DML Operations Display > should display INSERT operation 1`] = `
+<div
+  aria-hidden="true"
+  data-base-ui-inert=""
+/>
+`;
+
+exports[`GlobalChangesDialog > DML Operations Display > should display UPDATE operation 1`] = `
+<div
+  aria-hidden="true"
+  data-base-ui-inert=""
+/>
+`;
+
+exports[`GlobalChangesDialog > Multiple Operations Grouping > should display mixed DDL operations 1`] = `
+<div
+  aria-hidden="true"
+  data-base-ui-inert=""
+/>
+`;

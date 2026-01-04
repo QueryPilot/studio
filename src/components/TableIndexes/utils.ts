@@ -8,6 +8,50 @@ import type {
   IndexRenamePayload,
 } from "@/types/crud";
 
+export type IndexModifiedField =
+  | "name"
+  | "unique"
+  | "columns"
+  | "index_type"
+  | "condition";
+
+export function getIndexModifiedFields(
+  row: IndexGridRow,
+): Set<IndexModifiedField> {
+  const fields = new Set<IndexModifiedField>();
+  if (!row._original || row._isPending || row._isPendingDelete) {
+    return fields;
+  }
+
+  if (row.name !== row._original.name) {
+    fields.add("name");
+  }
+
+  const originalUnique = row._original.unique ? "YES" : "NO";
+  if (row.unique !== originalUnique) {
+    fields.add("unique");
+  }
+
+  const originalColumns = row._original.columns ?? [];
+  const columnsMatch =
+    row.columns_array.length === originalColumns.length &&
+    row.columns_array.every((value, index) => value === originalColumns[index]);
+  if (!columnsMatch) {
+    fields.add("columns");
+  }
+
+  if (row.index_type !== row._original.index_type) {
+    fields.add("index_type");
+  }
+
+  const originalCondition = row._original.condition ?? "";
+  if ((row.condition ?? "") !== originalCondition) {
+    fields.add("condition");
+  }
+
+  return fields;
+}
+
 function formatStatistics(stats?: IndexUsageStats): string {
   if (!stats) return "—";
 

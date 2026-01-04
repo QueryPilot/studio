@@ -15,7 +15,11 @@ import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
 import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
 import { TextSingleLineCellRenderer } from "@/components/DataGrid/renderers/TextCell";
 import { indexColumns } from "./columns";
-import { transformIndexesToRows } from "./utils";
+import {
+  transformIndexesToRows,
+  getIndexModifiedFields,
+  type IndexModifiedField,
+} from "./utils";
 import IndexNameCellRenderer from "./IndexNameCellRenderer";
 import { IndexColumnsCellRenderer } from "./IndexColumnsCellRenderer";
 import { IndexTypeCellRenderer } from "./IndexTypeCellRenderer";
@@ -179,6 +183,17 @@ export const TableIndexes = memo(function TableIndexes({
     return allGridRows.filter((row) => row.name.toLowerCase().includes(query));
   }, [allGridRows, searchQuery]);
 
+  const modifiedFieldsByRow = useMemo(() => {
+    const map = new Map<number, Set<IndexModifiedField>>();
+    gridRows.forEach((row, index) => {
+      const fields = getIndexModifiedFields(row);
+      if (fields.size > 0) {
+        map.set(index, fields);
+      }
+    });
+    return map;
+  }, [gridRows]);
+
   // Handler: Delete index
   const handleDeleteIndex = useCallback(
     (row: IndexGridRow) => {
@@ -264,21 +279,41 @@ export const TableIndexes = memo(function TableIndexes({
       // Row background - visual indicators for pending states
       const rowTheme = isPendingDelete
         ? {
-            bgCell: "rgba(239, 68, 68, 0.08)", // red for pending delete
-            bgCellMedium: "rgba(239, 68, 68, 0.12)",
+            bgCell: "rgba(239, 68, 68, 0.06)", // red for pending delete
+            bgCellMedium: "rgba(239, 68, 68, 0.08)",
+            accentColor: "rgba(239, 68, 68, 0.4)",
+            accentLight: "rgba(239, 68, 68, 0.15)",
             textDark: "#dc2626",
           }
         : isPending
         ? {
             bgCell: "rgba(34, 197, 94, 0.06)", // green for new indexes
             bgCellMedium: "rgba(34, 197, 94, 0.08)",
+            accentColor: "rgba(34, 197, 94, 0.4)",
+            accentLight: "rgba(34, 197, 94, 0.15)",
           }
         : isModified
         ? {
             bgCell: "rgba(212, 165, 43, 0.04)", // brand golden for modified
             bgCellMedium: "rgba(212, 165, 43, 0.06)",
+            accentColor: "#D4A52B",
+            accentLight: "rgba(212, 165, 43, 0.12)",
           }
         : undefined;
+
+      const modifiedFields = modifiedFieldsByRow.get(rowIndex);
+      const isCellModified =
+        !isPendingDelete &&
+        !isPending &&
+        Boolean(modifiedFields?.has(column.field as IndexModifiedField));
+      const cellThemeOverride = isCellModified
+        ? {
+            ...(rowTheme ?? {}),
+            bgCell: "rgba(251, 146, 60, 0.15)", // orange highlight
+            accentColor: "#fb923c",
+            accentLight: "rgba(251, 146, 60, 0.2)",
+          }
+        : rowTheme;
 
       // Actions column - Delete/Undo button
       if (column.field === "actions") {
@@ -290,7 +325,7 @@ export const TableIndexes = memo(function TableIndexes({
             displayData: "",
             readonly: true,
             allowOverlay: false,
-            themeOverride: rowTheme,
+            themeOverride: cellThemeOverride,
           } as const;
         }
 
@@ -303,7 +338,7 @@ export const TableIndexes = memo(function TableIndexes({
           copyData: "",
           readonly: true,
           allowOverlay: false,
-          themeOverride: rowTheme,
+          themeOverride: cellThemeOverride,
         } as const;
       }
 
@@ -327,7 +362,7 @@ export const TableIndexes = memo(function TableIndexes({
           displayData: displayValue,
           readonly: true,
           allowOverlay: false,
-          themeOverride: rowTheme,
+          themeOverride: cellThemeOverride,
         } as const;
       }
 
@@ -345,7 +380,7 @@ export const TableIndexes = memo(function TableIndexes({
           copyData: row.name,
           readonly: isLocked,
           allowOverlay: !isLocked,
-          themeOverride: rowTheme,
+          themeOverride: cellThemeOverride,
         } as const;
       }
 
@@ -359,7 +394,7 @@ export const TableIndexes = memo(function TableIndexes({
           allowOverlay: false,
           contentAlign: "right" as const,
           themeOverride: {
-            ...rowTheme,
+            ...(cellThemeOverride ?? {}),
             textDark: "rgba(127, 127, 127, 0.7)",
           },
         } as const;
@@ -381,7 +416,7 @@ export const TableIndexes = memo(function TableIndexes({
           copyData: uniqueValue,
           readonly: isLocked,
           allowOverlay: !isLocked,
-          themeOverride: rowTheme,
+          themeOverride: cellThemeOverride,
         } as const;
       }
 
@@ -401,7 +436,7 @@ export const TableIndexes = memo(function TableIndexes({
           readonly: isLocked,
           allowOverlay: !isLocked,
           themeOverride: {
-            ...rowTheme,
+            ...(cellThemeOverride ?? {}),
             baseFontStyle: "400 11px monospace",
           },
         } as const;
@@ -423,7 +458,7 @@ export const TableIndexes = memo(function TableIndexes({
           copyData: typeValue,
           readonly: isLocked,
           allowOverlay: !isLocked,
-          themeOverride: rowTheme,
+          themeOverride: cellThemeOverride,
         } as const;
       }
 
@@ -443,7 +478,7 @@ export const TableIndexes = memo(function TableIndexes({
           readonly: isLocked,
           allowOverlay: !isLocked,
           themeOverride: {
-            ...rowTheme,
+            ...(cellThemeOverride ?? {}),
             baseFontStyle: "400 11px monospace",
             textDark: conditionValue ? "#3b82f6" : undefined, // blue-500 when has content
           },
@@ -465,11 +500,11 @@ export const TableIndexes = memo(function TableIndexes({
           allowOverlay: true,
           themeOverride: isUnused
             ? {
-                ...rowTheme,
+                ...(cellThemeOverride ?? {}),
                 bgCell: "rgba(239, 68, 68, 0.1)", // red-500 with 10% opacity
                 textDark: "#dc2626", // red-600
               }
-            : rowTheme,
+            : cellThemeOverride,
         } as const;
       }
 
@@ -481,7 +516,7 @@ export const TableIndexes = memo(function TableIndexes({
         displayData: displayValue,
         readonly: true,
         allowOverlay: false,
-        themeOverride: rowTheme,
+        themeOverride: cellThemeOverride,
       } as const;
     },
     [
@@ -491,6 +526,7 @@ export const TableIndexes = memo(function TableIndexes({
       indexTypes,
       defaultIndexType,
       dialect,
+      modifiedFieldsByRow,
     ],
   );
 

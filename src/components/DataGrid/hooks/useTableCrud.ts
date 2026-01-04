@@ -17,6 +17,7 @@ import type {
 } from "../types";
 import type { JsonValue, CellValue } from "@/types";
 import type { EditableDataGridRef } from "../base";
+import { convertEditValue } from "./crudConversion";
 
 /**
  * Compare two values for equality, handling null/undefined and type coercion
@@ -28,10 +29,10 @@ function areValuesEqual(a: unknown, b: unknown): boolean {
 
   // Numeric string coercion
   if (typeof a === "string" && typeof b === "number") {
-    return Number(a) === b;
+    return a === String(b);
   }
   if (typeof a === "number" && typeof b === "string") {
-    return a === Number(b);
+    return String(a) === b;
   }
 
   return isEqual(a, b);
@@ -154,28 +155,12 @@ export function useTableCrud({
               ) {
                 const extractedValue = data.value;
 
-                // Convert numeric strings to numbers based on column type
                 const columnDbType =
                   event.column.meta?.db_type.toLowerCase() || "";
-                const isNumericColumn =
-                  columnDbType.includes("int") ||
-                  columnDbType.includes("numeric") ||
-                  columnDbType.includes("decimal") ||
-                  columnDbType.includes("float") ||
-                  columnDbType.includes("double") ||
-                  columnDbType.includes("real") ||
-                  columnDbType.includes("money");
-
-                if (
-                  isNumericColumn &&
-                  typeof extractedValue === "string" &&
-                  extractedValue !== ""
-                ) {
-                  const numValue = Number(extractedValue);
-                  newValue = isNaN(numValue) ? extractedValue : numValue;
-                } else {
-                  newValue = extractedValue as JsonValue;
-                }
+                newValue =
+                  typeof extractedValue === "string" && extractedValue !== ""
+                    ? convertEditValue(extractedValue, columnDbType)
+                    : (extractedValue as JsonValue);
               } else {
                 newValue = data as JsonValue;
               }
