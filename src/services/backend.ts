@@ -379,16 +379,37 @@ export class BackendAPI {
   // SQL generation is handled by frontend adapters (src/adapters/).
 
   /**
-   * Execute a SQL query and return results directly.
-   * Use for introspection queries and small result sets.
-   * For large result sets, use streamQuery instead.
+   * Execute a SQL query and return results directly (Path 1: Direct Query).
+   *
+   * This method uses the `query` Tauri command with SimpleConverter for JSON encoding.
+   * Optimized for small result sets (< 1000 rows) with low latency (~5-10ms overhead).
+   *
+   * ## Use Cases
+   * - Schema metadata queries (tables, columns, constraints)
+   * - System catalog queries (information_schema, pg_catalog)
+   * - AI HTTP server endpoints
+   * - Any query with known small result size
+   *
+   * ## When NOT to Use
+   * For large result sets or user-facing data display, use `queryStreamClient.stream()`
+   * instead, which provides 3-5x better performance with MessagePack encoding.
+   *
+   * ## Architecture
+   * Frontend → BackendAPI.query() → Tauri `query` command → SimpleConverter → JSON
+   *
+   * See: `docs/query-execution-architecture.md` for detailed architecture documentation.
+   *
+   * @param connectionId - Database connection ID
+   * @param sql - SQL query to execute
+   * @returns Query result with columns and rows as JSON
    *
    * @example
    * ```typescript
    * import { getAdapterForConnection } from '@/adapters';
    *
+   * // Get table metadata
    * const adapter = await getAdapterForConnection(connectionId);
-   * const sql = adapter.getIndexesQuery(schema, table);
+   * const sql = adapter.getColumnsQuery(schema, table);
    * const result = await BackendAPI.query(connectionId, sql);
    * // result.columns: ColumnMeta[], result.rows: CellValue[][]
    * ```

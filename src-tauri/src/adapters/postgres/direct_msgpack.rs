@@ -1,11 +1,47 @@
-//! Direct PostgreSQL to MessagePack encoder
+//! Direct PostgreSQL to MessagePack encoder for high-performance streaming
 //!
-//! High-performance encoder with:
+//! High-performance encoder optimized for large result sets with:
 //! - Two-pass pre-allocation (pre-sized buffers)
 //! - Adaptive parallelism (skip rayon overhead for small batches)
 //! - Custom fast timestamp/date/time formatter (no chrono format!())
 //! - Fast interval/point/money formatting with itoa/ryu
 //! - SIMD-optimized hex encoding (UUID, MAC addresses)
+//!
+//! # When to Use
+//!
+//! Use `DirectMsgPackEncoder` for:
+//! - Data grids and table browsing (any size, optimized for 1K+ rows)
+//! - User-written queries with unknown result sizes
+//! - Operations requiring progressive rendering
+//! - Queries that need cancellation support
+//! - Any dataset where performance matters (3-5x faster than JSON)
+//!
+//! # When NOT to Use
+//!
+//! Do NOT use `DirectMsgPackEncoder` for:
+//! - Small metadata queries (< 1000 rows) - use SimpleConverter
+//! - Introspection queries - use SimpleConverter
+//! - HTTP API endpoints - use SimpleConverter (cannot use IPC channels)
+//!
+//! # Architecture
+//!
+//! This encoder is used by the `execute_query` Tauri command, which streams results
+//! via IPC channels for progressive rendering. It encodes PostgreSQL rows directly
+//! to MessagePack format without intermediate allocations.
+//!
+//! Performance characteristics:
+//! - ~50ms initial setup (IPC channels + cursor)
+//! - 3-5x faster than JSON for large datasets
+//! - Streaming with configurable batch sizes (16-2048 rows)
+//! - Bounded memory usage regardless of result size
+//!
+//! See: `docs/query-execution-architecture.md` for detailed architecture documentation.
+//!
+//! # See Also
+//!
+//! - [`SimpleConverter`](super::simple_converter::SimpleConverter) - Lightweight JSON encoding for small queries
+//! - [`execute_query` command](../../../commands.rs) - Tauri command using this encoder
+//! - [Query Execution Architecture](../../../../../docs/query-execution-architecture.md)
 
 use crate::error::{AppError, Result};
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;

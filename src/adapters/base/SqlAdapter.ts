@@ -38,7 +38,24 @@ export abstract class SqlAdapter implements DatabaseAdapter {
   }
 
   /**
-   * Execute SQL via backend execute_query command
+   * Execute SQL via backend execute_query command (Path 2: Streaming Query)
+   *
+   * This method uses the high-performance streaming path with DirectMsgPackEncoder
+   * for all adapter operations (INSERT, UPDATE, DELETE, SELECT). Even for single-row
+   * operations, streaming provides consistent API and handles RETURNING clauses that
+   * may return multiple rows.
+   *
+   * ## Why Streaming for All Operations?
+   * - Consistent API across all CRUD operations
+   * - RETURNING clauses may return multiple rows
+   * - Unknown result size for user-generated SQL
+   * - Better performance for batch operations
+   *
+   * ## Architecture
+   * Frontend → SqlAdapter.execute() → queryStreamClient → execute_query command
+   * → DirectMsgPackEncoder → MessagePack batches
+   *
+   * See: `docs/query-execution-architecture.md` for detailed architecture documentation.
    */
   async execute(sql: QueryPayload): Promise<QueryResult> {
     if (typeof sql !== "string") {

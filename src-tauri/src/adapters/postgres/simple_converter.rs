@@ -1,11 +1,40 @@
-//! Simple PostgreSQL row converter for introspection and CRUD queries.
+//! Simple PostgreSQL row converter for introspection and metadata queries.
 //!
-//! This is a lightweight alternative to fast_converter.rs, optimized for:
-//! - Small result sets (introspection queries, CRUD validation)
+//! This is a lightweight alternative to DirectMsgPackEncoder, optimized for:
+//! - Small result sets (< 1000 rows from introspection queries)
 //! - Simple types (text, int, bool) common in information_schema/pg_catalog
 //! - Zero JSON parsing overhead (JSON/JSONB passed through as strings)
+//! - Low latency (~5-10ms overhead) for synchronous-like operations
 //!
-//! For high-volume streaming queries, use DirectMsgPackEncoder instead.
+//! # When to Use
+//!
+//! Use `SimpleConverter` for:
+//! - Schema metadata queries (tables, columns, constraints)
+//! - System catalog queries (information_schema, pg_catalog)
+//! - AI HTTP server endpoints (cannot use IPC channels)
+//! - Any query with known small result size (< 1000 rows)
+//!
+//! # When NOT to Use
+//!
+//! Do NOT use `SimpleConverter` for:
+//! - User-facing data display (use DirectMsgPackEncoder)
+//! - Large result sets (> 1000 rows)
+//! - Queries with unknown result size
+//! - Operations requiring progressive rendering or cancellation
+//!
+//! # Architecture
+//!
+//! This converter is used by the `query` Tauri command, which provides a simple
+//! invoke-based API for small queries. For large datasets, use the `execute_query`
+//! command with DirectMsgPackEncoder instead.
+//!
+//! See: `docs/query-execution-architecture.md` for detailed architecture documentation.
+//!
+//! # See Also
+//!
+//! - [`DirectMsgPackEncoder`](super::direct_msgpack::DirectMsgPackEncoder) - High-performance streaming for large datasets
+//! - [`query` command](../../../commands.rs) - Tauri command using this converter
+//! - [Query Execution Architecture](../../../../../docs/query-execution-architecture.md)
 
 use postgres_types::Type;
 use serde_json::Value as JsonValue;
