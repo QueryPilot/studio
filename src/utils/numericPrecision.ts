@@ -128,6 +128,7 @@ export const formatDecimal = (
 
 /**
  * Format a Decimal value for display with locale-aware thousand separators
+ * Uses manual formatting to avoid precision loss with large numbers (BIGINT)
  */
 export const formatDecimalWithLocale = (
   decimal: Decimal,
@@ -141,13 +142,22 @@ export const formatDecimalWithLocale = (
   }
 
   // Split into integer and decimal parts
-  const [integerPart, decimalPart] = formatted.split(".");
+  const parts = formatted.split(".");
+  const integerPart = parts[0] || "0";
+  const decimalPart = parts[1];
 
-  // Add thousand separators to integer part
-  const withSeparators = Number(integerPart).toLocaleString();
+  // Handle negative sign
+  const isNegative = integerPart.startsWith("-");
+  const absoluteInteger = isNegative ? integerPart.slice(1) : integerPart;
+
+  // Add thousand separators manually (avoids Number() precision loss for BIGINT)
+  const withSeparators = absoluteInteger.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const signedWithSeparators = isNegative
+    ? `-${withSeparators}`
+    : withSeparators;
 
   // Rejoin with decimal part if exists
-  return decimalPart ? `${withSeparators}.${decimalPart}` : withSeparators;
+  return decimalPart ? `${signedWithSeparators}.${decimalPart}` : signedWithSeparators;
 };
 
 /**

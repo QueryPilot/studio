@@ -9,7 +9,11 @@ import { Button } from "@/components/ui/button";
 import { IconTrash, IconKey } from "@tabler/icons-react";
 import { cn } from "@/lib/cn";
 import type { NumberCustomCell } from "./types";
-import { isValidNumberText, normalizeValue } from "./utils";
+import {
+  isValidNumberText,
+  normalizeValue,
+  formatNumberForDisplay,
+} from "./utils";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
 interface NumberCellEditorProps {
@@ -24,7 +28,12 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
   value,
   onFinishedEditing,
 }) => {
-  const initialText = useMemo(() => value.data.value ?? "", [value.data.value]);
+  // Show formatted value initially for better readability
+  const initialText = useMemo(() => {
+    const rawValue = value.data.value ?? "";
+    return formatNumberForDisplay(rawValue) ?? rawValue;
+  }, [value.data.value]);
+
   const [isValid, setIsValid] = useState(() =>
     isValidNumberText(
       initialText,
@@ -51,13 +60,15 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
       if (finishedRef.current) return;
       finishedRef.current = true;
 
-      const copyData = nextRaw == null ? "NULL" : nextRaw;
+      // Normalize value (remove commas) before committing
+      const normalizedValue = nextRaw == null ? null : normalizeValue(nextRaw);
+      const copyData = normalizedValue == null ? "NULL" : normalizedValue;
 
       const newCell: NumberCustomCell = {
         kind: value.kind,
         data: {
           ...value.data,
-          value: nextRaw,
+          value: normalizedValue,
         },
         copyData,
         allowOverlay: value.allowOverlay,
@@ -73,8 +84,12 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
     // Use initialValueRef to avoid reading null during unmount
     const currentValue = initialValueRef.current ?? "";
 
-    // IconCheck if value actually changed (compare with original value)
-    const hasChanged = currentValue !== initialText;
+    // Normalize both values for comparison (remove commas)
+    const normalizedCurrent = normalizeValue(currentValue);
+    const normalizedInitial = normalizeValue(initialText);
+
+    // Check if value actually changed
+    const hasChanged = normalizedCurrent !== normalizedInitial;
 
     // If no changes were made, cancel the edit
     if (!hasChanged) {
@@ -83,7 +98,7 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
       return;
     }
 
-    // Commit the changed value
+    // Commit the changed value (normalized, without commas)
     const normalized = normalizeValue(currentValue);
     if (!normalized) {
       if (nullable) {
@@ -119,7 +134,7 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
           : [1, 0];
         finishedRef.current = true;
 
-        // Commit the current text value before moving
+        // Commit the current text value before moving (normalized)
         const normalized = normalizeValue(initialValueRef.current);
         const committedValue: string | null = !normalized
           ? nullable
@@ -191,7 +206,7 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
           spellCheck={false}
           ref={inputRef}
           className={cn(
-            "h-full w-full bg-transparent text-xs font-mono outline-none py-1.5 px-2",
+            "h-full w-full bg-transparent text-xs font-mono outline-none py-1.5 pr-8! px-2",
             !deferredIsValid
               ? "border-b border-destructive focus:border-destructive"
               : "",

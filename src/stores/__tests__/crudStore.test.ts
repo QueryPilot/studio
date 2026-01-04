@@ -30,6 +30,19 @@ vi.mock("@/adapters", () => ({
   applyTableRenames: vi.fn((cmd) => cmd),
   trackColumnRename: vi.fn(),
   trackTableRename: vi.fn(),
+  // Mock commandToSql to generate simple SQL statements
+  commandToSql: vi.fn((adapter, cmd) => {
+    switch (cmd.type) {
+      case 'data.insert':
+        return `INSERT INTO "${cmd.target.schema}"."${cmd.target.table}" VALUES (...)`;
+      case 'data.update':
+        return `UPDATE "${cmd.target.schema}"."${cmd.target.table}" SET ...`;
+      case 'data.delete':
+        return `DELETE FROM "${cmd.target.schema}"."${cmd.target.table}" WHERE ...`;
+      default:
+        return `-- ${cmd.type}`;
+    }
+  }),
 }));
 
 // Mock connection store
@@ -444,7 +457,7 @@ describe("crudStore", () => {
       expect(mockExecute).toHaveBeenCalledWith(
         expect.stringContaining("BEGIN"),
       );
-      expect(mockAdapter.insert).toHaveBeenCalled();
+      // commandToSql is used now instead of direct adapter method calls
       expect(mockAdapter.transaction).toHaveBeenCalled();
 
       // Commands are kept for optimistic display until clearCommittedChanges is called

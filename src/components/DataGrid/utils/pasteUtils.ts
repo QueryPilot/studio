@@ -260,6 +260,8 @@ export interface ColumnTypeHint {
   nullable?: boolean;
 }
 
+const numericPattern = /^[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/;
+
 /**
  * Coerce value based on target column type
  */
@@ -287,8 +289,8 @@ export function coerceToColumnType(
     dbType === "bigserial" ||
     dbType === "smallserial"
   ) {
-    const num = parseInt(str, 10);
-    return Number.isNaN(num) ? str : num;
+    const cleaned = str.replace(/,/g, "");
+    return /^[-+]?\d+$/.test(cleaned) ? cleaned : str;
   }
 
   // Float/decimal types
@@ -302,8 +304,7 @@ export function coerceToColumnType(
   ) {
     // Remove currency symbols and commas
     const cleaned = str.replace(/[$€£¥,]/g, "");
-    const num = parseFloat(cleaned);
-    return Number.isNaN(num) ? str : num;
+    return numericPattern.test(cleaned) ? cleaned : str;
   }
 
   // Boolean types

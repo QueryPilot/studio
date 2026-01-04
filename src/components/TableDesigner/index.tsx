@@ -38,6 +38,11 @@ import { toast } from "sonner";
 import { useForeignKeyTargets } from "@/hooks/useForeignKeyTargets";
 import { CrudCommandFactory } from "@/services/crudCommandFactory";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import {
+  getDesignerModifiedFields,
+  type DesignerGridRow,
+  type DesignerModifiedField,
+} from "./utils";
 
 export interface TableDesignerProps {
   panelId: string;
@@ -48,23 +53,6 @@ export interface TableDesignerProps {
   className?: string;
   onSave?: (tableName: string, sql: string) => void;
   onCancel?: () => void;
-}
-
-// Grid row for designer
-interface DesignerGridRow {
-  row_number: number;
-  column_name: string;
-  column_meta: {
-    is_pk: boolean;
-    is_fk: boolean;
-  };
-  db_type: string;
-  nullable: string;
-  default: string;
-  foreign_key: string;
-  check_constraint: string;
-  comment: string;
-  _tempId: string;
 }
 
 const createDefaultColumnDefinition = (): ColumnDefinitionInput => ({
@@ -373,6 +361,34 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
     [tableCreateCommand],
   );
 
+  const baselineColumnsRef = useRef<ColumnDefinitionInput[]>([]);
+
+  useEffect(() => {
+    if (columns.length === 0) {
+      return;
+    }
+
+    if (baselineColumnsRef.current.length === 0) {
+      baselineColumnsRef.current = columns.map((col) => ({ ...col }));
+      return;
+    }
+
+    if (columns.length > baselineColumnsRef.current.length) {
+      for (
+        let i = baselineColumnsRef.current.length;
+        i < columns.length;
+        i += 1
+      ) {
+        baselineColumnsRef.current[i] = createDefaultColumnDefinition();
+      }
+    } else if (columns.length < baselineColumnsRef.current.length) {
+      baselineColumnsRef.current = baselineColumnsRef.current.slice(
+        0,
+        columns.length,
+      );
+    }
+  }, [columns]);
+
   const primaryKeySet = useMemo(
     () =>
       new Set(
@@ -605,6 +621,18 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
 
       const column = sizedColumns[col];
       const field = column?.field;
+      const baseline = baselineColumnsRef.current[row];
+      const modifiedFields = getDesignerModifiedFields(rowData, baseline);
+      const isCellModified = Boolean(
+        field && modifiedFields.has(field as DesignerModifiedField),
+      );
+      const cellThemeOverride = isCellModified
+        ? {
+            bgCell: "rgba(251, 146, 60, 0.15)", // orange highlight
+            accentColor: "#fb923c",
+            accentLight: "rgba(251, 146, 60, 0.2)",
+          }
+        : undefined;
 
       switch (field) {
         case "row_number":
@@ -627,6 +655,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             },
             copyData: rowData.column_name || "",
             allowOverlay: true,
+            themeOverride: cellThemeOverride,
           };
 
         case "db_type":
@@ -639,6 +668,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             },
             copyData: rowData.db_type,
             allowOverlay: true,
+            themeOverride: cellThemeOverride,
           };
 
         case "nullable":
@@ -651,6 +681,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             },
             copyData: rowData.nullable,
             allowOverlay: true,
+            themeOverride: cellThemeOverride,
           };
 
         case "default":
@@ -664,6 +695,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             },
             copyData: rowData.default?.trim() ? rowData.default : "NULL",
             allowOverlay: true,
+            themeOverride: cellThemeOverride,
           };
 
         case "foreign_key":
@@ -677,6 +709,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             },
             copyData: rowData.foreign_key || "",
             allowOverlay: true,
+            themeOverride: cellThemeOverride,
           };
 
         case "check_constraint": {
@@ -692,6 +725,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             },
             copyData: normalizedValue,
             allowOverlay: true,
+            themeOverride: cellThemeOverride,
           };
         }
 
@@ -705,6 +739,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             },
             copyData: rowData.comment || "",
             allowOverlay: true,
+            themeOverride: cellThemeOverride,
           };
 
         default:

@@ -4,6 +4,7 @@ import { truncateTextToWidth } from "../../utils/textUtils";
 import { NumberCellEditorWithProps } from "./NumberCellEditor";
 import { type NumberCustomCell } from "./types";
 import { getCachedThemeValues } from "../../utils/renderCache";
+import { formatNumberForDisplay } from "./utils";
 
 const NumberCellRenderer: CustomCellRenderer<NumberCustomCell> = {
   isMatch: (cell: CustomCell): cell is NumberCustomCell => {
@@ -29,9 +30,9 @@ const NumberCellRenderer: CustomCellRenderer<NumberCustomCell> = {
     const padding = cachedTheme.cellHorizontalPadding;
     const maxWidth = Math.max(0, rect.width - padding * 2);
 
-    const displayText = isNull
-      ? "NULL"
-      : truncateTextToWidth(value, maxWidth, ctx.font);
+    // Format number with thousand separators for display
+    const formattedValue = isNull ? "NULL" : (formatNumberForDisplay(value) ?? value);
+    const displayText = truncateTextToWidth(formattedValue, maxWidth, ctx.font);
 
     const x = rect.x + rect.width - padding;
     const centerY = rect.y + rect.height / 2;
