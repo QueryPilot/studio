@@ -65,7 +65,21 @@ impl SimpleConverter {
                 .try_get::<_, Option<i64>>(idx)
                 .ok()
                 .flatten()
-                .map_or(JsonValue::Null, |v| JsonValue::Number(v.into())),
+                .map_or(JsonValue::Null, |v| {
+                    // CRITICAL: BIGINT values beyond JavaScript's MAX_SAFE_INTEGER must be strings
+                    // JavaScript Number.MAX_SAFE_INTEGER = 2^53 - 1 = 9,007,199,254,740,991
+                    // PostgreSQL BIGINT max = 9,223,372,036,854,775,807
+                    const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+                    const MIN_SAFE_INTEGER: i64 = -9_007_199_254_740_991;
+                    
+                    if v > MAX_SAFE_INTEGER || v < MIN_SAFE_INTEGER {
+                        // Send as string to preserve precision
+                        JsonValue::String(v.to_string())
+                    } else {
+                        // Safe to send as number
+                        JsonValue::Number(v.into())
+                    }
+                }),
 
             // Floats
             Type::FLOAT4 => row
