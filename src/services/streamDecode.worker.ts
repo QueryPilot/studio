@@ -12,7 +12,10 @@ import {
 const decoder = new Decoder({
   useRecords: false, // Return plain arrays
   mapsAsObjects: true,
-  int64AsNumber: true, // BigInt handled by our normalizer
+  int64AsNumber: false, // CRITICAL: Keep as bigint/string to preserve precision for BIGINT values
+  // JavaScript Number.MAX_SAFE_INTEGER = 9,007,199,254,740,991
+  // PostgreSQL BIGINT max = 9,223,372,036,854,775,807
+  // Must use bigint or string to avoid precision loss
 });
 
 interface DecodeRequest {
