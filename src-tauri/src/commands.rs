@@ -576,8 +576,28 @@ pub async fn test_connection(
 // removed. The frontend now uses IntrospectionService which generates dialect-specific SQL
 // and executes via the `query` command. See: src/services/introspectionService.ts
 
-/// Execute a SQL query and return results (for introspection queries)
-/// This is a simpler alternative to execute_query for small result sets
+/// Execute a SQL query and return results directly (Path 1: Direct Query)
+///
+/// This command is optimized for small result sets (< 1000 rows) and provides a simple
+/// invoke-based API. Results are encoded as JSON using SimpleConverter.
+///
+/// # Use Cases
+/// - Schema metadata queries (tables, columns, constraints)
+/// - System catalog queries (information_schema, pg_catalog)
+/// - AI HTTP server endpoints
+/// - Any query with known small result size
+///
+/// # Performance
+/// - Low latency: ~5-10ms overhead
+/// - Suitable for up to 1000 rows
+/// - Entire result set loaded into memory
+///
+/// # When NOT to Use
+/// For large result sets or user-facing data display, use `execute_query` instead,
+/// which provides streaming with MessagePack encoding for 3-5x better performance.
+///
+/// See: `docs/query-execution-architecture.md` for architecture details.
+/// See also: [`execute_query`] for high-performance streaming queries.
 #[tauri::command]
 pub async fn query(
     conn_id: String,
@@ -1215,7 +1235,38 @@ async fn execute_single_fetch_stream(
     Ok(())
 }
 
-/// Execute query with streaming
+/// Execute query with high-performance streaming (Path 2: Streaming Query)
+///
+/// This command is optimized for large result sets and provides progressive rendering
+/// via IPC channels. Results are encoded as MessagePack using DirectMsgPackEncoder.
+///
+/// # Use Cases
+/// - Data grids and table browsing (any size, optimized for 1K+ rows)
+/// - User-written queries with unknown result sizes
+/// - Operations requiring progressive rendering
+/// - Queries that need cancellation support
+///
+/// # Performance
+/// - Initial setup: ~50ms (IPC channels + cursor)
+/// - Throughput: 3-5x faster than JSON for large datasets
+/// - Streaming: Progressive batches (16-2048 rows)
+/// - Memory: Bounded regardless of result size
+/// - Cancellable: Can be interrupted mid-stream
+///
+/// # Architecture
+/// Results are streamed via two IPC channels:
+/// - `metadata_channel`: Column metadata and status updates
+/// - `data_channel`: MessagePack-encoded row batches
+///
+/// The frontend uses `queryStreamClient` to consume these streams and provide
+/// progressive rendering with cancellation support.
+///
+/// # When NOT to Use
+/// For small metadata queries (< 1000 rows), use `query` instead for lower latency
+/// and simpler API.
+///
+/// See: `docs/query-execution-architecture.md` for architecture details.
+/// See also: [`query`] for simple direct queries.
 #[tauri::command]
 pub async fn execute_query(
     conn_id: String,
