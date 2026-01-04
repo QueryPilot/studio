@@ -124,20 +124,29 @@ describe("pasteUtils", () => {
   describe("coerceToColumnType", () => {
     it("should coerce integers", () => {
       const hint: ColumnTypeHint = { dbType: "integer" };
-      expect(coerceToColumnType("42", hint)).toBe(42);
-      expect(coerceToColumnType("-10", hint)).toBe(-10);
+      expect(coerceToColumnType("42", hint)).toBe("42");
+      expect(coerceToColumnType("-10", hint)).toBe("-10");
       expect(coerceToColumnType("not-int", hint)).toBe("not-int");
     });
 
     it("should coerce bigint", () => {
       const hint: ColumnTypeHint = { dbType: "bigint" };
-      expect(coerceToColumnType("9007199254740991", hint)).toBe(9007199254740991);
+      expect(coerceToColumnType("9007199254740991", hint)).toBe(
+        "9007199254740991",
+      );
+    });
+
+    it("should keep bigints beyond the safe integer range as strings", () => {
+      const hint: ColumnTypeHint = { dbType: "bigint" };
+      expect(coerceToColumnType("9223372036854775807", hint)).toBe(
+        "9223372036854775807",
+      );
     });
 
     it("should coerce decimals", () => {
       const hint: ColumnTypeHint = { dbType: "numeric" };
-      expect(coerceToColumnType("3.14", hint)).toBe(3.14);
-      expect(coerceToColumnType("$1,234.56", hint)).toBe(1234.56);
+      expect(coerceToColumnType("3.14", hint)).toBe("3.14");
+      expect(coerceToColumnType("$1,234.56", hint)).toBe("1234.56");
     });
 
     it("should coerce booleans", () => {
@@ -224,8 +233,8 @@ describe("pasteUtils", () => {
 
       const result = smartPasteCoerce(rows, hints);
       expect(result).toEqual([
-        [42, true, "hello"],
-        [100, false, "world"],
+        ["42", true, "hello"],
+        ["100", false, "world"],
       ]);
     });
 
@@ -234,7 +243,7 @@ describe("pasteUtils", () => {
       const hints: ColumnTypeHint[] = [{ dbType: "integer" }];
 
       const result = smartPasteCoerce(rows, hints);
-      expect(result).toEqual([[42, "extra"]]);
+      expect(result).toEqual([["42", "extra"]]);
     });
   });
 

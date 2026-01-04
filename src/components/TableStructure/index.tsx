@@ -24,7 +24,11 @@ import { NullableCellRenderer } from "./NullableCellRenderer";
 import { DataTypeCellRenderer } from "./DataTypeCellRenderer";
 import { ActionsCellRenderer } from "./ActionsCellRenderer";
 import { structureColumns } from "./columns";
-import { transformStructureToRows } from "./utils";
+import {
+  transformStructureToRows,
+  buildStructureModifiedFieldsMap,
+  type StructureModifiedField,
+} from "./utils";
 import ColumnNameCellRenderer from "./ColumnNameCellRenderer";
 import DefaultValueCellRenderer from "./DefaultValueCellRenderer";
 import ForeignKeyCellRenderer from "./ForeignKeyCellRenderer";
@@ -236,6 +240,11 @@ export const TableStructure = memo(function TableStructure({
   const pendingCommands = useMemo(() => {
     return stagedCommands.get(tableKey) ?? [];
   }, [stagedCommands, tableKey]);
+
+  const modifiedFieldsByColumn = useMemo(
+    () => buildStructureModifiedFieldsMap(pendingCommands, foreignKeys),
+    [pendingCommands, foreignKeys],
+  );
 
   const pendingTableRename = useMemo(
     () => pendingCommands.find((cmd) => cmd.type === "table.rename"),
@@ -1114,8 +1123,8 @@ export const TableStructure = memo(function TableStructure({
       // Row background - match TableDataGrid colors with priority order
       const rowTheme = isPendingDelete
         ? {
-            bgCell: "rgba(239, 68, 68, 0.08)", // red-500 for pending delete
-            bgCellMedium: "rgba(239, 68, 68, 0.12)",
+            bgCell: "rgba(239, 68, 68, 0.06)", // red-500 for pending delete
+            bgCellMedium: "rgba(239, 68, 68, 0.08)",
             accentColor: "rgba(239, 68, 68, 0.4)",
             accentLight: "rgba(239, 68, 68, 0.15)",
             textDark: "#dc2626", // red text
@@ -1136,6 +1145,26 @@ export const TableStructure = memo(function TableStructure({
           }
         : undefined;
 
+      const originalColumnName = row._originalData?.name ?? row.column_name;
+      const modifiedFields = originalColumnName
+        ? modifiedFieldsByColumn.get(originalColumnName)
+        : undefined;
+      const isCellModified =
+        !isPendingDelete &&
+        !isPending &&
+        Boolean(
+          modifiedFields?.has(column.field as StructureModifiedField),
+        );
+
+      const cellThemeOverride = isCellModified
+        ? {
+            ...(rowTheme ?? {}),
+            bgCell: "rgba(251, 146, 60, 0.15)", // orange highlight
+            accentColor: "#fb923c",
+            accentLight: "rgba(251, 146, 60, 0.2)",
+          }
+        : rowTheme;
+
       // Actions column - Delete/Undo button with custom icon renderer
       if (column.field === "actions") {
         return {
@@ -1147,7 +1176,7 @@ export const TableStructure = memo(function TableStructure({
           copyData: isPendingDelete ? "undo" : "delete",
           readonly: true,
           allowOverlay: false,
-          themeOverride: rowTheme,
+          themeOverride: cellThemeOverride,
         } as const;
       }
 
@@ -1163,7 +1192,7 @@ export const TableStructure = memo(function TableStructure({
           displayData: displayValue,
           readonly: true,
           allowOverlay: false,
-          themeOverride: rowTheme,
+          themeOverride: cellThemeOverride,
         } as const;
       }
 
@@ -1181,7 +1210,7 @@ export const TableStructure = memo(function TableStructure({
           copyData: row.column_name || "",
           readonly: false,
           allowOverlay: true,
-          themeOverride: rowTheme,
+          themeOverride: cellThemeOverride,
         } as const;
       }
 
@@ -1196,7 +1225,7 @@ export const TableStructure = memo(function TableStructure({
           allowOverlay: false,
           contentAlign: "right" as const,
           themeOverride: {
-            ...rowTheme,
+            ...(cellThemeOverride ?? {}),
             textDark: "rgba(127, 127, 127, 0.7)",
           },
         } as const;
@@ -1218,7 +1247,7 @@ export const TableStructure = memo(function TableStructure({
           readonly: false,
           allowOverlay: true,
           contentAlign: "center" as const,
-          themeOverride: rowTheme,
+          themeOverride: cellThemeOverride,
         } as const;
       }
 
@@ -1236,7 +1265,7 @@ export const TableStructure = memo(function TableStructure({
           copyData: typeValue,
           readonly: false, // Allow editing for all rows
           allowOverlay: true,
-          themeOverride: rowTheme,
+          themeOverride: cellThemeOverride,
         } as const;
       }
 
@@ -1254,7 +1283,7 @@ export const TableStructure = memo(function TableStructure({
           readonly: false,
           allowOverlay: true,
           themeOverride: {
-            ...rowTheme,
+            ...(cellThemeOverride ?? {}),
             baseFontStyle: "400 11px monospace",
           },
         } as const;
@@ -1272,7 +1301,7 @@ export const TableStructure = memo(function TableStructure({
           copyData: value ?? "",
           readonly: false,
           allowOverlay: true,
-          themeOverride: rowTheme,
+          themeOverride: cellThemeOverride,
         } as const;
       }
 
@@ -1290,7 +1319,7 @@ export const TableStructure = memo(function TableStructure({
           readonly: false,
           allowOverlay: true,
           themeOverride: {
-            ...rowTheme,
+            ...(cellThemeOverride ?? {}),
             baseFontStyle: "400 11px monospace",
           },
         } as const;
@@ -1310,7 +1339,7 @@ export const TableStructure = memo(function TableStructure({
           readonly: false,
           allowOverlay: true,
           themeOverride: {
-            ...rowTheme,
+            ...(cellThemeOverride ?? {}),
             baseFontStyle: "400 11px monospace",
           },
         } as const;
@@ -1324,10 +1353,16 @@ export const TableStructure = memo(function TableStructure({
         displayData: displayValue,
         readonly: true,
         allowOverlay: false,
-        themeOverride: rowTheme,
+        themeOverride: cellThemeOverride,
       } as const;
     },
-    [gridRows, sizedColumns, customTypes, foreignKeyTargets],
+    [
+      gridRows,
+      sizedColumns,
+      customTypes,
+      foreignKeyTargets,
+      modifiedFieldsByColumn,
+    ],
   );
 
   const customRenderers = useMemo<CustomRenderer<AnyCell>[]>(

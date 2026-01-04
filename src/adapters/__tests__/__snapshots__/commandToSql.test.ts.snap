@@ -1,0 +1,86 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`commandToSql - MySQL > should generate MySQL-compatible view statement 1`] = `
+"CREATE VIEW \`public\`.\`active_users\` AS
+SELECT * FROM users WHERE active = 1"
+`;
+
+exports[`commandToSql - MySQL > should throw error for materialized view in MySQL 1`] = `[Error: MySQL does not support materialized views]`;
+
+exports[`commandToSql - MySQL > should throw error for sequence in MySQL 1`] = `[Error: MySQL does not support sequences. Use AUTO_INCREMENT instead.]`;
+
+exports[`commandToSql - PostgreSQL > Column Operations > should generate ADD COLUMN statement 1`] = `"ALTER TABLE "public"."users" ADD COLUMN "phone" VARCHAR(20)"`;
+
+exports[`commandToSql - PostgreSQL > Column Operations > should generate DROP COLUMN statement 1`] = `"ALTER TABLE "public"."users" DROP COLUMN "phone" CASCADE"`;
+
+exports[`commandToSql - PostgreSQL > Column Operations > should generate RENAME COLUMN statement 1`] = `"ALTER TABLE "public"."users" RENAME COLUMN "email" TO "email_address""`;
+
+exports[`commandToSql - PostgreSQL > Constraint Operations > should generate ADD CHECK constraint statement 1`] = `"ALTER TABLE "public"."users" ADD CONSTRAINT "users_age_check" CHECK (age >= 18)"`;
+
+exports[`commandToSql - PostgreSQL > Constraint Operations > should generate ADD PRIMARY KEY statement 1`] = `"ALTER TABLE "public"."users" ADD CONSTRAINT "users_pkey" PRIMARY KEY ("id")"`;
+
+exports[`commandToSql - PostgreSQL > Constraint Operations > should generate ADD UNIQUE constraint statement 1`] = `"ALTER TABLE "public"."users" ADD CONSTRAINT "users_email_unique" UNIQUE ("email")"`;
+
+exports[`commandToSql - PostgreSQL > Constraint Operations > should generate DROP CONSTRAINT statement 1`] = `"ALTER TABLE "public"."users" DROP CONSTRAINT "users_age_check" CASCADE"`;
+
+exports[`commandToSql - PostgreSQL > Constraint Operations > should generate RENAME CONSTRAINT statement 1`] = `"ALTER TABLE "public"."users" RENAME CONSTRAINT "users_pkey" TO "users_pk""`;
+
+exports[`commandToSql - PostgreSQL > DML Operations > should generate DELETE statement 1`] = `"DELETE FROM "public"."users" WHERE "id" = 1"`;
+
+exports[`commandToSql - PostgreSQL > DML Operations > should generate INSERT statement 1`] = `"INSERT INTO "public"."users" ("name", "email", "age") VALUES ('John Doe', 'john@example.com', 30)"`;
+
+exports[`commandToSql - PostgreSQL > DML Operations > should generate UPDATE statement 1`] = `"UPDATE "public"."users" SET "email" = 'newemail@example.com' WHERE "id" = 1 RETURNING *"`;
+
+exports[`commandToSql - PostgreSQL > Index Operations > should generate CREATE INDEX statement 1`] = `"CREATE UNIQUE INDEX "idx_users_email" ON "public"."users" ("email")"`;
+
+exports[`commandToSql - PostgreSQL > Index Operations > should generate DROP INDEX statement 1`] = `"DROP INDEX IF EXISTS "idx_users_email""`;
+
+exports[`commandToSql - PostgreSQL > Sequence Operations > should generate ALTER SEQUENCE statement 1`] = `"ALTER SEQUENCE "public"."user_id_seq" INCREMENT BY 2 CACHE 20"`;
+
+exports[`commandToSql - PostgreSQL > Sequence Operations > should generate CREATE SEQUENCE statement 1`] = `"CREATE SEQUENCE "public"."user_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 999999999 START WITH 1000 CACHE 10 NO CYCLE"`;
+
+exports[`commandToSql - PostgreSQL > Sequence Operations > should generate DROP SEQUENCE statement 1`] = `"DROP SEQUENCE IF EXISTS "public"."user_id_seq" CASCADE"`;
+
+exports[`commandToSql - PostgreSQL > Sequence Operations > should generate RENAME SEQUENCE statement 1`] = `"ALTER SEQUENCE "public"."user_id_seq" RENAME TO "users_id_sequence""`;
+
+exports[`commandToSql - PostgreSQL > Table Operations > should generate DROP TABLE statement 1`] = `"DROP TABLE IF EXISTS "public"."old_table" CASCADE"`;
+
+exports[`commandToSql - PostgreSQL > Table Operations > should generate TRUNCATE TABLE statement 1`] = `"TRUNCATE TABLE "public"."users" RESTART IDENTITY CASCADE"`;
+
+exports[`commandToSql - PostgreSQL > Trigger Operations > should generate CREATE TRIGGER statement 1`] = `"CREATE TRIGGER "update_timestamp" BEFORE UPDATE ON "public"."users" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"`;
+
+exports[`commandToSql - PostgreSQL > Trigger Operations > should generate DROP TRIGGER statement 1`] = `"DROP TRIGGER IF EXISTS "update_timestamp" ON "public"."users""`;
+
+exports[`commandToSql - PostgreSQL > Trigger Operations > should generate RENAME TRIGGER statement 1`] = `"ALTER TRIGGER "update_timestamp" ON "public"."users" RENAME TO "update_modified_at""`;
+
+exports[`commandToSql - PostgreSQL > View Operations > should generate CREATE MATERIALIZED VIEW statement 1`] = `
+"CREATE MATERIALIZED VIEW "public"."user_stats" AS
+SELECT count(*) FROM users"
+`;
+
+exports[`commandToSql - PostgreSQL > View Operations > should generate CREATE VIEW statement 1`] = `
+"CREATE VIEW "public"."active_users" AS
+SELECT * FROM users WHERE active = true"
+`;
+
+exports[`commandToSql - PostgreSQL > View Operations > should generate DROP VIEW statement 1`] = `"DROP VIEW IF EXISTS "public"."active_users" CASCADE"`;
+
+exports[`commandToSql - PostgreSQL > View Operations > should generate RENAME VIEW statement 1`] = `"ALTER VIEW "public"."active_users" RENAME TO "enabled_users""`;
+
+exports[`commandToSql - PostgreSQL > View Operations > should generate REPLACE VIEW statement 1`] = `
+"CREATE OR REPLACE VIEW "public"."active_users" AS
+SELECT * FROM users WHERE active = true AND deleted_at IS NULL"
+`;
+
+exports[`commandToSql - SQL Server > should generate SQL Server-compatible view statement 1`] = `
+"CREATE VIEW [dbo].[active_users] AS
+SELECT * FROM users WHERE active = 1"
+`;
+
+exports[`commandToSql - SQL Server > should generate sequence statement for SQL Server 1`] = `"CREATE SEQUENCE [dbo].[user_id_seq] START WITH 1000 INCREMENT BY 1"`;
+
+exports[`commandToSql - SQL Server > should use sp_rename for trigger rename 1`] = `"EXEC sp_rename 'old_trigger', 'new_trigger'"`;
+
+exports[`commandToSql - SQLite > should generate SQLite-compatible INSERT statement 1`] = `"INSERT INTO "users" ("name", "email") VALUES ('John Doe', 'john@example.com')"`;
+
+exports[`commandToSql - SQLite > should throw error for sequence in SQLite 1`] = `[Error: SQLite does not support sequences. Use AUTOINCREMENT instead.]`;
