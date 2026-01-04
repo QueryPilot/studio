@@ -152,6 +152,30 @@ Multiple stores with specific concerns:
 - Health monitoring with configurable ping intervals
 - Connection metadata cached locally with debounced flush (250ms)
 
+### Query Execution Architecture
+
+Query Pilot uses **two distinct execution paths** optimized for different use cases:
+
+**Path 1: Direct Query (`query` command + SimpleConverter)**
+- **Use for**: Introspection, metadata queries, AI HTTP server (< 1000 rows)
+- **How**: `BackendAPI.query()` → `query` Tauri command → `SimpleConverter` (JSON)
+- **Why**: Simple API, low overhead, synchronous-like pattern
+- **Examples**: Schema metadata, table lists, column info, constraint queries
+
+**Path 2: Streaming Query (`execute_query` command + DirectMsgPackEncoder)**
+- **Use for**: Data grids, query panels, table browsing (any size, optimized for 1K+ rows)
+- **How**: `queryStreamClient.stream()` → `execute_query` → IPC channels → MessagePack batches
+- **Why**: 3-5x faster for large datasets, progressive rendering, cancellable
+- **Examples**: User queries, table data browsing, CRUD result sets
+
+**Decision Tree:**
+- Metadata/introspection? → Use `BackendAPI.query()`
+- User-facing data display? → Use `queryStreamClient.stream()`
+- HTTP API endpoint? → Use `BackendAPI.query()`
+- Unknown result size but could be large? → Use `queryStreamClient.stream()`
+
+See [docs/query-execution-architecture.md](docs/query-execution-architecture.md) for detailed architecture documentation.
+
 ### Security & Storage
 
 **Vault Storage:**
