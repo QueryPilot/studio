@@ -38,8 +38,11 @@ function getString(value: RawCellValue | undefined): string {
 function getBool(value: RawCellValue | undefined): boolean {
   if (value === null || value === undefined) return false;
   if (typeof value === "boolean") return value;
-  if (typeof value === "string")
-    return value.toLowerCase() === "true" || value === "t";
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "t", "1", "yes", "y"].includes(normalized)) return true;
+    if (["false", "f", "0", "no", "n", ""].includes(normalized)) return false;
+  }
   return Boolean(value);
 }
 
