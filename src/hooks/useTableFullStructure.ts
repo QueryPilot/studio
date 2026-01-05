@@ -77,7 +77,7 @@ export function useTableFullStructure({
   connectionId,
   database,
   table,
-  schema = "public",
+  schema,
   options,
   enabled = true,
 }: UseTableFullStructureParams): UseTableFullStructureReturn {
@@ -97,7 +97,7 @@ export function useTableFullStructure({
   });
 
   const shouldEnable =
-    enabled && Boolean(connectionId && database && table && schema);
+    enabled && Boolean(connectionId && database && table);
 
   const { data, isPending, isFetching, error } = useQuery({
     queryKey,

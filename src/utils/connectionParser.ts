@@ -31,6 +31,7 @@ export interface ParsedUriConfig {
   password?: string;
   database?: string;
   sslMode?: SslMode;
+  options?: Record<string, string>;
 }
 
 /**
@@ -309,7 +310,7 @@ export function parseConnectionUri(uri: string): ParsedUriConfig {
     config.database = url.pathname.substring(1);
   }
 
-  // Parse query parameters for SSL mode
+  // Parse query parameters for SSL mode and other options
   const params = url.searchParams;
   const sslModeParam = params.get("sslmode") || params.get("ssl");
   if (sslModeParam) {
@@ -329,6 +330,20 @@ export function parseConnectionUri(uri: string): ParsedUriConfig {
         config.sslMode = SslMode.VerifyFull;
         break;
     }
+  }
+
+  // Extract all other query parameters as connection options
+  const options: Record<string, string> = {};
+  for (const [key, value] of params.entries()) {
+    // Skip sslmode/ssl as they're handled above
+    if (key.toLowerCase() === "sslmode" || key.toLowerCase() === "ssl") {
+      continue;
+    }
+    options[key] = value;
+  }
+  
+  if (Object.keys(options).length > 0) {
+    config.options = options;
   }
 
   return config;

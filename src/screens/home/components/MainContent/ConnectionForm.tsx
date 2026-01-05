@@ -121,6 +121,34 @@ function getDefaultPort(type: DatabaseType): string {
   }
 }
 
+/**
+ * Parse connection options from a multiline string
+ * Format: key=value (one per line)
+ * Example:
+ *   charset=utf8mb4
+ *   timezone=UTC
+ */
+function parseConnectionOptions(optionsStr: string): Record<string, string> {
+  const options: Record<string, string> = {};
+  if (!optionsStr.trim()) return options;
+  
+  for (const line of optionsStr.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue; // Skip empty lines and comments
+    
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex > 0) {
+      const key = trimmed.substring(0, eqIndex).trim();
+      const value = trimmed.substring(eqIndex + 1).trim();
+      if (key) {
+        options[key] = value;
+      }
+    }
+  }
+  
+  return options;
+}
+
 export function ConnectionForm() {
   const formMode = useHomeScreenStore((s) => s.formMode);
   const formConnectionId = useHomeScreenStore((s) => s.formConnectionId);
@@ -334,6 +362,16 @@ export function ConnectionForm() {
   const [sslCAFile, _setSslCAFile] = useState(
     connection?.profile.ssl_config?.ca_file || "",
   );
+  
+  // Connection options state (e.g., charset=utf8mb4)
+  const [connectionOptions, setConnectionOptions] = useState<string>(() => {
+    if (connection?.profile.options) {
+      return Object.entries(connection.profile.options)
+        .map(([k, v]) => `${k}=${v}`)
+        .join("\n");
+    }
+    return "";
+  });
 
   // UI state
   const [sslModeOpen, setSslModeOpen] = useState(false);
@@ -424,6 +462,14 @@ export function ConnectionForm() {
         setName(config.database);
       }
       if (config.sslMode !== undefined) setSslMode(config.sslMode);
+      
+      // Set connection options from query parameters
+      if (config.options && Object.keys(config.options).length > 0) {
+        const optionsStr = Object.entries(config.options)
+          .map(([k, v]) => `${k}=${v}`)
+          .join("\n");
+        setConnectionOptions(optionsStr);
+      }
 
       setUriParsed(true);
       setTimeout(() => {
@@ -563,7 +609,7 @@ export function ConnectionForm() {
           : undefined,
       ssh_tunnel: undefined,
       bastion: undefined,
-      options: {},
+      options: parseConnectionOptions(connectionOptions),
       default_schema: defaultSchema || undefined,
     };
 
@@ -1156,6 +1202,50 @@ export function ConnectionForm() {
                   </div>
                 </PopoverContent>
               </Popover>
+            </div>
+          )}
+
+          {/* Connection Options */}
+          {dbType !== "sqlite" && (
+            <div>
+              <Label className="flex items-center gap-1.5 text-xs">
+                Connection Options
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                    }
+                  />
+                  <TooltipContent side="top" className="max-w-[300px]">
+                    <p className="font-medium mb-1">Optional connection parameters</p>
+                    <p className="mb-2">One per line, format: key=value</p>
+                    <div className="text-xs font-mono bg-muted/50 p-1.5 rounded">
+                      {dbType === "mysql" && (
+                        <>charset=utf8mb4<br />timezone=UTC</>
+                      )}
+                      {dbType === "postgresql" && (
+                        <>application_name=QueryPilot<br />connect_timeout=10</>
+                      )}
+                      {dbType === "mssql" && (
+                        <>application_name=QueryPilot<br />trust_cert=true</>
+                      )}
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </Label>
+              <textarea
+                className="mt-1 w-full h-16 text-xs px-2 py-1.5 border rounded-md bg-background resize-none font-mono"
+                value={connectionOptions}
+                onChange={(e) => setConnectionOptions(e.target.value)}
+                placeholder={
+                  dbType === "mysql"
+                    ? "charset=utf8mb4\ntimezone=UTC"
+                    : dbType === "mssql"
+                    ? "application_name=QueryPilot"
+                    : "application_name=QueryPilot"
+                }
+                disabled={isTesting}
+              />
             </div>
           )}
 

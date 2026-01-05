@@ -6,7 +6,10 @@ use tauri::AppHandle;
 use tokio::sync::{Notify, RwLock};
 use tokio::task::JoinHandle;
 
+use crate::adapters::mssql::MssqlAdapter;
+use crate::adapters::mysql::MySqlAdapter;
 use crate::adapters::postgres::PostgresAdapter;
+use crate::adapters::sqlite::SqliteAdapter;
 use crate::aws::ecs_bastion::EcsBastionTunnel;
 use crate::error::{AppError, Result};
 use crate::ssh::secrets::delete_ssh_passphrase;
@@ -406,7 +409,15 @@ impl ConnectionManager {
 
         // Create new connection
         let mut adapter = self.create_adapter(profile)?;
+        tracing::info!(
+            "Connecting to {}:{}/{} (type: {:?})",
+            effective_profile.host,
+            effective_profile.port,
+            effective_profile.database,
+            effective_profile.db_type
+        );
         if let Err(err) = adapter.connect(&effective_profile).await {
+            tracing::error!("Connection failed: {}", err);
             if tunnel_status.local_port().is_some() {
                 if let Some((_, tunnel)) = self.tunnels.remove(conn_id) {
                     let _ = tunnel.close().await;
@@ -414,6 +425,7 @@ impl ConnectionManager {
             }
             return Err(err);
         }
+        tracing::info!("Connection established successfully");
 
         let live_conn = LiveConnection {
             id: conn_id.to_string(),
@@ -599,7 +611,9 @@ impl ConnectionManager {
     ) -> Result<Box<dyn crate::core::adapter::DbAdapter>> {
         match profile.db_type {
             DbType::PostgreSQL => Ok(Box::new(PostgresAdapter::new())),
-            _ => Err(AppError::unsupported("Database type not supported yet")),
+            DbType::MySQL => Ok(Box::new(MySqlAdapter::new())),
+            DbType::SQLite => Ok(Box::new(SqliteAdapter::new())),
+            DbType::SQLServer => Ok(Box::new(MssqlAdapter::new())),
         }
     }
 

@@ -46,6 +46,7 @@ export interface StreamEntityPageResult {
   rows: TableDataRow[];
   hasMore: boolean;
   estimatedTotal?: number;
+  isEstimatedCount?: boolean; // True if count is from pg_class.reltuples (approximate), false if exact
   executionTimeMs?: number;
 }
 
@@ -113,6 +114,7 @@ export async function streamEntityPage(
     // Normalize invalid estimates (reltuples can be -1 for unanalyzed tables)
     let estimatedTotal: number | undefined =
       estimatedTotalHint != null && estimatedTotalHint > 0 ? estimatedTotalHint : undefined;
+    let isEstimatedCount = true; // Start as estimated (from pg_class.reltuples or similar)
 
     const abortHandler = () => {
       reject(new DOMException("Streaming aborted", "AbortError"));
@@ -281,22 +283,29 @@ export async function streamEntityPage(
                     // If we got fewer rows than requested, we've definitely reached the end
                     // This is critical when filters are applied since estimatedTotal is unfiltered count
                     const fetchedFullPage = rows.length === fetchLimit;
-                    // Handle invalid estimatedTotal (-1 or negative means unknown)
-                    const hasMoreFromEstimate =
-                      estimatedTotal != null && estimatedTotal > 0
-                        ? offset + rows.length < estimatedTotal
-                        : true; // If no valid estimate, assume more data if we got a full page
-                    const hasMore = !limitReached && fetchedFullPage && hasMoreFromEstimate;
+                    // PRIMARY INDICATOR: If we got a full page, there's likely more data
+                    // Don't rely on estimatedTotal as it can be inaccurate (based on pg_class.reltuples)
+                    // Only stop when: (1) explicit limit reached, or (2) got partial page (actual end of data)
+                    const hasMore = !limitReached && fetchedFullPage;
+
+                    // When we reach the end (no more data), we have the EXACT count
+                    // Update estimatedTotal to actual total and mark as exact
+                    if (!hasMore) {
+                      const actualTotal = offset + rows.length;
+                      estimatedTotal = actualTotal;
+                      isEstimatedCount = false; // Now we have exact count
+                    }
 
                     logger.debug("stream-service", "hasMore calculation", {
                       rowsLength: rows.length,
                       fetchLimit,
                       offset,
-                      estimatedTotal,
+                      estimatedTotal: estimatedTotal ?? "unknown",
+                      isEstimatedCount,
                       limitReached,
                       fetchedFullPage,
-                      hasMoreFromEstimate,
                       hasMore,
+                      note: "Relying on fetchedFullPage, not estimatedTotal (can be inaccurate)",
                     });
 
                     resolve({
@@ -304,6 +313,7 @@ export async function streamEntityPage(
                       rows,
                       hasMore,
                       estimatedTotal,
+                      isEstimatedCount,
                       executionTimeMs,
                     });
                   } catch (error) {
@@ -321,11 +331,14 @@ export async function streamEntityPage(
                   "stream-service",
                   `Timeout waiting for batches: expected ${expectedRows}, got ${rows.length}`,
                 );
+                // On timeout, we have exact count of what we received
+                const actualTotal = offset + rows.length;
                 resolve({
                   columns: resolvedColumns ?? columnsHint ?? [],
                   rows,
                   hasMore: false,
-                  estimatedTotal: undefined,
+                  estimatedTotal: actualTotal,
+                  isEstimatedCount: false, // Exact count of loaded rows
                   executionTimeMs,
                 });
               }, 5000);
