@@ -23,6 +23,7 @@ import type {
   QueryPayload,
   QueryResult,
   ColumnInfo,
+  EmbeddedFKConfig,
 } from "../types";
 
 /**
@@ -183,6 +184,113 @@ export abstract class SqlAdapter implements DatabaseAdapter {
     }
 
     return sql;
+  }
+
+  /**
+   * Generate SELECT statement with LEFT JOINs for embedded FK values.
+   *
+   * Embeds referenced table columns directly in the query result for quick FK lookups.
+   * Column alias convention: `__qp_fk__{fkColumn}__{refColumn}`
+   *
+   * @example
+   * ```typescript
+   * selectWithEmbeddedFK(
+   *   { schema: 'public', table: 'todos' },
+   *   {
+   *     limit: 300,
+   *     embeddedFKs: [
+   *       { fkColumn: 'user_id', refSchema: 'public', refTable: 'users', refPkColumn: 'id', refDisplayColumns: ['email'] }
+   *     ]
+   *   }
+   * )
+   * // Returns:
+   * // SELECT "public"."todos".*, "t1"."email" AS "__qp_fk__user_id__email"
+   * // FROM "public"."todos"
+   * // LEFT JOIN "public"."users" AS "t1" ON "public"."todos"."user_id" = "t1"."id"
+   * // LIMIT 300
+   * ```
+   */
+  selectWithEmbeddedFK(target: TableRef, options: SelectOptions): string {
+    const embeddedFKs = options.embeddedFKs;
+
+    if (!embeddedFKs || embeddedFKs.length === 0) {
+      return this.select(target, options);
+    }
+
+    const mainTable = this.formatTableRef(target);
+    const selectColumns = this.buildEmbeddedSelectColumns(mainTable, embeddedFKs);
+    const joinClauses = this.buildEmbeddedJoinClauses(mainTable, target, embeddedFKs);
+
+    let sql = `SELECT ${selectColumns} FROM ${mainTable}`;
+    sql += joinClauses;
+
+    if (options.rawWhere) {
+      sql += ` WHERE ${options.rawWhere}`;
+    } else if (options.where && Object.keys(options.where).length > 0) {
+      sql += ` WHERE ${this.buildWhereClause(options.where)}`;
+    }
+
+    if (options.orderBy && options.orderBy.length > 0) {
+      const orderClauses = options.orderBy
+        .map((o) => `${mainTable}.${this.quoteIdentifier(o.column)} ${o.direction}`)
+        .join(", ");
+      sql += ` ORDER BY ${orderClauses}`;
+    }
+
+    if (options.limit !== undefined) {
+      sql += this.formatLimit(options.limit, options.offset);
+    }
+
+    return sql;
+  }
+
+  /**
+   * Build SELECT column list with embedded FK columns.
+   * Format: main_table.*, t1.col AS "__qp_fk__fk_col__ref_col", ...
+   */
+  private buildEmbeddedSelectColumns(
+    mainTable: string,
+    embeddedFKs: EmbeddedFKConfig[]
+  ): string {
+    const columns: string[] = [`${mainTable}.*`];
+
+    embeddedFKs.forEach((fk, index) => {
+      const alias = `t${index + 1}`;
+      for (const displayCol of fk.refDisplayColumns) {
+        const colAlias = `__qp_fk__${fk.fkColumn}__${displayCol}`;
+        columns.push(
+          `${this.quoteIdentifier(alias)}.${this.quoteIdentifier(displayCol)} AS ${this.quoteIdentifier(colAlias)}`
+        );
+      }
+    });
+
+    return columns.join(", ");
+  }
+
+  /**
+   * Build LEFT JOIN clauses for embedded FKs.
+   * Format: LEFT JOIN ref_schema.ref_table AS t1 ON main_table.fk_col = t1.pk_col
+   */
+  private buildEmbeddedJoinClauses(
+    mainTable: string,
+    target: TableRef,
+    embeddedFKs: EmbeddedFKConfig[]
+  ): string {
+    return embeddedFKs
+      .map((fk, index) => {
+        const alias = `t${index + 1}`;
+        const refTable = this.formatTableRef({
+          schema: fk.refSchema,
+          table: fk.refTable,
+        });
+        const fkColumn = target.schema
+          ? `${mainTable}.${this.quoteIdentifier(fk.fkColumn)}`
+          : `${mainTable}.${this.quoteIdentifier(fk.fkColumn)}`;
+        const pkColumn = `${this.quoteIdentifier(alias)}.${this.quoteIdentifier(fk.refPkColumn)}`;
+
+        return ` LEFT JOIN ${refTable} AS ${this.quoteIdentifier(alias)} ON ${fkColumn} = ${pkColumn}`;
+      })
+      .join("");
   }
 
   /**
