@@ -14,3 +14,5 @@ export {
 export * from './cellStateStore';
 export { useNavigationStore, navigationSelectors } from './navigationStore';
 export type { NavigationBounds } from './navigationStore';
+export { useEmbeddedFKPreferencesStore } from './embeddedFKPreferencesStore';
+export type { EmbeddedFKPreferences, EmbeddedFKPreferencesState } from './embeddedFKPreferencesStore';
