@@ -1,4 +1,5 @@
 import type { FilterConfig, SortConfig } from "@/types/filter";
+import type { EmbeddedFKConfig } from "@/adapters/types";
 
 export const tableStructureQueryKey = (params: {
   connectionId: string;
@@ -26,6 +27,7 @@ export const tableDataQueryKey = (params: {
   sorts?: SortConfig[];
   limit?: number;
   pageSize?: number;
+  embeddedFKs?: EmbeddedFKConfig[];
 }) =>
   [
     "table-data",
@@ -39,6 +41,7 @@ export const tableDataQueryKey = (params: {
     params.sorts ? JSON.stringify(params.sorts) : null,
     params.limit ?? null,
     params.pageSize ?? null,
+    params.embeddedFKs?.length ? JSON.stringify(params.embeddedFKs) : null,
   ] as const;
 
 export const foreignKeyTargetsQueryKey = (params: {

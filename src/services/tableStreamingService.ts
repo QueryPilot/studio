@@ -4,6 +4,7 @@ import { isTauri } from "@/utils/tauri";
 import type { TableDataRow } from "./tableDataTypes";
 import type { ColumnMeta } from "@/types/database";
 import type { FilterConfig, SortConfig } from "@/types/filter";
+import type { EmbeddedFKConfig } from "@/adapters/types";
 import { mapBackendColumnsToColumnMeta } from "./tableDataTransform";
 import { type CellValue } from "./backend";
 import { getStreamDecodeWorker } from "./streamDecodeWorkerClient";
@@ -36,6 +37,7 @@ export interface StreamEntityPageParams {
   signal?: AbortSignal;
   columnsHint?: ColumnMeta[];
   estimatedTotalHint?: number;
+  embeddedFKs?: EmbeddedFKConfig[];
   onProgress?: (progress: StreamProgress) => void;
   onBatch?: (batch: TableDataRow[], rowOffset: number) => void;
   tabId?: string; // Optional: for query tabs. If not provided, uses table-specific ID
@@ -68,6 +70,7 @@ export async function streamEntityPage(
     onBatch,
     columnsHint,
     estimatedTotalHint,
+    embeddedFKs,
     tabId,
   } = params;
 
@@ -101,10 +104,18 @@ export async function streamEntityPage(
   const rawWhere = filterConfigToWhereClause(params.filters, adapter.dbType);
   const orderBy = sortConfigToOrderBy(params.sorts);
 
-  const sql = adapter.select(
-    { schema, table: entityName },
-    { columns: params.select, rawWhere, orderBy, limit: fetchLimit, offset }
-  ) as string;
+  const selectOptions = {
+    columns: params.select,
+    rawWhere,
+    orderBy,
+    limit: fetchLimit,
+    offset,
+    embeddedFKs,
+  };
+
+  const sql = (embeddedFKs?.length
+    ? adapter.selectWithEmbeddedFK({ schema, table: entityName }, selectOptions)
+    : adapter.select({ schema, table: entityName }, selectOptions)) as string;
 
   // CRITICAL FIX: Wrap in promise to ensure we only resolve after ALL callbacks complete
   return new Promise<StreamEntityPageResult>((resolve, reject) => {
