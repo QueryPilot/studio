@@ -56,7 +56,9 @@ import {
   useGridPreferencesHydrated,
   upsertGridColumnsState,
   useGridPreferencesStore,
+  useEmbeddedFKPreferencesStore,
 } from "../stores";
+import type { EmbeddedFKConfig } from "@/adapters/types";
 import { perfMonitor } from "../utils/performanceMonitor";
 import {
   applyClientSideFilter,
@@ -243,6 +245,56 @@ export const TableDataGrid = memo(function TableDataGrid(
     enabled: isTableMode,
   });
 
+  // Build storage key for embedded FK preferences: {connectionId}:{schema}.{table}
+  const embeddedFKKey = isTableMode
+    ? `${connectionId}:${schema ?? "public"}.${table}`
+    : "";
+
+  // Read embedded FK preferences for this table
+  const embeddedFKPrefs = useEmbeddedFKPreferencesStore((state) =>
+    isTableMode ? state.preferences[embeddedFKKey] : undefined,
+  );
+
+  // Build EmbeddedFKConfig[] from preferences + FK metadata
+  const embeddedFKs = useMemo<EmbeddedFKConfig[]>(() => {
+    if (!isTableMode || !embeddedFKPrefs || !tableStructure?.foreignKeys) {
+      return [];
+    }
+
+    const configs: EmbeddedFKConfig[] = [];
+    const { embeddedColumns } = embeddedFKPrefs;
+
+    // Build FK lookup: fkColumn -> FK metadata
+    const fkMap = new Map<
+      string,
+      (typeof tableStructure.foreignKeys)[number]
+    >();
+    for (const fk of tableStructure.foreignKeys) {
+      // Each FK can have multiple columns, but for embedded preview we use single-column FKs
+      const fkSourceCol = fk.columns[0];
+      if (fk.columns.length === 1 && fk.foreignColumns.length === 1 && fkSourceCol) {
+        fkMap.set(fkSourceCol, fk);
+      }
+    }
+
+    // Build config for each embedded column preference
+    for (const [fkColumn, refDisplayColumns] of Object.entries(embeddedColumns)) {
+      const fk = fkMap.get(fkColumn);
+      const refPkColumn = fk?.foreignColumns[0];
+      if (fk && refPkColumn && refDisplayColumns.length > 0) {
+        configs.push({
+          fkColumn,
+          refSchema: fk.foreignSchema ?? "public",
+          refTable: fk.foreignTable,
+          refPkColumn,
+          refDisplayColumns,
+        });
+      }
+    }
+
+    return configs;
+  }, [isTableMode, embeddedFKPrefs, tableStructure?.foreignKeys]);
+
   // Get user-defined sort columns from store
   const userSortColumns = useGridPreferencesStore(
     (state) => state.preferences[gridId]?.sortColumns,
@@ -423,6 +475,7 @@ export const TableDataGrid = memo(function TableDataGrid(
     pageSize: TABLE_PAGE_SIZE,
     sorts: userSorts ?? defaultSorts,
     filters: activeFilter,
+    embeddedFKs: embeddedFKs.length > 0 ? embeddedFKs : undefined,
   });
 
   // IconKeyboard shortcuts for focusing quick filter (Cmd+F or /)
