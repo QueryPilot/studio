@@ -31,13 +31,7 @@ export const TableActionsToolbar = memo(function TableActionsToolbar({
   const content = (
     <>
       {addButtonLabel && onAdd && (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={onAdd}
-          disabled={disabled}
-          className="h-6 text-xs px-2"
-        >
+        <Button variant="outline" onClick={onAdd} disabled={disabled}>
           <IconPlus className="h-3 w-3 mr-1" />
           {addButtonLabel}
         </Button>
@@ -58,12 +52,12 @@ export const TableActionsToolbar = memo(function TableActionsToolbar({
       {pendingChangesCount > 0 && (
         <>
           {onDiscard && (
-            <Button size="sm" variant="ghost" onClick={onDiscard}>
+            <Button variant="ghost" onClick={onDiscard}>
               <IconX className="size-3.5!" />
               Discard
             </Button>
           )}
-          <Button size="sm" variant="default" onClick={onReviewChanges}>
+          <Button variant="default" onClick={onReviewChanges}>
             <IconDeviceFloppy className="size-3.5!" />
             Commit
           </Button>

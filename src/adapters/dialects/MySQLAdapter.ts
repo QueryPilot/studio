@@ -293,19 +293,62 @@ ORDER BY INDEX_NAME`;
   getConstraintsQuery(schema: string, table: string): string {
     // MySQL stores foreign key info in KEY_COLUMN_USAGE, not TABLE_CONSTRAINTS
     return `
-SELECT DISTINCT
+SELECT
     tc.CONSTRAINT_NAME as constraint_name,
     tc.TABLE_NAME as table_name,
     tc.CONSTRAINT_TYPE as constraint_type,
-    kcu.REFERENCED_TABLE_SCHEMA as foreign_schema,
-    kcu.REFERENCED_TABLE_NAME as foreign_table
+    CASE
+        WHEN tc.CONSTRAINT_TYPE = 'PRIMARY KEY' THEN
+            CONCAT(
+                'PRIMARY KEY (',
+                GROUP_CONCAT(kcu.COLUMN_NAME ORDER BY kcu.ORDINAL_POSITION SEPARATOR ', '),
+                ')'
+            )
+        WHEN tc.CONSTRAINT_TYPE = 'UNIQUE' THEN
+            CONCAT(
+                'UNIQUE (',
+                GROUP_CONCAT(kcu.COLUMN_NAME ORDER BY kcu.ORDINAL_POSITION SEPARATOR ', '),
+                ')'
+            )
+        WHEN tc.CONSTRAINT_TYPE = 'FOREIGN KEY' THEN
+            CONCAT(
+                'FOREIGN KEY (',
+                GROUP_CONCAT(kcu.COLUMN_NAME ORDER BY kcu.ORDINAL_POSITION SEPARATOR ', '),
+                ') REFERENCES ',
+                kcu.REFERENCED_TABLE_SCHEMA,
+                '.',
+                kcu.REFERENCED_TABLE_NAME,
+                ' (',
+                GROUP_CONCAT(kcu.REFERENCED_COLUMN_NAME ORDER BY kcu.ORDINAL_POSITION SEPARATOR ', '),
+                ')',
+                IF(rc.DELETE_RULE IS NULL, '', CONCAT(' ON DELETE ', rc.DELETE_RULE)),
+                IF(rc.UPDATE_RULE IS NULL, '', CONCAT(' ON UPDATE ', rc.UPDATE_RULE))
+            )
+        ELSE NULL
+    END as definition,
+    CASE
+        WHEN tc.CONSTRAINT_TYPE = 'FOREIGN KEY' THEN
+            CONCAT(kcu.REFERENCED_TABLE_SCHEMA, '.', kcu.REFERENCED_TABLE_NAME)
+        ELSE NULL
+    END as foreign_table
 FROM information_schema.TABLE_CONSTRAINTS tc
 LEFT JOIN information_schema.KEY_COLUMN_USAGE kcu
-    ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
-    AND tc.TABLE_SCHEMA = kcu.TABLE_SCHEMA
+    ON tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
     AND tc.TABLE_NAME = kcu.TABLE_NAME
+    AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+LEFT JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
+    ON tc.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA
+    AND tc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
 WHERE tc.TABLE_SCHEMA = '${this.escapeString(schema)}'
     AND tc.TABLE_NAME = '${this.escapeString(table)}'
+GROUP BY
+    tc.CONSTRAINT_NAME,
+    tc.TABLE_NAME,
+    tc.CONSTRAINT_TYPE,
+    kcu.REFERENCED_TABLE_SCHEMA,
+    kcu.REFERENCED_TABLE_NAME,
+    rc.UPDATE_RULE,
+    rc.DELETE_RULE
 ORDER BY tc.CONSTRAINT_NAME`;
   }
 
