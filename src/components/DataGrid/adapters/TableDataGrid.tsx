@@ -559,6 +559,7 @@ export const TableDataGrid = memo(function TableDataGrid(
     columns: columnMeta,
     rows,
     estimatedTotal,
+    isEstimatedCount,
     executionTime,
     cursorSetupMs,
     totalStreamingMs,
@@ -584,10 +585,8 @@ export const TableDataGrid = memo(function TableDataGrid(
             : null,
         columns: tableDataQuery.columns,
         rows: tableDataQuery.rows,
-        estimatedTotal:
-          tableDataQuery.data?.pages.at(-1)?.estimatedTotal ??
-          tableDataQuery.data?.pages[0]?.estimatedTotal ??
-          tableDataQuery.rows.length,
+        estimatedTotal: tableDataQuery.estimatedTotal ?? tableDataQuery.rows.length,
+        isEstimatedCount: tableDataQuery.isEstimatedCount,
         executionTime:
           tableDataQuery.data?.pages.at(-1)?.executionTimeMs ??
           tableDataQuery.data?.pages[0]?.executionTimeMs,
@@ -622,6 +621,7 @@ export const TableDataGrid = memo(function TableDataGrid(
           [],
         rows: transformedQueryRows,
         estimatedTotal: undefined,
+        isEstimatedCount: undefined,
         executionTime: props.executionTime,
         cursorSetupMs: props.cursorSetupMs,
         totalStreamingMs: props.totalStreamingMs,
@@ -2451,6 +2451,7 @@ export const TableDataGrid = memo(function TableDataGrid(
       <DataGridStatusBar
         loadedRows={rowsRef.current.length}
         estimatedTotal={estimatedTotal ?? undefined}
+        isEstimatedCount={isEstimatedCount}
         hasMore={hasNextPage}
         isStreaming={isLoadingMore}
         isProcessing={isPastePending || isBatchPending}

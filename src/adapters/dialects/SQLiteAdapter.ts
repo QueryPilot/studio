@@ -291,7 +291,9 @@ export class SQLiteAdapter extends SqlAdapter {
   }
 
   getSchemasQuery(): string {
-    // SQLite doesn't have schemas - return single 'main'
+    // SQLite doesn't have schemas - return the database file name as schema
+    // This allows the UI to show the database name in the schema selector
+    // Note: For SQLite, the "database" concept is the file itself, so we use a placeholder
     return `SELECT 'main' as name`;
   }
 

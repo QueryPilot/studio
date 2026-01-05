@@ -21,70 +21,83 @@ services:
       timeout: 5s
       retries: 5
 
-  # mysql:
-  #   image: mysql:8.3
-  #   container_name: query-pilot-mysql
-  #   ports:
-  #     - "13306:3306"
-  #   environment:
-  #     MYSQL_ROOT_PASSWORD: rootpass123
-  #     MYSQL_USER: devuser
-  #     MYSQL_PASSWORD: devpass123
-  #     MYSQL_DATABASE: todoapp
-  #   volumes:
-  #     - mysql_data:/var/lib/mysql
-  #     - ./seeds/mysql:/docker-entrypoint-initdb.d
-  #   networks:
-  #     - query-pilot-network
-  #   healthcheck:
-  #     test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
+  mysql:
+    image: mysql:8.3
+    container_name: query-pilot-mysql
+    ports:
+      - "13306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass123
+      MYSQL_USER: devuser
+      MYSQL_PASSWORD: devpass123
+      MYSQL_DATABASE: todoapp
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./seeds/mysql:/docker-entrypoint-initdb.d
+    networks:
+      - query-pilot-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # mariadb:
-  #   image: mariadb:11
-  #   container_name: query-pilot-mariadb
-  #   ports:
-  #     - "13307:3306"
-  #   environment:
-  #     MYSQL_ROOT_PASSWORD: rootpass123
-  #     MYSQL_USER: devuser
-  #     MYSQL_PASSWORD: devpass123
-  #     MYSQL_DATABASE: todoapp
-  #   volumes:
-  #     - mariadb_data:/var/lib/mysql
-  #     - ./seeds/mysql:/docker-entrypoint-initdb.d
-  #   networks:
-  #     - query-pilot-network
-  #   healthcheck:
-  #     test: ["CMD", "healthcheck.sh", "--connect"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
+  mariadb:
+    image: mariadb:11
+    container_name: query-pilot-mariadb
+    ports:
+      - "13307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass123
+      MYSQL_USER: devuser
+      MYSQL_PASSWORD: devpass123
+      MYSQL_DATABASE: todoapp
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./seeds/mysql:/docker-entrypoint-initdb.d
+    networks:
+      - query-pilot-network
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # sqlserver:
-  #   image: mcr.microsoft.com/mssql/server:2019-latest
-  #   platform: linux/amd64
-  #   container_name: query-pilot-sqlserver
-  #   ports:
-  #     - "11434:1433"
-  #   environment:
-  #     MSSQL_SA_PASSWORD: "DevPass123"
-  #     SA_PASSWORD: "DevPass123"
-  #     ACCEPT_EULA: "Y"
-  #     MSSQL_PID: "Developer"
-  #   volumes:
-  #     - sqlserver_data:/var/opt/mssql
-  #     - ./seeds/sqlserver:/seeds
-  #   networks:
-  #     - query-pilot-network
-  #   healthcheck:
-  #     test: ["CMD", "/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", "DevPass123", "-Q", "SELECT 1", "-C"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 10
-  #     start_period: 90s
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    platform: linux/amd64
+    container_name: query-pilot-sqlserver
+    ports:
+      - "11434:1433"
+    environment:
+      MSSQL_SA_PASSWORD: "DevPass123"
+      SA_PASSWORD: "DevPass123"
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Developer"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+      - ./seeds/sqlserver:/seeds
+    networks:
+      - query-pilot-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/opt/mssql-tools18/bin/sqlcmd",
+          "-S",
+          "localhost",
+          "-U",
+          "sa",
+          "-P",
+          "DevPass123",
+          "-Q",
+          "SELECT 1",
+          "-C",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
 
   # mongodb:
   #   image: mongo:7.0
@@ -127,52 +140,52 @@ services:
   #     timeout: 10s
   #     retries: 10
 
-  ssh-bastion-password:
-    build:
-      context: ./tests
-      dockerfile: Dockerfile.ssh-bastion
-    container_name: query-pilot-ssh-bastion-password
-    ports:
-      - "2222:22"
-    networks:
-      - query-pilot-network
-    healthcheck:
-      test: ["CMD", "pgrep", "sshd"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # ssh-bastion-password:
+  #   build:
+  #     context: ./tests
+  #     dockerfile: Dockerfile.ssh-bastion
+  #   container_name: query-pilot-ssh-bastion-password
+  #   ports:
+  #     - "2222:22"
+  #   networks:
+  #     - query-pilot-network
+  #   healthcheck:
+  #     test: ["CMD", "pgrep", "sshd"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
 
-  ssh-bastion-key:
-    build:
-      context: ./tests
-      dockerfile: Dockerfile.ssh-bastion-key
-    container_name: query-pilot-ssh-bastion-key
-    ports:
-      - "2223:22"
-    networks:
-      - query-pilot-network
-    healthcheck:
-      test: ["CMD", "pgrep", "sshd"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # ssh-bastion-key:
+  #   build:
+  #     context: ./tests
+  #     dockerfile: Dockerfile.ssh-bastion-key
+  #   container_name: query-pilot-ssh-bastion-key
+  #   ports:
+  #     - "2223:22"
+  #   networks:
+  #     - query-pilot-network
+  #   healthcheck:
+  #     test: ["CMD", "pgrep", "sshd"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
 
-  postgres-private:
-    image: postgres:16-alpine
-    container_name: query-pilot-postgres-private
-    environment:
-      POSTGRES_USER: devuser
-      POSTGRES_PASSWORD: devpass123
-      POSTGRES_DB: todoapp
-    volumes:
-      - ./seeds/postgres:/docker-entrypoint-initdb.d
-    networks:
-      - query-pilot-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U devuser -d todoapp"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # postgres-private:
+  #   image: postgres:16-alpine
+  #   container_name: query-pilot-postgres-private
+  #   environment:
+  #     POSTGRES_USER: devuser
+  #     POSTGRES_PASSWORD: devpass123
+  #     POSTGRES_DB: todoapp
+  #   volumes:
+  #     - ./seeds/postgres:/docker-entrypoint-initdb.d
+  #   networks:
+  #     - query-pilot-network
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U devuser -d todoapp"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
 
 networks:
   query-pilot-network:

@@ -45,6 +45,8 @@ export interface UseTableDataQueryResult {
   data: InfiniteData<TableDataPage> | undefined;
   rows: TableDataRow[];
   columns: ColumnMeta[];
+  estimatedTotal?: number;
+  isEstimatedCount?: boolean; // True if count is estimated, false if exact
   status: "idle" | "loading" | "success" | "error";
   error: unknown;
   isFetching: boolean;
@@ -64,7 +66,7 @@ export function useTableDataQuery(
   const {
     connectionId,
     database,
-    schema = "public",
+    schema,
     entityName,
     entityType,
     select,
@@ -439,10 +441,31 @@ export function useTableDataQuery(
     return [] as ColumnMeta[];
   }, [infiniteQuery.data]);
 
+  // Get the most recent estimatedTotal and isEstimatedCount from pages
+  // Prefer the last page (most recent), fall back to first page
+  const estimatedTotal = useMemo(() => {
+    if (!infiniteQuery.data?.pages) return undefined;
+    return (
+      infiniteQuery.data.pages.at(-1)?.estimatedTotal ??
+      infiniteQuery.data.pages[0]?.estimatedTotal
+    );
+  }, [infiniteQuery.data]);
+
+  const isEstimatedCount = useMemo(() => {
+    if (!infiniteQuery.data?.pages) return undefined;
+    // If the last page says it's exact (false), use that
+    // Otherwise check first page, default to true (estimated)
+    const lastPage = infiniteQuery.data.pages.at(-1);
+    if (lastPage?.isEstimatedCount === false) return false;
+    return infiniteQuery.data.pages[0]?.isEstimatedCount ?? true;
+  }, [infiniteQuery.data]);
+
   return {
     data: infiniteQuery.data,
     rows,
     columns,
+    estimatedTotal,
+    isEstimatedCount,
     status:
       infiniteQuery.status === "pending" ? "loading" : infiniteQuery.status,
     error: infiniteQuery.error,

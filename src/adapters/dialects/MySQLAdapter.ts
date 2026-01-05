@@ -220,7 +220,9 @@ export class MySQLAdapter extends SqlAdapter {
 
   getSchemasQuery(): string {
     // MySQL uses databases instead of schemas
-    return `SHOW DATABASES`;
+    // Return the current database as the "schema" so UI can load tables
+    // If no database is selected, return empty result (connection should always have a database)
+    return `SELECT DATABASE() as name WHERE DATABASE() IS NOT NULL`;
   }
 
   getTablesQuery(schema: string): string {
@@ -289,17 +291,22 @@ ORDER BY INDEX_NAME`;
   }
 
   getConstraintsQuery(schema: string, table: string): string {
+    // MySQL stores foreign key info in KEY_COLUMN_USAGE, not TABLE_CONSTRAINTS
     return `
-SELECT
-    CONSTRAINT_NAME as constraint_name,
-    TABLE_NAME as table_name,
-    CONSTRAINT_TYPE as constraint_type,
-    REFERENCED_TABLE_SCHEMA as foreign_schema,
-    REFERENCED_TABLE_NAME as foreign_table
-FROM information_schema.TABLE_CONSTRAINTS
-WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
-    AND TABLE_NAME = '${this.escapeString(table)}'
-ORDER BY CONSTRAINT_NAME`;
+SELECT DISTINCT
+    tc.CONSTRAINT_NAME as constraint_name,
+    tc.TABLE_NAME as table_name,
+    tc.CONSTRAINT_TYPE as constraint_type,
+    kcu.REFERENCED_TABLE_SCHEMA as foreign_schema,
+    kcu.REFERENCED_TABLE_NAME as foreign_table
+FROM information_schema.TABLE_CONSTRAINTS tc
+LEFT JOIN information_schema.KEY_COLUMN_USAGE kcu
+    ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+    AND tc.TABLE_SCHEMA = kcu.TABLE_SCHEMA
+    AND tc.TABLE_NAME = kcu.TABLE_NAME
+WHERE tc.TABLE_SCHEMA = '${this.escapeString(schema)}'
+    AND tc.TABLE_NAME = '${this.escapeString(table)}'
+ORDER BY tc.CONSTRAINT_NAME`;
   }
 
   getColumnsQuery(schema: string, table: string): string {
