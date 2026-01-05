@@ -242,6 +242,14 @@ export interface DatabaseAdapter {
   select(target: TableRef, options?: SelectOptions): QueryPayload;
 
   /**
+   * Generate SELECT query with LEFT JOINs for embedded FK values.
+   * Embeds referenced table columns directly in the query result for quick FK lookups.
+   * @param target - Table reference
+   * @param options - Select options including embeddedFKs configuration
+   */
+  selectWithEmbeddedFK(target: TableRef, options: SelectOptions): QueryPayload;
+
+  /**
    * Wrap multiple operations in a transaction
    * @param operations - Array of query payloads
    */
