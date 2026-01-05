@@ -37,24 +37,29 @@ const ReadOnlyBadge = memo(function ReadOnlyBadge({
 const RowCountDisplay = memo(function RowCountDisplay({
   loadedRows,
   estimatedTotal,
+  isEstimatedCount,
   hasMore,
 }: {
   loadedRows: number;
   estimatedTotal?: number;
+  isEstimatedCount?: boolean;
   hasMore?: boolean;
 }) {
   const display = useMemo(() => {
     // Only show estimated total if there's actually more to load
     if (estimatedTotal && estimatedTotal > loadedRows && hasMore) {
-      return `${loadedRows.toLocaleString()} / ${estimatedTotal.toLocaleString()} rows`;
+      // Add ~ prefix if count is estimated (not exact)
+      const prefix = isEstimatedCount ? "~" : "";
+      return `${loadedRows.toLocaleString()} / ${prefix}${estimatedTotal.toLocaleString()} rows`;
     }
 
     if (hasMore) {
       return `${loadedRows.toLocaleString()} rows (loading more...)`;
     }
 
+    // When all data is loaded, show exact count (no ~)
     return `${loadedRows.toLocaleString()} rows`;
-  }, [loadedRows, estimatedTotal, hasMore]);
+  }, [loadedRows, estimatedTotal, isEstimatedCount, hasMore]);
 
   return <span>{display}</span>;
 });
@@ -230,6 +235,7 @@ const SelectionInfo = memo(function SelectionInfo({
 interface DataGridStatusBarProps {
   loadedRows: number;
   estimatedTotal?: number;
+  isEstimatedCount?: boolean; // True if count is estimated, false if exact
   hasMore?: boolean;
   selectedRows?: number;
   selectedRowsData?: GridRowModel[];
@@ -269,6 +275,7 @@ interface DataGridStatusBarProps {
 export const DataGridStatusBar = memo(function DataGridStatusBar({
   loadedRows,
   estimatedTotal,
+  isEstimatedCount,
   hasMore,
   selectedRows = 0,
   selectedRowsData = [],
@@ -370,6 +377,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
         <RowCountDisplay
           loadedRows={loadedRows}
           estimatedTotal={estimatedTotal}
+          isEstimatedCount={isEstimatedCount}
           hasMore={hasMore}
         />
 

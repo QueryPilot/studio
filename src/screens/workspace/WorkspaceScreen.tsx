@@ -145,7 +145,28 @@ export function WorkspaceScreen() {
       } else if (!currentSchema) {
         // Fall back to profile's default_schema or common defaults
         const stored = useConnectionStore.getState().getConnection(connectionId);
-        const defaultSchema = stored?.profile.default_schema || 'public';
+        const profile = stored?.profile;
+        
+        // For MySQL/SQLite, use database name as schema (they don't have separate schemas)
+        // For PostgreSQL/MSSQL, use default_schema or fallback to 'public'/'dbo'
+        let defaultSchema = profile?.default_schema;
+        if (!defaultSchema) {
+          const dbType = profile?.db_type;
+          if (dbType === 'MySQL') {
+            // MySQL: use current database name as schema
+            defaultSchema = profile?.database || '';
+          } else if (dbType === 'SQLite') {
+            // SQLite: always use 'main' as the schema (profile.database is the file path)
+            defaultSchema = 'main';
+          } else if (dbType === 'SQLServer') {
+            defaultSchema = 'dbo';
+          } else {
+            defaultSchema = 'public';
+          }
+        }
+        
+        logger.info(`[WorkspaceScreen] Setting default schema for ${profile?.db_type}: ${defaultSchema}`);
+        
         useWorkspaceSelectionStore.setState({ schema: defaultSchema });
         setSelectedSchema(defaultSchema);
       }

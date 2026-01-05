@@ -45,6 +45,7 @@ import {
   openQueryWithTemplate,
   openTableDesigner,
 } from "@/utils/workbench/openers";
+import { DbType } from "@/types/connection";
 
 interface DatabaseSchemaSelectorProps {
   connectionId: string;
@@ -60,6 +61,17 @@ export function DatabaseSchemaSelector({
   const [isSwitchingSchema, setIsSwitchingSchema] = useState(false);
   const [schemaPopoverOpen, setSchemaPopoverOpen] = useState(false);
   const queryClient = useQueryClient();
+
+  // Get connection profile to check db_type
+  const connection = useConnectionStore((state) =>
+    state.getConnection(connectionId),
+  );
+  const dbType = connection?.profile.db_type;
+
+  // Check if database supports schemas
+  // MySQL and SQLite use databases instead of schemas
+  const supportsSchemas =
+    dbType === DbType.PostgreSQL || dbType === DbType.SQLServer;
 
   // Track connection active state reactively
   const [isConnectionActive, setIsConnectionActive] = useState(() =>
@@ -329,6 +341,13 @@ export function DatabaseSchemaSelector({
       objectType: "trigger",
     });
   }, [connectionId, selectedDatabase, selectedSchema]);
+
+  // Hide schema selector UI for databases that don't support schemas
+  // MySQL and SQLite use databases instead, but we still need to set the schema internally
+  // The auto-select effect above will handle setting the schema to the database name
+  if (!supportsSchemas) {
+    return null;
+  }
 
   if (schemas.length === 0) {
     return null;

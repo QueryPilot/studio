@@ -65,10 +65,13 @@ const loadSchemaData = async (
   schema?: string,
 ): Promise<SchemaData> => {
   if (!connectionId || !database || !schema) {
+    logger.warn(`[useSchemaData] Missing required params - connectionId: ${connectionId}, database: ${database}, schema: ${schema}`);
     throw new Error("Connection ID, database, and schema are required");
   }
 
   try {
+    logger.info(`[useSchemaData] Loading schema data for ${database}.${schema}`);
+    
     // Ensure connection mapping is established
     await databaseService.connectById(connectionId);
 
@@ -84,6 +87,8 @@ const loadSchemaData = async (
     // Separate tables and views
     const tableList = tables.filter((t) => t.kind === "Table");
     const viewList = tables.filter((t) => t.kind === "View" || t.kind === "MaterializedView");
+
+    logger.info(`[useSchemaData] Loaded ${tableList.length} tables, ${viewList.length} views, ${functions.length} functions`);
 
     return {
       tables: tableList,

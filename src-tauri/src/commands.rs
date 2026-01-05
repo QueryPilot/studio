@@ -4,12 +4,14 @@ use tauri::{AppHandle, Manager, State};
 use tokio::time::{timeout, Duration};
 
 use crate::adapters::postgres::DirectMsgPackEncoder;
+use rmp_serde;
 use crate::core::ConnectionManager;
 use crate::ssh;
 use crate::state::AppState;
 use crate::types::*;
 use serde::Serialize;
 use tokio_postgres::Row;
+
 
 /// Extract clean error message from PostgreSQL error
 fn extract_db_error_message(e: &tokio_postgres::Error) -> String {
@@ -792,6 +794,82 @@ fn is_multi_statement_query(sql: &str) -> bool {
 }
 
 async fn execute_single_fetch_stream(
+    sql: &str,
+    metadata_channel: &tauri::ipc::Channel<StreamMessage>,
+    data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
+    conn: &crate::core::manager::LiveConnection,
+) -> std::result::Result<(), String> {
+    // Dispatch to database-specific streaming implementation
+    match conn.profile.db_type {
+        DbType::PostgreSQL => {
+            execute_postgres_stream(sql, metadata_channel, data_channel, conn).await
+        }
+        DbType::MySQL => {
+            execute_generic_stream(sql, metadata_channel, data_channel, conn).await
+        }
+        DbType::SQLite => {
+            execute_generic_stream(sql, metadata_channel, data_channel, conn).await
+        }
+        DbType::SQLServer => {
+            execute_generic_stream(sql, metadata_channel, data_channel, conn).await
+        }
+    }
+}
+
+/// Generic streaming implementation using the adapter's query method
+/// Works for MySQL, SQLite, and SQL Server
+async fn execute_generic_stream(
+    sql: &str,
+    metadata_channel: &tauri::ipc::Channel<StreamMessage>,
+    data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
+    conn: &crate::core::manager::LiveConnection,
+) -> std::result::Result<(), String> {
+    let start_time = std::time::Instant::now();
+    
+    // Use the adapter's query method which works for all database types
+    let result = conn.adapter.query(sql).await.map_err(|e| e.to_string())?;
+    
+    let query_elapsed = start_time.elapsed().as_millis();
+    tracing::info!("  ⏱ Query execution: {}ms, {} rows", query_elapsed, result.rows.len());
+    
+    // Send column metadata
+    let _ = metadata_channel.send(StreamMessage::Started {
+        columns: result.columns.clone(),
+        estimated_rows: Some(result.rows.len() as i64),
+    });
+    
+    // Convert rows to MessagePack and send in batches
+    let encode_start = std::time::Instant::now();
+    
+    // For smaller result sets, send all at once
+    if !result.rows.is_empty() {
+        // Use rmp_serde to serialize the rows as MessagePack
+        let msgpack_data = rmp_serde::to_vec(&result.rows)
+            .map_err(|e| format!("Failed to encode rows: {}", e))?;
+        
+        let _ = data_channel.send(tauri::ipc::Response::new(msgpack_data));
+    }
+    
+    let encode_elapsed = encode_start.elapsed().as_millis();
+    let total_elapsed = start_time.elapsed().as_millis();
+    
+    // Send success message
+    let _ = metadata_channel.send(StreamMessage::Success {
+        total_rows: result.rows.len(),
+        execution_time_ms: total_elapsed as u64,
+        cursor_setup_ms: None,
+        total_streaming_ms: Some(total_elapsed as u64),
+        fetch_count: Some(1),
+        network_ms: Some(query_elapsed as u64),
+        conversion_ms: Some(encode_elapsed as u64),
+        ipc_send_ms: Some(0),
+    });
+    
+    Ok(())
+}
+
+/// PostgreSQL-specific streaming implementation with optimized binary protocol
+async fn execute_postgres_stream(
     sql: &str,
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
