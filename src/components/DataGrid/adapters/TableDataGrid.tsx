@@ -585,7 +585,8 @@ export const TableDataGrid = memo(function TableDataGrid(
             : null,
         columns: tableDataQuery.columns,
         rows: tableDataQuery.rows,
-        estimatedTotal: tableDataQuery.estimatedTotal ?? tableDataQuery.rows.length,
+        estimatedTotal:
+          tableDataQuery.estimatedTotal ?? tableDataQuery.rows.length,
         isEstimatedCount: tableDataQuery.isEstimatedCount,
         executionTime:
           tableDataQuery.data?.pages.at(-1)?.executionTimeMs ??
@@ -1863,7 +1864,6 @@ export const TableDataGrid = memo(function TableDataGrid(
           <Button
             variant="outline"
             size="sm"
-            className="h-6 text-xs px-2"
             onClick={() => {
               // If there's a selection, insert below it; otherwise insert at top
               if (selectedRowsSet.size > 0) {
