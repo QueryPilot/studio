@@ -10,6 +10,8 @@ interface ReferenceCellData {
     column: string;
   };
   displayValue?: string;
+  /** Embedded FK display value (e.g., "john@email.com" when FK value is 42) */
+  embeddedValue?: string | null;
   // Column metadata for editor header display
   columnName?: string;
   isPrimaryKey?: boolean;
