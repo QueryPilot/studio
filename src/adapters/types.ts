@@ -132,6 +132,24 @@ export interface WhereClause {
 export type RowData = Record<string, unknown>;
 
 /**
+ * Configuration for embedding FK referenced column values in query results.
+ * Used by SqlAdapter.selectWithEmbeddedFK() to build LEFT JOINs.
+ * Column alias convention: `__qp_fk__{fkColumn}__{refColumn}`
+ */
+export interface EmbeddedFKConfig {
+  /** The FK column name in the source table (e.g., "user_id") */
+  fkColumn: string;
+  /** Schema of the referenced table */
+  refSchema: string;
+  /** Name of the referenced table (e.g., "users") */
+  refTable: string;
+  /** Primary key column in referenced table (e.g., "id") */
+  refPkColumn: string;
+  /** Column(s) to embed from referenced table (e.g., ["email", "name"]) */
+  refDisplayColumns: string[];
+}
+
+/**
  * Options for SELECT queries
  */
 export interface SelectOptions {
@@ -142,6 +160,8 @@ export interface SelectOptions {
   orderBy?: { column: string; direction: 'ASC' | 'DESC' }[];
   limit?: number;
   offset?: number;
+  /** FK columns to embed with their referenced display values */
+  embeddedFKs?: EmbeddedFKConfig[];
 }
 
 /**
