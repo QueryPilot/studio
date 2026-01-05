@@ -2039,6 +2039,22 @@ export const TableDataGrid = memo(function TableDataGrid(
 
       const cellValue = row[column.field] as FrontCellValue | null | undefined;
 
+      // Extract embedded FK value if this is an FK column
+      // Look for __qp_fk__{columnName}__* pattern in row data
+      let embeddedValue: string | null | undefined;
+      if (column.meta?.is_fk && column.name) {
+        const embeddedPrefix = `__qp_fk__${column.name}__`;
+        for (const key of Object.keys(row)) {
+          if (key.startsWith(embeddedPrefix)) {
+            const embeddedCell = row[key] as FrontCellValue | null | undefined;
+            if (embeddedCell?.value != null) {
+              embeddedValue = String(embeddedCell.value);
+            }
+            break;
+          }
+        }
+      }
+
       // Enable editing for table mode, keep read-only for query mode
       // Allow editing all columns including PKs (database will validate on commit)
       const isReadOnly = isQueryMode;
@@ -2047,6 +2063,7 @@ export const TableDataGrid = memo(function TableDataGrid(
         value: cellValue,
         column,
         readOnly: isReadOnly,
+        embeddedValue,
       });
 
       // Apply cell-level styling for staged changes

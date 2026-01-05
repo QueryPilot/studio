@@ -140,6 +140,7 @@ type CellBuilder = (
   column: GridColumnV2,
   meta: ParsedColumnMeta,
   readOnly: boolean,
+  embeddedValue?: string | null,
 ) => GridCell;
 
 // ============================================================================
@@ -492,7 +493,7 @@ const buildUuidCell: CellBuilder = (rawValue, value, column, _meta, readOnly) =>
   });
 };
 
-const buildReferenceCell: CellBuilder = (rawValue, value, column, _meta, readOnly) => {
+const buildReferenceCell: CellBuilder = (rawValue, value, column, _meta, readOnly, embeddedValue) => {
   const metaWithFk = column.meta as {
     fk_reference?: {
       referenced_schema: string;
@@ -515,6 +516,7 @@ const buildReferenceCell: CellBuilder = (rawValue, value, column, _meta, readOnl
         table: fkRef!.referenced_table,
         column: fkRef!.referenced_column,
       },
+      embeddedValue,
       columnName: column.name,
       isPrimaryKey: Boolean(column.meta?.is_pk),
       dbType: column.meta?.db_type ?? column.type,
@@ -775,7 +777,7 @@ const buildDefaultTextCell: CellBuilder = (rawValue, value, column, _meta, readO
 
 /**
  * Build a GridCell for V2 with optimized caching and type routing.
- * 
+ *
  * Performance optimizations:
  * - WeakMap cache keyed by CellValue object identity
  * - Column metadata parsed once per column object
@@ -786,8 +788,10 @@ export function buildGridCellV2(opts: {
   value: CellValue | null | undefined;
   column: GridColumnV2;
   readOnly?: boolean;
+  /** Embedded FK display value extracted from row data (e.g., "john@email.com") */
+  embeddedValue?: string | null;
 }): GridCell {
-  const { value, column, readOnly = false } = opts;
+  const { value, column, readOnly = false, embeddedValue } = opts;
   const cacheKey = readOnly ? `${column.id}:ro` : `${column.id}:rw`;
 
   // Try to get from cache first (fast path)
@@ -872,7 +876,7 @@ export function buildGridCellV2(opts: {
   // Reference/FK cells
   const metaWithFk = column.meta as { fk_reference?: object } | null | undefined;
   if (column.meta?.is_fk && metaWithFk?.fk_reference) {
-    return buildReferenceCell(rawValue, value, column, meta, readOnly);
+    return buildReferenceCell(rawValue, value, column, meta, readOnly, embeddedValue);
   }
 
   // Network types (INET, CIDR, MACADDR)
