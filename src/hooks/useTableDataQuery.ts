@@ -9,6 +9,7 @@ import {
 import type { ColumnMeta } from "@/types/database";
 import type { TableDataRow } from "@/services/tableDataTypes";
 import type { FilterConfig, SortConfig } from "@/types/filter";
+import type { EmbeddedFKConfig } from "@/adapters/types";
 import { tableDataQueryKey, tableStructureQueryKey } from "./queryKeys";
 import {
   fetchTableStructure,
@@ -39,6 +40,7 @@ export interface UseTableDataQueryParams {
   rowLimit?: number;
   enabled?: boolean;
   reuseStructure?: boolean;
+  embeddedFKs?: EmbeddedFKConfig[];
 }
 
 export interface UseTableDataQueryResult {
@@ -77,6 +79,7 @@ export function useTableDataQuery(
     rowLimit,
     enabled = true,
     reuseStructure = true,
+    embeddedFKs,
   } = params;
 
   const queryClient = useQueryClient();
@@ -94,6 +97,7 @@ export function useTableDataQuery(
     sorts,
     limit,
     pageSize,
+    embeddedFKs,
   });
 
   const structureKey = tableStructureQueryKey({
@@ -317,6 +321,7 @@ export function useTableDataQuery(
           rowLimit,
           columnsHint,
           estimatedTotalHint,
+          embeddedFKs,
           signal: controller.signal,
           onProgress: (progress) => {
             setProgress(progress);
@@ -379,6 +384,7 @@ export function useTableDataQuery(
       limit,
       pageSize,
       rowLimit,
+      embeddedFKs,
       loadStructure,
       queryClient,
       queryKey,
