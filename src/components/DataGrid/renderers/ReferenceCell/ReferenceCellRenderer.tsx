@@ -25,7 +25,8 @@ const ReferenceCellRenderer: CustomCellRenderer<ReferenceCustomCell> = {
     const cachedTheme = getCachedThemeValues(theme);
 
     const padding = cachedTheme.cellHorizontalPadding;
-    const arrowWidth = 20; // Reserve space for hover arrow on the right
+    // Only reserve arrow space when hovering to maximize text display
+    const arrowWidth = args.hoverAmount > 0 ? 20 : 0;
     const availableWidth = Math.max(0, rect.width - padding * 2 - arrowWidth);
     const centerY = rect.y + rect.height / 2;
 
@@ -38,19 +39,28 @@ const ReferenceCellRenderer: CustomCellRenderer<ReferenceCustomCell> = {
       ctx.font = cachedTheme.italicFont;
       ctx.fillText("NULL", rect.x + padding, centerY);
     } else if (embeddedValue != null) {
-      // Value with embedded reference: "42 → john@email.com"
+      // Value with embedded reference as: "1 → [user@example.com]"
       const fkText = displayValue || String(value);
       const arrowText = " → ";
+      const badgePaddingH = 6; // Horizontal padding inside badge
+      const badgeRadius = 4; // Border radius for pill
 
-      // Measure text widths
+      // Measure FK value and arrow width
       ctx.font = cachedTheme.baseFont;
       const fkWidth = ctx.measureText(fkText).width;
-      const arrowTextWidth = ctx.measureText(arrowText).width;
+      const arrowWidth = ctx.measureText(arrowText).width;
 
-      // Calculate available space for embedded value
-      const embeddedAvailable = availableWidth - fkWidth - arrowTextWidth;
+      // Calculate badge dimensions
+      const badgeFont = getCachedFont("11px", DEFAULT_FONT_FAMILY);
+      ctx.font = badgeFont;
+      const maxBadgeTextWidth = Math.max(0, availableWidth - fkWidth - arrowWidth - badgePaddingH * 2 - 4);
+      const truncatedEmbed = truncateTextToWidth(embeddedValue, maxBadgeTextWidth, badgeFont);
+      const badgeTextWidth = ctx.measureText(truncatedEmbed).width;
+      const badgeWidth = badgeTextWidth + badgePaddingH * 2;
+      const badgeHeight = 16;
 
       // Draw FK value (normal color)
+      ctx.font = cachedTheme.baseFont;
       ctx.fillStyle = cachedTheme.textDark;
       let x = rect.x + padding;
       ctx.fillText(fkText, x, centerY);
@@ -59,16 +69,24 @@ const ReferenceCellRenderer: CustomCellRenderer<ReferenceCustomCell> = {
       // Draw arrow separator (muted color)
       ctx.fillStyle = cachedTheme.textMedium || "rgba(127,127,127,0.7)";
       ctx.fillText(arrowText, x, centerY);
-      x += arrowTextWidth;
+      x += arrowWidth;
 
-      // Draw embedded value (muted color, truncated if needed)
-      if (embeddedAvailable > 20) {
-        const truncatedEmbed = truncateTextToWidth(
-          String(embeddedValue),
-          embeddedAvailable,
-          ctx.font,
-        );
-        ctx.fillText(truncatedEmbed, x, centerY);
+      // Draw badge background (only if there's space)
+      if (maxBadgeTextWidth > 10) {
+        const badgeY = centerY - badgeHeight / 2;
+
+        // Badge background - subtle muted color
+        const isDark = (theme.bgCell || "").startsWith("#") &&
+          parseInt((theme.bgCell || "#ffffff").slice(1, 3), 16) < 128;
+        ctx.fillStyle = isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)";
+        ctx.beginPath();
+        ctx.roundRect(x, badgeY, badgeWidth, badgeHeight, badgeRadius);
+        ctx.fill();
+
+        // Badge text (muted color)
+        ctx.font = badgeFont;
+        ctx.fillStyle = cachedTheme.textMedium || "rgba(127,127,127,0.8)";
+        ctx.fillText(truncatedEmbed, x + badgePaddingH, centerY);
       }
     } else {
       // Value without embedded reference

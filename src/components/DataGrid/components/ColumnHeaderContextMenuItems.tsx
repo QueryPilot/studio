@@ -21,6 +21,7 @@ import {
   IconEye,
 } from "@tabler/icons-react";
 import type { GridColumnV2 } from "../types";
+import { FKEmbedSubmenu } from "./FKEmbedSubmenu";
 
 export interface ColumnHeaderContextMenuItemsProps {
   column: GridColumnV2;
@@ -38,10 +39,14 @@ export interface ColumnHeaderContextMenuItemsProps {
   onFilterByColumn?: () => void;
   onToggleColumnVisibility: (columnId: string) => void;
   onShowAllColumns: () => void;
+  connectionId?: string;
+  schema?: string;
+  tableName?: string;
+  referencedTableColumns?: Array<{ name: string; db_type: string }>;
 }
 
 export function ColumnHeaderContextMenuItems({
-  column: _column,
+  column,
   sortDirection,
   isPinned,
   allColumns,
@@ -56,7 +61,12 @@ export function ColumnHeaderContextMenuItems({
   onFilterByColumn,
   onToggleColumnVisibility,
   onShowAllColumns,
+  connectionId,
+  schema,
+  tableName,
+  referencedTableColumns,
 }: ColumnHeaderContextMenuItemsProps) {
+  const isFKColumn = column.meta?.is_fk ?? false;
   return (
     <>
       <ContextMenuSub>
@@ -89,6 +99,16 @@ export function ColumnHeaderContextMenuItems({
           )}
         </ContextMenuSubContent>
       </ContextMenuSub>
+
+      {isFKColumn && connectionId && tableName && (
+        <FKEmbedSubmenu
+          column={column}
+          connectionId={connectionId}
+          schema={schema ?? "public"}
+          table={tableName}
+          referencedTableColumns={referencedTableColumns}
+        />
+      )}
 
       <ContextMenuSeparator />
 
