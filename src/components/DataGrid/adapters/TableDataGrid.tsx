@@ -88,6 +88,7 @@ import { IconFilterX, IconPlus } from "@tabler/icons-react";
 import { type CellValue as BackendCellValue } from "@/services/backend";
 import type { TableDataRow } from "@/services/tableDataTypes";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
+import { useReferencedTableColumns } from "@/hooks/useReferencedTableColumns";
 import { cn } from "@/lib/utils";
 import { useContextKey, useScopedKeybindings } from "@/hooks/useContextKey";
 import { useCommand } from "@/hooks/useCommand";
@@ -295,6 +296,10 @@ export const TableDataGrid = memo(function TableDataGrid(
     return configs;
   }, [isTableMode, embeddedFKPrefs, tableStructure?.foreignKeys]);
 
+  // Defer embedded FK changes to prevent lag during menu interaction
+  // The query will only refetch after React finishes higher-priority updates (UI responsiveness)
+  const deferredEmbeddedFKs = useDeferredValue(embeddedFKs);
+
   // Get user-defined sort columns from store
   const userSortColumns = useGridPreferencesStore(
     (state) => state.preferences[gridId]?.sortColumns,
@@ -475,7 +480,7 @@ export const TableDataGrid = memo(function TableDataGrid(
     pageSize: TABLE_PAGE_SIZE,
     sorts: userSorts ?? defaultSorts,
     filters: activeFilter,
-    embeddedFKs: embeddedFKs.length > 0 ? embeddedFKs : undefined,
+    embeddedFKs: deferredEmbeddedFKs.length > 0 ? deferredEmbeddedFKs : undefined,
   });
 
   // IconKeyboard shortcuts for focusing quick filter (Cmd+F or /)
@@ -731,6 +736,27 @@ export const TableDataGrid = memo(function TableDataGrid(
     return map;
   }, [tableStructure?.foreignKeys]);
 
+  // Build FK references map for useReferencedTableColumns hook
+  const fkReferencesForHook = useMemo(() => {
+    const map = new Map<string, { schema: string; table: string; column: string }>();
+    for (const [colName, ref] of fkReferenceByColumn) {
+      map.set(colName, {
+        schema: ref.referenced_schema,
+        table: ref.referenced_table,
+        column: ref.referenced_column,
+      });
+    }
+    return map;
+  }, [fkReferenceByColumn]);
+
+  // Fetch columns for all referenced tables (for FK embed submenu)
+  const referencedTableColumns = useReferencedTableColumns({
+    connectionId,
+    database,
+    fkReferences: fkReferencesForHook,
+    enabled: isTableMode && fkReferencesForHook.size > 0,
+  });
+
   const primaryKeyColumns = useMemo(() => {
     if (!tableStructure?.columns) {
       return [];
@@ -903,37 +929,44 @@ export const TableDataGrid = memo(function TableDataGrid(
 
   const baseColumns = useMemo<GridColumnV2[]>(
     () =>
-      columnMeta.map((meta, index) => {
-        // Use index-based field for data access (handles duplicate column names in JOINs)
-        const uniqueField = `col_${index}`;
-        // Use column name as ID for table mode (stable for preferences persistence)
-        // Use index for query mode (may have duplicate column names from JOINs)
-        const columnId = isTableMode ? meta.name : uniqueField;
-        const structMeta = structureMetaByName.get(meta.name);
-        const fkRef = fkReferenceByColumn.get(meta.name);
-        const mergedMeta = structMeta
-          ? ({
-              ...meta,
-              enum_values: structMeta.enum_values ?? meta.enum_values,
-              type_category: structMeta.type_category ?? meta.type_category,
-              // Add FK reference if available
-              fk_reference: fkRef ?? undefined,
-            } as typeof meta & { fk_reference?: typeof fkRef })
-          : fkRef
-          ? ({ ...meta, fk_reference: fkRef } as typeof meta & {
-              fk_reference?: typeof fkRef;
-            })
-          : meta;
-        return {
-          id: columnId,
-          field: uniqueField,
-          title: meta.name,
-          name: meta.name,
-          width: computeBaseWidth(meta.name, meta.db_type),
-          type: meta.db_type,
-          meta: mergedMeta,
-        } as GridColumnV2;
-      }),
+      columnMeta
+        // Filter out embedded FK columns (they're auxiliary data, not visible columns)
+        .filter((meta) => !meta.name.startsWith("__qp_fk__"))
+        .map((meta) => {
+          // Find original index in columnMeta for field mapping
+          const originalIndex = columnMeta.findIndex((c) => c.name === meta.name);
+          // Use index-based field for data access (handles duplicate column names in JOINs)
+          const uniqueField = `col_${originalIndex}`;
+          // Use column name as ID for table mode (stable for preferences persistence)
+          // Use index for query mode (may have duplicate column names from JOINs)
+          const columnId = isTableMode ? meta.name : uniqueField;
+          const structMeta = structureMetaByName.get(meta.name);
+          const fkRef = fkReferenceByColumn.get(meta.name);
+          const mergedMeta = structMeta
+            ? ({
+                ...meta,
+                enum_values: structMeta.enum_values ?? meta.enum_values,
+                type_category: structMeta.type_category ?? meta.type_category,
+                // Add FK reference and is_fk flag if available
+                fk_reference: fkRef ?? undefined,
+                is_fk: !!fkRef,
+              } as typeof meta & { fk_reference?: typeof fkRef; is_fk?: boolean })
+            : fkRef
+            ? ({ ...meta, fk_reference: fkRef, is_fk: true } as typeof meta & {
+                fk_reference?: typeof fkRef;
+                is_fk?: boolean;
+              })
+            : meta;
+          return {
+            id: columnId,
+            field: uniqueField,
+            title: meta.name,
+            name: meta.name,
+            width: computeBaseWidth(meta.name, meta.db_type),
+            type: meta.db_type,
+            meta: mergedMeta,
+          } as GridColumnV2;
+        }),
     [columnMeta, structureMetaByName, fkReferenceByColumn, isTableMode],
   );
 
@@ -949,6 +982,26 @@ export const TableDataGrid = memo(function TableDataGrid(
 
   // Update the ref with actual mapping after baseColumns is computed
   columnNameToFieldMapRef.current = columnNameToFieldMap;
+
+  // Build a map from FK column name to its embedded column field
+  // e.g., "user_id" -> "col_10" (where col_10 is __qp_fk__user_id__username)
+  // This includes ALL columns (even hidden embedded FK columns)
+  const embeddedFKFieldMap = useMemo(() => {
+    const map = new Map<string, string>();
+    columnMeta.forEach((col, index) => {
+      // Parse __qp_fk__{fkColumn}__{refColumn}
+      if (col.name.startsWith("__qp_fk__")) {
+        const match = col.name.match(/^__qp_fk__(.+?)__(.+)$/);
+        if (match && match[1]) {
+          map.set(match[1], `col_${index}`);
+        }
+      }
+    });
+    return map;
+  }, [columnMeta]);
+
+  const embeddedFKFieldMapRef = useRef(embeddedFKFieldMap);
+  embeddedFKFieldMapRef.current = embeddedFKFieldMap;
 
   const reorderedColumns = useMemo(
     () => reorderColumns(baseColumns, columnState.order),
@@ -2040,17 +2093,15 @@ export const TableDataGrid = memo(function TableDataGrid(
       const cellValue = row[column.field] as FrontCellValue | null | undefined;
 
       // Extract embedded FK value if this is an FK column
-      // Look for __qp_fk__{columnName}__* pattern in row data
+      // Use the embeddedFKFieldMap to find the field for the embedded column
+      // (embedded FK columns are hidden, so they're not in finalColumns)
       let embeddedValue: string | null | undefined;
       if (column.meta?.is_fk && column.name) {
-        const embeddedPrefix = `__qp_fk__${column.name}__`;
-        for (const key of Object.keys(row)) {
-          if (key.startsWith(embeddedPrefix)) {
-            const embeddedCell = row[key] as FrontCellValue | null | undefined;
-            if (embeddedCell?.value != null) {
-              embeddedValue = String(embeddedCell.value);
-            }
-            break;
+        const embeddedField = embeddedFKFieldMapRef.current.get(column.name);
+        if (embeddedField) {
+          const embeddedCell = row[embeddedField] as FrontCellValue | null | undefined;
+          if (embeddedCell?.value != null) {
+            embeddedValue = String(embeddedCell.value);
           }
         }
       }
@@ -2412,6 +2463,8 @@ export const TableDataGrid = memo(function TableDataGrid(
             onFilterByColumn={isTableMode ? handleFilterByColumn : undefined}
             onOpen={handleContextMenuOpen}
             contextMenuTargetRef={contextMenuTargetRef}
+            connectionId={isTableMode ? connectionId : undefined}
+            referencedTableColumns={isTableMode ? referencedTableColumns : undefined}
           >
             <EditableDataGrid
               ref={gridRef}
@@ -2483,6 +2536,9 @@ export const TableDataGrid = memo(function TableDataGrid(
           connectionId={connectionId}
           database={database}
           cellBounds={fkPreviewState.cellBounds}
+          sourceColumnName={finalColumns[fkPreviewState.col]?.name}
+          sourceTable={table}
+          sourceSchema={schema ?? "public"}
           onOpenReference={() => {
             // Build the WHERE clause filter
             const { fkReference, fkValue } = fkPreviewState;

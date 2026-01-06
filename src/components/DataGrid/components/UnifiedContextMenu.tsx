@@ -55,6 +55,9 @@ export interface UnifiedContextMenuProps {
   onOpen?: () => void;
   // Ref to track what's being hovered (updated by onItemHovered in parent)
   contextMenuTargetRef: MutableRefObject<ContextMenuTarget>;
+  // FK embedding props
+  connectionId?: string;
+  referencedTableColumns?: Record<string, Array<{ name: string; db_type: string }>>;
 }
 
 export function UnifiedContextMenu({
@@ -92,6 +95,8 @@ export function UnifiedContextMenu({
   onFilterByColumn,
   onOpen,
   contextMenuTargetRef,
+  connectionId,
+  referencedTableColumns,
 }: UnifiedContextMenuProps) {
   const [internalShowDetailsSheet, setInternalShowDetailsSheet] = useState(false);
   const [menuTarget, setMenuTarget] = useState<ContextMenuTarget>(null);
@@ -150,6 +155,10 @@ export function UnifiedContextMenu({
               onToggleColumnVisibility={onToggleColumnVisibility}
               onShowAllColumns={onShowAllColumns}
               onFilterByColumn={onFilterByColumn ? () => { onFilterByColumn(headerColumnId); } : undefined}
+              connectionId={connectionId}
+              schema={schema}
+              tableName={tableName}
+              referencedTableColumns={referencedTableColumns?.[currentHeaderColumn.name]}
             />
           ) : (
             <GridContextMenuItems
