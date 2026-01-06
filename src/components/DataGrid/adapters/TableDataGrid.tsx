@@ -35,7 +35,7 @@ import { openTableObject } from "@/utils/workbench/openers";
 import {
   DbType,
   type SortConfig,
-  type CellValue as FrontCellValue,
+  type GridCellValue,
   type ColumnMeta,
 } from "@/types";
 import {
@@ -568,28 +568,65 @@ export const TableDataGrid = memo(function TableDataGrid(
   const queryData = isQueryMode ? props.data : null;
   const toolbarActions = isQueryMode ? props.toolbarActions : null;
 
+  // Cache for incremental transformation - preserves already-transformed rows
+  // This prevents re-transforming ALL rows when new batches arrive during streaming
+  const transformedRowsCacheRef = useRef<{
+    sourceRows: unknown[] | null; // Track source for cache invalidation
+    transformed: GridRowModel[];
+    transformedCount: number; // How many rows have been transformed
+  }>({ sourceRows: null, transformed: [], transformedCount: 0 });
+
   // Transform raw CellValue[][] to TableDataRow[] for query mode
-  // The streaming worker returns raw arrays; we need to convert to objects keyed by column names
+  // PERFORMANCE: Uses incremental transformation to avoid blocking UI during streaming
+  // Only transforms NEW rows, appending to cached results
   const transformedQueryRows = useMemo((): GridRowModel[] => {
     if (!queryData?.rows) {
+      // Reset cache when no data
+      transformedRowsCacheRef.current = { sourceRows: null, transformed: [], transformedCount: 0 };
       return [];
     }
-    // Use columnMeta if available, otherwise fall back to columns (string array)
+
     const columnMeta = queryData.columnMeta;
     const columnNames = queryData.columns;
     if (!columnMeta && !columnNames) {
       return [];
     }
+
     const rows = queryData.rows;
+    const cache = transformedRowsCacheRef.current;
+
     // Check if already transformed (first row is an object with column keys)
     const firstRow = rows[0];
     if (firstRow && typeof firstRow === "object" && !Array.isArray(firstRow)) {
       // Already in TableDataRow format
       return rows as unknown as GridRowModel[];
     }
-    // Transform raw arrays to objects keyed by index (handles duplicate column names in JOINs)
+
+    // Check if source changed completely (new query) - reset cache
+    // We detect this by checking if row count decreased or first row changed
+    const sourceChanged = cache.sourceRows !== rows && (
+      rows.length < cache.transformedCount ||
+      cache.transformedCount === 0 ||
+      (rows.length > 0 && cache.transformed.length > 0 && rows[0] !== cache.sourceRows?.[0])
+    );
+
+    if (sourceChanged) {
+      cache.sourceRows = rows;
+      cache.transformed = [];
+      cache.transformedCount = 0;
+    }
+
+    // If we already transformed all rows, return cached result
+    if (cache.transformedCount >= rows.length) {
+      return cache.transformed;
+    }
+
+    // INCREMENTAL: Only transform NEW rows (rows we haven't seen yet)
     const numColumns = columnMeta?.length ?? columnNames?.length ?? 0;
-    return (rows as unknown as BackendCellValue[][]).map((row) => {
+    const startIndex = cache.transformedCount;
+    const newRows = (rows as unknown as BackendCellValue[][]).slice(startIndex);
+
+    const newTransformed = newRows.map((row) => {
       const tableRow: GridRowModel = {};
       for (let index = 0; index < numColumns; index++) {
         const col = columnMeta?.[index];
@@ -608,6 +645,13 @@ export const TableDataGrid = memo(function TableDataGrid(
       }
       return tableRow;
     });
+
+    // Append new transformed rows to cache
+    cache.transformed = [...cache.transformed, ...newTransformed];
+    cache.transformedCount = rows.length;
+    cache.sourceRows = rows;
+
+    return cache.transformed;
   }, [queryData?.rows, queryData?.columnMeta, queryData?.columns]);
 
   const {
@@ -1815,7 +1859,7 @@ export const TableDataGrid = memo(function TableDataGrid(
 
       // Create a draft row with default values
       const draftRow = finalColumns.reduce<GridRowModel>((acc, column) => {
-        const cell: FrontCellValue = {
+        const cell: GridCellValue = {
           value: null,
           db_type: column.meta?.db_type ?? column.type ?? "text",
           value_type: "Null",
@@ -2090,7 +2134,7 @@ export const TableDataGrid = memo(function TableDataGrid(
         } as const;
       }
 
-      const cellValue = row[column.field] as FrontCellValue | null | undefined;
+      const cellValue = row[column.field] as GridCellValue | null | undefined;
 
       // Extract embedded FK value if this is an FK column
       // Use the embeddedFKFieldMap to find the field for the embedded column
@@ -2099,7 +2143,7 @@ export const TableDataGrid = memo(function TableDataGrid(
       if (column.meta?.is_fk && column.name) {
         const embeddedField = embeddedFKFieldMapRef.current.get(column.name);
         if (embeddedField) {
-          const embeddedCell = row[embeddedField] as FrontCellValue | null | undefined;
+          const embeddedCell = row[embeddedField] as GridCellValue | null | undefined;
           if (embeddedCell?.value != null) {
             embeddedValue = String(embeddedCell.value);
           }
