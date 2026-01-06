@@ -5,11 +5,17 @@ import type { TableDataRow } from "./tableDataTypes";
 import type { ColumnMeta } from "@/types/database";
 import type { FilterConfig, SortConfig } from "@/types/filter";
 import type { EmbeddedFKConfig } from "@/adapters/types";
-import { mapBackendColumnsToColumnMeta } from "./tableDataTransform";
+import {
+  mapBackendColumnsToColumnMeta,
+  normalizeBackendValue,
+} from "./tableDataTransform";
 import { type RawCellValue } from "./backend";
 import { getStreamDecodeWorker } from "./streamDecodeWorkerClient";
 import { getAdapterForConnection } from "@/adapters";
-import { filterConfigToWhereClause, sortConfigToOrderBy } from "@/adapters/formatting";
+import {
+  filterConfigToWhereClause,
+  sortConfigToOrderBy,
+} from "@/adapters/formatting";
 import { IntrospectionService } from "./introspectionService";
 
 export interface StreamProgress {
@@ -113,20 +119,29 @@ export async function streamEntityPage(
     embeddedFKs,
   };
 
-  const sql = (embeddedFKs?.length
-    ? adapter.selectWithEmbeddedFK({ schema, table: entityName }, selectOptions)
-    : adapter.select({ schema, table: entityName }, selectOptions)) as string;
+  const sql = (
+    embeddedFKs?.length
+      ? adapter.selectWithEmbeddedFK(
+          { schema, table: entityName },
+          selectOptions,
+        )
+      : adapter.select({ schema, table: entityName }, selectOptions)
+  ) as string;
 
   // CRITICAL FIX: Wrap in promise to ensure we only resolve after ALL callbacks complete
   return new Promise<StreamEntityPageResult>((resolve, reject) => {
     // Don't use columnsHint directly when embeddedFKs are present
     // because the actual query has additional columns (__qp_fk__*) not in the hint
-    let resolvedColumns: ColumnMeta[] | null = embeddedFKs?.length ? null : (columnsHint ?? null);
+    let resolvedColumns: ColumnMeta[] | null = embeddedFKs?.length
+      ? null
+      : columnsHint ?? null;
     const rows: TableDataRow[] = [];
     let executionTimeMs: number | undefined;
     // Normalize invalid estimates (reltuples can be -1 for unanalyzed tables)
     let estimatedTotal: number | undefined =
-      estimatedTotalHint != null && estimatedTotalHint > 0 ? estimatedTotalHint : undefined;
+      estimatedTotalHint != null && estimatedTotalHint > 0
+        ? estimatedTotalHint
+        : undefined;
     let isEstimatedCount = true; // Start as estimated (from pg_class.reltuples or similar)
 
     const abortHandler = () => {
@@ -404,6 +419,16 @@ export interface StreamingTableResult {
   ipcSendMs?: number;
 }
 
+/**
+ * Normalize raw rows containing BigInt values to JSON-serializable format.
+ * JS can't JSON.stringify BigInt, which breaks React DevTools profiling.
+ */
+function normalizeRawRows(rows: RawCellValue[][]): RawCellValue[][] {
+  return rows.map((row) =>
+    row.map((cell) => normalizeBackendValue(cell) as RawCellValue),
+  );
+}
+
 class TableStreamingService {
   private unlistener?: () => void;
   private accumulatedRows: RawCellValue[][] = [];
@@ -464,11 +489,13 @@ class TableStreamingService {
             },
             onBatch: (batch, totalSoFar) => {
               clearTimeout(timeoutId);
-              this.accumulatedRows.push(...batch.rows);
+              // Normalize BigInt values to strings (JS can't JSON.stringify BigInt)
+              const normalizedRows = normalizeRawRows(batch.rows);
+              this.accumulatedRows.push(...normalizedRows);
               if (onProgress) {
                 onProgress({
                   rowsFetched: totalSoFar,
-                  newRows: batch.rows,
+                  newRows: normalizedRows,
                   rowOffset: batch.rowOffset,
                 });
               }
@@ -486,7 +513,9 @@ class TableStreamingService {
                   clearInterval(pollInterval);
 
                   const finalResult: StreamingTableResult = {
-                    columns: mapBackendColumnsToColumnMeta(streamResult.columns),
+                    columns: mapBackendColumnsToColumnMeta(
+                      streamResult.columns,
+                    ),
                     rows: this.accumulatedRows,
                     isComplete: true,
                     totalRows: streamResult.totalRows,
@@ -514,7 +543,7 @@ class TableStreamingService {
               setTimeout(() => {
                 clearInterval(pollInterval);
                 logger.warn(
-                  `⚠️ streamQuery timeout waiting for batches: expected ${expectedRows}, got ${this.accumulatedRows.length}`,
+                  `streamQuery timeout waiting for batches: expected ${expectedRows}, got ${this.accumulatedRows.length}`,
                 );
                 const finalResult: StreamingTableResult = {
                   columns: mapBackendColumnsToColumnMeta(streamResult.columns),
