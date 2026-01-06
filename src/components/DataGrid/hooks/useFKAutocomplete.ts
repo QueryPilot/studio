@@ -57,13 +57,18 @@ function buildFKLookupQuery(
     ? `"${fkRef.displayColumn}"`
     : valueCol;
 
-  // Build WHERE clause for search
+  // Build WHERE clause for search (searches both PK and display column)
   let whereClause = "";
   if (searchTerm && searchTerm.trim()) {
     const escaped = searchTerm.replace(/'/g, "''");
     // Use ILIKE for PostgreSQL, LIKE for others
     const likeOp = dbType === "PostgreSQL" ? "ILIKE" : "LIKE";
-    whereClause = `WHERE CAST(${displayCol} AS TEXT) ${likeOp} '%${escaped}%'`;
+    // Search both PK column and display column
+    if (valueCol === displayCol) {
+      whereClause = `WHERE CAST(${valueCol} AS TEXT) ${likeOp} '%${escaped}%'`;
+    } else {
+      whereClause = `WHERE CAST(${valueCol} AS TEXT) ${likeOp} '%${escaped}%' OR CAST(${displayCol} AS TEXT) ${likeOp} '%${escaped}%'`;
+    }
   }
 
   // Select distinct values with display text
@@ -143,10 +148,21 @@ export function useFKAutocomplete({
         // Map results to FKLookupValue format
         const values: FKLookupValue[] = result.rows
           .slice(0, limit)
-          .map((row) => ({
-            value: row[0],
-            display: String(row[1] ?? row[0] ?? ""),
-          }));
+          .map((row) => {
+            const displayVal = row[1] ?? row[0];
+            let displayStr: string;
+            if (displayVal === null || displayVal === undefined) {
+              displayStr = "";
+            } else if (typeof displayVal === "object") {
+              displayStr = JSON.stringify(displayVal);
+            } else {
+              displayStr = String(displayVal);
+            }
+            return {
+              value: row[0],
+              display: displayStr,
+            };
+          });
 
         return {
           values,

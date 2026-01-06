@@ -134,6 +134,13 @@ function getOrParseColumnMeta(column: GridColumnV2): ParsedColumnMeta {
 // Cell Builder Types
 // ============================================================================
 
+export interface ConnectionContext {
+  connectionId?: string;
+  database?: string;
+  schema?: string;
+  table?: string;
+}
+
 type CellBuilder = (
   rawValue: unknown,
   value: CellValue | null | undefined,
@@ -141,6 +148,7 @@ type CellBuilder = (
   meta: ParsedColumnMeta,
   readOnly: boolean,
   embeddedValue?: string | null,
+  connectionContext?: ConnectionContext,
 ) => GridCell;
 
 // ============================================================================
@@ -493,7 +501,7 @@ const buildUuidCell: CellBuilder = (rawValue, value, column, _meta, readOnly) =>
   });
 };
 
-const buildReferenceCell: CellBuilder = (rawValue, value, column, _meta, readOnly, embeddedValue) => {
+const buildReferenceCell: CellBuilder = (rawValue, value, column, _meta, readOnly, embeddedValue, connectionContext) => {
   const metaWithFk = column.meta as {
     fk_reference?: {
       referenced_schema: string;
@@ -520,6 +528,11 @@ const buildReferenceCell: CellBuilder = (rawValue, value, column, _meta, readOnl
       columnName: column.name,
       isPrimaryKey: Boolean(column.meta?.is_pk),
       dbType: column.meta?.db_type ?? column.type,
+      // Connection context for FK lookup queries in editor
+      connectionId: connectionContext?.connectionId,
+      database: connectionContext?.database,
+      sourceSchema: connectionContext?.schema,
+      sourceTable: connectionContext?.table,
     },
     copyData: refValue ? String(refValue) : "NULL",
     allowOverlay: true,
@@ -790,8 +803,10 @@ export function buildGridCellV2(opts: {
   readOnly?: boolean;
   /** Embedded FK display value extracted from row data (e.g., "john@email.com") */
   embeddedValue?: string | null;
+  /** Connection context for FK editor queries */
+  connectionContext?: ConnectionContext;
 }): GridCell {
-  const { value, column, readOnly = false, embeddedValue } = opts;
+  const { value, column, readOnly = false, embeddedValue, connectionContext } = opts;
   // Include embeddedValue in cache key to ensure cells with different embedded values are cached separately
   const embeddedSuffix = embeddedValue ? `:e:${embeddedValue}` : "";
   const cacheKey = readOnly ? `${column.id}:ro${embeddedSuffix}` : `${column.id}:rw${embeddedSuffix}`;
@@ -823,7 +838,7 @@ export function buildGridCellV2(opts: {
   // Reference/FK cells - check early to handle FK columns that are numeric types
   const metaWithFk = column.meta as { fk_reference?: object } | null | undefined;
   if (column.meta?.is_fk && metaWithFk?.fk_reference) {
-    return buildReferenceCell(rawValue, value, column, meta, readOnly, embeddedValue);
+    return buildReferenceCell(rawValue, value, column, meta, readOnly, embeddedValue, connectionContext);
   }
 
   // Boolean cells

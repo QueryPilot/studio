@@ -1,9 +1,20 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import type { ReferenceCustomCell } from "./types";
-import { Button } from "@/components/ui/button";
-import { IconX, IconSearch, IconLoader2, IconKey } from "@tabler/icons-react";
+import { Command as CommandPrimitive } from "cmdk";
+import {
+  Command,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { IconLoader2, IconKey, IconCheck } from "@tabler/icons-react";
 import { cn } from "@/lib/cn";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
+import { useFKAutocomplete } from "../../hooks/useFKAutocomplete";
+import { useEmbeddedFKPreferencesStore } from "../../stores";
+import { useShallow } from "zustand/shallow";
+import { resolveDisplayColumn } from "../../utils/fkDisplayColumn";
+import { useReferencedTableColumns } from "@/hooks/useReferencedTableColumns";
 
 interface ReferenceCellEditorProps {
   value: ReferenceCustomCell;
@@ -13,71 +24,113 @@ interface ReferenceCellEditorProps {
   ) => void;
 }
 
-interface SearchResult {
-  [key: string]: unknown;
-}
+const INITIAL_LIMIT = 20;
+const DEBOUNCE_MS = 200;
 
 export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
   value,
   onFinishedEditing,
 }) => {
-  const initialValue = value.data.value ? String(value.data.value) : "";
-  const [searchText, setSearchText] = useState<string>(initialValue);
-  const [isSearching, setIsSearching] = useState<boolean>(false);
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
+  const initialValue = value.data.value;
+  const [inputValue, setInputValue] = useState<string>("");
+  const [debouncedSearch, setDebouncedSearch] = useState<string>("");
+  const [activeValue, setActiveValue] = useState<string>("");
   const finishedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Debounced search
-  const performSearch = useCallback(
-    async (query: string) => {
-      if (!query.trim() || !value.data.fkReference) {
-        setResults([]);
-        return;
-      }
+  const { connectionId, database, sourceSchema, sourceTable, fkReference, columnName, isPrimaryKey, dbType, nullable } = value.data;
 
-      setIsSearching(true);
-
-      // TODO: Replace with actual backend call
-      // For now, simulate search delay
-      await new Promise((resolve) => setTimeout(resolve, 300));
-
-      // Mock results - in real implementation, call backend API:
-      // const response = await fetch('/api/table/search', {
-      //   method: 'POST',
-      //   body: JSON.stringify({
-      //     connectionId,
-      //     database,
-      //     schema: value.data.fkReference.schema,
-      //     table: value.data.fkReference.table,
-      //     query,
-      //     limit: 10
-      //   })
-      // });
-
-      setResults([]);
-      setIsSearching(false);
-    },
-    [value.data.fkReference],
+  // Get embedded FK preference for display column
+  const storageKey = useMemo(
+    () => connectionId && sourceSchema && sourceTable
+      ? `${connectionId}:${sourceSchema}.${sourceTable}`
+      : "",
+    [connectionId, sourceSchema, sourceTable]
   );
 
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newText = e.target.value;
-    setSearchText(newText);
-    setSelectedIndex(-1);
+  const embeddedColumns = useEmbeddedFKPreferencesStore(
+    useShallow((state) => {
+      if (!storageKey || !columnName) return [];
+      return state.preferences[storageKey]?.embeddedColumns[columnName] ?? [];
+    })
+  );
 
-    // Clear existing timeout
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
+  // Get referenced table columns for smart display column detection
+  const fkReferencesMap = useMemo(() => {
+    if (!fkReference || !columnName) return new Map();
+    const map = new Map<string, { schema: string; table: string; column: string }>();
+    map.set(columnName, {
+      schema: fkReference.schema,
+      table: fkReference.table,
+      column: fkReference.column,
+    });
+    return map;
+  }, [fkReference, columnName]);
+
+  const referencedTableColumnsMap = useReferencedTableColumns({
+    connectionId: connectionId ?? "",
+    database: database ?? "",
+    fkReferences: fkReferencesMap,
+    enabled: !!connectionId && !!database && fkReferencesMap.size > 0,
+  });
+
+  const refTableColumns = columnName ? referencedTableColumnsMap[columnName] : undefined;
+
+  // Resolve display column using priority: embedded pref > smart detection > PK
+  const displayColumn = useMemo(() => {
+    if (!fkReference) return undefined;
+    return resolveDisplayColumn(fkReference, embeddedColumns, refTableColumns);
+  }, [fkReference, embeddedColumns, refTableColumns]);
+
+  // Fetch FK lookup values
+  const { data: lookupData, isLoading } = useFKAutocomplete({
+    connectionId: connectionId ?? "",
+    database: database ?? "",
+    fkReference: fkReference ? {
+      schema: fkReference.schema,
+      table: fkReference.table,
+      column: fkReference.column,
+      displayColumn,
+    } : null,
+    searchTerm: debouncedSearch || undefined,
+    limit: INITIAL_LIMIT,
+    enabled: !!connectionId && !!database && !!fkReference,
+  });
+
+  const results = useMemo(() => lookupData?.values ?? [], [lookupData?.values]);
+  const hasMore = lookupData?.hasMore ?? false;
+
+  // Auto-focus input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      inputRef.current?.focus();
+    }, 50);
+    return () => { clearTimeout(timer); };
+  }, []);
+
+  // Debounce search input
+  useEffect(() => {
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
     }
+    debounceTimeoutRef.current = setTimeout(() => {
+      setDebouncedSearch(inputValue);
+    }, DEBOUNCE_MS);
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
+  }, [inputValue]);
 
-    // Debounce search
-    searchTimeoutRef.current = setTimeout(() => {
-      void performSearch(newText);
-    }, 300);
-  };
+  // Keep activeValue in sync with results
+  useEffect(() => {
+    const firstResult = results[0];
+    if (results.length > 0 && !activeValue && firstResult) {
+      setActiveValue(String(firstResult.value));
+    }
+  }, [results, activeValue]);
 
   const commit = useCallback(
     (nextValue: string | number | null, displayVal?: string) => {
@@ -90,8 +143,9 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
           ...value.data,
           value: nextValue,
           displayValue: displayVal,
+          embeddedValue: displayVal ?? null,
         },
-        copyData: nextValue ? String(nextValue) : "NULL",
+        copyData: nextValue != null ? String(nextValue) : "NULL",
         allowOverlay: value.allowOverlay,
         readonly: value.readonly,
       };
@@ -101,252 +155,187 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
     [onFinishedEditing, value],
   );
 
-  const handleSelectResult = useCallback(
-    (result: SearchResult) => {
-      const pkColumn = value.data.fkReference?.column || "id";
-      const pkValue = result[pkColumn];
+  const handleSelect = useCallback(
+    async (selectedValue: string) => {
+      if (finishedRef.current) return;
 
-      // Try to find a display value (first string column that's not the PK)
-      const displayCol = Object.keys(result).find(
-        (key) => key !== pkColumn && typeof result[key] === "string",
-      );
-      const displayValue = displayCol
-        ? String(result[displayCol])
-        : String(pkValue);
-
-      if (pkValue !== null && pkValue !== undefined) {
-        commit(pkValue as string | number, displayValue);
+      // Find the result matching this value
+      const result = results.find((r) => String(r.value) === selectedValue);
+      if (result) {
+        commit(result.value as string | number, result.display);
+      } else {
+        // User typed a custom value
+        const trimmed = selectedValue.trim();
+        if (trimmed && !isNaN(Number(trimmed))) {
+          commit(Number(trimmed));
+        } else if (trimmed) {
+          commit(trimmed);
+        }
       }
     },
-    [commit, value.data.fkReference],
+    [commit, results],
   );
 
   const commitCurrentValue = useCallback(() => {
-    // IconCheck if value actually changed
-    const hasChanged = searchText !== initialValue;
+    // Use activeValue (selected item) if available, otherwise use inputValue
+    const valueToCommit = activeValue || inputValue.trim();
 
-    // If no changes were made, cancel the edit
-    if (!hasChanged) {
-      finishedRef.current = true;
-      onFinishedEditing(undefined);
-      return;
-    }
-
-    // If a result is selected, use it
-    if (selectedIndex >= 0 && results[selectedIndex]) {
-      handleSelectResult(results[selectedIndex]);
-      return;
-    }
-
-    // Otherwise commit the search text
-    const trimmed = searchText.trim();
-    if (!trimmed && value.data.nullable) {
-      commit(null);
-    } else if (trimmed) {
-      commit(trimmed);
-    }
-  }, [
-    commit,
-    handleSelectResult,
-    results,
-    searchText,
-    selectedIndex,
-    value.data.nullable,
-    initialValue,
-    onFinishedEditing,
-  ]);
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (finishedRef.current) return;
-
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      finishedRef.current = true;
-      onFinishedEditing(undefined);
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      e.stopPropagation();
-      commitCurrentValue();
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setSelectedIndex((prev) => Math.min(prev + 1, results.length - 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setSelectedIndex((prev) => Math.max(prev - 1, -1));
-    } else if (e.key === "Tab") {
-      e.preventDefault();
-      e.stopPropagation();
-      const movement: readonly [-1 | 0 | 1, -1 | 0 | 1] = e.shiftKey
-        ? [-1, 0]
-        : [1, 0];
-      finishedRef.current = true;
-
-      // Commit the current value before moving
-      // If a result is selected, use it; otherwise use the search text
-      if (selectedIndex >= 0 && results[selectedIndex]) {
-        const result = results[selectedIndex];
-        const pkColumn = value.data.fkReference?.column || "id";
-        const pkValue = result[pkColumn];
-
-        const displayCol = Object.keys(result).find(
-          (key) => key !== pkColumn && typeof result[key] === "string",
-        );
-        const displayValue = displayCol
-          ? String(result[displayCol])
-          : String(pkValue);
-
-        const newCell: ReferenceCustomCell = {
-          kind: value.kind,
-          data: {
-            ...value.data,
-            value: pkValue as string | number,
-            displayValue,
-          },
-          copyData: String(pkValue),
-          allowOverlay: value.allowOverlay,
-          readonly: value.readonly,
-        };
-
-        onFinishedEditing(newCell, movement);
+    if (!valueToCommit) {
+      if (nullable) {
+        commit(null);
+      } else if (initialValue == null) {
+        finishedRef.current = true;
+        onFinishedEditing(undefined);
       } else {
-        const trimmed = searchText.trim();
-        const committedValue: string | null =
-          !trimmed && value.data.nullable ? null : trimmed || null;
-
-        const newCell: ReferenceCustomCell = {
-          kind: value.kind,
-          data: {
-            ...value.data,
-            value: committedValue,
-            displayValue: undefined,
-          },
-          copyData: committedValue ?? "NULL",
-          allowOverlay: value.allowOverlay,
-          readonly: value.readonly,
-        };
-
-        onFinishedEditing(newCell, movement);
+        finishedRef.current = true;
+        onFinishedEditing(undefined);
       }
+      return;
     }
-  };
 
-  const handleClear = () => {
-    if (value.data.nullable) {
-      commit(null);
+    // Find matching result
+    const result = results.find((r) => String(r.value) === valueToCommit);
+    if (result) {
+      commit(result.value as string | number, result.display);
+    } else if (!isNaN(Number(valueToCommit))) {
+      commit(Number(valueToCommit));
+    } else {
+      commit(valueToCommit);
     }
-  };
+  }, [activeValue, inputValue, results, commit, nullable, initialValue, onFinishedEditing]);
 
   useCommitOnUnmount(finishedRef, commitCurrentValue);
 
-  const fkRef = value.data.fkReference;
-  const refTableName = fkRef ? `${fkRef.schema}.${fkRef.table}` : "unknown";
-  const { columnName, isPrimaryKey, dbType } = value.data;
+  const refTableName = fkReference ? `${fkReference.schema}.${fkReference.table}` : "unknown";
 
   return (
-    <div className="w-full h-full click-outside-ignore">
-      <div className="absolute inset-0 flex flex-col bg-background border border-border rounded-md shadow-lg z-50 min-w-[400px] min-h-[300px]">
-        {/* Header with column info */}
-        <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50">
-          {isPrimaryKey && (
-            <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
-          )}
-          <span className="text-[10px] font-medium text-foreground/80">
-            {columnName}
+    <div className="w-full h-full flex flex-col relative click-outside-ignore z-50">
+      {/* Header with column info */}
+      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
+        {isPrimaryKey && (
+          <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
+        )}
+        <span className="text-[11px] font-medium text-foreground/80">
+          {columnName}
+        </span>
+        <span className="text-[10px] text-muted-foreground">→</span>
+        <span className="text-[10px] text-muted-foreground font-mono">
+          {refTableName}
+        </span>
+        {dbType && (
+          <span className="text-[10px] text-muted-foreground ml-auto font-mono">
+            {dbType}
           </span>
-          {dbType && (
-            <span className="text-[9px] text-muted-foreground ml-auto">
-              {dbType}
-            </span>
-          )}
-        </div>
+        )}
+      </div>
 
-        {/* Editor content */}
-        <div className="flex flex-col p-2 gap-2 flex-1">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>Search in {refTableName}</span>
-            {value.data.nullable && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-5 px-2 text-xs"
-                onClick={handleClear}
-                title="Clear (NULL)"
-              >
-                <IconX className="h-3 w-3" />
-              </Button>
-            )}
-          </div>
-
-          <div className="relative">
-            <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-            <input
-              autoCapitalize="off"
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck={false}
+      {/* Command combobox */}
+      <div className="flex items-center flex-1">
+        <Command
+          className="w-full border-0 rounded-none shadow-none"
+          shouldFilter={false}
+          value={activeValue}
+          onValueChange={setActiveValue}
+        >
+          <div className="flex items-center border-b relative">
+            <CommandPrimitive.Input
               ref={inputRef}
-              type="text"
-              value={searchText}
-              autoFocus
-              onFocus={(e) => {
-                e.target.select();
+              placeholder="Search by ID or value..."
+              value={inputValue}
+              onValueChange={setInputValue}
+              className={cn(
+                "h-full w-full bg-transparent py-1.5 px-2 text-xs outline-none",
+                "placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
+              )}
+              onKeyDown={(e) => {
+                if (finishedRef.current) return;
+
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void handleSelect(activeValue || inputValue);
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  finishedRef.current = true;
+                  onFinishedEditing(undefined);
+                } else if (e.key === "Tab") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  finishedRef.current = true;
+                  const movement: readonly [-1 | 0 | 1, -1 | 0 | 1] = e.shiftKey
+                    ? [-1, 0]
+                    : [1, 0];
+
+                  const valueToCommit = activeValue || inputValue.trim();
+                  if (valueToCommit) {
+                    const result = results.find((r) => String(r.value) === valueToCommit);
+                    const newCell: ReferenceCustomCell = {
+                      kind: value.kind,
+                      data: {
+                        ...value.data,
+                        value: result ? (result.value as string | number) : (!isNaN(Number(valueToCommit)) ? Number(valueToCommit) : valueToCommit),
+                        displayValue: result?.display,
+                        embeddedValue: result?.display ?? null,
+                      },
+                      copyData: valueToCommit,
+                      allowOverlay: value.allowOverlay,
+                      readonly: value.readonly,
+                    };
+                    onFinishedEditing(newCell, movement);
+                  } else {
+                    onFinishedEditing(value, movement);
+                  }
+                }
               }}
-              onChange={handleSearchChange}
-              onKeyDown={handleKeyDown}
-              className="w-full h-8 pl-7 pr-2 text-xs bg-background border border-border rounded outline-none"
-              placeholder="Search any column..."
             />
-            {isSearching && (
-              <IconLoader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 animate-spin text-muted-foreground" />
+            {isLoading && (
+              <IconLoader2 className="absolute right-2 h-3.5 w-3.5 animate-spin text-muted-foreground" />
             )}
           </div>
-
-          {results.length > 0 && (
-            <div className="flex flex-col gap-1 max-h-[300px] overflow-y-auto">
-              {results.map((result, index) => {
-                const pkColumn = value.data.fkReference?.column || "id";
-                const pkValue = result[pkColumn];
-                const displayColumns = Object.keys(result).slice(0, 3);
-
+          <CommandList className="max-h-[200px]">
+            <CommandGroup>
+              {results.length === 0 && !isLoading && (
+                <div className="py-3 text-center text-xs text-muted-foreground">
+                  {inputValue ? "No results found" : "No records available"}
+                </div>
+              )}
+              {results.map((result) => {
+                const resultValue = String(result.value);
+                const isCurrent = result.value === initialValue;
                 return (
-                  <button
-                    key={index}
-                    onClick={() => {
-                      handleSelectResult(result);
-                    }}
-                    className={cn(
-                      "flex flex-col gap-0.5 p-2 text-left text-xs rounded hover:bg-accent",
-                      selectedIndex === index && "bg-accent",
-                    )}
+                  <CommandItem
+                    key={resultValue}
+                    value={resultValue}
+                    onSelect={() => { void handleSelect(resultValue); }}
+                    className="text-xs flex items-center justify-between"
                   >
-                    <div className="font-mono text-[10px] text-muted-foreground">
-                      {pkColumn}: {String(pkValue)}
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono text-muted-foreground w-12 shrink-0">
+                        {resultValue}
+                      </span>
+                      <span className="truncate">
+                        {result.display !== resultValue ? result.display : ""}
+                      </span>
                     </div>
-                    <div className="flex gap-2">
-                      {displayColumns.map((col) => (
-                        <span key={col} className="truncate">
-                          <span className="text-muted-foreground">{col}:</span>{" "}
-                          {String(result[col])}
-                        </span>
-                      ))}
-                    </div>
-                  </button>
+                    {isCurrent && (
+                      <IconCheck className="h-3 w-3 text-green-600" />
+                    )}
+                  </CommandItem>
                 );
               })}
-            </div>
-          )}
-
-          {!isSearching && searchText && results.length === 0 && (
-            <div className="text-xs text-muted-foreground text-center py-4">
-              No results found
-            </div>
-          )}
-
-          <div className="text-[10px] text-muted-foreground">
-            Type to search • Enter to select • Esc to cancel
+            </CommandGroup>
+          </CommandList>
+          {/* Footer */}
+          <div className="px-2 py-1 border-t border-border/50 bg-muted/30 flex items-center justify-between">
+            <span className="text-[10px] text-muted-foreground">
+              {hasMore ? `${results.length}+ results · Type to narrow` : `${results.length} results`}
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              ↑↓ navigate · Enter select · Esc cancel
+            </span>
           </div>
-        </div>
+        </Command>
       </div>
     </div>
   );
