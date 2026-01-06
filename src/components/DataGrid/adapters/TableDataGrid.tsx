@@ -16,7 +16,7 @@ import type {
 } from "@glideapps/glide-data-grid";
 import { GridCellKind, CompactSelection } from "@glideapps/glide-data-grid";
 import { EditableDataGrid, type EditableDataGridRef } from "../base";
-import type { GridColumnV2, GridRowModel } from "../types";
+import type { GridColumnV2, GridRowModel, GridEditCommitEvent } from "../types";
 import { useTableDataQuery } from "@/hooks/useTableDataQuery";
 import { buildGridCellV2 } from "../utils/cellFactory";
 import { truncateTextToWidth } from "../utils/textUtils";
@@ -1236,6 +1236,24 @@ export const TableDataGrid = memo(function TableDataGrid(
     onEditingChange: setIsEditingCell,
   });
 
+  // Wrapped commit handler that extracts embeddedValue for FK columns
+  const handleCellEditCommitWithEmbedded = useCallback(
+    (event: GridEditCommitEvent): undefined => {
+      // For FK columns, extract and store the embeddedValue from the committed cell
+      if (event.column.meta?.is_fk && event.newValue && "data" in event.newValue) {
+        const data = event.newValue.data;
+        if (typeof data === "object" && data !== null && "embeddedValue" in data) {
+          const columnName = event.column.name ?? event.column.field;
+          const key = `${event.rowIndex}:${columnName}`;
+          const embeddedValue = (data as { embeddedValue?: string | null }).embeddedValue;
+          stagedFKEmbeddedValuesRef.current.set(key, embeddedValue ?? null);
+        }
+      }
+      return handleCellEditCommit(event);
+    },
+    [handleCellEditCommit],
+  );
+
   // Make sure any active editor commits before opening commit preview
   const commitActiveEdit = useCallback(async () => {
     if (!isEditingCell) return;
@@ -1472,6 +1490,18 @@ export const TableDataGrid = memo(function TableDataGrid(
   // Track staged changes in ref for stable access in getCellContent
   const stagedChangesRef = useRef(stagedChanges);
   stagedChangesRef.current = stagedChanges;
+
+  // Track staged FK embedded values (display text) for showing in cells before commit
+  // Key: `${rowIndex}:${columnName}`, Value: embeddedValue string
+  const stagedFKEmbeddedValuesRef = useRef<Map<string, string | null>>(new Map());
+
+  // Cleanup staged FK embedded values when staged changes are cleared (after commit/revert)
+  useEffect(() => {
+    // Clear all staged embedded values when there are no more staged row changes
+    if (stagedChanges.rowChanges.size === 0 && stagedFKEmbeddedValuesRef.current.size > 0) {
+      stagedFKEmbeddedValuesRef.current.clear();
+    }
+  }, [stagedChanges.rowChanges.size]);
 
   const isLargeDataset = deferredDisplayRows.length > 5000;
 
@@ -2137,15 +2167,24 @@ export const TableDataGrid = memo(function TableDataGrid(
       const cellValue = row[column.field] as GridCellValue | null | undefined;
 
       // Extract embedded FK value if this is an FK column
-      // Use the embeddedFKFieldMap to find the field for the embedded column
-      // (embedded FK columns are hidden, so they're not in finalColumns)
+      // Priority: 1) Staged FK embedded value (from picker selection) 2) Row data
       let embeddedValue: string | null | undefined;
       if (column.meta?.is_fk && column.name) {
-        const embeddedField = embeddedFKFieldMapRef.current.get(column.name);
-        if (embeddedField) {
-          const embeddedCell = row[embeddedField] as GridCellValue | null | undefined;
-          if (embeddedCell?.value != null) {
-            embeddedValue = String(embeddedCell.value);
+        const columnName = column.name;
+        const stagedKey = `${rowIndex}:${columnName}`;
+        const stagedEmbedded = stagedFKEmbeddedValuesRef.current.get(stagedKey);
+
+        // Check if there's a staged embedded value for this FK cell
+        if (stagedEmbedded !== undefined) {
+          embeddedValue = stagedEmbedded;
+        } else {
+          // Fall back to embedded FK field from row data
+          const embeddedField = embeddedFKFieldMapRef.current.get(columnName);
+          if (embeddedField) {
+            const embeddedCell = row[embeddedField] as GridCellValue | null | undefined;
+            if (embeddedCell?.value != null) {
+              embeddedValue = String(embeddedCell.value);
+            }
           }
         }
       }
@@ -2159,6 +2198,12 @@ export const TableDataGrid = memo(function TableDataGrid(
         column,
         readOnly: isReadOnly,
         embeddedValue,
+        connectionContext: isTableMode ? {
+          connectionId,
+          database,
+          schema: schema ?? "public",
+          table,
+        } : undefined,
       });
 
       // Apply cell-level styling for staged changes
@@ -2518,7 +2563,7 @@ export const TableDataGrid = memo(function TableDataGrid(
               columns={finalColumns}
               getCellContent={getCellContent}
               onCellEditStart={handleCellEditStart}
-              onCellEditCommit={handleCellEditCommit}
+              onCellEditCommit={handleCellEditCommitWithEmbedded}
               onCellEditCancel={handleCellEditCancel}
               onRowAppend={handleRowAppend}
               onRowDelete={handleRowDelete}

@@ -16,6 +16,11 @@ interface ReferenceCellData {
   columnName?: string;
   isPrimaryKey?: boolean;
   dbType?: string;
+  // Connection context for FK lookup queries
+  connectionId?: string;
+  database?: string;
+  sourceSchema?: string;
+  sourceTable?: string;
 }
 
 export interface ReferenceCustomCell extends CustomCell {
