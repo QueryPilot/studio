@@ -6,7 +6,7 @@ import type { ColumnMeta } from "@/types/database";
 import type { FilterConfig, SortConfig } from "@/types/filter";
 import type { EmbeddedFKConfig } from "@/adapters/types";
 import { mapBackendColumnsToColumnMeta } from "./tableDataTransform";
-import { type CellValue } from "./backend";
+import { type RawCellValue } from "./backend";
 import { getStreamDecodeWorker } from "./streamDecodeWorkerClient";
 import { getAdapterForConnection } from "@/adapters";
 import { filterConfigToWhereClause, sortConfigToOrderBy } from "@/adapters/formatting";
@@ -378,7 +378,7 @@ export interface StreamingProgress {
   percentage?: number;
   executionTimeMs?: number;
   // New incremental streaming details
-  newRows?: CellValue[][];
+  newRows?: RawCellValue[][];
   rowOffset?: number;
   columns?: ColumnMeta[];
   started?: boolean;
@@ -392,7 +392,7 @@ export interface StreamingError {
 
 export interface StreamingTableResult {
   columns: ColumnMeta[];
-  rows: CellValue[][];
+  rows: RawCellValue[][];
   isComplete: boolean;
   totalRows?: number;
   executionTimeMs?: number;
@@ -406,7 +406,7 @@ export interface StreamingTableResult {
 
 class TableStreamingService {
   private unlistener?: () => void;
-  private accumulatedRows: CellValue[][] = [];
+  private accumulatedRows: RawCellValue[][] = [];
   private columns?: ColumnMeta[];
   private isStreaming = false;
 

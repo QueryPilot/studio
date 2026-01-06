@@ -259,8 +259,18 @@ export const QueryPanel = memo(function QueryPanel({
     };
   }, []);
 
+  // Ref to track if execution is in progress (prevents double-execution from duplicate events)
+  const isExecutingRef = useRef(false);
+
   const handleExecute = useCallback(
     async (queryToExecute?: string) => {
+      // Guard against double execution (e.g., from both keymap and eventBus)
+      if (isExecutingRef.current) {
+        logger.info("[handleExecute] Skipped - already executing");
+        return;
+      }
+      isExecutingRef.current = true;
+
       logger.info("[handleExecute] Called with:", {
         queryToExecute,
         queryToExecuteLength: queryToExecute?.length || 0,
@@ -307,6 +317,7 @@ export const QueryPanel = memo(function QueryPanel({
       if (!sql) {
         logger.info("[handleExecute] EMPTY QUERY - Showing error toast");
         toast.error("Please enter a query to execute");
+        isExecutingRef.current = false;
         return;
       }
 
@@ -663,6 +674,7 @@ export const QueryPanel = memo(function QueryPanel({
           logger.error("Query execution failed:", error);
         }
       } finally {
+        isExecutingRef.current = false;
         setIsExecuting(false);
         setIsStreaming(false);
         setAbortController(null);
@@ -701,6 +713,7 @@ export const QueryPanel = memo(function QueryPanel({
   const handleCancel = useCallback(() => {
     if (abortController) {
       abortController.abort();
+      isExecutingRef.current = false;
       setIsExecuting(false);
       setIsStreaming(false);
       setAbortController(null);
