@@ -453,10 +453,16 @@ export const QuickFilter = memo(
       }
     }, [mode, loadProviders]);
 
-    // Debounce value and cursor position to reduce expensive operations
-    // 250ms strikes balance between responsiveness and avoiding excessive recalcs
-    const debouncedValue = useDebounce(value, 250);
-    const debouncedCursor = useDebounce(cursorPosition, 250);
+    // Debounce value and cursor position TOGETHER to avoid double effect runs
+    // When both change, we only want one effect execution, not two
+    // Use stable reference via useMemo to prevent debounce reset on every render
+    const inputState = useMemo(
+      () => ({ value, cursor: cursorPosition }),
+      [value, cursorPosition]
+    );
+    const debouncedState = useDebounce(inputState, 250);
+    const debouncedValue = debouncedState.value;
+    const debouncedCursor = debouncedState.cursor;
 
     // Memoize column map for O(1) lookups (Phase 1.3)
     const columnMap = useMemo(() => {
@@ -528,7 +534,12 @@ export const QuickFilter = memo(
         const filtered = getFilteredColumns(searchTerm);
         setSuggestions(filtered);
         setSuggestionType("column");
-        if (filtered.length > 0 && !justAcceptedSuggestion.current) {
+
+        // Don't show suggestion if user already typed exact column name
+        const isExactMatch = filtered.length === 1 &&
+          filtered[0]?.name.toLowerCase() === searchTerm.toLowerCase();
+
+        if (filtered.length > 0 && !justAcceptedSuggestion.current && !isExactMatch) {
           setShowSuggestions(true);
         } else {
           setShowSuggestions(false);
@@ -663,8 +674,8 @@ export const QuickFilter = memo(
         // Update parent value
         onValueChange(newValue);
 
-        // Reset flag using requestAnimationFrame instead of setTimeout
-        requestAnimationFrame(() => {
+        // Reset flag after debounce delay (250ms) + buffer to ensure effect has run
+        setTimeout(() => {
           justAcceptedSuggestion.current = false;
         });
       },
@@ -862,7 +873,7 @@ export const QuickFilter = memo(
       });
     }, [onValueChange, onModeChange, mode]);
 
-    // CodeMirror change handler (Phase 1.4)
+    // CodeMirror change handler (Phase 1.4) - Optimized to reduce unnecessary state updates
     const handleEditorChange = useCallback(
       (newValue: string) => {
         // Skip if we just switched modes (prevents loop from editor dispatch)
@@ -870,8 +881,11 @@ export const QuickFilter = memo(
           return;
         }
 
+        // Fast path: check for mode-switching prefixes first
+        const firstChar = newValue[0];
+
         // Detect mode shortcuts and switch mode
-        if (newValue.startsWith("?") && mode !== "where") {
+        if (firstChar === "?" && mode !== "where") {
           const contentWithoutPrefix = newValue.slice(1);
           justSwitchedMode.current = true;
           onModeChange("where");
@@ -892,7 +906,7 @@ export const QuickFilter = memo(
           });
           return;
         }
-        if (newValue.startsWith("#") && mode !== "ai") {
+        if (firstChar === "#" && mode !== "ai") {
           const contentWithoutPrefix = newValue.slice(1);
           justSwitchedMode.current = true;
           onModeChange("ai");
@@ -913,7 +927,7 @@ export const QuickFilter = memo(
           });
           return;
         }
-        if (newValue.startsWith("!") && mode !== "search") {
+        if (firstChar === "!" && mode !== "search") {
           const contentWithoutPrefix = newValue.slice(1);
           justSwitchedMode.current = true;
           onModeChange("search");
@@ -948,17 +962,22 @@ export const QuickFilter = memo(
           return;
         }
 
-        // Add prefix for AI/WHERE modes if not present (search mode has no prefix)
-        if (mode === "ai" && !newValue.startsWith("#")) {
-          onValueChange("#" + newValue);
-        } else if (mode === "where" && !newValue.startsWith("?")) {
-          onValueChange("?" + newValue);
+        // Compute the expected prefixed value
+        let expectedValue: string;
+        if (mode === "ai") {
+          expectedValue = "#" + newValue;
+        } else if (mode === "where") {
+          expectedValue = "?" + newValue;
         } else {
-          // Search mode: no prefix needed, just pass the value through
-          onValueChange(newValue);
+          expectedValue = newValue;
+        }
+
+        // Only call onValueChange if value actually changed (avoid unnecessary parent re-renders)
+        if (expectedValue !== value) {
+          onValueChange(expectedValue);
         }
       },
-      [mode, onModeChange, onValueChange],
+      [mode, onModeChange, onValueChange, value],
     );
 
     // Limit rendered suggestions for performance (Phase 2.1)
