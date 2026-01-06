@@ -20,8 +20,16 @@ export interface ConnectionProfile {
 export enum DbType {
   PostgreSQL = "PostgreSQL",
   MySQL = "MySQL",
+  MariaDB = "MariaDB",
   SQLite = "SQLite",
   SQLServer = "SQLServer",
+}
+
+/**
+ * Check if database type is MySQL-compatible (MySQL or MariaDB)
+ */
+export function isMySQLCompatible(dbType: DbType): boolean {
+  return dbType === DbType.MySQL || dbType === DbType.MariaDB;
 }
 
 export enum SslMode {

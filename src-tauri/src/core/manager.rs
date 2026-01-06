@@ -611,7 +611,7 @@ impl ConnectionManager {
     ) -> Result<Box<dyn crate::core::adapter::DbAdapter>> {
         match profile.db_type {
             DbType::PostgreSQL => Ok(Box::new(PostgresAdapter::new())),
-            DbType::MySQL => Ok(Box::new(MySqlAdapter::new())),
+            DbType::MySQL | DbType::MariaDB => Ok(Box::new(MySqlAdapter::new())),
             DbType::SQLite => Ok(Box::new(SqliteAdapter::new())),
             DbType::SQLServer => Ok(Box::new(MssqlAdapter::new())),
         }

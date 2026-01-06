@@ -130,6 +130,7 @@ impl DbAdapter for SqliteAdapter {
                 message: "Connected to SQLite database".to_string(),
                 version: Some(format!("SQLite {}", version)),
                 warnings: vec![],
+                detected_db_type: None,
             })
         })
         .await

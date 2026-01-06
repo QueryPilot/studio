@@ -6,6 +6,7 @@ import type { ConnectionProfile } from "@/types/connection";
 export enum DbType {
   PostgreSQL = "PostgreSQL",
   MySQL = "MySQL",
+  MariaDB = "MariaDB",
   SQLite = "SQLite",
   SQLServer = "SQLServer",
 }
@@ -31,6 +32,8 @@ export interface ConnectionTestResult {
   message: string;
   version?: string;
   warnings: string[];
+  /** Detected database type (e.g., MariaDB detected from MySQL connection) */
+  detected_db_type?: DbType;
 }
 
 export interface ConnectionHealth {
@@ -265,6 +268,50 @@ export interface Trigger {
   enabled: boolean;
   function: string;
   condition?: string;
+}
+
+/**
+ * MySQL/MariaDB Event Scheduler event
+ */
+export interface Event {
+  schema: string;
+  name: string;
+  definer?: string;
+  time_zone?: string;
+  event_type: "ONE TIME" | "RECURRING";
+  execute_at?: string;
+  interval_value?: number;
+  interval_field?: string;
+  starts?: string;
+  ends?: string;
+  status: "ENABLED" | "DISABLED" | "SLAVESIDE_DISABLED";
+  on_completion: "PRESERVE" | "NOT PRESERVE";
+  created?: string;
+  last_altered?: string;
+  last_executed?: string;
+  comment?: string;
+}
+
+/**
+ * MySQL/MariaDB table partition information
+ */
+export interface Partition {
+  schema: string;
+  table_name: string;
+  partition_name: string;
+  subpartition_name?: string;
+  partition_ordinal_position: number;
+  subpartition_ordinal_position?: number;
+  partition_method?: string;
+  subpartition_method?: string;
+  partition_expression?: string;
+  subpartition_expression?: string;
+  partition_description?: string;
+  table_rows?: number;
+  avg_row_length?: number;
+  data_length?: number;
+  index_length?: number;
+  partition_comment?: string;
 }
 
 export interface TableDataResult {

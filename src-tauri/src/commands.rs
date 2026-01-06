@@ -804,7 +804,7 @@ async fn execute_single_fetch_stream(
         DbType::PostgreSQL => {
             execute_postgres_stream(sql, metadata_channel, data_channel, conn).await
         }
-        DbType::MySQL => {
+        DbType::MySQL | DbType::MariaDB => {
             execute_generic_stream(sql, metadata_channel, data_channel, conn).await
         }
         DbType::SQLite => {

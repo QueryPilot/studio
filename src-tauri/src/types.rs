@@ -31,8 +31,26 @@ impl ConnectionProfile {
 pub enum DbType {
     PostgreSQL,
     MySQL,
+    MariaDB,
     SQLite,
     SQLServer,
+}
+
+impl DbType {
+    /// Parse version string to detect MariaDB vs MySQL
+    /// MariaDB version strings contain "MariaDB" (e.g., "10.11.2-MariaDB")
+    pub fn detect_mysql_variant(version: &str) -> DbType {
+        if version.to_lowercase().contains("mariadb") {
+            DbType::MariaDB
+        } else {
+            DbType::MySQL
+        }
+    }
+
+    /// Check if this is a MySQL-compatible database (MySQL or MariaDB)
+    pub fn is_mysql_compatible(&self) -> bool {
+        matches!(self, DbType::MySQL | DbType::MariaDB)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -504,6 +522,10 @@ pub struct ConnectionTestResult {
     pub message: String,
     pub version: Option<String>,
     pub warnings: Vec<String>,
+    /// Detected database type (e.g., MariaDB detected from MySQL connection)
+    /// Only set when detected type differs from configured type
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detected_db_type: Option<DbType>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

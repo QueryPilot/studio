@@ -6,7 +6,7 @@
  * - No schema support (SQLite doesn't have schemas)
  * - Booleans as 1/0
  * - Dates as ISO strings
- * - RETURNING clause support (SQLite 3.35+)
+ * - Version-aware syntax (RETURNING, DROP COLUMN, RENAME COLUMN)
  */
 
 import { DbType } from '@/types/connection';
@@ -14,9 +14,20 @@ import type { ColumnDefinitionInput } from '@/types/crud';
 import { SqlAdapter } from '../base/SqlAdapter';
 import type { ColumnInfo, TableRef, InsertOptions, RowData, WhereClause } from '../types';
 import { quoteIdentifier as sharedQuoteIdentifier } from '../formatting';
+import { getSQLiteFeaturesForConnection } from '@/stores/versionStore';
+import type { SQLiteVersionFeatures } from '../utils/versionUtils';
 
 export class SQLiteAdapter extends SqlAdapter {
   readonly dbType = DbType.SQLite;
+
+  /**
+   * Get version features for this connection
+   * Returns conservative defaults (all features enabled) if version info not available
+   * SQLite is typically bundled with modern versions, so defaults assume latest
+   */
+  private getFeatures(): SQLiteVersionFeatures {
+    return getSQLiteFeaturesForConnection(this.connectionId);
+  }
 
   /**
    * Quote identifier using double quotes (SQL standard)
@@ -94,7 +105,7 @@ export class SQLiteAdapter extends SqlAdapter {
    * SQLite 3.35+ supports RETURNING clause
    */
   protected supportsReturning(): boolean {
-    return true;
+    return this.getFeatures().supportsReturning;
   }
 
   /**
@@ -129,7 +140,7 @@ export class SQLiteAdapter extends SqlAdapter {
   }
 
   /**
-   * Generate UPDATE statement with RETURNING
+   * Generate UPDATE statement with conditional RETURNING
    */
   update(target: TableRef, data: RowData, where: WhereClause): string {
     const table = this.formatTableRef(target);
@@ -143,19 +154,31 @@ export class SQLiteAdapter extends SqlAdapter {
 
     const whereClause = this.buildWhereClause(where);
 
+    let sql = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
+
     // SQLite 3.35+ supports RETURNING
-    return `UPDATE ${table} SET ${setClause} WHERE ${whereClause} RETURNING *`;
+    if (this.supportsReturning()) {
+      sql += ' RETURNING *';
+    }
+
+    return sql;
   }
 
   /**
-   * Generate DELETE statement with RETURNING
+   * Generate DELETE statement with conditional RETURNING
    */
   delete(target: TableRef, where: WhereClause): string {
     const table = this.formatTableRef(target);
     const whereClause = this.buildWhereClause(where);
 
+    let sql = `DELETE FROM ${table} WHERE ${whereClause}`;
+
     // SQLite 3.35+ supports RETURNING
-    return `DELETE FROM ${table} WHERE ${whereClause} RETURNING *`;
+    if (this.supportsReturning()) {
+      sql += ' RETURNING *';
+    }
+
+    return sql;
   }
 
   /**
@@ -232,19 +255,36 @@ export class SQLiteAdapter extends SqlAdapter {
 
   /**
    * SQLite 3.35+ supports DROP COLUMN
+   * Older versions require table recreation
    */
   dropColumn(target: TableRef, columnName: string, _cascade?: boolean): string {
+    const features = this.getFeatures();
     const table = this.formatTableRef(target);
-    // SQLite doesn't support CASCADE
-    return `ALTER TABLE ${table} DROP COLUMN ${this.quoteIdentifier(columnName)}`;
+
+    if (features.supportsDropColumn) {
+      // SQLite 3.35+ - SQLite doesn't support CASCADE
+      return `ALTER TABLE ${table} DROP COLUMN ${this.quoteIdentifier(columnName)}`;
+    }
+
+    // SQLite < 3.35 - doesn't support DROP COLUMN
+    return `-- SQLite < 3.35 does not support DROP COLUMN for "${columnName}". Table recreation required.`;
   }
 
   /**
    * SQLite 3.25+ supports RENAME COLUMN
+   * Older versions require table recreation
    */
   renameColumn(target: TableRef, oldName: string, newName: string): string {
+    const features = this.getFeatures();
     const table = this.formatTableRef(target);
-    return `ALTER TABLE ${table} RENAME COLUMN ${this.quoteIdentifier(oldName)} TO ${this.quoteIdentifier(newName)}`;
+
+    if (features.supportsRenameColumn) {
+      // SQLite 3.25+
+      return `ALTER TABLE ${table} RENAME COLUMN ${this.quoteIdentifier(oldName)} TO ${this.quoteIdentifier(newName)}`;
+    }
+
+    // SQLite < 3.25 - doesn't support RENAME COLUMN
+    return `-- SQLite < 3.25 does not support RENAME COLUMN. Table recreation required to rename "${oldName}" to "${newName}".`;
   }
 
   // ─────────────────────────────────────────────────────────────────

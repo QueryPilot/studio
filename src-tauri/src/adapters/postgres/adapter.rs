@@ -262,6 +262,7 @@ impl DbAdapter for PostgresAdapter {
                 message: format!("Connected to {} as {}", database, user),
                 version: Some(version),
                 warnings: vec![],
+                detected_db_type: None,
             })
         } else {
             Err(AppError::ConnectionClosed("Not connected".into()))

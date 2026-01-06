@@ -2,9 +2,10 @@ import { useMemo, useEffect } from 'react';
 import { useHomeScreenStore } from '../../store/homeScreenStore';
 import { WelcomeSection } from './WelcomeSection';
 import { ConnectionsSection } from './ConnectionsSection';
-import { ERDWorkspacesSection } from './ERDWorkspacesSection';
 import { ConnectionForm } from './ConnectionForm';
 import { ConnectionRow } from '../shared/ConnectionRow';
+import { SecondaryTagFilter } from '../shared/SecondaryTagFilter';
+import { ERDWorkspacesSection } from './ERDWorkspacesSection';
 import { useConnectionStore } from '@/stores/connectionStoreNew';
 import { toast } from 'sonner';
 

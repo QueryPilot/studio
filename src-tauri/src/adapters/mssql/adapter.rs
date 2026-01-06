@@ -193,6 +193,7 @@ impl DbAdapter for MssqlAdapter {
                     ),
                     version: version.map(|s| s.to_string()),
                     warnings: vec![],
+                    detected_db_type: None,
                 })
             }
             None => Err(AppError::DatabaseError(

@@ -7,6 +7,7 @@
  * - Boolean as 1/0
  * - No RETURNING clause support
  * - DateTime format without timezone
+ * - Version-aware syntax (MySQL 5.7 vs 8.0, MariaDB 10.x)
  */
 
 import { DbType } from '@/types/connection';
@@ -17,9 +18,19 @@ import {
   quoteIdentifier as sharedQuoteIdentifier,
   escapeString as sharedEscapeString,
 } from '../formatting';
+import { getMySQLFeaturesForConnection } from '@/stores/versionStore';
+import type { MySQLVersionFeatures } from '../utils/versionUtils';
 
 export class MySQLAdapter extends SqlAdapter {
   readonly dbType = DbType.MySQL;
+
+  /**
+   * Get version features for this connection
+   * Returns conservative defaults if version info not available
+   */
+  private getFeatures(): MySQLVersionFeatures {
+    return getMySQLFeaturesForConnection(this.connectionId);
+  }
 
   /**
    * Quote identifier with backticks (MySQL standard)
@@ -153,13 +164,29 @@ export class MySQLAdapter extends SqlAdapter {
   }
 
   /**
-   * MySQL uses CHANGE COLUMN for rename
+   * MySQL column rename - version-aware syntax
+   *
+   * MySQL 8.0+ / MariaDB 10.5.2+: RENAME COLUMN
+   * MySQL 5.7 / MariaDB < 10.5.2: CHANGE COLUMN (requires full definition)
+   *
+   * For older versions, we return a placeholder comment since we don't have
+   * the current column definition. The user should use SHOW CREATE TABLE
+   * to get the full definition and construct the CHANGE COLUMN manually.
    */
   renameColumn(target: TableRef, oldName: string, newName: string): string {
     const table = this.formatTableRef(target);
-    // MySQL CHANGE requires full column definition - simplified version
-    // In practice, you'd need to query the current column definition first
-    return `ALTER TABLE ${table} RENAME COLUMN ${this.quoteIdentifier(oldName)} TO ${this.quoteIdentifier(newName)}`;
+    const features = this.getFeatures();
+
+    if (features.supportsRenameColumn) {
+      // MySQL 8.0+ / MariaDB 10.5.2+
+      return `ALTER TABLE ${table} RENAME COLUMN ${this.quoteIdentifier(oldName)} TO ${this.quoteIdentifier(newName)}`;
+    }
+
+    // MySQL 5.7 / older MariaDB - CHANGE COLUMN requires full definition
+    // Return a helpful comment since we can't safely rename without knowing the type
+    return `-- MySQL 5.7 requires full column definition for rename.\n` +
+      `-- Run: SHOW CREATE TABLE ${table};\n` +
+      `-- Then: ALTER TABLE ${table} CHANGE COLUMN ${this.quoteIdentifier(oldName)} ${this.quoteIdentifier(newName)} <column_definition>;`;
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -167,12 +194,17 @@ export class MySQLAdapter extends SqlAdapter {
   // ─────────────────────────────────────────────────────────────────
 
   /**
-   * MySQL DROP INDEX requires ON table
+   * MySQL DROP INDEX - version-aware IF EXISTS support
+   *
+   * MySQL 8.0.29+ / MariaDB 10.1.4+: Supports IF EXISTS
+   * Older versions: Must omit IF EXISTS or check existence first
    */
   dropIndex(target: TableRef, indexName: string, ifExists?: boolean): string {
     const table = this.formatTableRef(target);
-    // MySQL 8.0.29+ supports IF EXISTS, older versions don't
-    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    const features = this.getFeatures();
+
+    // Only include IF EXISTS if the database supports it
+    const ifExistsClause = ifExists && features.supportsDropIndexIfExists ? 'IF EXISTS ' : '';
     return `DROP INDEX ${ifExistsClause}${this.quoteIdentifier(indexName)} ON ${table}`;
   }
 
@@ -438,6 +470,62 @@ WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
 ORDER BY TABLE_NAME, COLUMN_NAME`;
   }
 
+  /**
+   * Get events (MySQL Event Scheduler) in a schema
+   */
+  getEventsQuery(schema: string): string {
+    return `
+SELECT
+    EVENT_SCHEMA as schema_name,
+    EVENT_NAME as event_name,
+    DEFINER as definer,
+    TIME_ZONE as time_zone,
+    EVENT_TYPE as event_type,
+    EXECUTE_AT as execute_at,
+    INTERVAL_VALUE as interval_value,
+    INTERVAL_FIELD as interval_field,
+    STARTS as starts,
+    ENDS as ends,
+    STATUS as status,
+    ON_COMPLETION as on_completion,
+    CREATED as created,
+    LAST_ALTERED as last_altered,
+    LAST_EXECUTED as last_executed,
+    EVENT_COMMENT as comment
+FROM information_schema.EVENTS
+WHERE EVENT_SCHEMA = '${this.escapeString(schema)}'
+ORDER BY EVENT_NAME`;
+  }
+
+  /**
+   * Get partitions for a table (MySQL/MariaDB)
+   */
+  getPartitionsQuery(schema: string, table: string): string {
+    return `
+SELECT
+    TABLE_SCHEMA as schema_name,
+    TABLE_NAME as table_name,
+    PARTITION_NAME as partition_name,
+    SUBPARTITION_NAME as subpartition_name,
+    PARTITION_ORDINAL_POSITION as partition_ordinal_position,
+    SUBPARTITION_ORDINAL_POSITION as subpartition_ordinal_position,
+    PARTITION_METHOD as partition_method,
+    SUBPARTITION_METHOD as subpartition_method,
+    PARTITION_EXPRESSION as partition_expression,
+    SUBPARTITION_EXPRESSION as subpartition_expression,
+    PARTITION_DESCRIPTION as partition_description,
+    TABLE_ROWS as table_rows,
+    AVG_ROW_LENGTH as avg_row_length,
+    DATA_LENGTH as data_length,
+    INDEX_LENGTH as index_length,
+    PARTITION_COMMENT as partition_comment
+FROM information_schema.PARTITIONS
+WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
+    AND TABLE_NAME = '${this.escapeString(table)}'
+    AND PARTITION_NAME IS NOT NULL
+ORDER BY PARTITION_ORDINAL_POSITION, SUBPARTITION_ORDINAL_POSITION`;
+  }
+
   getObjectDefinitionQuery(
     objectType: import('../types').ObjectDefinitionType,
     schema: string,
@@ -574,13 +662,20 @@ GROUP BY Index_name, Non_unique, Table_name, Index_type`;
         constraintDef = `UNIQUE KEY (${definition.columns.map(c => this.quoteIdentifier(c)).join(', ')})`;
         break;
       
-      case 'check':
+      case 'check': {
         if (!definition.expression) {
           throw new Error('Check constraint requires expression');
         }
-        // MySQL 8.0.16+ supports CHECK constraints
+        const features = this.getFeatures();
+        if (!features.supportsCheckConstraints) {
+          throw new Error(
+            'CHECK constraints require MySQL 8.0.16+ or MariaDB 10.2.1+. ' +
+            'Older versions parse but ignore CHECK constraints.'
+          );
+        }
         constraintDef = `CHECK (${definition.expression})`;
         break;
+      }
       
       case 'exclusion':
         throw new Error('MySQL does not support exclusion constraints');

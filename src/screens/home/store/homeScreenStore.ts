@@ -7,6 +7,7 @@ export const useHomeScreenStore = create<HomeScreenState>()(
     (set) => ({
       contentMode: 'browse',
       selectedConnectionId: null,
+      selectedConnectionIds: new Set<string>(),
       formMode: 'create',
       formConnectionId: null,
       activeEnvFilters: ['all'],
@@ -73,6 +74,32 @@ export const useHomeScreenStore = create<HomeScreenState>()(
             ? state.collapsedGroups.filter((g) => g !== group)
             : [...state.collapsedGroups, group],
         })),
+
+      toggleConnectionSelection: (id: string) =>
+        set((state) => {
+          const newSet = new Set(state.selectedConnectionIds);
+          if (newSet.has(id)) {
+            newSet.delete(id);
+          } else {
+            newSet.add(id);
+          }
+          return { selectedConnectionIds: newSet };
+        }),
+
+      setSelectedConnections: (ids: Set<string>) =>
+        set({ selectedConnectionIds: ids }),
+
+      addToSelection: (ids: string[]) =>
+        set((state) => {
+          const newSet = new Set(state.selectedConnectionIds);
+          ids.forEach((id) => newSet.add(id));
+          return { selectedConnectionIds: newSet };
+        }),
+
+      clearSelection: () => set({ selectedConnectionIds: new Set() }),
+
+      selectAll: (ids: string[]) =>
+        set({ selectedConnectionIds: new Set(ids) }),
     }),
     {
       name: 'home-screen-state',
