@@ -11,10 +11,13 @@ import {
   IconCopy,
   IconCheck,
   IconExternalLink,
+  IconPlus,
 } from "@tabler/icons-react";
 import type { RawCellValue } from "@/services/backend";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { toast } from "sonner";
+import { useEmbeddedFKPreferencesStore } from "../stores";
+import { useShallow } from "zustand/shallow";
 
 interface FKPreviewPopoverProps {
   open: boolean;
@@ -34,6 +37,9 @@ interface FKPreviewPopoverProps {
     height: number;
   };
   onOpenReference?: () => void;
+  sourceColumnName?: string;
+  sourceTable?: string;
+  sourceSchema?: string;
 }
 
 function formatCellValue(value: RawCellValue): string {
@@ -58,8 +64,56 @@ export function FKPreviewPopover({
   database,
   cellBounds,
   onOpenReference,
+  sourceColumnName,
+  sourceTable,
+  sourceSchema,
 }: FKPreviewPopoverProps) {
   const [copiedColumn, setCopiedColumn] = useState<string | null>(null);
+
+  const storageKey = useMemo(
+    () => sourceTable && sourceSchema && connectionId
+      ? `${connectionId}:${sourceSchema}.${sourceTable}`
+      : '',
+    [connectionId, sourceSchema, sourceTable]
+  );
+
+  const setEmbeddedColumns = useEmbeddedFKPreferencesStore(
+    (state) => state.setEmbeddedColumns
+  );
+  const clearEmbeddedColumn = useEmbeddedFKPreferencesStore(
+    (state) => state.clearEmbeddedColumn
+  );
+
+  // Use useShallow to prevent infinite re-renders from array reference changes
+  const embeddedColumns = useEmbeddedFKPreferencesStore(
+    useShallow((state) => {
+      if (!storageKey || !sourceColumnName) return [];
+      return state.preferences[storageKey]?.embeddedColumns[sourceColumnName] ?? [];
+    })
+  );
+
+  const handleToggleEmbed = (columnName: string) => {
+    if (!storageKey || !sourceColumnName) return;
+    const isCurrentlyEmbedded = embeddedColumns.includes(columnName);
+    if (isCurrentlyEmbedded) {
+      // Remove this column from embedded
+      const updated = embeddedColumns.filter(c => c !== columnName);
+      if (updated.length === 0) {
+        clearEmbeddedColumn(storageKey, sourceColumnName);
+      } else {
+        setEmbeddedColumns(storageKey, sourceColumnName, updated);
+      }
+      toast.success(`Removed "${columnName}" embedding`, {
+        description: "Reload to see the change",
+      });
+    } else {
+      // Replace with this column (single embedded value)
+      setEmbeddedColumns(storageKey, sourceColumnName, [columnName]);
+      toast.success(`Embedding "${columnName}" for ${sourceColumnName}`, {
+        description: "Reload to see the embedded value",
+      });
+    }
+  };
 
   const { data, columns, isLoading, error } = useFKPreviewData({
     connectionId,
@@ -163,40 +217,56 @@ export function FKPreviewPopover({
 
           {!isLoading && !error && data && (
             <div className="space-y-2">
-              {columns.map((col) => (
-                <div key={col.name} className="space-y-1">
-                  <div className="flex items-center justify-between px-2">
-                    <span className="text-xs font-medium text-muted-foreground">
-                      {col.name}
-                    </span>
-                    <span className="text-xs text-muted-foreground/60 font-mono">
-                      {col.db_type || "unknown"}
-                    </span>
-                  </div>
-                  <div className="relative group rounded bg-background">
-                    <div className="text-xs font-mono break-all line-clamp-5 p-2 pr-8">
-                      {formatCellValue(data[col.name] ?? null)}
+              {columns.map((col) => {
+                const isEmbedded = embeddedColumns.includes(col.name);
+                return (
+                  <div key={col.name} className="space-y-1">
+                    <div className="flex items-center justify-between px-2">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        {col.name}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-muted-foreground/60 font-mono">
+                          {col.db_type || "unknown"}
+                        </span>
+                        {sourceColumnName && (
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={() => { handleToggleEmbed(col.name); }}
+                            title={isEmbedded ? "Click to remove embedding" : "Embed this column"}
+                            className={isEmbedded ? "text-green-600" : ""}
+                          >
+                            {isEmbedded ? <IconCheck className="h-3 w-3" /> : <IconPlus className="h-3 w-3" />}
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={() => {
-                        handleCopy(
-                          col.name,
-                          formatCellValue(data[col.name] ?? null),
-                        );
-                      }}
-                    >
-                      {copiedColumn === col.name ? (
-                        <IconCheck className="text-green-600" />
-                      ) : (
-                        <IconCopy />
-                      )}
-                    </Button>
+                    <div className="relative group rounded bg-background">
+                      <div className="text-xs font-mono break-all line-clamp-5 p-2 pr-8">
+                        {formatCellValue(data[col.name] ?? null)}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => {
+                          handleCopy(
+                            col.name,
+                            formatCellValue(data[col.name] ?? null),
+                          );
+                        }}
+                      >
+                        {copiedColumn === col.name ? (
+                          <IconCheck className="text-green-600" />
+                        ) : (
+                          <IconCopy />
+                        )}
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

@@ -213,6 +213,12 @@ function drawLinkIcon(ctx: CanvasRenderingContext2D, x: number, y: number, size:
 
 // Determine content alignment based on data type
 function getContentAlignment(column: GridColumnV2): "left" | "right" | "center" {
+  // FK columns are rendered as reference cells with left-aligned content
+  // (format: "42 → john@email.com"), so always align left regardless of underlying type
+  if (column.meta?.is_fk || getFkReference(column)) {
+    return "left";
+  }
+
   const dbType = column.meta?.db_type?.toLowerCase() ?? column.type?.toLowerCase() ?? "text";
 
   // Numbers align right

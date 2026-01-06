@@ -792,7 +792,9 @@ export function buildGridCellV2(opts: {
   embeddedValue?: string | null;
 }): GridCell {
   const { value, column, readOnly = false, embeddedValue } = opts;
-  const cacheKey = readOnly ? `${column.id}:ro` : `${column.id}:rw`;
+  // Include embeddedValue in cache key to ensure cells with different embedded values are cached separately
+  const embeddedSuffix = embeddedValue ? `:e:${embeddedValue}` : "";
+  const cacheKey = readOnly ? `${column.id}:ro${embeddedSuffix}` : `${column.id}:rw${embeddedSuffix}`;
 
   // Try to get from cache first (fast path)
   if (value && typeof value === "object") {
@@ -816,6 +818,12 @@ export function buildGridCellV2(opts: {
   // Enum cells (check first due to explicit enum_values)
   if (column.meta?.enum_values && column.meta.enum_values.length > 0) {
     return buildEnumCell(rawValue, value, column, meta, readOnly);
+  }
+
+  // Reference/FK cells - check early to handle FK columns that are numeric types
+  const metaWithFk = column.meta as { fk_reference?: object } | null | undefined;
+  if (column.meta?.is_fk && metaWithFk?.fk_reference) {
+    return buildReferenceCell(rawValue, value, column, meta, readOnly, embeddedValue);
   }
 
   // Boolean cells
@@ -871,12 +879,6 @@ export function buildGridCellV2(opts: {
   // UUID cells
   if (meta.isUuidDbType) {
     return buildUuidCell(rawValue, value, column, meta, readOnly);
-  }
-
-  // Reference/FK cells
-  const metaWithFk = column.meta as { fk_reference?: object } | null | undefined;
-  if (column.meta?.is_fk && metaWithFk?.fk_reference) {
-    return buildReferenceCell(rawValue, value, column, meta, readOnly, embeddedValue);
   }
 
   // Network types (INET, CIDR, MACADDR)

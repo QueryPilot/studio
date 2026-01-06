@@ -119,7 +119,9 @@ export async function streamEntityPage(
 
   // CRITICAL FIX: Wrap in promise to ensure we only resolve after ALL callbacks complete
   return new Promise<StreamEntityPageResult>((resolve, reject) => {
-    let resolvedColumns: ColumnMeta[] | null = columnsHint ?? null;
+    // Don't use columnsHint directly when embeddedFKs are present
+    // because the actual query has additional columns (__qp_fk__*) not in the hint
+    let resolvedColumns: ColumnMeta[] | null = embeddedFKs?.length ? null : (columnsHint ?? null);
     const rows: TableDataRow[] = [];
     let executionTimeMs: number | undefined;
     // Normalize invalid estimates (reltuples can be -1 for unanalyzed tables)
