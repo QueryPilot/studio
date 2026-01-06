@@ -219,12 +219,20 @@ impl DbAdapter for MySqlAdapter {
             .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
 
         match row {
-            Some((version, database, user)) => Ok(ConnectionTestResult {
-                success: true,
-                message: format!("Connected to {} as {}", database, user),
-                version: Some(version),
-                warnings: vec![],
-            }),
+            Some((version, database, user)) => {
+                // Detect MariaDB from version string (e.g., "10.11.2-MariaDB")
+                let detected_db_type = DbType::detect_mysql_variant(&version);
+                let is_mariadb = detected_db_type == DbType::MariaDB;
+
+                Ok(ConnectionTestResult {
+                    success: true,
+                    message: format!("Connected to {} as {}", database, user),
+                    version: Some(version),
+                    warnings: vec![],
+                    // Only set detected_db_type if it's MariaDB (differs from MySQL)
+                    detected_db_type: if is_mariadb { Some(DbType::MariaDB) } else { None },
+                })
+            }
             None => Err(AppError::DatabaseError(
                 "Failed to get connection info".into(),
             )),

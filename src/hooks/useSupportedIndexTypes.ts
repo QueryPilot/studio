@@ -28,6 +28,10 @@ const DEFAULT_INDEX_TYPES: Record<DbType, { types: string[]; default: string }> 
     types: ["btree", "hash", "fulltext", "spatial"],
     default: "btree",
   },
+  [DbType.MariaDB]: {
+    types: ["btree", "hash", "fulltext", "spatial"],
+    default: "btree",
+  },
   [DbType.SQLite]: {
     types: ["btree"],
     default: "btree",

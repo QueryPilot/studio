@@ -11,11 +11,15 @@ import {
   IconBolt,
   IconBookmark,
   IconAssembly,
+  IconClock,
 } from "@tabler/icons-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePanelStore } from "@/stores/panelStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { databaseService, type TableMeta, type FunctionMeta } from "@/services/databaseService";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { isMySQLCompatible, DbType } from "@/types/connection";
+import { useEventsQuery } from "@/hooks/useEventsQuery";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -101,6 +105,19 @@ export function DatabaseSidebar({
     error,
     refresh: refreshSchemaData,
   } = useSchemaData();
+
+  // Get the connection's database type
+  const connection = useConnectionStore((state) => state.getConnection(connectionId));
+  const dbType = connection?.profile.db_type ?? DbType.PostgreSQL;
+  const isMySQLDb = isMySQLCompatible(dbType);
+
+  // Fetch events for MySQL/MariaDB only
+  const { events, refetch: refetchEvents } = useEventsQuery({
+    connectionId,
+    schema: selectedSchema,
+    dbType,
+    enabled: isMySQLDb && !!selectedSchema,
+  });
 
   const { panels, activePanelId } = usePanelStore();
 
@@ -194,7 +211,7 @@ export function DatabaseSidebar({
   useEffect(() => {
     if (tables.length > 0) {
       setExpandedNodes(
-        (prev) => new Set([...prev, "tables", "views", "functions", "starred"]),
+        (prev) => new Set([...prev, "tables", "views", "functions", "events", "starred"]),
       );
     }
   }, [tables]);
@@ -623,6 +640,10 @@ export function DatabaseSidebar({
     // Refresh schema data
     if (selectedDatabase && selectedSchema) {
       await refreshSchemaData();
+      // Also refresh events for MySQL/MariaDB
+      if (isMySQLDb) {
+        refetchEvents();
+      }
     }
   };
 
@@ -1359,6 +1380,43 @@ export function DatabaseSidebar({
                   />
                 );
               })}
+            </SidebarSection>
+          )}
+
+          {/* Events Section (MySQL/MariaDB only) */}
+          {isMySQLDb && events.length > 0 && (
+            <SidebarSection
+              title="Events"
+              count={events.length}
+              isExpanded={expandedNodes.has("events")}
+              onToggle={() => {
+                toggleNode("events");
+              }}
+              stickyClass="sticky top-0 bg-background z-10"
+            >
+              {events.map((event) => (
+                <SidebarItem
+                  key={`${event.schema}.${event.name}`}
+                  icon={
+                    <IconClock
+                      className={cn(
+                        "h-3.5 w-4 min-w-4 flex-shrink-0",
+                        event.status === "ENABLED"
+                          ? "text-green-500"
+                          : "text-muted-foreground",
+                      )}
+                    />
+                  }
+                  name={event.name}
+                  isActive={false}
+                  onClick={() => {
+                    // Events are read-only, just show a toast with info
+                    toast.info(`Event: ${event.name}`, {
+                      description: `${event.event_type} - ${event.status}`,
+                    });
+                  }}
+                />
+              ))}
             </SidebarSection>
           )}
 

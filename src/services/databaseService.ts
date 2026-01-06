@@ -3,6 +3,7 @@ import { isTauri, safeInvoke, safeEmit } from "@/utils/tauri";
 import { vaultStorage } from "@/services/vaultStorage";
 
 import { BackendAPI, type DbType } from "./backend";
+import { useVersionStore } from "@/stores/versionStore";
 import type { IndexUsageStats } from "./backend";
 import type { ConnectionProfile } from "@/types/connection";
 import { tableStreamingService } from "./tableStreamingService";
@@ -23,7 +24,7 @@ import { performSamlAuth, type SamlRole } from "./samlAuthService";
 export interface ConnectionConfig {
   id: string;
   name: string;
-  db_type: "PostgreSQL" | "MySQL" | "SQLite" | "SQLServer";
+  db_type: "PostgreSQL" | "MySQL" | "MariaDB" | "SQLite" | "SQLServer";
   host: string;
   port: number;
   database: string;
@@ -419,11 +420,21 @@ class DatabaseService {
   }
 
   /**
-   * Test connection health
+   * Test connection health and store version info
    */
   async testConnection(connectionId: string): Promise<boolean> {
     try {
       const result = await BackendAPI.testConnection(connectionId);
+
+      // Store version info for adapters to use
+      if (result.success && result.version) {
+        useVersionStore.getState().setVersion(
+          connectionId,
+          result.version,
+          result.detected_db_type
+        );
+      }
+
       return result.success;
     } catch (error) {
       logger.error("Failed to test connection:", error);

@@ -18,15 +18,18 @@ import {
   IconCopy,
   IconClipboardCheck,
   IconAssembly,
+  IconLayoutGrid,
 } from "@tabler/icons-react";
 import { TableDataGrid } from "@/components/DataGrid";
 import { TableStructure } from "@/components/TableStructure";
 import { TableIndexes } from "@/components/TableIndexes";
 import { TableTriggers } from "@/components/TableTriggers";
+import { TablePartitions } from "@/components/TablePartitions";
 import { ObjectDefinition } from "@/components/ObjectDefinition";
 import { QueryPanel } from "@/components/QueryPanel";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { isMySQLCompatible } from "@/types/connection";
 import { Skeleton } from "../ui/skeleton";
 import { type TabMetadata } from "@/types/workbench";
 import { ERDPanel } from "@/components/Erd";
@@ -250,7 +253,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                     </TabsTrigger>
                   )}
 
-                  {/* Tables: show Indexes, Triggers and Definition */}
+                  {/* Tables: show Indexes, Triggers, Partitions (MySQL only) and Definition */}
                   {!isView && (
                     <>
                       <TabsTrigger value="indexes" tabIndex={2}>
@@ -261,7 +264,13 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                         <IconBolt />
                         <span>Triggers</span>
                       </TabsTrigger>
-                      <TabsTrigger value="definition" tabIndex={4}>
+                      {dbType && isMySQLCompatible(dbType) && (
+                        <TabsTrigger value="partitions" tabIndex={4}>
+                          <IconLayoutGrid />
+                          <span>Partitions</span>
+                        </TabsTrigger>
+                      )}
+                      <TabsTrigger value="definition" tabIndex={dbType && isMySQLCompatible(dbType) ? 5 : 4}>
                         <IconCode />
                         <span>Definition</span>
                       </TabsTrigger>
@@ -355,6 +364,18 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
 
                 {activeView === "triggers" && (
                   <TableTriggers
+                    connectionId={
+                      activeConnectionId || metadata.connectionId || ""
+                    }
+                    database={metadata.database || ""}
+                    schema={metadata.schema}
+                    table={metadata.table || ""}
+                    onActionsChange={handleViewActionsChange}
+                  />
+                )}
+
+                {activeView === "partitions" && dbType && isMySQLCompatible(dbType) && (
+                  <TablePartitions
                     connectionId={
                       activeConnectionId || metadata.connectionId || ""
                     }

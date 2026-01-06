@@ -449,18 +449,6 @@ class TableStreamingService {
   ): Promise<StreamingTableResult> {
     this.cancel();
     return new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        this.isStreaming = false;
-        const error: StreamingError = {
-          message: `Stream timeout: No response from backend after 30 seconds`,
-          code: "STREAM_TIMEOUT",
-        };
-        if (onError) {
-          onError(error);
-        }
-        reject(new Error(error.message));
-      }, 30000);
-
       try {
         this.isStreaming = true;
         this.accumulatedRows = [];
@@ -475,7 +463,6 @@ class TableStreamingService {
           },
           {
             onStarted: (columns, estimatedRows) => {
-              clearTimeout(timeoutId);
               this.columns = mapBackendColumnsToColumnMeta(columns);
               if (onProgress) {
                 onProgress({
@@ -488,7 +475,6 @@ class TableStreamingService {
               }
             },
             onBatch: (batch, totalSoFar) => {
-              clearTimeout(timeoutId);
               // Normalize BigInt values to strings (JS can't JSON.stringify BigInt)
               const normalizedRows = normalizeRawRows(batch.rows);
               this.accumulatedRows.push(...normalizedRows);
@@ -501,7 +487,6 @@ class TableStreamingService {
               }
             },
             onSuccess: (streamResult) => {
-              clearTimeout(timeoutId);
               this.isStreaming = false;
 
               // CRITICAL FIX: Poll until all batches are accumulated
@@ -562,14 +547,12 @@ class TableStreamingService {
               }, 5000);
             },
             onError: (err) => {
-              clearTimeout(timeoutId);
               this.isStreaming = false;
               reject(err);
             },
           },
         );
       } catch (error) {
-        clearTimeout(timeoutId);
         this.isStreaming = false;
         reject(error instanceof Error ? error : new Error(String(error)));
       }
