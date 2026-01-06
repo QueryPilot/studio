@@ -44,6 +44,7 @@ import { useTheme } from "next-themes";
 const dbTypeToDialect: Record<DbType, SqlDialect> = {
   [DbType.PostgreSQL]: "postgresql",
   [DbType.MySQL]: "mysql",
+  [DbType.MariaDB]: "mysql", // MariaDB uses MySQL syntax
   [DbType.SQLite]: "sqlite",
   [DbType.SQLServer]: "mssql",
 };

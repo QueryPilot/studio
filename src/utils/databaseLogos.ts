@@ -3,6 +3,7 @@ import { DbType } from "@/types/connection";
 const DB_LOGO_MAP: Record<DbType, string> = {
   [DbType.PostgreSQL]: "/logos/postgresql-icon.svg",
   [DbType.MySQL]: "/logos/mysql-icon.svg",
+  [DbType.MariaDB]: "/logos/mariadb-icon.svg",
   [DbType.SQLite]: "/logos/sqlite-icon.svg",
   [DbType.SQLServer]: "/logos/mssql-server-logo.svg",
 };

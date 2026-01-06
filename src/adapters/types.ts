@@ -584,6 +584,22 @@ export interface DatabaseAdapter {
   ): string;
 
   // ─────────────────────────────────────────────────────────────────
+  // MySQL/MariaDB-specific Introspection (optional)
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Query to list events in a schema (MySQL/MariaDB only)
+   * Returns empty result for databases that don't support events
+   */
+  getEventsQuery?(schema: string): string;
+
+  /**
+   * Query to list partitions for a table (MySQL/MariaDB only)
+   * Returns empty result for databases that don't support partitions
+   */
+  getPartitionsQuery?(schema: string, table: string): string;
+
+  // ─────────────────────────────────────────────────────────────────
   // Materialized View Operations
   // ─────────────────────────────────────────────────────────────────
 

@@ -16,6 +16,8 @@ import {
   type IndexUsageStats,
   type Constraint,
   type Trigger,
+  type Event,
+  type Partition,
   type QueryColumnMeta,
   TableKind,
   ConstraintType,
@@ -447,6 +449,80 @@ export const IntrospectionService = {
       return getString(result.rows[0]?.[0]);
     }
     return "";
+  },
+
+  /**
+   * Get events in a schema (MySQL/MariaDB only)
+   * Returns empty array for databases that don't support events
+   */
+  async getEvents(connectionId: string, schema: string): Promise<Event[]> {
+    const adapter = await getAdapterForConnection(connectionId);
+
+    // Check if adapter supports events query
+    if (!adapter.getEventsQuery) {
+      return [];
+    }
+
+    const sql = adapter.getEventsQuery(schema);
+    const result = await BackendAPI.query(connectionId, sql);
+
+    return result.rows.map((row) => ({
+      schema: getString(row[0]),
+      name: getString(row[1]),
+      definer: getString(row[2]) || undefined,
+      time_zone: getString(row[3]) || undefined,
+      event_type: getString(row[4]) as "ONE TIME" | "RECURRING",
+      execute_at: getString(row[5]) || undefined,
+      interval_value: getNumber(row[6]),
+      interval_field: getString(row[7]) || undefined,
+      starts: getString(row[8]) || undefined,
+      ends: getString(row[9]) || undefined,
+      status: getString(row[10]) as "ENABLED" | "DISABLED" | "SLAVESIDE_DISABLED",
+      on_completion: getString(row[11]) as "PRESERVE" | "NOT PRESERVE",
+      created: getString(row[12]) || undefined,
+      last_altered: getString(row[13]) || undefined,
+      last_executed: getString(row[14]) || undefined,
+      comment: getString(row[15]) || undefined,
+    }));
+  },
+
+  /**
+   * Get partitions for a table (MySQL/MariaDB only)
+   * Returns empty array for databases that don't support partitions
+   */
+  async getPartitions(
+    connectionId: string,
+    schema: string,
+    table: string,
+  ): Promise<Partition[]> {
+    const adapter = await getAdapterForConnection(connectionId);
+
+    // Check if adapter supports partitions query
+    if (!adapter.getPartitionsQuery) {
+      return [];
+    }
+
+    const sql = adapter.getPartitionsQuery(schema, table);
+    const result = await BackendAPI.query(connectionId, sql);
+
+    return result.rows.map((row) => ({
+      schema: getString(row[0]),
+      table_name: getString(row[1]),
+      partition_name: getString(row[2]),
+      subpartition_name: getString(row[3]) || undefined,
+      partition_ordinal_position: getNumber(row[4]) ?? 0,
+      subpartition_ordinal_position: getNumber(row[5]),
+      partition_method: getString(row[6]) || undefined,
+      subpartition_method: getString(row[7]) || undefined,
+      partition_expression: getString(row[8]) || undefined,
+      subpartition_expression: getString(row[9]) || undefined,
+      partition_description: getString(row[10]) || undefined,
+      table_rows: getNumber(row[11]),
+      avg_row_length: getNumber(row[12]),
+      data_length: getNumber(row[13]),
+      index_length: getNumber(row[14]),
+      partition_comment: getString(row[15]) || undefined,
+    }));
   },
 };
 
