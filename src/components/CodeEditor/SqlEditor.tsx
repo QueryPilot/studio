@@ -88,6 +88,7 @@ import { createRunGutterExtension } from "./extensions/run-gutter";
 // SQL language support
 import { createDialectLinter } from "./languages/sql/linter-strategy";
 import { createSemanticLinter } from "./languages/sql/sql-linter";
+import { createVersionLinter } from "./languages/sql/version-linter";
 import { createSqlHoverExtension } from "./languages/sql/hover";
 import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";
 import { createExpandStarExtension } from "./languages/sql/code-actions";
@@ -505,6 +506,8 @@ export const SqlEditor = memo(
         createSqlHoverExtension(provider, defaultSchema),
         // Semantic linting
         createSemanticLinter(provider, defaultSchema),
+        // Version-aware linting (checks for syntax not supported by connected DB version)
+        createVersionLinter(effectiveDialect, connectionId),
         // Code actions
         createExpandStarExtension(provider, defaultSchema, effectiveDialect),
       ];
