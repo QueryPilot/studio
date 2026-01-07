@@ -62,7 +62,16 @@ export const DataGridBase = forwardRef(function DataGridBase(
   // Glide DataGrid calls getRowThemeOverride during draw, so ref access works
   const hoveredRowRef = useRef<number | null>(null);
 
-  const { width = "100%", height = "100%", className, ...editorProps } = rest;
+  // Destructure props that we handle explicitly to prevent them from being overridden by editorProps spread
+  const {
+    width = "100%",
+    height = "100%",
+    className,
+    getRowThemeOverride: externalGetRowThemeOverride,
+    highlightRegions: externalHighlightRegions,
+    onItemHovered: externalOnItemHovered,
+    ...editorProps
+  } = rest;
 
   // Create theme based on app theme (use resolvedTheme to get actual "dark" or "light" even when "system" is selected)
   const theme = useMemo(
@@ -104,10 +113,10 @@ export const DataGridBase = forwardRef(function DataGridBase(
         }
       }
 
-      rest.onItemHovered?.(args);
+      externalOnItemHovered?.(args);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rest.onItemHovered, columns.length],
+    [externalOnItemHovered, columns.length],
   );
 
   // Merge row hover with external getRowThemeOverride
@@ -115,14 +124,17 @@ export const DataGridBase = forwardRef(function DataGridBase(
   const mergedGetRowThemeOverride = useCallback(
     (rowIndex: number) => {
       // Get external override first
-      const externalOverride = rest.getRowThemeOverride?.(rowIndex);
+      const externalOverride = externalGetRowThemeOverride?.(rowIndex);
 
       // Apply hover highlight (merge with external override)
       if (rowIndex === hoveredRowRef.current) {
+        // Use primary color (golden #D4A52B) for hover
+        // Light: #FAF8F5 base + 8% primary ≈ #F7F1E4
+        // Dark: #110F0C base + 12% primary ≈ #282110
         const hoverBgCell =
           resolvedTheme === "dark"
-            ? "rgba(255, 255, 255, 0.04)"
-            : "rgba(0, 0, 0, 0.03)";
+            ? "#282110"
+            : "#F7F1E4";
 
         // Merge hover bg with external override if exists
         if (externalOverride) {
@@ -139,11 +151,11 @@ export const DataGridBase = forwardRef(function DataGridBase(
       return externalOverride;
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rest.getRowThemeOverride, resolvedTheme],
+    [externalGetRowThemeOverride, resolvedTheme],
   );
 
   // Pass through highlight regions - cell highlight handled by Glide's native hover
-  const cellHighlightRegions = rest.highlightRegions;
+  const cellHighlightRegions = externalHighlightRegions;
 
   const containerClasses = cn(
     "relative h-full w-full overflow-hidden bg-background",
