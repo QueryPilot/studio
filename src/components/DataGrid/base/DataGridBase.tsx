@@ -128,13 +128,13 @@ export const DataGridBase = forwardRef(function DataGridBase(
 
       // Apply hover highlight (merge with external override)
       if (rowIndex === hoveredRowRef.current) {
-        // Use primary color (golden #D4A52B) for hover
-        // Light: #FAF8F5 base + 8% primary ≈ #F7F1E4
-        // Dark: #110F0C base + 12% primary ≈ #282110
+        // Use primary color oklch(0.75 0.16 70) = #ED990E for hover
+        // Light: #FAF8F5 base + 8% primary = #F9F0E3
+        // Dark: #110F0C base + 12% primary = #2B200C
         const hoverBgCell =
           resolvedTheme === "dark"
-            ? "#282110"
-            : "#F7F1E4";
+            ? "#2B200C"
+            : "#F9F0E3";
 
         // Merge hover bg with external override if exists
         if (externalOverride) {
