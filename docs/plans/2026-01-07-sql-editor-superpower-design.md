@@ -6,7 +6,7 @@
 
 ## Executive Summary
 
-Two-phase implementation to fix cursor lag and add 12 intelligent features:
+Two-phase implementation to fix cursor lag and add 15 intelligent features:
 
 1. **Phase 1 (Week 1):** Fix JavaScript performance bottlenecks - smooth typing immediately
 2. **Phase 2 (Weeks 2-3):** Add Rust backend with `sqlparser-rs` for smart features
@@ -174,7 +174,7 @@ src-tauri/src/sql_engine/
 └─ snippets.rs
 ```
 
-**Features:**
+**Features (15 total - covers ~90% of real-world cases):**
 
 | # | Feature | Trigger | Example |
 |---|---------|---------|---------|
@@ -190,6 +190,9 @@ src-tauri/src/sql_engine/
 | 10 | Date/Time | `created_at > ` | `NOW()`, `INTERVAL` |
 | 11 | DB Objects | `DROP INDEX ` | Index names |
 | 12 | Operators | `WHERE age ` | `=`, `BETWEEN`, `IN` |
+| 13 | SELECT * Expand | `SELECT *` action | `SELECT id, name, email, ...` |
+| 14 | Window OVER() | `ROW_NUMBER()` | `ROW_NUMBER() OVER (PARTITION BY ...)` |
+| 15 | Fuzzy Match | `usrNme` | Matches `user_name`, `userName` |
 
 ### Stream H: SQL Formatter
 
@@ -292,7 +295,7 @@ Day 6-8:
 | Completion popup | ~200-500ms | <100ms |
 | Large file (1000 lines) | Lag | Smooth |
 | Linting delay | 800+1000+2000ms | 400ms |
-| Smart suggestions | 5 basic | 12 intelligent |
+| Smart suggestions | 5 basic | 15 intelligent |
 | Multi-dialect | Partial | Full (5) |
 
 ---
@@ -318,7 +321,33 @@ Day 6-8:
 |------|-------------|
 | 1 | Phase 1 complete - cursor lag FIXED |
 | 2 | Phase 2 Rust backend ready |
-| 3 | Phase 2 integration + 12 smart features LIVE |
+| 3 | Phase 2 integration + 15 smart features LIVE |
+
+---
+
+## Competitive Analysis
+
+Compared against DataGrip and DBeaver (industry leaders):
+
+| Feature | Query Pilot | DataGrip | DBeaver |
+|---------|:-----------:|:--------:|:-------:|
+| Auto-Alias | ✓ | ✓ | ✓ |
+| FK-based JOIN | ✓ | ✓ | ✓ |
+| Column suggestions | ✓ | ✓ | ✓ |
+| INSERT template | ✓ | ✓ | ✓ |
+| Snippets | ✓ | ✓ | ✓ |
+| Enum values | ✓ | ✓ | ✓ |
+| Boolean/NULL | ✓ | ✓ | ✓ |
+| JSON paths | ✓ | ✓ | - |
+| Date/Time functions | ✓ | ✓ | ✓ |
+| DB objects | ✓ | ✓ | ✓ |
+| Operators | ✓ | ✓ | ✓ |
+| SELECT * expand | ✓ | ✓ | ✓ |
+| Window OVER() | ✓ | ✓ | - |
+| Fuzzy matching | ✓ | ✓ | - |
+| ML-powered ranking | Phase 3 | ✓ | - |
+
+**Coverage: ~90% of DataGrip's deterministic features**
 
 ---
 
