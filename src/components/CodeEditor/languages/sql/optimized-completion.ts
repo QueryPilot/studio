@@ -20,6 +20,7 @@ import { searchFunctions } from "./functions";
 import type { SqlDialect } from "../../types";
 import { extractTableRefs, resolveTableAlias } from "./shared";
 import { analyzeSqlContext } from "./context";
+import { shouldTriggerCompletion } from "./deferred-completion";
 
 interface CompletionConfig {
   connectionId: string;
@@ -266,6 +267,7 @@ function cleanCache(): void {
 
 /**
  * Quick context analysis - lightweight version for early filtering
+ * Uses smart triggering to avoid completing on every keystroke
  */
 function quickAnalyze(
   context: CompletionContext
@@ -281,23 +283,31 @@ function quickAnalyze(
     return { shouldComplete: true, intent: "column" };
   }
 
-  // Check if explicit trigger
+  // Check if explicit trigger (Ctrl+Space)
   if (context.explicit) {
     return { shouldComplete: true, intent: "unknown" };
   }
 
-  // Need at least 1 char for implicit
-  if (!word || word.text.length < 1) {
-    return { shouldComplete: false, intent: "unknown" };
+  // Get context for smart triggering
+  const line = state.doc.lineAt(pos);
+  const beforeCursor = line.text.slice(0, pos - line.from);
+
+  // Detect last typed character for smart triggering
+  const lastChar = beforeCursor.slice(-1);
+
+  // Use smart trigger check - only complete on meaningful characters
+  if (!shouldTriggerCompletion(lastChar, beforeCursor.slice(0, -1), false)) {
+    // Not a trigger character - require at least 2 chars of identifier
+    if (!word || word.text.length < 2) {
+      return { shouldComplete: false, intent: "unknown" };
+    }
   }
 
   // Check context for table vs column
-  const line = state.doc.lineAt(pos);
-  const beforeCursor = line.text.slice(0, pos - line.from).toUpperCase();
-
+  const beforeCursorUpper = beforeCursor.toUpperCase();
   const tableKeywords = ["FROM ", "JOIN ", "INTO ", "UPDATE ", "TABLE "];
   const isTableContext = tableKeywords.some((kw) =>
-    beforeCursor.trimEnd().endsWith(kw.trimEnd())
+    beforeCursorUpper.trimEnd().endsWith(kw.trimEnd())
   );
 
   return {

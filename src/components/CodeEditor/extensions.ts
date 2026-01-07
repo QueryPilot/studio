@@ -263,9 +263,10 @@ export const getLanguageExtension = (
           // Disable default schema completions when we have custom completions
           schema: connectionId && database ? {} : undefined,
         }),
-        // Enable autocompletion UI
+        // Enable autocompletion UI with 150ms debounce to fix cursor lag
         autocompletion({
           activateOnTyping: true,
+          activateOnTypingDelay: 150,
           maxRenderedOptions: 50,
           defaultKeymap: true,
         }),

@@ -496,9 +496,10 @@ export const SqlEditor = memo(
       return [
         // SQL language support with built-in keyword completion
         sqlLang,
-        // Autocompletion UI settings (no override - uses language-provided sources)
+        // Autocompletion UI settings - debounced to reduce cursor lag
         autocompletion({
           activateOnTyping: true,
+          activateOnTypingDelay: 150, // Debounce to prevent lag on every keystroke
           maxRenderedOptions: 30,
           defaultKeymap: true,
         }),
