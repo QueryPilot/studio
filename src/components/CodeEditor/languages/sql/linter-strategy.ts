@@ -16,7 +16,7 @@
 import type { Extension } from "@codemirror/state";
 import type { SqlDialect } from "../../types";
 import { createPgParserLinter } from "./pg-parser-linter";
-import { createWorkerLinter } from "./linter-worker-manager";
+import { createUnifiedLinter } from "./unified-linter";
 
 /**
  * Linter strategy configuration per dialect.
@@ -37,20 +37,20 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
     description: "pg-parser WASM (PL/pgSQL support)",
   },
   mysql: {
-    linter: () => createWorkerLinter("mysql"),
-    description: "Web Worker validation",
+    linter: () => createUnifiedLinter({ dialect: "mysql" }),
+    description: "Unified linter (400ms debounce)",
   },
   sqlite: {
-    linter: () => createWorkerLinter("sqlite"),
-    description: "Web Worker validation",
+    linter: () => createUnifiedLinter({ dialect: "sqlite" }),
+    description: "Unified linter (400ms debounce)",
   },
   mssql: {
-    linter: () => createWorkerLinter("mssql"),
-    description: "Web Worker validation",
+    linter: () => createUnifiedLinter({ dialect: "mssql" }),
+    description: "Unified linter (400ms debounce)",
   },
   plsql: {
-    linter: () => createWorkerLinter("plsql"),
-    description: "Web Worker validation (Oracle PL/SQL)",
+    linter: () => createUnifiedLinter({ dialect: "plsql" }),
+    description: "Unified linter (400ms debounce)",
   },
 };
 

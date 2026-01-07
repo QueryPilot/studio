@@ -518,6 +518,7 @@ mod connection_types_tests {
             message: "Connection successful".to_string(),
             version: Some("PostgreSQL 15.0".to_string()),
             warnings: vec![],
+            detected_db_type: None,
         };
 
         assert!(success.success);
@@ -528,6 +529,7 @@ mod connection_types_tests {
             message: "Connection refused".to_string(),
             version: None,
             warnings: vec!["Port 5432 is not reachable".to_string()],
+            detected_db_type: None,
         };
 
         assert!(!failure.success);

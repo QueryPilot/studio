@@ -66,6 +66,9 @@ bit-vec = "0.6"
 time = { version = "0.3", features = ["serde"] }
 base64 = "0.21"
 
+# SQL Parsing
+sqlparser = { version = "0.52", features = ["serde"] }
+
 # Utilities
 dashmap = "5.5"
 thiserror = "1.0"
