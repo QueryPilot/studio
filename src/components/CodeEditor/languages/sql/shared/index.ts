@@ -31,3 +31,5 @@ export {
   buildQualifiedName,
   isQualifiedIdentifier,
 } from "./identifier";
+
+export { AstCache, astCache, type CachedData } from "./ast-cache";

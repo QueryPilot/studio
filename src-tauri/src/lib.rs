@@ -6,6 +6,7 @@ pub mod core;
 pub mod error;
 pub mod keychain;
 pub mod sentry_integration;
+pub mod sql_engine;
 pub mod ssh;
 pub mod state;
 pub mod storage;

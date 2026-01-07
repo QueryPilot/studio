@@ -140,6 +140,10 @@ fn main() {
             updater::check_for_updates,
             updater::download_update,
             updater::install_update,
+            // SQL Engine commands (parsing, validation, completion)
+            sql_engine::commands::sql_parse,
+            sql_engine::commands::sql_validate,
+            sql_engine::commands::sql_complete,
         ])
         .build(context)
         .expect("error while building tauri application");

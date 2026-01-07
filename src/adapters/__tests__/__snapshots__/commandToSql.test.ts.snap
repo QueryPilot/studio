@@ -9,7 +9,7 @@ exports[`commandToSql - MySQL > should throw error for materialized view in MySQ
 
 exports[`commandToSql - MySQL > should throw error for sequence in MySQL 1`] = `[Error: MySQL does not support sequences. Use AUTO_INCREMENT instead.]`;
 
-exports[`commandToSql - PostgreSQL > Column Operations > should generate ADD COLUMN statement 1`] = `"ALTER TABLE "public"."users" ADD COLUMN "phone" VARCHAR(20)"`;
+exports[`commandToSql - PostgreSQL > Column Operations > should generate ADD COLUMN statement 1`] = `"ALTER TABLE "public"."users" ADD COLUMN "phone" VARCHAR(20) DEFAULT null"`;
 
 exports[`commandToSql - PostgreSQL > Column Operations > should generate DROP COLUMN statement 1`] = `"ALTER TABLE "public"."users" DROP COLUMN "phone" CASCADE"`;
 
@@ -31,7 +31,7 @@ exports[`commandToSql - PostgreSQL > DML Operations > should generate INSERT sta
 
 exports[`commandToSql - PostgreSQL > DML Operations > should generate UPDATE statement 1`] = `"UPDATE "public"."users" SET "email" = 'newemail@example.com' WHERE "id" = 1 RETURNING *"`;
 
-exports[`commandToSql - PostgreSQL > Index Operations > should generate CREATE INDEX statement 1`] = `"CREATE UNIQUE INDEX "idx_users_email" ON "public"."users" ("email")"`;
+exports[`commandToSql - PostgreSQL > Index Operations > should generate CREATE INDEX statement 1`] = `"CREATE UNIQUE INDEX IF NOT EXISTS "idx_users_email" ON "public"."users" ("email")"`;
 
 exports[`commandToSql - PostgreSQL > Index Operations > should generate DROP INDEX statement 1`] = `"DROP INDEX IF EXISTS "idx_users_email""`;
 
