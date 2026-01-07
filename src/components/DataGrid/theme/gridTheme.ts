@@ -1,60 +1,62 @@
 import type { Theme } from "@glideapps/glide-data-grid";
 
 /**
- * DataGrid theme using oklch-based color palette
+ * DataGrid theme aligned with globals.css oklch color palette
  *
- * Color mappings from globals.css:
- * - Primary: oklch(0.79 0.145 77) ≈ #D4A52B (warm golden)
- * - Dark bg: #110F0C (very dark warm)
- * - Dark card: #1A1714 (dark warm surface)
- * - Dark muted: #252220 (dark warm elevated)
- * - Dark foreground: oklch(0.93 0.008 80) ≈ #EDE9E3
- * - Light bg: oklch(0.98 0.005 80) ≈ #FAF9F7
- * - Light foreground: oklch(0.17 0.008 80) ≈ #27231E
+ * Color mappings (verified via oklch→sRGB conversion):
+ * - Primary: oklch(0.75 0.16 70) = #ED990E (rich amber)
+ * - Light background: oklch(0.98 0.005 80) = #FAF8F5
+ * - Dark background: oklch(0.17 0.008 80) = #110F0C
+ * - Light foreground: oklch(0.17 0.008 80) = #110F0C
+ * - Dark foreground: oklch(0.93 0.008 80) = #EBE7E2
+ * - Light muted: oklch(0.94 0.008 80) = #EEEBE5
+ * - Dark muted: oklch(0.25 0.01 80) = #24211C
+ * - Light border: oklch(0.88 0.02 80) = #DED6C9
+ * - Dark border: oklch(0.32 0.015 80) = #37322A
  */
 export const createDataGridTheme = (appTheme: string): Partial<Theme> => {
   const isDark = appTheme === "dark";
 
   return {
-    // Accent colors - primary oklch(0.79 0.145 77)
-    accentColor: "#D4A52B",
-    accentLight: "rgba(212, 165, 43, 0.1)",
+    // Accent colors - primary oklch(0.75 0.16 70) = #ED990E
+    accentColor: "#ED990E",
+    accentLight: "rgba(237, 153, 14, 0.1)",
     accentFg: "#110F0C",
 
     // Text colors matching oklch theme
-    textDark: isDark ? "#EBE7E2" : "#27231E",
-    textMedium: isDark ? "rgba(235, 231, 226, 0.7)" : "rgba(39, 35, 30, 0.7)",
-    textLight: isDark ? "rgba(235, 231, 226, 0.5)" : "rgba(39, 35, 30, 0.5)",
-    textBubble: isDark ? "#EBE7E2" : "#27231E",
+    textDark: isDark ? "#EBE7E2" : "#110F0C",
+    textMedium: isDark ? "rgba(235, 231, 226, 0.7)" : "rgba(17, 15, 12, 0.7)",
+    textLight: isDark ? "rgba(235, 231, 226, 0.5)" : "rgba(17, 15, 12, 0.5)",
+    textBubble: isDark ? "#EBE7E2" : "#110F0C",
 
-    // Header colors
+    // Header colors - using muted oklch(0.94/0.25)
     bgIconHeader: isDark ? "#24211C" : "#EEEBE5",
-    fgIconHeader: isDark ? "#EBE7E2" : "#27231E",
-    textHeader: isDark ? "#EBE7E2" : "#27231E",
+    fgIconHeader: isDark ? "#EBE7E2" : "#110F0C",
+    textHeader: isDark ? "#EBE7E2" : "#110F0C",
     textHeaderSelected: "#110F0C",
 
-    // Cell backgrounds - dark: #110F0C, light: #FAF8F5
+    // Cell backgrounds - dark: oklch(0.17) = #110F0C, light: oklch(0.98) = #FAF8F5
     bgCell: isDark ? "#110F0C" : "#FAF8F5",
-    bgCellMedium: isDark ? "#15120F" : "#F5F3F0",
+    bgCellMedium: isDark ? "#1A1714" : "#F5F2ED",
     bgHeader: isDark ? "#24211C" : "#EEEBE5",
     bgHeaderHasFocus: isDark ? "#24211C" : "#EEEBE5",
-    bgHeaderHovered: isDark ? "#2E2A25" : "#E5E2DC",
+    bgHeaderHovered: isDark ? "#37322A" : "#DED6C9",
 
     // Other backgrounds
-    bgBubble: isDark ? "#2E2A25" : "#EEEBE5",
-    bgBubbleSelected: "#D4A52B",
+    bgBubble: isDark ? "#24211C" : "#EEEBE5",
+    bgBubbleSelected: "#ED990E",
 
-    bgSearchResult: "rgba(212, 165, 43, 0.2)",
+    bgSearchResult: "rgba(237, 153, 14, 0.2)",
 
-    // Borders - using theme border colors
-    borderColor: isDark ? "rgba(237, 233, 227, 0.1)" : "rgba(39, 35, 30, 0.1)",
+    // Borders - using theme border colors oklch(0.88/0.32)
+    borderColor: isDark ? "rgba(235, 231, 226, 0.1)" : "rgba(17, 15, 12, 0.1)",
     horizontalBorderColor: isDark
-      ? "rgba(237, 233, 227, 0.05)"
-      : "rgba(39, 35, 30, 0.05)",
+      ? "rgba(235, 231, 226, 0.05)"
+      : "rgba(17, 15, 12, 0.05)",
     drilldownBorder: isDark
-      ? "rgba(237, 233, 227, 0.2)"
-      : "rgba(39, 35, 30, 0.2)",
-    linkColor: "#D4A52B",
+      ? "rgba(235, 231, 226, 0.2)"
+      : "rgba(17, 15, 12, 0.2)",
+    linkColor: "#ED990E",
 
     cellHorizontalPadding: 8,
     cellVerticalPadding: 4,
