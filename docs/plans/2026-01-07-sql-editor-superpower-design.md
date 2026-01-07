@@ -6,7 +6,7 @@
 
 ## Executive Summary
 
-Two-phase implementation to fix cursor lag and add 15 intelligent features:
+Two-phase implementation to fix cursor lag and add 19 intelligent features:
 
 1. **Phase 1 (Week 1):** Fix JavaScript performance bottlenecks - smooth typing immediately
 2. **Phase 2 (Weeks 2-3):** Add Rust backend with `sqlparser-rs` for smart features
@@ -163,18 +163,20 @@ chrono = "0.4"
 - Type compatibility
 - Best practices (SELECT *, missing WHERE)
 
-### Stream G: Smart Completion (12 Features)
+### Stream G: Smart Completion (19 Features)
 
 **Files:**
 ```
 src-tauri/src/sql_engine/
 ├─ completion.rs
 ├─ join_suggester.rs
-├─ templates.rs
-└─ snippets.rs
+├─ templates.rs          # INSERT/UPDATE templates
+├─ snippets.rs
+├─ sp_params.rs          # Stored procedure/function params
+└─ cte_inference.rs      # CTE column inference
 ```
 
-**Features (15 total - covers ~90% of real-world cases):**
+**Features (19 total - covers ~95% of real-world cases):**
 
 | # | Feature | Trigger | Example |
 |---|---------|---------|---------|
@@ -193,6 +195,10 @@ src-tauri/src/sql_engine/
 | 13 | SELECT * Expand | `SELECT *` action | `SELECT id, name, email, ...` |
 | 14 | Window OVER() | `ROW_NUMBER()` | `ROW_NUMBER() OVER (PARTITION BY ...)` |
 | 15 | Fuzzy Match | `usrNme` | Matches `user_name`, `userName` |
+| 16 | SP/Func Params | `EXEC sp_name @` | Parameter names + types + defaults |
+| 17 | UPDATE Template | `UPDATE users SET` | `SET col1 = ?, col2 = ?` |
+| 18 | CTE Column Infer | `WITH cte AS (...) SELECT ` | Columns from CTE definition |
+| 19 | Bracket Match | `(`, `BEGIN` | Highlight matching `)`/`END` |
 
 ### Stream H: SQL Formatter
 
@@ -204,6 +210,10 @@ src-tauri/src/sql_engine/
 - `src-tauri/src/sql_engine/commands.rs`
 - `src/services/sqlEngineService.ts`
 - `src/components/CodeEditor/languages/sql/rust-completion.ts`
+- `src/components/CodeEditor/languages/sql/bracket-matching.ts` (NEW)
+
+**Note:** Bracket matching (#19) uses CodeMirror's built-in `bracketMatching()` extension
+with custom SQL keyword pairs (`BEGIN/END`, `CASE/END`, `IF/END IF`).
 
 **Tauri Commands:**
 ```rust
@@ -295,17 +305,17 @@ Day 6-8:
 | Completion popup | ~200-500ms | <100ms |
 | Large file (1000 lines) | Lag | Smooth |
 | Linting delay | 800+1000+2000ms | 400ms |
-| Smart suggestions | 5 basic | 15 intelligent |
+| Smart suggestions | 5 basic | 19 intelligent |
 | Multi-dialect | Partial | Full (5) |
 
 ---
 
 ## File Summary
 
-**New Files (19):**
+**New Files (22):**
 - Phase 1: 4 TypeScript files
-- Phase 2 Rust: 13 Rust files
-- Phase 2 JS: 2 TypeScript files
+- Phase 2 Rust: 15 Rust files (+2 for sp_params.rs, cte_inference.rs)
+- Phase 2 JS: 3 TypeScript files (+1 for bracket-matching.ts)
 
 **Modified Files (6):**
 - SqlEditor.tsx, extensions.ts, context.ts, linter-strategy.ts, lib.rs, Cargo.toml
@@ -321,33 +331,55 @@ Day 6-8:
 |------|-------------|
 | 1 | Phase 1 complete - cursor lag FIXED |
 | 2 | Phase 2 Rust backend ready |
-| 3 | Phase 2 integration + 15 smart features LIVE |
+| 3 | Phase 2 integration + 19 smart features LIVE |
 
 ---
 
 ## Competitive Analysis
 
-Compared against DataGrip and DBeaver (industry leaders):
+Compared against DataGrip, DBeaver, SQL Prompt, and dbForge (industry leaders):
 
-| Feature | Query Pilot | DataGrip | DBeaver |
-|---------|:-----------:|:--------:|:-------:|
-| Auto-Alias | ✓ | ✓ | ✓ |
-| FK-based JOIN | ✓ | ✓ | ✓ |
-| Column suggestions | ✓ | ✓ | ✓ |
-| INSERT template | ✓ | ✓ | ✓ |
-| Snippets | ✓ | ✓ | ✓ |
-| Enum values | ✓ | ✓ | ✓ |
-| Boolean/NULL | ✓ | ✓ | ✓ |
-| JSON paths | ✓ | ✓ | - |
-| Date/Time functions | ✓ | ✓ | ✓ |
-| DB objects | ✓ | ✓ | ✓ |
-| Operators | ✓ | ✓ | ✓ |
-| SELECT * expand | ✓ | ✓ | ✓ |
-| Window OVER() | ✓ | ✓ | - |
-| Fuzzy matching | ✓ | ✓ | - |
-| ML-powered ranking | Phase 3 | ✓ | - |
+| Feature | Query Pilot | DataGrip | DBeaver | SQL Prompt | dbForge |
+|---------|:-----------:|:--------:|:-------:|:----------:|:-------:|
+| Auto-Alias | ✓ | ✓ | ✓ | ✓ | ✓ |
+| FK-based JOIN | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Column suggestions | ✓ | ✓ | ✓ | ✓ | ✓ |
+| INSERT template | ✓ | ✓ | ✓ | ✓ | ✓ |
+| UPDATE template | ✓ | ✓ | - | ✓ | ✓ |
+| Snippets | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Enum values | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Boolean/NULL | ✓ | ✓ | ✓ | ✓ | ✓ |
+| JSON paths | ✓ | ✓ | - | - | - |
+| Date/Time functions | ✓ | ✓ | ✓ | ✓ | ✓ |
+| DB objects | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Operators | ✓ | ✓ | ✓ | ✓ | ✓ |
+| SELECT * expand | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Window OVER() | ✓ | ✓ | - | - | ✓ |
+| Fuzzy matching | ✓ | ✓ | - | - | ✓ |
+| SP/Func params | ✓ | ✓ | ✓ | ✓ | ✓ |
+| CTE column infer | ✓ | ✓ | ✓ | - | ✓ |
+| Bracket matching | ✓ | ✓ | ✓ | ✓ | ✓ |
+| ML-powered ranking | Phase 3 | ✓ | - | ✓ | - |
 
-**Coverage: ~90% of DataGrip's deterministic features**
+**Coverage: ~95% of combined features across all competitors**
+
+### Research Sources
+
+- [Red Gate SQL Prompt](https://www.red-gate.com/hub/product-learning/sql-prompt/sql-intellisense-and-autocomplete-in-ssms-and-sql-prompt)
+- [DBeaver SQL Assist](https://dbeaver.com/docs/dbeaver/SQL-Assist-and-Auto-Complete/)
+- [dbForge SQL Complete](https://www.devart.com/dbforge/sql/sqlcomplete/features.html)
+- [Oracle SQL Developer](https://www.thatjeffsmith.com/archive/2019/03/code-completion-for-your-pl-sql/)
+- [PopSQL Changelog](https://popsql.dev/changelog/more-autocomplete-improvements)
+
+### Deliberately Excluded (Low ROI)
+
+| Feature | Why Excluded |
+|---------|--------------|
+| Table hints (NOLOCK, INDEX) | SQL Server specific, niche use case |
+| Code folding | Nice-to-have, not completion feature |
+| Multi-column picker UI | Visual feature, not core completion |
+| Cloud-based completion | Requires external service |
+| SQLCMD mode | SSMS-specific scripting mode |
 
 ---
 
