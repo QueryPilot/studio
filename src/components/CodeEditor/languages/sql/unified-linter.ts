@@ -71,7 +71,7 @@ export function createUnifiedLinter(config: UnifiedLinterConfig): Extension {
         source: `sql-${d.source}`,
       }));
     },
-    { delay: config.delay ?? 400 }
+    { delay: config.delay ?? 500 }
   );
 }
 

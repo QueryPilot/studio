@@ -77,6 +77,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     commitChanges,
     discardChanges,
     unstageCommand,
+    clearCommittedChanges,
   } = useCrudStore();
 
   const [isCommitting, setIsCommitting] = useState(false);
@@ -336,6 +337,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
           );
         }
 
+        // Clear committed changes from store now that commit succeeded
+        clearCommittedChanges(tableKey);
+
         toast.success("Changes committed", {
           description: `Successfully committed ${
             result.committed.length
@@ -407,6 +411,11 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             }
           });
         }
+
+        // Clear committed changes from store for all tables
+        connectionCommands.forEach(([tableKey]) => {
+          clearCommittedChanges(tableKey);
+        });
 
         toast.success("All changes committed", {
           description: `Successfully committed ${totalCommitted} change${
@@ -493,6 +502,10 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         const { invalidateTable } = useDataInvalidationStore.getState();
         invalidateTable(connectionId, database, schema, table);
 
+        // Clear committed changes from store
+        const { clearCommittedChanges: clearChanges } = useCrudStore.getState();
+        clearChanges(tableKey);
+
         toast.success("Changes force-committed", {
           description: `Overwrote with your changes (${
             result.committed.length
@@ -513,12 +526,15 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         );
 
         const { invalidateTable } = useDataInvalidationStore.getState();
+        const { clearCommittedChanges: clearChanges } = useCrudStore.getState();
         connectionCommands.forEach(([tk]) => {
           const parts = tk.split(":");
           const [connId, db, sch, tbl] = parts;
           if (connId && db && tbl) {
             invalidateTable(connId, db, sch, tbl);
           }
+          // Clear committed changes for each table
+          clearChanges(tk);
         });
 
         toast.success("All changes force-committed", {
