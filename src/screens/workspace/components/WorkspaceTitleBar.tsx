@@ -236,6 +236,8 @@ export function WorkspaceTitleBar({
     redo,
     historyIndex,
     history,
+    isCommittingAll,
+    setIsCommittingAll,
   } = useCrudStore();
 
   // Combined connecting state (initial + reconnecting)
@@ -257,7 +259,6 @@ export function WorkspaceTitleBar({
   const canRedo = historyIndex < history.length - 1;
 
   const [showGlobalChanges, setShowGlobalChanges] = useState(false);
-  const [isCommittingAll, setIsCommittingAll] = useState(false);
   const [commitProgress, setCommitProgress] = useState(0);
   const commitProgressRef = useRef<NodeJS.Timeout | null>(null);
 
