@@ -78,9 +78,13 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     discardChanges,
     unstageCommand,
     clearCommittedChanges,
+    isCommittingAll,
   } = useCrudStore();
 
-  const [isCommitting, setIsCommitting] = useState(false);
+  // Local committing state for dialog-initiated commits
+  const [isCommittingLocal, setIsCommittingLocal] = useState(false);
+  // Combined: either dialog is committing OR global Cmd+S is committing
+  const isCommitting = isCommittingLocal || isCommittingAll;
   const [viewMode, setViewMode] = useState<"changes" | "sql">("changes");
   const [copiedSql, setCopiedSql] = useState(false);
   const [conflictError, setConflictError] = useState<string | null>(null);
@@ -285,7 +289,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   }, [generatedSQL]);
 
   const handleCommitAll = async () => {
-    setIsCommitting(true);
+    setIsCommittingLocal(true);
     try {
       if (isTableSpecific) {
         // Table-specific commit
@@ -446,15 +450,15 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
           description: errorMessage,
         });
       }
-      setIsCommitting(false);
+      setIsCommittingLocal(false);
     } finally {
-      setIsCommitting(false);
+      setIsCommittingLocal(false);
     }
   };
 
   // Force commit - strips oldValue from UPDATE commands to bypass conflict check
   const handleForceCommit = async () => {
-    setIsCommitting(true);
+    setIsCommittingLocal(true);
     setConflictError(null);
 
     try {
@@ -550,7 +554,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         description: error instanceof Error ? error.message : "Unknown error",
       });
     } finally {
-      setIsCommitting(false);
+      setIsCommittingLocal(false);
     }
   };
 
