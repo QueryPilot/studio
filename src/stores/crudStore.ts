@@ -69,6 +69,7 @@ export interface CrudStoreState {
   previewMode: "split" | "unified" | "compact";
   isDirty: boolean;
   committingTableKeys: Set<string>; // Track which tables are currently committing
+  isCommittingAll: boolean; // Track global commit-all state (for Cmd+S)
 
   stageCommand: (command: CrudCommand) => StageCommandResult;
   stageCommands: (commands: CrudCommand[]) => StageCommandResult[];
@@ -85,6 +86,7 @@ export interface CrudStoreState {
   getTableKey: (target: CrudCommandTarget) => string;
   getStagedCommands: (tableKey: string) => CrudCommand[];
   isCommitting: (tableKey: string) => boolean;
+  setIsCommittingAll: (value: boolean) => void;
 }
 
 export const useCrudStore = create<CrudStoreState>()((set, get) => {
@@ -97,6 +99,11 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
     previewMode: "split",
     isDirty: false,
     committingTableKeys: new Set<string>(),
+    isCommittingAll: false,
+
+    setIsCommittingAll: (value: boolean) => {
+      set({ isCommittingAll: value });
+    },
 
     stageCommand: (command) => {
       let result: StageCommandResult | undefined;
