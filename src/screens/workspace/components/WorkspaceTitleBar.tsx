@@ -40,7 +40,7 @@ import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import type { DbType } from "@/types/connection";
 import { useNavigate } from "react-router-dom";
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import Fuse, { type IFuseOptions } from "fuse.js";
@@ -257,12 +257,43 @@ export function WorkspaceTitleBar({
   const canRedo = historyIndex < history.length - 1;
 
   const [showGlobalChanges, setShowGlobalChanges] = useState(false);
+  const [isCommittingAll, setIsCommittingAll] = useState(false);
+  const [commitProgress, setCommitProgress] = useState(0);
+  const commitProgressRef = useRef<NodeJS.Timeout | null>(null);
 
   // IconKeyboard shortcuts
   useCommand(
     "workspace.commitAll",
     async () => {
+      // Prevent double-commit
+      if (isCommittingAll) {
+        logger.info("[WorkspaceTitleBar] Already committing, ignoring Cmd+S");
+        return;
+      }
+
       if (totalChanges > 0) {
+        setIsCommittingAll(true);
+        setCommitProgress(0);
+
+        // Start progress animation with different speeds:
+        // 0-80%: fast, 80-90%: slower, 90-98%: much slower, then wait
+        let progress = 0;
+        commitProgressRef.current = setInterval(() => {
+          if (progress < 80) {
+            // Fast: 0-80%
+            progress += 4;
+          } else if (progress < 90) {
+            // Slower: 80-90%
+            progress += 0.5;
+          } else if (progress < 98) {
+            // Much slower: 90-98%
+            progress += 0.1;
+          }
+          // Stop at 98% and wait for completion
+          if (progress > 98) progress = 98;
+          setCommitProgress(progress);
+        }, 50);
+
         try {
           logger.info(
             "[WorkspaceTitleBar] Cmd+S pressed - committing all changes",
@@ -286,6 +317,7 @@ export function WorkspaceTitleBar({
 
           // Broadcast invalidation for all affected tables
           const { invalidateTable } = useDataInvalidationStore.getState();
+          const { clearCommittedChanges } = useCrudStore.getState();
           stagedCommandsSnapshot.forEach(([tableKey]) => {
             const parts = tableKey.split(":");
             const [connId, db, sch, tbl] = parts;
@@ -297,20 +329,40 @@ export function WorkspaceTitleBar({
               );
               invalidateTable(connId, db, sch ?? "public", tbl);
             }
+            // Clear committed changes from store
+            clearCommittedChanges(tableKey);
           });
+
+          // Complete progress to 100%
+          if (commitProgressRef.current) clearInterval(commitProgressRef.current);
+          setCommitProgress(100);
 
           toast.success("All changes committed", {
             description: `Successfully committed ${totalCommitted} change${
               totalCommitted === 1 ? "" : "s"
             }`,
           });
+
+          // Hide progress bar after brief delay
+          await new Promise((resolve) => setTimeout(resolve, 200));
         } catch (error) {
+          // Stop progress on error
+          if (commitProgressRef.current) clearInterval(commitProgressRef.current);
+          setCommitProgress(0);
+
           toast.error("Commit failed", {
             description:
               error instanceof Error
                 ? error.message
                 : "Failed to commit changes",
           });
+        } finally {
+          setIsCommittingAll(false);
+          setCommitProgress(0);
+          if (commitProgressRef.current) {
+            clearInterval(commitProgressRef.current);
+            commitProgressRef.current = null;
+          }
         }
       }
     },
@@ -784,6 +836,26 @@ export function WorkspaceTitleBar({
       className="relative flex items-center justify-between h-8 bg-secondary"
       data-tauri-drag-region
     >
+      {/* Commit Progress Bar - positioned at bottom of title bar */}
+      {(isCommittingAll || commitProgress > 0) && (
+        <div className="absolute bottom-0 left-0 right-0 h-0.5 overflow-hidden z-50 bg-primary/20">
+          <div
+            className={cn(
+              "h-full transition-all duration-150 ease-out relative",
+              commitProgress >= 98 ? "animate-progress-shimmer" : "bg-primary"
+            )}
+            style={{
+              width: `${commitProgress}%`,
+              boxShadow: '0 0 8px var(--primary)',
+              ...(commitProgress >= 98 && {
+                background: 'linear-gradient(90deg, var(--primary) 0%, var(--primary) 40%, oklch(0.85 0.16 70) 50%, var(--primary) 60%, var(--primary) 100%)',
+                backgroundSize: '200% 100%',
+              }),
+            }}
+          />
+        </div>
+      )}
+
       {/* Left Section - Add padding for macOS traffic lights */}
       <div className="flex items-center gap-2.5 pl-20">
         <Button

@@ -45,16 +45,21 @@ const levenshtein = (a: string, b: string): number => {
 
 const suggestKeyword = (identifier: string): string | null => {
   if (!identifier || identifier.length < 3) return null;
-  if (identifier !== identifier.toUpperCase()) return null;
-  if (!UPPERCASE_IDENTIFIER.test(identifier)) return null;
+
+  // Normalize to uppercase for comparison
+  const upper = identifier.toUpperCase();
+
+  // Only check if it looks like a keyword attempt (mostly letters, maybe a typo)
+  if (!/^[A-Z_]+$/i.test(identifier)) return null;
 
   let best: { keyword: string; distance: number } | null = null;
 
   for (const keyword of SQL_KEYWORDS) {
-    if (identifier.length > keyword.length) continue;
-    if (identifier[0] !== keyword[0]) continue;
+    // Allow length difference of 1 (for typos like "FROMm" -> "FROM")
+    if (Math.abs(upper.length - keyword.length) > 1) continue;
+    if (upper[0] !== keyword[0]) continue;
 
-    const distance = levenshtein(identifier, keyword);
+    const distance = levenshtein(upper, keyword);
     if (distance > 1) continue;
 
     if (!best || distance < best.distance) {
@@ -63,7 +68,8 @@ const suggestKeyword = (identifier: string): string | null => {
     }
   }
 
-  return best?.distance === 0 ? null : best?.keyword ?? null;
+  // Return suggestion if distance is exactly 1 (typo)
+  return best?.distance === 1 ? best.keyword : null;
 };
 
 const MAX_SNIPPET_LENGTH = 24;

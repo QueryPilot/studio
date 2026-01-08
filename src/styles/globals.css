@@ -162,6 +162,21 @@
     content-visibility: auto;
     contain-intrinsic-size: auto 500px;
   }
+
+  /* Progress bar shimmer animation for waiting state */
+  .animate-progress-shimmer {
+    animation: progress-shimmer 1.5s ease-in-out infinite;
+  }
+}
+
+/* Progress bar shimmer - gradient slides across */
+@keyframes progress-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
 }
 
 @layer base {

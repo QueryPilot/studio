@@ -87,22 +87,27 @@ const levenshteinOptimized = (a: string, b: string, maxDistance: number = 2): nu
   return matrix[b.length]?.[a.length] ?? maxDistance + 1;
 };
 
-// Suggest keyword only for likely typos
+// Suggest keyword only for likely typos (handles mixed case like "FROMm")
 const suggestKeyword = (identifier: string): string | null => {
-  // Only check uppercase identifiers that look like keywords
   if (!identifier || identifier.length < 3 || identifier.length > 15) return null;
-  if (identifier !== identifier.toUpperCase()) return null;
-  if (!/^[A-Z_]+$/.test(identifier)) return null;
-  if (KEYWORD_SET.has(identifier)) return null;
+
+  // Normalize to uppercase for comparison
+  const upper = identifier.toUpperCase();
+
+  // Only check if it looks like a keyword attempt (mostly letters)
+  if (!/^[A-Z_]+$/i.test(identifier)) return null;
+
+  // Skip if it's already a valid keyword
+  if (KEYWORD_SET.has(upper)) return null;
 
   let best: { keyword: string; distance: number } | null = null;
 
   for (const keyword of SQL_KEYWORDS) {
-    // Skip if first char doesn't match or length difference > 2
-    if (identifier[0] !== keyword[0]) continue;
-    if (Math.abs(identifier.length - keyword.length) > 2) continue;
+    // Skip if first char doesn't match or length difference > 1
+    if (upper[0] !== keyword[0]) continue;
+    if (Math.abs(upper.length - keyword.length) > 1) continue;
 
-    const distance = levenshteinOptimized(identifier, keyword, 1);
+    const distance = levenshteinOptimized(upper, keyword, 1);
     if (distance > 1) continue;
 
     if (!best || distance < best.distance) {
@@ -111,7 +116,8 @@ const suggestKeyword = (identifier: string): string | null => {
     }
   }
 
-  return best?.keyword ?? null;
+  // Return suggestion if distance is exactly 1 (typo)
+  return best?.distance === 1 ? best.keyword : null;
 };
 
 // Token types from simple lexer

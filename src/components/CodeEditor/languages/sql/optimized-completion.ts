@@ -641,6 +641,44 @@ async function fetchCompletions(
       });
     }
 
+    // Add columns from tables in scope (without prefix) - highest priority
+    // This allows typing column names directly without table.prefix
+    const seenColumns = new Set<string>();
+    for (const table of tables) {
+      // Skip CTEs without known columns
+      if (table.isCTE && !table.cteColumns?.length && !table.cteSourceTable) continue;
+
+      // Get columns for this table
+      let columns: Array<{ name: string; dataType: string }> = [];
+
+      if (table.isCTE && table.cteColumns?.length) {
+        // CTE with explicit columns
+        columns = table.cteColumns.map(c => ({ name: c, dataType: "unknown" }));
+      } else if (table.isCTE && table.cteSourceTable) {
+        // CTE with SELECT * from source
+        columns = await provider.listFields(table.cteSourceTable, defaultSchema);
+      } else {
+        // Regular table
+        columns = await provider.listFields(table.name, table.schema || defaultSchema);
+      }
+
+      for (const col of columns) {
+        // Avoid duplicate column names from multiple tables
+        const colKey = col.name.toLowerCase();
+        if (seenColumns.has(colKey)) continue;
+        seenColumns.add(colKey);
+
+        const usageBoost = getUsageBoost("columns", col.name);
+        const prefix = table.alias || table.name;
+        completions.push({
+          label: col.name,
+          type: "property",
+          detail: `${col.dataType} (${prefix})`,
+          boost: 15 + usageBoost, // Highest priority - columns from tables in scope
+        });
+      }
+    }
+
     // Add tables (without auto-appending dot - user can type it for column access)
     for (const entity of entities) {
       if (entity.type === "table") {
