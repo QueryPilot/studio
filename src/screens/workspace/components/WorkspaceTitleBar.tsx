@@ -836,23 +836,27 @@ export function WorkspaceTitleBar({
       className="relative flex items-center justify-between h-8 bg-secondary"
       data-tauri-drag-region
     >
-      {/* Commit Progress Bar - positioned at bottom of title bar */}
+      {/* Commit Progress Bar - Windows 11 style with 3 layers */}
       {(isCommittingAll || commitProgress > 0) && (
-        <div className="absolute bottom-0 left-0 right-0 h-0.5 overflow-hidden z-50 bg-primary/20">
+        <div className="absolute bottom-0 left-0 right-0 h-0.5 z-50">
+          {/* Layer 1: Background track */}
+          <div className="absolute inset-0 bg-primary/20" />
+          
+          {/* Layer 2: Main progress bar (solid) */}
           <div
-            className={cn(
-              "h-full transition-all duration-150 ease-out relative",
-              commitProgress >= 98 ? "animate-progress-shimmer" : "bg-primary"
-            )}
-            style={{
-              width: `${commitProgress}%`,
-              boxShadow: '0 0 8px var(--primary)',
-              ...(commitProgress >= 98 && {
-                background: 'linear-gradient(90deg, var(--primary) 0%, var(--primary) 40%, oklch(0.85 0.16 70) 50%, var(--primary) 60%, var(--primary) 100%)',
-                backgroundSize: '200% 100%',
-              }),
-            }}
+            className="absolute inset-y-0 left-0 bg-primary transition-all duration-150 ease-out"
+            style={{ width: `${commitProgress}%` }}
           />
+          
+          {/* Layer 3: Shimmer overlay (only when waiting at 98%+) */}
+          {commitProgress >= 98 && (
+            <div 
+              className="absolute inset-y-0 left-0 overflow-hidden"
+              style={{ width: `${commitProgress}%` }}
+            >
+              <div className="absolute inset-0 animate-progress-shimmer" />
+            </div>
+          )}
         </div>
       )}
 

@@ -163,13 +163,24 @@
     contain-intrinsic-size: auto 500px;
   }
 
-  /* Progress bar shimmer animation for waiting state */
+  /* Progress bar shimmer animation for waiting state - Windows 11 style */
   .animate-progress-shimmer {
-    animation: progress-shimmer 1.5s ease-in-out infinite;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      transparent 30%,
+      rgba(255, 255, 255, 0.4) 45%,
+      rgba(255, 255, 255, 0.6) 50%,
+      rgba(255, 255, 255, 0.4) 55%,
+      transparent 70%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: progress-shimmer 1.8s linear infinite;
   }
 }
 
-/* Progress bar shimmer - gradient slides across */
+/* Progress bar shimmer - smooth continuous slide */
 @keyframes progress-shimmer {
   0% {
     background-position: 100% 0;
