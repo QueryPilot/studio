@@ -36,51 +36,58 @@ function findActiveStatement(statements: StatementBoundary[], cursorPos: number)
 }
 
 /**
+ * Lightweight state to track cursor position for deferred highlighting.
+ * Avoids heavy getAllStatements() call on every keystroke.
+ */
+interface ActiveStatementState {
+  index: number | null;
+  cursorPos: number;
+  docLength: number;
+}
+
+/**
  * StateField that tracks the active statement index.
  *
  * Performance optimization:
- * - Relies on getAllStatements() internal cache for statement parsing
- * - Only tracks activeIndex (cheap O(n) lookup on selection change)
+ * - Defers getAllStatements() calculation - only stores cursor position
+ * - ViewPlugin does the actual heavy lifting with debouncing
  * - Reference equality check prevents unnecessary updates
  */
-const activeStatementField = StateField.define<number | null>({
+const activeStatementField = StateField.define<ActiveStatementState>({
   create(state) {
-    const statements = getAllStatements(state);
-    if (statements.length === 0) {
-      return null;
-    }
-    return 0; // Default to first statement
+    // Lightweight initial state - actual index computed by ViewPlugin
+    return {
+      index: 0,
+      cursorPos: state.selection.main.head,
+      docLength: state.doc.length,
+    };
   },
   update(value, tr) {
     // Check for explicit effects first
     for (const effect of tr.effects) {
       if (effect.is(setActiveStatementEffect)) {
-        return effect.value;
+        return {
+          ...value,
+          index: effect.value,
+        };
       }
     }
 
-    // Recalculate on document or selection change
+    // Only update cursor position tracking - don't call getAllStatements here
     if (tr.docChanged || tr.selection) {
-      const statements = getAllStatements(tr.state);
+      const newCursorPos = tr.state.selection.main.head;
+      const newDocLength = tr.state.doc.length;
 
-      // Don't highlight if no statements or empty document
-      if (statements.length === 0) {
-        return value === null ? value : null; // Reference equality check
+      // Skip update if nothing relevant changed
+      if (value.cursorPos === newCursorPos && value.docLength === newDocLength) {
+        return value;
       }
 
-      const selection = tr.state.selection.main;
-      const cursorPos = selection.head;
-
-      // Check if entire document is selected (Cmd+A)
-      const entireDocSelected = selection.from === 0 && selection.to === tr.state.doc.length;
-
-      // If entire document selected, highlight the first statement
-      const newActiveIndex = entireDocSelected
-        ? 0
-        : findActiveStatement(statements, cursorPos);
-
-      // Reference equality check - avoid creating new value if unchanged
-      return newActiveIndex === value ? value : newActiveIndex;
+      return {
+        index: value.index, // Keep old index until ViewPlugin updates it
+        cursorPos: newCursorPos,
+        docLength: newDocLength,
+      };
     }
 
     return value;
@@ -109,26 +116,16 @@ const inactiveStatementLine = Decoration.line({
  * All statements get a left border:
  * - Active: primary color (visible)
  * - Inactive: transparent (invisible but maintains layout)
- *
- * Performance: Uses getAllStatements() internal cache (no reparse)
  */
-function buildStatementDecorations(view: EditorView): DecorationSet {
-  // Don't apply decorations if document is empty or whitespace-only
-  const docContent = view.state.doc.toString();
-  if (!docContent.trim()) {
-    return Decoration.none;
-  }
-
-  // Get statements from cache (getAllStatements has internal memoization)
-  const statements = getAllStatements(view.state);
-
+function buildStatementDecorations(
+  view: EditorView,
+  statements: StatementBoundary[],
+  activeIndex: number | null
+): DecorationSet {
   // Don't apply decorations if no statements
   if (statements.length === 0) {
     return Decoration.none;
   }
-
-  // Get active index from StateField
-  const activeIndex = view.state.field(activeStatementField, false);
 
   const decorations: any[] = [];
 
@@ -157,24 +154,75 @@ function buildStatementDecorations(view: EditorView): DecorationSet {
  * ViewPlugin that manages statement decorations
  *
  * Performance optimization:
- * - Only rebuilds when StateField reference changes (not on viewport changes)
- * - Reference equality check leverages StateField's optimization
+ * - Debounces ALL updates (doc changes + selection) to avoid lag during typing
+ * - Heavy getAllStatements() work happens here, not in StateField
+ * - Keeps old decorations visible during debounce for smooth UX
  */
 const statementHighlightPlugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
+    private pendingUpdate: ReturnType<typeof setTimeout> | null = null;
+    private cachedStatements: StatementBoundary[] = [];
+    private lastDocLength = 0;
 
     constructor(view: EditorView) {
-      this.decorations = buildStatementDecorations(view);
+      // Initial computation - can be slow on first load but that's okay
+      this.lastDocLength = view.state.doc.length;
+      if (view.state.doc.length > 0) {
+        this.cachedStatements = getAllStatements(view.state);
+        const cursorPos = view.state.selection.main.head;
+        const activeIndex = findActiveStatement(this.cachedStatements, cursorPos);
+        this.decorations = buildStatementDecorations(view, this.cachedStatements, activeIndex);
+      } else {
+        this.decorations = Decoration.none;
+      }
     }
 
     update(update: ViewUpdate) {
-      // Only rebuild if StateField reference changed (includes doc/selection changes)
-      const oldActiveIndex = update.startState.field(activeStatementField, false);
-      const newActiveIndex = update.state.field(activeStatementField, false);
+      // Skip if document is empty
+      if (update.state.doc.length === 0) {
+        this.decorations = Decoration.none;
+        return;
+      }
 
-      if (oldActiveIndex !== newActiveIndex || update.docChanged) {
-        this.decorations = buildStatementDecorations(update.view);
+      const stateField = update.state.field(activeStatementField, false);
+      if (!stateField) return;
+
+      // Cancel any pending update
+      if (this.pendingUpdate) {
+        clearTimeout(this.pendingUpdate);
+      }
+
+      // Debounce both doc changes and selection changes
+      // This is key to preventing lag during rapid typing/deleting
+      this.pendingUpdate = setTimeout(() => {
+        this.pendingUpdate = null;
+
+        // Only recompute statements if document actually changed
+        if (update.state.doc.length !== this.lastDocLength || update.docChanged) {
+          this.cachedStatements = getAllStatements(update.state);
+          this.lastDocLength = update.state.doc.length;
+        }
+
+        // Find active statement based on cursor position
+        const cursorPos = update.state.selection.main.head;
+        const activeIndex = findActiveStatement(this.cachedStatements, cursorPos);
+
+        // Rebuild decorations
+        this.decorations = buildStatementDecorations(
+          update.view,
+          this.cachedStatements,
+          activeIndex
+        );
+
+        // Request re-render
+        update.view.requestMeasure();
+      }, 100); // 100ms debounce - feels instant but prevents lag
+    }
+
+    destroy() {
+      if (this.pendingUpdate) {
+        clearTimeout(this.pendingUpdate);
       }
     }
   },

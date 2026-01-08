@@ -61,7 +61,7 @@ export const createPgParserLinter = (): Extension => {
       }
     },
     {
-      delay: 300, // Can use shorter delay now since parsing is off-thread
+      delay: 500, // Increased from 300ms - reduces visual flickering during rapid typing
       needsRefresh: (update) => update.docChanged,
     }
   );
