@@ -71,25 +71,28 @@ export function FKPreviewPopover({
   const [copiedColumn, setCopiedColumn] = useState<string | null>(null);
 
   const storageKey = useMemo(
-    () => sourceTable && sourceSchema && connectionId
-      ? `${connectionId}:${sourceSchema}.${sourceTable}`
-      : '',
-    [connectionId, sourceSchema, sourceTable]
+    () =>
+      sourceTable && sourceSchema && connectionId
+        ? `${connectionId}:${sourceSchema}.${sourceTable}`
+        : "",
+    [connectionId, sourceSchema, sourceTable],
   );
 
   const setEmbeddedColumns = useEmbeddedFKPreferencesStore(
-    (state) => state.setEmbeddedColumns
+    (state) => state.setEmbeddedColumns,
   );
   const clearEmbeddedColumn = useEmbeddedFKPreferencesStore(
-    (state) => state.clearEmbeddedColumn
+    (state) => state.clearEmbeddedColumn,
   );
 
   // Use useShallow to prevent infinite re-renders from array reference changes
   const embeddedColumns = useEmbeddedFKPreferencesStore(
     useShallow((state) => {
       if (!storageKey || !sourceColumnName) return [];
-      return state.preferences[storageKey]?.embeddedColumns[sourceColumnName] ?? [];
-    })
+      return (
+        state.preferences[storageKey]?.embeddedColumns[sourceColumnName] ?? []
+      );
+    }),
   );
 
   const handleToggleEmbed = (columnName: string) => {
@@ -97,7 +100,7 @@ export function FKPreviewPopover({
     const isCurrentlyEmbedded = embeddedColumns.includes(columnName);
     if (isCurrentlyEmbedded) {
       // Remove this column from embedded
-      const updated = embeddedColumns.filter(c => c !== columnName);
+      const updated = embeddedColumns.filter((c) => c !== columnName);
       if (updated.length === 0) {
         clearEmbeddedColumn(storageKey, sourceColumnName);
       } else {
@@ -204,7 +207,7 @@ export function FKPreviewPopover({
           )}
 
           {error && (
-            <div className="p-4 text-center text-xs text-destructive">
+            <div className="p-4 text-center text-xs text-destructive select-text">
               {error}
             </div>
           )}
@@ -233,11 +236,21 @@ export function FKPreviewPopover({
                           <Button
                             variant="ghost"
                             size="icon-xs"
-                            onClick={() => { handleToggleEmbed(col.name); }}
-                            title={isEmbedded ? "Click to remove embedding" : "Embed this column"}
+                            onClick={() => {
+                              handleToggleEmbed(col.name);
+                            }}
+                            title={
+                              isEmbedded
+                                ? "Click to remove embedding"
+                                : "Embed this column"
+                            }
                             className={isEmbedded ? "text-green-600" : ""}
                           >
-                            {isEmbedded ? <IconCheck className="h-3 w-3" /> : <IconPlus className="h-3 w-3" />}
+                            {isEmbedded ? (
+                              <IconCheck className="h-3 w-3" />
+                            ) : (
+                              <IconPlus className="h-3 w-3" />
+                            )}
                           </Button>
                         )}
                       </div>

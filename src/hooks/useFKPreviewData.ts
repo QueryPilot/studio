@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { BackendAPI, type CellValue, type QueryColumnMeta } from "@/services/backend";
-import { escapeSqlValue } from "@/utils/columnFilters";
 import { logger } from "@/lib/logger";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { formatTableName, quoteIdentifier, formatValue } from "@/adapters/formatting";
+import { DbType } from "@/types/connection";
 
 interface FKPreviewDataParams {
   connectionId: string;
@@ -118,8 +120,15 @@ export function useFKPreviewData(params: FKPreviewDataParams): FKPreviewDataResu
       setError(null);
 
       try {
-        const escapedValue = escapeSqlValue(pkValue);
-        const sql = `SELECT * FROM "${schema}"."${table}" WHERE "${pkColumn}" = ${escapedValue} LIMIT 1`;
+        // Get connection to determine DB dialect
+        const connection = useConnectionStore.getState().getConnection(connectionId);
+        const dbType = connection?.profile.db_type || DbType.PostgreSQL;
+
+        const tableName = formatTableName(schema, table, dbType);
+        const colName = quoteIdentifier(pkColumn, dbType);
+        const val = formatValue(pkValue, dbType);
+        
+        const sql = `SELECT * FROM ${tableName} WHERE ${colName} = ${val} LIMIT 1`;
 
         logger.debug(`[useFKPreviewData] Fetching FK preview:`, { schema, table, pkColumn, pkValue, sql });
 
