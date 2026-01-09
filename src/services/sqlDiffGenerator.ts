@@ -19,6 +19,10 @@ const DIALECTS = {
     identifierQuote: "`",
     escapeIdentifier: (value: string) => value.replace(/`/g, "``"),
   },
+  [DbType.MariaDB]: {
+    identifierQuote: "`",
+    escapeIdentifier: (value: string) => value.replace(/`/g, "``"),
+  },
   [DbType.SQLite]: {
     identifierQuote: '"',
     escapeIdentifier: (value: string) => value.replace(/"/g, '""'),
@@ -34,6 +38,7 @@ type SupportedDbType = keyof typeof DIALECTS;
 const SQL_TRUE_FALSE: Record<SupportedDbType, { true: string; false: string }> = {
   [DbType.PostgreSQL]: { true: "TRUE", false: "FALSE" },
   [DbType.MySQL]: { true: "TRUE", false: "FALSE" },
+  [DbType.MariaDB]: { true: "TRUE", false: "FALSE" },
   [DbType.SQLite]: { true: "1", false: "0" },
   [DbType.SQLServer]: { true: "1", false: "0" },
 };
@@ -148,7 +153,7 @@ const getTableName = (target: CrudCommandTarget, dbType: SupportedDbType): strin
 };
 
 const buildIndexName = (target: CrudCommandTarget, indexName: string, dbType: SupportedDbType): string => {
-  if (dbType === DbType.MySQL) {
+  if (dbType === DbType.MySQL || dbType === DbType.MariaDB) {
     return quoteIdentifier(indexName, dbType);
   }
   if (dbType === DbType.SQLServer) {
@@ -565,6 +570,7 @@ export class SqlDiffGenerator {
     let sql: string;
     switch (dbType) {
       case DbType.MySQL:
+      case DbType.MariaDB:
         sql = `ALTER TABLE ${tableName} MODIFY COLUMN ${definition};`;
         break;
       case DbType.SQLServer:
@@ -705,7 +711,8 @@ export class SqlDiffGenerator {
 
     let sql: string;
     switch (dbType) {
-      case DbType.MySQL: {
+      case DbType.MySQL:
+      case DbType.MariaDB: {
         const qualifiedNewName = getTableName(
           { ...command.target, table: newTableName },
           dbType,
@@ -737,6 +744,7 @@ export class SqlDiffGenerator {
     let sql: string;
     switch (dbType) {
       case DbType.MySQL:
+      case DbType.MariaDB:
         sql = `ALTER TABLE ${getTableName(command.target, dbType)} DROP INDEX ${quoteIdentifier(
           command.payload.indexName,
           dbType,
@@ -763,6 +771,7 @@ export class SqlDiffGenerator {
     let sql: string;
     switch (dbType) {
       case DbType.MySQL:
+      case DbType.MariaDB:
         sql = `ALTER TABLE ${getTableName(command.target, dbType)} RENAME INDEX ${quoteIdentifier(
           command.payload.indexName,
           dbType,
@@ -818,6 +827,7 @@ export class SqlDiffGenerator {
         sql = `DROP TRIGGER ${trigger};`;
         break;
       case DbType.MySQL:
+      case DbType.MariaDB:
         sql = `DROP TRIGGER ${command.target.schema ? `${quoteIdentifier(command.target.schema, dbType)}.` : ''}${trigger};`;
         break;
       default:
@@ -895,6 +905,7 @@ export class SqlDiffGenerator {
         )};`;
         break;
       case DbType.MySQL:
+      case DbType.MariaDB:
         sql = `ALTER TABLE ${tableName} DROP FOREIGN KEY ${quoteIdentifier(
           command.payload.constraintName,
           dbType,

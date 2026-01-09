@@ -58,8 +58,8 @@ export const TableActionsToolbar = memo(function TableActionsToolbar({
             </Button>
           )}
           <Button variant="default" onClick={onReviewChanges}>
-            <IconDeviceFloppy className="size-3.5!" />
-            Commit
+            <IconDeviceFloppy className="size-3.5! mr-1" />
+            Review
           </Button>
         </>
       )}

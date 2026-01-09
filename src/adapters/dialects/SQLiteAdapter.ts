@@ -409,11 +409,13 @@ FROM pragma_foreign_key_list('${this.escapeString(table)}')`;
 SELECT
     name as column_name,
     type as formatted_type,
-    type as data_type,
+    NULL as type_oid,
     NOT \`notnull\` as nullable,
     pk > 0 as is_primary_key,
     dflt_value as default_value,
-    NULL as comment
+    NULL as comment,
+    NULL as type_category,
+    NULL as enum_values
 FROM pragma_table_info('${this.escapeString(table)}')
 ORDER BY cid`;
   }

@@ -713,6 +713,7 @@ class DatabaseService {
           comment:
             (c as unknown as { comment?: string | null }).comment ?? null,
           enum_values: (c as unknown as { enum_values?: string[] }).enum_values,
+          set_values: (c as unknown as { set_values?: string[] }).set_values,
           type_category: (c as unknown as { type_category?: string })
             .type_category,
         }),

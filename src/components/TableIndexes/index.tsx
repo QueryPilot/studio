@@ -59,6 +59,7 @@ function getDialectFromDbType(dbType: DbType): string {
     case DbType.PostgreSQL:
       return "postgresql";
     case DbType.MySQL:
+    case DbType.MariaDB:
       return "mysql";
     case DbType.SQLite:
       return "sqlite";
