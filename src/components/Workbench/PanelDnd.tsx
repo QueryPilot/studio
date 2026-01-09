@@ -346,7 +346,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
         <div className="overflow-x-auto relative scrollbar-none px-[3px] pt-[3px]">
           <div
             ref={tabsContainerRef}
-            className="flex items-center relative overflow-hidden overflow-x-scroll scrollbar-none"
+            className="flex items-center relative overflow-hidden overflow-x-scroll scrollbar-none rounded-t-md"
           >
             {content.tabIds.map((tabId, index) => {
               const metadata = content.metadata?.[tabId];

@@ -155,7 +155,7 @@ export const MacAddrCellEditor: React.FC<MacAddrCellEditorProps> = ({
   };
 
   return (
-    <div className="w-full h-full flex flex-col relative click-outside-ignore z-50 min-w-[220px]">
+    <div className="w-full h-full flex flex-col relative click-outside-ignore z-50 min-w-[220px] gdg-editor-shell">
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (

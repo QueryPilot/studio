@@ -192,7 +192,7 @@ export const BitCellEditor: React.FC<BitCellEditorProps> = ({
   };
 
   return (
-    <div className="w-full flex flex-col relative click-outside-ignore z-50 min-w-[320px]">
+    <div className="w-full flex flex-col relative click-outside-ignore z-50 min-w-[320px] gdg-editor-shell">
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (

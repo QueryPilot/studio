@@ -280,6 +280,15 @@ export function CommandPalette(): React.ReactElement {
     closePalette,
   );
 
+  const firstVisibleItemId = useMemo(() => {
+    if (nestedMode) return "";
+    if (recentItems.length > 0) return recentItems[0].id;
+    for (const [, items] of groupedItems) {
+      if (items.length > 0) return items[0].id;
+    }
+    return "";
+  }, [nestedMode, recentItems, groupedItems]);
+
   // Get actions for nested mode
   const nestedActions = useMemo(() => {
     if (!nestedMode) return [];
@@ -344,10 +353,25 @@ export function CommandPalette(): React.ReactElement {
     }
   }, [isOpen]);
 
-  // Scroll to top when results change
+  // Reset selection and scroll when results or query change
   useEffect(() => {
+    if (!isOpen) return;
+    if (nestedMode) {
+      if (selectedValue !== "") {
+        setSelectedValue("");
+      }
+      listRef.current?.scrollTo({ top: 0 });
+      return;
+    }
+
+    if (firstVisibleItemId && selectedValue !== firstVisibleItemId) {
+      setSelectedValue(firstVisibleItemId);
+    } else if (!firstVisibleItemId && selectedValue !== "") {
+      setSelectedValue("");
+    }
+
     listRef.current?.scrollTo({ top: 0 });
-  }, [recentItems, groupedItems]);
+  }, [isOpen, nestedMode, query, firstVisibleItemId, selectedValue]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -659,8 +683,14 @@ interface UnifiedItemRowProps {
 }
 
 function UnifiedItemRow({ item, onSelect }: UnifiedItemRowProps) {
+  const keywords = [
+    item.name,
+    item.subtitle,
+    ...item.keywords,
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+
   return (
-    <CommandItem value={item.id} onSelect={onSelect}>
+    <CommandItem value={item.id} keywords={keywords} onSelect={onSelect}>
       <div className="flex justify-between items-center w-full">
         <div className="flex items-center gap-2 flex-1 truncate">
           {getItemIcon(item)}

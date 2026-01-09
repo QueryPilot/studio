@@ -193,7 +193,7 @@ export const TextMultiLineCellEditor: React.FC<TextMultiLineCellEditorProps> =
     }, [value.data.nullable, commit]);
 
     return (
-      <div className="flex flex-col bg-popover shadow-lg click-outside-ignore min-w-[300px] max-w-[600px] w-max">
+      <div className="flex flex-col gdg-editor-shell click-outside-ignore min-w-[300px] max-w-[600px] w-max">
         {/* Header with column info */}
         <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50 shrink-0">
           {isPrimaryKey && (

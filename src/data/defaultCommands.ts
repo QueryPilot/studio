@@ -19,6 +19,8 @@ import { eventBus } from "@/services/eventBus";
 import { windowManager } from "@/services/windowManager";
 import {
   openQueryWithSql,
+  openQueryWithTemplate,
+  openTableDesigner,
   getCreateDatabaseTemplate,
   getCreateSchemaTemplate,
 } from "@/utils/workbench/openers";
@@ -578,7 +580,7 @@ export const defaultCommands: Command[] = [
   },
   {
     id: "workspace.createSchema",
-    label: "Create Schema",
+    label: "New Schema",
     category: "Workspace",
     description: "Create a new schema",
     handler: () => {
@@ -598,6 +600,131 @@ export const defaultCommands: Command[] = [
         schema: null,
         sql,
         title: "Create Schema",
+      });
+      commandPaletteStore.closePalette();
+    },
+  },
+  {
+    id: "workspace.createTable",
+    label: "New Table",
+    category: "Workspace",
+    description: "Create a new table",
+    handler: () => {
+      const workspaceSelection = useWorkspaceSelectionStore.getState();
+      const connectionId = workspaceSelection.connectionId;
+      if (!connectionId) {
+        toast.error("No active connection");
+        return;
+      }
+      openTableDesigner({
+        connectionId,
+        database: workspaceSelection.database,
+        schema: workspaceSelection.schema,
+      });
+      commandPaletteStore.closePalette();
+    },
+  },
+  {
+    id: "workspace.createView",
+    label: "New View",
+    category: "Workspace",
+    description: "Create a new view",
+    handler: () => {
+      const workspaceSelection = useWorkspaceSelectionStore.getState();
+      const connectionId = workspaceSelection.connectionId;
+      if (!connectionId) {
+        toast.error("No active connection");
+        return;
+      }
+      openQueryWithTemplate({
+        connectionId,
+        database: workspaceSelection.database,
+        schema: workspaceSelection.schema,
+        objectType: "view",
+      });
+      commandPaletteStore.closePalette();
+    },
+  },
+  {
+    id: "workspace.createMaterializedView",
+    label: "New Materialized View",
+    category: "Workspace",
+    description: "Create a new materialized view",
+    handler: () => {
+      const workspaceSelection = useWorkspaceSelectionStore.getState();
+      const connectionId = workspaceSelection.connectionId;
+      if (!connectionId) {
+        toast.error("No active connection");
+        return;
+      }
+      openQueryWithTemplate({
+        connectionId,
+        database: workspaceSelection.database,
+        schema: workspaceSelection.schema,
+        objectType: "materializedView",
+      });
+      commandPaletteStore.closePalette();
+    },
+  },
+  {
+    id: "workspace.createFunction",
+    label: "New Function",
+    category: "Workspace",
+    description: "Create a new function",
+    handler: () => {
+      const workspaceSelection = useWorkspaceSelectionStore.getState();
+      const connectionId = workspaceSelection.connectionId;
+      if (!connectionId) {
+        toast.error("No active connection");
+        return;
+      }
+      openQueryWithTemplate({
+        connectionId,
+        database: workspaceSelection.database,
+        schema: workspaceSelection.schema,
+        objectType: "function",
+      });
+      commandPaletteStore.closePalette();
+    },
+  },
+  {
+    id: "workspace.createProcedure",
+    label: "New Procedure",
+    category: "Workspace",
+    description: "Create a new procedure",
+    handler: () => {
+      const workspaceSelection = useWorkspaceSelectionStore.getState();
+      const connectionId = workspaceSelection.connectionId;
+      if (!connectionId) {
+        toast.error("No active connection");
+        return;
+      }
+      openQueryWithTemplate({
+        connectionId,
+        database: workspaceSelection.database,
+        schema: workspaceSelection.schema,
+        objectType: "procedure",
+      });
+      commandPaletteStore.closePalette();
+    },
+  },
+  {
+    id: "workspace.createTrigger",
+    label: "New Trigger",
+    category: "Workspace",
+    description: "Create a new trigger",
+    handler: () => {
+      const workspaceSelection = useWorkspaceSelectionStore.getState();
+      const connectionId = workspaceSelection.connectionId;
+      if (!connectionId) {
+        toast.error("No active connection");
+        return;
+      }
+      openQueryWithTemplate({
+        connectionId,
+        database: workspaceSelection.database,
+        schema: workspaceSelection.schema,
+        objectType: "trigger",
       });
       commandPaletteStore.closePalette();
     },
