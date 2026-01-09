@@ -2,6 +2,15 @@
 USE todoapp;
 GO
 
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+GO
+
 -- Declare variables
 DECLARE @user_count INT = 100;
 DECLARE @i INT = 1;
@@ -238,7 +247,10 @@ INSERT INTO activity_logs (user_id, todo_id, action, details)
 SELECT TOP 1000
     t.user_id,
     t.id,
-    CHOOSE(CAST(RAND(CHECKSUM(NEWID())) * 6 AS INT) + 1, 'created', 'updated', 'status_changed', 'priority_changed', 'assigned', 'commented'),
+    COALESCE(
+        CHOOSE((ABS(CHECKSUM(NEWID())) % 6) + 1, 'created', 'updated', 'status_changed', 'priority_changed', 'assigned', 'commented'),
+        'created'
+    ),
     JSON_MODIFY(
         JSON_MODIFY(
             JSON_MODIFY('{}', '$.timestamp', CONVERT(VARCHAR(30), DATEADD(DAY, -CAST(RAND(CHECKSUM(NEWID())) * 30 AS INT), GETUTCDATE()), 126)),
