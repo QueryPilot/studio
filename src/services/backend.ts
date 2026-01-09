@@ -74,6 +74,7 @@ export interface QueryColumnMeta {
   default_value?: string | null;
   comment?: string | null;
   enum_values?: string[];
+  set_values?: string[];
   /** PostgreSQL type category */
   type_category?: string;
   precision?: number;

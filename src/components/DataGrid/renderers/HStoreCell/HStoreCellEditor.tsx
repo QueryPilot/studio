@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { IconTrash, IconKey } from '@tabler/icons-react';
+import { IconTrash, IconKey, IconDeviceFloppy } from "@tabler/icons-react";
 import { cn } from "@/lib/cn";
 import type { HStoreCustomCell } from "./types";
 import { hstoreToEditorText, normalizeHstoreEditorText } from "./hstoreFormat";
@@ -111,7 +111,8 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
       // Commit the current text value before moving
       const text = currentValueRef.current ?? "";
       const trimmed = text.trim();
-      const committedValue: string | null = !trimmed && nullable ? null : trimmed;
+      const committedValue: string | null =
+        !trimmed && nullable ? null : trimmed;
 
       const normalization = normalizeHstoreEditorText(committedValue);
       const canonical = normalization.normalized;
@@ -169,7 +170,9 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
           ref={textareaRef}
           defaultValue={initial}
           autoFocus
-          onFocus={(e) => { e.target.select(); }}
+          onFocus={(e) => {
+            e.target.select();
+          }}
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
@@ -187,33 +190,33 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
               : `"key"=>"value",\n"another"=>"next",`
           }
         />
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <div className="flex flex-col gap-0.5">
-          <span>Enter to save · Shift+Enter for newline · Esc to cancel</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {nullable && (
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <div className="flex flex-col gap-0.5">
+            <span>Enter to save · Shift+Enter for newline · Esc to cancel</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {nullable && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2"
+                title="Clear (NULL)"
+                onClick={handleClear}
+              >
+                <IconTrash className="h-3 w-3 mr-1" />
+                Clear
+              </Button>
+            )}
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
               className="h-6 px-2"
-              title="Clear (NULL)"
-              onClick={handleClear}
+              onClick={handleSave}
             >
-              <IconTrash className="h-3 w-3 mr-1" />
-              Clear
+              <IconDeviceFloppy className="size-3!" />
             </Button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 px-2"
-            onClick={handleSave}
-          >
-            IconDeviceFloppy
-          </Button>
+          </div>
         </div>
-      </div>
       </div>
     </div>
   );

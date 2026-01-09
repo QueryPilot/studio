@@ -74,6 +74,105 @@ function getStringArray(value: RawCellValue | undefined): string[] {
   return [];
 }
 
+function parseMySqlEnumOrSet(
+  formattedType: string,
+): { kind: "enum" | "set"; values: string[] } | null {
+  const trimmed = formattedType.trim();
+  const lower = trimmed.toLowerCase();
+  const kind = lower.startsWith("enum(")
+    ? "enum"
+    : lower.startsWith("set(")
+    ? "set"
+    : null;
+  if (!kind) return null;
+
+  const open = trimmed.indexOf("(");
+  const close = trimmed.lastIndexOf(")");
+  if (open < 0 || close <= open) {
+    return { kind, values: [] };
+  }
+
+  const body = trimmed.slice(open + 1, close);
+  const values: string[] = [];
+  let i = 0;
+
+  const decodeEscape = (next: string): string => {
+    switch (next) {
+      case "0":
+        return "\0";
+      case "b":
+        return "\b";
+      case "n":
+        return "\n";
+      case "r":
+        return "\r";
+      case "t":
+        return "\t";
+      case "Z":
+        return "\x1a";
+      case "'":
+        return "'";
+      case '"':
+        return '"';
+      case "\\":
+        return "\\";
+      default:
+        return next;
+    }
+  };
+
+  while (i < body.length) {
+    while (i < body.length && (body[i] === "," || /\s/.test(body[i]))) {
+      i++;
+    }
+    if (i >= body.length) break;
+
+    if (body[i] === "'") {
+      i++;
+      let value = "";
+      while (i < body.length) {
+        const ch = body[i];
+        if (ch === "\\") {
+          const next = body[i + 1];
+          if (next !== undefined) {
+            value += decodeEscape(next);
+            i += 2;
+            continue;
+          }
+        }
+        if (ch === "'") {
+          if (body[i + 1] === "'") {
+            value += "'";
+            i += 2;
+            continue;
+          }
+          i++;
+          break;
+        }
+        value += ch;
+        i++;
+      }
+      values.push(value);
+    } else {
+      const start = i;
+      while (i < body.length && body[i] !== ",") {
+        i++;
+      }
+      const raw = body.slice(start, i).trim();
+      if (raw) values.push(raw);
+    }
+
+    while (i < body.length && body[i] !== ",") {
+      i++;
+    }
+    if (body[i] === ",") {
+      i++;
+    }
+  }
+
+  return { kind, values };
+}
+
 /**
  * Map table kind string to enum
  */
@@ -291,6 +390,7 @@ export const IntrospectionService = {
 
     return result.rows.map((row) => {
       const rawType = getString(row[1]);
+      const enumSet = parseMySqlEnumOrSet(rawType);
       return {
         name: getString(row[0]),
         data_type: "Text" as const,
@@ -301,7 +401,9 @@ export const IntrospectionService = {
         default_value: getString(row[5]) || undefined,
         comment: getString(row[6]) || undefined,
         type_category: getString(row[7]) || undefined,
-        enum_values: getStringArray(row[8]),
+        enum_values:
+          enumSet?.kind === "enum" ? enumSet.values : getStringArray(row[8]),
+        set_values: enumSet?.kind === "set" ? enumSet.values : undefined,
       };
     });
   },

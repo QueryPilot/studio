@@ -576,7 +576,7 @@ DB_PORT=5432`;
         const uri = "mariadb://user:pass@localhost:3306/mydb";
         const config = parseConnectionUri(uri);
 
-        expect(config.dbType).toBe("mysql");
+        expect(config.dbType).toBe("mariadb");
       });
     });
 

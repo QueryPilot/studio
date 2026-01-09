@@ -5,7 +5,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { IconDeviceFloppy, IconX } from "@tabler/icons-react";
+import { IconX, IconDeviceFloppy } from "@tabler/icons-react";
 import { useCrudStore } from "@/stores/crudStore";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 
@@ -63,7 +63,7 @@ export function StagingActionsToolbar(props: StagingActionsToolbarProps) {
               onClick={handleOpenCommitPreview}
             >
               <IconDeviceFloppy className="size-3.5!" />
-              Commit
+              Review
             </Button>
           }
         />

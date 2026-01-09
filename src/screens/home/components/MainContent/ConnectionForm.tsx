@@ -111,6 +111,7 @@ function getDefaultPort(type: DatabaseType): string {
     case "postgresql":
       return "5432";
     case "mysql":
+    case "mariadb":
       return "3306";
     case "mssql":
       return "1433";
@@ -166,16 +167,22 @@ export function ConnectionForm() {
   // Form state
   const [dbType, setDbType] = useState<DatabaseType>(() => {
     if (connection) {
-      const dbTypeMap: Record<number, DatabaseType> = {
-        0: "postgresql",
-        1: "mysql",
-        2: "sqlite",
-        3: "mssql",
+      const dbTypeMap: Record<string, DatabaseType> = {
+        "0": "postgresql",
+        "1": "mysql",
+        "2": "sqlite",
+        "3": "mssql",
+        "4": "mariadb",
+        postgresql: "postgresql",
+        postgres: "postgresql",
+        mysql: "mysql",
+        mariadb: "mariadb",
+        sqlite: "sqlite",
+        mssql: "mssql",
+        sqlserver: "mssql",
       };
-      return (
-        dbTypeMap[connection.profile.db_type as unknown as number] ||
-        "postgresql"
-      );
+      const key = String(connection.profile.db_type).toLowerCase();
+      return dbTypeMap[key] || "postgresql";
     }
     return "postgresql";
   });
@@ -589,6 +596,8 @@ export function ConnectionForm() {
           ? DbType.PostgreSQL
           : dbType === "mysql"
           ? DbType.MySQL
+          : dbType === "mariadb"
+          ? DbType.MariaDB
           : dbType === "sqlite"
           ? DbType.SQLite
           : DbType.SQLServer,
@@ -803,6 +812,11 @@ export function ConnectionForm() {
       logo: getDatabaseLogo(DbType.PostgreSQL),
     },
     { value: "mysql", label: "MySQL", logo: getDatabaseLogo(DbType.MySQL) },
+    {
+      value: "mariadb",
+      label: "MariaDB",
+      logo: getDatabaseLogo(DbType.MariaDB),
+    },
     { value: "sqlite", label: "SQLite", logo: getDatabaseLogo(DbType.SQLite) },
     {
       value: "mssql",
@@ -1222,7 +1236,7 @@ export function ConnectionForm() {
                     <p className="font-medium mb-1">Optional connection parameters</p>
                     <p className="mb-2">One per line, format: key=value</p>
                     <div className="text-xs font-mono bg-muted/50 p-1.5 rounded">
-                      {dbType === "mysql" && (
+                      {(dbType === "mysql" || dbType === "mariadb") && (
                         <>charset=utf8mb4<br />timezone=UTC</>
                       )}
                       {dbType === "postgresql" && (
@@ -1240,7 +1254,7 @@ export function ConnectionForm() {
                 value={connectionOptions}
                 onChange={(e) => setConnectionOptions(e.target.value)}
                 placeholder={
-                  dbType === "mysql"
+                  dbType === "mysql" || dbType === "mariadb"
                     ? "charset=utf8mb4\ntimezone=UTC"
                     : dbType === "mssql"
                     ? "application_name=QueryPilot"
@@ -1952,8 +1966,8 @@ export function ConnectionForm() {
                           <TooltipContent side="top" className="max-w-[280px]">
                             <p className="font-medium mb-1">What this means:</p>
                             <p>
-                              The database port (PostgreSQL: 5432, MySQL: 3306,
-                              SQL Server: 1433). Check your RDS/database
+                              The database port (PostgreSQL: 5432, MySQL/MariaDB:
+                              3306, SQL Server: 1433). Check your RDS/database
                               configuration.
                             </p>
                           </TooltipContent>

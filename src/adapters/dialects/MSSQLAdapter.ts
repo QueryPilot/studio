@@ -527,11 +527,13 @@ SELECT
             THEN '(' + CAST(c.precision AS VARCHAR) + ',' + CAST(c.scale AS VARCHAR) + ')'
         ELSE ''
     END as formatted_type,
-    TYPE_NAME(c.user_type_id) as data_type,
+    c.user_type_id as type_oid,
     c.is_nullable as nullable,
     CASE WHEN pk.column_id IS NOT NULL THEN 1 ELSE 0 END as is_primary_key,
     dc.definition as default_value,
-    ep.value as comment
+    ep.value as comment,
+    NULL as type_category,
+    NULL as enum_values
 FROM sys.columns c
 JOIN sys.tables t ON c.object_id = t.object_id
 JOIN sys.schemas s ON t.schema_id = s.schema_id

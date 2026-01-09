@@ -59,6 +59,7 @@ export const ACTION_IDS = {
 export const SCHEMA_CREATION_SUPPORTED: DbType[] = [
   DbType.PostgreSQL,
   DbType.MySQL,
+  DbType.MariaDB,
   DbType.SQLServer,
 ];
 
@@ -66,5 +67,6 @@ export const SCHEMA_CREATION_SUPPORTED: DbType[] = [
 export const DATABASE_CREATION_SUPPORTED: DbType[] = [
   DbType.PostgreSQL,
   DbType.MySQL,
+  DbType.MariaDB,
   DbType.SQLServer,
 ];
