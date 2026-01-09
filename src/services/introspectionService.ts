@@ -408,8 +408,18 @@ export const IntrospectionService = {
     connectionId: string,
     schema: string,
     table: string,
+    options?: { exact?: boolean },
   ): Promise<number> {
     const adapter = await getAdapterForConnection(connectionId);
+
+    if (options?.exact) {
+      const exactSql = adapter.getTableCountQuery(schema, table, true);
+      const exactResult = await BackendAPI.query(connectionId, exactSql);
+      if (exactResult.rows.length > 0) {
+        return getNumber(exactResult.rows[0]?.[0]) ?? 0;
+      }
+      return 0;
+    }
 
     // Try estimated count first
     const estimatedSql = adapter.getTableCountQuery(schema, table, false);

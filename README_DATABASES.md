@@ -41,6 +41,13 @@ make dev
 
 ## Connection Strings
 
+Tip: You can paste most of these into the Connection Form (Paste Config) to auto-fill fields:
+- Standard URIs: `postgresql://`, `mysql://`, `mssql://`, `sqlite://`
+- JDBC URIs: `jdbc:postgresql://`, `jdbc:mysql://`, `jdbc:sqlserver://`
+- SQL Server ADO.NET strings: `Server=...;Database=...;User Id=...;Password=...;`
+- MySQL DSN: `mysql:host=...;port=...;dbname=...;charset=utf8mb4`
+- SQLite file paths and `sqlite::memory:`
+
 ### PostgreSQL
 
 ```

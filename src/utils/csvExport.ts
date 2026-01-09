@@ -1,4 +1,7 @@
 import { logger } from "@/lib/logger";
+import { save } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
+import { isTauri } from "./tauri";
 
 export interface ExportOptions {
   delimiter?: "," | ";" | "\t";
@@ -88,17 +91,48 @@ export function downloadCSV(
   URL.revokeObjectURL(url);
 }
 
-export function exportToCSV(
+export async function exportToCSV(
   rows: unknown[][],
   columns: string[],
   options: ExportOptions = {},
   filename = "export.csv",
-): ExportResult {
+): Promise<ExportResult> {
   try {
     const csvContent = generateCSV(rows, columns, options);
-    downloadCSV(csvContent, filename);
 
-    logger.info(`[CSV Export] Exported ${rows.length} rows`);
+    if (isTauri()) {
+      // Use native save dialog in Tauri
+      const filePath = await save({
+        defaultPath: filename,
+        filters: [
+          {
+            name: "CSV Files",
+            extensions: ["csv"],
+          },
+          {
+            name: "All Files",
+            extensions: ["*"],
+          },
+        ],
+      });
+
+      if (!filePath) {
+        // User cancelled
+        return { success: false, rowCount: 0, error: "Export cancelled" };
+      }
+
+      // Write file using Tauri
+      await invoke("plugin:fs|write_text_file", {
+        path: filePath,
+        contents: csvContent,
+      });
+
+      logger.info(`[CSV Export] Exported ${rows.length} rows to ${filePath}`);
+    } else {
+      // Fallback to browser download
+      downloadCSV(csvContent, filename);
+      logger.info(`[CSV Export] Exported ${rows.length} rows`);
+    }
 
     return { success: true, rowCount: rows.length };
   } catch (err) {

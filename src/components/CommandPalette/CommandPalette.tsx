@@ -357,21 +357,19 @@ export function CommandPalette(): React.ReactElement {
   useEffect(() => {
     if (!isOpen) return;
     if (nestedMode) {
-      if (selectedValue !== "") {
-        setSelectedValue("");
-      }
+      setSelectedValue((current) => (current === "" ? current : ""));
       listRef.current?.scrollTo({ top: 0 });
       return;
     }
 
-    if (firstVisibleItemId && selectedValue !== firstVisibleItemId) {
-      setSelectedValue(firstVisibleItemId);
-    } else if (!firstVisibleItemId && selectedValue !== "") {
-      setSelectedValue("");
-    }
+    setSelectedValue((current) => {
+      if (!firstVisibleItemId) return "";
+      if (current === firstVisibleItemId) return current;
+      return firstVisibleItemId;
+    });
 
     listRef.current?.scrollTo({ top: 0 });
-  }, [isOpen, nestedMode, query, firstVisibleItemId, selectedValue]);
+  }, [isOpen, nestedMode, query, firstVisibleItemId]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {

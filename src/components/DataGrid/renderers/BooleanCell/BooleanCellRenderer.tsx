@@ -4,6 +4,7 @@ import { BooleanCellEditorWithProps } from "./BooleanCellEditor";
 import { type BooleanCustomCell } from "./types";
 import { type CustomCellRenderer } from "../../types";
 import { getCachedThemeValues } from "../../utils/renderCache";
+import { truncateTextToWidth } from "../../utils/textUtils";
 
 // Renderer for the boolean cell
 const BooleanCellRenderer: CustomCellRenderer<BooleanCustomCell> = {
@@ -46,13 +47,17 @@ const BooleanCellRenderer: CustomCellRenderer<BooleanCustomCell> = {
     ctx.textAlign = cell.contentAlign || "center";
     ctx.textBaseline = "middle";
 
+    const padding = cachedTheme.cellHorizontalPadding;
+    const maxWidth = Math.max(0, rect.width - padding * 2);
+    const displayText = truncateTextToWidth(text, maxWidth, ctx.font);
+
     let x: number;
     switch (cell.contentAlign) {
       case "left":
-        x = rect.x + cachedTheme.cellHorizontalPadding;
+        x = rect.x + padding;
         break;
       case "right":
-        x = rect.x + rect.width - cachedTheme.cellHorizontalPadding;
+        x = rect.x + rect.width - padding;
         break;
       case "center":
       default:
@@ -61,7 +66,7 @@ const BooleanCellRenderer: CustomCellRenderer<BooleanCustomCell> = {
     }
 
     const centerY = rect.y + rect.height / 2;
-    ctx.fillText(text, x, centerY);
+    ctx.fillText(displayText, x, centerY);
 
     return true;
   },

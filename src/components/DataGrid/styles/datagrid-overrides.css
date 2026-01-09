@@ -32,8 +32,8 @@
 .gdg-editor-shell {
   background: var(--popover);
   color: var(--popover-foreground);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  /* border: 1px solid var(--border); */
+  /* border-radius: var(--radius-md); */
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
