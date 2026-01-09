@@ -2,7 +2,7 @@
 //!
 //! Infers column types and names from CTE definitions.
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sqlparser::ast::{self, SetExpr, Statement};
 use super::parser::ParsedStatement;
 

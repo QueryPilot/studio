@@ -19,12 +19,10 @@ export { createSqlCompletionSource, clearCompletionCache } from "./completion";
 // Hover tooltips
 export { createSqlHoverExtension } from "./hover";
 
-// Linting
-export {
-  createSqlLinter,
-  createSemanticLinter,
-  clearSemanticLinterCache,
-} from "./sql-linter";
+// NOTE: Legacy sql-linter.ts and version-linter.ts DELETED
+// Validation is now handled by:
+// - unified-linter.ts (uses Rust sql_validate when available, falls back to worker)
+// - linter-strategy.ts (routes dialects to appropriate linter)
 
 // High-performance worker-based linter
 export {
@@ -49,6 +47,15 @@ export {
   usesWorkerLinter,
   getLinterDescription,
 } from "./linter-strategy";
+
+// Unified linter (uses Rust sql_validate when available, falls back to worker)
+export { createUnifiedLinter, terminateUnifiedLinter } from "./unified-linter";
+
+// Rust completion bridge (Tauri environment)
+export {
+  createRustCompletionSource,
+  isRustCompletionAvailable,
+} from "./rust-completion";
 
 // Metadata provider
 export {

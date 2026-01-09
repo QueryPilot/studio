@@ -1,6 +1,6 @@
 //! Stored Procedure and Function parameter handling.
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use super::dialect::SqlDialect;
 use super::schema_store::{FunctionInfo, FunctionParam, ParamMode};
 
