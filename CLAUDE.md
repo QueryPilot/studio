@@ -205,11 +205,6 @@ See [docs/query-execution-architecture.md](docs/query-execution-architecture.md)
 - Output: `src-tauri/sidecars/ai-server-{triple}` binaries
 - Referenced in `tauri.conf.json` as `externalBin`
 
-**AWS Session Manager Plugin:**
-- Downloaded via `scripts/download-ssm-plugin.sh` (Unix) or `.ps1` (Windows)
-- Bundled as `sidecars/session-manager-plugin-{triple}`
-- Used for AWS RDS tunneling via Session Manager
-
 **macOS Code Signing:**
 - Configured in `tauri.conf.json` with Developer ID
 - Hardened runtime + entitlements in `entitlements.plist`

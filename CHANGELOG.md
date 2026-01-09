@@ -69,8 +69,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.0] - 2025-12-04
 
 ### New Features
-- Sign in with Azure AD SAML to request AWS roles and open database sessions, with a role picker and automatic STS credential handling.
-- Spin up ephemeral ECS bastion hosts and SSM tunnels on demand for secure, time-limited access to private databases.
 - Filter tables with advanced pattern search: regex, boolean logic, column targeting, grouping, anchors, and wildcards, plus cached parsing and auto-submit.
 - Control DataGrid columns with a visibility menu, copy either selected cells or full rows, and manage insert/update/delete with staged change indicators.
 - Get smarter SQL help: JOIN condition suggestions from keys or name matching, and completions that respect table/CTE aliases and JOIN ON context.
@@ -94,8 +92,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.0] - 2025-12-04
 
 ### New Features
-- Sign in with Azure AD SAML to request AWS roles and open database sessions, including a role selection dialog and automatic STS credential handling.
-- Spin up ephemeral ECS bastion hosts and SSM tunnels on demand for secure, time-limited access to private databases, with automatic cleanup on disconnect.
 - Use powerful pattern search in QuickFilter (regex, boolean logic, column targeting, grouping, anchors, wildcards) to zero in on the rows you need.
 - Control DataGrid columns with a visibility menu, and copy exactly what you need (selected cells vs. full rows) while keeping per-table view preferences.
 - Edit data directly in TableDataGrid with new insert, update, and delete controls backed by the CRUD pipeline and staged change indicators.
@@ -117,8 +113,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.0] - 2025-12-04
 
 ### New Features
-- Sign in with Azure AD SAML to assume AWS roles directly from Query Pilot, including a guided role picker for multi-role responses.
-- Spin up ephemeral ECS Fargate bastion tunnels on demand for secure database access; tunnels auto-clean on disconnect.
 - Work faster in DataGrid with built-in insert/update/delete actions, per-connection/schema/table view preferences, and separate “copy cells” vs. “copy rows” options.
 - Apply powerful quick filters with regex, boolean logic, column targeting, wildcards, anchors, and automatic validation limits.
 - Get smarter SQL assistance: JOIN condition suggestions from foreign keys, richer alias-aware completion, and metadata-aware AI text-to-SQL with cross-table context.
@@ -141,8 +135,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.0] - 2025-12-04
 
 ### New Features
-- Sign in with Azure AD SAML to assume AWS roles directly from Query Pilot, including a guided role picker for multi-role responses.
-- Spin up ephemeral ECS Fargate bastion tunnels on demand for secure database access; tunnels auto-clean on disconnect.
 - Work faster in DataGrid with built-in insert/update/delete actions, per-connection/schema/table view preferences, and separate “copy cells” vs. “copy rows” options.
 - Apply powerful quick filters with regex, boolean logic, column targeting, wildcards, anchors, and automatic validation limits.
 - Get smarter SQL assistance: JOIN condition suggestions from foreign keys, richer alias-aware completion, and metadata-aware AI text-to-SQL with cross-table context.

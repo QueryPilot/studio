@@ -1,12 +1,6 @@
-.PHONY: help d dev dev-profile dp build build-ai build-ai-all verify-sidecars dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup version release release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-clean test-ssh-full setup-ssm-plugin
+.PHONY: help d dev dev-profile dp build build-ai build-ai-all verify-sidecars dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup version release release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-clean test-ssh-full
 
 SSH_KEYGEN ?= ssh-keygen
-
-ifeq ($(OS),Windows_NT)
-SETUP_SSM_PLUGIN_CMD := powershell -ExecutionPolicy Bypass -File scripts/download-ssm-plugin.ps1
-else
-SETUP_SSM_PLUGIN_CMD := bash scripts/download-ssm-plugin.sh
-endif
 
 # Default target - show help
 help:
@@ -19,7 +13,6 @@ help:
 	@echo "  make build             - Build for production (includes all sidecars)"
 	@echo "  make build-ai          - Build AI sidecar for current platform"
 	@echo "  make build-ai-all      - Build AI sidecar for all platforms"
-	@echo "  make setup-ssm-plugin  - Download AWS Session Manager plugin"
 	@echo "  make verify-sidecars   - Verify all sidecar binaries are present"
 	@echo "  make package-dist      - Package build with installation instructions"
 	@echo "  make install           - Install dependencies"
@@ -88,8 +81,6 @@ verify-sidecars:
 build:
 	@echo "Building AI sidecar..."
 	@$(MAKE) build-ai
-	@echo "Downloading AWS Session Manager plugin..."
-	@$(MAKE) setup-ssm-plugin
 	@echo "Verifying all sidecars..."
 	@$(MAKE) verify-sidecars
 	@echo "Building Tauri app..."
@@ -113,7 +104,6 @@ clean:
 	@rm -rf node_modules
 	@rm -rf src-tauri/sidecar-ai/node_modules
 	@rm -f src-tauri/sidecars/qp-ai-*
-	@rm -f src-tauri/sidecars/session-manager-plugin-*
 	@echo "Clean complete!"
 
 # Run all unit tests (Rust + Frontend)
@@ -186,11 +176,6 @@ test-ssh-clean:
 	@echo "✅ Cleanup complete"
 
 test-ssh-full: test-ssh-setup test-ssh test-ssh-clean
-
-setup-ssm-plugin:
-	@echo "📦 Downloading AWS Session Manager plugin binaries..."
-	@$(SETUP_SSM_PLUGIN_CMD)
-	@echo "✅ session-manager-plugin downloaded"
 
 # Run all tests (unit + integration)
 test-all: build-ai
