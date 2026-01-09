@@ -4,6 +4,7 @@ import { EnumCellEditorWithProps } from "./EnumCellEditor";
 import type { CustomCellRenderer } from "../../types";
 import { type EnumCustomCell } from "./types";
 import { getCachedThemeValues } from "../../utils/renderCache";
+import { truncateTextToWidth } from "../../utils/textUtils";
 
 // Renderer for the enum cell
 const EnumCellRenderer: CustomCellRenderer<EnumCustomCell> = {
@@ -40,9 +41,13 @@ const EnumCellRenderer: CustomCellRenderer<EnumCustomCell> = {
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
 
-    const x = rect.x + cachedTheme.cellHorizontalPadding;
+    const padding = cachedTheme.cellHorizontalPadding;
+    const maxWidth = Math.max(0, rect.width - padding * 2);
+    const displayText = truncateTextToWidth(text, maxWidth, ctx.font);
+
+    const x = rect.x + padding;
     const centerY = rect.y + rect.height / 2;
-    ctx.fillText(text, x, centerY);
+    ctx.fillText(displayText, x, centerY);
 
     return true;
   },

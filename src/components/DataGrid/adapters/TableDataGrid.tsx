@@ -130,6 +130,7 @@ interface QueryModeProps extends BaseTableDataGridProps {
     columns: string[];
     columnMeta?: ColumnMeta[];
     rows: unknown[][];
+    rowCount?: number;
   };
   isLoading?: boolean;
   error?: string | null;
@@ -654,7 +655,7 @@ export const TableDataGrid = memo(function TableDataGrid(
     cache.sourceRows = rows;
 
     return cache.transformed;
-  }, [queryData?.rows, queryData?.columnMeta, queryData?.columns]);
+  }, [queryData?.rows, queryData?.rowCount, queryData?.columnMeta, queryData?.columns]);
 
   const {
     isLoading,
@@ -1406,68 +1407,6 @@ export const TableDataGrid = memo(function TableDataGrid(
     columns: finalColumns,
     getRowKey,
   });
-
-  // Auto-select first cell when grid gains focus with no existing selection
-  // Use a small delay to let click-based selections settle first
-  useEffect(() => {
-    if (!isGridFocused || !gridRef.current) {
-      return;
-    }
-
-    // IconCheck current selection state before setting timeout
-    // This prevents infinite loops when gridSelection updates
-    const hasExistingSelection =
-      (gridSelection?.rows && gridSelection.rows.length > 0) ||
-      (gridSelection?.columns && gridSelection.columns.length > 0) ||
-      gridSelection?.current !== undefined;
-
-    if (
-      hasExistingSelection ||
-      displayRows.length === 0 ||
-      finalColumns.length === 0
-    ) {
-      return;
-    }
-
-    // Delay to allow click-based selection to be set first
-    const timeoutId = setTimeout(() => {
-      // Use functional setState to get current selection state
-      // This avoids stale closure issues
-      setGridSelection((currentSelection) => {
-        // Double-check there's still no selection
-        const stillNoSelection =
-          !currentSelection?.current &&
-          (!currentSelection?.rows || currentSelection.rows.length === 0) &&
-          (!currentSelection?.columns || currentSelection.columns.length === 0);
-
-        if (!stillNoSelection) {
-          return currentSelection;
-        }
-
-        // Scroll to ensure first cell is visible
-        requestAnimationFrame(() => {
-          if (gridRef.current) {
-            gridRef.current.scrollTo(0, 0);
-          }
-        });
-
-        // Select the first cell (row 0, column 0)
-        return {
-          current: {
-            cell: [0, 0],
-            range: { x: 0, y: 0, width: 1, height: 1 },
-            rangeStack: [],
-          },
-          rows: CompactSelection.empty(),
-          columns: CompactSelection.empty(),
-        };
-      });
-    }, 50); // Small delay to let click selection settle
-
-    return () => {
-      clearTimeout(timeoutId);
-    };
-  }, [isGridFocused, gridId, displayRows.length, finalColumns.length]);
 
   // Defer grid rendering for large datasets to keep UI responsive
   // Grid updates in background without blocking interactions

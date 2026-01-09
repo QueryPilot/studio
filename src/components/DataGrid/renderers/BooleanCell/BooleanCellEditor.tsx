@@ -1,6 +1,17 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Command as CommandPrimitive } from "cmdk";
-import { Command, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
+import {
+  Command,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { IconKey } from "@tabler/icons-react";
 import { type BooleanCustomCell } from "./types";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
@@ -60,9 +71,10 @@ export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
   const filteredOptions = useMemo(() => {
     if (!inputValue) return options;
     const needle = inputValue.toLowerCase();
-    return options.filter((option) =>
-      option.label.toLowerCase().includes(needle) ||
-      option.value.toLowerCase().includes(needle),
+    return options.filter(
+      (option) =>
+        option.label.toLowerCase().includes(needle) ||
+        option.value.toLowerCase().includes(needle),
     );
   }, [inputValue, options]);
 
@@ -123,16 +135,23 @@ export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
     commitSelection(activeValue);
   }, [activeValue, commitSelection, normalizedInitial, onFinishedEditing]);
 
-  const handleValueChange = (newValue: string) => {
-    if (finishedRef.current) return;
-    commitSelection(newValue);
-  };
+  const handleValueChange = useCallback(
+    (v: string) => {
+      if (finishedRef.current) return;
+      commitSelection(v);
+    },
+    [commitSelection],
+  );
 
   const resolveSelection = useCallback(() => {
-    if (activeValue && filteredOptions.some((opt) => opt.value === activeValue)) {
+    if (
+      activeValue &&
+      filteredOptions.some((opt) => opt.value === activeValue)
+    ) {
       return activeValue;
     }
-    if (inputValue && filteredOptions.length > 0) return filteredOptions[0].value;
+    if (inputValue && filteredOptions.length > 0)
+      return filteredOptions[0]?.value ?? "";
     return activeValue;
   }, [activeValue, filteredOptions, inputValue]);
 
@@ -194,7 +213,7 @@ export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
       {/* Inline selection */}
       <div className="flex items-center">
         <Command
-          className="w-full h-auto max-h-[240px] border-0 rounded-none shadow-none"
+          className="w-full h-auto max-h-[240px] border-0 rounded-none shadow-none p-0"
           shouldFilter={false}
           value={activeValue}
           onValueChange={setActiveValue}
@@ -223,7 +242,7 @@ export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
                     key={option.value}
                     value={option.value}
                     data-checked={isCurrent}
-                    onSelect={() => handleValueChange(option.value)}
+                    onSelect={handleValueChange}
                     className="text-xs flex items-center justify-between"
                   >
                     <span className={option.className}>{option.label}</span>
@@ -233,10 +252,6 @@ export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
             </CommandGroup>
           </CommandList>
           <div className="px-2 py-1 border-t border-border/50 bg-muted/30 flex items-center justify-between">
-            <span className="text-[10px] text-muted-foreground">
-              {filteredOptions.length} option
-              {filteredOptions.length === 1 ? "" : "s"}
-            </span>
             <span className="text-[10px] text-muted-foreground">
               ↑↓ navigate · Enter select · Esc cancel
             </span>

@@ -469,6 +469,8 @@ export function ConnectionForm() {
           .map(([k, v]) => `${k}=${v}`)
           .join("\n");
         setConnectionOptions(optionsStr);
+      } else {
+        setConnectionOptions("");
       }
 
       setUriParsed(true);

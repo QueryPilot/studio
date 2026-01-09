@@ -28,6 +28,32 @@ describe("connectionParser", () => {
         const uri = "mssql://sa:password@localhost:1433/master";
         expect(detectConnectionFormat(uri)).toBe("uri");
       });
+
+      it("should detect JDBC URI", () => {
+        const uri = "jdbc:postgresql://localhost:5432/db";
+        expect(detectConnectionFormat(uri)).toBe("uri");
+      });
+
+      it("should detect SQL Server connection string", () => {
+        const uri =
+          "Server=localhost,1433;Database=master;User Id=sa;Password=Pass123;";
+        expect(detectConnectionFormat(uri)).toBe("uri");
+      });
+
+      it("should detect MySQL DSN", () => {
+        const uri = "mysql:host=localhost;port=3306;dbname=app";
+        expect(detectConnectionFormat(uri)).toBe("uri");
+      });
+
+      it("should detect SQLite file path", () => {
+        const uri = "./seeds/sqlite/todoapp.db";
+        expect(detectConnectionFormat(uri)).toBe("uri");
+      });
+
+      it("should detect SQLite memory database", () => {
+        const uri = "sqlite::memory:";
+        expect(detectConnectionFormat(uri)).toBe("uri");
+      });
     });
 
     describe("ENV format detection", () => {
@@ -581,8 +607,7 @@ DB_PORT=5432`;
         const config = parseConnectionUri(uri);
 
         expect(config.dbType).toBe("sqlite");
-        // Note: triple slash sqlite URI removes all slashes including the path's leading slash
-        expect(config.database).toBe("path/to/database.db");
+        expect(config.database).toBe("/path/to/database.db");
       });
 
       it("should parse SQLite file URI with double slash", () => {
@@ -599,6 +624,101 @@ DB_PORT=5432`;
 
         expect(config.dbType).toBe("sqlite");
         expect(config.database).toBe("./local.db");
+      });
+
+      it("should parse SQLite memory database", () => {
+        const uri = "sqlite::memory:";
+        const config = parseConnectionUri(uri);
+
+        expect(config.dbType).toBe("sqlite");
+        expect(config.database).toBe(":memory:");
+      });
+
+      it("should parse SQLite file path without scheme", () => {
+        const uri = "./seeds/sqlite/todoapp.db";
+        const config = parseConnectionUri(uri);
+
+        expect(config.dbType).toBe("sqlite");
+        expect(config.database).toBe("./seeds/sqlite/todoapp.db");
+      });
+    });
+
+    describe("JDBC URIs", () => {
+      it("should parse JDBC PostgreSQL URI", () => {
+        const uri = "jdbc:postgresql://user:pass@localhost:5432/mydb";
+        const config = parseConnectionUri(uri);
+
+        expect(config.dbType).toBe("postgresql");
+        expect(config.host).toBe("localhost");
+        expect(config.port).toBe("5432");
+        expect(config.username).toBe("user");
+        expect(config.password).toBe("pass");
+        expect(config.database).toBe("mydb");
+      });
+
+      it("should parse JDBC MySQL URI", () => {
+        const uri = "jdbc:mysql://user:pass@localhost:3306/mydb?charset=utf8mb4";
+        const config = parseConnectionUri(uri);
+
+        expect(config.dbType).toBe("mysql");
+        expect(config.options).toEqual({ charset: "utf8mb4" });
+      });
+
+      it("should parse JDBC SQL Server URI with params", () => {
+        const uri =
+          "jdbc:sqlserver://localhost:1433;databaseName=todoapp;user=sa;password=DevPass123;trustServerCertificate=true";
+        const config = parseConnectionUri(uri);
+
+        expect(config.dbType).toBe("mssql");
+        expect(config.host).toBe("localhost");
+        expect(config.port).toBe("1433");
+        expect(config.username).toBe("sa");
+        expect(config.password).toBe("DevPass123");
+        expect(config.database).toBe("todoapp");
+        expect(config.options?.trustservercertificate).toBe("true");
+      });
+    });
+
+    describe("SQL Server connection strings", () => {
+      it("should parse ADO.NET style SQL Server connection string", () => {
+        const uri =
+          "Server=localhost,11434;Database=todoapp;User Id=sa;Password=DevPass123;TrustServerCertificate=true;";
+        const config = parseConnectionUri(uri);
+
+        expect(config.dbType).toBe("mssql");
+        expect(config.host).toBe("localhost");
+        expect(config.port).toBe("11434");
+        expect(config.username).toBe("sa");
+        expect(config.password).toBe("DevPass123");
+        expect(config.database).toBe("todoapp");
+        expect(config.options?.trustservercertificate).toBe("true");
+      });
+
+      it("should parse Data Source format with instance name", () => {
+        const uri =
+          "Data Source=localhost\\SQLEXPRESS,1433;Initial Catalog=master;User ID=sa;Password=Pass123;";
+        const config = parseConnectionUri(uri);
+
+        expect(config.dbType).toBe("mssql");
+        expect(config.host).toBe("localhost");
+        expect(config.port).toBe("1433");
+        expect(config.database).toBe("master");
+        expect(config.username).toBe("sa");
+        expect(config.password).toBe("Pass123");
+        expect(config.options?.instance_name).toBe("SQLEXPRESS");
+      });
+    });
+
+    describe("MySQL DSN strings", () => {
+      it("should parse MySQL DSN", () => {
+        const uri = "mysql:host=localhost;port=3306;dbname=todoapp;charset=utf8mb4";
+        const config = parseConnectionUri(uri);
+
+        expect(config.dbType).toBe("mysql");
+        expect(config.host).toBe("localhost");
+        expect(config.port).toBe("3306");
+        expect(config.database).toBe("todoapp");
+        expect(config.options).toEqual({ charset: "utf8mb4" });
       });
     });
 
