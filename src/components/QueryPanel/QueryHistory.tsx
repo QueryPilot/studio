@@ -13,7 +13,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { IconTrash, IconClock, IconAlertCircle, IconCircleCheckFilled, IconSearch, IconX, IconStar } from '@tabler/icons-react';
+import {
+  IconTrash,
+  IconClock,
+  IconAlertCircle,
+  IconCircleCheckFilled,
+  IconSearch,
+  IconX,
+  IconStar,
+  IconDeviceFloppy,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import dayjs from "dayjs";
@@ -313,7 +322,7 @@ export function QueryHistory({
                 onClick={handleSaveFavorite}
                 disabled={!favoriteName.trim()}
               >
-                IconDeviceFloppy
+                <IconDeviceFloppy className="size-3!" /> Save
               </Button>
             </div>
           </div>

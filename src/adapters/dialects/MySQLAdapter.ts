@@ -389,11 +389,13 @@ ORDER BY tc.CONSTRAINT_NAME`;
 SELECT
     COLUMN_NAME as column_name,
     COLUMN_TYPE as formatted_type,
-    DATA_TYPE as data_type,
+    NULL as type_oid,
     IS_NULLABLE = 'YES' as nullable,
     COLUMN_KEY = 'PRI' as is_primary_key,
     COLUMN_DEFAULT as default_value,
     COLUMN_COMMENT as comment,
+    DATA_TYPE as type_category,
+    NULL as enum_values,
     CHARACTER_MAXIMUM_LENGTH as char_length,
     NUMERIC_PRECISION as numeric_precision,
     NUMERIC_SCALE as numeric_scale

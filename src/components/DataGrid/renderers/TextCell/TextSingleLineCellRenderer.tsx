@@ -1,6 +1,6 @@
 import { type CustomCell } from "@glideapps/glide-data-grid";
 import type { CustomCellRenderer } from "../../types";
-import { TextSingleLineCellEditorWithProps } from "./TextSingleLineCellEditor";
+import { TextMultiLineCellEditorWithProps } from "./TextMultiLineCellEditor";
 import { truncateTextToWidth } from "../../utils/textUtils";
 import { type TextSingleLineCustomCell } from "./types";
 import { getCachedThemeValues } from "../../utils/renderCache";
@@ -56,7 +56,7 @@ const TextSingleLineCellRenderer: CustomCellRenderer<TextSingleLineCustomCell> =
         return undefined;
       }
       return {
-        editor: TextSingleLineCellEditorWithProps,
+        editor: TextMultiLineCellEditorWithProps,
         disablePadding: true,
         disableStyling: false,
       };

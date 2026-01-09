@@ -20,6 +20,7 @@ export function mapBackendColumnsToColumnMeta(
     scale: null,
     comment: (col as unknown as { comment?: string | null }).comment ?? null,
     enum_values: (col as unknown as { enum_values?: string[] }).enum_values,
+    set_values: (col as unknown as { set_values?: string[] }).set_values,
     type_category: (col as unknown as { type_category?: string }).type_category,
   }));
 }

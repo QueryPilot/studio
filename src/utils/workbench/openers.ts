@@ -19,6 +19,7 @@ export function getCreateDatabaseTemplate(dbType: DbType | null, dbName: string)
   TEMPLATE = template0;`;
 
     case DbType.MySQL:
+    case DbType.MariaDB:
       return `CREATE DATABASE \`${dbName}\`
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;`;
@@ -43,6 +44,7 @@ export function getCreateSchemaTemplate(dbType: DbType | null, schemaName: strin
 -- GRANT ALL ON ALL TABLES IN SCHEMA "${schemaName}" TO some_role;`;
 
     case DbType.MySQL:
+    case DbType.MariaDB:
       return `CREATE SCHEMA \`${schemaName}\`
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;`;

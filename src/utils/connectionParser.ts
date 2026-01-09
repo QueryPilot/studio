@@ -1,7 +1,12 @@
 import { SslMode } from "@/types/connection";
 
 export type ConnectionFormat = "uri" | "env" | "unknown";
-export type DatabaseType = "postgresql" | "mysql" | "sqlite" | "mssql";
+export type DatabaseType =
+  | "postgresql"
+  | "mysql"
+  | "mariadb"
+  | "sqlite"
+  | "mssql";
 
 export interface ParsedEnvConfig {
   dbType?: DatabaseType;
@@ -153,6 +158,8 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     config.dbType = "postgresql";
   } else if (hasPrefix("MYSQL_")) {
     config.dbType = "mysql";
+  } else if (hasPrefix("MARIADB_")) {
+    config.dbType = "mariadb";
   } else if (hasPrefix("MSSQL_") || hasPrefix("SQLSERVER_")) {
     config.dbType = "mssql";
   } else if (hasPrefix("SQLITE_")) {
@@ -164,6 +171,7 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     "POSTGRES_HOST",
     "PGHOST",
     "MYSQL_HOST",
+    "MARIADB_HOST",
     "MSSQL_HOST",
     "DB_HOST",
     "DATABASE_HOST",
@@ -174,6 +182,7 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     "POSTGRES_PORT",
     "PGPORT",
     "MYSQL_PORT",
+    "MARIADB_PORT",
     "MSSQL_PORT",
     "DB_PORT",
     "DATABASE_PORT",
@@ -184,6 +193,7 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     "POSTGRES_USER",
     "PGUSER",
     "MYSQL_USER",
+    "MARIADB_USER",
     "MSSQL_USER",
     "DB_USER",
     "DATABASE_USER",
@@ -195,6 +205,7 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     "POSTGRES_PASSWORD",
     "PGPASSWORD",
     "MYSQL_PASSWORD",
+    "MARIADB_PASSWORD",
     "MSSQL_PASSWORD",
     "DB_PASSWORD",
     "DATABASE_PASSWORD",
@@ -206,6 +217,7 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     "POSTGRES_DB",
     "PGDATABASE",
     "MYSQL_DATABASE",
+    "MARIADB_DATABASE",
     "MSSQL_DATABASE",
     "SQLITE_DATABASE",
     "SQLITE_DB",
@@ -565,7 +577,10 @@ function parseMySqlDsn(input: string): ParsedUriConfig {
     throw new Error("Invalid MySQL DSN");
   }
 
-  const config: ParsedUriConfig = { dbType: "mysql" };
+  const protocol = match[1]?.toLowerCase();
+  const config: ParsedUriConfig = {
+    dbType: protocol === "mariadb" ? "mariadb" : "mysql",
+  };
   const dsnBody = input.replace(/^(mysql|mariadb):/i, "");
   const pairs = parseKeyValuePairs(dsnBody);
   const options: Record<string, string> = {};
@@ -666,7 +681,7 @@ function parseStandardUrl(uri: string): ParsedUriConfig {
   if (protocol === "postgres" || protocol === "postgresql") {
     dbType = "postgresql";
   } else if (protocol === "mysql" || protocol === "mariadb") {
-    dbType = "mysql";
+    dbType = protocol === "mariadb" ? "mariadb" : "mysql";
   } else if (protocol === "mssql" || protocol === "sqlserver") {
     dbType = "mssql";
   } else {

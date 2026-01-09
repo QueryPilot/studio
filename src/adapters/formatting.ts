@@ -14,7 +14,7 @@ import type { FilterConfig, FilterCondition, FilterGroup, FilterOperator, SortCo
  */
 export function toDbType(dbType: string | DbType): DbType {
   if (typeof dbType !== 'string') {
-    return dbType;
+    return dbType === DbType.MariaDB ? DbType.MySQL : dbType;
   }
 
   switch (dbType.toLowerCase()) {
