@@ -3,6 +3,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useAppStore } from "@/stores/appStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useEffect, useState } from "react";
@@ -33,7 +34,7 @@ export default function GeneralPanel() {
     preferences,
     updatePreferences,
   } = useAppStore();
-  const { setUnsavedChanges } = usePreferencesStore();
+  const { setUnsavedChanges, queryTimeoutSecs, setQueryTimeoutSecs } = usePreferencesStore();
 
   const [updateStatus, setUpdateStatus] = useState<
     | "idle"
@@ -208,6 +209,38 @@ export default function GeneralPanel() {
             checked={sidebarCollapsed}
             onCheckedChange={handleSidebarToggle}
           />
+        </div>
+
+        <div className="space-y-3 pt-4 border-t">
+          <Label className="text-base">Query Execution</Label>
+          <div className="flex items-center justify-between py-3 border rounded-xl px-4">
+            <div className="space-y-0.5">
+              <Label className="text-xs font-medium">Query Timeout</Label>
+              <p className="text-xs text-muted-foreground">
+                Maximum time for queries to run (0 = no timeout)
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={0}
+                max={3600}
+                value={queryTimeoutSecs}
+                onChange={(e) => {
+                  const value = parseInt(e.target.value, 10);
+                  if (!isNaN(value) && value >= 0) {
+                    setQueryTimeoutSecs(value);
+                    setUnsavedChanges(true);
+                  }
+                }}
+                className="w-20 h-8 text-xs"
+              />
+              <span className="text-xs text-muted-foreground">seconds</span>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground px-1">
+            Recommended: 300 seconds (5 minutes). Long-running analytics queries may need more time.
+          </p>
         </div>
 
         <div className="space-y-3 pt-4 border-t">

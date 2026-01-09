@@ -39,7 +39,7 @@ class WindowChannelTracker {
 
   private initialize(): void {
     // Create broadcast channel for cross-window communication
-    this.channel = new BroadcastChannel("devdb-window-tracker");
+    this.channel = new BroadcastChannel("querypilot-window-tracker");
 
     // Listen for messages from other windows
     this.channel.onmessage = (event: MessageEvent<WindowMessage>) => {

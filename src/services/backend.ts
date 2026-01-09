@@ -461,10 +461,15 @@ export class BackendAPI {
    * // result.columns: ColumnMeta[], result.rows: CellValue[][]
    * ```
    */
-  static async query(connectionId: string, sql: string): Promise<RawQueryResult> {
+  static async query(
+    connectionId: string,
+    sql: string,
+    timeoutSecs?: number,
+  ): Promise<RawQueryResult> {
     return invoke<RawQueryResult>("query", {
       connId: connectionId,
       sql,
+      timeoutSecs,
     });
   }
 }

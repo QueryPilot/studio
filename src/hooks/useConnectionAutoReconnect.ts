@@ -164,6 +164,20 @@ export function useConnectionAutoReconnect(connectionId?: string) {
       stopSequence(); // Stop ongoing attempts if network is lost
     };
 
+    // Subscribe to health changes - trigger reconnect when status becomes "error"
+    let previousStatus: string | undefined;
+    const unsubscribeHealth = databaseService.onHealthChange(
+      connectionId,
+      (health) => {
+        // Only trigger reconnect if status transitions TO error (not already in error)
+        if (health.status === "error" && previousStatus !== "error") {
+          logger.info("[AutoReconnect] Health check failed, attempting reconnect");
+          void startSequence();
+        }
+        previousStatus = health.status;
+      },
+    );
+
     // Listen for window focus
     window.addEventListener("focus", handleFocus);
     
@@ -176,6 +190,7 @@ export function useConnectionAutoReconnect(connectionId?: string) {
       window.removeEventListener("focus", handleFocus);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      unsubscribeHealth();
       stopSequence();
     };
   }, [connectionId]);

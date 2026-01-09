@@ -35,6 +35,7 @@ import { type TabMetadata } from "@/types/workbench";
 import { ERDPanel } from "@/components/Erd";
 import { TableDesigner } from "@/components/TableDesigner";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { FeatureErrorBoundary } from "@/components/FeatureErrorBoundary";
 
 interface PanelContentRendererProps {
   panelId: string;
@@ -157,16 +158,18 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
 
     if (type === "query") {
       return (
-        <QueryPanel
-          panelId={panelId}
-          tabId={tabId}
-          initialSql={metadata?.sql}
-          connectionId={metadata?.connectionId || activeConnectionId || ""}
-          database={metadata?.database || ""}
-          schema={metadata?.schema}
-          dbType={dbType}
-          className="h-full"
-        />
+        <FeatureErrorBoundary featureName="Query Panel">
+          <QueryPanel
+            panelId={panelId}
+            tabId={tabId}
+            initialSql={metadata?.sql}
+            connectionId={metadata?.connectionId || activeConnectionId || ""}
+            database={metadata?.database || ""}
+            schema={metadata?.schema}
+            dbType={dbType}
+            className="h-full"
+          />
+        </FeatureErrorBoundary>
       );
     }
 
@@ -316,22 +319,24 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
             <Suspense fallback={<TabLoadingSkeleton />}>
               <div className="absolute inset-0 px-1">
                 {activeView === "data" && (
-                  <TableDataGrid
-                    mode="table"
-                    gridId={tableGridId ?? `table:${tabId}`}
-                    connectionId={
-                      activeConnectionId || metadata.connectionId || ""
-                    }
-                    database={metadata.database || ""}
-                    schema={metadata.schema}
-                    table={metadata.table || ""}
-                    isView={isView}
-                    kind={metadata.kind}
-                    className="h-full"
-                    onActionsChange={handleViewActionsChange}
-                    initialFilter={metadata.initialFilter as string | undefined}
-                    panelId={panelId}
-                  />
+                  <FeatureErrorBoundary featureName="Data Grid">
+                    <TableDataGrid
+                      mode="table"
+                      gridId={tableGridId ?? `table:${tabId}`}
+                      connectionId={
+                        activeConnectionId || metadata.connectionId || ""
+                      }
+                      database={metadata.database || ""}
+                      schema={metadata.schema}
+                      table={metadata.table || ""}
+                      isView={isView}
+                      kind={metadata.kind}
+                      className="h-full"
+                      onActionsChange={handleViewActionsChange}
+                      initialFilter={metadata.initialFilter as string | undefined}
+                      panelId={panelId}
+                    />
+                  </FeatureErrorBoundary>
                 )}
 
                 {activeView === "structure" && (

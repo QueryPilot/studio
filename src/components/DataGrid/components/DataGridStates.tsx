@@ -1,30 +1,62 @@
 import { memo } from "react";
-import { IconAlertCircle, IconLoader2, IconRefresh } from "@tabler/icons-react";
+import { IconAlertCircle, IconLoader2, IconRefresh, IconPlugConnected } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import logo from "@/assets/logo.png";
+
+// Helper to detect if error is connection-related
+function isConnectionError(error: string): boolean {
+  const connectionErrorPatterns = [
+    /connection.*closed/i,
+    /connection.*lost/i,
+    /connection.*failed/i,
+    /connection.*refused/i,
+    /connection.*reset/i,
+    /connection.*timed?\s*out/i,
+    /disconnected/i,
+    /not connected/i,
+    /network.*error/i,
+    /socket.*closed/i,
+    /broken pipe/i,
+    /eof/i,
+    /connection pool exhausted/i,
+  ];
+  return connectionErrorPatterns.some((pattern) => pattern.test(error));
+}
 
 interface DataGridErrorStateProps {
   error: string;
   onRetry?: () => void;
   onReload?: () => void;
+  onReconnect?: () => void;
 }
 
 export const DataGridErrorState = memo(function DataGridErrorState({
   error,
   onRetry,
   onReload,
+  onReconnect,
 }: DataGridErrorStateProps) {
+  const showReconnect = isConnectionError(error) && onReconnect;
+  
   return (
     <div className="flex flex-col items-center justify-center h-full p-8 select-text">
       <IconAlertCircle className="h-12 w-12 text-destructive mb-4" />
-      <h3 className="text-lg font-semibold mb-2">Failed to load table data</h3>
+      <h3 className="text-lg font-semibold mb-2">
+        {showReconnect ? "Connection Lost" : "Failed to load table data"}
+      </h3>
       <p className="text-xs text-muted-foreground max-w-md text-center select-text mb-4">
         {error}
       </p>
       <div className="flex gap-2">
+        {showReconnect && (
+          <Button variant="default" size="sm" onClick={onReconnect} className="gap-1.5">
+            <IconPlugConnected className="h-3.5 w-3.5" />
+            Reconnect
+          </Button>
+        )}
         {onRetry && (
           <Button variant="outline" size="sm" onClick={onRetry}>
-            Clear IconFilter
+            Clear Filter
           </Button>
         )}
         {onReload && (
