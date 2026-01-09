@@ -1,11 +1,15 @@
 import React, { useRef, useCallback, useEffect } from "react";
-import type { TextMultiLineCustomCell, TextSingleLineCustomCell } from "./types";
+import type {
+  TextMultiLineCustomCell,
+  TextSingleLineCustomCell,
+} from "./types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { IconTrash, IconKey, IconLink } from "@tabler/icons-react";
 import { computeArrayStringsFromText } from "../../utils/arrayFormat";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 import { useNavigationStore } from "../../stores/navigationStore";
+import { Textarea } from "@/components/ui/textarea";
 
 type TextCellEditorValue = TextSingleLineCustomCell | TextMultiLineCustomCell;
 
@@ -194,7 +198,7 @@ export function TextCellEditor<T extends TextCellEditorValue>({
   }, [nullable, commit]);
 
   return (
-    <div className="flex flex-col gdg-editor-shell click-outside-ignore min-w-[300px] max-w-[600px] w-max">
+    <div className="flex flex-col gdg-editor-shell click-outside-ignore max-w-[600px] w-max">
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50 shrink-0">
         {isPrimaryKey && (
@@ -213,31 +217,29 @@ export function TextCellEditor<T extends TextCellEditorValue>({
         )}
       </div>
 
-      <div className="p-2">
-        <textarea
-          ref={textareaRef}
-          defaultValue={initialValue}
-          autoFocus
-          autoComplete="off"
-          autoCorrect="off"
-          spellCheck={false}
-          onKeyDown={handleKeyDown}
-          onFocus={(e) => {
-            // Don't select all in type-replace mode - cursor already positioned
-            if (!isTypeReplace) {
-              e.target.select();
-            }
-          }}
-          onChange={handleTextareaChange}
-          maxLength={maxLength}
-          className={cn(
-            "w-full text-xs font-mono bg-transparent resize outline-none",
-            "min-h-[60px] max-h-[400px]",
-          )}
-          rows={Math.min(10, Math.max(3, initialValue.split("\n").length))}
-          placeholder={nullable ? "NULL" : ""}
-        />
-      </div>
+      <Textarea
+        ref={textareaRef}
+        defaultValue={initialValue}
+        autoFocus
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        onKeyDown={handleKeyDown}
+        onFocus={(e) => {
+          // Don't select all in type-replace mode - cursor already positioned
+          if (!isTypeReplace) {
+            e.target.select();
+          }
+        }}
+        onChange={handleTextareaChange}
+        maxLength={maxLength}
+        className={cn(
+          "w-full text-xs font-mono bg-transparent resize outline-none border-none focus-visible:ring-0 focus-visible:ring-offset-0",
+          "min-h-[60px] max-h-[400px] min-w-[300px] max-w-[600px]",
+        )}
+        rows={Math.min(10, Math.max(3, initialValue.split("\n").length))}
+        placeholder={nullable ? "NULL" : ""}
+      />
 
       <div className="flex items-center justify-between text-xs text-muted-foreground px-2 py-1 shrink-0 bg-popover border-t border-border/50">
         <div className="flex-1">
