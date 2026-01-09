@@ -467,13 +467,6 @@ build_sidecar() {
     success "AI sidecars built for both architectures"
 }
 
-# Download SSM plugin
-download_ssm() {
-    log "Downloading AWS Session Manager plugins for universal build..."
-    BUILD_ALL=true bash scripts/download-ssm-plugin.sh
-    success "SSM plugins downloaded for both architectures"
-}
-
 # Build Tauri app with signing
 build_app() {
     log "Building Tauri app for $TARGET..."
@@ -750,7 +743,6 @@ main() {
     echo ""
 
     build_sidecar
-    download_ssm
     build_app
     prepare_dmg
 

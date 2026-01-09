@@ -2,7 +2,6 @@ use dashmap::{DashMap, DashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tauri::AppHandle;
 use tokio::sync::{Notify, RwLock};
 use tokio::task::JoinHandle;
 
@@ -10,7 +9,6 @@ use crate::adapters::mssql::MssqlAdapter;
 use crate::adapters::mysql::MySqlAdapter;
 use crate::adapters::postgres::PostgresAdapter;
 use crate::adapters::sqlite::SqliteAdapter;
-use crate::aws::ecs_bastion::EcsBastionTunnel;
 use crate::error::{AppError, Result};
 use crate::ssh::secrets::delete_ssh_passphrase;
 use crate::ssh::SshTunnel;
@@ -18,37 +16,24 @@ use crate::types::*;
 
 enum ManagedTunnel {
     Ssh(SshTunnel),
-    EcsBastion(EcsBastionTunnel),
 }
 
 impl ManagedTunnel {
     fn local_port(&self) -> u16 {
         match self {
             Self::Ssh(tunnel) => tunnel.local_port(),
-            Self::EcsBastion(tunnel) => tunnel.local_port(),
         }
     }
 
     async fn health_check(&self) -> Result<()> {
         match self {
             Self::Ssh(tunnel) => tunnel.health_check().await,
-            // ECS Bastion health check: check if local port is still listening
-            Self::EcsBastion(tunnel) => {
-                if crate::ssh::is_port_listening(tunnel.local_port()).await {
-                    Ok(())
-                } else {
-                    Err(AppError::SshTunnelError(
-                        "ECS Bastion tunnel port is no longer listening".into(),
-                    ))
-                }
-            }
         }
     }
 
     async fn close(self) -> Result<()> {
         match self {
             Self::Ssh(tunnel) => tunnel.close().await,
-            Self::EcsBastion(tunnel) => tunnel.close().await,
         }
     }
 }
@@ -67,9 +52,6 @@ pub struct ConnectionManager {
     idle_timeout: Duration,
     reaper_handle: Arc<tokio::sync::Mutex<Option<JoinHandle<()>>>>,
     total_connections: Arc<AtomicUsize>,
-    /// App handle for ECS Bastion tunnel creation (session-manager-plugin resolution)
-    /// Uses RwLock for interior mutability since ConnectionManager is behind Arc
-    app_handle: Arc<RwLock<Option<AppHandle>>>,
 }
 
 pub struct LiveConnection {
@@ -118,13 +100,7 @@ impl ConnectionManager {
             idle_timeout: Duration::from_secs(1800), // 30 minutes
             reaper_handle: Arc::new(tokio::sync::Mutex::new(None)),
             total_connections: Arc::new(AtomicUsize::new(0)),
-            app_handle: Arc::new(RwLock::new(None)),
         }
-    }
-
-    /// Set the app handle for ECS Bastion tunnel creation
-    pub async fn set_app_handle(&self, handle: AppHandle) {
-        *self.app_handle.write().await = Some(handle);
     }
 
     async fn ensure_tunnel(
@@ -192,50 +168,7 @@ impl ConnectionManager {
             BastionConfig::Ssh(ssh_config) => {
                 self.create_ssh_tunnel(conn_id, profile, ssh_config).await
             }
-            BastionConfig::AwsSsm(_ssm_config) => {
-                // Direct SSM tunneling requires target with SSM agent
-                Err(AppError::Unsupported(
-                    "Direct AWS SSM tunnels are not yet implemented. Use ECS Bastion instead."
-                        .into(),
-                ))
-            }
-            BastionConfig::EcsBastion(ecs_config) => {
-                self.create_ecs_bastion_tunnel(conn_id, ecs_config).await
-            }
         }
-    }
-
-    async fn create_ecs_bastion_tunnel(
-        &self,
-        conn_id: &str,
-        config: &EcsBastionConfig,
-    ) -> Result<TunnelStatus> {
-        use crate::aws::credentials;
-
-        let app_handle_guard = self.app_handle.read().await;
-        let app_handle = app_handle_guard.as_ref().ok_or_else(|| {
-            AppError::Internal("App handle not set for ECS Bastion tunnel creation".into())
-        })?;
-
-        // Get cached credentials for this connection
-        let cached_creds = credentials::get_valid_credentials(conn_id)
-            .await?
-            .ok_or_else(|| {
-                AppError::SshAuthFailed(
-                    "AWS credentials not found or expired. Please authenticate first.".into(),
-                )
-            })?;
-
-        let aws_creds = cached_creds.to_aws_credentials();
-
-        // Create ECS Bastion tunnel
-        let tunnel = EcsBastionTunnel::establish(app_handle, config, aws_creds).await?;
-        let local_port = tunnel.local_port();
-
-        self.tunnels
-            .insert(conn_id.to_string(), ManagedTunnel::EcsBastion(tunnel));
-
-        Ok(TunnelStatus::Created { local_port })
     }
 
     async fn create_ssh_tunnel(

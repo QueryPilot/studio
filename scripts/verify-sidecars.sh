@@ -9,19 +9,15 @@ ARCH="$(uname -m)"
 case "${OS}-${ARCH}" in
   darwin-arm64)
     AI_BINARY="qp-ai-aarch64-apple-darwin"
-    SSM_BINARY="session-manager-plugin-aarch64-apple-darwin"
     ;;
   darwin-x86_64)
     AI_BINARY="qp-ai-x86_64-apple-darwin"
-    SSM_BINARY="session-manager-plugin-x86_64-apple-darwin"
     ;;
   linux-x86_64)
     AI_BINARY="qp-ai-x86_64-unknown-linux-gnu"
-    SSM_BINARY="session-manager-plugin-x86_64-unknown-linux-gnu"
     ;;
   mingw*|msys*|cygwin*)
     AI_BINARY="qp-ai-x86_64-pc-windows-msvc.exe"
-    SSM_BINARY="session-manager-plugin-x86_64-pc-windows-msvc.exe"
     ;;
   *)
     echo "❌ Unsupported platform: ${OS}-${ARCH}"
@@ -38,15 +34,6 @@ if [ -f "${SIDECAR_DIR}/${AI_BINARY}" ]; then
   echo "✅ AI sidecar:           ${AI_BINARY} (${SIZE})"
 else
   echo "❌ AI sidecar:           ${AI_BINARY} - NOT FOUND"
-  MISSING=1
-fi
-
-# Check Session Manager plugin
-if [ -f "${SIDECAR_DIR}/${SSM_BINARY}" ]; then
-  SIZE=$(du -h "${SIDECAR_DIR}/${SSM_BINARY}" | cut -f1)
-  echo "✅ Session Manager:      ${SSM_BINARY} (${SIZE})"
-else
-  echo "❌ Session Manager:      ${SSM_BINARY} - NOT FOUND"
   MISSING=1
 fi
 

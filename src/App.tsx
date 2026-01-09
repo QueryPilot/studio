@@ -7,10 +7,8 @@ import { isTauri } from "./utils/tauri";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { vaultStorage } from "./services/vaultStorage";
 import { toast } from "sonner";
-import { databaseService } from "./services/databaseService";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useConnectionWindowStore } from "./stores/connectionWindowStore";
-import { useRoleSelection } from "./components/dialogs/RoleSelectionDialog";
 
 function VaultLoadingScreen() {
   return (
@@ -27,13 +25,6 @@ function VaultLoadingScreen() {
 }
 
 function AppContent() {
-  const { selectRole, RoleSelectionDialog } = useRoleSelection();
-
-  // Register role selection callback with database service
-  useEffect(() => {
-    databaseService.setRoleSelectionCallback(selectRole);
-  }, [selectRole]);
-
   return (
     <>
       <Router>
@@ -45,7 +36,6 @@ function AppContent() {
           />
         </Routes>
       </Router>
-      <RoleSelectionDialog />
     </>
   );
 }
