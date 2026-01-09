@@ -1,4 +1,5 @@
 import { logger } from "@/lib/logger";
+import { databaseService } from "@/services/databaseService";
 import {
   memo,
   useCallback,
@@ -2508,6 +2509,17 @@ export const TableDataGrid = memo(function TableDataGrid(
           <DataGridErrorState
             error={errorMessage}
             onReload={() => tableDataQuery.refetch()}
+            onReconnect={async () => {
+              // Trigger reconnection by testing the connection
+              // This will use get_connection_with_retry on the backend
+              try {
+                await databaseService.getConnectionHealth(connectionId);
+                tableDataQuery.refetch();
+              } catch {
+                // If health check fails, the auto-reconnect hook will handle it
+                tableDataQuery.refetch();
+              }
+            }}
           />
         ) : (
           <UnifiedContextMenu

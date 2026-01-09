@@ -21,6 +21,7 @@ import { useConnectionAutoReconnect } from "@/hooks/useConnectionAutoReconnect";
 import { AIAssistantSidebar } from "@/components/AIAssistant/AIAssistantSidebar";
 import { PreferencesDialog } from "@/components/Preferences/PreferencesDialog";
 import { DebugKeybindings } from "@/components/DebugKeybindings";
+import { FeatureErrorBoundary } from "@/components/FeatureErrorBoundary";
 import { useCrudStore } from "@/stores/crudStore";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauri } from "@/utils/tauri";
@@ -208,14 +209,10 @@ export function WorkspaceScreen() {
       // Unregister window from connection tracker (BroadcastChannel)
       windowChannelTracker.unregisterWindow();
 
-      // Disconnect this specific connection only
-      // Note: This won't affect other windows' connections
-      if (connectionId && databaseService.isConnectionActive(connectionId)) {
-        logger.info(
-          `[WorkspaceScreen] Unmounting - disconnecting connection ${connectionId}`,
-        );
-        void databaseService.disconnect(connectionId);
-      }
+      // NOTE: We intentionally do NOT disconnect on React unmount!
+      // The disconnect is handled by the onCloseRequested handler above.
+      // React may unmount for other reasons (hot reload, route change) where
+      // we don't want to disconnect. Only actual window close should disconnect.
     };
   }, [connectionId, urlDbname, initWorkspace, initializePanels]);
 
@@ -307,21 +304,13 @@ export function WorkspaceScreen() {
             );
 
             if (confirmed) {
-              // User confirmed, disconnect and destroy window
+              // User confirmed, disconnect with timeout and destroy window
               logger.info(`[WorkspaceScreen] Closing window with unsaved changes - disconnecting ${connectionId}`);
-              try {
-                if (databaseService.isConnectionActive(connectionId)) {
-                  await databaseService.disconnect(connectionId);
-                  logger.info(`[WorkspaceScreen] Successfully disconnected ${connectionId}`);
-                }
-              } catch (error) {
-                logger.error(`[WorkspaceScreen] Failed to disconnect ${connectionId}:`, error);
-              }
+              
+              // Use timeout to prevent freeze on dead connections
+              await databaseService.disconnectWithTimeout(connectionId, 3000);
 
-              // Small delay to ensure disconnect completes
-              await new Promise(resolve => setTimeout(resolve, 100));
-
-              // Use destroy() instead of close() - it requires the destroy permission
+              // Destroy the window
               await currentWindow.destroy();
             }
           } else {
@@ -330,18 +319,8 @@ export function WorkspaceScreen() {
 
             logger.info(`[WorkspaceScreen] Closing window - disconnecting ${connectionId}`);
 
-            // Disconnect if needed
-            try {
-              if (databaseService.isConnectionActive(connectionId)) {
-                await databaseService.disconnect(connectionId);
-                logger.info(`[WorkspaceScreen] Successfully disconnected ${connectionId}`);
-              }
-            } catch (error) {
-              logger.error(`[WorkspaceScreen] Failed to disconnect ${connectionId}:`, error);
-            }
-
-            // Small delay to ensure disconnect completes
-            await new Promise(resolve => setTimeout(resolve, 100));
+            // Use timeout to prevent freeze on dead connections
+            await databaseService.disconnectWithTimeout(connectionId, 3000);
 
             // Destroy the window
             await currentWindow.destroy();
@@ -452,7 +431,9 @@ export function WorkspaceScreen() {
               maxSize={40}
               className="flex flex-col rounded-xl bg-background overflow-hidden"
             >
-              <AIAssistantSidebar />
+              <FeatureErrorBoundary featureName="AI Assistant">
+                <AIAssistantSidebar />
+              </FeatureErrorBoundary>
             </ResizablePanel>
           </>
         )}

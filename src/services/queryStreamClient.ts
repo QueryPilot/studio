@@ -14,6 +14,8 @@ export interface QueryStreamParams {
   tabId: string;
   sql: string;
   batchSize?: number;
+  /** Query timeout in seconds. Default: 300 (5 minutes) */
+  timeoutSecs?: number;
 }
 
 export interface StreamBatch {
@@ -182,7 +184,7 @@ export class QueryStreamClient {
       return Promise.reject(error);
     }
 
-    const { connId, tabId, sql, batchSize = 1000 } = params;
+    const { connId, tabId, sql, batchSize = 1000, timeoutSecs } = params;
 
     const decodeWorker = getStreamDecodeWorker();
 
@@ -349,6 +351,7 @@ export class QueryStreamClient {
           tabId,
           sql,
           batchSize,
+          timeoutSecs,
           metadataChannel,
           dataChannel,
         }).catch((error: unknown) => {

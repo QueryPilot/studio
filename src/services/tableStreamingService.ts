@@ -446,6 +446,7 @@ class TableStreamingService {
     pageSize?: number,
     onProgress?: (progress: StreamingProgress) => void,
     onError?: (error: StreamingError) => void,
+    timeoutSecs?: number,
   ): Promise<StreamingTableResult> {
     this.cancel();
     return new Promise((resolve, reject) => {
@@ -460,6 +461,7 @@ class TableStreamingService {
             tabId,
             sql,
             batchSize: pageSize,
+            timeoutSecs,
           },
           {
             onStarted: (columns, estimatedRows) => {

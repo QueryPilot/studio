@@ -604,6 +604,7 @@ pub async fn test_connection(
 pub async fn query(
     conn_id: String,
     sql: String,
+    timeout_secs: Option<u64>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<crate::types::QueryResult, String> {
     let conn = manager
@@ -611,7 +612,14 @@ pub async fn query(
         .await
         .map_err(|e| e.to_string())?;
 
-    conn.adapter.query(&sql).await.map_err(|e| e.to_string())
+    // Default timeout: 5 minutes (300 seconds)
+    // Can be overridden per-query via timeout_secs parameter
+    let timeout_duration = std::time::Duration::from_secs(timeout_secs.unwrap_or(300));
+
+    tokio::time::timeout(timeout_duration, conn.adapter.query(&sql))
+        .await
+        .map_err(|_| format!("Query timed out after {} seconds", timeout_duration.as_secs()))?
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1351,6 +1359,7 @@ pub async fn execute_query(
     tab_id: String,
     sql: String,
     _batch_size: Option<usize>,
+    timeout_secs: Option<u64>,
     metadata_channel: tauri::ipc::Channel<StreamMessage>,
     data_channel: tauri::ipc::Channel<tauri::ipc::Response>,
     manager: State<'_, Arc<ConnectionManager>>,
@@ -1369,7 +1378,16 @@ pub async fn execute_query(
     tracing::info!("  sql: {}", sql);
     tracing::info!("==========================================");
 
-    execute_single_fetch_stream(&sql, &metadata_channel, &data_channel, &conn).await
+    // Default timeout: 5 minutes (300 seconds)
+    // Can be overridden per-query via timeout_secs parameter
+    let timeout_duration = std::time::Duration::from_secs(timeout_secs.unwrap_or(300));
+
+    tokio::time::timeout(
+        timeout_duration,
+        execute_single_fetch_stream(&sql, &metadata_channel, &data_channel, &conn),
+    )
+    .await
+    .map_err(|_| format!("Query timed out after {} seconds", timeout_duration.as_secs()))?
 }
 
 // ============================================================================
