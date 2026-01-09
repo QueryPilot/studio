@@ -1,8 +1,9 @@
 import { logger } from "@/lib/logger";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -54,11 +55,7 @@ import {
   type DatabaseType,
 } from "@/utils/connectionParser";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
-import {
-  type ConnectionProfile,
-  DbType,
-  SslMode,
-} from "@/types/connection";
+import { type ConnectionProfile, DbType, SslMode } from "@/types/connection";
 
 const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
 
@@ -122,11 +119,11 @@ function getDefaultPort(type: DatabaseType): string {
 function parseConnectionOptions(optionsStr: string): Record<string, string> {
   const options: Record<string, string> = {};
   if (!optionsStr.trim()) return options;
-  
+
   for (const line of optionsStr.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue; // Skip empty lines and comments
-    
+
     const eqIndex = trimmed.indexOf("=");
     if (eqIndex > 0) {
       const key = trimmed.substring(0, eqIndex).trim();
@@ -136,7 +133,7 @@ function parseConnectionOptions(optionsStr: string): Record<string, string> {
       }
     }
   }
-  
+
   return options;
 }
 
@@ -243,7 +240,7 @@ export function ConnectionForm() {
   const [sslCAFile, _setSslCAFile] = useState(
     connection?.profile.ssl_config?.ca_file || "",
   );
-  
+
   // Connection options state (e.g., charset=utf8mb4)
   const [connectionOptions, setConnectionOptions] = useState<string>(() => {
     if (connection?.profile.options) {
@@ -255,16 +252,20 @@ export function ConnectionForm() {
   });
 
   // UI state
-  const [sslModeOpen, setSslModeOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [uriParsed, setUriParsed] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testSuccess, setTestSuccess] = useState(false);
+  const skipDefaultPortRef = useRef(false);
 
   // Update port when database type changes
   useEffect(() => {
     if (!connection) {
+      if (skipDefaultPortRef.current) {
+        skipDefaultPortRef.current = false;
+        return;
+      }
       setPort(getDefaultPort(dbType));
     }
   }, [dbType, connection]);
@@ -287,6 +288,9 @@ export function ConnectionForm() {
   const handleParseEnv = (text: string) => {
     try {
       const config = parseConnectionEnv(text);
+      skipDefaultPortRef.current = Boolean(
+        config.port && config.dbType && config.dbType !== dbType,
+      );
       if (config.dbType) setDbType(config.dbType);
       if (config.host) setHost(config.host);
       if (config.port) setPort(config.port);
@@ -312,6 +316,9 @@ export function ConnectionForm() {
   const handleParseUri = (uri: string) => {
     try {
       const config = parseConnectionUri(uri);
+      skipDefaultPortRef.current = Boolean(
+        config.port && config.dbType && config.dbType !== dbType,
+      );
       setDbType(config.dbType);
       if (config.host) setHost(config.host);
       if (config.port) setPort(config.port);
@@ -322,7 +329,7 @@ export function ConnectionForm() {
         setName(config.database);
       }
       if (config.sslMode !== undefined) setSslMode(config.sslMode);
-      
+
       // Set connection options from query parameters
       if (config.options && Object.keys(config.options).length > 0) {
         const optionsStr = Object.entries(config.options)
@@ -975,41 +982,35 @@ export function ConnectionForm() {
                 <IconShield className="h-3 w-3 text-muted-foreground" />
                 SSL Mode
               </Label>
-              <Popover open={sslModeOpen} onOpenChange={setSslModeOpen}>
-                <PopoverTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      className="w-full justify-between mt-1 h-8 text-xs"
+              <RadioGroup
+                value={sslMode}
+                onValueChange={(value) => {
+                  setSslMode(value as SslMode);
+                }}
+                className="mt-2 grid-cols-2 gap-2 sm:grid-cols-4"
+              >
+                {[
+                  { value: SslMode.Disable, label: "Disable" },
+                  { value: SslMode.Require, label: "Require" },
+                  { value: SslMode.VerifyCa, label: "Verify CA" },
+                  { value: SslMode.VerifyFull, label: "Verify Full" },
+                ].map((option) => {
+                  const id = `ssl-mode-${option.value}`;
+                  return (
+                    <Label
+                      key={option.value}
+                      htmlFor={id}
+                      className={cn(
+                        "flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                        sslMode === option.value && "text-primary",
+                      )}
                     >
-                      <span className="capitalize">{sslMode}</span>
-                      <IconChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
-                    </Button>
-                  }
-                />
-                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-1">
-                  <div className="flex flex-col">
-                    {[
-                      SslMode.Disable,
-                      SslMode.Require,
-                      SslMode.VerifyCa,
-                      SslMode.VerifyFull,
-                    ].map((mode) => (
-                      <Button
-                        key={mode}
-                        variant={sslMode === mode ? "secondary" : "ghost"}
-                        className="justify-start capitalize text-xs h-7"
-                        onClick={() => {
-                          setSslMode(mode);
-                          setSslModeOpen(false);
-                        }}
-                      >
-                        {mode}
-                      </Button>
-                    ))}
-                  </div>
-                </PopoverContent>
-              </Popover>
+                      <RadioGroupItem id={id} value={option.value} />
+                      {option.label}
+                    </Label>
+                  );
+                })}
+              </RadioGroup>
             </div>
           )}
 
@@ -1025,17 +1026,31 @@ export function ConnectionForm() {
                     }
                   />
                   <TooltipContent side="top" className="max-w-[300px]">
-                    <p className="font-medium mb-1">Optional connection parameters</p>
+                    <p className="font-medium mb-1">
+                      Optional connection parameters
+                    </p>
                     <p className="mb-2">One per line, format: key=value</p>
                     <div className="text-xs font-mono bg-muted/50 p-1.5 rounded">
                       {(dbType === "mysql" || dbType === "mariadb") && (
-                        <>charset=utf8mb4<br />timezone=UTC</>
+                        <>
+                          charset=utf8mb4
+                          <br />
+                          timezone=UTC
+                        </>
                       )}
                       {dbType === "postgresql" && (
-                        <>application_name=QueryPilot<br />connect_timeout=10</>
+                        <>
+                          application_name=QueryPilot
+                          <br />
+                          connect_timeout=10
+                        </>
                       )}
                       {dbType === "mssql" && (
-                        <>application_name=QueryPilot<br />trust_cert=true</>
+                        <>
+                          application_name=QueryPilot
+                          <br />
+                          trust_cert=true
+                        </>
                       )}
                     </div>
                   </TooltipContent>
@@ -1044,7 +1059,9 @@ export function ConnectionForm() {
               <textarea
                 className="mt-1 w-full h-16 text-xs px-2 py-1.5 border rounded-md bg-background resize-none font-mono"
                 value={connectionOptions}
-                onChange={(e) => setConnectionOptions(e.target.value)}
+                onChange={(e) => {
+                  setConnectionOptions(e.target.value);
+                }}
                 placeholder={
                   dbType === "mysql" || dbType === "mariadb"
                     ? "charset=utf8mb4\ntimezone=UTC"
@@ -1212,7 +1229,6 @@ export function ConnectionForm() {
               )}
             </div>
           )}
-
         </div>
       </div>
 
