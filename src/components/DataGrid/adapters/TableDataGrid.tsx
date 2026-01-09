@@ -468,6 +468,7 @@ export const TableDataGrid = memo(function TableDataGrid(
     columns: filterColumns,
     initialFilter,
     generateAIFilter,
+    clientSideFiltering: isQueryMode,
   });
 
   const tableDataQuery = useTableDataQuery({
@@ -887,6 +888,9 @@ export const TableDataGrid = memo(function TableDataGrid(
   // Client-side filtering for query mode
   // In table mode, filtering is handled server-side via tableDataQuery
   // In query mode, we filter the loaded results client-side
+  const deferredFilter = useDeferredValue(activeFilter);
+  const isFiltering = activeFilter !== deferredFilter;
+
   const filteredRows = useMemo(() => {
     if (isTableMode) {
       return rows; // Server-side filtering
@@ -905,11 +909,11 @@ export const TableDataGrid = memo(function TableDataGrid(
     };
     return applyClientSideFilter(
       rows,
-      activeFilter,
+      deferredFilter,
       columnNames,
       filterOptions,
     ) as TableDataRow[];
-  }, [rows, isTableMode, activeFilter, columnMeta]);
+  }, [rows, isTableMode, deferredFilter, columnMeta]);
 
   const { pinnedRows, unpinnedRows, pinnedRowIds, pinRow, unpinRow } =
     useRowPinning({
@@ -2418,7 +2422,7 @@ export const TableDataGrid = memo(function TableDataGrid(
                     isLoading={isAIFilterLoading}
                     error={quickFilterError}
                     explanation={aiExplanation}
-                    searchModeOnly={isQueryMode}
+                    clientSideFiltering={isQueryMode}
                   />
                 </div>
               )}
@@ -2476,7 +2480,7 @@ export const TableDataGrid = memo(function TableDataGrid(
                 isLoading={isAIFilterLoading}
                 error={quickFilterError}
                 explanation={aiExplanation}
-                searchModeOnly={isQueryMode}
+                clientSideFiltering={isQueryMode}
               />
             </div>
           )}
@@ -2491,7 +2495,10 @@ export const TableDataGrid = memo(function TableDataGrid(
       <div
         ref={containerRef}
         tabIndex={0}
-        className="relative flex-1 outline-none"
+        className={cn(
+          "relative flex-1 outline-none",
+          isFiltering && "opacity-60 transition-opacity duration-200",
+        )}
         onClick={handleContainerClick}
         onFocusCapture={handleFocusCapture}
         onBlurCapture={handleBlurCapture}
