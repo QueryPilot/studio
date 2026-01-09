@@ -119,7 +119,8 @@ impl DbAdapter for SqliteAdapter {
     }
 
     async fn test_connection(&self) -> Result<ConnectionTestResult> {
-        self.execute_blocking(|conn| {
+        // Use timeout to avoid hanging on dead connections
+        let test = self.execute_blocking(|conn| {
             // Get SQLite version
             let version: String = conn
                 .query_row("SELECT sqlite_version()", [], |row| row.get(0))
@@ -132,8 +133,12 @@ impl DbAdapter for SqliteAdapter {
                 warnings: vec![],
                 detected_db_type: None,
             })
-        })
-        .await
+        });
+
+        // 10 second timeout for test_connection (longer than is_connected since it does more work)
+        tokio::time::timeout(std::time::Duration::from_secs(10), test)
+            .await
+            .map_err(|_| AppError::ConnectionClosed("Connection test timed out".into()))?
     }
 
     async fn is_connected(&self) -> bool {
@@ -141,12 +146,17 @@ impl DbAdapter for SqliteAdapter {
             return false;
         }
 
-        self.execute_blocking(|conn| {
+        // Use timeout to avoid hanging on dead connections
+        let check = self.execute_blocking(|conn| {
             conn.query_row("SELECT 1", [], |_| Ok(()))
                 .map_err(|e| AppError::DatabaseError(format!("Ping failed: {}", e)))
-        })
-        .await
-        .is_ok()
+        });
+        
+        // 5 second timeout - long enough for slow connections, short enough to not freeze UI
+        tokio::time::timeout(std::time::Duration::from_secs(5), check)
+            .await
+            .map(|r| r.is_ok())
+            .unwrap_or(false)
     }
 
     async fn query(&self, sql: &str) -> Result<QueryResult> {

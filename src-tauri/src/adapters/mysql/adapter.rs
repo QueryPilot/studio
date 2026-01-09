@@ -210,41 +210,56 @@ impl DbAdapter for MySqlAdapter {
     }
 
     async fn test_connection(&self) -> Result<ConnectionTestResult> {
-        let mut conn = self.get_conn().await?;
+        // Use timeout to avoid hanging on dead connections
+        let test = async {
+            let mut conn = self.get_conn().await?;
 
-        // Get version and current database
-        let row: Option<(String, String, String)> = conn
-            .query_first("SELECT VERSION(), DATABASE(), USER()")
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+            // Get version and current database
+            let row: Option<(String, String, String)> = conn
+                .query_first("SELECT VERSION(), DATABASE(), USER()")
+                .await
+                .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
 
-        match row {
-            Some((version, database, user)) => {
-                // Detect MariaDB from version string (e.g., "10.11.2-MariaDB")
-                let detected_db_type = DbType::detect_mysql_variant(&version);
-                let is_mariadb = detected_db_type == DbType::MariaDB;
+            match row {
+                Some((version, database, user)) => {
+                    // Detect MariaDB from version string (e.g., "10.11.2-MariaDB")
+                    let detected_db_type = DbType::detect_mysql_variant(&version);
+                    let is_mariadb = detected_db_type == DbType::MariaDB;
 
-                Ok(ConnectionTestResult {
-                    success: true,
-                    message: format!("Connected to {} as {}", database, user),
-                    version: Some(version),
-                    warnings: vec![],
-                    // Only set detected_db_type if it's MariaDB (differs from MySQL)
-                    detected_db_type: if is_mariadb { Some(DbType::MariaDB) } else { None },
-                })
+                    Ok(ConnectionTestResult {
+                        success: true,
+                        message: format!("Connected to {} as {}", database, user),
+                        version: Some(version),
+                        warnings: vec![],
+                        // Only set detected_db_type if it's MariaDB (differs from MySQL)
+                        detected_db_type: if is_mariadb { Some(DbType::MariaDB) } else { None },
+                    })
+                }
+                None => Err(AppError::DatabaseError(
+                    "Failed to get connection info".into(),
+                )),
             }
-            None => Err(AppError::DatabaseError(
-                "Failed to get connection info".into(),
-            )),
-        }
+        };
+
+        // 10 second timeout for test_connection (longer than is_connected since it does more work)
+        tokio::time::timeout(std::time::Duration::from_secs(10), test)
+            .await
+            .map_err(|_| AppError::ConnectionClosed("Connection test timed out".into()))?
     }
 
     async fn is_connected(&self) -> bool {
-        if let Ok(mut conn) = self.get_conn().await {
-            conn.query_drop("SELECT 1").await.is_ok()
-        } else {
-            false
-        }
+        // Use timeout to avoid hanging on dead connections
+        let check = async {
+            let mut conn = self.get_conn().await.ok()?;
+            conn.query_drop("SELECT 1").await.ok()?;
+            Some(())
+        };
+        
+        // 5 second timeout - long enough for slow connections, short enough to not freeze UI
+        tokio::time::timeout(std::time::Duration::from_secs(5), check)
+            .await
+            .map(|r| r.is_some())
+            .unwrap_or(false)
     }
 
     async fn query(&self, sql: &str) -> Result<QueryResult> {
