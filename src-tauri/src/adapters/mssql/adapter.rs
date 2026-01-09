@@ -161,54 +161,69 @@ impl DbAdapter for MssqlAdapter {
     }
 
     async fn test_connection(&self) -> Result<ConnectionTestResult> {
-        let pool = self.get_pool_ref().await?;
-        let mut conn = pool
-            .get()
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
+        // Use timeout to avoid hanging on dead connections
+        let test = async {
+            let pool = self.get_pool_ref().await?;
+            let mut conn = pool
+                .get()
+                .await
+                .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
-        // Get SQL Server version
-        let row = conn
-            .simple_query("SELECT @@VERSION, DB_NAME(), SUSER_NAME()")
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?
-            .into_first_result()
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to get result: {}", e)))?
-            .into_iter()
-            .next();
+            // Get SQL Server version
+            let row = conn
+                .simple_query("SELECT @@VERSION, DB_NAME(), SUSER_NAME()")
+                .await
+                .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?
+                .into_first_result()
+                .await
+                .map_err(|e| AppError::DatabaseError(format!("Failed to get result: {}", e)))?
+                .into_iter()
+                .next();
 
-        match row {
-            Some(row) => {
-                let version: Option<&str> = row.get(0);
-                let database: Option<&str> = row.get(1);
-                let user: Option<&str> = row.get(2);
+            match row {
+                Some(row) => {
+                    let version: Option<&str> = row.get(0);
+                    let database: Option<&str> = row.get(1);
+                    let user: Option<&str> = row.get(2);
 
-                Ok(ConnectionTestResult {
-                    success: true,
-                    message: format!(
-                        "Connected to {} as {}",
-                        database.unwrap_or("unknown"),
-                        user.unwrap_or("unknown")
-                    ),
-                    version: version.map(|s| s.to_string()),
-                    warnings: vec![],
-                    detected_db_type: None,
-                })
+                    Ok(ConnectionTestResult {
+                        success: true,
+                        message: format!(
+                            "Connected to {} as {}",
+                            database.unwrap_or("unknown"),
+                            user.unwrap_or("unknown")
+                        ),
+                        version: version.map(|s| s.to_string()),
+                        warnings: vec![],
+                        detected_db_type: None,
+                    })
+                }
+                None => Err(AppError::DatabaseError(
+                    "Failed to get connection info".into(),
+                )),
             }
-            None => Err(AppError::DatabaseError(
-                "Failed to get connection info".into(),
-            )),
-        }
+        };
+
+        // 10 second timeout for test_connection (longer than is_connected since it does more work)
+        tokio::time::timeout(std::time::Duration::from_secs(10), test)
+            .await
+            .map_err(|_| AppError::ConnectionClosed("Connection test timed out".into()))?
     }
 
     async fn is_connected(&self) -> bool {
-        if let Ok(pool) = self.get_pool_ref().await {
-            if let Ok(mut conn) = pool.get().await {
-                return conn.simple_query("SELECT 1").await.is_ok();
-            }
-        }
-        false
+        // Use timeout to avoid hanging on dead connections
+        let check = async {
+            let pool = self.get_pool_ref().await.ok()?;
+            let mut conn = pool.get().await.ok()?;
+            conn.simple_query("SELECT 1").await.ok()?;
+            Some(())
+        };
+        
+        // 5 second timeout - long enough for slow connections, short enough to not freeze UI
+        tokio::time::timeout(std::time::Duration::from_secs(5), check)
+            .await
+            .map(|r| r.is_some())
+            .unwrap_or(false)
     }
 
     async fn query(&self, sql: &str) -> Result<QueryResult> {

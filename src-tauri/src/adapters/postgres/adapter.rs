@@ -244,26 +244,34 @@ impl DbAdapter for PostgresAdapter {
     async fn test_connection(&self) -> Result<ConnectionTestResult> {
         // Use pool if available (new connection pooling), otherwise fall back to client
         if let Some(pool) = &self.pool {
-            let conn = pool.get().await.map_err(|e| {
-                AppError::ConnectionClosed(format!("Failed to get connection from pool: {}", e))
-            })?;
+            // Use timeout to avoid hanging on dead connections
+            let test = async {
+                let conn = pool.get().await.map_err(|e| {
+                    AppError::ConnectionClosed(format!("Failed to get connection from pool: {}", e))
+                })?;
 
-            // Test query and get version
-            let row = conn
-                .query_one("SELECT version(), current_database(), current_user", &[])
-                .await?;
+                // Test query and get version
+                let row = conn
+                    .query_one("SELECT version(), current_database(), current_user", &[])
+                    .await?;
 
-            let version: String = row.get(0);
-            let database: String = row.get(1);
-            let user: String = row.get(2);
+                let version: String = row.get(0);
+                let database: String = row.get(1);
+                let user: String = row.get(2);
 
-            Ok(ConnectionTestResult {
-                success: true,
-                message: format!("Connected to {} as {}", database, user),
-                version: Some(version),
-                warnings: vec![],
-                detected_db_type: None,
-            })
+                Ok(ConnectionTestResult {
+                    success: true,
+                    message: format!("Connected to {} as {}", database, user),
+                    version: Some(version),
+                    warnings: vec![],
+                    detected_db_type: None,
+                })
+            };
+
+            // 10 second timeout for test_connection (longer than is_connected since it does more work)
+            tokio::time::timeout(std::time::Duration::from_secs(10), test)
+                .await
+                .map_err(|_| AppError::ConnectionClosed("Connection test timed out".into()))?
         } else {
             Err(AppError::ConnectionClosed("Not connected".into()))
         }
@@ -272,10 +280,18 @@ impl DbAdapter for PostgresAdapter {
     async fn is_connected(&self) -> bool {
         if let Some(pool) = &self.pool {
             // Try to get a connection from the pool and run a simple query
-            if let Ok(conn) = pool.get().await {
-                return conn.query_one("SELECT 1", &[]).await.is_ok();
-            }
-            false
+            // Use timeout to avoid hanging on dead connections
+            let check = async {
+                let conn = pool.get().await.ok()?;
+                conn.query_one("SELECT 1", &[]).await.ok()?;
+                Some(())
+            };
+            
+            // 5 second timeout - long enough for slow connections, short enough to not freeze UI
+            tokio::time::timeout(std::time::Duration::from_secs(5), check)
+                .await
+                .map(|r| r.is_some())
+                .unwrap_or(false)
         } else {
             false
         }
