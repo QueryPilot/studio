@@ -8,6 +8,10 @@ import {
   type ActionItem,
   type ActionContext,
 } from "./actions";
+import { logger } from "@/lib/logger";
+import { getAdapterForConnection } from "@/adapters";
+import { queryStreamClient } from "@/services/queryStreamClient";
+import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 
 export type { ActionContext };
 import {
@@ -115,29 +119,14 @@ function getTableActions(_item: UnifiedItem): ActionItem[] {
       shortcut: "S",
     },
     {
-      id: ACTION_IDS.OPEN_DESIGNER,
-      label: "Open in Designer",
-      shortcut: "D",
+      id: ACTION_IDS.OPEN_INDEXES,
+      label: "Open Indexes",
+      shortcut: "I",
     },
     {
-      id: ACTION_IDS.COPY_NAME,
-      label: "Copy Name",
-      shortcut: "C",
-    },
-    {
-      id: ACTION_IDS.COPY_QUALIFIED_NAME,
-      label: "Copy Qualified Name",
-      shortcut: "Shift+C",
-    },
-  ];
-}
-
-function getViewActions(_item: UnifiedItem): ActionItem[] {
-  return [
-    {
-      id: ACTION_IDS.OPEN_DATA,
-      label: "Open Data",
-      shortcut: "Enter",
+      id: ACTION_IDS.OPEN_TRIGGERS,
+      label: "Open Triggers",
+      shortcut: "T",
     },
     {
       id: ACTION_IDS.OPEN_DEFINITION,
@@ -155,6 +144,59 @@ function getViewActions(_item: UnifiedItem): ActionItem[] {
       shortcut: "Shift+C",
     },
   ];
+}
+
+function getViewActions(item: UnifiedItem): ActionItem[] {
+  const isMaterializedView = item.type === "materializedView";
+  const actions: ActionItem[] = [
+    {
+      id: ACTION_IDS.OPEN_DATA,
+      label: "Open Data",
+      shortcut: "Enter",
+    },
+    {
+      id: ACTION_IDS.OPEN_STRUCTURE,
+      label: "Open Structure",
+      shortcut: "S",
+    },
+  ];
+
+  if (isMaterializedView) {
+    actions.push({
+      id: ACTION_IDS.OPEN_INDEXES,
+      label: "Open Indexes",
+      shortcut: "I",
+    });
+  }
+
+  actions.push({
+    id: ACTION_IDS.OPEN_DEFINITION,
+    label: "Open Definition",
+    shortcut: "D",
+  });
+
+  if (isMaterializedView) {
+    actions.push({
+      id: ACTION_IDS.REFRESH_MATERIALIZED_VIEW,
+      label: "Refresh Materialized View",
+      shortcut: "R",
+    });
+  }
+
+  actions.push(
+    {
+      id: ACTION_IDS.COPY_NAME,
+      label: "Copy Name",
+      shortcut: "C",
+    },
+    {
+      id: ACTION_IDS.COPY_QUALIFIED_NAME,
+      label: "Copy Qualified Name",
+      shortcut: "Shift+C",
+    },
+  );
+
+  return actions;
 }
 
 function getFunctionActions(_item: UnifiedItem): ActionItem[] {
@@ -225,6 +267,30 @@ async function executeActionHandler(
       break;
     }
 
+    case ACTION_IDS.OPEN_INDEXES: {
+      if (!connectionId || !database || !item.table) return;
+      openTableObject({
+        table: item.table,
+        connectionId,
+        database,
+        viewType: "indexes",
+      });
+      closePalette();
+      break;
+    }
+
+    case ACTION_IDS.OPEN_TRIGGERS: {
+      if (!connectionId || !database || !item.table) return;
+      openTableObject({
+        table: item.table,
+        connectionId,
+        database,
+        viewType: "triggers",
+      });
+      closePalette();
+      break;
+    }
+
     case ACTION_IDS.OPEN_DESIGNER: {
       if (!connectionId || !database || !item.table) return;
       // Open in designer mode - using the design tab type
@@ -248,12 +314,12 @@ async function executeActionHandler(
           database,
         });
       } else if (item.table) {
-        // For views, open definition shows the SQL
+        // For tables/views, open definition shows the DDL
         openTableObject({
           table: item.table,
           connectionId,
           database,
-          viewType: "structure",
+          viewType: "definition",
         });
       }
       closePalette();
@@ -298,6 +364,42 @@ async function executeActionHandler(
       await navigator.clipboard.writeText(item.command.id);
       toast.success(`Copied "${item.command.id}" to clipboard`);
       closePalette();
+      break;
+    }
+
+    case ACTION_IDS.REFRESH_MATERIALIZED_VIEW: {
+      if (!connectionId || !database || !item.table || item.table.kind !== "MaterializedView") return;
+      const { schema, name } = item.table;
+      try {
+        const adapter = await getAdapterForConnection(connectionId);
+        const sql = adapter.refreshMaterializedView(schema, name) as string;
+        if (typeof sql !== "string") {
+          throw new Error("Refresh materialized view is not supported by this database");
+        }
+        await queryStreamClient.streamWithCallbacks(
+          {
+            connId: connectionId,
+            tabId: "system",
+            sql,
+            batchSize: 1,
+          },
+          {},
+        );
+        useDataInvalidationStore
+          .getState()
+          .invalidateTable(connectionId, database, schema, name);
+        openTableObject({
+          table: item.table,
+          connectionId,
+          database,
+          viewType: "data",
+        });
+        toast.success(`Refreshed ${name}`);
+        closePalette();
+      } catch (error) {
+        logger.error("Failed to refresh materialized view:", error);
+        throw error;
+      }
       break;
     }
 

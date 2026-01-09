@@ -122,7 +122,7 @@ export const IntervalCellEditor: React.FC<IntervalCellEditorProps> = ({
   const previewText = useMemo(() => formatInterval(parts), [parts]);
 
   return (
-    <div className="w-full flex flex-col relative click-outside-ignore z-50 min-w-[300px]">
+    <div className="w-full flex flex-col relative click-outside-ignore z-50 min-w-[300px] gdg-editor-shell">
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (

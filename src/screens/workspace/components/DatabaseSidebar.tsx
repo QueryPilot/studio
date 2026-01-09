@@ -1,6 +1,8 @@
 import { logger } from "@/lib/logger";
 import { useState, useEffect, useMemo } from "react";
 import { Input } from "@/components/ui/input";
+import { save } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import {
   IconSearch,
   IconTable,
@@ -16,7 +18,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePanelStore } from "@/stores/panelStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
-import { databaseService, type TableMeta, type FunctionMeta } from "@/services/databaseService";
+import {
+  databaseService,
+  type TableMeta,
+  type FunctionMeta,
+} from "@/services/databaseService";
+import { tableStreamingService } from "@/services/tableStreamingService";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { isMySQLCompatible, DbType } from "@/types/connection";
 import { useEventsQuery } from "@/hooks/useEventsQuery";
@@ -51,9 +58,8 @@ import {
   createDropTableCommand,
   createDuplicateTableCommand,
 } from "@/utils/crudHelpers/tableOperations";
-import {
-  createViewDropCommand,
-} from "@/utils/crudHelpers/viewOperations";
+import { createViewDropCommand } from "@/utils/crudHelpers/viewOperations";
+import { type ObjectDefinitionType } from "@/adapters/types";
 
 interface DatabaseSidebarProps {
   connectionId: string;
@@ -107,7 +113,9 @@ export function DatabaseSidebar({
   } = useSchemaData();
 
   // Get the connection's database type
-  const connection = useConnectionStore((state) => state.getConnection(connectionId));
+  const connection = useConnectionStore((state) =>
+    state.getConnection(connectionId),
+  );
   const dbType = connection?.profile.db_type ?? DbType.PostgreSQL;
   const isMySQLDb = isMySQLCompatible(dbType);
 
@@ -124,7 +132,8 @@ export function DatabaseSidebar({
   const { focusedPanelId, panelContents } = useWorkbenchStore();
 
   const { toggleStarred, getStarredItems } = useStarredItemsStore();
-  const { stagedCommands, stageCommand, stageBatchWithSingleHistoryEntry } = useCrudStore();
+  const { stagedCommands, stageCommand, stageBatchWithSingleHistoryEntry } =
+    useCrudStore();
 
   // Pre-compute lookup maps for O(1) access (instead of O(N) .find() in loops)
   const tablesByKey = useMemo(() => {
@@ -195,9 +204,9 @@ export function DatabaseSidebar({
     const set = new Set<string>();
     stagedCommands.forEach((commands) => {
       commands.forEach((cmd) => {
-        if (cmd.type === 'table.duplicate' && cmd.payload) {
+        if (cmd.type === "table.duplicate" && cmd.payload) {
           const payload = cmd.payload as { sourceTableName?: string };
-          const schema = cmd.target.schema || 'public';
+          const schema = cmd.target.schema || "public";
           if (payload.sourceTableName) {
             set.add(`${schema}.${payload.sourceTableName}`);
           }
@@ -208,13 +217,25 @@ export function DatabaseSidebar({
   }, [stagedCommands]);
 
   // Auto-expand sections when data is loaded
+  // Auto-expand sections when data is loaded
   useEffect(() => {
-    if (tables.length > 0) {
-      setExpandedNodes(
-        (prev) => new Set([...prev, "tables", "views", "functions", "events", "starred"]),
-      );
+    if (tables.length > 0 || views.length > 0 || functions.length > 0) {
+      // Use a microtask to avoid synchronous setState in effect
+      queueMicrotask(() => {
+        setExpandedNodes(
+          (prev) =>
+            new Set([
+              ...prev,
+              "tables",
+              "views",
+              // "functions",
+              // "events",
+              "starred",
+            ]),
+        );
+      });
     }
-  }, [tables]);
+  }, [tables.length, views.length, functions.length]);
 
   // Listen for database reconnection events
   useEffect(() => {
@@ -243,7 +264,10 @@ export function DatabaseSidebar({
   // Track database/schema changes to show loading state
   useEffect(() => {
     if (selectedDatabase && selectedSchema) {
-      setIsRefreshing(true);
+      // Use a microtask to avoid synchronous setState in effect
+      queueMicrotask(() => {
+        setIsRefreshing(true);
+      });
       // Reset after data loads
       const timer = setTimeout(() => {
         setIsRefreshing(false);
@@ -415,20 +439,185 @@ export function DatabaseSidebar({
 
   // Get selected types breakdown
   const getSelectedTypesBreakdown = () => {
-    const breakdown = { tables: 0, views: 0, functions: 0 };
+    const breakdown = {
+      tables: 0,
+      views: 0,
+      materializedViews: 0,
+      functions: 0,
+    };
     selectedItems.forEach((itemKey) => {
-      const [type] = itemKey.split(":");
-      if (type === "table") breakdown.tables++;
-      else if (type === "view") breakdown.views++;
-      else if (type === "function") breakdown.functions++;
+      const [type, rest] = itemKey.split(":");
+      if (type === "table") {
+        breakdown.tables++;
+      } else if (type === "view") {
+        // Check if it's a materialized view
+        if (rest) {
+          const [schema, name] = rest.split(".");
+          const view = views.find(
+            (v) => v.name === name && v.schema === schema,
+          );
+          if (view?.kind === "MaterializedView") {
+            breakdown.materializedViews++;
+          } else {
+            breakdown.views++;
+          }
+        } else {
+          breakdown.views++;
+        }
+      } else if (type === "function") {
+        breakdown.functions++;
+      }
     });
     return breakdown;
   };
 
   // Context menu action handlers
-  const handleExport = () => {
-    logger.info("Export selected items:", Array.from(selectedItems));
-    // TODO: Implement export functionality
+  const handleExport = async () => {
+    const items = Array.from(selectedItems);
+    if (items.length === 0) return;
+
+    try {
+      const definitions: string[] = [];
+      const itemNames: string[] = [];
+
+      for (const itemKey of items) {
+        const [type, rest] = itemKey.split(":");
+        if (!rest) continue;
+        const [schema, name] = rest.split(".");
+        if (!schema || !name) continue;
+
+        itemNames.push(name);
+
+        // Map sidebar type to ObjectDefinitionType
+        let objectType: ObjectDefinitionType;
+        let isMaterializedView = false;
+
+        switch (type) {
+          case "table":
+            objectType = "table";
+            break;
+          case "view": {
+            // Check if it's a materialized view
+            const view = views.find(
+              (v) => v.name === name && v.schema === schema,
+            );
+            if (view?.kind === "MaterializedView") {
+              objectType = "materialized_view";
+              isMaterializedView = true;
+            } else {
+              objectType = "view";
+            }
+            break;
+          }
+          case "function":
+            objectType = "function";
+            break;
+          default:
+            continue;
+        }
+
+        let definition = await databaseService.getObjectDefinition(
+          connectionId,
+          selectedDatabase,
+          schema,
+          name,
+          objectType,
+        );
+
+        if (definition) {
+          // Wrap definitions with CREATE OR REPLACE for views and functions
+          if (
+            objectType === "view" &&
+            !definition.trim().toUpperCase().startsWith("CREATE")
+          ) {
+            // PostgreSQL returns just the SELECT, wrap it
+            definition = `CREATE OR REPLACE VIEW "${schema}"."${name}" AS\n${definition}`;
+          } else if (
+            objectType === "materialized_view" &&
+            !definition.trim().toUpperCase().startsWith("CREATE")
+          ) {
+            // PostgreSQL returns just the SELECT for materialized views too
+            definition = `CREATE MATERIALIZED VIEW "${schema}"."${name}" AS\n${definition}`;
+          } else if (
+            objectType === "view" &&
+            definition.trim().toUpperCase().startsWith("CREATE VIEW")
+          ) {
+            // Replace CREATE VIEW with CREATE OR REPLACE VIEW
+            definition = definition.replace(
+              /^CREATE\s+VIEW/i,
+              "CREATE OR REPLACE VIEW",
+            );
+          }
+
+          // Ensure semicolon at end
+          if (!definition.trim().endsWith(";")) {
+            definition += ";";
+          }
+
+          // Add comment header for each object
+          const objectLabel = isMaterializedView
+            ? "MATERIALIZED VIEW"
+            : type.toUpperCase();
+          definitions.push(`-- ${objectLabel}: ${schema}.${name}`);
+          definitions.push(definition);
+          definitions.push(""); // Empty line between definitions
+        }
+      }
+
+      if (definitions.length === 0) {
+        toast.error("No definitions found to export");
+        return;
+      }
+
+      // Generate suggested filename
+      const timestamp = new Date()
+        .toISOString()
+        .slice(0, 19)
+        .replace(/:/g, "-");
+      const baseName =
+        items.length === 1 ? itemNames[0] : `${selectedDatabase}_export`;
+      const suggestedFilename = `${baseName}_${timestamp}.sql`;
+
+      // Show save dialog
+      const filePath = await save({
+        defaultPath: suggestedFilename,
+        filters: [
+          {
+            name: "SQL Files",
+            extensions: ["sql"],
+          },
+          {
+            name: "All Files",
+            extensions: ["*"],
+          },
+        ],
+      });
+
+      if (!filePath) {
+        // User cancelled
+        return;
+      }
+
+      // Write file using Tauri's file system
+      const content = definitions.join("\n");
+      await invoke("plugin:fs|write_text_file", {
+        path: filePath,
+        contents: content,
+      });
+
+      toast.success(
+        `Exported ${items.length} definition${
+          items.length > 1 ? "s" : ""
+        } to ${filePath.split("/").pop()}`,
+      );
+    } catch (error) {
+      logger.error("Failed to export definitions:", error);
+      toast.error(
+        `Failed to export: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
+      );
+    }
   };
 
   const handleCopyName = () => {
@@ -457,7 +646,7 @@ export function DatabaseSidebar({
         if (!schema || !name) continue;
 
         // Map sidebar type to ObjectDefinitionType
-        let objectType: import("@/adapters/types").ObjectDefinitionType;
+        let objectType: ObjectDefinitionType;
         switch (type) {
           case "table":
             objectType = "table";
@@ -488,7 +677,9 @@ export function DatabaseSidebar({
       if (definitions.length > 0) {
         await navigator.clipboard.writeText(definitions.join("\n\n"));
         toast.success(
-          `Copied ${definitions.length} definition${definitions.length > 1 ? "s" : ""} to clipboard`,
+          `Copied ${definitions.length} definition${
+            definitions.length > 1 ? "s" : ""
+          } to clipboard`,
         );
       }
     } catch (error) {
@@ -538,7 +729,11 @@ export function DatabaseSidebar({
 
   const handleDeleteSelected = () => {
     // Extract selected items with types
-    const selectedItemsArray: Array<{ type: string; schema: string; name: string }> = [];
+    const selectedItemsArray: Array<{
+      type: string;
+      schema: string;
+      name: string;
+    }> = [];
     selectedItems.forEach((itemKey) => {
       const [type, rest] = itemKey.split(":");
       if (!rest || !type) return;
@@ -547,7 +742,7 @@ export function DatabaseSidebar({
       if (parts.length >= 2) {
         const name = parts.pop();
         const schema = parts.join(".") || "public";
-        if (name && typeof name === 'string' && typeof schema === 'string') {
+        if (name && typeof name === "string" && typeof schema === "string") {
           selectedItemsArray.push({ type, schema, name });
         }
       }
@@ -598,6 +793,107 @@ export function DatabaseSidebar({
     });
   };
 
+  const handleViewIndexes = () => {
+    // Open indexes view for all selected tables/materialized views
+    selectedItems.forEach((itemKey) => {
+      const [type, rest] = itemKey.split(":");
+      if (!rest || (type !== "table" && type !== "view")) return;
+
+      const [schema, name] = rest.split(".");
+      if (!schema || !name) return;
+
+      const item =
+        tables.find((t) => t.name === name && t.schema === schema) ||
+        views.find((v) => v.name === name && v.schema === schema);
+      if (item) {
+        handleTableClick(item, "indexes");
+      }
+    });
+  };
+
+  const handleViewTriggers = () => {
+    // Open triggers view for all selected tables
+    selectedItems.forEach((itemKey) => {
+      const [type, rest] = itemKey.split(":");
+      if (!rest || type !== "table") return;
+
+      const [schema, name] = rest.split(".");
+      if (!schema || !name) return;
+
+      const item = tables.find((t) => t.name === name && t.schema === schema);
+      if (item) {
+        handleTableClick(item, "triggers");
+      }
+    });
+  };
+
+  const handleViewDefinition = () => {
+    // Open definition view for all selected items
+    selectedItems.forEach((itemKey) => {
+      const [type, rest] = itemKey.split(":");
+      if (!rest) return;
+
+      const [schema, name] = rest.split(".");
+      if (!schema || !name) return;
+
+      if (type === "table" || type === "view") {
+        const item =
+          tables.find((t) => t.name === name && t.schema === schema) ||
+          views.find((v) => v.name === name && v.schema === schema);
+        if (item) {
+          handleTableClick(item, "definition");
+        }
+      } else if (type === "function") {
+        const func = functions.find(
+          (f) => f.name === name && f.schema === schema,
+        );
+        if (func) {
+          handleFunctionClick(func);
+        }
+      }
+    });
+  };
+
+  const handleRefreshMaterializedViews = async () => {
+    // Refresh all selected materialized views
+    const materializedViews: TableMeta[] = [];
+    selectedItems.forEach((itemKey) => {
+      const [type, rest] = itemKey.split(":");
+      if (type !== "view" || !rest) return;
+
+      const [schema, name] = rest.split(".");
+      if (!schema || !name) return;
+
+      const view = views.find((v) => v.name === name && v.schema === schema);
+      if (view?.kind === "MaterializedView") {
+        materializedViews.push(view);
+      }
+    });
+
+    if (materializedViews.length === 0) return;
+
+    // Refresh each materialized view
+    for (const view of materializedViews) {
+      const qualifiedName = `"${view.schema}"."${view.name}"`;
+      try {
+        toast.info(`Refreshing ${view.name}...`);
+        await tableStreamingService.streamQuery(
+          connectionId,
+          `refresh-mv:${view.schema}.${view.name}`,
+          `REFRESH MATERIALIZED VIEW ${qualifiedName}`,
+        );
+        toast.success(`Refreshed ${view.name}`);
+      } catch (err) {
+        logger.error("Failed to refresh materialized view:", err);
+        toast.error(`Failed to refresh ${view.name}`, {
+          description: err instanceof Error ? err.message : "Unknown error",
+        });
+      }
+    }
+
+    void refreshSchemaData();
+  };
+
   const handleDuplicate = () => {
     // Get the single selected table
     const selectedItemKey = Array.from(selectedItems)[0];
@@ -618,7 +914,13 @@ export function DatabaseSidebar({
 
   const handleTableClick = (
     table: TableMeta,
-    viewType: "data" | "structure" | "indexes" = "data",
+    viewType:
+      | "data"
+      | "structure"
+      | "indexes"
+      | "triggers"
+      | "definition"
+      | "partitions" = "data",
   ) => {
     openTableObject({
       table,
@@ -675,13 +977,17 @@ export function DatabaseSidebar({
   };
 
   // Handle refresh materialized view
-  const handleRefreshMaterializedView = async (view: TableMeta, e: React.MouseEvent) => {
+  const handleRefreshMaterializedView = async (
+    view: TableMeta,
+    e: React.MouseEvent,
+  ) => {
     e.stopPropagation();
     const qualifiedName = `"${view.schema}"."${view.name}"`;
     try {
       toast.info(`Refreshing ${view.name}...`);
-      await databaseService.executeQuery(
+      await tableStreamingService.streamQuery(
         connectionId,
+        `refresh-mv:${view.schema}.${view.name}`,
         `REFRESH MATERIALIZED VIEW ${qualifiedName}`,
       );
       toast.success(`Refreshed ${view.name}`);
@@ -798,7 +1104,10 @@ export function DatabaseSidebar({
   // Note: hasTablePendingChanges is now replaced by pendingChangesSet lookup
 
   // Dialog confirm handlers
-  const handleConfirmTruncate = (options: { restartIdentity: boolean; cascade: boolean }) => {
+  const handleConfirmTruncate = (options: {
+    restartIdentity: boolean;
+    cascade: boolean;
+  }) => {
     if (!truncateDialog) return;
 
     const target = {
@@ -808,14 +1117,16 @@ export function DatabaseSidebar({
     };
 
     const commands = truncateDialog.tables.map((table) =>
-      createTruncateCommand(target, table.name, options)
+      createTruncateCommand(target, table.name, options),
     );
 
     stageBatchWithSingleHistoryEntry(commands);
 
     toast.success(
-      `${commands.length} table${commands.length > 1 ? "s" : ""} staged for truncation`,
-      { description: "Review and commit the changes when ready" }
+      `${commands.length} table${
+        commands.length > 1 ? "s" : ""
+      } staged for truncation`,
+      { description: "Review and commit the changes when ready" },
     );
 
     setTruncateDialog(null);
@@ -833,7 +1144,9 @@ export function DatabaseSidebar({
     // Handle table deletions
     const tableCommands = deleteDialog.items
       .filter((item) => item.type === "table")
-      .map((item) => createDropTableCommand(target, item.name, options.cascade));
+      .map((item) =>
+        createDropTableCommand(target, item.name, options.cascade),
+      );
 
     // Handle view deletions
     const viewCommands = deleteDialog.items
@@ -841,7 +1154,12 @@ export function DatabaseSidebar({
       .map((item) => {
         // Check if it's a materialized view by checking the item metadata
         const isMaterialized = (item as any).is_materialized ?? false;
-        return createViewDropCommand(target, item.name, options.cascade, isMaterialized);
+        return createViewDropCommand(
+          target,
+          item.name,
+          options.cascade,
+          isMaterialized,
+        );
       });
 
     const allCommands = [...tableCommands, ...viewCommands];
@@ -852,20 +1170,27 @@ export function DatabaseSidebar({
       const tableCount = tableCommands.length;
       const viewCount = viewCommands.length;
       const parts: string[] = [];
-      if (tableCount > 0) parts.push(`${tableCount} table${tableCount > 1 ? "s" : ""}`);
-      if (viewCount > 0) parts.push(`${viewCount} view${viewCount > 1 ? "s" : ""}`);
+      if (tableCount > 0)
+        parts.push(`${tableCount} table${tableCount > 1 ? "s" : ""}`);
+      if (viewCount > 0)
+        parts.push(`${viewCount} view${viewCount > 1 ? "s" : ""}`);
 
-      toast.success(
-        `${parts.join(" and ")} staged for deletion`,
-        { description: "Review and commit the changes when ready" }
-      );
+      toast.success(`${parts.join(" and ")} staged for deletion`, {
+        description: "Review and commit the changes when ready",
+      });
     }
 
     // For functions/procedures, show info message (not yet implemented)
-    const functions = deleteDialog.items.filter((item) => item.type === "function");
+    const functions = deleteDialog.items.filter(
+      (item) => item.type === "function",
+    );
     if (functions.length > 0) {
       toast.info(
-        `${functions.length} function${functions.length > 1 ? "s" : ""}/procedure${functions.length > 1 ? "s" : ""} deletion not yet implemented`
+        `${functions.length} function${
+          functions.length > 1 ? "s" : ""
+        }/procedure${
+          functions.length > 1 ? "s" : ""
+        } deletion not yet implemented`,
       );
     }
 
@@ -890,7 +1215,7 @@ export function DatabaseSidebar({
     const command = createDuplicateTableCommand(
       target,
       duplicateDialog.table.name,
-      options
+      options,
     );
 
     stageCommand(command);
@@ -1100,13 +1425,17 @@ export function DatabaseSidebar({
                       item.type !== "function" ? (
                         <>
                           {item.type === "view" &&
-                            (itemData as TableMeta).kind === "MaterializedView" && (
+                            (itemData as TableMeta).kind ===
+                              "MaterializedView" && (
                               <ActionButton
                                 icon={
                                   <IconRefresh className="h-3 w-3 text-muted-foreground hover:text-foreground" />
                                 }
                                 onClick={(e) =>
-                                  void handleRefreshMaterializedView(itemData as TableMeta, e)
+                                  void handleRefreshMaterializedView(
+                                    itemData as TableMeta,
+                                    e,
+                                  )
                                 }
                                 title="Refresh Materialized View"
                               />
@@ -1292,7 +1621,9 @@ export function DatabaseSidebar({
                             icon={
                               <IconRefresh className="h-3 w-3 text-muted-foreground hover:text-foreground" />
                             }
-                            onClick={(e) => void handleRefreshMaterializedView(view, e)}
+                            onClick={(e) =>
+                              void handleRefreshMaterializedView(view, e)
+                            }
                             title="Refresh Materialized View"
                           />
                         )}
@@ -1452,7 +1783,11 @@ export function DatabaseSidebar({
           onDelete={handleDeleteSelected}
           onViewData={handleViewData}
           onViewStructure={handleViewStructure}
+          onViewIndexes={handleViewIndexes}
+          onViewTriggers={handleViewTriggers}
+          onViewDefinition={handleViewDefinition}
           onDuplicate={handleDuplicate}
+          onRefreshMaterializedView={handleRefreshMaterializedViews}
         />
       )}
 

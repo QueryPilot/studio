@@ -222,7 +222,13 @@ export function useUnifiedItems() {
         cmd.id === "workspace.openDatabase" ||
         cmd.id === "workspace.openSchema" ||
         cmd.id === "workspace.createDatabase" ||
-        cmd.id === "workspace.createSchema"
+        cmd.id === "workspace.createSchema" ||
+        cmd.id === "workspace.createTable" ||
+        cmd.id === "workspace.createView" ||
+        cmd.id === "workspace.createMaterializedView" ||
+        cmd.id === "workspace.createFunction" ||
+        cmd.id === "workspace.createProcedure" ||
+        cmd.id === "workspace.createTrigger"
       ) {
         return isInWorkspace;
       }

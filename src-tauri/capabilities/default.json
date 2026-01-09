@@ -38,6 +38,9 @@
     "core:webview:allow-webview-show",
     "core:webview:allow-set-webview-focus",
     "core:webview:allow-internal-toggle-devtools",
-    "os:default"
+    "os:default",
+    "dialog:default",
+    "fs:default",
+    "fs:allow-write-text-file"
   ]
 }
