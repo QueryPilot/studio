@@ -57,6 +57,8 @@ interface QuickFilterProps {
   explanation?: string | null;
   /** Hide mode switcher (AI/SQL) - useful for query result filtering where only search mode applies */
   searchModeOnly?: boolean;
+  /** Enable client-side filtering mode (AI generates search patterns instead of SQL, WHERE mode disabled) */
+  clientSideFiltering?: boolean;
 }
 
 export interface QuickFilterRef {
@@ -205,6 +207,7 @@ export const QuickFilter = memo(
       error = null,
       explanation = null,
       searchModeOnly = false,
+      clientSideFiltering = false,
     },
     ref,
   ) {
@@ -1042,7 +1045,7 @@ export const QuickFilter = memo(
                 )}
               >
                 {/* Mode selector - inside input at left */}
-                {searchModeOnly ? (
+                {searchModeOnly && !clientSideFiltering ? (
                   <div className="absolute left-1 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center rounded-sm size-5 text-muted-foreground">
                     <IconSearch className="size-3.5" />
                   </div>
@@ -1095,50 +1098,64 @@ export const QuickFilter = memo(
                   ) : null}
                 </div>
               </div>
-              {!searchModeOnly && (
+              {(!searchModeOnly || clientSideFiltering) && (
                 <DropdownMenuContent align="start" className="w-48">
-                  {(Object.keys(modeConfig) as FilterMode[]).map((m) => {
-                    const cfg = modeConfig[m];
-                    const Icon = cfg.icon;
-                    return (
-                      <DropdownMenuItem
-                        key={m}
-                        onClick={(e) => {
-                          // Keep dropdown open for AI mode to let user select model
-                          if (m === "ai") {
-                            e.preventDefault();
-                          }
-                          onModeChange(m);
-                          // Auto-add/replace prefix based on mode
-                          const currentValue = value.replace(/^[?#]\s*/, "");
-                          if (m === "where") {
-                            onValueChange(
-                              currentValue ? `?${currentValue}` : "?",
-                            );
-                          } else if (m === "ai") {
-                            onValueChange(
-                              currentValue ? `#${currentValue}` : "#",
-                            );
-                          } else {
-                            onValueChange(currentValue);
-                          }
-                          // Focus editor after mode change (not for AI mode - user selects model first)
-                          if (m !== "ai") {
-                            setTimeout(() => editorViewRef.current?.focus(), 0);
-                          }
-                        }}
-                        className={cn("text-xs", mode === m && "bg-accent")}
-                      >
-                        <Icon className="h-3.5 w-3.5 mr-2" />
-                        <div className="flex flex-col">
-                          <span className="text-xs">{cfg.label}</span>
-                          <span className="text-[10px] text-muted-foreground">
-                            {cfg.description}
-                          </span>
-                        </div>
-                      </DropdownMenuItem>
-                    );
-                  })}
+                  {(Object.keys(modeConfig) as FilterMode[])
+                    .filter((m) => !clientSideFiltering || m !== "where")
+                    .map((m) => {
+                      const cfg = modeConfig[m];
+                      const Icon = cfg.icon;
+                      const label =
+                        clientSideFiltering && m === "ai"
+                          ? "AI Filter"
+                          : cfg.label;
+                      const description =
+                        clientSideFiltering && m === "ai"
+                          ? "Generate search patterns"
+                          : cfg.description;
+
+                      return (
+                        <DropdownMenuItem
+                          key={m}
+                          onClick={(e) => {
+                            // Keep dropdown open for AI mode to let user select model
+                            if (m === "ai") {
+                              e.preventDefault();
+                            }
+                            onModeChange(m);
+                            // Auto-add/replace prefix based on mode
+                            const currentValue = value.replace(/^[?#]\s*/, "");
+                            if (m === "where") {
+                              onValueChange(
+                                currentValue ? `?${currentValue}` : "?"
+                              );
+                            } else if (m === "ai") {
+                              onValueChange(
+                                currentValue ? `#${currentValue}` : "#"
+                              );
+                            } else {
+                              onValueChange(currentValue);
+                            }
+                            // Focus editor after mode change (not for AI mode - user selects model first)
+                            if (m !== "ai") {
+                              setTimeout(
+                                () => editorViewRef.current?.focus(),
+                                0
+                              );
+                            }
+                          }}
+                          className={cn("text-xs", mode === m && "bg-accent")}
+                        >
+                          <Icon className="h-3.5 w-3.5 mr-2" />
+                          <div className="flex flex-col">
+                            <span className="text-xs">{label}</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {description}
+                            </span>
+                          </div>
+                        </DropdownMenuItem>
+                      );
+                    })}
 
                   {/* AI Model selector - nested in mode dropdown */}
                   {mode === "ai" && (
