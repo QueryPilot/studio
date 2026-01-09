@@ -9,6 +9,29 @@ import {
   DEFAULT_FONT_FAMILY,
 } from "../../utils/renderCache";
 
+/** Check if a database type string represents a numeric type */
+function isNumericDbType(dbType: string): boolean {
+  // Common numeric type patterns across MySQL, PostgreSQL, SQLite, MSSQL
+  const numericPatterns = [
+    /^int/,           // int, int4, int8, integer, int(11)
+    /^smallint/,
+    /^bigint/,
+    /^tinyint/,
+    /^mediumint/,
+    /^decimal/,
+    /^numeric/,
+    /^float/,
+    /^double/,
+    /^real/,
+    /^money/,
+    /^smallmoney/,
+    /^serial/,        // PostgreSQL serial types
+    /^bigserial/,
+    /^smallserial/,
+  ];
+  return numericPatterns.some(p => p.test(dbType));
+}
+
 const ReferenceCellRenderer: CustomCellRenderer<ReferenceCustomCell> = {
   isMatch: (cell: CustomCell): cell is ReferenceCustomCell => {
     const data = cell.data as Record<string, unknown> | null;
@@ -94,12 +117,34 @@ const ReferenceCellRenderer: CustomCellRenderer<ReferenceCustomCell> = {
       ctx.fillStyle = cachedTheme.textDark;
       ctx.font = cachedTheme.baseFont;
       const displayText = truncateTextToWidth(text, availableWidth, ctx.font);
-      ctx.fillText(displayText, rect.x + padding, centerY);
+      
+      // Right-align numeric values (check dbType or typeof)
+      const dbType = cell.data.dbType?.toLowerCase() ?? "";
+      const isNumeric = typeof value === "number" || isNumericDbType(dbType);
+      
+      if (isNumeric) {
+        ctx.textAlign = "right";
+        ctx.fillText(displayText, rect.x + rect.width - padding - arrowWidth, centerY);
+      } else {
+        ctx.fillText(displayText, rect.x + padding, centerY);
+      }
     }
 
-    // Draw hover arrow icon (→) - existing behavior
+    // Draw hover arrow icon (→)
+    // Position based on data type and embedded status:
+    // - Numeric with no embedded: LEFT side (value is right-aligned)
+    // - Non-numeric or has embedded: RIGHT side (value is left-aligned)
     if (value != null && args.hoverAmount > 0) {
-      const arrowX = rect.x + rect.width - padding - 12;
+      const dbType = cell.data.dbType?.toLowerCase() ?? "";
+      const isNumeric = typeof value === "number" || isNumericDbType(dbType);
+      const hasEmbedded = embeddedValue != null;
+      
+      // Left position for numeric without embedded, right for everything else
+      const showOnLeft = isNumeric && !hasEmbedded;
+      const arrowX = showOnLeft 
+        ? rect.x + padding + 12 
+        : rect.x + rect.width - padding - 12;
+      
       ctx.fillStyle = theme.accentColor;
       ctx.font = getCachedFont("14px", DEFAULT_FONT_FAMILY);
       ctx.textAlign = "center";
