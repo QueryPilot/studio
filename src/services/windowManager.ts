@@ -37,10 +37,17 @@ interface WindowInfo {
   createdAt: Date;
 }
 
+type WindowState = "open" | "closing";
+
 let instance: WindowManager | null = null;
 
 class WindowManager {
-  private windows: Map<string, WindowInfo> = new Map();
+  // Local cache for window metadata (connectionName for titles)
+  // Source of truth for "is open" is windowChannelTracker
+  private windowMetadata: Map<string, WindowInfo> = new Map();
+  
+  // Track windows that are in the process of closing to prevent double-close
+  private windowStates: Map<string, WindowState> = new Map();
 
   private constructor() {}
 
@@ -93,14 +100,24 @@ class WindowManager {
     // Dynamic imports for Tauri APIs
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
 
-    // Check if window already exists for this connection
-    const existingWindow = this.getWindowByConnectionId(connectionId);
-    if (existingWindow) {
-      // Focus existing window
-      const webview = await WebviewWindow.getByLabel(existingWindow.label);
+    const label = `workspace-${connectionId}`;
+
+    // Check if window already exists using the tracker (cross-window accurate)
+    if (windowChannelTracker.hasOpenWindows(connectionId)) {
+      // Also check local metadata for the label
+      const existingWindow = this.getWindowByConnectionId(connectionId);
+      if (existingWindow) {
+        const webview = await WebviewWindow.getByLabel(existingWindow.label);
+        if (webview) {
+          await webview.setFocus();
+          return existingWindow.label;
+        }
+      }
+      // Tracker says open but we don't have metadata - try standard label
+      const webview = await WebviewWindow.getByLabel(label);
       if (webview) {
         await webview.setFocus();
-        return existingWindow.label;
+        return label;
       }
     }
 
@@ -119,10 +136,7 @@ class WindowManager {
       logger.error("Failed to check/hide main window:", error);
     }
 
-    // Create new window with transparent title bar
-    const label = `workspace-${connectionId}`;
     // Create window options with traffic light position
-    // TypeScript types for trafficLightPosition might not be updated yet
     const windowOptions: Record<string, unknown> = {
       url: targetUrl,
       title: `${connectionName} - Query Pilot`,
@@ -148,30 +162,50 @@ class WindowManager {
       windowOptions.trafficLightPosition = trafficLightPosition;
     }
 
-    const webview = new WebviewWindow(
-      label,
-      windowOptions as ConstructorParameters<typeof WebviewWindow>[1],
-    );
+    // Create window with error handling
+    let webview: InstanceType<typeof WebviewWindow>;
+    try {
+      webview = new WebviewWindow(
+        label,
+        windowOptions as ConstructorParameters<typeof WebviewWindow>[1],
+      );
+    } catch (error) {
+      logger.error(`[WindowManager] Failed to create window ${label}:`, error);
+      // Show main window again since we failed
+      try {
+        const mainWindow = await WebviewWindow.getByLabel("main");
+        if (mainWindow) {
+          await mainWindow.show();
+        }
+      } catch {
+        // Ignore
+      }
+      throw error;
+    }
 
-    // Register window
-    this.windows.set(label, {
+    // Register window metadata (for titles and local lookups)
+    this.windowMetadata.set(label, {
       label,
       connectionId,
       connectionName,
       createdAt: new Date(),
     });
+    this.windowStates.set(label, "open");
 
     // Handle window close cleanup
     // Note: Don't await this - it sets up a listener for future destruction
     void webview.once("tauri://destroyed", async () => {
-      this.windows.delete(label);
+      // Clean up local state
+      this.windowMetadata.delete(label);
+      this.windowStates.delete(label);
+      
       logger.info(
-        `[WindowManager] Window ${label} destroyed, ${this.windows.size} windows remaining`,
+        `[WindowManager] Window ${label} destroyed, ${this.windowMetadata.size} windows remaining`,
       );
 
       // Only show main window if ALL workspace windows are closed
-      // This allows users to have multiple workspace windows open
-      if (this.windows.size === 0) {
+      // Use local metadata count (reliable for this window's perspective)
+      if (this.windowMetadata.size === 0) {
         logger.info(
           `[WindowManager] All workspace windows closed, showing main window`,
         );
@@ -200,29 +234,57 @@ class WindowManager {
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
 
     const workspaceWindow = this.getWindowByConnectionId(connectionId);
-    if (workspaceWindow) {
-      const webview = await WebviewWindow.getByLabel(workspaceWindow.label);
-      if (webview) {
-        await webview.close();
-      }
-      this.windows.delete(workspaceWindow.label);
+    if (!workspaceWindow) {
+      logger.warn(`[WindowManager] No window found for connection ${connectionId}`);
+      return;
     }
 
-    // Only show main window if ALL workspace windows are closed
-    if (this.windows.size === 0) {
-      logger.info(
-        `[WindowManager] All workspace windows closed, showing main window`,
-      );
-      try {
-        const mainWindow = await WebviewWindow.getByLabel("main");
-        if (mainWindow) {
-          await mainWindow.show();
-          await mainWindow.setFocus();
-        }
-      } catch (error) {
-        logger.error("Failed to show main window:", error);
-      }
+    // Check if already closing to prevent double-close
+    const currentState = this.windowStates.get(workspaceWindow.label);
+    if (currentState === "closing") {
+      logger.info(`[WindowManager] Window ${workspaceWindow.label} is already closing, skipping`);
+      return;
     }
+
+    // Mark as closing
+    this.windowStates.set(workspaceWindow.label, "closing");
+
+    const webview = await WebviewWindow.getByLabel(workspaceWindow.label);
+    if (webview) {
+      try {
+        await webview.close();
+        // Note: Don't delete from metadata here - the destroyed event handler does that
+      } catch (error) {
+        logger.error(`[WindowManager] Failed to close window ${workspaceWindow.label}:`, error);
+        // Reset state so user can try again
+        this.windowStates.set(workspaceWindow.label, "open");
+        throw error;
+      }
+    } else {
+      // Window doesn't exist, clean up state
+      this.windowMetadata.delete(workspaceWindow.label);
+      this.windowStates.delete(workspaceWindow.label);
+    }
+
+    // Check if we should show main window
+    // Give a small delay for the destroyed event to fire
+    setTimeout(async () => {
+      const hasAnyOpenWindows = this.windowMetadata.size > 0;
+      if (!hasAnyOpenWindows) {
+        logger.info(
+          `[WindowManager] All workspace windows closed, showing main window`,
+        );
+        try {
+          const mainWindow = await WebviewWindow.getByLabel("main");
+          if (mainWindow) {
+            await mainWindow.show();
+            await mainWindow.setFocus();
+          }
+        } catch (error) {
+          logger.error("Failed to show main window:", error);
+        }
+      }
+    }, 100);
   }
 
   async focusWorkspace(connectionId: string): Promise<void> {
@@ -277,12 +339,14 @@ class WindowManager {
         // Set focus
         await webview.setFocus();
 
-        // On macOS, also request attention if focus didn't work
-        // This will bounce the dock icon
-        try {
-          await webview.requestUserAttention(1); // 1 = Critical (bounce until focused)
-        } catch {
-          // requestUserAttention might not be available, ignore
+        // Only request attention if window was minimized or hidden
+        // This avoids unnecessary dock bouncing
+        if (isMinimized || !isVisible) {
+          try {
+            await webview.requestUserAttention(1); // 1 = Critical (bounce until focused)
+          } catch {
+            // requestUserAttention might not be available, ignore
+          }
         }
 
         logger.info(
@@ -299,7 +363,7 @@ class WindowManager {
   }
 
   getWindowByConnectionId(connectionId: string): WindowInfo | undefined {
-    for (const [, info] of this.windows) {
+    for (const [, info] of this.windowMetadata) {
       if (info.connectionId === connectionId) {
         return info;
       }
@@ -313,7 +377,7 @@ class WindowManager {
   }
 
   getActiveWindows(): Map<string, WindowInfo> {
-    return new Map(this.windows);
+    return new Map(this.windowMetadata);
   }
 
   async updateWorkspaceUrl(
@@ -367,7 +431,7 @@ class WindowManager {
 
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
 
-    for (const [label] of this.windows) {
+    for (const [label] of this.windowMetadata) {
       const webview = await WebviewWindow.getByLabel(label);
       if (webview) {
         await webview.emit(event, data);
@@ -376,24 +440,20 @@ class WindowManager {
   }
 
   async closeCurrentWindow(): Promise<void> {
-    logger.info("🪟 [WINDOW DEBUG] closeCurrentWindow called");
+    logger.info("[WindowManager] closeCurrentWindow called");
 
     if (!isTauri()) {
-      logger.info("🌐 [WINDOW DEBUG] Browser mode - calling window.close()");
       // In browser mode, close the tab/window
       window.close();
       return;
     }
 
-    logger.info("🖥️ [WINDOW DEBUG] Tauri mode - getting current window");
     try {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       const currentWindow = getCurrentWindow();
-      logger.info("🔗 [WINDOW DEBUG] Current window obtained, calling close()");
       await currentWindow.close();
-      logger.info("✅ [WINDOW DEBUG] Window close completed successfully");
     } catch (error) {
-      logger.error("❌ [WINDOW DEBUG] Error closing window:", error);
+      logger.error("[WindowManager] Error closing window:", error);
       throw error;
     }
   }
@@ -439,10 +499,15 @@ class WindowManager {
       windowOptions.trafficLightPosition = trafficLightPosition;
     }
 
-    new WebviewWindow(
-      label,
-      windowOptions as ConstructorParameters<typeof WebviewWindow>[1],
-    );
+    try {
+      new WebviewWindow(
+        label,
+        windowOptions as ConstructorParameters<typeof WebviewWindow>[1],
+      );
+    } catch (error) {
+      logger.error(`[WindowManager] Failed to create new main window:`, error);
+      throw error;
+    }
   }
 }
 

@@ -34,6 +34,10 @@ interface PreferencesState {
   // Query execution preferences
   smartQueryLimit: number | null;
   setSmartQueryLimit: (limit: number | null) => void;
+
+  /** Query timeout in seconds. Default: 300 (5 minutes). Set to 0 for no timeout. */
+  queryTimeoutSecs: number;
+  setQueryTimeoutSecs: (timeout: number) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -55,6 +59,12 @@ export const usePreferencesStore = create<PreferencesState>()(
       smartQueryLimit: 5000,
       setSmartQueryLimit: (limit) => {
         set({ smartQueryLimit: limit });
+      },
+
+      // Query timeout (5 minutes default, 0 = no timeout)
+      queryTimeoutSecs: 300,
+      setQueryTimeoutSecs: (timeout) => {
+        set({ queryTimeoutSecs: timeout });
       },
 
       // Dialog state (not persisted)
@@ -81,6 +91,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       partialize: (state) => ({
         telemetry: state.telemetry,
         smartQueryLimit: state.smartQueryLimit,
+        queryTimeoutSecs: state.queryTimeoutSecs,
       }),
     },
   ),

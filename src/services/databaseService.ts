@@ -1,6 +1,7 @@
 import { logger } from "@/lib/logger";
 import { isTauri, safeInvoke, safeEmit } from "@/utils/tauri";
 import { vaultStorage } from "@/services/vaultStorage";
+import { withTimeoutDefault } from "@/utils/timeout";
 
 import { BackendAPI, type DbType } from "./backend";
 import { useVersionStore } from "@/stores/versionStore";
@@ -320,6 +321,49 @@ class DatabaseService {
       logger.error("Failed to disconnect from database:", error);
       throw error;
     }
+  }
+
+  /**
+   * Disconnect from a database with a timeout.
+   * Used during window close to prevent UI freeze if connection is dead.
+   * @param connectionId The connection to disconnect
+   * @param timeoutMs Timeout in milliseconds (default: 3000ms)
+   * @returns true if disconnected successfully, false if timed out
+   */
+  async disconnectWithTimeout(
+    connectionId: string,
+    timeoutMs: number = 3000,
+  ): Promise<boolean> {
+    // Stop health monitoring immediately (doesn't need timeout)
+    this.stopHealthMonitoring(connectionId);
+
+    // Wrap the backend disconnect with timeout
+    const disconnectPromise = (async () => {
+      if (isTauri()) {
+        await BackendAPI.disconnect(connectionId);
+      }
+      this.activeConnections.delete(connectionId);
+      return true;
+    })();
+
+    const result = await withTimeoutDefault(
+      disconnectPromise,
+      timeoutMs,
+      false,
+      `Disconnect connection ${connectionId}`,
+    );
+
+    // Always remove from active connections, even on timeout
+    // The backend will clean up idle connections eventually
+    this.activeConnections.delete(connectionId);
+
+    if (!result) {
+      logger.warn(
+        `[DatabaseService] Disconnect timed out for ${connectionId}, continuing anyway`,
+      );
+    }
+
+    return result;
   }
 
   /**

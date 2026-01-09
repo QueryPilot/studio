@@ -493,36 +493,55 @@ export function WorkspaceTitleBar({
   // Subscribe to connection health updates
   useEffect(() => {
     let previousHealth: ConnectionHealth | null = null;
+    
+    // Track if we've shown CRUD warning to avoid spam
+    let crudWarningShown = false;
 
     const unsubscribe = databaseService.onHealthChange(
       connectionId,
       (health) => {
         setConnectionHealth(health);
 
-        // Show toast on error status change
-        if (health.status === "error" && previousHealth?.status !== "error") {
-          toast.error("Connection Failed", {
-            description:
-              health.error ||
-              "Unable to connect to the database. Please check your connection settings.",
-          });
-        } else if (
-          health.status === "ready" &&
-          previousHealth?.status === "error"
-        ) {
-          toast.success("Connection Restored", {
-            description: "Successfully reconnected to the database.",
-          });
-        }
+         // Show toast on error status change
+         if (health.status === "error" && previousHealth?.status !== "error") {
+           toast.error("Connection Failed", {
+             description:
+               health.error ||
+               "Unable to connect to the database. Please check your connection settings.",
+           });
 
-        previousHealth = health;
-      },
-    );
-
-    return () => {
-      unsubscribe();
-    };
-  }, [connectionId]);
+           // Show warning if there are pending CRUD changes
+           const { stagedCommands } = useCrudStore.getState();
+           const hasPendingChanges = Array.from(stagedCommands.entries()).some(
+             ([tableKey, commands]) =>
+               tableKey.startsWith(`${connectionId}:`) && commands.length > 0
+           );
+           
+           if (hasPendingChanges && !crudWarningShown) {
+             toast.warning("Unsaved Changes at Risk", {
+               description: "You have unsaved CRUD changes and connection is offline. Consider saving your work.",
+               duration: 8000,
+             });
+             crudWarningShown = true;
+           }
+         } else if (
+           health.status === "ready" &&
+           previousHealth?.status === "error"
+         ) {
+           toast.success("Connection Restored", {
+             description: "Successfully reconnected to the database.",
+           });
+           crudWarningShown = false; // Reset warning flag on successful reconnect
+         }
+ 
+         previousHealth = health;
+       },
+     );
+ 
+     return () => {
+       unsubscribe();
+     };
+   }, [connectionId]);
 
   const handleReconnect = async () => {
     setIsReconnecting(true);

@@ -86,17 +86,21 @@ export function SqlContextMenu({
   };
 
   return (
-    <ContextMenu open={open} onOpenChange={(open) => !open && onClose()}>
-      <ContextMenuTrigger style={{ display: "none" }} />
-      <ContextMenuContent
-        style={{
-          position: "fixed",
-          left: position.x,
-          top: position.y,
-        }}
-      >
-        <ContextMenuLabel>{getHeaderText()}</ContextMenuLabel>
-        <ContextMenuSeparator />
+    <div
+      style={{
+        position: "fixed",
+        left: position.x,
+        top: position.y,
+        width: 0,
+        height: 0,
+        zIndex: 9999,
+      }}
+    >
+      <ContextMenu open={open} onOpenChange={(open) => !open && onClose()}>
+        <ContextMenuTrigger />
+        <ContextMenuContent>
+          <ContextMenuLabel>{getHeaderText()}</ContextMenuLabel>
+          <ContextMenuSeparator />
 
         {/* Go to Definition - for aliases and CTEs */}
         {(target.type === "alias" || target.type === "cte") &&
@@ -170,7 +174,8 @@ export function SqlContextMenu({
             </ContextMenuItem>
           </>
         )}
-      </ContextMenuContent>
-    </ContextMenu>
+        </ContextMenuContent>
+      </ContextMenu>
+    </div>
   );
 }

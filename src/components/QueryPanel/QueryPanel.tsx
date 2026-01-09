@@ -463,6 +463,8 @@ export const QueryPanel = memo(function QueryPanel({
             else msg = "Stream error";
             toast.error(msg);
           },
+          // Pass query timeout from preferences (0 = no timeout)
+          usePreferencesStore.getState().queryTimeoutSecs || undefined,
         );
 
         const final = await streamPromise;
