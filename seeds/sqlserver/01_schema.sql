@@ -22,12 +22,20 @@ GO
 
 -- Drop existing functions
 IF OBJECT_ID('dbo.fn_get_user_completion_rate', 'FN') IS NOT NULL DROP FUNCTION dbo.fn_get_user_completion_rate;
+IF OBJECT_ID('dbo.fn_calculate_todo_score', 'FN') IS NOT NULL DROP FUNCTION dbo.fn_calculate_todo_score;
 IF OBJECT_ID('dbo.fn_count_pending_todos', 'FN') IS NOT NULL DROP FUNCTION dbo.fn_count_pending_todos;
+IF OBJECT_ID('dbo.fn_parse_json_value', 'FN') IS NOT NULL DROP FUNCTION dbo.fn_parse_json_value;
+IF OBJECT_ID('dbo.fn_get_user_todo_stats', 'FN') IS NOT NULL DROP FUNCTION dbo.fn_get_user_todo_stats;
+IF OBJECT_ID('dbo.fn_get_user_todo_stats', 'IF') IS NOT NULL DROP FUNCTION dbo.fn_get_user_todo_stats;
+IF OBJECT_ID('dbo.fn_get_user_todo_stats', 'TF') IS NOT NULL DROP FUNCTION dbo.fn_get_user_todo_stats;
 GO
 
 -- Drop existing stored procedures
 IF OBJECT_ID('dbo.sp_get_user_todos', 'P') IS NOT NULL DROP PROCEDURE dbo.sp_get_user_todos;
 IF OBJECT_ID('dbo.sp_update_todo_status', 'P') IS NOT NULL DROP PROCEDURE dbo.sp_update_todo_status;
+IF OBJECT_ID('dbo.sp_complete_todo', 'P') IS NOT NULL DROP PROCEDURE dbo.sp_complete_todo;
+IF OBJECT_ID('dbo.sp_bulk_update_todo_status', 'P') IS NOT NULL DROP PROCEDURE dbo.sp_bulk_update_todo_status;
+IF OBJECT_ID('dbo.sp_generate_user_report', 'P') IS NOT NULL DROP PROCEDURE dbo.sp_generate_user_report;
 GO
 
 -- Drop existing tables if they exist
@@ -276,6 +284,15 @@ GROUP BY DATEADD(WEEK, DATEDIFF(WEEK, 0, t.created_at), 0);
 GO
 
 -- Indexed Views (SQL Server's equivalent to materialized views)
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+GO
+
 CREATE VIEW user_activity_summary_base
 WITH SCHEMABINDING AS
 SELECT 
@@ -289,11 +306,19 @@ SELECT
     SUM(ISNULL(t.estimated_hours, 0)) as total_estimated_hours,
     SUM(CASE WHEN t.status = 'completed' THEN ISNULL(t.actual_hours, 0) ELSE 0 END) as total_actual_hours
 FROM dbo.users u
-LEFT JOIN dbo.todos t ON u.id = t.user_id
+JOIN dbo.todos t ON u.id = t.user_id
 GROUP BY u.id, u.username;
 GO
 
 -- Create unique clustered index to make it an indexed view
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+
 CREATE UNIQUE CLUSTERED INDEX idx_user_activity_summary ON user_activity_summary_base(user_id);
 GO
 

@@ -1,6 +1,11 @@
 .PHONY: help d dev dev-profile dp build build-ai build-ai-all verify-sidecars dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup version release release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-clean test-ssh-full
 
 SSH_KEYGEN ?= ssh-keygen
+SQLSERVER_CONTAINER ?= query-pilot-sqlserver
+SQLSERVER_USER ?= sa
+SQLSERVER_PASSWORD ?= DevPass123
+SQLSERVER_DB ?= todoapp
+SQLSERVER_SQLCMD ?= /opt/mssql-tools18/bin/sqlcmd
 
 # Default target - show help
 help:
@@ -230,15 +235,17 @@ seed-sqlite:
 
 seed-sqlserver:
 	@echo "Waiting for SQL Server to be ready..."
-	@sleep 20
 	@echo "Testing SQL Server connection..."
-	@until docker exec query-pilot-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123 -Q "SELECT 1" -C -No > /dev/null 2>&1; do \
+	@until docker exec $(SQLSERVER_CONTAINER) $(SQLSERVER_SQLCMD) -S localhost -U $(SQLSERVER_USER) -P $(SQLSERVER_PASSWORD) -Q "SELECT 1" -C > /dev/null 2>&1; do \
 		echo "Waiting for SQL Server to accept connections..."; \
 		sleep 5; \
 	done
+	@echo "Ensuring SQL Server database exists..."
+	@docker exec -i $(SQLSERVER_CONTAINER) $(SQLSERVER_SQLCMD) -S localhost -U $(SQLSERVER_USER) -P $(SQLSERVER_PASSWORD) -d master -Q "IF DB_ID('$(SQLSERVER_DB)') IS NULL CREATE DATABASE [$(SQLSERVER_DB)]" -C -b
 	@echo "Seeding SQL Server..."
-	@docker exec -i query-pilot-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123 -i /seeds/01_schema.sql -C
-	@docker exec -i query-pilot-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123 -i /seeds/02_seed_data.sql -C
+	@docker exec -i $(SQLSERVER_CONTAINER) $(SQLSERVER_SQLCMD) -S localhost -U $(SQLSERVER_USER) -P $(SQLSERVER_PASSWORD) -d master -i /seeds/01_schema.sql -C -b
+	@docker exec -i $(SQLSERVER_CONTAINER) $(SQLSERVER_SQLCMD) -S localhost -U $(SQLSERVER_USER) -P $(SQLSERVER_PASSWORD) -d $(SQLSERVER_DB) -i /seeds/02_seed_data.sql -C -b
+	@docker exec -i $(SQLSERVER_CONTAINER) $(SQLSERVER_SQLCMD) -S localhost -U $(SQLSERVER_USER) -P $(SQLSERVER_PASSWORD) -d $(SQLSERVER_DB) -i /seeds/03_advanced_types.sql -C -b
 	@echo "SQL Server seeded successfully!"
 
 seed-oracle:
