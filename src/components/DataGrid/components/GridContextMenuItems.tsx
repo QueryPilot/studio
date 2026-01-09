@@ -21,6 +21,7 @@ import {
   exportToJSON,
   exportToTSV,
   exportToExcel,
+  exportToMarkdown,
   getSuggestedFilename,
 } from "../utils/exportUtils";
 import { toast } from "sonner";
@@ -217,57 +218,76 @@ export function GridContextMenuItems({
   }, [selectedRows, columns, tableName, databaseType, schema]);
 
   // Export handlers
-  const handleExportCSV = useCallback(() => {
+  const handleExportCSV = useCallback(async () => {
     try {
       const filename = getSuggestedFilename(tableName, "csv");
-      exportToCSV(selectedRows, columns, filename);
+      await exportToCSV(selectedRows, columns, filename);
       toast("Exported as CSV");
     } catch (error) {
+      console.error("Export CSV error:", error);
       toast.error(
         `Failed to export: ${
-          error instanceof Error ? error.message : "Unknown error"
+          error instanceof Error ? error.message : String(error)
         }`,
       );
     }
   }, [selectedRows, columns, tableName]);
 
-  const handleExportJSON = useCallback(() => {
+  const handleExportJSON = useCallback(async () => {
     try {
       const filename = getSuggestedFilename(tableName, "json");
-      exportToJSON(selectedRows, columns, filename);
+      await exportToJSON(selectedRows, columns, filename);
       toast("Exported as JSON");
     } catch (error) {
+      console.error("Export JSON error:", error);
       toast.error(
         `Failed to export: ${
-          error instanceof Error ? error.message : "Unknown error"
+          error instanceof Error ? error.message : String(error)
         }`,
       );
     }
   }, [selectedRows, columns, tableName]);
 
-  const handleExportTSV = useCallback(() => {
+  const handleExportTSV = useCallback(async () => {
     try {
       const filename = getSuggestedFilename(tableName, "tsv");
-      exportToTSV(selectedRows, columns, filename);
+      await exportToTSV(selectedRows, columns, filename);
       toast("Exported as TSV");
     } catch (error) {
+      console.error("Export TSV error:", error);
       toast.error(
         `Failed to export: ${
-          error instanceof Error ? error.message : "Unknown error"
+          error instanceof Error ? error.message : String(error)
         }`,
       );
     }
   }, [selectedRows, columns, tableName]);
 
-  const handleExportExcel = useCallback(() => {
+  const handleExportMarkdown = useCallback(async () => {
     try {
-      const filename = getSuggestedFilename(tableName, "csv");
-      exportToExcel(selectedRows, columns, filename);
-      toast("Exported as Excel-compatible CSV");
+      const filename = getSuggestedFilename(tableName, "md");
+      await exportToMarkdown(selectedRows, columns, filename);
+      toast("Exported as Markdown");
     } catch (error) {
+      console.error("Export Markdown error:", error);
       toast.error(
         `Failed to export: ${
-          error instanceof Error ? error.message : "Unknown error"
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }, [selectedRows, columns, tableName]);
+
+  const handleExportExcel = useCallback(async () => {
+    try {
+      const filename = getSuggestedFilename(tableName, "csv");
+      await exportToExcel(selectedRows, columns, filename);
+      toast("Exported as Excel-compatible CSV");
+    } catch (error) {
+      console.error("Export Excel error:", error);
+      toast.error(
+        `Failed to export: ${
+          error instanceof Error ? error.message : String(error)
         }`,
       );
     }
@@ -483,6 +503,13 @@ export function GridContextMenuItems({
           >
             <IconDownload className="mr-1.5 h-3 w-3 text-foreground" />
             <span className="flex-1">Export as TSV</span>
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={handleExportMarkdown}
+            className="text-xs py-1.5 px-3 outline-none"
+          >
+            <IconDownload className="mr-1.5 h-3 w-3 text-foreground" />
+            <span className="flex-1">Export as Markdown</span>
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleExportExcel}

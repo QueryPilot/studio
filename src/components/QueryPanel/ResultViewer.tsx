@@ -82,7 +82,7 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
   // Markdown options
   const [alignNumeric, setAlignNumeric] = useState<"left" | "center" | "right">("right");
 
-  const handleExportCSV = () => {
+  const handleExportCSV = async () => {
     const options: ExportOptions = {
       delimiter,
       includeHeaders,
@@ -90,26 +90,26 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
     };
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
     const filename = `query-export-${timestamp}.csv`;
-    const result = exportToCSV(rows, columns, options, filename);
+    const result = await exportToCSV(rows, columns, options, filename);
     if (result.success) {
       toast.success("CSV exported successfully", {
         description: `${result.rowCount.toLocaleString()} rows exported`,
       });
-    } else {
+    } else if (result.error !== "Export cancelled") {
       toast.error("Export failed", { description: result.error || "Unknown error" });
     }
   };
 
-  const handleExportJSON = () => {
+  const handleExportJSON = async () => {
     const options: JsonExportOptions = { format: jsonFormat };
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
     const filename = `query-export-${timestamp}.json`;
-    const result = exportToJSON(rows, columns, options, filename);
+    const result = await exportToJSON(rows, columns, options, filename);
     if (result.success) {
       toast.success("JSON exported successfully", {
         description: `${result.rowCount.toLocaleString()} rows exported as ${jsonFormat}`,
       });
-    } else {
+    } else if (result.error !== "Export cancelled") {
       toast.error("Export failed", { description: result.error || "Unknown error" });
     }
   };
@@ -502,6 +502,7 @@ export const ResultViewer = memo(function ResultViewer({
                     columns: result.columns,
                     rows: result.rows,
                     columnMeta: result.columnMeta,
+                    rowCount: result.rowCount,
                   }
                 : undefined
             }

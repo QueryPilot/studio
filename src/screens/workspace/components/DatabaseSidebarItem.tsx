@@ -103,6 +103,7 @@ export function SidebarItem({
   name,
   isActive,
   onClick,
+  rowCount,
   actions,
   className,
   isStarred = false,
@@ -148,11 +149,11 @@ export function SidebarItem({
       <span className="text-xs truncate flex-1 min-w-0 text-foreground/80 dark:text-foreground/70">
         {name}
       </span>
-      {/* {rowCount != null && rowCount > 0 && (
+      {rowCount != null && rowCount > 0 && (
         <span className="text-xs text-muted-foreground flex-shrink-0 transition-all duration-200 ease-out">
           ~{rowCount.toLocaleString()}
         </span>
-      )} */}
+      )}
       <div className="flex items-center gap-0.5 flex-shrink-0 transition-all delay-150 duration-200 ease-out -mr-14 opacity-0 group-hover:opacity-100 group-hover:mr-1">
         {onToggleStar && (
           <button

@@ -388,43 +388,50 @@ export const QueryPanel = memo(function QueryPanel({
               rafId = undefined;
 
               // Don't render until we have rows - keeps skeleton visible
-              if (accumulatedRows.length === 0) {
+              const total = accumulatedRows.length;
+              if (total === 0) {
                 return;
               }
+
+              const commitSnapshot = () => {
+                const latestTotal = accumulatedRows.length;
+                setResult((prev) => {
+                  if (!prev) {
+                    return {
+                      columns: currentColumns,
+                      columnMeta: currentColumnMeta,
+                      rows: accumulatedRows,
+                      rowCount: latestTotal,
+                      executionTime: 0,
+                    };
+                  }
+                  return {
+                    ...prev,
+                    columns: currentColumns,
+                    columnMeta: currentColumnMeta,
+                    rows: accumulatedRows,
+                    rowCount: latestTotal,
+                  };
+                });
+              };
 
               // First render is synchronous to avoid flash, subsequent use startTransition
               if (!hasRenderedOnce.current) {
                 hasRenderedOnce.current = true;
-                renderedCountRef.current = accumulatedRows.length;
-                setResult({
-                  columns: currentColumns,
-                  columnMeta: currentColumnMeta,
-                  rows: accumulatedRows.slice(0),
-                  rowCount: accumulatedRows.length,
-                  executionTime: 0,
-                });
+                renderedCountRef.current = total;
+                commitSnapshot();
                 return;
               }
 
+              if (total <= renderedCountRef.current) {
+                return;
+              }
+
+              renderedCountRef.current = total;
+
               // Use startTransition for streaming updates to keep UI responsive
               startTransition(() => {
-                setResult((prev) => {
-                  if (!prev) {
-                    return null;
-                  }
-                  const already = renderedCountRef.current;
-                  const total = accumulatedRows.length;
-                  if (total <= already) {
-                    return prev;
-                  }
-                  const newRows = accumulatedRows.slice(already);
-                  renderedCountRef.current = total;
-                  return {
-                    ...prev,
-                    rows: [...prev.rows, ...newRows],
-                    rowCount: total,
-                  };
-                });
+                commitSnapshot();
               });
             });
           }, delay);
@@ -561,7 +568,7 @@ export const QueryPanel = memo(function QueryPanel({
         setResult({
           columns: currentColumns,
           columnMeta: currentColumnMeta,
-          rows: [...accumulatedRows], // New array reference forces React to detect change
+          rows: accumulatedRows,
           rowCount: final.totalRows ?? accumulatedRows.length,
           affectedRows,
           message,

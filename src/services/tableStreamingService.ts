@@ -65,6 +65,7 @@ export async function streamEntityPage(
 ): Promise<StreamEntityPageResult> {
   const {
     connectionId,
+    entityType,
     schema = "public",
     entityName,
     limit,
@@ -154,6 +155,8 @@ export async function streamEntityPage(
 
     // Fetch estimated total count early for progress reporting (on first page only)
     // This uses SELECT COUNT(*) which always returns >= 0
+    const useExactCount = entityType !== "table";
+
     const fetchEstimatedTotal = async () => {
       if (offset === 0 && !estimatedTotal) {
         try {
@@ -161,9 +164,11 @@ export async function streamEntityPage(
             connectionId,
             schema,
             entityName,
+            { exact: useExactCount },
           );
           if (count > 0) {
             estimatedTotal = count;
+            isEstimatedCount = !useExactCount;
             if (onProgress) {
               onProgress({
                 rowsFetched: 0,
@@ -183,7 +188,7 @@ export async function streamEntityPage(
     };
 
     // Start fetching estimated total in parallel (don't wait for it)
-    void fetchEstimatedTotal();
+    const countPromise = fetchEstimatedTotal();
 
     // Wait for stream to complete
     void queryStreamClient.streamWithCallbacks(
@@ -278,7 +283,10 @@ export async function streamEntityPage(
             .catch(() => {
               // ignore mapping errors here, they'll have been logged
             })
-            .then(() => {
+            .then(async () => {
+              if (useExactCount) {
+                await countPromise;
+              }
               executionTimeMs = result.executionTimeMs;
               if (onProgress) {
                 onProgress({
@@ -314,7 +322,12 @@ export async function streamEntityPage(
                     // PRIMARY INDICATOR: If we got a full page, there's likely more data
                     // Don't rely on estimatedTotal as it can be inaccurate (based on pg_class.reltuples)
                     // Only stop when: (1) explicit limit reached, or (2) got partial page (actual end of data)
-                    const hasMore = !limitReached && fetchedFullPage;
+                    let hasMore = !limitReached && fetchedFullPage;
+                    if (!isEstimatedCount && estimatedTotal != null) {
+                      hasMore =
+                        !limitReached &&
+                        offset + rows.length < estimatedTotal;
+                    }
 
                     // When we reach the end (no more data), we have the EXACT count
                     // Update estimatedTotal to actual total and mark as exact

@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import {
   IconCheck,
   IconCircleFilled,
+  IconDatabase,
   IconLoader2,
 } from "@tabler/icons-react";
 import Fuse, { type IFuseOptions } from "fuse.js";
@@ -139,6 +140,7 @@ export function NestedDatabaseList({
                     dbItem.isCurrent ? "opacity-100" : "opacity-0"
                   )}
                 />
+                <IconDatabase className="size-4 text-muted-foreground" />
                 <span
                   className={cn(
                     "truncate",
@@ -149,7 +151,7 @@ export function NestedDatabaseList({
                 </span>
               </div>
               {dbItem.hasProfile && (
-                <IconCircleFilled className="size-2 text-primary" />
+                <IconCircleFilled className="h-1.5 w-1.5 text-primary" />
               )}
             </div>
           </CommandItem>

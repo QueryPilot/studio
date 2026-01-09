@@ -1,4 +1,7 @@
 import { logger } from "@/lib/logger";
+import { save } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
+import { isTauri } from "./tauri";
 
 export type JsonFormat = "pretty" | "compact";
 
@@ -58,17 +61,48 @@ export function downloadJSON(
   URL.revokeObjectURL(url);
 }
 
-export function exportToJSON(
+export async function exportToJSON(
   rows: unknown[][],
   columns: string[],
   options: JsonExportOptions = {},
   filename = "export.json",
-): JsonExportResult {
+): Promise<JsonExportResult> {
   try {
     const jsonContent = generateJSON(rows, columns, options);
-    downloadJSON(jsonContent, filename);
 
-    logger.info(`[JSON Export] Exported ${rows.length} rows as ${options.format ?? "pretty"}`);
+    if (isTauri()) {
+      // Use native save dialog in Tauri
+      const filePath = await save({
+        defaultPath: filename,
+        filters: [
+          {
+            name: "JSON Files",
+            extensions: ["json"],
+          },
+          {
+            name: "All Files",
+            extensions: ["*"],
+          },
+        ],
+      });
+
+      if (!filePath) {
+        // User cancelled
+        return { success: false, rowCount: 0, error: "Export cancelled" };
+      }
+
+      // Write file using Tauri
+      await invoke("plugin:fs|write_text_file", {
+        path: filePath,
+        contents: jsonContent,
+      });
+
+      logger.info(`[JSON Export] Exported ${rows.length} rows to ${filePath} as ${options.format ?? "pretty"}`);
+    } else {
+      // Fallback to browser download
+      downloadJSON(jsonContent, filename);
+      logger.info(`[JSON Export] Exported ${rows.length} rows as ${options.format ?? "pretty"}`);
+    }
 
     return { success: true, rowCount: rows.length };
   } catch (err) {
