@@ -112,6 +112,56 @@ export type CompletionKind =
 // SQL Engine Service
 // =============================================================================
 
+// =============================================================================
+// Schema Push Types (frontend → Rust)
+// TypeScript adapters are the SINGLE SOURCE OF TRUTH for schema introspection.
+// These types are used to push schema data to Rust for completion/validation.
+// =============================================================================
+
+export interface SetSchemaRequest {
+  connectionId: string;
+  schema: string;
+  tables: TableInput[];
+  foreignKeys: ForeignKeyInput[];
+  enums: EnumInput[];
+}
+
+export interface TableInput {
+  name: string;
+  tableType: "table" | "view" | "materialized_view";
+  columns: ColumnInput[];
+}
+
+export interface ColumnInput {
+  name: string;
+  dataType: string;
+  nullable: boolean;
+  isPrimaryKey: boolean;
+}
+
+export interface ForeignKeyInput {
+  constraintName: string;
+  sourceTable: string;
+  sourceColumn: string;
+  targetTable: string;
+  targetColumn: string;
+}
+
+export interface EnumInput {
+  name: string;
+  values: string[];
+}
+
+export interface SetSchemaResponse {
+  success: boolean;
+  tableCount: number;
+  columnCount: number;
+}
+
+// =============================================================================
+// SQL Engine Service
+// =============================================================================
+
 export const SqlEngineService = {
   /**
    * Parse SQL document and extract statement info.
@@ -199,6 +249,39 @@ export const SqlEngineService = {
     return result.statements
       .map((s) => s.statementType)
       .filter((t): t is string => t !== null);
+  },
+
+  // ===========================================================================
+  // Schema Push Methods (frontend → Rust)
+  // TypeScript adapters are the SINGLE SOURCE OF TRUTH for introspection.
+  // ===========================================================================
+
+  /**
+   * Push schema data to Rust cache.
+   * TypeScript adapters (via IntrospectionService) are the source of truth.
+   * This syncs data to Rust for use by sql_complete and sql_validate.
+   */
+  async setSchema(
+    connectionId: string,
+    schema: string,
+    tables: TableInput[],
+    foreignKeys: ForeignKeyInput[],
+    enums: EnumInput[]
+  ): Promise<SetSchemaResponse> {
+    return invoke<SetSchemaResponse>("sql_set_schema", {
+      request: { connectionId, schema, tables, foreignKeys, enums },
+    });
+  },
+
+  /**
+   * Clear schema cache for a connection.
+   * Call when connection is closed or schema is refreshed.
+   */
+  async clearSchema(connectionId: string, schema?: string): Promise<void> {
+    return invoke("sql_clear_schema", {
+      connectionId,
+      schema,
+    });
   },
 };
 

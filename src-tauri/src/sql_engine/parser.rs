@@ -7,8 +7,8 @@
 //! - CTE (WITH clause) analysis
 //! - Error position tracking
 
-use serde::{Deserialize, Serialize};
-use sqlparser::ast::{self, Statement, TableFactor, SetExpr, Select};
+use serde::Serialize;
+use sqlparser::ast::{self, Statement, TableFactor, SetExpr};
 use sqlparser::parser::Parser;
 
 use super::dialect::SqlDialect;

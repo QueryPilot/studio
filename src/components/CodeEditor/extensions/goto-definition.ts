@@ -1,22 +1,27 @@
 /**
  * Go-to-Definition Extension
  *
- * Cmd+Click or F12 on table/column name to navigate to schema.
- * Emits custom events for the parent to handle navigation.
+ * Cmd+Click or F12 on table/column/alias/CTE name to navigate.
+ * - For aliases/CTEs: Scrolls to definition within the editor
+ * - For tables/columns: Emits custom events for external navigation
  */
 
 import { EditorView, keymap, Decoration, type DecorationSet } from "@codemirror/view";
 import { StateField, StateEffect, type Extension } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import type { MetadataProvider } from "../types";
+import { buildSymbolTable, resolveSymbol } from "../languages/sql/symbol-table";
 
 interface DefinitionTarget {
-  type: "table" | "column";
+  type: "table" | "column" | "alias" | "cte";
   name: string;
   schema?: string;
   table?: string; // For columns
   from: number;
   to: number;
+  // For aliases/CTEs - position of their definition
+  definitionFrom?: number;
+  definitionTo?: number;
 }
 
 // Custom events
@@ -68,6 +73,35 @@ function findTargetAtPosition(
   }
 
   const name = state.doc.sliceString(node.from, node.to).replace(/["`[\]]/g, "");
+  
+  // Build symbol table to check for aliases and CTEs
+  const symbolTable = buildSymbolTable(state);
+  const symbol = resolveSymbol(symbolTable, name, pos);
+
+  // If it's an alias, return alias target with definition position
+  if (symbol && symbol.type === "alias") {
+    return {
+      type: "alias",
+      name: symbol.name,
+      from: node.from,
+      to: node.to,
+      definitionFrom: symbol.from,
+      definitionTo: symbol.to,
+    };
+  }
+
+  // If it's a CTE, return CTE target with definition position
+  if (symbol && symbol.type === "cte") {
+    return {
+      type: "cte",
+      name: symbol.name,
+      from: node.from,
+      to: node.to,
+      definitionFrom: symbol.from,
+      definitionTo: symbol.to,
+    };
+  }
+
   const parent = node.parent;
   const prevSibling = node.prevSibling;
 
@@ -163,25 +197,54 @@ async function gotoDefinition(
   const target = findTargetAtPosition(view, pos);
   if (!target) return false;
 
-  // Dispatch custom event for parent to handle
-  const event = new CustomEvent<GotoDefinitionEvent>("goto-definition", {
-    detail: {
-      type: target.type,
-      name: target.name,
-      schema: target.schema,
-      table: target.table,
-    },
-    bubbles: true,
-  });
-  view.dom.dispatchEvent(event);
+  // For aliases and CTEs, navigate within the editor
+  if ((target.type === "alias" || target.type === "cte") && target.definitionFrom !== undefined && target.definitionTo !== undefined) {
+    // Scroll to definition and select it
+    view.dispatch({
+      selection: { anchor: target.definitionFrom, head: target.definitionTo },
+      effects: [
+        EditorView.scrollIntoView(target.definitionFrom, {
+          y: "center",
+          yMargin: 100,
+        }),
+        setHighlight.of({ from: target.definitionFrom, to: target.definitionTo }),
+      ],
+    });
 
-  // Highlight the target briefly
-  view.dispatch({ effects: setHighlight.of({ from: target.from, to: target.to }) });
-  setTimeout(() => {
-    view.dispatch({ effects: setHighlight.of(null) });
-  }, 300);
+    // Clear highlight after a moment
+    setTimeout(() => {
+      view.dispatch({ effects: setHighlight.of(null) });
+    }, 600);
 
-  return true;
+    // Focus the editor
+    view.focus();
+
+    return true;
+  }
+
+  // For tables and columns, dispatch custom event for external navigation
+  if (target.type === "table" || target.type === "column") {
+    const event = new CustomEvent<GotoDefinitionEvent>("goto-definition", {
+      detail: {
+        type: target.type,
+        name: target.name,
+        schema: target.schema,
+        table: target.table,
+      },
+      bubbles: true,
+    });
+    view.dom.dispatchEvent(event);
+
+    // Highlight the target briefly
+    view.dispatch({ effects: setHighlight.of({ from: target.from, to: target.to }) });
+    setTimeout(() => {
+      view.dispatch({ effects: setHighlight.of(null) });
+    }, 300);
+
+    return true;
+  }
+
+  return false;
 }
 
 // Throttle helper for mousemove

@@ -21,6 +21,10 @@ import type { SqlDialect } from "../../types";
 import { extractTableRefs, resolveTableAlias } from "./shared";
 import { analyzeSqlContext } from "./context";
 import { shouldTriggerCompletion } from "./deferred-completion";
+import {
+  createRustCompletionSource,
+  isRustCompletionAvailable,
+} from "./rust-completion";
 
 interface CompletionConfig {
   connectionId: string;
@@ -318,11 +322,26 @@ function quickAnalyze(
 
 /**
  * Create optimized completion source
+ *
+ * In Tauri environment: Tries Rust completion first (faster, uses pre-synced schema),
+ * falls back to TypeScript completion if Rust returns empty or fails.
+ * In web environment: Uses TypeScript completion directly.
  */
 export function createOptimizedCompletionSource(config: CompletionConfig) {
-  const { connectionId, schema, dialect = "postgresql" } = config;
+  const { connectionId, database, schema, dialect = "postgresql" } = config;
   const defaultSchema = schema || "public";
   const provider = createSqlMetadataProvider(connectionId, defaultSchema);
+
+  // Create Rust source if available (Tauri environment)
+  const rustSource =
+    isRustCompletionAvailable() && connectionId && database
+      ? createRustCompletionSource({
+          connectionId,
+          database,
+          schema: defaultSchema,
+          dialect,
+        })
+      : null;
 
   return async (
     context: CompletionContext
@@ -333,6 +352,23 @@ export function createOptimizedCompletionSource(config: CompletionConfig) {
       return null;
     }
 
+    // Try Rust completion first (faster, uses pre-synced schema via sql_set_schema)
+    if (rustSource) {
+      try {
+        const rustResult = await rustSource(context);
+        if (rustResult && rustResult.options.length > 0) {
+          return rustResult;
+        }
+        // Fall through to TypeScript if Rust returns empty
+      } catch (error) {
+        console.warn(
+          "[optimized-completion] Rust completion failed, falling back to TypeScript:",
+          error
+        );
+      }
+    }
+
+    // TypeScript completion (fallback or non-Tauri environment)
     const { state, pos } = context;
     const line = state.doc.lineAt(pos);
     const beforeCursor = line.text.slice(0, pos - line.from);

@@ -160,6 +160,139 @@ export const createLightTheme = (): Extension => {
   });
 };
 
+// SQL Hover tooltip theme
+export const createSqlHoverTheme = (isDark: boolean): Extension => {
+  return EditorView.baseTheme({
+    ".cm-tooltip.cm-tooltip-hover": {
+      zIndex: "10000 !important",
+    },
+    ".cm-sql-hover-tooltip": {
+      backgroundColor: isDark ? "#1e1e1e" : "#ffffff",
+      color: isDark ? "#e0e0e0" : "#1e1e1e",
+      border: `1px solid ${isDark ? "#3c3c3c" : "#d0d0d0"}`,
+      borderRadius: "8px",
+      padding: "12px",
+      boxShadow: isDark
+        ? "0 4px 16px rgba(0, 0, 0, 0.4)"
+        : "0 4px 16px rgba(0, 0, 0, 0.1)",
+      fontSize: "13px",
+      fontFamily: "'Inter', -apple-system, sans-serif",
+      maxWidth: "400px",
+      zIndex: "10000",
+    },
+    ".cm-sql-hover-header": {
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      marginBottom: "8px",
+      paddingBottom: "8px",
+      borderBottom: `1px solid ${isDark ? "#333" : "#e5e5e5"}`,
+    },
+    ".cm-sql-hover-type": {
+      fontSize: "10px",
+      fontWeight: "600",
+      textTransform: "uppercase",
+      letterSpacing: "0.5px",
+      color: "#D4A52B",
+      backgroundColor: isDark ? "#2a2520" : "#fef3e2",
+      padding: "2px 6px",
+      borderRadius: "4px",
+    },
+    ".cm-sql-hover-name": {
+      fontWeight: "600",
+      fontSize: "14px",
+      color: isDark ? "#f0f0f0" : "#1e1e1e",
+    },
+    ".cm-sql-hover-body": {
+      display: "flex",
+      flexDirection: "column",
+      gap: "6px",
+    },
+    ".cm-sql-hover-info-row": {
+      fontSize: "12px",
+      color: isDark ? "#b0b0b0" : "#666",
+    },
+    ".cm-sql-hover-hint": {
+      fontSize: "11px",
+      color: isDark ? "#888" : "#999",
+      fontStyle: "italic",
+      marginTop: "4px",
+      paddingTop: "8px",
+      borderTop: `1px solid ${isDark ? "#2a2a2a" : "#f0f0f0"}`,
+    },
+    ".cm-sql-hover-col-type-main": {
+      fontSize: "13px",
+      color: "#06B6D4",
+      fontFamily: "'JetBrains Mono', monospace",
+    },
+    ".cm-sql-hover-badge": {
+      fontSize: "9px",
+      fontWeight: "600",
+      padding: "2px 5px",
+      borderRadius: "3px",
+      textTransform: "uppercase",
+      letterSpacing: "0.3px",
+    },
+    ".cm-sql-hover-badge.pk": {
+      backgroundColor: "#22C55E22",
+      color: "#22C55E",
+    },
+    ".cm-sql-hover-badge.not-null": {
+      backgroundColor: "#F472B622",
+      color: "#F472B6",
+    },
+    ".cm-sql-hover-columns": {
+      display: "flex",
+      flexDirection: "column",
+      gap: "4px",
+      marginTop: "4px",
+    },
+    ".cm-sql-hover-column": {
+      display: "flex",
+      justifyContent: "space-between",
+      gap: "12px",
+      fontSize: "12px",
+      padding: "4px 8px",
+      backgroundColor: isDark ? "#252525" : "#f8f8f8",
+      borderRadius: "4px",
+    },
+    ".cm-sql-hover-col-name": {
+      fontFamily: "'JetBrains Mono', monospace",
+      color: isDark ? "#e0e0e0" : "#333",
+    },
+    ".cm-sql-hover-col-type": {
+      fontFamily: "'JetBrains Mono', monospace",
+      fontSize: "11px",
+      color: isDark ? "#888" : "#666",
+    },
+    ".cm-sql-hover-col-count": {
+      fontSize: "12px",
+      color: isDark ? "#999" : "#666",
+      marginBottom: "4px",
+    },
+    ".cm-sql-hover-row-count": {
+      fontSize: "12px",
+      color: "#D4A52B",
+      fontWeight: "500",
+    },
+    ".cm-sql-hover-more": {
+      fontSize: "11px",
+      color: isDark ? "#666" : "#999",
+      textAlign: "center",
+      padding: "4px",
+      fontStyle: "italic",
+    },
+    ".cm-sql-hover-description": {
+      fontSize: "12px",
+      color: isDark ? "#b0b0b0" : "#555",
+      marginTop: "6px",
+      lineHeight: "1.5",
+      paddingTop: "6px",
+      borderTop: `1px solid ${isDark ? "#2a2a2a" : "#f0f0f0"}`,
+    },
+  });
+};
+
 // Get theme extensions based on theme mode
 export const getThemeExtensions = (theme: "light" | "dark"): Extension[] => {
   const isDark = theme === "dark";
@@ -167,5 +300,6 @@ export const getThemeExtensions = (theme: "light" | "dark"): Extension[] => {
   return [
     isDark ? createDarkTheme() : createLightTheme(),
     createFoldGutterTheme(isDark),
+    createSqlHoverTheme(isDark),
   ];
 };

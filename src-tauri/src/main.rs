@@ -144,6 +144,9 @@ fn main() {
             sql_engine::commands::sql_parse,
             sql_engine::commands::sql_validate,
             sql_engine::commands::sql_complete,
+            // Schema push commands (TypeScript is source of truth, pushes to Rust)
+            sql_engine::commands::sql_set_schema,
+            sql_engine::commands::sql_clear_schema,
         ])
         .build(context)
         .expect("error while building tauri application");

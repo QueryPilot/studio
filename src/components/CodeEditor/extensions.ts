@@ -40,7 +40,7 @@ import {
 import type { SqlDialect, CodeEditorLanguage } from "./types";
 import { acceptCompletion, autocompletion } from "@codemirror/autocomplete";
 import { dbmlMixed } from "./languages/dbml/dbml-mixed";
-import { createSemanticLinter } from "./languages/sql/sql-linter";
+// NOTE: Legacy createSemanticLinter removed - validation handled by createDialectLinter (unified-linter)
 import { createDialectLinter } from "./languages/sql/linter-strategy";
 import { preInitPgParser } from "./languages/sql/pg-parser-linter";
 import { preInitLinterWorker } from "./languages/sql/linter-worker-manager";
@@ -288,8 +288,8 @@ export const getLanguageExtension = (
           }),
           // Add hover tooltips for table/column info
           createSqlHoverExtension(provider, defaultSchema),
-          // Add semantic linting for table/column validation
-          createSemanticLinter(provider, defaultSchema),
+          // NOTE: Semantic linting removed - handled by createDialectLinter (unified-linter)
+          // which uses Rust sql_validate when available
           // Add Expand Star code action
           createExpandStarExtension(provider, defaultSchema, dialect),
         );

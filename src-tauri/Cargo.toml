@@ -71,6 +71,7 @@ sqlparser = { version = "0.52", features = ["serde"] }
 
 # Utilities
 dashmap = "5.5"
+once_cell = "1.19"  # Lazy static initialization for global schema store
 thiserror = "1.0"
 anyhow = "1.0"
 tracing = "0.1"

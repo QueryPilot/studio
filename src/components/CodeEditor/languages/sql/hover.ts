@@ -5,11 +5,26 @@ import type { Extension } from "@codemirror/state";
 import type { MetadataProvider, FieldMeta, EntityDetails } from "../../types";
 import { isSqlKeyword } from "./constants";
 import { getQualifiedInfo } from "./shared";
+import { buildSymbolTable, resolveSymbol } from "./symbol-table";
 
 interface ColumnHoverInfo {
   tableName: string;
   columnName: string;
   field: FieldMeta;
+}
+
+interface AliasHoverInfo {
+  alias: string;
+  sourceTable: string;
+  sourceSchema?: string;
+  definitionLine: number;
+}
+
+interface CteHoverInfo {
+  name: string;
+  sourceTable?: string;
+  definitionLine: number;
+  columns?: string[];
 }
 
 /**
@@ -130,7 +145,107 @@ function createColumnTooltip(info: ColumnHoverInfo): HTMLElement {
 }
 
 /**
- * Creates a hover tooltip extension that shows table/column information
+ * Build tooltip DOM for alias hover
+ */
+function createAliasTooltip(info: AliasHoverInfo): HTMLElement {
+  const dom = document.createElement("div");
+  dom.className = "cm-sql-hover-tooltip";
+
+  const header = document.createElement("div");
+  header.className = "cm-sql-hover-header";
+  header.innerHTML = `
+    <span class="cm-sql-hover-type">alias</span>
+    <span class="cm-sql-hover-name">${info.alias} → ${info.sourceSchema ? `${info.sourceSchema}.` : ""}${info.sourceTable}</span>
+  `;
+  dom.appendChild(header);
+
+  const body = document.createElement("div");
+  body.className = "cm-sql-hover-body";
+
+  const lineInfo = document.createElement("div");
+  lineInfo.className = "cm-sql-hover-info-row";
+  lineInfo.textContent = `Defined on line ${info.definitionLine}`;
+  body.appendChild(lineInfo);
+
+  const hint = document.createElement("div");
+  hint.className = "cm-sql-hover-hint";
+  hint.textContent = "Cmd+Click to go to definition";
+  body.appendChild(hint);
+
+  dom.appendChild(body);
+  return dom;
+}
+
+/**
+ * Build tooltip DOM for CTE hover
+ */
+function createCteTooltip(info: CteHoverInfo): HTMLElement {
+  const dom = document.createElement("div");
+  dom.className = "cm-sql-hover-tooltip";
+
+  const header = document.createElement("div");
+  header.className = "cm-sql-hover-header";
+  header.innerHTML = `
+    <span class="cm-sql-hover-type">CTE</span>
+    <span class="cm-sql-hover-name">${info.name}</span>
+  `;
+  dom.appendChild(header);
+
+  const body = document.createElement("div");
+  body.className = "cm-sql-hover-body";
+
+  if (info.sourceTable) {
+    const sourceInfo = document.createElement("div");
+    sourceInfo.className = "cm-sql-hover-info-row";
+    sourceInfo.textContent = `From: ${info.sourceTable}`;
+    body.appendChild(sourceInfo);
+  }
+
+  if (info.columns && info.columns.length > 0) {
+    const colInfo = document.createElement("div");
+    colInfo.className = "cm-sql-hover-col-count";
+    colInfo.textContent = `${info.columns.length} columns`;
+    body.appendChild(colInfo);
+
+    const colList = document.createElement("div");
+    colList.className = "cm-sql-hover-columns";
+    const previewCount = Math.min(5, info.columns.length);
+
+    for (let i = 0; i < previewCount; i++) {
+      const colName = info.columns[i];
+      if (!colName) continue;
+      const colItem = document.createElement("div");
+      colItem.className = "cm-sql-hover-column";
+      colItem.innerHTML = `<span class="cm-sql-hover-col-name">${colName}</span>`;
+      colList.appendChild(colItem);
+    }
+
+    if (info.columns.length > previewCount) {
+      const more = document.createElement("div");
+      more.className = "cm-sql-hover-more";
+      more.textContent = `+${info.columns.length - previewCount} more`;
+      colList.appendChild(more);
+    }
+
+    body.appendChild(colList);
+  }
+
+  const lineInfo = document.createElement("div");
+  lineInfo.className = "cm-sql-hover-info-row";
+  lineInfo.textContent = `Defined on line ${info.definitionLine}`;
+  body.appendChild(lineInfo);
+
+  const hint = document.createElement("div");
+  hint.className = "cm-sql-hover-hint";
+  hint.textContent = "Cmd+Click to go to definition";
+  body.appendChild(hint);
+
+  dom.appendChild(body);
+  return dom;
+}
+
+/**
+ * Creates a hover tooltip extension that shows table/column/alias/CTE information
  */
 export function createSqlHoverExtension(
   provider: MetadataProvider,
@@ -152,17 +267,69 @@ export function createSqlHoverExtension(
     }
 
     try {
-      // Check if this is a qualified column reference (table.column)
+      // Build symbol table to check for aliases and CTEs
+      const symbolTable = buildSymbolTable(state);
+      const symbol = resolveSymbol(symbolTable, name, pos);
+
+      // Check if it's an alias
+      if (symbol && symbol.type === "alias") {
+        const aliasLine = state.doc.lineAt(symbol.from);
+        const aliasInfo: AliasHoverInfo = {
+          alias: symbol.name,
+          sourceTable: symbol.sourceTable || "",
+          sourceSchema: symbol.sourceSchema,
+          definitionLine: aliasLine.number,
+        };
+
+        return {
+          pos: node.from,
+          end: node.to,
+          above: true,
+          create: () => ({ dom: createAliasTooltip(aliasInfo) }),
+        };
+      }
+
+      // Check if it's a CTE
+      if (symbol && symbol.type === "cte") {
+        const cteLine = state.doc.lineAt(symbol.from);
+        const cteInfo: CteHoverInfo = {
+          name: symbol.name,
+          sourceTable: symbol.sourceTable,
+          definitionLine: cteLine.number,
+          columns: symbol.columns,
+        };
+
+        return {
+          pos: node.from,
+          end: node.to,
+          above: true,
+          create: () => ({ dom: createCteTooltip(cteInfo) }),
+        };
+      }
+
+      // Check if this is a qualified column reference (table.column or alias.column)
       const qualifiedInfo = getQualifiedInfo(state, node);
 
       if (qualifiedInfo) {
+        // Resolve qualifier through symbol table (handles aliases)
+        let actualTable = qualifiedInfo.qualifier;
+        const qualifierSymbol = resolveSymbol(symbolTable, qualifiedInfo.qualifier, pos);
+        
+        if (qualifierSymbol) {
+          if (qualifierSymbol.type === "alias" || qualifierSymbol.type === "cte") {
+            actualTable = qualifierSymbol.sourceTable || qualifierSymbol.name;
+          } else if (qualifierSymbol.type === "table") {
+            actualTable = qualifierSymbol.name;
+          }
+        }
+
         // Try to resolve as column
-        const fields = await provider.listFields(qualifiedInfo.qualifier, defaultSchema);
+        const fields = await provider.listFields(actualTable, defaultSchema);
         const field = fields.find(f => f.name.toLowerCase() === qualifiedInfo.name.toLowerCase());
 
         if (field) {
           const columnInfo: ColumnHoverInfo = {
-            tableName: qualifiedInfo.qualifier,
+            tableName: actualTable,
             columnName: qualifiedInfo.name,
             field,
           };

@@ -1,14 +1,16 @@
 //! Tauri IPC commands for SQL Engine.
 //!
 //! Exposes SQL parsing, validation, and completion to the frontend.
+//! Schema data is pushed FROM frontend via sql_set_schema (TypeScript adapters are source of truth).
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::core::ConnectionManager;
 use super::{
-    complete, parse_document, validate_document, CompletionContext, CompletionItem,
-    CompletionRequest, CompletionResult, ParsedDocument, SqlDialect, ValidationResult,
+    complete, parse_document, validate_document, CompletionRequest, SqlDialect,
+    schema_store::{CacheKey, CachedSchemaBuilder, TableInfo, ColumnInfo, ForeignKeyInfo, EnumInfo, TableType},
+    SCHEMA_STORE,
 };
 
 /// Parse request from frontend
@@ -167,9 +169,14 @@ pub async fn sql_validate(
     let dialect = parse_dialect(&request.dialect);
     let doc = parse_document(&request.sql, dialect);
 
-    // TODO: When connection_id provided, fetch schema from cache and pass to validate_document
-    // For now, validate without schema (syntax only)
-    let result = validate_document(&doc, None, None);
+    // Get schema from cache if connection_id provided (pushed via sql_set_schema)
+    let schema = request.connection_id.as_ref().and_then(|conn_id| {
+        let schema_name = request.schema.as_deref().unwrap_or("public");
+        let cache_key = CacheKey::new(conn_id, schema_name);
+        SCHEMA_STORE.get(&cache_key)
+    });
+
+    let result = validate_document(&doc, schema.as_ref(), None);
 
     Ok(ValidateResponse {
         valid: result.is_valid(),
@@ -207,13 +214,20 @@ pub async fn sql_complete(
     let dialect = parse_dialect(&request.dialect);
     let doc = parse_document(&request.sql, dialect);
 
-    // Build completion request
+    // Get schema from cache if connection_id provided (pushed via sql_set_schema)
+    let schema = request.connection_id.as_ref().and_then(|conn_id| {
+        let schema_name = request.schema.as_deref().unwrap_or("public");
+        let cache_key = CacheKey::new(conn_id, schema_name);
+        SCHEMA_STORE.get(&cache_key)
+    });
+
+    // Build completion request with schema from cache (owned)
     let completion_request = CompletionRequest {
         document: doc,
         position: request.position,
         dialect,
         explicit: request.explicit,
-        schema: None, // TODO: Fetch from cache when connection_id provided
+        schema,
     };
 
     let result = complete(&completion_request);
@@ -233,6 +247,158 @@ pub async fn sql_complete(
         from: result.from,
         to: result.to,
     })
+}
+
+// =============================================================================
+// Schema Push Commands (receives data from frontend - TypeScript is source of truth)
+// =============================================================================
+
+/// Schema data pushed from frontend (TypeScript adapters are source of truth)
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSchemaRequest {
+    pub connection_id: String,
+    pub schema: String,
+    pub tables: Vec<TableInput>,
+    pub foreign_keys: Vec<ForeignKeyInput>,
+    pub enums: Vec<EnumInput>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TableInput {
+    pub name: String,
+    pub table_type: String, // "table" | "view" | "materialized_view"
+    pub columns: Vec<ColumnInput>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnInput {
+    pub name: String,
+    pub data_type: String,
+    pub nullable: bool,
+    pub is_primary_key: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForeignKeyInput {
+    pub constraint_name: String,
+    pub source_table: String,
+    pub source_column: String,
+    pub target_table: String,
+    pub target_column: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnumInput {
+    pub name: String,
+    pub values: Vec<String>,
+}
+
+/// Response for set_schema
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSchemaResponse {
+    pub success: bool,
+    pub table_count: usize,
+    pub column_count: usize,
+}
+
+/// Push schema data from frontend to Rust cache.
+/// This is the ONLY way schema data enters Rust - no duplicate queries.
+/// TypeScript adapters (via IntrospectionService) are the single source of truth.
+#[tauri::command]
+pub async fn sql_set_schema(request: SetSchemaRequest) -> Result<SetSchemaResponse, String> {
+    let cache_key = CacheKey::new(&request.connection_id, &request.schema);
+
+    let mut builder = CachedSchemaBuilder::new();
+    let mut total_columns = 0;
+
+    // Add tables and their columns
+    for table in &request.tables {
+        let table_type = match table.table_type.as_str() {
+            "view" => TableType::View,
+            "materialized_view" => TableType::MaterializedView,
+            _ => TableType::Table,
+        };
+
+        builder = builder.add_table(TableInfo {
+            name: table.name.clone(),
+            schema: Some(request.schema.clone()),
+            table_type,
+            comment: None,
+            row_count: None,
+        });
+
+        // Add columns for this table
+        let columns: Vec<ColumnInfo> = table
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(idx, col)| ColumnInfo {
+                name: col.name.clone(),
+                data_type: col.data_type.clone(),
+                nullable: col.nullable,
+                default_value: None,
+                is_primary_key: col.is_primary_key,
+                is_unique: false,
+                comment: None,
+                enum_values: None,
+                ordinal: idx as i32,
+                precision: None,
+                scale: None,
+            })
+            .collect();
+
+        total_columns += columns.len();
+        builder = builder.add_columns(&table.name, columns);
+    }
+
+    // Add foreign keys
+    for fk in &request.foreign_keys {
+        builder = builder.add_foreign_key(ForeignKeyInfo {
+            constraint_name: fk.constraint_name.clone(),
+            source_table: fk.source_table.clone(),
+            source_schema: Some(request.schema.clone()),
+            source_columns: vec![fk.source_column.clone()],
+            target_table: fk.target_table.clone(),
+            target_schema: Some(request.schema.clone()),
+            target_columns: vec![fk.target_column.clone()],
+            on_delete: None,
+            on_update: None,
+        });
+    }
+
+    // Add enums
+    for e in &request.enums {
+        builder = builder.add_enum(EnumInfo {
+            name: e.name.clone(),
+            values: e.values.clone(),
+        });
+    }
+
+    let table_count = request.tables.len();
+    SCHEMA_STORE.put(cache_key, builder.build());
+
+    Ok(SetSchemaResponse {
+        success: true,
+        table_count,
+        column_count: total_columns,
+    })
+}
+
+/// Clear schema cache for a connection.
+/// Call when connection is closed or schema is refreshed.
+#[tauri::command]
+pub async fn sql_clear_schema(
+    connection_id: String,
+    schema: Option<String>,
+) -> Result<(), String> {
+    SCHEMA_STORE.invalidate(&connection_id, schema.as_deref());
+    Ok(())
 }
 
 #[cfg(test)]
@@ -261,7 +427,10 @@ mod tests {
 
         assert_eq!(response.errors.len(), 0);
         assert_eq!(response.statements.len(), 1);
-        assert_eq!(response.statements[0].statement_type, Some("SELECT".to_string()));
+        assert_eq!(
+            response.statements[0].statement_type,
+            Some("SELECT".to_string())
+        );
         assert!(response.statements[0].tables.contains(&"users".to_string()));
     }
 
@@ -275,5 +444,45 @@ mod tests {
         let response = sql_parse(request).await.unwrap();
 
         assert!(!response.errors.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_sql_set_schema() {
+        let request = SetSchemaRequest {
+            connection_id: "test-conn".to_string(),
+            schema: "public".to_string(),
+            tables: vec![TableInput {
+                name: "users".to_string(),
+                table_type: "table".to_string(),
+                columns: vec![
+                    ColumnInput {
+                        name: "id".to_string(),
+                        data_type: "integer".to_string(),
+                        nullable: false,
+                        is_primary_key: true,
+                    },
+                    ColumnInput {
+                        name: "name".to_string(),
+                        data_type: "text".to_string(),
+                        nullable: true,
+                        is_primary_key: false,
+                    },
+                ],
+            }],
+            foreign_keys: vec![],
+            enums: vec![],
+        };
+
+        let response = sql_set_schema(request).await.unwrap();
+
+        assert!(response.success);
+        assert_eq!(response.table_count, 1);
+        assert_eq!(response.column_count, 2);
+
+        // Verify schema is cached
+        let key = CacheKey::new("test-conn", "public");
+        let cached = SCHEMA_STORE.get(&key);
+        assert!(cached.is_some());
+        assert_eq!(cached.unwrap().tables.len(), 1);
     }
 }
