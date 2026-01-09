@@ -61,13 +61,6 @@ fn main() {
         .manage(ai_manager.clone())
         .manage(app_state)
         .setup(|app| {
-            // Set app handle on ConnectionManager for ECS Bastion support
-            let manager = app.state::<std::sync::Arc<core::manager::ConnectionManager>>();
-            let handle_clone = app.handle().clone();
-            tauri::async_runtime::block_on(async {
-                manager.set_app_handle(handle_clone).await;
-            });
-
             // Build and set the application menu
             let menu = menu::build_menu(&app.handle()).expect("Failed to build menu");
             app.set_menu(menu).expect("Failed to set menu");
@@ -119,14 +112,6 @@ fn main() {
             commands::disconnect_all,
             commands::test_connection,
             commands::test_ssh_connection,
-            // Azure AD SAML authentication
-            commands::get_azure_ad_login_url,
-            commands::get_aws_saml_endpoints,
-            commands::parse_saml_roles,
-            commands::assume_role_with_saml,
-            commands::get_aws_credentials_status,
-            commands::clear_aws_credentials,
-            commands::open_saml_auth_window,
             // Query execution
             commands::query,
             commands::execute_query,

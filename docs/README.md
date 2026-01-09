@@ -12,7 +12,7 @@
 
 ## User Features
 
-- [SSH & AWS SSM](./ssh-and-ssm-user-guide.md) - Tunnel connections
+- [SSH Tunnels](./ssh-and-ssm-user-guide.md) - Tunnel connections
 - [SSH Troubleshooting](./ssh-and-ssm-troubleshooting.md) - Common issues
 - [Theme System](./theme-usage.md) - Color themes
 

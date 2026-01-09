@@ -90,8 +90,7 @@
       "hardenedRuntime": true
     },
     "externalBin": [
-      "sidecars/qp-ai",
-      "sidecars/session-manager-plugin"
+      "sidecars/qp-ai"
     ]
   }
 }

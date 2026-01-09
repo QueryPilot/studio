@@ -19,7 +19,6 @@ import type {
 } from "@/types/tableStructure";
 import { ConstraintType } from "@/services/backend";
 import { IntrospectionService } from "./introspectionService";
-import { performSamlAuth, type SamlRole } from "./samlAuthService";
 
 // Types from API spec
 export interface ConnectionConfig {
@@ -94,20 +93,8 @@ class DatabaseService {
     new Map();
   // Track in-flight connect calls to dedupe concurrent attempts
   private inflightConnects: Map<string, Promise<ConnectResponse>> = new Map();
-  // Callback for role selection during SAML authentication
-  private roleSelectionCallback?: (roles: SamlRole[]) => Promise<SamlRole>;
 
   private constructor() {}
-
-  /**
-   * Set the callback for AWS role selection during SAML auth
-   * This allows UI components to provide a role selection dialog
-   */
-  setRoleSelectionCallback(
-    callback: (roles: SamlRole[]) => Promise<SamlRole>,
-  ): void {
-    this.roleSelectionCallback = callback;
-  }
 
   static getInstance(): DatabaseService {
     if (DatabaseService.instance === null) {
@@ -183,27 +170,6 @@ class DatabaseService {
           bastion: stored.profile.bastion,
           options: stored.profile.options,
         };
-
-        // Pre-authentication for ECS Bastion with Azure AD SAML
-        if (profile.bastion && "EcsBastion" in profile.bastion) {
-          const ecsConfig = profile.bastion.EcsBastion;
-          if (ecsConfig.auth && "AzureAdSaml" in ecsConfig.auth) {
-            const samlConfig = ecsConfig.auth.AzureAdSaml;
-            logger.info(
-              `[DatabaseService] ECS Bastion requires Azure AD SAML authentication`,
-            );
-
-            // Perform SAML authentication (will use cached creds if valid)
-            await performSamlAuth(
-              connectionId,
-              samlConfig,
-              ecsConfig.region,
-              this.roleSelectionCallback,
-            );
-
-            logger.info(`[DatabaseService] SAML authentication completed`);
-          }
-        }
 
         // Ensure any stale backend connection with same id is cleanly closed before reconnect
         try {

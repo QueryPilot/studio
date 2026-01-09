@@ -1,11 +1,10 @@
-# SSH & SSM Troubleshooting Guide
+# SSH Troubleshooting Guide
 
-Common issues and solutions for SSH tunnel and AWS SSM bastion connections in Query Pilot.
+Common issues and solutions for SSH tunnel connections in Query Pilot.
 
 ## Table of Contents
 
 - [SSH Tunnel Issues](#ssh-tunnel-issues)
-- [AWS SSM Issues](#aws-ssm-issues)
 - [Database Connection Issues](#database-connection-issues)
 - [Platform-Specific Issues](#platform-specific-issues)
 - [Performance Issues](#performance-issues)
@@ -113,112 +112,9 @@ Wait 10 seconds before trying again. If you're testing frequently, consider usin
 
 ---
 
-## AWS SSM Issues
-
-### "AWS credentials provider is not configured"
-
-**Cause:** No valid AWS credentials found.
-
-**Solution:**
-1. **For AWS Profile**: Configure your profile:
-   ```bash
-   aws configure --profile my-profile
-   ```
-2. **For OAuth**: Ensure you've authenticated and have a valid token stored
-3. Verify credentials work:
-   ```bash
-   aws sts get-caller-identity --profile my-profile
-   ```
-
----
-
-### "Failed to start SSM session: AccessDeniedException"
-
-**Cause:** Insufficient IAM permissions.
-
-**Solution:**
-Your IAM role/user needs these permissions:
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Action": [
-      "ssm:StartSession",
-      "ssm:TerminateSession"
-    ],
-    "Resource": [
-      "arn:aws:ec2:*:*:instance/*",
-      "arn:aws:ssm:*:*:document/AWS-StartPortForwardingSessionToRemoteHost"
-    ]
-  }]
-}
-```
-
----
-
-### "SSM response missing session_id"
-
-**Cause:** SSM start-session call failed or returned incomplete data.
-
-**Solution:**
-1. Verify the target ID is correct (instance ID or ECS task ARN)
-2. Ensure the target is running and reachable
-3. Check that SSM agent is running on the target:
-   ```bash
-   aws ssm describe-instance-information \
-     --filters "Key=InstanceIds,Values=i-0123456789abcdef0"
-   ```
-
----
-
-### "session-manager-plugin not found in application bundle"
-
-**Cause:** The bundled session-manager-plugin binary is missing.
-
-**Solution:**
-1. Reinstall Query Pilot
-2. If building from source, run:
-   ```bash
-   make setup-ssm-plugin
-   ```
-3. Verify the binary exists:
-   ```bash
-   ls src-tauri/sidecars/session-manager-plugin-*
-   ```
-
----
-
-### "SSM tunnel failed to become ready within 5 seconds"
-
-**Cause:** The session-manager-plugin process started but the local port didn't begin listening.
-
-**Solution:**
-1. Check logs for plugin errors
-2. Verify network connectivity to AWS SSM endpoints
-3. Ensure no firewall blocking outbound HTTPS (port 443)
-4. Try a different region
-
----
-
-### "OAuth token expired"
-
-**Cause:** Your OAuth access token has expired (typically after 1 hour).
-
-**Solution:**
-1. Re-authenticate using the OAuth flow
-2. Future versions will auto-refresh tokens
-3. For now, clear the token and re-authenticate:
-   ```bash
-   # Via CLI (future feature)
-   query-pilot clear-oauth-token --provider microsoft
-   ```
-
----
-
 ## Database Connection Issues
 
-### "Database connection fails after SSH/SSM succeeds"
+### "Database connection fails after SSH succeeds"
 
 **Cause:** The database isn't reachable **from the bastion**, or credentials are wrong.
 
@@ -241,7 +137,7 @@ Your IAM role/user needs these permissions:
 
 **Important distinction:**
 
-- **SSH Host / SSM Target**: The bastion server you're connecting to
+- **SSH Host**: The bastion server you're connecting to
 - **Database Host**: The database server **as seen from the bastion**
 
 For example:
@@ -294,7 +190,7 @@ xattr -cr /Applications/Query\ Pilot.app
 **Cause:** No keyring backend available (headless systems).
 
 **Solution:**
-Query Pilot needs a keyring to securely store passphrases and OAuth tokens. Install one:
+Query Pilot needs a keyring to securely store passphrases. Install one:
 ```bash
 # For GNOME
 sudo apt-get install gnome-keyring
@@ -303,23 +199,7 @@ sudo apt-get install gnome-keyring
 sudo apt-get install kwalletmanager
 
 # For headless systems (not recommended for security)
-# Use unencrypted SSH keys and AWS profiles
-```
-
----
-
-### Windows: PowerShell execution policy
-
-**Cause:** Can't run the SSM plugin download script.
-
-**Solution:**
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-Then run:
-```powershell
-.\scripts\download-ssm-plugin.ps1
+# Use unencrypted SSH keys
 ```
 
 ---
@@ -334,7 +214,6 @@ Then run:
 1. **Use compression** (future feature): SSH compression reduces bandwidth
 2. **Optimize queries**: Fetch less data, use `LIMIT` clauses
 3. **Consider a closer bastion**: Choose a bastion in the same region as your database
-4. **Use SSM instead of SSH**: AWS SSM often has better latency within AWS
 
 ---
 
@@ -359,7 +238,7 @@ Then run:
 
 _(Future feature)_
 
-Query Pilot will support verbose logging for SSH and SSM connections:
+Query Pilot will support verbose logging for SSH connections:
 ```bash
 QUERY_PILOT_LOG=debug query-pilot
 ```
@@ -369,16 +248,6 @@ QUERY_PILOT_LOG=debug query-pilot
 **SSH:**
 ```bash
 ssh -v -i ~/.ssh/id_ed25519 user@bastion-host -L 15432:db-host:5432
-psql -h localhost -p 15432 -U dbuser -d dbname
-```
-
-**AWS SSM:**
-```bash
-aws ssm start-session \
-  --target i-0123456789abcdef0 \
-  --document-name AWS-StartPortForwardingSessionToRemoteHost \
-  --parameters '{"host":["db-host"],"portNumber":["5432"],"localPortNumber":["15432"]}'
-  
 psql -h localhost -p 15432 -U dbuser -d dbname
 ```
 
@@ -416,11 +285,6 @@ psql -h localhost -p 15432 -U dbuser -d dbname
 ❌ **Forgetting to add keys to authorized_keys**
 - Your public key must be on the bastion's `~/.ssh/authorized_keys`
 
-❌ **Wrong IAM permissions for SSM**
-- Ensure both `ssm:StartSession` **and** access to the SSM document
-
 ---
 
 **Need more help?** Join our [Discord community](https://discord.gg/querypilot) or check the [user guide](./ssh-and-ssm-user-guide.md).
-
-

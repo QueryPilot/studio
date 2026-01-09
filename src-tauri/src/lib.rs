@@ -1,6 +1,5 @@
 pub mod adapters;
 pub mod ai;
-pub mod aws;
 pub mod commands;
 pub mod core;
 pub mod error;
