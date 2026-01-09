@@ -14,9 +14,12 @@ export interface UseQuickFilterOptions {
   columns: FilterColumnInfo[];
   /** Initial WHERE clause filter (e.g., from FK reference navigation) */
   initialFilter?: string;
+  /** Enable client-side filtering mode (AI generates search patterns instead of SQL, WHERE mode disabled) */
+  clientSideFiltering?: boolean;
   /** AI filter generator function (optional, required for AI mode) */
   generateAIFilter?: (
-    prompt: string
+    prompt: string,
+    options?: { outputType?: "sql" | "search_pattern" }
   ) => Promise<
     { clause: string; explanation?: string; usedSubquery?: boolean } | { error: string }
   >;
@@ -46,6 +49,7 @@ export function useQuickFilter({
   columns,
   initialFilter,
   generateAIFilter,
+  clientSideFiltering = false,
 }: UseQuickFilterOptions): UseQuickFilterResult {
   // Filter input state
   const [value, setValue] = useState(() =>
@@ -128,35 +132,54 @@ export function useQuickFilter({
           return;
         }
 
-        const result = await generateAIFilter(sanitized);
+        const outputType = clientSideFiltering ? "search_pattern" : "sql";
+        const result = await generateAIFilter(sanitized, { outputType });
         if ("error" in result) {
           setError(result.error);
         } else {
-          // Use raw WHERE clause directly
-          const filter: FilterConfig = {
-            root: {
-              id: "root",
-              type: "group",
-              logical: "AND",
-              conditions: [],
-            },
-            rawWhereClause: result.clause,
-          };
-          setActiveFilter(filter);
+          if (clientSideFiltering) {
+            // In client-side mode, the clause is a search pattern
+            // Parse it to set activeFilter
+            const filter = parseSimpleSearch(result.clause, columns);
+            const newFilter =
+              filter.root.conditions.length > 0 ? filter : undefined;
+            setActiveFilter(newFilter);
 
-          // Show AI explanation
-          if (result.explanation) {
-            setAiExplanation(result.explanation);
+            // Show AI explanation
+            if (result.explanation) {
+              setAiExplanation(result.explanation);
+            }
+
+            // Update input (no prefix for search mode)
+            setValue(result.clause);
+            setMode("search");
+          } else {
+            // Use raw WHERE clause directly
+            const filter: FilterConfig = {
+              root: {
+                id: "root",
+                type: "group",
+                logical: "AND",
+                conditions: [],
+              },
+              rawWhereClause: result.clause,
+            };
+            setActiveFilter(filter);
+
+            // Show AI explanation
+            if (result.explanation) {
+              setAiExplanation(result.explanation);
+            }
+
+            // Update input to show generated clause with ? prefix
+            setValue(`?${result.clause}`);
+            setMode("where");
           }
-
-          // Update input to show generated clause with ? prefix
-          setValue(`?${result.clause}`);
-          setMode("where");
         }
         break;
       }
     }
-  }, [value, mode, columns, generateAIFilter]);
+  }, [value, mode, columns, generateAIFilter, clientSideFiltering]);
 
   // Clear filter
   const clear = useCallback(() => {

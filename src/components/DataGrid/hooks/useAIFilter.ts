@@ -11,8 +11,12 @@ interface UseAIFilterOptions {
 
 interface UseAIFilterResult {
   generateFilter: (
-    prompt: string
-  ) => Promise<{ clause: string; explanation?: string; usedSubquery?: boolean } | { error: string }>;
+    prompt: string,
+    options?: { outputType?: "sql" | "search_pattern" }
+  ) => Promise<
+    | { clause: string; explanation?: string; usedSubquery?: boolean }
+    | { error: string }
+  >;
   isLoading: boolean;
   reset: () => void;
 }
@@ -53,7 +57,10 @@ export function useAIFilter(
   const { connectionId, schema = "public", enableCrossTable } = options;
 
   const generateFilter = useCallback(
-    async (prompt: string) => {
+    async (
+      prompt: string,
+      options?: { outputType?: "sql" | "search_pattern" }
+    ) => {
       if (!prompt.trim()) {
         return { error: "Prompt is required" };
       }
@@ -63,14 +70,33 @@ export function useAIFilter(
       try {
         const provider = selectedProvider || "openai";
         const model = selectedModel || "gpt-4o-mini";
+        const outputType = options?.outputType || "sql";
 
         // Auto-detect cross-table need if not explicitly set
-        const useCrossTable = enableCrossTable ?? (
-          connectionId ? shouldEnableCrossTable(prompt, columns) : false
-        );
+        // For search_pattern, we disable cross-table since we only have local columns
+        const useCrossTable =
+          outputType === "search_pattern"
+            ? false
+            : enableCrossTable ??
+              (connectionId ? shouldEnableCrossTable(prompt, columns) : false);
+
+        // For search pattern, we wrap the prompt to instruct the AI
+        // We still use textToSQL service because it's the only AI endpoint available
+        // but we trick it to return a search pattern in the whereClause field
+        let effectivePrompt = prompt;
+        if (outputType === "search_pattern") {
+          effectivePrompt = `
+Generate a search pattern for client-side filtering. 
+Syntax: 'term', 'column:value', 'val1|val2', '/regex/', '-term' (NOT).
+Examples: 'john', 'status:active', 'age:^2', 'error|fail'.
+Do NOT generate SQL. Do NOT use =, >, <, LIKE. 
+Return ONLY the search pattern string.
+User Request: ${prompt}
+`.trim();
+        }
 
         const response = await textToSQL({
-          prompt,
+          prompt: effectivePrompt,
           columns: columns.map((c) => ({
             name: c.name,
             dataType: c.dataType,
@@ -106,13 +132,24 @@ export function useAIFilter(
       } catch (error) {
         return {
           error:
-            error instanceof Error ? error.message : "Failed to generate filter",
+            error instanceof Error
+              ? error.message
+              : "Failed to generate filter",
         };
       } finally {
         setIsLoading(false);
       }
     },
-    [columns, tableName, schema, dialect, selectedProvider, selectedModel, connectionId, enableCrossTable]
+    [
+      columns,
+      tableName,
+      schema,
+      dialect,
+      selectedProvider,
+      selectedModel,
+      connectionId,
+      enableCrossTable,
+    ]
   );
 
   const reset = useCallback(() => {
