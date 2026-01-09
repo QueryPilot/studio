@@ -55,6 +55,7 @@ pub mod dialect;
 // TODO: formatter has API compat issues with sqlparser 0.52 - fix in separate PR
 // pub mod formatter;
 pub mod join_suggester;
+pub mod outline;
 pub mod parser;
 // NOTE: schema_queries.rs DELETED - TypeScript adapters are single source of truth
 // Schema data is pushed from frontend via sql_set_schema command
@@ -99,6 +100,9 @@ pub use cte_inference::{
 pub use join_suggester::{
     suggest_joinable_tables, suggest_joins, JoinSuggestion, JoinableTableSuggestion,
     RelationshipType,
+};
+pub use outline::{
+    CteOutline, OutlineBuilder, OutlineTree, ParseStatus, StatementOutline, TableOutline, TextSpan,
 };
 pub use snippets::{get_all_snippets, get_snippets, get_snippets_by_category, SnippetCategory, SnippetItem};
 pub use sp_params::{
