@@ -4,7 +4,7 @@ import { usePanelStore } from '@/stores/panelStore';
 import { nanoid } from 'nanoid';
 import { DbType } from '@/types/connection';
 
-type TableViewType = 'data' | 'structure' | 'indexes';
+type TableViewType = 'data' | 'structure' | 'indexes' | 'triggers' | 'definition' | 'partitions';
 
 // Dialect-aware SQL templates for CREATE DATABASE
 export function getCreateDatabaseTemplate(dbType: DbType | null, dbName: string): string {

@@ -140,7 +140,7 @@ export const TextSingleLineCellEditor: React.FC<
   };
 
   return (
-    <div className="flex flex-col click-outside-ignore z-50 bg-popover border shadow-lg min-w-[200px] max-w-[500px] w-max">
+    <div className="flex flex-col click-outside-ignore z-50 gdg-editor-shell min-w-[200px] max-w-[500px] w-max">
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (

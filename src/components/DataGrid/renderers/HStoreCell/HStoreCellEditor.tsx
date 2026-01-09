@@ -27,7 +27,7 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
 
   const finishedRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const originalValueRef = useRef(initial);
+  const currentValueRef = useRef(initial);
 
   const commit = useCallback(
     (nextRaw: string | null) => {
@@ -57,10 +57,10 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
   );
 
   const commitCurrentText = useCallback(() => {
-    const text = textareaRef.current?.value ?? "";
+    const text = currentValueRef.current ?? "";
 
     // IconCheck if value actually changed
-    const hasChanged = text !== originalValueRef.current;
+    const hasChanged = text !== initial;
 
     // If no changes were made, cancel the edit
     if (!hasChanged) {
@@ -82,7 +82,7 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
     if (finishedRef.current) return;
 
     // Update the ref with current textarea value before processing keyboard events
-    originalValueRef.current = textareaRef.current?.value ?? "";
+    currentValueRef.current = textareaRef.current?.value ?? "";
 
     if (e.key === "Escape") {
       e.preventDefault();
@@ -109,7 +109,7 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
       finishedRef.current = true;
 
       // Commit the current text value before moving
-      const text = textareaRef.current?.value ?? "";
+      const text = currentValueRef.current ?? "";
       const trimmed = text.trim();
       const committedValue: string | null = !trimmed && nullable ? null : trimmed;
 
@@ -147,7 +147,7 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
   useCommitOnUnmount(finishedRef, commitCurrentText);
 
   return (
-    <div className="w-full h-full flex flex-col click-outside-ignore">
+    <div className="w-full h-full flex flex-col click-outside-ignore gdg-editor-shell">
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (
@@ -174,6 +174,9 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
           autoCorrect="off"
           spellCheck={false}
           onKeyDown={handleKeyDown}
+          onChange={(e) => {
+            currentValueRef.current = e.target.value;
+          }}
           className={cn(
             "flex-1 min-h-[120px] w-full resize-none bg-transparent text-xs font-mono leading-5 outline-none",
             initial.trim().length === 0 ? "italic text-muted-foreground" : "",

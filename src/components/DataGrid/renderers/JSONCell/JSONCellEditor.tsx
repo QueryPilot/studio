@@ -234,7 +234,7 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
   return (
     <div
       ref={containerRef}
-      className="flex flex-col bg-popover shadow-lg click-outside-ignore"
+      className="flex flex-col gdg-editor-shell click-outside-ignore"
       style={{
         width: `${size.width}px`,
         height: `${size.height}px`,

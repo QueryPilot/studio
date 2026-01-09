@@ -209,7 +209,7 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
   const refTableName = fkReference ? `${fkReference.schema}.${fkReference.table}` : "unknown";
 
   return (
-    <div className="w-full h-full flex flex-col relative click-outside-ignore z-50">
+    <div className="w-full h-full flex flex-col relative click-outside-ignore z-50 gdg-editor-shell">
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (

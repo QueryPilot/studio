@@ -31,8 +31,11 @@ export const ACTION_IDS = {
   // Table/View actions
   OPEN_DATA: "open-data",
   OPEN_STRUCTURE: "open-structure",
+  OPEN_INDEXES: "open-indexes",
+  OPEN_TRIGGERS: "open-triggers",
   OPEN_DESIGNER: "open-designer",
   OPEN_DEFINITION: "open-definition",
+  REFRESH_MATERIALIZED_VIEW: "refresh-materialized-view",
   COPY_NAME: "copy-name",
   COPY_QUALIFIED_NAME: "copy-qualified-name",
   ADD_TO_FAVORITES: "add-to-favorites",

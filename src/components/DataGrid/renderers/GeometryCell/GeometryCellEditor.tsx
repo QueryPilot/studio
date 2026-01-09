@@ -182,7 +182,7 @@ export const GeometryCellEditor: React.FC<GeometryCellEditorProps> = ({
   };
 
   return (
-    <div className="w-full flex flex-col relative click-outside-ignore z-50 min-w-[400px]">
+    <div className="w-full flex flex-col relative click-outside-ignore z-50 min-w-[400px] gdg-editor-shell">
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (

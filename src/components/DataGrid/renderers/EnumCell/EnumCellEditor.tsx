@@ -1,14 +1,10 @@
-import React, { useState, useRef, useEffect } from "react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Command as CommandPrimitive } from "cmdk";
+import { Command, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
 import { IconKey } from "@tabler/icons-react";
 import type { EnumCustomCell } from "./types";
 import { cn } from "@/lib/cn";
+import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
 interface EnumCellEditorProps {
   value: EnumCustomCell;
@@ -27,89 +23,136 @@ export const EnumCellEditor: React.FC<EnumCellEditorProps> = ({
 
   // Add NULL as an option only if the column is nullable (propagated via cell data)
   const isNullable = (value.data as { nullable?: boolean }).nullable ?? true;
-  const options = isNullable ? ["NULL", ...allowedValues] : [...allowedValues];
+  const options = useMemo(
+    () => (isNullable ? ["NULL", ...allowedValues] : [...allowedValues]),
+    [allowedValues, isNullable],
+  );
 
-  const [open, setOpen] = useState(false);
+  const [inputValue, setInputValue] = useState("");
+  const normalizedInitial = initialValue ?? null;
+  const currentValue = normalizedInitial ?? "NULL";
+  const [activeValue, setActiveValue] = useState(currentValue);
   const finishedRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Extract column metadata for header
   const { columnName, isPrimaryKey, dbType } = value.data;
 
-  // Auto-open the dropdown when editor mounts (double-click activated)
+  // Auto-focus when editor mounts (double-click activated)
   useEffect(() => {
     const timer = setTimeout(() => {
-      setOpen(true);
+      inputRef.current?.focus();
     }, 0);
     return () => {
       clearTimeout(timer);
     };
   }, []);
 
-  const handleValueChange = async (newValue: string) => {
-    if (finishedRef.current) return;
-    finishedRef.current = true;
+  const filteredOptions = useMemo(() => {
+    if (!inputValue) return options;
+    const needle = inputValue.toLowerCase();
+    return options.filter((option) => option.toLowerCase().includes(needle));
+  }, [inputValue, options]);
 
-    // Convert "NULL" string back to actual null
-    const enumValue = newValue === "NULL" ? null : newValue;
+  const commitSelection = useCallback(
+    (selectedValue: string, movement?: readonly [-1 | 0 | 1, -1 | 0 | 1]) => {
+      if (finishedRef.current) return;
+      finishedRef.current = true;
 
-    const newCell: EnumCustomCell = {
-      kind: value.kind,
-      data: {
-        ...value.data,
-        value: enumValue,
-      },
-      copyData: enumValue ?? "NULL",
-      allowOverlay: value.allowOverlay,
-      readonly: value.readonly,
-    };
+      // Convert "NULL" string back to actual null
+      const enumValue = selectedValue === "NULL" ? null : selectedValue;
 
-    // Close the dropdown
-    setOpen(false);
+      const newCell: EnumCustomCell = {
+        kind: value.kind,
+        data: {
+          ...value.data,
+          value: enumValue,
+        },
+        copyData: enumValue ?? "NULL",
+        allowOverlay: value.allowOverlay,
+        readonly: value.readonly,
+      };
 
-    // Wait for next frame before finishing
-    await new Promise((r) => window.requestAnimationFrame(r));
-    onFinishedEditing(newCell);
-  };
+      if (movement) {
+        onFinishedEditing(newCell, movement);
+      } else {
+        onFinishedEditing(newCell);
+      }
+    },
+    [onFinishedEditing, value],
+  );
 
-  const handleOpenChange = (isOpen: boolean) => {
-    setOpen(isOpen);
-
-    // If user closes the dropdown without selecting, cancel the edit
-    if (!isOpen && !finishedRef.current) {
-      setTimeout(() => {
-        if (!finishedRef.current) {
-          finishedRef.current = true;
-          onFinishedEditing(value);
-        }
-      }, 100);
+  const commitCurrentValue = useCallback(() => {
+    if (!activeValue) {
+      finishedRef.current = true;
+      onFinishedEditing(undefined);
+      return;
     }
+
+    const enumValue = activeValue === "NULL" ? null : activeValue;
+    const hasChanged = enumValue !== normalizedInitial;
+
+    if (!hasChanged) {
+      finishedRef.current = true;
+      onFinishedEditing(undefined);
+      return;
+    }
+
+    commitSelection(activeValue);
+  }, [activeValue, commitSelection, normalizedInitial, onFinishedEditing]);
+
+  const handleValueChange = (newValue: string) => {
+    if (finishedRef.current) return;
+    commitSelection(newValue);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const resolveSelection = useCallback(() => {
+    if (activeValue && filteredOptions.includes(activeValue)) return activeValue;
+    if (inputValue && filteredOptions.length > 0) return filteredOptions[0];
+    return activeValue;
+  }, [activeValue, filteredOptions, inputValue]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (finishedRef.current) return;
 
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
       finishedRef.current = true;
-      setOpen(false);
       onFinishedEditing(undefined);
     } else if (e.key === "Tab") {
       e.preventDefault();
       e.stopPropagation();
       finishedRef.current = true;
-      setOpen(false);
       const movement: readonly [-1 | 0 | 1, -1 | 0 | 1] = e.shiftKey
         ? [-1, 0]
         : [1, 0];
-      onFinishedEditing(value, movement);
+      const selectedValue = resolveSelection();
+      if (!selectedValue) {
+        onFinishedEditing(undefined, movement);
+        return;
+      }
+
+      const enumValue = selectedValue === "NULL" ? null : selectedValue;
+      if (enumValue === normalizedInitial) {
+        onFinishedEditing(undefined, movement);
+        return;
+      }
+      commitSelection(selectedValue, movement);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      const selectedValue = resolveSelection();
+      if (selectedValue) {
+        commitSelection(selectedValue);
+      }
     }
   };
 
-  const currentValue = initialValue ?? "NULL";
+  useCommitOnUnmount(finishedRef, commitCurrentValue);
 
   return (
-    <div className="w-full h-full flex flex-col relative click-outside-ignore z-50">
+    <div className="w-full flex flex-col relative click-outside-ignore z-50 gdg-editor-shell">
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (
@@ -125,40 +168,66 @@ export const EnumCellEditor: React.FC<EnumCellEditorProps> = ({
         )}
       </div>
 
-      {/* Select dropdown */}
-      <div className="flex items-center flex-1 px-2" onKeyDown={handleKeyDown}>
-        <Select
-          value={currentValue}
-          onValueChange={(value) => {
-            if (value) {
-              void handleValueChange(value);
-            }
-          }}
-          open={open}
-          onOpenChange={handleOpenChange}
+      {/* Inline selection */}
+      <div className="flex items-center">
+        <Command
+          className="w-full h-auto max-h-[240px] border-0 rounded-none shadow-none"
+          shouldFilter={false}
+          value={activeValue}
+          onValueChange={setActiveValue}
         >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="max-h-[300px] click-outside-ignore z-50">
-            {options.map((option) => (
-              <SelectItem
-                key={option}
-                value={option}
-                className={cn(
-                  option === "NULL" ? "text-muted-foreground" : "",
-                  "text-xs outline-none ring-0",
-                )}
-              >
-                {option === "NULL" ? (
-                  <span className="text-muted-foreground">NULL</span>
-                ) : (
-                  <span>{option}</span>
-                )}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          <div className="flex items-center border-b relative">
+            <CommandPrimitive.Input
+              ref={inputRef}
+              placeholder="Filter values..."
+              value={inputValue}
+              onValueChange={setInputValue}
+              className={cn(
+                "h-full w-full bg-transparent py-1.5 px-2 text-xs outline-none",
+                "placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
+              )}
+              onKeyDown={handleKeyDown}
+            />
+          </div>
+          <CommandList className="min-h-0 max-h-[200px]">
+            <CommandGroup>
+              {filteredOptions.length === 0 && (
+                <div className="py-3 text-center text-xs text-muted-foreground">
+                  No matches found
+                </div>
+              )}
+              {filteredOptions.map((option) => {
+                const isCurrent = option === currentValue;
+                return (
+                  <CommandItem
+                    key={option}
+                    value={option}
+                    data-checked={isCurrent}
+                    onSelect={() => handleValueChange(option)}
+                    className="text-xs flex items-center justify-between"
+                  >
+                    <span
+                      className={cn(
+                        option === "NULL" ? "text-muted-foreground" : "",
+                      )}
+                    >
+                      {option}
+                    </span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+          <div className="px-2 py-1 border-t border-border/50 bg-muted/30 flex items-center justify-between">
+            <span className="text-[10px] text-muted-foreground">
+              {filteredOptions.length} option
+              {filteredOptions.length === 1 ? "" : "s"}
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              ↑↓ navigate · Enter select · Esc cancel
+            </span>
+          </div>
+        </Command>
       </div>
     </div>
   );

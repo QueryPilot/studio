@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
-import { IconDownload, IconCopy, IconFileText, IconTrash, IconEye, IconStack2, IconChevronRight, IconStar, IconEraser } from '@tabler/icons-react';
+import { IconDownload, IconCopy, IconFileText, IconTrash, IconEye, IconStack2, IconChevronRight, IconStar, IconEraser, IconRefresh, IconBookmark, IconBolt, IconCode } from '@tabler/icons-react';
 
 interface ContextMenuProps {
   x: number;
@@ -10,6 +10,7 @@ interface ContextMenuProps {
   selectedTypes: {
     tables: number;
     views: number;
+    materializedViews: number;
     functions: number;
   };
   onClose: () => void;
@@ -21,7 +22,11 @@ interface ContextMenuProps {
   onDelete: () => void;
   onViewData: () => void;
   onViewStructure: () => void;
+  onViewIndexes?: () => void;
+  onViewTriggers?: () => void;
+  onViewDefinition?: () => void;
   onDuplicate?: () => void;
+  onRefreshMaterializedView?: () => void | Promise<void>;
 }
 
 export function DatabaseSidebarContextMenu({
@@ -38,7 +43,11 @@ export function DatabaseSidebarContextMenu({
   onDelete,
   onViewData,
   onViewStructure,
+  onViewIndexes,
+  onViewTriggers,
+  onViewDefinition,
   onDuplicate,
+  onRefreshMaterializedView,
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -88,8 +97,13 @@ export function DatabaseSidebarContextMenu({
     }
   }, [x, y]);
 
-  const hasOnlyTables = selectedTypes.tables > 0 && selectedTypes.views === 0 && selectedTypes.functions === 0;
-  const hasTablesOrViews = selectedTypes.tables > 0 || selectedTypes.views > 0;
+  const hasOnlyTables = selectedTypes.tables > 0 && selectedTypes.views === 0 && selectedTypes.materializedViews === 0 && selectedTypes.functions === 0;
+  const hasTablesOrViews = selectedTypes.tables > 0 || selectedTypes.views > 0 || selectedTypes.materializedViews > 0;
+  const hasOnlyMaterializedViews = selectedTypes.materializedViews > 0 && selectedTypes.tables === 0 && selectedTypes.views === 0 && selectedTypes.functions === 0;
+  const hasTablesOrMaterializedViews = selectedTypes.tables > 0 || selectedTypes.materializedViews > 0;
+  const hasOnlyViews = selectedTypes.views > 0 && selectedTypes.tables === 0 && selectedTypes.materializedViews === 0 && selectedTypes.functions === 0;
+  const hasOnlyFunctions = selectedTypes.functions > 0 && selectedTypes.tables === 0 && selectedTypes.views === 0 && selectedTypes.materializedViews === 0;
+  const hasAnyDatabaseObject = selectedTypes.tables > 0 || selectedTypes.views > 0 || selectedTypes.materializedViews > 0 || selectedTypes.functions > 0;
 
   // Portal to body to escape overflow:hidden containers
   return createPortal(
@@ -98,7 +112,7 @@ export function DatabaseSidebarContextMenu({
       className="fixed z-50 min-w-[200px] bg-popover border border-border rounded-md shadow-lg py-1"
       style={{ left: x, top: y }}
     >
-      {/* Data viewing options - only for tables/views */}
+      {/* View options group - all viewing/browsing options together */}
       {hasTablesOrViews && (
         <>
           <MenuItem
@@ -117,9 +131,47 @@ export function DatabaseSidebarContextMenu({
               onClose();
             }}
           />
-          <MenuSeparator />
         </>
       )}
+
+      {/* Indexes - for tables and materialized views */}
+      {hasTablesOrMaterializedViews && onViewIndexes && (
+        <MenuItem
+          icon={<IconBookmark className="h-3.5 w-3.5" />}
+          label={selectedCount === 1 ? "View Indexes" : `View Indexes (${selectedCount})`}
+          onClick={() => {
+            onViewIndexes();
+            onClose();
+          }}
+        />
+      )}
+
+      {/* Triggers - only for tables */}
+      {hasOnlyTables && onViewTriggers && (
+        <MenuItem
+          icon={<IconBolt className="h-3.5 w-3.5" />}
+          label={selectedCount === 1 ? "View Triggers" : `View Triggers (${selectedCount})`}
+          onClick={() => {
+            onViewTriggers();
+            onClose();
+          }}
+        />
+      )}
+
+      {/* Definition (DDL) - for all database objects */}
+      {hasAnyDatabaseObject && onViewDefinition && (
+        <MenuItem
+          icon={<IconCode className="h-3.5 w-3.5" />}
+          label={selectedCount === 1 ? "View Definition" : `View Definition (${selectedCount})`}
+          onClick={() => {
+            onViewDefinition();
+            onClose();
+          }}
+        />
+      )}
+
+      {/* Separator after all view options */}
+      {(hasTablesOrViews || hasTablesOrMaterializedViews || hasOnlyTables || hasAnyDatabaseObject) && <MenuSeparator />}
 
       {/* Export */}
       <MenuItem
@@ -162,6 +214,21 @@ export function DatabaseSidebarContextMenu({
       />
 
       <MenuSeparator />
+
+      {/* Refresh Materialized Views */}
+      {hasOnlyMaterializedViews && onRefreshMaterializedView && (
+        <>
+          <MenuItem
+            icon={<IconRefresh className="h-3.5 w-3.5" />}
+            label={selectedCount === 1 ? "Refresh Materialized View" : `Refresh (${selectedCount})`}
+            onClick={() => {
+              onRefreshMaterializedView();
+              onClose();
+            }}
+          />
+          <MenuSeparator />
+        </>
+      )}
 
       {/* SQL Operations - only for tables */}
       {hasOnlyTables && selectedCount === 1 && (
