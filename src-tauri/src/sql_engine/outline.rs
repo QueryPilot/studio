@@ -85,7 +85,40 @@ pub struct OutlineBuilder<'a> {
 }
 
 impl<'a> OutlineBuilder<'a> {
+    /// Build outline from successfully parsed AST.
+    ///
+    /// This is the spec-compliant signature for callers who already have parsed statements.
+    /// Always returns `ParseStatus::Full` since statements are already successfully parsed.
+    pub fn build(statements: &[Statement], source: &str) -> OutlineTree {
+        let mut result_statements = Vec::new();
+        let stmt_ranges = split_statements(source);
+
+        // Match parsed statements to their source ranges
+        for (i, stmt) in statements.iter().enumerate() {
+            let (start, end) = if i < stmt_ranges.len() {
+                (stmt_ranges[i].0, stmt_ranges[i].1)
+            } else {
+                (0, source.len())
+            };
+
+            let mut builder = OutlineBuilder {
+                source,
+                used_positions: HashSet::new(),
+            };
+            let outline = builder.build_statement_outline(stmt, start, end);
+            result_statements.push(outline);
+        }
+
+        OutlineTree {
+            statements: result_statements,
+            parse_status: ParseStatus::Full,
+        }
+    }
+
     /// Build outline from SQL source string.
+    ///
+    /// Convenience method that parses the SQL first, then builds the outline.
+    /// Returns appropriate `ParseStatus` based on parse success/failure.
     pub fn build_from_sql(sql: &str, dialect: SqlDialect) -> OutlineTree {
         let parser_dialect = dialect.to_sqlparser_dialect();
         let mut statements = Vec::new();
@@ -588,10 +621,40 @@ fn split_statements(sql: &str) -> Vec<(usize, usize, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlparser::dialect::PostgreSqlDialect;
 
     // Helper to parse and build outline
     fn build_outline(sql: &str, dialect: SqlDialect) -> OutlineTree {
         OutlineBuilder::build_from_sql(sql, dialect)
+    }
+
+    #[test]
+    fn test_build_with_pre_parsed_statements() {
+        // Test the spec-compliant build() function with pre-parsed AST
+        let sql = "SELECT * FROM users";
+        let dialect = PostgreSqlDialect {};
+        let statements = Parser::parse_sql(&dialect, sql).unwrap();
+
+        let outline = OutlineBuilder::build(&statements, sql);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements.len(), 1);
+        assert_eq!(outline.statements[0].kind, "SELECT");
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+    }
+
+    #[test]
+    fn test_build_multi_statement_pre_parsed() {
+        let sql = "SELECT 1; SELECT 2";
+        let dialect = PostgreSqlDialect {};
+        let statements = Parser::parse_sql(&dialect, sql).unwrap();
+
+        let outline = OutlineBuilder::build(&statements, sql);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements.len(), 2);
+        assert_eq!(outline.statements[0].kind, "SELECT");
+        assert_eq!(outline.statements[1].kind, "SELECT");
     }
 
     #[test]
