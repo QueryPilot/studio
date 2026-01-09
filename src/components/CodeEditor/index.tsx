@@ -9,7 +9,6 @@ import {
 } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { EditorView } from "@codemirror/view";
-import { getStatementAtPosition } from "./core";
 import { useTheme } from "@/components/theme-provider";
 import { getThemeExtensions } from "./themes";
 import { getEditorExtensions } from "./extensions";
@@ -177,66 +176,14 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
       return theme;
     }, [theme, resolvedTheme]);
 
-    const commandRegisteredRef = useRef(false);
-
-    const handleExecute = useCallback(
-      (query?: string) => {
-        if (onExecute) {
-          onExecute(query);
-        }
-      },
-      [onExecute],
-    );
-
-    const registerExecuteCommand = useCallback(() => {
-      if (!keyboardServices || !onExecute) {
-        return;
-      }
-      keyboardServices.commandService.register(
-        {
-          id: "editor.action.executeQuery",
-          label: "Run Query",
-          category: "Editor",
-          when: "editorTextFocus && queryEditor",
-          handler: (args) => {
-            // If args provided, use them
-            const queryArg =
-              typeof args === "string"
-                ? args
-                : Array.isArray(args) && typeof args[0] === "string"
-                ? args[0]
-                : undefined;
-
-            // If we have an editor view, extract query at cursor
-            if (!queryArg && editorRef.current) {
-              const view = editorRef.current;
-              const selection = view.state.selection.main;
-              const selectedText = selection.from !== selection.to
-                ? view.state.doc.sliceString(selection.from, selection.to).trim()
-                : "";
-
-              if (selectedText) {
-                handleExecute(selectedText);
-                return;
-              }
-
-              const statement = getStatementAtPosition(view.state, selection.head);
-              if (statement?.text) {
-                handleExecute(statement.text);
-                return;
-              }
-
-              // No statement found: do nothing instead of running whole document
-              return;
-            }
-
-            handleExecute(queryArg);
-          },
-        },
-        "default",
-      );
-      commandRegisteredRef.current = true;
-    }, [handleExecute, keyboardServices, onExecute]);
+    // NOTE: We DO NOT register a global command for executeQuery here because:
+    // 1. Multiple editor instances would conflict (they all use the same command ID)
+    // 2. CodeMirror's keymap already handles Cmd+Enter locally per-editor
+    // 3. The global keybinding would trigger the last-registered handler, causing multiple tabs to execute
+    //
+    // If we need global command palette support, we should use a different approach like:
+    // - Query the focused editor instance from a registry
+    // - Or dispatch an event that only the focused editor listens to
 
     // Static layout theme - never changes
     const layoutExtensions = useMemo(
@@ -291,16 +238,6 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
       return onEnterRef.current?.() ?? false;
     }, []);
 
-    useEffect(() => {
-      return () => {
-        if (keyboardServices && commandRegisteredRef.current) {
-          keyboardServices.commandService.unregister(
-            "editor.action.executeQuery",
-          );
-          commandRegisteredRef.current = false;
-        }
-      };
-    }, [keyboardServices]);
 
     // Core extensions - stable, only rebuilds when language/connection config changes
     const coreExtensions = useMemo(
@@ -376,16 +313,9 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
             editorRef.current = view;
             const handleFocus = () => {
               setIsFocused(true);
-              registerExecuteCommand();
             };
             const handleBlur = () => {
               setIsFocused(false);
-              if (keyboardServices && commandRegisteredRef.current) {
-                keyboardServices.commandService.unregister(
-                  "editor.action.executeQuery",
-                );
-                commandRegisteredRef.current = false;
-              }
             };
             view.dom.addEventListener("focus", handleFocus, true);
             view.dom.addEventListener("blur", handleBlur, true);
@@ -394,9 +324,6 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
               view.dom.removeEventListener("blur", handleBlur, true);
             };
             setIsFocused(view.hasFocus);
-            if (view.hasFocus) {
-              registerExecuteCommand();
-            }
             // Auto-focus when editor is created if autoFocus is true
             if (autoFocus) {
               setTimeout(() => {

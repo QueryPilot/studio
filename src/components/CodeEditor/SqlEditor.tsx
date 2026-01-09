@@ -84,11 +84,13 @@ import { createGotoDefinitionExtension } from "./extensions/goto-definition";
 import { createSemanticHighlightingExtension } from "./extensions/semantic-highlighting";
 import { createStatementHighlightExtension } from "./extensions/statement-highlight";
 import { createRunGutterExtension } from "./extensions/run-gutter";
+import { createSqlContextMenuExtension } from "./extensions/sql-context-menu";
+import type { SqlContextMenuEvent } from "./extensions/sql-context-menu";
+import { SqlContextMenu, type SqlContextTarget, type SqlContextAction } from "./components/SqlContextMenu";
 
 // SQL language support
 import { createDialectLinter } from "./languages/sql/linter-strategy";
-import { createSemanticLinter } from "./languages/sql/sql-linter";
-import { createVersionLinter } from "./languages/sql/version-linter";
+// NOTE: Legacy linters removed - unified-linter via Rust handles all validation
 import { createSqlHoverExtension } from "./languages/sql/hover";
 import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";
 import { createExpandStarExtension } from "./languages/sql/code-actions";
@@ -97,6 +99,7 @@ import {
   acquireLinterWorker,
   releaseLinterWorker,
 } from "./languages/sql/linter-worker-manager";
+import { useRustSchemaSync } from "@/hooks/useRustSchemaSync";
 import {
   acquirePgParserWorker,
   releasePgParserWorker,
@@ -210,8 +213,7 @@ const baseTheme = EditorView.theme({
     height: "100%",
   },
   ".cm-scroller": {
-    overflowX: "hidden", // Prevent horizontal scroll shift when autocomplete opens/closes
-    overflowY: "auto",
+    overflow: "auto", // Allow both horizontal and vertical scrolling
     flex: "1",
     fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
     fontSize: "12px",
@@ -268,6 +270,11 @@ export const SqlEditor = memo(
     const { resolvedTheme } = useTheme();
     const keyboardServices = useKeyboardServicesOptional();
     const contextServiceRef = useRef(keyboardServices?.contextService);
+
+    // Context menu state
+    const [contextMenuOpen, setContextMenuOpen] = useState(false);
+    const [contextMenuTarget, setContextMenuTarget] = useState<SqlContextTarget | null>(null);
+    const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
 
     // Determine startup value: value prop takes precedence over initialValue
     const startValue = value !== undefined ? value : initialValue;
@@ -433,6 +440,12 @@ export const SqlEditor = memo(
         if (!viewRef.current || !onExecuteRef.current) return;
         const view = viewRef.current;
 
+        // CRITICAL: Only execute if THIS editor has focus
+        // This prevents the event bus from triggering all editors when Cmd+Enter is pressed
+        if (!view.hasFocus) {
+          return;
+        }
+
         // Use exact same logic as keymap
         const selection = view.state.selection.main;
 
@@ -467,6 +480,14 @@ export const SqlEditor = memo(
 
     // Stable reference for schema
     const defaultSchema = schema || "public";
+
+    // Sync schema to Rust for completion/validation (Tauri environment only)
+    // TypeScript adapters are the source of truth, this pushes data to Rust's SchemaStore
+    useRustSchemaSync({
+      connectionId,
+      schema: defaultSchema,
+      enabled: !!connectionId && !!database,
+    });
 
     // Create completion source - this is the only extension that needs connection context
     // Memoize to prevent unnecessary recreations
@@ -505,10 +526,9 @@ export const SqlEditor = memo(
         }),
         // Hover tooltips
         createSqlHoverExtension(provider, defaultSchema),
-        // Semantic linting
-        createSemanticLinter(provider, defaultSchema),
-        // Version-aware linting (checks for syntax not supported by connected DB version)
-        createVersionLinter(effectiveDialect, connectionId),
+        // NOTE: Legacy semantic/version linters removed.
+        // Validation is now handled by unified-linter which uses Rust sql_validate
+        // (with schema synced via useRustSchemaSync) and falls back to worker-based linting.
         // Code actions
         createExpandStarExtension(provider, defaultSchema, effectiveDialect),
       ];
@@ -678,6 +698,7 @@ export const SqlEditor = memo(
           createFormatterExtension(effectiveDialect),
           createGotoDefinitionExtension(),
           createSemanticHighlightingExtension(),
+          createSqlContextMenuExtension(),
 
           // Statement highlighting - highlight active statement block
           createStatementHighlightExtension(),
@@ -715,6 +736,15 @@ export const SqlEditor = memo(
       };
       view.dom.addEventListener("goto-definition", handleGotoDefinition);
 
+      // Listen for context menu events
+      const handleContextMenu = (event: Event) => {
+        const customEvent = event as CustomEvent<SqlContextMenuEvent>;
+        setContextMenuTarget(customEvent.detail.target);
+        setContextMenuPosition(customEvent.detail.position);
+        setContextMenuOpen(true);
+      };
+      view.dom.addEventListener("sql-context-menu", handleContextMenu);
+
       // Track focus state for keyboard shortcuts using CodeMirror's focus tracking
       // This allows global shortcuts like Cmd+Z to know when editor has focus
       // Using DOM events on view.dom (not contentDOM) for more reliable focus detection
@@ -742,6 +772,7 @@ export const SqlEditor = memo(
 
       return () => {
         view.dom.removeEventListener("goto-definition", handleGotoDefinition);
+        view.dom.removeEventListener("sql-context-menu", handleContextMenu);
         view.dom.removeEventListener("focusin", handleFocus);
         view.dom.removeEventListener("focusout", handleBlur);
         // Reset context on unmount
@@ -798,12 +829,73 @@ export const SqlEditor = memo(
       });
     }, [placeholder, compartments]);
 
+    // Handle context menu actions
+    const handleContextMenuAction = useCallback(
+      (action: SqlContextAction, data?: unknown) => {
+        const view = viewRef.current;
+        if (!view) return;
+
+        switch (action) {
+          case "goto-definition": {
+            // Scroll to definition position
+            const defPos = data as { from: number; to: number };
+            if (defPos) {
+              view.dispatch({
+                selection: { anchor: defPos.from, head: defPos.to },
+                effects: EditorView.scrollIntoView(defPos.from, {
+                  y: "center",
+                  yMargin: 100,
+                }),
+              });
+              view.focus();
+            }
+            break;
+          }
+          case "goto-table-structure": {
+            // Emit external navigation event
+            const tableData = data as { table: string; schema?: string };
+            if (tableData && onGotoDefinitionRef.current) {
+              onGotoDefinitionRef.current({
+                type: "table",
+                name: tableData.table,
+                schema: tableData.schema,
+              });
+            }
+            break;
+          }
+          case "copy-name":
+          case "copy-source-table": {
+            // Copy to clipboard
+            const text = data as string;
+            if (text) {
+              navigator.clipboard.writeText(text).catch((err) => {
+                console.error("Failed to copy to clipboard:", err);
+              });
+            }
+            break;
+          }
+        }
+
+        setContextMenuOpen(false);
+      },
+      [],
+    );
+
     return (
-      <div
-        ref={containerRef}
-        className={`sql-editor h-full ${className}`}
-        style={{ height }}
-      />
+      <>
+        <div
+          ref={containerRef}
+          className={`sql-editor h-full ${className}`}
+          style={{ height }}
+        />
+        <SqlContextMenu
+          target={contextMenuTarget}
+          position={contextMenuPosition}
+          onAction={handleContextMenuAction}
+          onClose={() => setContextMenuOpen(false)}
+          open={contextMenuOpen}
+        />
+      </>
     );
   }),
 );

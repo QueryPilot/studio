@@ -46,6 +46,8 @@
 //! }
 //! ```
 
+use once_cell::sync::Lazy;
+
 pub mod commands;
 pub mod completion;
 pub mod cte_inference;
@@ -54,13 +56,19 @@ pub mod dialect;
 // pub mod formatter;
 pub mod join_suggester;
 pub mod parser;
-pub mod schema_queries;
+// NOTE: schema_queries.rs DELETED - TypeScript adapters are single source of truth
+// Schema data is pushed from frontend via sql_set_schema command
 pub mod schema_store;
 pub mod semantic;
 pub mod snippets;
 pub mod sp_params;
 pub mod templates;
 pub mod validator;
+
+/// Global schema store for caching schema metadata.
+/// Populated by sql_set_schema (push from frontend), used by sql_complete/sql_validate.
+/// TypeScript adapters are the SINGLE SOURCE OF TRUTH for introspection queries.
+pub static SCHEMA_STORE: Lazy<SchemaStore> = Lazy::new(SchemaStore::new);
 
 // Re-export main types at module level
 pub use dialect::SqlDialect;
