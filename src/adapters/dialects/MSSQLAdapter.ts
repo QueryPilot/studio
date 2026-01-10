@@ -486,11 +486,7 @@ SELECT
     i.is_unique as is_unique,
     i.is_primary_key as is_primary,
     CASE WHEN i.has_filter = 1 THEN 1 ELSE 0 END as is_partial,
-    'USING ' + ISNULL(i.type_desc COLLATE DATABASE_DEFAULT, '') + 
-        CASE WHEN i.has_filter = 1 
-            THEN ' WHERE ' + ISNULL(i.filter_definition COLLATE DATABASE_DEFAULT, '') 
-            ELSE '' 
-        END as definition,
+    'USING ' + COALESCE(i.type_desc, 'NONCLUSTERED') + CASE WHEN i.has_filter = 1 THEN ' WHERE ' + i.filter_definition ELSE '' END as definition,
     0 as is_foreign_key
 FROM sys.indexes i
 JOIN sys.tables t ON i.object_id = t.object_id
@@ -526,23 +522,108 @@ ORDER BY i.name`;
   }
 
   getConstraintsQuery(schema: string, table: string): string {
+    // Query returns constraints with definition string matching the expected format:
+    // [0] name, [1] table_name, [2] constraint_type, [3] definition, [4] foreign_table
     return `
+WITH ForeignKeyDefs AS (
+    SELECT
+        fk.name as constraint_name,
+        t.name as table_name,
+        'FOREIGN KEY' as constraint_type,
+        STUFF((
+            SELECT ', ' + COL_NAME(fkc2.parent_object_id, fkc2.parent_column_id)
+            FROM sys.foreign_key_columns fkc2
+            WHERE fkc2.constraint_object_id = fk.object_id
+            ORDER BY fkc2.constraint_column_id
+            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') as local_columns,
+        STUFF((
+            SELECT ', ' + COL_NAME(fkc2.referenced_object_id, fkc2.referenced_column_id)
+            FROM sys.foreign_key_columns fkc2
+            WHERE fkc2.constraint_object_id = fk.object_id
+            ORDER BY fkc2.constraint_column_id
+            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') as ref_columns,
+        SCHEMA_NAME(rt.schema_id) as ref_schema,
+        rt.name as ref_table,
+        fk.delete_referential_action_desc as on_delete,
+        fk.update_referential_action_desc as on_update
+    FROM sys.foreign_keys fk
+    JOIN sys.tables t ON fk.parent_object_id = t.object_id
+    JOIN sys.schemas s ON t.schema_id = s.schema_id
+    JOIN sys.tables rt ON fk.referenced_object_id = rt.object_id
+    WHERE s.name = '${this.escapeString(schema)}'
+        AND t.name = '${this.escapeString(table)}'
+),
+PrimaryKeyDefs AS (
+    SELECT
+        kc.name as constraint_name,
+        t.name as table_name,
+        'PRIMARY KEY' as constraint_type,
+        'PRIMARY KEY (' + STUFF((
+            SELECT ', ' + c.name
+            FROM sys.index_columns ic
+            JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+            WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
+            ORDER BY ic.key_ordinal
+            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') + ')' as definition,
+        NULL as foreign_table
+    FROM sys.key_constraints kc
+    JOIN sys.tables t ON kc.parent_object_id = t.object_id
+    JOIN sys.schemas s ON t.schema_id = s.schema_id
+    JOIN sys.indexes i ON i.object_id = kc.parent_object_id AND i.index_id = kc.unique_index_id
+    WHERE s.name = '${this.escapeString(schema)}'
+        AND t.name = '${this.escapeString(table)}'
+        AND kc.type = 'PK'
+),
+UniqueKeyDefs AS (
+    SELECT
+        kc.name as constraint_name,
+        t.name as table_name,
+        'UNIQUE' as constraint_type,
+        'UNIQUE (' + STUFF((
+            SELECT ', ' + c.name
+            FROM sys.index_columns ic
+            JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+            WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
+            ORDER BY ic.key_ordinal
+            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') + ')' as definition,
+        NULL as foreign_table
+    FROM sys.key_constraints kc
+    JOIN sys.tables t ON kc.parent_object_id = t.object_id
+    JOIN sys.schemas s ON t.schema_id = s.schema_id
+    JOIN sys.indexes i ON i.object_id = kc.parent_object_id AND i.index_id = kc.unique_index_id
+    WHERE s.name = '${this.escapeString(schema)}'
+        AND t.name = '${this.escapeString(table)}'
+        AND kc.type = 'UQ'
+),
+CheckDefs AS (
+    SELECT
+        cc.name as constraint_name,
+        t.name as table_name,
+        'CHECK' as constraint_type,
+        'CHECK ' + cc.definition as definition,
+        NULL as foreign_table
+    FROM sys.check_constraints cc
+    JOIN sys.tables t ON cc.parent_object_id = t.object_id
+    JOIN sys.schemas s ON t.schema_id = s.schema_id
+    WHERE s.name = '${this.escapeString(schema)}'
+        AND t.name = '${this.escapeString(table)}'
+)
+SELECT constraint_name, table_name, constraint_type, definition, foreign_table FROM PrimaryKeyDefs
+UNION ALL
+SELECT constraint_name, table_name, constraint_type, definition, foreign_table FROM UniqueKeyDefs
+UNION ALL
 SELECT
-    fk.name as constraint_name,
-    'FOREIGN KEY' as constraint_type,
-    OBJECT_NAME(fk.referenced_object_id) as foreign_table,
-    SCHEMA_NAME(OBJECTPROPERTY(fk.referenced_object_id, 'SchemaId')) as foreign_schema,
-    COL_NAME(fkc.parent_object_id, fkc.parent_column_id) as column_name,
-    COL_NAME(fkc.referenced_object_id, fkc.referenced_column_id) as foreign_column,
-    fk.delete_referential_action_desc as on_delete,
-    fk.update_referential_action_desc as on_update
-FROM sys.foreign_keys fk
-JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
-JOIN sys.tables t ON fk.parent_object_id = t.object_id
-JOIN sys.schemas s ON t.schema_id = s.schema_id
-WHERE s.name = '${this.escapeString(schema)}'
-    AND t.name = '${this.escapeString(table)}'
-ORDER BY fk.name, fkc.constraint_column_id`;
+    constraint_name,
+    table_name,
+    constraint_type,
+    'FOREIGN KEY (' + local_columns + ') REFERENCES ' + ref_schema + '.' + ref_table + ' (' + ref_columns + ')' +
+        CASE WHEN on_delete <> 'NO_ACTION' THEN ' ON DELETE ' + REPLACE(on_delete, '_', ' ') ELSE '' END +
+        CASE WHEN on_update <> 'NO_ACTION' THEN ' ON UPDATE ' + REPLACE(on_update, '_', ' ') ELSE '' END as definition,
+    ref_schema + '.' + ref_table as foreign_table
+FROM ForeignKeyDefs
+UNION ALL
+SELECT constraint_name, table_name, constraint_type, definition, foreign_table FROM CheckDefs
+ORDER BY constraint_name`;
   }
 
   getColumnsQuery(schema: string, table: string): string {

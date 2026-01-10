@@ -256,6 +256,10 @@ export function transformStructureToRows(
       is_computed: column.is_computed ? "YES" : "NO",
       check_constraint: checkConstraintValue,
       comment: comment,
+      // MySQL/MariaDB specific
+      character_set: column.character_set ?? "",
+      collation: column.collation ?? "",
+      extra: column.extra ?? "",
       _originalData: column,
       _isModified: !!(modifyCmd || renameCmd || hasFkChange), // Mark row as modified
       _isPendingDelete: isPendingDelete, // Mark row for deletion
@@ -303,6 +307,10 @@ export function transformStructureToRows(
       is_computed: "NO",
       check_constraint: col.checkExpression ?? "",
       comment: col.comment ?? "",
+      // MySQL/MariaDB specific - empty for new columns
+      character_set: "",
+      collation: "",
+      extra: "",
       _tempId: cmd.payload.tempId,
       _isPending: true,
       _isModified: Boolean(fkAdd),

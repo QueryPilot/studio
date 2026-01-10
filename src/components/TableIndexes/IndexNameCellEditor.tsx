@@ -127,14 +127,17 @@ const IndexNameCellEditor: React.FC<IndexNameCellEditorProps> = ({
 
   const { isPrimary, isUnique } = value.data;
 
+  // Calculate width style
+  const style: React.CSSProperties = {
+    // If target provided, match its width exactly but respect minWidth
+    width: target ? `${target.width}px` : "100%",
+    minWidth: "200px",
+  };
+
   return (
     <div
       className="flex flex-col click-outside-ignore z-50 bg-popover border shadow-lg"
-      style={{
-        minWidth: "200px",
-        // Use target width if available to match cell width, but ensure it's at least minWidth
-        width: target ? Math.max(target.width, 200) : "100%",
-      }}
+      style={style}
     >
       <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50">
         {isPrimary && (

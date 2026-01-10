@@ -69,6 +69,37 @@ const baseColumns: GridColumnV2[] = [
   } as GridColumnV2,
 ];
 
+// MySQL/MariaDB-specific columns
+const mysqlColumns: GridColumnV2[] = [
+  {
+    id: "character_set",
+    field: "character_set",
+    title: "Charset",
+    name: "Charset",
+    width: 100,
+    minWidth: 80,
+    maxWidth: 140,
+  } as GridColumnV2,
+  {
+    id: "collation",
+    field: "collation",
+    title: "Collation",
+    name: "Collation",
+    width: 140,
+    minWidth: 100,
+    maxWidth: 200,
+  } as GridColumnV2,
+  {
+    id: "extra",
+    field: "extra",
+    title: "Extra",
+    name: "Extra",
+    width: 140,
+    minWidth: 80,
+    maxWidth: 200,
+  } as GridColumnV2,
+];
+
 // Database-specific columns
 const dbSpecificColumns: Record<string, GridColumnV2[]> = {
   // MSSQL-specific columns
@@ -83,9 +114,9 @@ const dbSpecificColumns: Record<string, GridColumnV2[]> = {
       maxWidth: 120,
     } as GridColumnV2,
   ],
-  // MySQL/MariaDB-specific columns (for future: character_set, collation, extra)
-  [DbType.MySQL]: [],
-  [DbType.MariaDB]: [],
+  // MySQL/MariaDB-specific columns
+  [DbType.MySQL]: mysqlColumns,
+  [DbType.MariaDB]: mysqlColumns,
 };
 
 // Trailing columns (always at the end)
