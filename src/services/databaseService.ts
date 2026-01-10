@@ -686,6 +686,10 @@ class DatabaseService {
             .type_category,
           is_computed: (c as unknown as { is_computed?: boolean }).is_computed,
           is_identity: (c as unknown as { is_identity?: boolean }).is_identity,
+          // MySQL/MariaDB specific
+          character_set: (c as unknown as { character_set?: string | null }).character_set,
+          collation: (c as unknown as { collation?: string | null }).collation,
+          extra: (c as unknown as { extra?: string | null }).extra,
         }),
       );
     } catch (error) {
@@ -713,7 +717,10 @@ class DatabaseService {
       const parseIndexDef = (
         def: string,
       ): { method: string; where?: string } => {
+        logger.debug("[DatabaseService] Parsing index definition:", def);
+        
         // More permissive regex to capture method (including spaces/symbols) until WHERE or end
+        // Allow for "USING BTREE", "USING CLUSTERED", "USING NONCLUSTERED", etc.
         const usingMatch = def.match(/\bUSING\s+(.+?)(?:\s+WHERE|$)/i);
         const whereMatch = def.match(/\bWHERE\s+([\s\S]+)$/i);
         
@@ -752,17 +759,22 @@ class DatabaseService {
         };
         if (where) where = stripParens(where);
 
-        // Default to btree only if absolutely no match found
+        // Extract method
         let method = (usingMatch?.[1] || "btree").trim().toUpperCase();
         
-        // Fallback: if method is "BTREE" (default) but definition contains MSSQL specific types
-        if (method === "BTREE") {
-          const upperDef = def.toUpperCase();
-          if (upperDef.includes("CLUSTERED")) method = "CLUSTERED";
-          else if (upperDef.includes("NONCLUSTERED")) method = "NONCLUSTERED";
-          else if (upperDef.includes("COLUMNSTORE")) method = "COLUMNSTORE";
+        // MSSQL Detection Heuristics
+        // If the definition string contains explicit MSSQL keywords, override the parsed method if it defaulted to BTREE
+        // or if we want to be sure we caught the right keyword.
+        const upperDef = def.toUpperCase();
+        if (upperDef.includes("CLUSTERED") && !upperDef.includes("NONCLUSTERED")) {
+          method = "CLUSTERED";
+        } else if (upperDef.includes("NONCLUSTERED")) {
+          method = "NONCLUSTERED";
+        } else if (upperDef.includes("COLUMNSTORE")) {
+          method = "COLUMNSTORE";
         }
 
+        logger.debug("[DatabaseService] Parsed index method:", method);
         return { method, where };
       };
 

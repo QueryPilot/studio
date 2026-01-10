@@ -388,6 +388,12 @@ ORDER BY tc.CONSTRAINT_NAME`;
   }
 
   getColumnsQuery(schema: string, table: string): string {
+    // Column order must match IntrospectionService.getColumns expectations:
+    // [0] column_name, [1] formatted_type, [2] type_oid, [3] nullable, [4] is_primary_key,
+    // [5] default_value, [6] comment, [7] type_category, [8] enum_values,
+    // [9] is_computed (EXTRA contains 'VIRTUAL' or 'STORED' for generated columns),
+    // [10] is_identity (EXTRA contains 'auto_increment'),
+    // [11] character_set, [12] collation, [13] extra
     return `
 SELECT
     COLUMN_NAME as column_name,
@@ -399,9 +405,11 @@ SELECT
     COLUMN_COMMENT as comment,
     DATA_TYPE as type_category,
     NULL as enum_values,
-    CHARACTER_MAXIMUM_LENGTH as char_length,
-    NUMERIC_PRECISION as numeric_precision,
-    NUMERIC_SCALE as numeric_scale
+    CASE WHEN EXTRA LIKE '%VIRTUAL%' OR EXTRA LIKE '%STORED%' THEN 1 ELSE 0 END as is_computed,
+    CASE WHEN EXTRA LIKE '%auto_increment%' THEN 1 ELSE 0 END as is_identity,
+    CHARACTER_SET_NAME as character_set,
+    COLLATION_NAME as collation,
+    EXTRA as extra
 FROM information_schema.COLUMNS
 WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
     AND TABLE_NAME = '${this.escapeString(table)}'

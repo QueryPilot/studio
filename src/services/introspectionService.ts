@@ -316,7 +316,7 @@ export const IntrospectionService = {
       is_window: getBool(row[6]),
       is_trigger: getBool(row[7]),
       source: getString(row[8]) || undefined,
-      routine_type: getString(row[9]) || undefined,
+      routine_type: (getString(row[9]) as "FUNCTION" | "PROCEDURE") || undefined,
     }));
   },
 
@@ -420,6 +420,10 @@ export const IntrospectionService = {
         set_values: enumSet?.kind === "set" ? enumSet.values : undefined,
         is_computed: getBool(row[9]),
         is_identity: getBool(row[10]),
+        // MySQL/MariaDB specific fields
+        character_set: getString(row[11]) || undefined,
+        collation: getString(row[12]) || undefined,
+        extra: getString(row[13]) || undefined,
       };
     });
   },
