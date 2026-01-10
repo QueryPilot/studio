@@ -29,6 +29,7 @@ import {
   IconHistory,
   IconWand,
   IconReportAnalytics,
+  IconBinaryTree,
 } from "@tabler/icons-react";
 import type { SqlDialect } from "@/components/CodeEditor";
 
@@ -55,6 +56,7 @@ interface QueryToolbarProps {
   query: string;
   showHistory: boolean;
   showResults: boolean;
+  showOutline?: boolean;
   viewMode: "table" | "json" | "explain" | "raw" | "stats";
   executeHint?: string;
   beautifyHint?: string;
@@ -69,6 +71,7 @@ interface QueryToolbarProps {
   onBeautify: () => void;
   onToggleHistory: () => void;
   onToggleResults: () => void;
+  onToggleOutline?: () => void;
   onViewModeChange: (mode: "table" | "json" | "explain" | "raw" | "stats") => void;
   onDialectChange?: (dialect: SqlDialect | "auto") => void;
 }
@@ -78,6 +81,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   query,
   showHistory,
   showResults,
+  showOutline = false,
   viewMode,
   executeHint,
   beautifyHint: _beautifyHint,
@@ -91,6 +95,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   onBeautify,
   onToggleHistory,
   onToggleResults,
+  onToggleOutline,
   onViewModeChange,
   onDialectChange,
 }: QueryToolbarProps) {
@@ -230,6 +235,20 @@ export const QueryToolbar = memo(function QueryToolbar({
             <span>History</span>
           </Button>
 
+          {/* Outline toggle button - hidden on narrow containers */}
+          {onToggleOutline && (
+            <Button
+              size="sm"
+              variant={showOutline ? "secondary" : "ghost"}
+              onClick={onToggleOutline}
+              className="!h-6 text-xs gap-1 hidden @[500px]/toolbar:flex !px-2"
+              title="Toggle Query Outline"
+            >
+              <IconBinaryTree className="h-3 w-3" />
+              <span>Outline</span>
+            </Button>
+          )}
+
           {/* Format button - hidden on narrow containers */}
           <Button
             size="sm"
@@ -293,6 +312,14 @@ export const QueryToolbar = memo(function QueryToolbar({
                 <IconHistory className="h-3 w-3 mr-2" />
                 {showHistory ? "Hide History" : "Show History"}
               </DropdownMenuItem>
+
+              {/* Outline toggle */}
+              {onToggleOutline && (
+                <DropdownMenuItem onClick={onToggleOutline} className="text-xs">
+                  <IconBinaryTree className="h-3 w-3 mr-2" />
+                  {showOutline ? "Hide Outline" : "Show Outline"}
+                </DropdownMenuItem>
+              )}
 
               {/* Format */}
               <DropdownMenuItem

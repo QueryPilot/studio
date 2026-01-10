@@ -374,7 +374,9 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                   isView={metadata?.isView}
                   kind={metadata?.kind}
                   returnType={metadata?.returnType as string | undefined}
-                  objectType={metadata?.objectType as "function" | "procedure" | undefined}
+                  objectType={
+                    metadata?.objectType as "function" | "procedure" | undefined
+                  }
                   isNextActive={isNextActive}
                   onActivate={() => {
                     setActiveTab(content.id, tabId);
@@ -483,16 +485,10 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
           .map((tabId) => {
             const isActive = content.activeTabId === tabId;
             const metadata = content.metadata?.[tabId];
-            if (!metadata) return null;
+            if (!metadata || !isActive) return null;
 
             return (
-              <div
-                key={tabId}
-                className={cn(
-                  "absolute inset-0",
-                  isActive ? "visible z-10" : "invisible z-0",
-                )}
-              >
+              <div key={tabId} className={cn("absolute inset-0")}>
                 <PanelContentRenderer
                   panelId={content.id}
                   tabId={tabId}

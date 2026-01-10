@@ -210,7 +210,23 @@ export function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): st
       const payload = command.payload as ColumnModifyPayload;
       if (!payload.columnName || !payload.newDefinition) return null;
       const result = adapter.modifyColumn(target, payload.columnName, payload.newDefinition);
-      return typeof result === 'string' && result ? result : null;
+      if (typeof result === 'string' && result) {
+        return result;
+      }
+      // If no SQL was generated, provide a helpful comment about what was requested
+      const changes = payload.newDefinition;
+      const changesList: string[] = [];
+      if (changes.dataType !== undefined) changesList.push(`type: ${changes.dataType}`);
+      if (changes.nullable !== undefined) changesList.push(`nullable: ${changes.nullable}`);
+      if (changes.defaultValue !== undefined) changesList.push(`default: ${JSON.stringify(changes.defaultValue)}`);
+      if (changes.comment !== undefined) changesList.push(`comment: ${changes.comment}`);
+      if (changes.checkExpression !== undefined) changesList.push(`check: ${changes.checkExpression}`);
+      
+      if (changesList.length > 0) {
+        const schema = target.schema ? `${target.schema}.` : '';
+        return `-- Modify column ${payload.columnName} on ${schema}${target.table}: ${changesList.join(', ')}`;
+      }
+      return null;
     }
 
     case 'column.drop': {

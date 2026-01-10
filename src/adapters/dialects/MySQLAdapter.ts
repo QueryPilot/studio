@@ -10,16 +10,21 @@
  * - Version-aware syntax (MySQL 5.7 vs 8.0, MariaDB 10.x)
  */
 
-import { DbType } from '@/types/connection';
-import type { ColumnDefinitionInput } from '@/types/crud';
-import { SqlAdapter } from '../base/SqlAdapter';
-import type { ColumnInfo, TableRef } from '../types';
+import { DbType } from "@/types/connection";
+import type {
+  ColumnDefinitionInput,
+  ConstraintDefinitionInput,
+  SequenceDefinitionInput,
+  ViewDefinitionInput,
+} from "@/types/crud";
+import { SqlAdapter } from "../base/SqlAdapter";
+import type { ColumnInfo, ObjectDefinitionType, TableRef } from "../types";
 import {
   quoteIdentifier as sharedQuoteIdentifier,
   escapeString as sharedEscapeString,
-} from '../formatting';
-import { getMySQLFeaturesForConnection } from '@/stores/versionStore';
-import type { MySQLVersionFeatures } from '../utils/versionUtils';
+} from "../formatting";
+import { getMySQLFeaturesForConnection } from "@/stores/versionStore";
+import type { MySQLVersionFeatures } from "../utils/versionUtils";
 
 export class MySQLAdapter extends SqlAdapter {
   readonly dbType = DbType.MySQL;
@@ -55,16 +60,16 @@ export class MySQLAdapter extends SqlAdapter {
   formatValue(value: unknown, _column: ColumnInfo): string {
     // NULL handling
     if (value === null || value === undefined) {
-      return 'NULL';
+      return "NULL";
     }
 
     // Boolean as 1/0 (MySQL uses TINYINT for booleans)
-    if (typeof value === 'boolean') {
-      return value ? '1' : '0';
+    if (typeof value === "boolean") {
+      return value ? "1" : "0";
     }
 
     // Number validation and formatting
-    if (typeof value === 'number') {
+    if (typeof value === "number") {
       if (!Number.isFinite(value)) {
         throw new Error(`Invalid number value: ${value}`);
       }
@@ -72,36 +77,42 @@ export class MySQLAdapter extends SqlAdapter {
     }
 
     // BigInt support
-    if (typeof value === 'bigint') {
+    if (typeof value === "bigint") {
       return String(value);
     }
 
     // Date formatting without timezone (MySQL DATETIME format)
     if (value instanceof Date) {
       if (isNaN(value.getTime())) {
-        throw new Error('Invalid Date value');
+        throw new Error("Invalid Date value");
       }
       // Format: 'YYYY-MM-DD HH:MM:SS'
-      const formatted = value.toISOString().slice(0, 19).replace('T', ' ');
+      const formatted = value.toISOString().slice(0, 19).replace("T", " ");
       return `'${formatted}'`;
     }
 
     // Buffer/Uint8Array as hex literal
-    if (value instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(value))) {
+    if (
+      value instanceof Uint8Array ||
+      (typeof Buffer !== "undefined" && Buffer.isBuffer(value))
+    ) {
       const hex = Array.from(value)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
       return `X'${hex}'`;
     }
 
     // Object/Array as JSON string
-    if (typeof value === 'object') {
+    if (typeof value === "object") {
       const json = JSON.stringify(value);
       return this.quoteString(json);
     }
 
     // Default: treat as string
-    return this.quoteString(String(value));
+    if (typeof value === "string") {
+      return this.quoteString(value);
+    }
+    return this.quoteString(JSON.stringify(value));
   }
 
   /**
@@ -130,37 +141,84 @@ export class MySQLAdapter extends SqlAdapter {
   modifyColumn(
     target: TableRef,
     columnName: string,
-    changes: Partial<ColumnDefinitionInput>
+    changes: Partial<ColumnDefinitionInput>,
   ): string {
     const table = this.formatTableRef(target);
     const colName = this.quoteIdentifier(columnName);
+    const statements: string[] = [];
 
-    // MySQL requires full column definition with MODIFY COLUMN
-    // Build the complete definition from changes
-    const parts: string[] = [colName];
+    // Check if we have any column definition changes that require MODIFY COLUMN
+    const hasColumnDefChanges = changes.dataType !== undefined ||
+      changes.nullable !== undefined ||
+      changes.defaultValue !== undefined ||
+      changes.comment !== undefined;
 
-    if (changes.dataType) {
+    if (hasColumnDefChanges && changes.dataType !== undefined) {
+      // We have dataType, so we can generate a complete MODIFY COLUMN statement
+      const parts: string[] = [colName];
+
       parts.push(changes.dataType);
-    } else {
-      // MySQL requires datatype - use TEXT as fallback
-      parts.push('TEXT');
-    }
 
-    if (changes.nullable === false) {
-      parts.push('NOT NULL');
-    } else if (changes.nullable === true) {
-      parts.push('NULL');
-    }
+      if (changes.nullable === false) {
+        parts.push("NOT NULL");
+      } else if (changes.nullable === true) {
+        parts.push("NULL");
+      }
 
-    if (changes.defaultValue !== undefined) {
-      if (changes.defaultValue === null) {
-        parts.push('DEFAULT NULL');
+      if (changes.defaultValue !== undefined) {
+        if (changes.defaultValue === null) {
+          parts.push("DEFAULT NULL");
+        } else {
+          parts.push(
+            `DEFAULT ${this.formatValue(changes.defaultValue, {
+              name: columnName,
+            })}`,
+          );
+        }
+      }
+
+      // Add comment to MODIFY COLUMN if provided
+      if (changes.comment !== undefined) {
+        if (changes.comment !== null && changes.comment !== '') {
+          parts.push(`COMMENT ${this.quoteString(changes.comment)}`);
+        }
+      }
+
+      statements.push(`ALTER TABLE ${table} MODIFY COLUMN ${parts.join(" ")}`);
+    } else if (changes.comment !== undefined) {
+      // Comment-only change without datatype - show helpful message
+      if (changes.comment !== null && changes.comment !== '') {
+        statements.push(
+          `-- To change column comment, use: ALTER TABLE ${table} MODIFY COLUMN ${colName} <current_type> COMMENT ${this.quoteString(changes.comment)}`
+        );
       } else {
-        parts.push(`DEFAULT ${this.formatValue(changes.defaultValue, { name: columnName })}`);
+        statements.push(
+          `-- To remove column comment, use: ALTER TABLE ${table} MODIFY COLUMN ${colName} <current_type>`
+        );
+      }
+    } else if (changes.nullable !== undefined || changes.defaultValue !== undefined) {
+      // Other changes without datatype - need full definition
+      statements.push(
+        `-- MySQL requires full column definition: ALTER TABLE ${table} MODIFY COLUMN ${colName} <current_type> ${changes.nullable === false ? 'NOT NULL' : 'NULL'}${changes.defaultValue !== undefined ? ' DEFAULT ...' : ''}`
+      );
+    }
+
+    // Handle check constraint changes (MySQL 8.0.16+)
+    if (changes.checkExpression !== undefined && changes.checkExpression !== null && changes.checkExpression !== '') {
+      const features = this.getFeatures();
+      if (features.supportsCheckConstraints) {
+        const constraintName = `${target.table}_${columnName}_check`;
+        statements.push(
+          `ALTER TABLE ${table} ADD CONSTRAINT ${this.quoteIdentifier(constraintName)} CHECK (${changes.checkExpression})`
+        );
+      } else {
+        statements.push(
+          `-- CHECK constraints require MySQL 8.0.16+ or MariaDB 10.2.1+`
+        );
       }
     }
 
-    return `ALTER TABLE ${table} MODIFY COLUMN ${parts.join(' ')}`;
+    return statements.join(";\n");
   }
 
   /**
@@ -179,14 +237,20 @@ export class MySQLAdapter extends SqlAdapter {
 
     if (features.supportsRenameColumn) {
       // MySQL 8.0+ / MariaDB 10.5.2+
-      return `ALTER TABLE ${table} RENAME COLUMN ${this.quoteIdentifier(oldName)} TO ${this.quoteIdentifier(newName)}`;
+      return `ALTER TABLE ${table} RENAME COLUMN ${this.quoteIdentifier(
+        oldName,
+      )} TO ${this.quoteIdentifier(newName)}`;
     }
 
     // MySQL 5.7 / older MariaDB - CHANGE COLUMN requires full definition
     // Return a helpful comment since we can't safely rename without knowing the type
-    return `-- MySQL 5.7 requires full column definition for rename.\n` +
+    return (
+      `-- MySQL 5.7 requires full column definition for rename.\n` +
       `-- Run: SHOW CREATE TABLE ${table};\n` +
-      `-- Then: ALTER TABLE ${table} CHANGE COLUMN ${this.quoteIdentifier(oldName)} ${this.quoteIdentifier(newName)} <column_definition>;`;
+      `-- Then: ALTER TABLE ${table} CHANGE COLUMN ${this.quoteIdentifier(
+        oldName,
+      )} ${this.quoteIdentifier(newName)} <column_definition>;`
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -204,8 +268,11 @@ export class MySQLAdapter extends SqlAdapter {
     const features = this.getFeatures();
 
     // Only include IF EXISTS if the database supports it
-    const ifExistsClause = ifExists && features.supportsDropIndexIfExists ? 'IF EXISTS ' : '';
-    return `DROP INDEX ${ifExistsClause}${this.quoteIdentifier(indexName)} ON ${table}`;
+    const ifExistsClause =
+      ifExists && features.supportsDropIndexIfExists ? "IF EXISTS " : "";
+    return `DROP INDEX ${ifExistsClause}${this.quoteIdentifier(
+      indexName,
+    )} ON ${table}`;
   }
 
   /**
@@ -213,7 +280,9 @@ export class MySQLAdapter extends SqlAdapter {
    */
   renameIndex(target: TableRef, oldName: string, newName: string): string {
     const table = this.formatTableRef(target);
-    return `ALTER TABLE ${table} RENAME INDEX ${this.quoteIdentifier(oldName)} TO ${this.quoteIdentifier(newName)}`;
+    return `ALTER TABLE ${table} RENAME INDEX ${this.quoteIdentifier(
+      oldName,
+    )} TO ${this.quoteIdentifier(newName)}`;
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -223,8 +292,12 @@ export class MySQLAdapter extends SqlAdapter {
   /**
    * MySQL DROP TRIGGER doesn't use ON table
    */
-  dropTrigger(_target: TableRef, triggerName: string, ifExists?: boolean): string {
-    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+  dropTrigger(
+    _target: TableRef,
+    triggerName: string,
+    ifExists?: boolean,
+  ): string {
+    const ifExistsClause = ifExists ? "IF EXISTS " : "";
     return `DROP TRIGGER ${ifExistsClause}${this.quoteIdentifier(triggerName)}`;
   }
 
@@ -232,14 +305,22 @@ export class MySQLAdapter extends SqlAdapter {
    * MySQL doesn't support ENABLE/DISABLE TRIGGER
    * Returns empty string (no-op)
    */
-  renameTrigger(_target: TableRef, _triggerName: string, _newName: string): string {
+  renameTrigger(
+    _target: TableRef,
+    _triggerName: string,
+    _newName: string,
+  ): string {
     // MySQL doesn't support ALTER TRIGGER RENAME - must drop and recreate
-    return '-- MySQL does not support RENAME TRIGGER (drop and recreate instead)';
+    return "-- MySQL does not support RENAME TRIGGER (drop and recreate instead)";
   }
 
-  toggleTrigger(_target: TableRef, _triggerName: string, _enable: boolean): string {
+  toggleTrigger(
+    _target: TableRef,
+    _triggerName: string,
+    _enable: boolean,
+  ): string {
     // MySQL doesn't have enable/disable trigger - must drop and recreate
-    return '-- MySQL does not support ENABLE/DISABLE TRIGGER';
+    return "-- MySQL does not support ENABLE/DISABLE TRIGGER";
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -445,7 +526,9 @@ ORDER BY DATA_TYPE`;
 
   getTableCountQuery(schema: string, table: string, exact?: boolean): string {
     if (exact) {
-      return `SELECT COUNT(*) as count FROM ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(table)}`;
+      return `SELECT COUNT(*) as count FROM ${this.quoteIdentifier(
+        schema,
+      )}.${this.quoteIdentifier(table)}`;
     }
     return `
 SELECT TABLE_ROWS as count
@@ -540,18 +623,24 @@ ORDER BY PARTITION_ORDINAL_POSITION, SUBPARTITION_ORDINAL_POSITION`;
   }
 
   getObjectDefinitionQuery(
-    objectType: import('../types').ObjectDefinitionType,
+    objectType: ObjectDefinitionType,
     schema: string,
-    name: string
+    name: string,
   ): string {
     switch (objectType) {
-      case 'view':
-        return `SHOW CREATE VIEW ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(name)}`;
-      case 'function':
-        return `SHOW CREATE FUNCTION ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(name)}`;
-      case 'procedure':
-        return `SHOW CREATE PROCEDURE ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(name)}`;
-      case 'index':
+      case "view":
+        return `SHOW CREATE VIEW ${this.quoteIdentifier(
+          schema,
+        )}.${this.quoteIdentifier(name)}`;
+      case "function":
+        return `SHOW CREATE FUNCTION ${this.quoteIdentifier(
+          schema,
+        )}.${this.quoteIdentifier(name)}`;
+      case "procedure":
+        return `SHOW CREATE PROCEDURE ${this.quoteIdentifier(
+          schema,
+        )}.${this.quoteIdentifier(name)}`;
+      case "index":
         // MySQL doesn't have CREATE INDEX syntax retrieval, construct from SHOW INDEX
         return `
 SELECT CONCAT(
@@ -571,16 +660,18 @@ FROM information_schema.STATISTICS
 WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
     AND Index_name = '${this.escapeString(name)}'
 GROUP BY Index_name, Non_unique, Table_name, Index_type`;
-      case 'sequence':
-      case 'enum':
-      case 'domain':
-      case 'composite':
+      case "sequence":
+      case "enum":
+      case "domain":
+      case "composite":
         // MySQL doesn't support these object types
         return `SELECT '-- ${objectType} is not supported in MySQL' as definition`;
-      case 'table':
-      case 'materialized_view':
+      case "table":
+      case "materialized_view":
       default:
-        return `SHOW CREATE TABLE ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(name)}`;
+        return `SHOW CREATE TABLE ${this.quoteIdentifier(
+          schema,
+        )}.${this.quoteIdentifier(name)}`;
     }
   }
 
@@ -588,13 +679,15 @@ GROUP BY Index_name, Non_unique, Table_name, Index_type`;
   // View DDL Operations
   // ─────────────────────────────────────────────────────────────────
 
-  createView(schema: string, definition: import("@/types/crud").ViewDefinitionInput): string {
-    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(definition.name)}`;
-    
+  createView(schema: string, definition: ViewDefinitionInput): string {
+    const qualifiedName = `${this.quoteIdentifier(
+      schema,
+    )}.${this.quoteIdentifier(definition.name)}`;
+
     if (definition.isMaterialized) {
-      throw new Error('MySQL does not support materialized views');
+      throw new Error("MySQL does not support materialized views");
     }
-    
+
     return `CREATE VIEW ${qualifiedName} AS\n${definition.definition}`;
   }
 
@@ -603,19 +696,21 @@ GROUP BY Index_name, Non_unique, Table_name, Index_type`;
     viewName: string,
     ifExists?: boolean,
     cascade?: boolean,
-    isMaterialized?: boolean
+    isMaterialized?: boolean,
   ): string {
     if (isMaterialized) {
-      throw new Error('MySQL does not support materialized views');
+      throw new Error("MySQL does not support materialized views");
     }
-    
-    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(viewName)}`;
-    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
-    
+
+    const qualifiedName = `${this.quoteIdentifier(
+      schema,
+    )}.${this.quoteIdentifier(viewName)}`;
+    const ifExistsClause = ifExists ? "IF EXISTS " : "";
+
     if (cascade) {
-      throw new Error('MySQL does not support CASCADE option for DROP VIEW');
+      throw new Error("MySQL does not support CASCADE option for DROP VIEW");
     }
-    
+
     return `DROP VIEW ${ifExistsClause}${qualifiedName}`;
   }
 
@@ -623,13 +718,15 @@ GROUP BY Index_name, Non_unique, Table_name, Index_type`;
     schema: string,
     viewName: string,
     definition: string,
-    isMaterialized?: boolean
+    isMaterialized?: boolean,
   ): string {
     if (isMaterialized) {
-      throw new Error('MySQL does not support materialized views');
+      throw new Error("MySQL does not support materialized views");
     }
-    
-    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(viewName)}`;
+
+    const qualifiedName = `${this.quoteIdentifier(
+      schema,
+    )}.${this.quoteIdentifier(viewName)}`;
     return `CREATE OR REPLACE VIEW ${qualifiedName} AS\n${definition}`;
   }
 
@@ -637,14 +734,18 @@ GROUP BY Index_name, Non_unique, Table_name, Index_type`;
     schema: string,
     oldName: string,
     newName: string,
-    isMaterialized?: boolean
+    isMaterialized?: boolean,
   ): string {
     if (isMaterialized) {
-      throw new Error('MySQL does not support materialized views');
+      throw new Error("MySQL does not support materialized views");
     }
-    
-    const qualifiedOldName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(oldName)}`;
-    const qualifiedNewName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(newName)}`;
+
+    const qualifiedOldName = `${this.quoteIdentifier(
+      schema,
+    )}.${this.quoteIdentifier(oldName)}`;
+    const qualifiedNewName = `${this.quoteIdentifier(
+      schema,
+    )}.${this.quoteIdentifier(newName)}`;
     return `RENAME TABLE ${qualifiedOldName} TO ${qualifiedNewName}`;
   }
 
@@ -653,73 +754,79 @@ GROUP BY Index_name, Non_unique, Table_name, Index_type`;
   // ─────────────────────────────────────────────────────────────────
 
   addConstraint(
-    target: import('../types').TableRef,
-    definition: import("@/types/crud").ConstraintDefinitionInput
+    target: TableRef,
+    definition: ConstraintDefinitionInput,
   ): string {
     const tableName = this.formatTableRef(target);
     const constraintName = this.quoteIdentifier(definition.name);
-    
-    let constraintDef = '';
+
+    let constraintDef = "";
     switch (definition.type) {
-      case 'primary_key':
+      case "primary_key":
         if (!definition.columns?.length) {
-          throw new Error('Primary key constraint requires columns');
+          throw new Error("Primary key constraint requires columns");
         }
-        constraintDef = `PRIMARY KEY (${definition.columns.map(c => this.quoteIdentifier(c)).join(', ')})`;
+        constraintDef = `PRIMARY KEY (${definition.columns
+          .map((c) => this.quoteIdentifier(c))
+          .join(", ")})`;
         break;
-      
-      case 'unique':
+
+      case "unique":
         if (!definition.columns?.length) {
-          throw new Error('Unique constraint requires columns');
+          throw new Error("Unique constraint requires columns");
         }
-        constraintDef = `UNIQUE KEY (${definition.columns.map(c => this.quoteIdentifier(c)).join(', ')})`;
+        constraintDef = `UNIQUE KEY (${definition.columns
+          .map((c) => this.quoteIdentifier(c))
+          .join(", ")})`;
         break;
-      
-      case 'check': {
+
+      case "check": {
         if (!definition.expression) {
-          throw new Error('Check constraint requires expression');
+          throw new Error("Check constraint requires expression");
         }
         const features = this.getFeatures();
         if (!features.supportsCheckConstraints) {
           throw new Error(
-            'CHECK constraints require MySQL 8.0.16+ or MariaDB 10.2.1+. ' +
-            'Older versions parse but ignore CHECK constraints.'
+            "CHECK constraints require MySQL 8.0.16+ or MariaDB 10.2.1+. " +
+              "Older versions parse but ignore CHECK constraints.",
           );
         }
         constraintDef = `CHECK (${definition.expression})`;
         break;
       }
-      
-      case 'exclusion':
-        throw new Error('MySQL does not support exclusion constraints');
+
+      case "exclusion":
+        throw new Error("MySQL does not support exclusion constraints");
     }
-    
+
     return `ALTER TABLE ${tableName} ADD CONSTRAINT ${constraintName} ${constraintDef}`;
   }
 
   dropConstraint(
-    target: import('../types').TableRef,
+    target: TableRef,
     constraintName: string,
     cascade?: boolean,
-    _ifExists?: boolean
+    _ifExists?: boolean,
   ): string {
     if (cascade) {
-      throw new Error('MySQL does not support CASCADE option for DROP CONSTRAINT');
+      throw new Error(
+        "MySQL does not support CASCADE option for DROP CONSTRAINT",
+      );
     }
-    
+
     const tableName = this.formatTableRef(target);
     // MySQL uses DROP CHECK, DROP PRIMARY KEY, DROP FOREIGN KEY depending on type
     // For generic drop, we'll use DROP CHECK which works for CHECK constraints
-    return `ALTER TABLE ${tableName} DROP CHECK ${this.quoteIdentifier(constraintName)}`;
+    return `ALTER TABLE ${tableName} DROP CHECK ${this.quoteIdentifier(
+      constraintName,
+    )}`;
   }
 
-  renameConstraint(
-    target: import('../types').TableRef,
-    oldName: string,
-    newName: string
-  ): string {
+  renameConstraint(target: TableRef, oldName: string, newName: string): string {
     const tableName = this.formatTableRef(target);
-    return `ALTER TABLE ${tableName} RENAME CONSTRAINT ${this.quoteIdentifier(oldName)} TO ${this.quoteIdentifier(newName)}`;
+    return `ALTER TABLE ${tableName} RENAME CONSTRAINT ${this.quoteIdentifier(
+      oldName,
+    )} TO ${this.quoteIdentifier(newName)}`;
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -728,33 +835,37 @@ GROUP BY Index_name, Non_unique, Table_name, Index_type`;
 
   createSequence(
     _schema: string,
-    _definition: import("@/types/crud").SequenceDefinitionInput
+    _definition: SequenceDefinitionInput,
   ): string {
-    throw new Error('MySQL does not support sequences. Use AUTO_INCREMENT instead.');
+    throw new Error(
+      "MySQL does not support sequences. Use AUTO_INCREMENT instead.",
+    );
   }
 
   alterSequence(
     _schema: string,
     _sequenceName: string,
-    _changes: Partial<import("@/types/crud").SequenceDefinitionInput>
+    _changes: Partial<SequenceDefinitionInput>,
   ): string {
-    throw new Error('MySQL does not support sequences. Use AUTO_INCREMENT instead.');
+    throw new Error(
+      "MySQL does not support sequences. Use AUTO_INCREMENT instead.",
+    );
   }
 
   dropSequence(
     _schema: string,
     _sequenceName: string,
     _ifExists?: boolean,
-    _cascade?: boolean
+    _cascade?: boolean,
   ): string {
-    throw new Error('MySQL does not support sequences. Use AUTO_INCREMENT instead.');
+    throw new Error(
+      "MySQL does not support sequences. Use AUTO_INCREMENT instead.",
+    );
   }
 
-  renameSequence(
-    _schema: string,
-    _oldName: string,
-    _newName: string
-  ): string {
-    throw new Error('MySQL does not support sequences. Use AUTO_INCREMENT instead.');
+  renameSequence(_schema: string, _oldName: string, _newName: string): string {
+    throw new Error(
+      "MySQL does not support sequences. Use AUTO_INCREMENT instead.",
+    );
   }
 }
