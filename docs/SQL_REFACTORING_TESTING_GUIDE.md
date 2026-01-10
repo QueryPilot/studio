@@ -397,8 +397,8 @@ The refactoring works with all SQL dialects. Test with:
 **PostgreSQL-specific:**
 
 ```sql
-SELECT 
-  u.id, 
+SELECT
+  u.id,
   u.preferences->'theme' as theme,
   u.preferences->'language' as language,
   u.metadata->'subscription' as subscription_tier
@@ -409,8 +409,8 @@ WHERE u.is_active = true;
 **MySQL-specific:**
 
 ```sql
-SELECT 
-  t.id, 
+SELECT
+  t.id,
   t.title,
   JSON_EXTRACT(t.tags, '$[0]') as first_tag
 FROM todos t
@@ -420,8 +420,8 @@ WHERE t.status = 'completed';
 **SQL Server-specific:**
 
 ```sql
-SELECT 
-  t.id, 
+SELECT
+  t.id,
   t.title,
   JSON_VALUE(t.tags, '$[0]') as first_tag
 FROM todos t WITH (NOLOCK)
@@ -673,8 +673,8 @@ WHERE user_id IN (
 WITH active_todos AS (
   SELECT * FROM todos WHERE status IN ('pending', 'in_progress')
 )
-SELECT 
-  t.id, 
+SELECT
+  t.id,
   t.title,
   u.username
 FROM active_todos t
@@ -692,7 +692,7 @@ WITH overdue_todos AS (
   WHERE due_date < CURRENT_DATE AND status != 'completed'
 ),
 user_stats AS (
-  SELECT 
+  SELECT
     user_id,
     COUNT(*) as overdue_count,
     MAX(priority::text) as max_priority
