@@ -65,9 +65,22 @@ function getStringArray(value: RawCellValue | undefined): string[] {
   if (value === null || value === undefined) return [];
   if (Array.isArray(value)) return value.map(String);
   if (typeof value === "string") {
+    // Handle JSON array format (e.g. from MSSQL or custom formatting)
+    if (value.startsWith("[") && value.endsWith("]")) {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) return parsed.map(String);
+      } catch {
+        // Ignore parse error, treat as string
+      }
+    }
     // Handle PostgreSQL array format: {a,b,c}
     if (value.startsWith("{") && value.endsWith("}")) {
       return value.slice(1, -1).split(",").filter(Boolean);
+    }
+    // Handle comma-separated lists (fallback)
+    if (value.includes(",")) {
+      return value.split(",").map((s) => s.trim());
     }
     return [value];
   }

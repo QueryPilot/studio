@@ -713,13 +713,16 @@ class DatabaseService {
       const parseIndexDef = (
         def: string,
       ): { method: string; where?: string } => {
-        const usingMatch = def.match(/\bUSING\s+([a-zA-Z0-9_]+)/i);
+        // More permissive regex to capture method (including spaces/symbols) until WHERE or end
+        const usingMatch = def.match(/\bUSING\s+(.+?)(?:\s+WHERE|$)/i);
         const whereMatch = def.match(/\bWHERE\s+([\s\S]+)$/i);
+        
         let where: string | undefined;
         if (whereMatch && typeof whereMatch[1] === "string") {
           where = whereMatch[1].trim();
         }
         if (where && where.endsWith(";")) where = where.slice(0, -1).trim();
+        
         // Strip redundant outer parentheses like ((expr))
         const stripParens = (s: string): string => {
           let out = s.trim();
@@ -748,7 +751,19 @@ class DatabaseService {
           return out;
         };
         if (where) where = stripParens(where);
-        return { method: (usingMatch?.[1] || "btree").toUpperCase(), where };
+
+        // Default to btree only if absolutely no match found
+        let method = (usingMatch?.[1] || "btree").trim().toUpperCase();
+        
+        // Fallback: if method is "BTREE" (default) but definition contains MSSQL specific types
+        if (method === "BTREE") {
+          const upperDef = def.toUpperCase();
+          if (upperDef.includes("CLUSTERED")) method = "CLUSTERED";
+          else if (upperDef.includes("NONCLUSTERED")) method = "NONCLUSTERED";
+          else if (upperDef.includes("COLUMNSTORE")) method = "COLUMNSTORE";
+        }
+
+        return { method, where };
       };
 
       const mapped = indexes.map((idx) => {
