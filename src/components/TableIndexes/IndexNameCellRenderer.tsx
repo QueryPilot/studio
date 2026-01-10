@@ -5,6 +5,14 @@ import {
 } from "./types";
 import { IndexNameCellEditorWithProps } from "./IndexNameCellEditor";
 import { type CustomCellRenderer } from "@/components/DataGrid/types";
+import { truncateTextToWidth } from "@/components/DataGrid/utils/textUtils";
+import { 
+  drawVectorIcon, 
+  isDarkMode, 
+  ICON_SIZE, 
+  ICON_PADDING 
+} from "@/components/DataGrid/utils/vectorIcons";
+import { getCachedThemeValues } from "@/components/DataGrid/utils/renderCache";
 
 type IndexNameCell = IndexNameCustomCell | EditableIndexNameCell;
 
@@ -26,55 +34,46 @@ const IndexNameCellRenderer: CustomCellRenderer<IndexNameCell> = {
       "isLocked" in cell.data
         ? (cell.data as { isLocked: boolean }).isLocked
         : false;
-
-    const fontFamily =
-      "Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif";
-    const baseFont = `500 12px ${fontFamily}`;
+    
+    // Use cached theme values for consistent styling
+    const cachedTheme = getCachedThemeValues(theme);
+    const isDark = isDarkMode(theme.bgCell);
 
     const padding = 8;
     const centerY = rect.y + rect.height / 2;
 
-    // Draw index name (left-aligned)
-    ctx.fillStyle = theme.textDark;
-    ctx.font = baseFont;
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.fillText(name, rect.x + padding, centerY);
-
-    // Draw key emoji for primary key (right-aligned, smaller size)
+    // Calculate space needed for icons on the right
+    let iconSpace = 0;
     if (isPrimary) {
-      ctx.save();
-      const scale = 0.75; // 75% size
-      ctx.font = "12px";
-      ctx.textAlign = "right";
-      const emojiX = rect.x + rect.width - padding;
-
-      // Scale down the emoji
-      ctx.translate(emojiX, centerY);
-      ctx.scale(scale, scale);
-      ctx.translate(-emojiX, -centerY);
-
-      ctx.fillText("🔑", emojiX, centerY);
-      ctx.restore();
+      iconSpace = ICON_SIZE + ICON_PADDING;
     }
 
-    // Draw lock emoji for locked rows (right-aligned, next to key if present)
+    // Calculate max width for text (leave room for icons)
+    const maxTextWidth = Math.max(0, rect.width - padding * 2 - iconSpace);
+
+    // Draw index name (left-aligned) with ellipsis
+    ctx.fillStyle = cachedTheme.textDark;
+    ctx.font = cachedTheme.baseFont;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    
+    const displayText = name
+      ? truncateTextToWidth(name, maxTextWidth, cachedTheme.baseFont)
+      : "";
+    ctx.fillText(displayText, rect.x + padding, centerY);
+
+    // Draw key icon for primary key (right-aligned)
+    if (isPrimary) {
+      const iconX = rect.x + rect.width - padding - ICON_SIZE;
+      drawVectorIcon(ctx, 'pk', iconX, centerY, ICON_SIZE, isDark);
+    }
+
+    // Draw lock icon for locked rows (right-aligned)
     if (isLocked) {
-      ctx.save();
-      const scale = 0.65; // 65% size for lock
-      ctx.font = "12px";
-      ctx.textAlign = "right";
-      // Position lock to the left of key if key is present, otherwise at right edge
-      const lockOffset = isPrimary ? 20 : 0;
-      const emojiX = rect.x + rect.width - padding - lockOffset;
-
-      // Scale down the emoji
-      ctx.translate(emojiX, centerY);
-      ctx.scale(scale, scale);
-      ctx.translate(-emojiX, -centerY);
-
-      ctx.fillText("🔒", emojiX, centerY);
-      ctx.restore();
+      // Position lock to the left of key if key is present
+      const lockOffset = isPrimary ? ICON_SIZE + 4 : 0;
+      const iconX = rect.x + rect.width - padding - ICON_SIZE - lockOffset;
+      drawVectorIcon(ctx, 'lock', iconX, centerY, ICON_SIZE, isDark);
     }
 
     return true;

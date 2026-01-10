@@ -100,10 +100,8 @@ export const QueryPanel = memo(function QueryPanel({
   // Results panel visibility - hidden by default, shown when query executes
   const [showResults, setShowResults] = useState(result !== null);
 
-  // Outline panel visibility - default false, can be toggled via toolbar in future
-  const [showOutline, _setShowOutline] = useState(false);
-  // Suppress unused setter warning - will be used when outline toggle is added to toolbar
-  void _setShowOutline;
+  // Outline panel visibility - default TRUE to show the new AST-based outline
+  const [showOutline, setShowOutline] = useState(true);
 
   // Get transaction state from persisted store
   const inTransaction = globalState?.inTransaction || false;

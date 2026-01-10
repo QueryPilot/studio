@@ -87,15 +87,18 @@ export async function getOutline(
 
   // Check Tauri availability
   if (!isTauriAvailable()) {
-    logger.warn("[refactor-service] Tauri not available");
+    logger.warn("[refactor-service] Tauri not available, cannot get outline");
     return createFailedOutline();
   }
 
   try {
+    logger.debug("[refactor-service] Calling sql_get_outline", { dialect, sqlLength: sql.length });
     const outline = await invoke<OutlineTree>("sql_get_outline", {
       sql,
       dialect,
     });
+
+    logger.debug("[refactor-service] Got outline", outline);
 
     // Update cache
     cache = {
