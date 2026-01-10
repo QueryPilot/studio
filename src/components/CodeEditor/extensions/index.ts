@@ -17,3 +17,8 @@ export { createGotoDefinitionExtension } from "./goto-definition";
 export type { GotoDefinitionEvent } from "./goto-definition";
 
 export { createSemanticHighlightingExtension, clearSemanticCache } from "./semantic-highlighting";
+
+export { createRefactoringExtension } from "./sql-refactoring";
+export type { RefactorOptions } from "./sql-refactoring";
+
+export { startRename } from "./inline-rename";
