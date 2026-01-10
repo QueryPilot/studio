@@ -371,13 +371,18 @@ ORDER BY name`;
   getIndexesQuery(_schema: string, table: string): string {
     return `
 SELECT
-    name as index_name,
+    il.name as index_name,
     '${this.escapeString(table)}' as table_name,
-    \`unique\` as is_unique,
-    origin = 'pk' as is_primary,
-    sql as definition
-FROM pragma_index_list('${this.escapeString(table)}')
-ORDER BY name`;
+    '[' || GROUP_CONCAT('"' || REPLACE(ii.name, '"', '\"') || '"', ',') || ']' as columns,
+    il.\`unique\` as is_unique,
+    il.origin = 'pk' as is_primary,
+    0 as is_partial,
+    il.sql as definition,
+    0 as is_foreign_key
+FROM pragma_index_list('${this.escapeString(table)}') il
+LEFT JOIN pragma_index_info(il.name) ii ON 1=1
+GROUP BY il.name, il.\`unique\`, il.origin, il.sql
+ORDER BY il.name`;
   }
 
   getIndexUsageStatsQuery(_schema: string, _table: string): string {
