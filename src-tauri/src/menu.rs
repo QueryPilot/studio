@@ -377,9 +377,59 @@ fn build_window_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
         MenuItem::with_id(app, "window_main", "Main Window", true, Some("CmdOrCtrl+1"))?;
     submenu.append(&main_window)?;
 
-    // Dynamic workspace windows will be added here via update_window_list
+    // Dynamic workspace windows - add current ones
+    add_workspace_windows_to_menu(app, &submenu)?;
 
     Ok(submenu)
+}
+
+/// Add workspace window items to the Window submenu
+fn add_workspace_windows_to_menu(app: &AppHandle, submenu: &Submenu<Wry>) -> Result<(), tauri::Error> {
+    let windows = app.webview_windows();
+    let mut workspace_windows: Vec<_> = windows
+        .iter()
+        .filter(|(label, _)| label.starts_with("workspace-"))
+        .collect();
+    
+    // Sort by label for consistent ordering
+    workspace_windows.sort_by(|(a, _), (b, _)| a.cmp(b));
+    
+    for (idx, (label, window)) in workspace_windows.iter().enumerate() {
+        // Get window title or use a default
+        let title = window.title().unwrap_or_else(|_| format!("Workspace {}", idx + 1));
+        
+        // Create menu item ID: window_workspace_{connection_id}
+        let connection_id = label.strip_prefix("workspace-").unwrap_or(label);
+        let menu_id = format!("window_workspace_{}", connection_id);
+        
+        // Keyboard shortcut: Cmd+2, Cmd+3, etc.
+        let shortcut = if idx < 8 {
+            Some(format!("CmdOrCtrl+{}", idx + 2))
+        } else {
+            None
+        };
+        
+        let item = MenuItem::with_id(
+            app,
+            &menu_id,
+            &title,
+            true,
+            shortcut.as_deref(),
+        )?;
+        submenu.append(&item)?;
+    }
+    
+    Ok(())
+}
+
+/// Update the Window menu with current workspace windows
+/// This rebuilds the entire menu to reflect the current window state
+pub fn update_window_menu(app: &AppHandle) -> Result<(), tauri::Error> {
+    // Rebuild the entire menu with updated window list
+    let menu = build_menu(app)?;
+    app.set_menu(menu)?;
+    tracing::info!("Window menu updated");
+    Ok(())
 }
 
 /// Help Menu

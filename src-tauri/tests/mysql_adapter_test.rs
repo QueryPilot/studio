@@ -37,6 +37,12 @@ fn test_profile() -> ConnectionProfile {
     }
 }
 
+use serde_json::Value as JsonValue;
+
+fn json_str<'a>(value: &'a JsonValue) -> &'a str {
+    value.as_str().expect("Expected string value")
+}
+
 #[tokio::test]
 async fn test_mysql_connect() {
     if !mysql_available() {
@@ -186,6 +192,54 @@ async fn test_mysql_null_handling() {
 
     let query_result = result.unwrap();
     assert!(query_result.rows[0][0].is_null());
+
+    adapter.disconnect().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mysql_advanced_types() {
+    if !mysql_available() {
+        eprintln!("Skipping test: MySQL not available");
+        return;
+    }
+
+    let mut adapter = MySqlAdapter::new();
+    let profile = test_profile();
+
+    adapter.connect(&profile).await.unwrap();
+
+    let result = adapter
+        .query(
+            "SELECT 
+                CAST('{\"key\": \"value\"}' AS JSON) as json_val,
+                UUID() as uuid_val,
+                b'101' | b'010' as bit_val,
+                CONCAT('a', 'b') as string_func,
+                CAST('2023-01-01 12:00:00' AS DATETIME) as datetime_val
+            ",
+        )
+        .await;
+    assert!(result.is_ok(), "Query failed: {:?}", result.err());
+
+    let query_result = result.unwrap();
+    let row = &query_result.rows[0];
+
+    // JSON
+    // MySQL adapter might return JSON as string or object
+    if row[0].is_string() {
+        assert!(json_str(&row[0]).contains("key"));
+    } else {
+        assert_eq!(row[0]["key"], "value");
+    }
+
+    // UUID (returns string)
+    assert!(!json_str(&row[1]).is_empty());
+    
+    // Bit usually returns integer or binary string
+    assert!(!row[2].is_null());
+    
+    // String func
+    assert_eq!(json_str(&row[3]), "ab");
 
     adapter.disconnect().await.unwrap();
 }

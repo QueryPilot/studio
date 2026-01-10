@@ -174,6 +174,17 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     }
 
     if (type === "function" && metadata) {
+      const objectType = (() => {
+        const m = metadata as
+          | { objectType?: unknown; returnType?: unknown }
+          | undefined;
+        if (m?.objectType === "procedure") return "procedure";
+        if (m?.objectType === "function") return "function";
+        if (m?.returnType === "void" && dbType && isMySQLCompatible(dbType)) {
+          return "procedure";
+        }
+        return "function";
+      })();
       return (
         <ObjectDefinition
           connectionId={metadata.connectionId || ""}
@@ -185,7 +196,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
               | undefined;
             return typeof m?.functionName === "string" ? m.functionName : "";
           })()}
-          objectType="function"
+          objectType={objectType}
           className="h-full"
           onDefinitionLoad={(def) => {
             definitionRef.current = def;

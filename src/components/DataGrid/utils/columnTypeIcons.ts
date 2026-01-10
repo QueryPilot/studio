@@ -7,6 +7,7 @@
 export type ColumnIconType =
   | 'pk'
   | 'fk'
+  | 'computed'
   | 'text'
   | 'integer'
   | 'decimal'
@@ -51,6 +52,16 @@ const ICON_DEFINITIONS: Record<ColumnIconType, IconDefinition> = {
     ],
     color: '#2563eb', // blue-600
     colorDark: '#60a5fa', // blue-400
+    strokeWidth: 1.5,
+  },
+  // IconSum - Computed Column (f(x) = result)
+  computed: {
+    paths: [
+      'M3 21l18 0',
+      'M5 7l5 8l4 -10l4 10l2 -4',
+    ],
+    color: '#7c2d12', // orange-900
+    colorDark: '#f97316', // orange-500
     strokeWidth: 1.5,
   },
   // IconBlockquote - Text/String
@@ -230,14 +241,19 @@ export function getIconTypeFromMeta(meta: {
   is_pk?: boolean;
   is_fk?: boolean;
   is_json?: boolean;
+  is_computed?: boolean;
+  is_virtual?: boolean;
   enum_values?: string[];
   nullable?: boolean;
 } | null | undefined): ColumnIconType {
   if (!meta) return 'text';
 
-  // Priority: PK > FK > data type
+  // Priority: PK > FK > Computed/Virtual > data type
   if (meta.is_pk) return 'pk';
   if (meta.is_fk) return 'fk';
+  
+  // Computed columns (MSSQL) or virtual columns (MySQL/MariaDB)
+  if (meta.is_computed || meta.is_virtual) return 'computed';
 
   // Check for enum
   if (Array.isArray(meta.enum_values) && meta.enum_values.length > 0) {

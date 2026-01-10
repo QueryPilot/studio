@@ -468,6 +468,11 @@ export function openFunctionObject({
   }
 
   if (targetPanelId) {
+    const objectType =
+      func.routine_type === 'PROCEDURE' ||
+      (!func.routine_type && func.return_type === 'void')
+        ? 'procedure'
+        : 'function';
     const tabId = `function-${func.schema}-${func.name}`;
     addTab(targetPanelId, tabId, {
       type: 'function',
@@ -477,6 +482,7 @@ export function openFunctionObject({
       schema: func.schema,
       functionName: func.name,
       returnType: func.return_type,
+      objectType,
     });
     return;
   }
@@ -513,6 +519,11 @@ export function openFunctionObject({
       schema: func.schema,
       functionName: func.name,
       returnType: func.return_type,
+      objectType:
+        func.routine_type === 'PROCEDURE' ||
+        (!func.routine_type && func.return_type === 'void')
+          ? 'procedure'
+          : 'function',
     },
   });
 }
@@ -588,6 +599,11 @@ export function openFunctionInSplitRight({
   const tabId = `function-${func.schema}-${func.name}`;
   const newPanelId = nanoid(8);
 
+  const objectType =
+    func.routine_type === 'PROCEDURE' ||
+    (!func.routine_type && func.return_type === 'void')
+      ? 'procedure'
+      : 'function';
   splitPanelAction({
     targetPanelId,
     direction: 'right',
@@ -605,6 +621,7 @@ export function openFunctionInSplitRight({
           schema: func.schema,
           functionName: func.name,
           returnType: func.return_type,
+          objectType,
         },
       },
     },

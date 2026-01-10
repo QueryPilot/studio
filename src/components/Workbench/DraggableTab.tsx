@@ -21,6 +21,7 @@ interface DraggableTabProps {
   isView?: boolean;
   kind?: "Table" | "View" | "MaterializedView";
   returnType?: string;
+  objectType?: "function" | "procedure";
   isNextActive?: boolean;
   onActivate: () => void;
   onClose: () => void;
@@ -37,6 +38,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
   isView,
   kind,
   returnType,
+  objectType,
   isNextActive = false,
   onActivate,
   onClose,
@@ -93,7 +95,8 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
     }
     if (tabType === "function") {
       // Procedures return 'void', functions have a return type
-      const isProcedure = returnType === "void";
+      const isProcedure =
+        objectType === "procedure" || (objectType == null && returnType === "void");
       if (isProcedure) {
         return cn(
           "h-3.5 w-3.5",

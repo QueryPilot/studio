@@ -7,20 +7,39 @@ import { useHomeScreenStore } from "@/screens/home/store/homeScreenStore";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { isTauri } from "@/utils/tauri";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import useWorkbenchStore from "@/stores/workbenchStore";
+import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
+import { eventBus } from "@/services/eventBus";
+import { databaseService } from "@/services/databaseService";
+import { v4 as uuidv4 } from "uuid";
+import { useQueryClient } from "@tanstack/react-query";
 
 export function useMenuEventListener() {
-  const { setTheme, toggleSidebar } = useAppStore();
+  const { setTheme, toggleSidebar: toggleAppSidebar } = useAppStore();
   const { openPreferences } = usePreferencesStore();
   const { openConnectionForm } = useHomeScreenStore();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
-    const unlisten = listen<string>("menu_action", (event) => {
+    const unlistenPromise = listen<string>("menu_action", async (event) => {
       const action = event.payload;
+      logger.info(`[MenuAction] Received: ${action}`);
+
+      // Get current context
+      const workspaceStore = useWorkspaceScreenStore.getState();
+      const workbenchStore = useWorkbenchStore.getState();
+      const activeConnectionId = workspaceStore.activeConnectionId;
+
+      // Debug: Log context for all database-related actions
+      if (["connect", "disconnect", "refresh", "execute", "execute_selection", "export", "import", "erd", "new_query", "new_erd"].includes(action)) {
+        logger.info(`[MenuAction] Context for '${action}': activeConnectionId=${activeConnectionId}, focusedPanel=${workbenchStore.focusedPanelId}`);
+      }
 
       switch (action) {
         // App/File Menu
         case "check_updates":
-          handleCheckUpdates();
+          void handleCheckUpdates();
           break;
         case "open_preferences":
           openPreferences();
@@ -29,25 +48,31 @@ export function useMenuEventListener() {
           void handleNewConnection(openConnectionForm);
           break;
         case "new_query":
-          // TODO: Implement new query tab
-          logger.info("New query tab");
+          if (activeConnectionId) {
+            handleNewQuery(activeConnectionId, workbenchStore);
+          }
           break;
         case "new_erd":
-          // TODO: Implement new ERD workspace
-          logger.info("New ERD workspace");
+          if (activeConnectionId) {
+            handleNewErd(activeConnectionId, workbenchStore);
+          }
           break;
         case "close_tab":
-          // TODO: Implement close tab
-          logger.info("Close tab");
+          handleCloseTab(workbenchStore);
           break;
 
         // View Menu
         case "toggle_sidebar":
-          toggleSidebar();
+          if (activeConnectionId) {
+            workspaceStore.toggleSidebar("left");
+          } else {
+            toggleAppSidebar();
+          }
           break;
         case "toggle_ai":
-          // TODO: Implement AI assistant toggle
-          logger.info("Toggle AI assistant");
+          if (activeConnectionId) {
+            workspaceStore.toggleSidebar("right");
+          }
           break;
         case "set_theme:light":
           setTheme("light");
@@ -59,31 +84,69 @@ export function useMenuEventListener() {
           setTheme("system");
           break;
         case "zoom_in":
+          void handleZoom(1.1);
+          break;
         case "zoom_out":
+          void handleZoom(0.9);
+          break;
         case "zoom_reset":
-          // TODO: Implement zoom controls
-          logger.info(action);
+          void handleZoom(1.0, true);
           break;
 
         // Edit Menu
         case "find":
+          eventBus.emit("query-editor:find", {});
+          break;
         case "replace":
+          eventBus.emit("query-editor:replace", {});
+          break;
         case "find_in_files":
-          // TODO: Implement find/replace
-          logger.info(action);
+          // TODO: Implement find in files
+          logger.warn("Find in files not implemented");
           break;
 
         // Database Menu
         case "connect":
+          if (activeConnectionId) {
+            void databaseService.connectById(activeConnectionId);
+          }
+          break;
         case "disconnect":
+          if (activeConnectionId) {
+            void databaseService.disconnect(activeConnectionId);
+          }
+          break;
         case "refresh":
+          if (activeConnectionId) {
+            // Invalidate React Query caches to refresh UI
+            await queryClient.invalidateQueries({
+              predicate: (query) =>
+                Array.isArray(query.queryKey) &&
+                (query.queryKey[0] === "databases" ||
+                  query.queryKey[0] === "schemas" ||
+                  query.queryKey[0] === "tables" ||
+                  query.queryKey[0] === "columns"),
+            });
+            logger.info("Refreshed database metadata");
+          }
+          break;
         case "execute":
+          eventBus.emit("query-editor:execute", {});
+          break;
         case "execute_selection":
+          eventBus.emit("query-editor:execute", { selection: true });
+          break;
         case "export":
+          eventBus.emit("data-grid:export-csv", {});
+          break;
         case "import":
+          // TODO: Implement import
+          logger.warn("Import not implemented");
+          break;
         case "erd":
-          // TODO: Implement database actions
-          logger.info(action);
+          if (activeConnectionId) {
+            handleNewErd(activeConnectionId, workbenchStore);
+          }
           break;
 
         // Help Menu
@@ -103,11 +166,96 @@ export function useMenuEventListener() {
     });
 
     return () => {
-      unlisten
-        .then((fn) => { fn(); })
-        .catch((err) => { logger.error("[useMenuEventListener] Failed to unlisten:", err); });
+      unlistenPromise
+        .then((unlisten) => unlisten())
+        .catch((err) => {
+          logger.error("[useMenuEventListener] Failed to unlisten:", err);
+        });
     };
-  }, [setTheme, toggleSidebar, openPreferences, openConnectionForm]);
+  }, [
+    setTheme,
+    toggleAppSidebar,
+    openPreferences,
+    openConnectionForm,
+    queryClient,
+  ]);
+}
+
+function handleNewQuery(
+  connectionId: string,
+  workbenchStore: ReturnType<typeof useWorkbenchStore.getState>,
+) {
+  const { focusedPanelId, panelContents, addTab, focusPanel } = workbenchStore;
+  let targetPanelId: string | null = focusedPanelId;
+
+  // If no panel focused, use first available
+  if (!targetPanelId && panelContents.size > 0) {
+    const firstPanelId = Array.from(panelContents.keys())[0];
+    if (firstPanelId) {
+      targetPanelId = firstPanelId;
+      focusPanel(targetPanelId);
+    }
+  }
+
+  if (targetPanelId) {
+    const tabId = uuidv4();
+    addTab(targetPanelId, tabId, {
+      type: "query",
+      title: "New Query",
+      connectionId,
+    });
+  }
+}
+
+function handleNewErd(
+  connectionId: string,
+  workbenchStore: ReturnType<typeof useWorkbenchStore.getState>,
+) {
+  const { focusedPanelId, panelContents, addTab, focusPanel } = workbenchStore;
+  let targetPanelId: string | null = focusedPanelId;
+
+  if (!targetPanelId && panelContents.size > 0) {
+    const firstPanelId = Array.from(panelContents.keys())[0];
+    if (firstPanelId) {
+      targetPanelId = firstPanelId;
+      focusPanel(targetPanelId);
+    }
+  }
+
+  if (targetPanelId) {
+    const tabId = `erd-${uuidv4()}`;
+    addTab(targetPanelId, tabId, {
+      type: "erd",
+      title: "ERD",
+      connectionId,
+    });
+  }
+}
+
+function handleCloseTab(
+  workbenchStore: ReturnType<typeof useWorkbenchStore.getState>,
+) {
+  const { focusedPanelId, panelContents, removeTab } = workbenchStore;
+  if (!focusedPanelId) return;
+
+  const panel = panelContents.get(focusedPanelId);
+  if (panel && panel.activeTabId) {
+    removeTab(focusedPanelId, panel.activeTabId);
+  }
+}
+
+async function handleZoom(factor: number, reset = false) {
+  // Use CSS zoom as fallback/primary for now as it's safer than webview zoom
+  // which might affect the whole window including titlebar
+  try {
+    const currentZoom = parseFloat(document.body.style.zoom || "1");
+    const newZoom = reset ? 1 : currentZoom * factor;
+    // Clamp zoom
+    const clamped = Math.min(Math.max(newZoom, 0.5), 2.0);
+    document.body.style.zoom = clamped.toString();
+  } catch (e) {
+    logger.error("Failed to zoom", e);
+  }
 }
 
 async function handleNewConnection(
@@ -120,8 +268,7 @@ async function handleNewConnection(
   }
 
   try {
-    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-    const currentWindow = WebviewWindow.getCurrent();
+    const currentWindow = getCurrentWindow();
     const currentLabel = currentWindow.label;
 
     if (currentLabel === "main") {
@@ -129,7 +276,9 @@ async function handleNewConnection(
       openConnectionForm("create");
     } else {
       // We're on a workspace window, focus main window and open form there
-      const mainWindow = await WebviewWindow.getByLabel("main");
+      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mainWindow = await (WebviewWindow as any).getByLabel("main");
       if (mainWindow) {
         // Show and focus main window
         await mainWindow.show();

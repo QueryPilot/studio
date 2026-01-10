@@ -47,7 +47,7 @@ const ICON_SIZE_SMALL = 14;
 const ICON_PADDING = 6;
 
 // Icons that need smaller size
-const SMALL_ICONS = new Set(['pk', 'uuid']);
+const SMALL_ICONS = new Set(['pk', 'uuid', 'computed']);
 
 // Draw column type icon based on data type
 function drawColumnTypeIcon({

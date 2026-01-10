@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import type { ResolvedKeybinding } from "@/types/keybinding";
 import type { CommandDescriptor } from "@/types/command";
-import { useKeyboardServices } from "@/components/KeyboardProvider";
+import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import type { FunctionMeta, TableMeta } from "@/services/databaseService";
 import { useSchemaData } from "@/hooks/useSchemaData";
 import { formatNumber } from "@/utils/formatters";
@@ -72,11 +72,17 @@ function resolveKeybindingForCommand(
  * Hook to fetch and cache all available commands with their keybindings
  */
 export function useCommands() {
-  const { commandService, keybindingService } = useKeyboardServices();
+  const keyboardServices = useKeyboardServicesOptional();
 
   return useQuery({
     queryKey: ["commands", "list"],
     queryFn: () => {
+      // Return empty array if services not available yet
+      if (!keyboardServices) {
+        return [];
+      }
+
+      const { commandService, keybindingService } = keyboardServices;
       const descriptors = commandService.list();
       const keybindings = keybindingService.list();
 
@@ -91,6 +97,7 @@ export function useCommands() {
     gcTime: 10 * 60 * 1000, // 10 minutes (formerly cacheTime)
     refetchOnWindowFocus: false,
     refetchOnMount: false,
+    enabled: !!keyboardServices, // Only fetch when services are available
   });
 }
 
@@ -98,15 +105,24 @@ export function useCommands() {
  * Hook to fetch and cache keybindings, with invalidation mechanism
  */
 export function useKeybindings() {
-  const { keybindingService } = useKeyboardServices();
+  const keyboardServices = useKeyboardServicesOptional();
 
   return useQuery({
     queryKey: ["keybindings", "list"],
-    queryFn: () => keybindingService.list(),
+    queryFn: () => {
+      // Return empty array if services not available yet
+      if (!keyboardServices) {
+        return [];
+      }
+
+      const { keybindingService } = keyboardServices;
+      return keybindingService.list();
+    },
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 10 * 60 * 1000, // 10 minutes
     refetchOnWindowFocus: false,
     refetchOnMount: false,
+    enabled: !!keyboardServices, // Only fetch when services are available
   });
 }
 

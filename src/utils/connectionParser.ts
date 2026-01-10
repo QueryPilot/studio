@@ -733,7 +733,9 @@ export function parseConnectionUri(uri: string): ParsedUriConfig {
   }
 
   if (/^(mssql|sqlserver):\/\//i.test(trimmed) && trimmed.includes(";")) {
-    const [base, params] = trimmed.split(";", 2);
+    const firstSemi = trimmed.indexOf(";");
+    const base = trimmed.slice(0, firstSemi);
+    const params = trimmed.slice(firstSemi + 1);
     const config = parseStandardUrl(base);
     const pairs = parseKeyValuePairs(params);
     const options: Record<string, string> = {};

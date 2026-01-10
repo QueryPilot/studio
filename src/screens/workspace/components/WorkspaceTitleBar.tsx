@@ -1047,7 +1047,7 @@ export function WorkspaceTitleBar({
                       return (
                         <CommandItem
                           key={profile.id}
-                          value={`${profile.name} ${profile.database}`}
+                          value={profile.id}
                           onSelect={() => {
                             // Switch to a different server connection
                             void windowManager.openWorkspace(

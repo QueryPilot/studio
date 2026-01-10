@@ -163,9 +163,9 @@ impl MssqlAdapter {
             "SELECT c.name, t.name as type_name \
              FROM sys.columns c \
              JOIN sys.types t ON c.user_type_id = t.user_type_id \
-             JOIN sys.tables tbl ON c.object_id = tbl.object_id \
-             JOIN sys.schemas s ON tbl.schema_id = s.schema_id \
-             WHERE s.name = '{}' AND tbl.name = '{}' \
+             JOIN sys.objects obj ON c.object_id = obj.object_id \
+             JOIN sys.schemas s ON obj.schema_id = s.schema_id \
+             WHERE s.name = '{}' AND obj.name = '{}' AND obj.type IN ('U', 'V') \
              ORDER BY c.column_id",
             schema_escaped, table_escaped
         );
@@ -194,9 +194,9 @@ impl MssqlAdapter {
             let quoted = Self::quote_identifier(column_name);
             let type_name = type_name.unwrap_or("").to_ascii_lowercase();
             let expr = match type_name.as_str() {
-                "sql_variant" => format!("CONVERT(NVARCHAR(MAX), {}) AS {}", quoted, quoted),
-                "geography" | "geometry" => format!("{}.STAsText() AS {}", quoted, quoted),
-                "hierarchyid" => format!("{}.ToString() AS {}", quoted, quoted),
+                "sql_variant" => format!("CONVERT(NVARCHAR(MAX), {}) AS [converted_{}]", quoted, column_name),
+                "geography" | "geometry" => format!("{}.STAsText() AS [text_{}]", quoted, column_name),
+                "hierarchyid" => format!("{}.ToString() AS [string_{}]", quoted, column_name),
                 _ => quoted,
             };
             column_exprs.push(expr);
@@ -222,6 +222,175 @@ impl MssqlAdapter {
         rewritten.push_str(tail);
 
         Ok(Some(rewritten))
+    }
+
+    /// Rewrite explicit column queries (SELECT col1, col2, ... FROM table) to cast unsupported types
+    async fn rewrite_explicit_columns_with_casts(
+        conn: &mut bb8::PooledConnection<'_, ConnectionManager>,
+        sql: &str,
+    ) -> Result<Option<String>> {
+        // Match SELECT [TOP N] <columns> FROM <table> [rest]
+        // Note: Rust regex doesn't support lookahead, so we check for SELECT * programmatically
+        let re = Regex::new(r"(?is)^\s*select\s+(top\s+\d+\s+)?(.+?)\s+from\s+([^\s;(]+)(.*)$")
+            .map_err(|e| AppError::Internal(format!("Regex error: {}", e)))?;
+        let caps = match re.captures(sql) {
+            Some(caps) => caps,
+            None => return Ok(None),
+        };
+
+        let top_clause = caps.get(1).map(|m| m.as_str().trim().to_string());
+        let columns_part = caps.get(2).map(|m| m.as_str()).unwrap_or_default();
+
+        // Skip if this is a SELECT * query - let rewrite_select_star_with_casts handle it
+        let columns_trimmed = columns_part.trim();
+        if columns_trimmed == "*" || columns_trimmed.starts_with("* ") {
+            return Ok(None);
+        }
+        let table_ref = caps.get(3).map(|m| m.as_str()).unwrap_or_default();
+        let tail = caps.get(4).map(|m| m.as_str()).unwrap_or_default();
+
+        let (schema_name, table_name) = match Self::parse_table_ref(table_ref) {
+            Some(names) => names,
+            None => return Ok(None),
+        };
+
+        // Get column metadata for the table
+        let schema_escaped = schema_name.replace('\'', "''");
+        let table_escaped = table_name.replace('\'', "''");
+        let columns_sql = format!(
+            "SELECT c.name, t.name as type_name \
+             FROM sys.columns c \
+             JOIN sys.types t ON c.user_type_id = t.user_type_id \
+             JOIN sys.objects obj ON c.object_id = obj.object_id \
+             JOIN sys.schemas s ON obj.schema_id = s.schema_id \
+             WHERE s.name = '{}' AND obj.name = '{}' AND obj.type IN ('U', 'V')",
+            schema_escaped, table_escaped
+        );
+
+        let mut result = conn
+            .simple_query(columns_sql.as_str())
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Column query failed: {}", e)))?;
+        let rows = result
+            .into_first_result()
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Column query failed: {}", e)))?;
+
+        if rows.is_empty() {
+            return Ok(None);
+        }
+
+        // Build a map of column name (lowercase) -> type name
+        let mut col_types: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        for row in rows {
+            let column_name: Option<&str> = row.get(0);
+            let type_name: Option<&str> = row.get(1);
+            if let (Some(name), Some(typ)) = (column_name, type_name) {
+                col_types.insert(name.to_ascii_lowercase(), typ.to_ascii_lowercase());
+            }
+        }
+
+        // Parse and rewrite columns - simple comma-split with parenthesis awareness
+        let columns = Self::split_columns(columns_part);
+        let mut any_rewritten = false;
+        let mut new_columns = Vec::with_capacity(columns.len());
+
+        for col_expr in columns {
+            let trimmed = col_expr.trim();
+            // Try to extract simple column name (handles: col, [col], table.col, table.[col])
+            if let Some(col_name) = Self::extract_simple_column_name(trimmed) {
+                let col_lower = col_name.to_ascii_lowercase();
+                if let Some(type_name) = col_types.get(&col_lower) {
+                    let quoted = Self::quote_identifier(&col_name);
+                    let rewritten = match type_name.as_str() {
+                        "sql_variant" => {
+                            any_rewritten = true;
+                            format!("CONVERT(NVARCHAR(MAX), {}) AS {}", quoted, quoted)
+                        }
+                        "geography" | "geometry" => {
+                            any_rewritten = true;
+                            format!("{}.STAsText() AS {}", quoted, quoted)
+                        }
+                        "hierarchyid" => {
+                            any_rewritten = true;
+                            format!("{}.ToString() AS {}", quoted, quoted)
+                        }
+                        _ => trimmed.to_string(),
+                    };
+                    new_columns.push(rewritten);
+                    continue;
+                }
+            }
+            // Keep as-is if not a simple column or not a problematic type
+            new_columns.push(trimmed.to_string());
+        }
+
+        if !any_rewritten {
+            return Ok(None);
+        }
+
+        let mut rewritten = String::new();
+        rewritten.push_str("SELECT ");
+        if let Some(top) = top_clause {
+            rewritten.push_str(&top);
+            rewritten.push(' ');
+        }
+        rewritten.push_str(&new_columns.join(", "));
+        rewritten.push_str(" FROM ");
+        rewritten.push_str(&format!(
+            "{}.{}",
+            Self::quote_identifier(&schema_name),
+            Self::quote_identifier(&table_name)
+        ));
+        rewritten.push_str(tail);
+
+        Ok(Some(rewritten))
+    }
+
+    /// Split column list by commas, respecting parentheses
+    fn split_columns(columns_part: &str) -> Vec<&str> {
+        let mut result = Vec::new();
+        let mut depth: i32 = 0;
+        let mut start = 0;
+
+        for (i, ch) in columns_part.char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => depth = depth.saturating_sub(1),
+                ',' if depth == 0 => {
+                    result.push(&columns_part[start..i]);
+                    start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        if start < columns_part.len() {
+            result.push(&columns_part[start..]);
+        }
+        result
+    }
+
+    /// Extract simple column name from expression (handles col, [col], table.col, etc.)
+    fn extract_simple_column_name(expr: &str) -> Option<String> {
+        let trimmed = expr.trim();
+
+        // Skip if it contains operators, function calls, or AS keyword
+        let upper = trimmed.to_ascii_uppercase();
+        if upper.contains(" AS ")
+            || trimmed.contains('(')
+            || trimmed.contains('+')
+            || trimmed.contains('-')
+            || trimmed.contains('*')
+            || trimmed.contains('/')
+        {
+            return None;
+        }
+
+        // Handle qualified names: schema.table.col or table.col or col
+        let parts: Vec<&str> = trimmed.split('.').collect();
+        let last = parts.last()?;
+        Some(Self::unquote_identifier(last))
     }
 }
 
@@ -392,20 +561,24 @@ impl DbAdapter for MssqlAdapter {
         let mut sql = sql.to_string();
 
         if !preflight_ok {
+            // Try SELECT * rewrite first, then explicit column rewrite
             if let Some(rewritten) = Self::rewrite_select_star_with_casts(&mut conn, sql.as_str()).await? {
+                sql = rewritten;
+            } else if let Some(rewritten) = Self::rewrite_explicit_columns_with_casts(&mut conn, sql.as_str()).await? {
                 sql = rewritten;
             }
         } else if !unsupported_columns.is_empty() {
-            match Self::rewrite_select_star_with_casts(&mut conn, sql.as_str()).await? {
-                Some(rewritten) => {
-                    sql = rewritten;
-                }
-                None => {
-                    return Err(AppError::Unsupported(format!(
-                        "Unsupported SQL Server column types detected: {}. Cast them to NVARCHAR/VARBINARY or exclude them from the query.",
-                        unsupported_columns.join(", ")
-                    )));
-                }
+            // Try SELECT * rewrite first
+            if let Some(rewritten) = Self::rewrite_select_star_with_casts(&mut conn, sql.as_str()).await? {
+                sql = rewritten;
+            } else if let Some(rewritten) = Self::rewrite_explicit_columns_with_casts(&mut conn, sql.as_str()).await? {
+                // Try explicit column rewrite
+                sql = rewritten;
+            } else {
+                return Err(AppError::Unsupported(format!(
+                    "Unsupported SQL Server column types detected: {}. Cast them to NVARCHAR/VARBINARY or exclude them from the query.",
+                    unsupported_columns.join(", ")
+                )));
             }
         }
 
