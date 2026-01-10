@@ -42,29 +42,36 @@ Then connect to:
 
 ```sql
 WITH active_users AS (
-  SELECT id, name, email
+  SELECT id, username, email, full_name
   FROM users
-  WHERE active = true
+  WHERE is_active = true AND email_verified = true
 ),
-user_orders AS (
-  SELECT user_id, COUNT(*) as order_count
-  FROM orders
+user_todo_stats AS (
+  SELECT
+    user_id,
+    COUNT(*) as total_todos,
+    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_count
+  FROM todos
   GROUP BY user_id
 )
 SELECT
-  u.name,
+  u.username,
   u.email,
-  o.order_count
+  u.full_name,
+  s.total_todos,
+  s.completed_count,
+  ROUND(s.completed_count::numeric / s.total_todos * 100, 2) as completion_rate
 FROM active_users u
-LEFT JOIN user_orders o ON u.id = o.user_id
-WHERE o.order_count > 5;
+INNER JOIN user_todo_stats s ON u.id = s.user_id
+WHERE s.total_todos > 10
+ORDER BY completion_rate DESC;
 ```
 
 **Expected:**
 
 - ✅ Outline shows "SELECT" statement
-- ✅ Lists both CTEs: `active_users` and `user_orders`
-- ✅ Lists tables: `users`, `orders`, `active_users` (CTE), `user_orders` (CTE)
+- ✅ Lists both CTEs: `active_users` and `user_todo_stats`
+- ✅ Lists tables: `users`, `todos`, `active_users` (CTE reference), `user_todo_stats` (CTE reference)
 - ✅ Shows parse status: "Full" (green badge)
 - ✅ Clicking on any item navigates cursor to that position
 
@@ -82,9 +89,9 @@ WHERE o.order_count > 5;
 **Test Case 1: Rename Table Alias**
 
 ```sql
-SELECT u.id, u.name, u.email
+SELECT u.id, u.username, u.email, u.full_name
 FROM users u
-WHERE u.active = true;
+WHERE u.is_active = true AND u.email_verified = true;
 ```
 
 **Steps:**
@@ -97,48 +104,58 @@ WHERE u.active = true;
 
 **Expected:**
 
-- ✅ All 3 occurrences of `u` renamed to `usr`
-- ✅ Query becomes: `SELECT usr.id, usr.name, usr.email FROM users usr WHERE usr.active = true;`
+- ✅ All 4 occurrences of `u` renamed to `usr`
+- ✅ Query becomes: `SELECT usr.id, usr.username, usr.email, usr.full_name FROM users usr WHERE usr.is_active = true AND usr.email_verified = true;`
 - ✅ Cursor positioned at first renamed location
 
 **Test Case 2: Rename CTE**
 
 ```sql
-WITH active_users AS (
-  SELECT * FROM users WHERE active = true
+WITH high_priority_todos AS (
+  SELECT * FROM todos WHERE priority IN ('high', 'critical')
 )
-SELECT * FROM active_users;
+SELECT
+  t.id,
+  t.title,
+  t.priority,
+  t.status
+FROM high_priority_todos t
+WHERE t.status != 'completed';
 ```
 
 **Steps:**
 
-1. Place cursor on `active_users` (either definition or reference)
+1. Place cursor on `high_priority_todos` (either definition or reference)
 2. Press **F2**
-3. Type: `verified_users`
+3. Type: `urgent_todos`
 4. Press **Enter**
 
 **Expected:**
 
-- ✅ Both definition and reference renamed
-- ✅ No false positives (doesn't rename `users`)
+- ✅ Both definition and reference renamed to `urgent_todos`
+- ✅ No false positives (doesn't rename `todos` table)
+- ✅ Query still valid after rename
 
 **Test Case 3: Rename Column Alias**
 
 ```sql
 SELECT
-  COUNT(*) as total_count,
-  total_count * 2 as doubled
-FROM orders;
+  user_id,
+  COUNT(*) as todo_count,
+  SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as done_count,
+  ROUND(done_count::numeric / todo_count * 100, 2) as completion_pct
+FROM todos
+GROUP BY user_id;
 ```
 
 **Steps:**
 
-1. Cursor on `total_count` (first alias)
-2. **F2** → rename to `order_count`
+1. Cursor on `todo_count` (first alias)
+2. **F2** → rename to `total_todos`
 
 **Expected:**
 
-- ✅ Both occurrences of `total_count` renamed
+- ✅ Both occurrences of `todo_count` renamed to `total_todos`
 - ✅ Query valid after rename
 
 **Edge Cases to Test:**
@@ -156,30 +173,38 @@ FROM orders;
 **Test Case 1: Extract Simple Subquery**
 
 ```sql
-SELECT *
-FROM orders o
-WHERE o.user_id IN (
-  SELECT id FROM users WHERE active = true
+SELECT
+  t.id,
+  t.title,
+  t.priority,
+  t.status
+FROM todos t
+WHERE t.user_id IN (
+  SELECT id FROM users WHERE is_active = true AND email_verified = true
 );
 ```
 
 **Steps:**
 
-1. **Select** the entire subquery: `SELECT id FROM users WHERE active = true`
+1. **Select** the entire subquery: `SELECT id FROM users WHERE is_active = true AND email_verified = true`
 2. Press **Cmd+Shift+E** (Mac) or **Ctrl+Shift+E** (Windows/Linux)
 3. Dialog opens asking for CTE name
-4. Enter: `active_user_ids`
+4. Enter: `verified_users`
 5. Click **Extract**
 
 **Expected:**
 
 ```sql
-WITH active_user_ids AS (
-  SELECT id FROM users WHERE active = true
+WITH verified_users AS (
+  SELECT id FROM users WHERE is_active = true AND email_verified = true
 )
-SELECT *
-FROM orders o
-WHERE o.user_id IN (SELECT * FROM active_user_ids);
+SELECT
+  t.id,
+  t.title,
+  t.priority,
+  t.status
+FROM todos t
+WHERE t.user_id IN (SELECT * FROM verified_users);
 ```
 
 - ✅ New `WITH` clause created at top
@@ -190,39 +215,49 @@ WHERE o.user_id IN (SELECT * FROM active_user_ids);
 **Test Case 2: Extract When WITH Clause Exists**
 
 ```sql
-WITH high_value_orders AS (
-  SELECT * FROM orders WHERE total > 1000
+WITH overdue_todos AS (
+  SELECT * FROM todos WHERE due_date < CURRENT_DATE AND status != 'completed'
 )
-SELECT *
-FROM high_value_orders
-WHERE user_id IN (
-  SELECT id FROM users WHERE premium = true
+SELECT
+  t.id,
+  t.title,
+  u.username,
+  u.email
+FROM overdue_todos t
+INNER JOIN users u ON t.user_id = u.id
+WHERE u.id IN (
+  SELECT id FROM users WHERE is_active = true
 );
 ```
 
 **Steps:**
 
-1. Select the subquery: `SELECT id FROM users WHERE premium = true`
+1. Select the subquery: `SELECT id FROM users WHERE is_active = true`
 2. **Cmd+Shift+E**
-3. Enter CTE name: `premium_users`
+3. Enter CTE name: `active_users`
 4. Extract
 
 **Expected:**
 
 ```sql
-WITH high_value_orders AS (
-  SELECT * FROM orders WHERE total > 1000
+WITH overdue_todos AS (
+  SELECT * FROM todos WHERE due_date < CURRENT_DATE AND status != 'completed'
 ),
-premium_users AS (
-  SELECT id FROM users WHERE premium = true
+active_users AS (
+  SELECT id FROM users WHERE is_active = true
 )
-SELECT *
-FROM high_value_orders
-WHERE user_id IN (SELECT * FROM premium_users);
+SELECT
+  t.id,
+  t.title,
+  u.username,
+  u.email
+FROM overdue_todos t
+INNER JOIN users u ON t.user_id = u.id
+WHERE u.id IN (SELECT * FROM active_users);
 ```
 
 - ✅ New CTE appended to existing `WITH` clause
-- ✅ Comma added correctly
+- ✅ Comma added correctly between CTEs
 - ✅ Formatting preserved
 
 **Test Case 3: Validation Errors**
@@ -248,14 +283,14 @@ Try these invalid names in the dialog:
 **Test Case 1: Lightbulb Shows for Renameable Symbol**
 
 ```sql
-SELECT u.id, u.name
-FROM users u
-WHERE u.active = true;
+SELECT t.id, t.title, t.status, t.priority
+FROM todos t
+WHERE t.status = 'in_progress' AND t.priority IN ('high', 'critical');
 ```
 
 **Steps:**
 
-1. Place cursor on any `u`
+1. Place cursor on any `t`
 2. Wait ~150ms (debounced)
 3. Look for **💡 lightbulb icon** in the gutter (left margin)
 4. Click the lightbulb **OR** press **Cmd+.** / **Ctrl+.**
@@ -263,15 +298,17 @@ WHERE u.active = true;
 **Expected:**
 
 - ✅ Lightbulb appears next to the line
-- ✅ Clicking opens menu with "Rename alias 'u'" action
+- ✅ Clicking opens menu with "Rename alias 't'" action
 - ✅ Selecting action triggers rename flow (same as F2)
 
 **Test Case 2: Lightbulb for Extractable Subquery**
 
 ```sql
-SELECT *
-FROM orders
-WHERE user_id IN (SELECT id FROM users WHERE active = true);
+SELECT
+  u.username,
+  (SELECT COUNT(*) FROM todos WHERE user_id = u.id AND status = 'completed') as completed_count
+FROM users u
+WHERE u.is_active = true;
 ```
 
 **Steps:**
@@ -306,35 +343,49 @@ Start with:
 
 ```sql
 SELECT
-  o.id,
-  (SELECT name FROM users WHERE id = o.user_id) as user_name,
-  (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
-FROM orders o
-WHERE o.status = 'completed';
+  t.id,
+  t.title,
+  (SELECT username FROM users WHERE id = t.user_id) as username,
+  (SELECT COUNT(*) FROM comments WHERE todo_id = t.id) as comment_count,
+  (SELECT name FROM categories c
+   INNER JOIN todo_categories tc ON c.id = tc.category_id
+   WHERE tc.todo_id = t.id LIMIT 1) as category_name
+FROM todos t
+WHERE t.status = 'in_progress'
+ORDER BY t.priority DESC;
 ```
 
 **Refactoring Steps:**
 
-1. Extract first subquery to CTE `user_names`
-2. Extract second subquery to CTE `order_item_counts`
-3. Rename alias `o` to `ord`
-4. Verify query still works
+1. Extract first subquery to CTE `user_lookup`
+2. Extract second subquery to CTE `comment_counts`
+3. Extract third subquery to CTE `todo_categories_lookup`
+4. Rename alias `t` to `todo`
+5. Verify query still works
 
 **Final Result:**
 
 ```sql
-WITH user_names AS (
-  SELECT name FROM users WHERE id = o.user_id
+WITH user_lookup AS (
+  SELECT username FROM users WHERE id = t.user_id
 ),
-order_item_counts AS (
-  SELECT COUNT(*) FROM order_items WHERE order_id = o.id
+comment_counts AS (
+  SELECT COUNT(*) FROM comments WHERE todo_id = t.id
+),
+todo_categories_lookup AS (
+  SELECT name FROM categories c
+  INNER JOIN todo_categories tc ON c.id = tc.category_id
+  WHERE tc.todo_id = t.id LIMIT 1
 )
 SELECT
-  ord.id,
-  (SELECT * FROM user_names) as user_name,
-  (SELECT * FROM order_item_counts) as item_count
-FROM orders ord
-WHERE ord.status = 'completed';
+  todo.id,
+  todo.title,
+  (SELECT * FROM user_lookup) as username,
+  (SELECT * FROM comment_counts) as comment_count,
+  (SELECT * FROM todo_categories_lookup) as category_name
+FROM todos todo
+WHERE todo.status = 'in_progress'
+ORDER BY todo.priority DESC;
 ```
 
 ---
@@ -346,25 +397,35 @@ The refactoring works with all SQL dialects. Test with:
 **PostgreSQL-specific:**
 
 ```sql
-SELECT u.id, u.data->'name' as name
+SELECT 
+  u.id, 
+  u.preferences->'theme' as theme,
+  u.preferences->'language' as language,
+  u.metadata->'subscription' as subscription_tier
 FROM users u
-WHERE u.active = true;
+WHERE u.is_active = true;
 ```
 
 **MySQL-specific:**
 
 ```sql
-SELECT u.id, u.name
-FROM users u
-WHERE u.active = 1;
+SELECT 
+  t.id, 
+  t.title,
+  JSON_EXTRACT(t.tags, '$[0]') as first_tag
+FROM todos t
+WHERE t.status = 'completed';
 ```
 
 **SQL Server-specific:**
 
 ```sql
-SELECT u.id, u.name
-FROM users u WITH (NOLOCK)
-WHERE u.active = 1;
+SELECT 
+  t.id, 
+  t.title,
+  JSON_VALUE(t.tags, '$[0]') as first_tag
+FROM todos t WITH (NOLOCK)
+WHERE t.status = 'completed';
 ```
 
 **Expected:**
@@ -590,22 +651,73 @@ Dialect: PostgreSQL
 **Copy/paste this into a query editor to test all features:**
 
 ```sql
--- Test 1: Rename table alias (press F2 on 'u')
-SELECT u.id, u.name FROM users u WHERE u.active = true;
+-- ============================================
+-- SQL Refactoring Test Suite
+-- Database: todoapp (seeded via make setup)
+-- ============================================
+
+-- Test 1: Rename table alias (press F2 on 't')
+SELECT t.id, t.title, t.status, t.priority
+FROM todos t
+WHERE t.status = 'in_progress';
 
 -- Test 2: Extract this subquery (select it, Cmd+Shift+E)
-SELECT * FROM orders WHERE user_id IN (
-  SELECT id FROM users WHERE premium = true
+-- SELECT: SELECT id FROM users WHERE is_active = true
+SELECT *
+FROM todos
+WHERE user_id IN (
+  SELECT id FROM users WHERE is_active = true
 );
 
--- Test 3: Rename CTE (press F2 on 'active_users')
-WITH active_users AS (
-  SELECT * FROM users WHERE active = true
+-- Test 3: Rename CTE (press F2 on 'active_todos')
+WITH active_todos AS (
+  SELECT * FROM todos WHERE status IN ('pending', 'in_progress')
 )
-SELECT * FROM active_users;
+SELECT 
+  t.id, 
+  t.title,
+  u.username
+FROM active_todos t
+INNER JOIN users u ON t.user_id = u.id;
 
--- Test 4: Lightbulb (move cursor to 't', see 💡)
-SELECT t.id FROM tasks t;
+-- Test 4: Lightbulb (move cursor to 'c', see 💡)
+SELECT c.id, c.name, c.color
+FROM categories c
+WHERE c.user_id = 1;
+
+-- Test 5: Complex query for outline panel
+WITH overdue_todos AS (
+  SELECT id, user_id, title, priority
+  FROM todos
+  WHERE due_date < CURRENT_DATE AND status != 'completed'
+),
+user_stats AS (
+  SELECT 
+    user_id,
+    COUNT(*) as overdue_count,
+    MAX(priority::text) as max_priority
+  FROM overdue_todos
+  GROUP BY user_id
+)
+SELECT
+  u.username,
+  u.email,
+  s.overdue_count,
+  s.max_priority
+FROM users u
+INNER JOIN user_stats s ON u.id = s.user_id
+WHERE u.is_active = true
+ORDER BY s.overdue_count DESC;
+
+-- Test 6: Column alias rename (F2 on 'todo_count')
+SELECT
+  user_id,
+  COUNT(*) as todo_count,
+  SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as done_count,
+  ROUND(done_count::numeric / todo_count * 100, 2) as completion_rate
+FROM todos
+GROUP BY user_id
+HAVING todo_count > 5;
 ```
 
 ---
