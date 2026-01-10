@@ -1,6 +1,6 @@
 import React from "react";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { IconAlertCircle, IconRefresh } from '@tabler/icons-react';
+import { IconAlertCircle, IconRefresh } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 
 interface FeatureErrorBoundaryProps {
@@ -22,7 +22,7 @@ export function FeatureErrorBoundary({
     <ErrorBoundary
       onReset={onReset}
       fallback={
-        <div className="flex items-center justify-center h-full min-h-[200px] bg-muted/10 rounded-xl border border-border">
+        <div className="flex items-center justify-center h-full min-h-[200px]">
           <div className="max-w-md w-full p-6 space-y-4 text-center">
             <div className="flex justify-center">
               <IconAlertCircle className="h-10 w-10 text-destructive" />

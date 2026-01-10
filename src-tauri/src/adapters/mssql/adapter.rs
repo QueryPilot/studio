@@ -514,3 +514,47 @@ impl DbAdapter for MssqlAdapter {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_table_ref() {
+        assert_eq!(
+            MssqlAdapter::parse_table_ref("dbo.activity_logs"),
+            Some(("dbo".to_string(), "activity_logs".to_string()))
+        );
+        assert_eq!(
+            MssqlAdapter::parse_table_ref("[dbo].[activity_logs]"),
+            Some(("dbo".to_string(), "activity_logs".to_string()))
+        );
+        assert_eq!(
+            MssqlAdapter::parse_table_ref("activity_logs"),
+            Some(("dbo".to_string(), "activity_logs".to_string()))
+        );
+        // Test spaces
+        assert_eq!(
+            MssqlAdapter::parse_table_ref("  dbo.activity_logs  "),
+            Some(("dbo".to_string(), "activity_logs".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_regex_matching() {
+        let re = Regex::new(r"(?is)^\s*select\s+(top\s+\d+\s+)?\*\s+from\s+([^\s;]+)(.*)$").unwrap();
+        
+        let sql = "SELECT * FROM dbo.activity_logs";
+        let caps = re.captures(sql).unwrap();
+        assert_eq!(caps.get(2).map(|m| m.as_str()), Some("dbo.activity_logs"));
+
+        let sql = "select * from [dbo].[activity_logs] order by id";
+        let caps = re.captures(sql).unwrap();
+        assert_eq!(caps.get(2).map(|m| m.as_str()), Some("[dbo].[activity_logs]"));
+
+        let sql = "SELECT TOP 100 * FROM dbo.activity_logs";
+        let caps = re.captures(sql).unwrap();
+        assert_eq!(caps.get(1).map(|m| m.as_str().trim()), Some("TOP 100"));
+        assert_eq!(caps.get(2).map(|m| m.as_str()), Some("dbo.activity_logs"));
+    }
+}

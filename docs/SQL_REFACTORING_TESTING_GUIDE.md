@@ -16,11 +16,13 @@ make dev  # or pnpm tauri:dev
 Use any database connection (PostgreSQL, MySQL, SQLite, SQL Server).
 
 For quick testing with dev databases:
+
 ```bash
 make setup  # Starts Docker containers + seeds databases
 ```
 
 Then connect to:
+
 - **PostgreSQL**: `localhost:15432`, user: `devuser`, pass: `devpass123`
 - **MySQL**: `localhost:13306`, user: `devuser`, pass: `devpass123`
 
@@ -33,6 +35,7 @@ Then connect to:
 **What to test**: The outline panel now uses AST parsing instead of regex.
 
 **Steps:**
+
 1. Open any query editor tab
 2. Make sure the **Outline panel** is visible on the right
 3. Type a complex query with CTEs and joins:
@@ -48,7 +51,7 @@ user_orders AS (
   FROM orders
   GROUP BY user_id
 )
-SELECT 
+SELECT
   u.name,
   u.email,
   o.order_count
@@ -58,6 +61,7 @@ WHERE o.order_count > 5;
 ```
 
 **Expected:**
+
 - ✅ Outline shows "SELECT" statement
 - ✅ Lists both CTEs: `active_users` and `user_orders`
 - ✅ Lists tables: `users`, `orders`, `active_users` (CTE), `user_orders` (CTE)
@@ -65,6 +69,7 @@ WHERE o.order_count > 5;
 - ✅ Clicking on any item navigates cursor to that position
 
 **Try these:**
+
 - Type invalid SQL → Should show "Failed" with empty outline
 - Type partial SQL → Should show "Partial" warning with what it could parse
 
@@ -83,6 +88,7 @@ WHERE u.active = true;
 ```
 
 **Steps:**
+
 1. Place cursor on **any** `u` (the alias)
 2. Press **F2**
 3. Inline rename widget appears next to the symbol
@@ -90,6 +96,7 @@ WHERE u.active = true;
 5. Press **Enter**
 
 **Expected:**
+
 - ✅ All 3 occurrences of `u` renamed to `usr`
 - ✅ Query becomes: `SELECT usr.id, usr.name, usr.email FROM users usr WHERE usr.active = true;`
 - ✅ Cursor positioned at first renamed location
@@ -104,33 +111,38 @@ SELECT * FROM active_users;
 ```
 
 **Steps:**
+
 1. Place cursor on `active_users` (either definition or reference)
 2. Press **F2**
 3. Type: `verified_users`
 4. Press **Enter**
 
 **Expected:**
+
 - ✅ Both definition and reference renamed
 - ✅ No false positives (doesn't rename `users`)
 
 **Test Case 3: Rename Column Alias**
 
 ```sql
-SELECT 
+SELECT
   COUNT(*) as total_count,
   total_count * 2 as doubled
 FROM orders;
 ```
 
 **Steps:**
+
 1. Cursor on `total_count` (first alias)
 2. **F2** → rename to `order_count`
 
 **Expected:**
+
 - ✅ Both occurrences of `total_count` renamed
 - ✅ Query valid after rename
 
 **Edge Cases to Test:**
+
 - ❌ Try renaming with invalid name (like `123invalid`) → Should show error in widget
 - ❌ Try renaming to SQL keyword (like `select`) → Should show error
 - ✅ Try renaming a symbol not used elsewhere → Should still work (renames definition)
@@ -152,6 +164,7 @@ WHERE o.user_id IN (
 ```
 
 **Steps:**
+
 1. **Select** the entire subquery: `SELECT id FROM users WHERE active = true`
 2. Press **Cmd+Shift+E** (Mac) or **Ctrl+Shift+E** (Windows/Linux)
 3. Dialog opens asking for CTE name
@@ -159,6 +172,7 @@ WHERE o.user_id IN (
 5. Click **Extract**
 
 **Expected:**
+
 ```sql
 WITH active_user_ids AS (
   SELECT id FROM users WHERE active = true
@@ -187,12 +201,14 @@ WHERE user_id IN (
 ```
 
 **Steps:**
+
 1. Select the subquery: `SELECT id FROM users WHERE premium = true`
 2. **Cmd+Shift+E**
 3. Enter CTE name: `premium_users`
 4. Extract
 
 **Expected:**
+
 ```sql
 WITH high_value_orders AS (
   SELECT * FROM orders WHERE total > 1000
@@ -212,12 +228,14 @@ WHERE user_id IN (SELECT * FROM premium_users);
 **Test Case 3: Validation Errors**
 
 Try these invalid names in the dialog:
+
 - `123invalid` → ❌ "Name must start with letter or underscore"
 - `my-cte` → ❌ "Can only contain letters, numbers, and underscores"
 - `select` → ❌ "Cannot be a reserved keyword"
 - `` (empty) → ❌ "Name cannot be empty"
 
 **Edge Cases:**
+
 - Try extracting non-subquery text (like `SELECT *`) → Should get backend error
 - Try extracting with no selection → Should do nothing
 
@@ -236,12 +254,14 @@ WHERE u.active = true;
 ```
 
 **Steps:**
+
 1. Place cursor on any `u`
 2. Wait ~150ms (debounced)
 3. Look for **💡 lightbulb icon** in the gutter (left margin)
 4. Click the lightbulb **OR** press **Cmd+.** / **Ctrl+.**
 
 **Expected:**
+
 - ✅ Lightbulb appears next to the line
 - ✅ Clicking opens menu with "Rename alias 'u'" action
 - ✅ Selecting action triggers rename flow (same as F2)
@@ -255,11 +275,13 @@ WHERE user_id IN (SELECT id FROM users WHERE active = true);
 ```
 
 **Steps:**
+
 1. Cursor inside the subquery
 2. Wait for lightbulb
 3. Click or press **Cmd+.**
 
 **Expected:**
+
 - ✅ Menu shows "Extract to CTE" action
 - ✅ Selecting opens Extract CTE dialog
 
@@ -270,6 +292,7 @@ SELECT 1 + 1;
 ```
 
 **Expected:**
+
 - ✅ No lightbulb appears (no refactoring available)
 - ✅ Pressing **Cmd+.** does nothing
 
@@ -280,8 +303,9 @@ SELECT 1 + 1;
 ### Scenario 1: Complex Multi-CTE Query Refactoring
 
 Start with:
+
 ```sql
-SELECT 
+SELECT
   o.id,
   (SELECT name FROM users WHERE id = o.user_id) as user_name,
   (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
@@ -290,12 +314,14 @@ WHERE o.status = 'completed';
 ```
 
 **Refactoring Steps:**
+
 1. Extract first subquery to CTE `user_names`
 2. Extract second subquery to CTE `order_item_counts`
 3. Rename alias `o` to `ord`
 4. Verify query still works
 
 **Final Result:**
+
 ```sql
 WITH user_names AS (
   SELECT name FROM users WHERE id = o.user_id
@@ -303,7 +329,7 @@ WITH user_names AS (
 order_item_counts AS (
   SELECT COUNT(*) FROM order_items WHERE order_id = o.id
 )
-SELECT 
+SELECT
   ord.id,
   (SELECT * FROM user_names) as user_name,
   (SELECT * FROM order_item_counts) as item_count
@@ -318,6 +344,7 @@ WHERE ord.status = 'completed';
 The refactoring works with all SQL dialects. Test with:
 
 **PostgreSQL-specific:**
+
 ```sql
 SELECT u.id, u.data->'name' as name
 FROM users u
@@ -325,6 +352,7 @@ WHERE u.active = true;
 ```
 
 **MySQL-specific:**
+
 ```sql
 SELECT u.id, u.name
 FROM users u
@@ -332,6 +360,7 @@ WHERE u.active = 1;
 ```
 
 **SQL Server-specific:**
+
 ```sql
 SELECT u.id, u.name
 FROM users u WITH (NOLOCK)
@@ -339,6 +368,7 @@ WHERE u.active = 1;
 ```
 
 **Expected:**
+
 - ✅ Rename works across all dialects
 - ✅ Outline shows correct structure
 - ✅ Extract CTE handles dialect-specific syntax
@@ -355,6 +385,7 @@ cargo test refactor -- --nocapture
 ```
 
 **Tests included (18 total):**
+
 - `test_apply_rename_table_alias` - Basic alias rename
 - `test_apply_rename_cte` - CTE rename (definition + usages)
 - `test_apply_rename_column_alias` - Column alias in SELECT
@@ -386,7 +417,7 @@ pnpm test:unit refactor
 
 ```sql
 WITH cte1 AS (...), cte2 AS (...), ... cte10 AS (...)
-SELECT * 
+SELECT *
 FROM table1 t1
 JOIN table2 t2 ON ...
 JOIN table3 t3 ON ...
@@ -394,6 +425,7 @@ JOIN table3 t3 ON ...
 ```
 
 **Expected:**
+
 - ✅ Outline renders within 500ms
 - ✅ No UI lag when typing
 - ✅ Debouncing prevents excessive backend calls
@@ -403,6 +435,7 @@ JOIN table3 t3 ON ...
 **10,000+ character query with 50+ alias references**
 
 **Expected:**
+
 - ✅ F2 widget appears instantly (<100ms)
 - ✅ Rename completes within 200ms
 - ✅ No perceptible lag
@@ -414,6 +447,7 @@ JOIN table3 t3 ON ...
 ### Issue: Lightbulb Not Appearing
 
 **Check:**
+
 - Cursor is on a valid symbol (alias, CTE name)
 - Wait 150ms for debounce
 - Check browser console for errors
@@ -421,6 +455,7 @@ JOIN table3 t3 ON ...
 ### Issue: Rename Widget Not Showing
 
 **Check:**
+
 - Press F2 directly (don't rely on context menu yet)
 - Make sure cursor is on a valid identifier
 - Check if Tauri backend is running (`ps aux | grep QueryPilot`)
@@ -428,6 +463,7 @@ JOIN table3 t3 ON ...
 ### Issue: Extract CTE Dialog Not Opening
 
 **Check:**
+
 - Text is actually selected (not just cursor position)
 - Selection contains a valid subquery
 - Try Cmd+Shift+E (Mac) vs Ctrl+Shift+E (Windows/Linux)
@@ -435,11 +471,13 @@ JOIN table3 t3 ON ...
 ### Issue: Backend Errors
 
 **Check Rust logs:**
+
 ```bash
 make dev  # Rust logs will show in terminal
 ```
 
 Look for:
+
 - `[refactor.rs]` log lines
 - Parse errors
 - Validation failures
@@ -451,6 +489,7 @@ Look for:
 ### Enable Debug Logging
 
 In `src/lib/logger.ts`, set level to `debug`:
+
 ```typescript
 logger.setLevel("debug");
 ```
@@ -458,6 +497,7 @@ logger.setLevel("debug");
 ### Test with Different Dialects
 
 Change dialect in editor dropdown:
+
 - PostgreSQL
 - MySQL
 - SQLite
@@ -467,23 +507,29 @@ Change dialect in editor dropdown:
 ### Test Edge Cases
 
 **Incomplete SQL:**
+
 ```sql
 SELECT * FROM users WHERE
 ```
+
 - Should show "Partial" parse status
 - Outline shows what it could parse
 
 **Invalid SQL:**
+
 ```sql
 SELECT FROM WHERE
 ```
+
 - Should show "Failed" parse status
 - Empty outline
 
 **Unicode/Special Characters:**
+
 ```sql
 SELECT "用户名" as 名字 FROM users;
 ```
+
 - Should handle gracefully
 
 ---
@@ -491,6 +537,7 @@ SELECT "用户名" as 名字 FROM users;
 ## Success Criteria
 
 All features working when:
+
 - ✅ Outline panel updates in real-time
 - ✅ F2 rename works on aliases/CTEs/columns
 - ✅ Cmd+Shift+E extracts subqueries to CTEs
@@ -505,6 +552,7 @@ All features working when:
 ## Reporting Issues
 
 If you find bugs, check:
+
 1. Browser console (F12) for JavaScript errors
 2. Rust logs in terminal for backend errors
 3. Specific SQL query that caused the issue
@@ -512,6 +560,7 @@ If you find bugs, check:
 5. Steps to reproduce
 
 **Example Bug Report:**
+
 ```
 Title: Rename fails for nested CTEs
 
@@ -564,6 +613,7 @@ SELECT t.id FROM tasks t;
 **Happy Testing! 🎉**
 
 If everything works, you should be able to:
+
 - See a detailed outline of your SQL
 - Rename symbols across entire queries with F2
 - Extract subqueries to CTEs with Cmd+Shift+E
