@@ -18,7 +18,7 @@ DECLARE @j INT;
 DECLARE @user_id INT;
 DECLARE @todo_count INT;
 DECLARE @random_status NVARCHAR(20);
-DECLARE @random_priority NVARCHAR(20);
+DECLARE @random_priority INT;
 DECLARE @category_id INT;
 DECLARE @todo_id INT;
 
@@ -81,12 +81,132 @@ END;
 SET @i = 1;
 WHILE @i <= @user_count
 BEGIN
-    INSERT INTO categories (name, color, icon, user_id) VALUES
-        ('Work', '#FF5733', 'briefcase', @i),
-        ('Personal', '#33FF57', 'home', @i),
-        ('Shopping', '#3357FF', 'cart', @i),
-        ('Health', '#FF33F5', 'heart', @i),
-        ('Learning', '#F5FF33', 'book', @i);
+    -- Get the actual User ID to be safe against identity gaps
+    SELECT @user_id = id FROM users ORDER BY id OFFSET (@i - 1) ROWS FETCH NEXT 1 ROWS ONLY;
+
+    IF @user_id IS NOT NULL
+    BEGIN
+        INSERT INTO categories (name, color, icon, user_id) VALUES
+            ('Work', '#FF5733', 'briefcase', @user_id),
+            ('Personal', '#33FF57', 'home', @user_id),
+            ('Shopping', '#3357FF', 'cart', @user_id),
+            ('Health', '#FF33F5', 'heart', @user_id),
+            ('Learning', '#F5FF33', 'book', @user_id);
+    END
+    
+    SET @i = @i + 1;
+END;
+
+-- Insert todos for each user
+SET @i = 1;
+WHILE @i <= @user_count
+BEGIN
+    -- Get the actual User ID
+    SELECT @user_id = id FROM users ORDER BY id OFFSET (@i - 1) ROWS FETCH NEXT 1 ROWS ONLY;
+    
+    IF @user_id IS NOT NULL
+    BEGIN
+        SET @todo_count = CAST(50 + (ABS(CHECKSUM(NEWID())) % 151) AS INT); -- 50-200 todos per user
+        SET @j = 1;
+        
+        WHILE @j <= @todo_count
+        BEGIN
+            -- Use CHECKSUM(NEWID()) for reliable random generation in loops
+            SET @random_status = CHOOSE((ABS(CHECKSUM(NEWID())) % 5) + 1, 'pending', 'in_progress', 'completed', 'cancelled', 'archived');
+            SET @random_priority = (ABS(CHECKSUM(NEWID())) % 4) + 1; -- 1 to 4
+            
+            INSERT INTO todos (
+                user_id, title, description, status, priority,
+                due_date, due_time, due_datetime, estimated_hours, actual_hours,
+                completion_percentage, tags, attachments, checklist, custom_fields,
+                thumbnail, color_code, position, is_recurring, recurrence_pattern,
+                difficulty_level, reward_points, cost, latitude, longitude,
+                short_code, long_description, notes,
+                xml_data, hierarchyid_path, geography_location, geometry_shape,
+                started_at, completed_at, reminder_at
+            ) VALUES (
+                @user_id,
+                CONCAT('Task ', @j, ' for user ', @i, ': ',
+                    CHOOSE((ABS(CHECKSUM(NEWID())) % 10) + 1,
+                        'Complete project documentation',
+                        'Review pull requests',
+                        'Attend team meeting',
+                        'Update dependencies',
+                        'Fix bug in production',
+                        'Implement new feature',
+                        'Write unit tests',
+                        'Deploy to staging',
+                        'Customer call',
+                        'Research new technology'
+                    )
+                ),
+                CONCAT('Description for task ', @j, '. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.'),
+                @random_status,
+                @random_priority,
+                DATEADD(DAY, (ABS(CHECKSUM(NEWID())) % 365) - 180, CAST(GETDATE() AS DATE)),
+                DATEADD(HOUR, (ABS(CHECKSUM(NEWID())) % 10), CAST('08:00:00' AS TIME)),
+                DATEADD(DAY, (ABS(CHECKSUM(NEWID())) % 365) - 180, GETUTCDATE()),
+                ROUND((ABS(CHECKSUM(NEWID())) % 2000) / 100.0 + 0.5, 2),
+                CASE WHEN @random_status IN ('completed', 'archived') THEN ROUND((ABS(CHECKSUM(NEWID())) % 2000) / 100.0 + 0.5, 2) ELSE NULL END,
+                CASE
+                    WHEN @random_status = 'completed' THEN 100
+                    WHEN @random_status = 'in_progress' THEN CAST((ABS(CHECKSUM(NEWID())) % 99) AS TINYINT)
+                    ELSE 0
+                END,
+                JSON_QUERY('[' + 
+                    '"' + CHOOSE((ABS(CHECKSUM(NEWID())) % 4) + 1, 'work', 'personal', 'urgent', 'learning') + '",' +
+                    '"' + CHOOSE((ABS(CHECKSUM(NEWID())) % 4) + 1, 'important', 'project', 'team', 'solo') + '"' +
+                ']'),
+                CASE WHEN (ABS(CHECKSUM(NEWID())) % 10) > 7 THEN
+                    JSON_QUERY('[' +
+                        '{"name":"document' + CAST(@j AS VARCHAR) + '.pdf","size":' + CAST((ABS(CHECKSUM(NEWID())) % 1000000) AS VARCHAR) + ',"url":"https://files.example.com/doc' + CAST(@j AS VARCHAR) + '.pdf"},' +
+                        '{"name":"image' + CAST(@j AS VARCHAR) + '.png","size":' + CAST((ABS(CHECKSUM(NEWID())) % 500000) AS VARCHAR) + ',"url":"https://files.example.com/img' + CAST(@j AS VARCHAR) + '.png"}' +
+                    ']')
+                ELSE '[]' END,
+                CASE WHEN (ABS(CHECKSUM(NEWID())) % 10) > 6 THEN
+                    JSON_QUERY('[' +
+                        '{"id":1,"text":"Research topic","done":false},' +
+                        '{"id":2,"text":"Create outline","done":false},' +
+                        '{"id":3,"text":"Write draft","done":false}' +
+                    ']')
+                ELSE '[]' END,
+                JSON_MODIFY(
+                    JSON_MODIFY(
+                        JSON_MODIFY(
+                            JSON_MODIFY('{}', '$.client', CHOOSE((ABS(CHECKSUM(NEWID())) % 5) + 1, 'Acme Corp', 'Globex Inc', 'Initech', 'Umbrella Corp', 'None')),
+                            '$.project_code', CASE WHEN (ABS(CHECKSUM(NEWID())) % 10) > 5 THEN CONCAT('PRJ-', RIGHT('0000' + CAST((ABS(CHECKSUM(NEWID())) % 9999) AS VARCHAR(4)), 4)) ELSE NULL END
+                        ),
+                        '$.billable', CAST(CASE WHEN (ABS(CHECKSUM(NEWID())) % 10) > 5 THEN 1 ELSE 0 END AS BIT)
+                    ),
+                    '$.department', CHOOSE((ABS(CHECKSUM(NEWID())) % 5) + 1, 'Engineering', 'Marketing', 'Sales', 'Support', 'HR')
+                ),
+                CASE WHEN (ABS(CHECKSUM(NEWID())) % 10) > 9 THEN CAST(CRYPT_GEN_RANDOM(100) AS VARBINARY(MAX)) ELSE NULL END,
+                CONCAT('#', RIGHT('000000' + CONVERT(VARCHAR(6), CAST((ABS(CHECKSUM(NEWID())) % 16777215) AS INT), 16), 6)),
+                @j,
+                CASE WHEN (ABS(CHECKSUM(NEWID())) % 10) > 8 THEN 1 ELSE 0 END,
+                CASE WHEN (ABS(CHECKSUM(NEWID())) % 10) > 8 THEN CHOOSE((ABS(CHECKSUM(NEWID())) % 4) + 1, 'daily', 'weekly', 'monthly', 'yearly') ELSE NULL END,
+                CAST((ABS(CHECKSUM(NEWID())) % 10) + 1 AS TINYINT),
+                CAST((ABS(CHECKSUM(NEWID())) % 1000) AS INT),
+                CASE WHEN (ABS(CHECKSUM(NEWID())) % 10) > 7 THEN CAST((ABS(CHECKSUM(NEWID())) % 1000) AS MONEY) ELSE NULL END,
+                CASE WHEN (ABS(CHECKSUM(NEWID())) % 10) > 9 THEN 37.7749 + ((ABS(CHECKSUM(NEWID())) % 1000) / 1000.0 - 0.5) ELSE NULL END,
+                CASE WHEN (ABS(CHECKSUM(NEWID())) % 10) > 9 THEN -122.4194 + ((ABS(CHECKSUM(NEWID())) % 1000) / 1000.0 - 0.5) ELSE NULL END,
+                CONCAT('TSK-', RIGHT('000' + CAST(@i AS VARCHAR(3)), 3), '-', RIGHT('0000' + CAST(@j AS VARCHAR(4)), 4)),
+                CASE WHEN (ABS(CHECKSUM(NEWID())) % 10) > 5 THEN REPLICATE('Lorem ipsum dolor sit amet. ', CAST((ABS(CHECKSUM(NEWID())) % 10) + 5 AS INT)) ELSE NULL END,
+                CASE WHEN (ABS(CHECKSUM(NEWID())) % 10) > 7 THEN CONCAT('Note: ', REPLICATE('Important information. ', CAST((ABS(CHECKSUM(NEWID())) % 3) + 1 AS INT))) ELSE NULL END,
+                CASE WHEN (ABS(CHECKSUM(NEWID())) % 10) > 8 THEN 
+                    CAST('<task><metadata><source>system</source><version>1.0</version></metadata></task>' AS XML)
+                ELSE NULL END,
+                CASE WHEN (ABS(CHECKSUM(NEWID())) % 10) > 9 THEN hierarchyid::GetRoot().GetDescendant(NULL, NULL) ELSE NULL END,
+                CASE WHEN (ABS(CHECKSUM(NEWID())) % 10) > 9 THEN geography::Point(37.7749 + ((ABS(CHECKSUM(NEWID())) % 1000) / 1000.0 - 0.5), -122.4194 + ((ABS(CHECKSUM(NEWID())) % 1000) / 1000.0 - 0.5), 4326) ELSE NULL END,
+                CASE WHEN (ABS(CHECKSUM(NEWID())) % 10) > 9 THEN geometry::STGeomFromText('POINT(' + CAST((ABS(CHECKSUM(NEWID())) % 100) AS VARCHAR) + ' ' + CAST((ABS(CHECKSUM(NEWID())) % 100) AS VARCHAR) + ')', 0) ELSE NULL END,
+                CASE WHEN @random_status IN ('in_progress', 'completed') THEN DATEADD(DAY, -CAST((ABS(CHECKSUM(NEWID())) % 30) AS INT), GETUTCDATE()) ELSE NULL END,
+                CASE WHEN @random_status = 'completed' THEN DATEADD(DAY, -CAST((ABS(CHECKSUM(NEWID())) % 20) AS INT), GETUTCDATE()) ELSE NULL END,
+                CASE WHEN (ABS(CHECKSUM(NEWID())) % 10) > 6 THEN DATEADD(DAY, CAST((ABS(CHECKSUM(NEWID())) % 30) AS INT), GETUTCDATE()) ELSE NULL END
+            );
+            
+            SET @j = @j + 1;
+        END;
+    END
     
     SET @i = @i + 1;
 END;
@@ -100,8 +220,9 @@ BEGIN
     
     WHILE @j <= @todo_count
     BEGIN
-        SET @random_status = CHOOSE(CAST(RAND() * 5 AS INT) + 1, 'pending', 'in_progress', 'completed', 'cancelled', 'archived');
-        SET @random_priority = CHOOSE(CAST(RAND() * 4 AS INT) + 1, 'low', 'medium', 'high', 'critical');
+        -- Use CHECKSUM(NEWID()) for reliable random generation in loops
+        SET @random_status = CHOOSE((ABS(CHECKSUM(NEWID())) % 5) + 1, 'pending', 'in_progress', 'completed', 'cancelled', 'archived');
+        SET @random_priority = (ABS(CHECKSUM(NEWID())) % 4) + 1; -- 1 to 4
         
         INSERT INTO todos (
             user_id, title, description, status, priority,
