@@ -296,13 +296,6 @@ export const QueryOutline = memo(function QueryOutline({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // VERY VISIBLE DEBUG
-  console.log("%c[QueryOutline] RENDER", "background: purple; color: white; font-size: 14px;", {
-    sqlLength: sql?.length,
-    dialect,
-    outlineStatements: outline?.statements?.length,
-  });
-
   // Debounce SQL changes to avoid excessive parsing
   const debouncedSql = useDebouncedValue(sql, 300);
 
@@ -311,10 +304,7 @@ export const QueryOutline = memo(function QueryOutline({
 
   // Fetch outline when debounced SQL or dialect changes
   useEffect(() => {
-    console.log("[QueryOutline] useEffect triggered, sql length:", debouncedSql.length, "dialect:", dialect);
-    
     if (!debouncedSql.trim()) {
-      console.log("[QueryOutline] Empty SQL, clearing outline");
       setOutline(null);
       setError(null);
       return;
@@ -324,20 +314,11 @@ export const QueryOutline = memo(function QueryOutline({
     setLoading(true);
     setError(null);
 
-    console.log("[QueryOutline] Calling getOutline for dialect:", dialect, "sql length:", debouncedSql.length);
-
     getOutline(debouncedSql, dialect)
       .then((result) => {
         // Ignore stale responses
-        if (currentRequestId !== requestIdRef.current) {
-          console.log("[QueryOutline] Ignoring stale response");
-          return;
-        }
+        if (currentRequestId !== requestIdRef.current) return;
 
-        console.log("[QueryOutline] Got result:", result);
-        console.log("[QueryOutline] statements count:", result?.statements?.length);
-        console.log("[QueryOutline] parse_status:", result?.parse_status);
-        
         setOutline(result);
         setLoading(false);
       })
