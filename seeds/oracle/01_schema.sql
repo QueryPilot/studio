@@ -2,6 +2,8 @@
 -- 1. todos: List Partitioning (Active vs Done)
 -- 2. activity_logs: Interval Range Partitioning (Automatic monthly partitions)
 
+SET SQLBLANKLINES ON;
+
 -- Cleanup (Reverse dependency order)
 BEGIN
     EXECUTE IMMEDIATE 'DROP TABLE activity_logs CASCADE CONSTRAINTS';
@@ -192,15 +194,17 @@ CREATE TABLE activity_logs (
     details CLOB,
     ip_address VARCHAR2(45),
     user_agent CLOB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     CONSTRAINT pk_activity_logs PRIMARY KEY (id, created_at)
 )
 PARTITION BY RANGE (created_at) 
-INTERVAL(NUMTOYMINTERVAL(1, 'MONTH'))
 (
-    PARTITION p_old VALUES LESS THAN (TO_DATE('2023-01-01', 'YYYY-MM-DD')),
-    PARTITION p_2023_initial VALUES LESS THAN (TO_DATE('2023-02-01', 'YYYY-MM-DD'))
+    PARTITION p_old     VALUES LESS THAN (TIMESTAMP '2023-01-01 00:00:00'),
+    PARTITION p_2023    VALUES LESS THAN (TIMESTAMP '2024-01-01 00:00:00'),
+    PARTITION p_2024    VALUES LESS THAN (TIMESTAMP '2025-01-01 00:00:00'),
+    PARTITION p_2025    VALUES LESS THAN (TIMESTAMP '2026-01-01 00:00:00'),
+    PARTITION p_future  VALUES LESS THAN (MAXVALUE)
 );
 
 ALTER TABLE activity_logs ADD CONSTRAINT ensure_logs_details_json CHECK (details IS JSON);
