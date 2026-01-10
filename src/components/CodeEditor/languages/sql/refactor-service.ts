@@ -57,9 +57,10 @@ let cache: OutlineCache | null = null;
 
 /**
  * Check if Tauri environment is available.
+ * Tauri 2 uses __TAURI_INTERNALS__ instead of __TAURI__
  */
 function isTauriAvailable(): boolean {
-  return typeof window !== "undefined" && "__TAURI__" in window;
+  return typeof window !== "undefined" && window.__TAURI_INTERNALS__ !== undefined;
 }
 
 /**
