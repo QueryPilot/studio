@@ -261,6 +261,7 @@ export function transformStructureToRows(
       collation: column.collation ?? "",
       extra: column.extra ?? "",
       _originalData: column,
+      _original: column, // Alias for backwards compatibility
       _isModified: !!(modifyCmd || renameCmd || hasFkChange), // Mark row as modified
       _isPendingDelete: isPendingDelete, // Mark row for deletion
     };
