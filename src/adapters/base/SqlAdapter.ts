@@ -377,7 +377,8 @@ export abstract class SqlAdapter implements DatabaseAdapter {
     if (firstColumn && /^[A-Za-z_][A-Za-z0-9_]*$/.test(firstColumn)) {
       return firstColumn;
     }
-    return "id";
+    // Return first column as fallback instead of hardcoded 'id' which may not exist
+    return firstColumn || "(SELECT NULL)";
   }
 
   /**

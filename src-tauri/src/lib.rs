@@ -4,6 +4,7 @@ pub mod commands;
 pub mod core;
 pub mod error;
 pub mod keychain;
+pub mod menu;
 pub mod sentry_integration;
 pub mod sql_engine;
 pub mod ssh;

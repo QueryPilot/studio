@@ -1,4 +1,5 @@
 import type { GridColumnV2 } from "@/components/DataGrid/types";
+import { DbType } from "@/types";
 
 const trailingRowTheme = {
   bgIconHeader: "#D4A52B",
@@ -9,7 +10,8 @@ const trailingRowOptions = {
   themeOverride: trailingRowTheme,
 };
 
-export const structureColumns: GridColumnV2[] = [
+// Base columns that are always shown
+const baseColumns: GridColumnV2[] = [
   {
     id: "row_number",
     field: "row_number",
@@ -65,6 +67,29 @@ export const structureColumns: GridColumnV2[] = [
     minWidth: 140,
     maxWidth: 400,
   } as GridColumnV2,
+];
+
+// Database-specific columns
+const dbSpecificColumns: Record<string, GridColumnV2[]> = {
+  // MSSQL-specific columns
+  [DbType.SQLServer]: [
+    {
+      id: "is_computed",
+      field: "is_computed",
+      title: "Computed",
+      name: "Computed",
+      width: 100,
+      minWidth: 80,
+      maxWidth: 120,
+    } as GridColumnV2,
+  ],
+  // MySQL/MariaDB-specific columns (for future: character_set, collation, extra)
+  [DbType.MySQL]: [],
+  [DbType.MariaDB]: [],
+};
+
+// Trailing columns (always at the end)
+const trailingColumns: GridColumnV2[] = [
   {
     id: "check_constraint",
     field: "check_constraint",
@@ -91,3 +116,15 @@ export const structureColumns: GridColumnV2[] = [
     maxWidth: 60,
   } as GridColumnV2,
 ];
+
+/**
+ * Get structure columns based on database type
+ * Inserts database-specific columns between base columns and trailing columns
+ */
+export function getStructureColumns(dbType?: DbType): GridColumnV2[] {
+  const specificColumns = dbType ? dbSpecificColumns[dbType] || [] : [];
+  return [...baseColumns, ...specificColumns, ...trailingColumns];
+}
+
+// Backwards compatibility: default export with all columns (for non-connected scenarios)
+export const structureColumns: GridColumnV2[] = getStructureColumns();

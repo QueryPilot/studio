@@ -103,6 +103,8 @@ import {
 } from "@/services/tableDataTransform";
 import { getAdapterForConnection } from "@/adapters";
 import { queryStreamClient } from "@/services/queryStreamClient";
+import { eventBus } from "@/services/eventBus";
+import { exportToCSV } from "../utils/exportUtils";
 
 interface BaseTableDataGridProps {
   gridId: string;
@@ -1464,6 +1466,27 @@ export const TableDataGrid = memo(function TableDataGrid(
     enableFKPreview: isTableMode,
     gridRef: gridRef,
   });
+
+  // Handle export event from menu
+  useEffect(() => {
+    const handleExport = () => {
+      // Only export if this grid is focused or active
+      const hasFocus =
+        wrapperRef.current?.contains(document.activeElement) ||
+        document.activeElement === wrapperRef.current ||
+        isGridFocused;
+
+      if (hasFocus) {
+        void exportToCSV(deferredDisplayRows, finalColumns, `${table || "query_result"}_export.csv`);
+        toast.success("Export started");
+      }
+    };
+
+    eventBus.on("data-grid:export-csv", handleExport);
+    return () => {
+      eventBus.off("data-grid:export-csv", handleExport);
+    };
+  }, [deferredDisplayRows, finalColumns, table, isGridFocused]);
 
   // Combine hover handlers and track context menu target
   const handleItemHovered = useCallback(

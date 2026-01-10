@@ -9,11 +9,14 @@ export interface StructureGridRow {
   column_meta: {
     is_pk: boolean;
     is_fk: boolean;
+    is_computed?: boolean;
+    is_identity?: boolean;
   };
   db_type: string;
   nullable: string;
   default: string | null;
   foreign_key: string;
+  is_computed: string;
   check_constraint: string;
   comment: string;
   _originalData?: ColumnMeta;

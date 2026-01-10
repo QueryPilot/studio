@@ -15,6 +15,8 @@ export type KeyboardEventPayload = {
   mode?: "text" | "json";
   panelId?: string;
   tabId?: string;
+  selection?: boolean;
+  [key: string]: unknown;
 };
 
 type Events = {

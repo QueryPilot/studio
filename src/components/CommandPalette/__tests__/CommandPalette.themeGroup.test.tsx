@@ -175,6 +175,9 @@ describe("CommandPalette theme grouping", () => {
     if (!HTMLElement.prototype.scrollTo) {
       HTMLElement.prototype.scrollTo = vi.fn();
     }
+    if (!HTMLElement.prototype.scrollIntoView) {
+      HTMLElement.prototype.scrollIntoView = vi.fn();
+    }
   });
 
   it("groups theme commands under a Theme heading", () => {

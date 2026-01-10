@@ -1,6 +1,5 @@
 import type { ColumnMeta } from "@/types/database";
 import type { ForeignKeyInfo, Constraint } from "@/types/tableStructure";
-import type { CrudCommand } from "@/types/crud";
 
 export type StructureModifiedField =
   | "column_name"
@@ -22,7 +21,10 @@ export function buildStructureModifiedFieldsMap(
     fkByConstraint.set(fk.name, fk.columns);
   });
 
-  const addField = (columnName: string | undefined, field: StructureModifiedField) => {
+  const addField = (
+    columnName: string | undefined,
+    field: StructureModifiedField,
+  ) => {
     if (!columnName) return;
     const existing = map.get(columnName);
     if (existing) {
@@ -117,9 +119,7 @@ export function transformStructureToRows(
     (cmd) => cmd.type === "column.modify",
   );
 
-  const pendingFkAdds = pendingCommands.filter(
-    (cmd) => cmd.type === "fk.add",
-  );
+  const pendingFkAdds = pendingCommands.filter((cmd) => cmd.type === "fk.add");
 
   const pendingFkDrops = pendingCommands.filter(
     (cmd) => cmd.type === "fk.drop",
@@ -164,7 +164,7 @@ export function transformStructureToRows(
     const isPendingDelete = deletedColumnNames.has(column.name);
 
     let displayName = column.name;
-    let dbType = column.db_type ?? "";
+    let dbType = column.db_type;
     let nullable = column.nullable ? "YES" : "NO";
     let defaultValue = column.default; // Keep null/undefined as-is
     let comment = column.comment ?? "";
@@ -175,7 +175,7 @@ export function transformStructureToRows(
         : fkInfo.foreignTable
       : "";
     let foreignKey = fkInfo
-      ? `${baseForeignTable}.${fkInfo.foreignColumns[0]}`
+      ? `${baseForeignTable}.${fkInfo.foreignColumns[0] ?? ""}`
       : "";
     let hasFkChange = false;
 
@@ -244,13 +244,16 @@ export function transformStructureToRows(
       row_number: idx + 1,
       column_name: displayName,
       column_meta: {
-        is_pk: column.is_pk ?? false,
-        is_fk: column.is_fk ?? false,
+        is_pk: column.is_pk,
+        is_fk: !!fkInfo, // Determine FK from actual foreign key relationship
+        is_computed: column.is_computed,
+        is_identity: column.is_identity,
       },
       db_type: dbType,
       nullable: nullable,
       default: defaultValue,
       foreign_key: foreignKey,
+      is_computed: column.is_computed ? "YES" : "NO",
       check_constraint: checkConstraintValue,
       comment: comment,
       _originalData: column,
@@ -267,7 +270,7 @@ export function transformStructureToRows(
         columns?: string[];
       };
       if (!definition?.columns) return false;
-      return definition.columns.includes(col.name ?? "");
+      return definition.columns.includes(col.name || "");
     });
     const fkDefinition = fkAdd
       ? ((fkAdd.payload as any).definition as {
@@ -289,13 +292,15 @@ export function transformStructureToRows(
       row_number: actualRows.length + idx + 1,
       column_name: col.name || "(new column)",
       column_meta: {
-        is_pk: col.isPrimaryKey ?? false,
+        is_pk: col.isPrimaryKey || false,
         is_fk: false,
       },
       db_type: col.dataType || "text",
       nullable: col.nullable ? "YES" : "NO",
-      default: col.defaultValue != null ? String(col.defaultValue) : null,
+      default:
+        col.defaultValue != null ? JSON.stringify(col.defaultValue) : null,
       foreign_key: foreignKey,
+      is_computed: "NO",
       check_constraint: col.checkExpression ?? "",
       comment: col.comment ?? "",
       _tempId: cmd.payload.tempId,

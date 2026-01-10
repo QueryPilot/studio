@@ -211,6 +211,7 @@ export interface Function {
   name: string;
   arguments: string;
   return_type: string;
+  routine_type?: "FUNCTION" | "PROCEDURE";
   language: string;
   is_aggregate: boolean;
   is_window: boolean;

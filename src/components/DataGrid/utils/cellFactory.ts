@@ -807,9 +807,14 @@ export function buildGridCellV2(opts: {
   connectionContext?: ConnectionContext;
 }): GridCell {
   const { value, column, readOnly = false, embeddedValue, connectionContext } = opts;
+  
+  // Force readOnly for computed or virtual columns (MSSQL computed, MySQL/MariaDB virtual)
+  const isComputedOrVirtual = column.meta?.is_computed || column.meta?.is_virtual;
+  const effectiveReadOnly = readOnly || isComputedOrVirtual || false;
+  
   // Include embeddedValue in cache key to ensure cells with different embedded values are cached separately
   const embeddedSuffix = embeddedValue ? `:e:${embeddedValue}` : "";
-  const cacheKey = readOnly ? `${column.id}:ro${embeddedSuffix}` : `${column.id}:rw${embeddedSuffix}`;
+  const cacheKey = effectiveReadOnly ? `${column.id}:ro${embeddedSuffix}` : `${column.id}:rw${embeddedSuffix}`;
 
   // Try to get from cache first (fast path)
   if (value && typeof value === "object") {
@@ -832,106 +837,106 @@ export function buildGridCellV2(opts: {
   
   // Enum cells (check first due to explicit enum_values)
   if (column.meta?.enum_values && column.meta.enum_values.length > 0) {
-    return buildEnumCell(rawValue, value, column, meta, readOnly);
+    return buildEnumCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // Reference/FK cells - check early to handle FK columns that are numeric types
   const metaWithFk = column.meta as { fk_reference?: object } | null | undefined;
   if (column.meta?.is_fk && metaWithFk?.fk_reference) {
-    return buildReferenceCell(rawValue, value, column, meta, readOnly, embeddedValue, connectionContext);
+    return buildReferenceCell(rawValue, value, column, meta, effectiveReadOnly, embeddedValue, connectionContext);
   }
 
   // Boolean cells
   if (meta.isBoolDbType || typeof rawValue === "boolean") {
-    return buildBooleanCell(rawValue, value, column, meta, readOnly);
+    return buildBooleanCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // Money cells
   if (meta.isMoneyDbType) {
-    return buildMoneyCell(rawValue, value, column, meta, readOnly);
+    return buildMoneyCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // Number cells
   if (meta.isNumericDbType || typeof rawValue === "number" || typeof rawValue === "bigint") {
-    return buildNumberCell(rawValue, value, column, meta, readOnly);
+    return buildNumberCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // JSON cells
   if (meta.isJsonDbType) {
-    return buildJsonCell(rawValue, value, column, meta, readOnly);
+    return buildJsonCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // HStore cells
   if (meta.isHstoreDbType) {
-    return buildHstoreCell(rawValue, value, column, meta, readOnly);
+    return buildHstoreCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // Array cells
   if (meta.isArrayDbType || Array.isArray(rawValue)) {
-    return buildArrayCell(rawValue, value, column, meta, readOnly);
+    return buildArrayCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // Timestamp cells (check before date/time)
   if (meta.isTimestampDbType) {
-    return buildTimestampCell(rawValue, value, column, meta, readOnly);
+    return buildTimestampCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // TstzRange cells (PostgreSQL range type)
   if (meta.isTstzRangeDbType) {
-    return buildTstzRangeCell(rawValue, value, column, meta, readOnly);
+    return buildTstzRangeCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // Date cells
   if (meta.isDateDbType) {
-    return buildDateCell(rawValue, value, column, meta, readOnly);
+    return buildDateCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // Time cells
   if (meta.isTimeDbType) {
-    return buildTimeCell(rawValue, value, column, meta, readOnly);
+    return buildTimeCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // UUID cells
   if (meta.isUuidDbType) {
-    return buildUuidCell(rawValue, value, column, meta, readOnly);
+    return buildUuidCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // Network types (INET, CIDR, MACADDR)
   if (meta.isInetDbType || meta.isCidrDbType) {
-    return buildInetCell(rawValue, value, column, meta, readOnly);
+    return buildInetCell(rawValue, value, column, meta, effectiveReadOnly);
   }
   if (meta.isMacAddrDbType) {
-    return buildMacAddrCell(rawValue, value, column, meta, readOnly);
+    return buildMacAddrCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // Range types (INT4RANGE, INT8RANGE, NUMRANGE, DATERANGE, TSRANGE)
   if (meta.isRangeDbType) {
-    return buildRangeCell(rawValue, value, column, meta, readOnly);
+    return buildRangeCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // Interval type
   if (meta.isIntervalDbType) {
-    return buildIntervalCell(rawValue, value, column, meta, readOnly);
+    return buildIntervalCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // XML type
   if (meta.isXmlDbType) {
-    return buildXmlCell(rawValue, value, column, meta, readOnly);
+    return buildXmlCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // Bit string types (BIT, VARBIT)
   if (meta.isBitDbType) {
-    return buildBitCell(rawValue, value, column, meta, readOnly);
+    return buildBitCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // Bytea (binary) type
   if (meta.isByteaDbType) {
-    return buildByteaCell(rawValue, value, column, meta, readOnly);
+    return buildByteaCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // Geometry/Geography types (PostGIS)
   if (meta.isGeometryDbType) {
-    return buildGeometryCell(rawValue, value, column, meta, readOnly);
+    return buildGeometryCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // Text cells
@@ -940,21 +945,21 @@ export function buildGridCellV2(opts: {
 
   // Single-line text (char, varchar with length < 200)
   if (meta.isCharDbType && textLength < 200) {
-    return buildTextSingleLineCell(rawValue, value, column, meta, readOnly);
+    return buildTextSingleLineCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // Multi-line text (text, clob, or long content)
   if (meta.isTextDbType || meta.isClobDbType || textLength >= 200) {
-    return buildTextMultiLineCell(rawValue, value, column, meta, readOnly);
+    return buildTextMultiLineCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // NULL values
   if (rawValue === null || rawValue === undefined) {
-    return buildNullCell(rawValue, value, column, meta, readOnly);
+    return buildNullCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // Default: plain text cell
-  return buildDefaultTextCell(rawValue, value, column, meta, readOnly);
+  return buildDefaultTextCell(rawValue, value, column, meta, effectiveReadOnly);
 }
 
 // ============================================================================

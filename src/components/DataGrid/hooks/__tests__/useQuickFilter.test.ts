@@ -268,7 +268,9 @@ describe("useQuickFilter", () => {
         await result.current.submit();
       });
 
-      expect(mockGenerateAIFilter).toHaveBeenCalledWith("show active records");
+      expect(mockGenerateAIFilter).toHaveBeenCalledWith("show active records", {
+        outputType: "sql",
+      });
       expect(result.current.activeFilter).toBeDefined();
       expect(result.current.aiExplanation).toBe("Filtering for active records");
       // Should switch to WHERE mode with the generated clause

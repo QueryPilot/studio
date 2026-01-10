@@ -47,6 +47,7 @@ import {
   searchKeymap,
   highlightSelectionMatches,
   search,
+  openSearchPanel,
 } from "@codemirror/search";
 import {
   autocompletion,
@@ -480,11 +481,29 @@ export const SqlEditor = memo(
         }
       };
 
+      const handleFind = () => {
+        if (viewRef.current && viewRef.current.hasFocus) {
+          openSearchPanel(viewRef.current);
+        }
+      };
+
+      const handleReplace = () => {
+        // CodeMirror search panel includes replace
+        if (viewRef.current && viewRef.current.hasFocus) {
+          openSearchPanel(viewRef.current);
+        }
+      };
+
       eventBus.on("query-editor:execute", handleExecute);
       eventBus.on("query-editor:execute-background", handleExecute);
+      eventBus.on("query-editor:find", handleFind);
+      eventBus.on("query-editor:replace", handleReplace);
+      
       return () => {
         eventBus.off("query-editor:execute", handleExecute);
         eventBus.off("query-editor:execute-background", handleExecute);
+        eventBus.off("query-editor:find", handleFind);
+        eventBus.off("query-editor:replace", handleReplace);
       };
     }, [executeQuery]);
 

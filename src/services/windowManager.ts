@@ -30,6 +30,19 @@ function getMacOSTrafficLightPosition(): {
   }
 }
 
+// Update the native Window menu to reflect current open windows
+async function updateWindowMenu(): Promise<void> {
+  if (!isTauri()) return;
+  
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("update_window_menu");
+    logger.info("[WindowManager] Window menu updated");
+  } catch (error) {
+    logger.error("[WindowManager] Failed to update window menu:", error);
+  }
+}
+
 interface WindowInfo {
   label: string;
   connectionId: string;
@@ -83,7 +96,12 @@ class WindowManager {
   async openWorkspace(
     connectionId: string,
     connectionName: string,
-    options: { database?: string; schema?: string } = {},
+    options: { 
+      database?: string; 
+      schema?: string;
+      dbType?: string;
+      host?: string;
+    } = {},
   ): Promise<string> {
     const targetUrl = this.buildWorkspaceUrl(
       connectionId,
@@ -137,9 +155,20 @@ class WindowManager {
     }
 
     // Create window options with traffic light position
+    // Format title: "ConnectionName (DbType @ host)" or "ConnectionName (DbType)" for SQLite
+    const { dbType, host } = options;
+    let windowTitle = connectionName;
+    if (dbType) {
+      if (dbType === "SQLite" || !host) {
+        windowTitle = `${connectionName} (${dbType})`;
+      } else {
+        windowTitle = `${connectionName} (${dbType} @ ${host})`;
+      }
+    }
+    
     const windowOptions: Record<string, unknown> = {
       url: targetUrl,
-      title: `${connectionName} - Query Pilot`,
+      title: windowTitle,
       width: 1400,
       height: 900,
       minWidth: 1000,
@@ -192,12 +221,18 @@ class WindowManager {
     });
     this.windowStates.set(label, "open");
 
+    // Update the native Window menu to show this new window
+    void updateWindowMenu();
+
     // Handle window close cleanup
     // Note: Don't await this - it sets up a listener for future destruction
     void webview.once("tauri://destroyed", async () => {
       // Clean up local state
       this.windowMetadata.delete(label);
       this.windowStates.delete(label);
+      
+      // Update the native Window menu to remove this window
+      void updateWindowMenu();
       
       logger.info(
         `[WindowManager] Window ${label} destroyed, ${this.windowMetadata.size} windows remaining`,

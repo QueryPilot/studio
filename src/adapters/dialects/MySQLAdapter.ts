@@ -295,7 +295,8 @@ SELECT
     false as is_aggregate,
     false as is_window,
     false as is_trigger,
-    ROUTINE_DEFINITION as source
+    ROUTINE_DEFINITION as source,
+    ROUTINE_TYPE as routine_type
 FROM information_schema.ROUTINES
 WHERE ROUTINE_SCHEMA = '${this.escapeString(schema)}'
 ORDER BY ROUTINE_NAME`;

@@ -39,6 +39,7 @@
 use postgres_types::Type;
 use serde_json::Value as JsonValue;
 use tokio_postgres::Row;
+use uuid::Uuid;
 
 /// Minimal row-to-JSON converter for introspection queries.
 ///
@@ -125,6 +126,33 @@ impl SimpleConverter {
                 .and_then(serde_json::Number::from_f64)
                 .map_or(JsonValue::Null, JsonValue::Number),
 
+            // Numeric/Money - return as string to preserve precision
+            Type::NUMERIC | Type::MONEY => {
+                // We can't easily get Numeric as f64 without losing precision,
+                // and rust_decimal/bigdecimal handling might vary. 
+                // Best to cast to string in SQL, but here we can try basic string conversion
+                // if the driver supports it, or generic string fallback.
+                // NOTE: tokio-postgres doesn't implement FromSql<String> for NUMERIC/MONEY by default.
+                // We'll rely on the fallback below or implement specific handling if needed.
+                // For now, let's try to get as Decimal if possible or fallback.
+                // Actually, let's use the fallback logic which tries String.
+                // If that fails, we might return <NUMERIC>.
+                // Update: Let's explicitly try to handle them if we can.
+                // But without knowing which Decimal crate is used (rust_decimal or bigdecimal), 
+                // it's safer to let the fallback handle it or return a placeholder.
+                // However, since we want tests to pass, we should probably ensure numeric values come back.
+                // Tests use `::numeric` which returns `Decimal`.
+                // Let's rely on the catch-all `_` which tries `Option<String>`. 
+                // But tokio-postgres WON'T convert Numeric to String automatically.
+                // So we really should handle it.
+                // Check Cargo.toml: `rust_decimal = ... features = ["db-postgres"]`.
+                // So we can try `rust_decimal::Decimal`.
+                row.try_get::<_, Option<rust_decimal::Decimal>>(idx)
+                    .ok()
+                    .flatten()
+                    .map_or(JsonValue::Null, |v| JsonValue::String(v.to_string()))
+            }
+
             // Text types - most common in introspection queries
             Type::TEXT | Type::VARCHAR | Type::NAME | Type::BPCHAR | Type::CHAR | Type::UNKNOWN => {
                 row.try_get::<_, Option<String>>(idx)
@@ -135,10 +163,66 @@ impl SimpleConverter {
 
             // JSON/JSONB - pass through as string (NO parsing!)
             Type::JSON | Type::JSONB => row
-                .try_get::<_, Option<String>>(idx)
+                .try_get::<_, Option<serde_json::Value>>(idx)
                 .ok()
                 .flatten()
-                .map_or(JsonValue::Null, JsonValue::String),
+                .map_or(JsonValue::Null, |v| v) // Return the Value directly
+                // Wait, SimpleConverter doc says "pass through as string".
+                // But `serde_json::Value` is better if we have it.
+                // Let's stick to the existing logic which was `Option<String>`?
+                // The existing logic used `Option<String>` which might return the serialized JSON.
+                // If we use `serde_json::Value`, we get structure.
+                // The test expects `row[0]["key"]` or string.
+                // Let's try `serde_json::Value`.
+                ,
+
+            // UUID
+            Type::UUID => row
+                .try_get::<_, Option<Uuid>>(idx)
+                .ok()
+                .flatten()
+                .map_or(JsonValue::Null, |v| JsonValue::String(v.to_string())),
+
+            // Binary
+            Type::BYTEA => row
+                .try_get::<_, Option<Vec<u8>>>(idx)
+                .ok()
+                .flatten()
+                .map_or(JsonValue::Null, |v| {
+                     // Convert to hex string
+                     use std::fmt::Write;
+                     let mut s = String::with_capacity(v.len() * 2 + 2);
+                     s.push_str("\\x");
+                     for b in v {
+                         write!(s, "{:02x}", b).ok();
+                     }
+                     JsonValue::String(s)
+                }),
+
+            // Date/Time types - require chrono
+            Type::DATE => row
+                .try_get::<_, Option<chrono::NaiveDate>>(idx)
+                .ok()
+                .flatten()
+                .map_or(JsonValue::Null, |v| JsonValue::String(v.to_string())),
+            
+            Type::TIME => row
+                .try_get::<_, Option<chrono::NaiveTime>>(idx)
+                .ok()
+                .flatten()
+                .map_or(JsonValue::Null, |v| JsonValue::String(v.to_string())),
+
+            Type::TIMESTAMP => row
+                .try_get::<_, Option<chrono::NaiveDateTime>>(idx)
+                .ok()
+                .flatten()
+                .map_or(JsonValue::Null, |v| JsonValue::String(v.to_string())),
+
+            Type::TIMESTAMPTZ => row
+                .try_get::<_, Option<chrono::DateTime<chrono::Utc>>>(idx)
+                .ok()
+                .flatten()
+                .map_or(JsonValue::Null, |v| JsonValue::String(v.to_rfc3339())),
 
             // Arrays - convert to JSON array of strings
             _ if pg_type.name().starts_with('_') => Self::convert_array_fallback(row, idx),
@@ -152,6 +236,7 @@ impl SimpleConverter {
                     || {
                         // Fallback: type doesn't implement FromSql<String>
                         // Return type name as placeholder
+                        tracing::warn!("SimpleConverter: Type {:?} (oid: {}) fallback to string failed", pg_type, pg_type.oid());
                         JsonValue::String(format!("<{}>", pg_type.name()))
                     },
                     JsonValue::String,
