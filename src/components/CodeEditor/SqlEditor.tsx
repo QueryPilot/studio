@@ -86,11 +86,9 @@ import { createGotoDefinitionExtension } from "./extensions/goto-definition";
 import { createSemanticHighlightingExtension } from "./extensions/semantic-highlighting";
 import { createStatementHighlightExtension } from "./extensions/statement-highlight";
 import { createRunGutterExtension } from "./extensions/run-gutter";
-import { createSqlContextMenuExtension } from "./extensions/sql-context-menu";
-import type { SqlContextMenuEvent } from "./extensions/sql-context-menu";
 import { createRefactoringExtension } from "./extensions/sql-refactoring";
-import { SqlContextMenu, type SqlContextTarget, type SqlContextAction } from "./components/SqlContextMenu";
 import { ExtractCteDialog } from "./components/ExtractCteDialog";
+import { EditorContextMenu } from "./components/EditorContextMenu";
 
 // SQL language support
 import { createDialectLinter } from "./languages/sql/linter-strategy";
@@ -274,11 +272,6 @@ export const SqlEditor = memo(
     const { resolvedTheme } = useTheme();
     const keyboardServices = useKeyboardServicesOptional();
     const contextServiceRef = useRef(keyboardServices?.contextService);
-
-    // Context menu state
-    const [contextMenuOpen, setContextMenuOpen] = useState(false);
-    const [contextMenuTarget, setContextMenuTarget] = useState<SqlContextTarget | null>(null);
-    const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
 
     // Extract CTE dialog state
     const [extractCteDialogOpen, setExtractCteDialogOpen] = useState(false);
@@ -727,7 +720,7 @@ export const SqlEditor = memo(
           createFormatterExtension(effectiveDialect),
           createGotoDefinitionExtension(),
           createSemanticHighlightingExtension(),
-          createSqlContextMenuExtension(),
+          // Context menu is now handled by EditorContextMenu wrapper component
 
           // SQL Refactoring - F2 rename, Cmd+Shift+E extract CTE, Cmd+. code actions
           createRefactoringExtension({
@@ -774,15 +767,6 @@ export const SqlEditor = memo(
       };
       view.dom.addEventListener("goto-definition", handleGotoDefinition);
 
-      // Listen for context menu events
-      const handleContextMenu = (event: Event) => {
-        const customEvent = event as CustomEvent<SqlContextMenuEvent>;
-        setContextMenuTarget(customEvent.detail.target);
-        setContextMenuPosition(customEvent.detail.position);
-        setContextMenuOpen(true);
-      };
-      view.dom.addEventListener("sql-context-menu", handleContextMenu);
-
       // Track focus state for keyboard shortcuts using CodeMirror's focus tracking
       // This allows global shortcuts like Cmd+Z to know when editor has focus
       // Using DOM events on view.dom (not contentDOM) for more reliable focus detection
@@ -810,7 +794,6 @@ export const SqlEditor = memo(
 
       return () => {
         view.dom.removeEventListener("goto-definition", handleGotoDefinition);
-        view.dom.removeEventListener("sql-context-menu", handleContextMenu);
         view.dom.removeEventListener("focusin", handleFocus);
         view.dom.removeEventListener("focusout", handleBlur);
         // Reset context on unmount
@@ -867,72 +850,35 @@ export const SqlEditor = memo(
       });
     }, [placeholder, compartments]);
 
-    // Handle context menu actions
-    const handleContextMenuAction = useCallback(
-      (action: SqlContextAction, data?: unknown) => {
-        const view = viewRef.current;
-        if (!view) return;
-
-        switch (action) {
-          case "goto-definition": {
-            // Scroll to definition position
-            const defPos = data as { from: number; to: number };
-            if (defPos) {
-              view.dispatch({
-                selection: { anchor: defPos.from, head: defPos.to },
-                effects: EditorView.scrollIntoView(defPos.from, {
-                  y: "center",
-                  yMargin: 100,
-                }),
-              });
-              view.focus();
-            }
-            break;
-          }
-          case "goto-table-structure": {
-            // Emit external navigation event
-            const tableData = data as { table: string; schema?: string };
-            if (tableData && onGotoDefinitionRef.current) {
-              onGotoDefinitionRef.current({
-                type: "table",
-                name: tableData.table,
-                schema: tableData.schema,
-              });
-            }
-            break;
-          }
-          case "copy-name":
-          case "copy-source-table": {
-            // Copy to clipboard
-            const text = data as string;
-            if (text) {
-              navigator.clipboard.writeText(text).catch((err) => {
-                console.error("Failed to copy to clipboard:", err);
-              });
-            }
-            break;
-          }
-        }
-
-        setContextMenuOpen(false);
-      },
-      [],
-    );
+    // Rename handler for context menu
+    const handleRenameFromContextMenu = useCallback(() => {
+      if (viewRef.current) {
+        import("./extensions/inline-rename").then(({ startRename }) => {
+          startRename(viewRef.current!, effectiveDialect);
+        });
+      }
+    }, [effectiveDialect]);
 
     return (
       <>
-        <div
-          ref={containerRef}
-          className={`sql-editor h-full ${className}`}
-          style={{ height }}
-        />
-        <SqlContextMenu
-          target={contextMenuTarget}
-          position={contextMenuPosition}
-          onAction={handleContextMenuAction}
-          onClose={() => setContextMenuOpen(false)}
-          open={contextMenuOpen}
-        />
+        <EditorContextMenu
+          editorRef={viewRef}
+          dialect={effectiveDialect}
+          onRename={handleRenameFromContextMenu}
+          onExtractCte={(span) => {
+            setExtractCteSelection(span);
+            setExtractCteDialogOpen(true);
+          }}
+          onGotoTableStructure={(table, schema) => {
+            onGotoDefinitionRef.current?.({ type: "table", name: table, schema });
+          }}
+        >
+          <div
+            ref={containerRef}
+            className={`sql-editor h-full ${className}`}
+            style={{ height }}
+          />
+        </EditorContextMenu>
         <ExtractCteDialog
           open={extractCteDialogOpen}
           onOpenChange={setExtractCteDialogOpen}

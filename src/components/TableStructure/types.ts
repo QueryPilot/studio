@@ -19,6 +19,10 @@ export interface StructureGridRow {
   is_computed: string;
   check_constraint: string;
   comment: string;
+  // MySQL/MariaDB specific
+  character_set?: string;
+  collation?: string;
+  extra?: string;
   _originalData?: ColumnMeta;
   _tempId?: string; // For pending column additions
   _isPending?: boolean; // True for new columns not yet committed

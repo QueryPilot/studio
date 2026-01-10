@@ -49,6 +49,12 @@ export interface ColumnMeta {
   set_values?: string[];
   /** Whether this is a virtual/generated column */
   is_virtual?: boolean;
+  /** Character set name (MySQL/MariaDB) */
+  character_set?: string | null;
+  /** Collation name (MySQL/MariaDB) */
+  collation?: string | null;
+  /** Extra column info like auto_increment (MySQL/MariaDB) */
+  extra?: string | null;
 
   // MSSQL specific
   /** Whether this is an identity column */
