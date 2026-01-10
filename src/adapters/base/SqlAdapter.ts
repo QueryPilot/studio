@@ -172,8 +172,19 @@ export abstract class SqlAdapter implements DatabaseAdapter {
       sql += ` WHERE ${this.buildWhereClause(options.where)}`;
     }
 
-    if (options?.orderBy && options.orderBy.length > 0) {
-      const orderClauses = options.orderBy
+    const orderBy = options?.orderBy ? [...options.orderBy] : [];
+    const hasOffset = options?.offset !== undefined && options.offset > 0;
+    const needsDefaultOrder =
+      orderBy.length === 0 && (hasOffset || options?.limit !== undefined);
+    if (needsDefaultOrder) {
+      orderBy.push({
+        column: this.getFallbackOrderByColumn(options),
+        direction: "ASC",
+      });
+    }
+
+    if (orderBy.length > 0) {
+      const orderClauses = orderBy
         .map((o) => `${this.quoteIdentifier(o.column)} ${o.direction}`)
         .join(", ");
       sql += ` ORDER BY ${orderClauses}`;
@@ -230,8 +241,19 @@ export abstract class SqlAdapter implements DatabaseAdapter {
       sql += ` WHERE ${this.buildWhereClause(options.where)}`;
     }
 
-    if (options.orderBy && options.orderBy.length > 0) {
-      const orderClauses = options.orderBy
+    const orderBy = options.orderBy ? [...options.orderBy] : [];
+    const hasOffset = options.offset !== undefined && options.offset > 0;
+    const needsDefaultOrder =
+      orderBy.length === 0 && (hasOffset || options.limit !== undefined);
+    if (needsDefaultOrder) {
+      orderBy.push({
+        column: this.getFallbackOrderByColumn(options),
+        direction: "ASC",
+      });
+    }
+
+    if (orderBy.length > 0) {
+      const orderClauses = orderBy
         .map((o) => `${mainTable}.${this.quoteIdentifier(o.column)} ${o.direction}`)
         .join(", ");
       sql += ` ORDER BY ${orderClauses}`;
@@ -345,6 +367,17 @@ export abstract class SqlAdapter implements DatabaseAdapter {
       clause += ` OFFSET ${offset}`;
     }
     return clause;
+  }
+
+  /**
+   * Default ORDER BY column for stable pagination when no sort provided.
+   */
+  protected getFallbackOrderByColumn(options?: SelectOptions): string {
+    const firstColumn = options?.columns?.[0];
+    if (firstColumn && /^[A-Za-z_][A-Za-z0-9_]*$/.test(firstColumn)) {
+      return firstColumn;
+    }
+    return "id";
   }
 
   /**

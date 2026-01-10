@@ -57,6 +57,20 @@ impl SimpleConverter {
                 if let Some(v) = row.try_get::<chrono::NaiveDateTime, _>(i).ok().flatten() {
                     return JsonValue::String(v.to_string());
                 }
+                if let Some(v) = row
+                    .try_get::<chrono::DateTime<chrono::FixedOffset>, _>(i)
+                    .ok()
+                    .flatten()
+                {
+                    return JsonValue::String(v.to_rfc3339());
+                }
+                if let Some(v) = row
+                    .try_get::<chrono::DateTime<chrono::Utc>, _>(i)
+                    .ok()
+                    .flatten()
+                {
+                    return JsonValue::String(v.to_rfc3339());
+                }
                 if let Some(v) = row.try_get::<chrono::NaiveDate, _>(i).ok().flatten() {
                     return JsonValue::String(v.to_string());
                 }

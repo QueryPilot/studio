@@ -125,7 +125,16 @@ export class MSSQLAdapter extends SqlAdapter {
     // Use TOP for simple limit without offset
     // When offset is needed, we use OFFSET/FETCH which requires ORDER BY
     const hasOffset = options?.offset !== undefined && options.offset > 0;
-    const hasOrderBy = options?.orderBy && options.orderBy.length > 0;
+    const orderBy = options?.orderBy ? [...options.orderBy] : [];
+    const needsDefaultOrder =
+      orderBy.length === 0 && (hasOffset || options?.limit !== undefined);
+    if (needsDefaultOrder) {
+      orderBy.push({
+        column: this.getFallbackOrderByColumn(options),
+        direction: 'ASC',
+      });
+    }
+    const hasOrderBy = orderBy.length > 0;
 
     if (options?.limit !== undefined && !hasOffset) {
       sql += ` TOP ${options.limit}`;
@@ -138,7 +147,7 @@ export class MSSQLAdapter extends SqlAdapter {
     }
 
     if (hasOrderBy) {
-      const orderClauses = options!.orderBy!
+      const orderClauses = orderBy
         .map((o) => `${this.quoteIdentifier(o.column)} ${o.direction}`)
         .join(', ');
       sql += ` ORDER BY ${orderClauses}`;
@@ -150,10 +159,6 @@ export class MSSQLAdapter extends SqlAdapter {
       if (options?.limit !== undefined) {
         sql += ` FETCH NEXT ${options.limit} ROWS ONLY`;
       }
-    } else if (hasOffset && !hasOrderBy) {
-      // MSSQL requires ORDER BY for OFFSET, add a default if not provided
-      // This is a fallback - callers should provide ORDER BY with OFFSET
-      throw new Error('MSSQL requires ORDER BY clause when using OFFSET');
     }
 
     return sql;
