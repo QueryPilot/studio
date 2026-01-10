@@ -455,6 +455,30 @@ export abstract class SqlAdapter implements DatabaseAdapter {
       }
     }
 
+    // Handle comment changes (PostgreSQL syntax)
+    if (changes.comment !== undefined) {
+      const schema = target.schema ? `${this.quoteIdentifier(target.schema)}.` : '';
+      const fullTable = `${schema}${this.quoteIdentifier(target.table)}`;
+      if (changes.comment === null || changes.comment === '') {
+        statements.push(
+          `COMMENT ON COLUMN ${fullTable}.${colName} IS NULL`,
+        );
+      } else {
+        statements.push(
+          `COMMENT ON COLUMN ${fullTable}.${colName} IS ${this.quoteString(changes.comment)}`,
+        );
+      }
+    }
+
+    // Handle check constraint changes
+    // Note: This adds a new check constraint - dropping existing ones requires constraint name
+    if (changes.checkExpression !== undefined && changes.checkExpression !== null && changes.checkExpression !== '') {
+      const constraintName = `${target.table}_${columnName}_check`;
+      statements.push(
+        `ALTER TABLE ${table} ADD CONSTRAINT ${this.quoteIdentifier(constraintName)} CHECK (${changes.checkExpression})`,
+      );
+    }
+
     return statements.join(";\n");
   }
 

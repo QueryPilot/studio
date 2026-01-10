@@ -179,8 +179,8 @@ export const IndexTypeCellEditor: React.FC<IndexTypeCellEditorProps> = ({
 
   // Render index type selection
   return (
-    <div className="w-full h-full flex flex-col relative click-outside-ignore z-50 min-w-[200px]">
-      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
+    <div className="w-full flex flex-col relative click-outside-ignore z-50 min-w-[200px] bg-popover border shadow-lg rounded-md overflow-hidden">
+      <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50">
         <span className="text-[11px] font-medium text-foreground/80">
           Index Type
         </span>
@@ -189,45 +189,43 @@ export const IndexTypeCellEditor: React.FC<IndexTypeCellEditorProps> = ({
         </span>
       </div>
 
-      <div className="flex items-center flex-1">
-        <Command
-          ref={commandRef}
-          className="w-full border-0 shadow-none"
-          onKeyDown={handleKeyDown}
-          value={searchQuery}
-          onValueChange={setSearchQuery}
-        >
-          <CommandInput
-            placeholder="Search index types..."
-            className="h-8"
-          />
-          <CommandList className="max-h-[200px]">
-            <CommandEmpty className="py-3 text-xs text-muted-foreground">
-              No index types found
-            </CommandEmpty>
-            <CommandGroup>
-              {options.map((option) => (
-                <CommandItem
-                  key={option}
-                  value={option}
-                  onSelect={() => {
-                    handleSelect(option);
-                  }}
-                  className="text-xs font-medium flex items-center justify-between"
-                >
-                  <span className="font-mono">{option.toUpperCase()}</span>
-                  <IconCheck
-                    className={cn(
-                      "h-3 w-3",
-                      value.data.value === option ? "opacity-100" : "opacity-0",
-                    )}
-                  />
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </div>
+      <Command
+        ref={commandRef}
+        className="w-full border-0 shadow-none"
+        onKeyDown={handleKeyDown}
+        value={searchQuery}
+        onValueChange={setSearchQuery}
+      >
+        <CommandInput
+          placeholder="Search index types..."
+          className="h-7 text-xs"
+        />
+        <CommandList className="max-h-[140px]">
+          <CommandEmpty className="py-2 text-xs text-muted-foreground">
+            No index types found
+          </CommandEmpty>
+          <CommandGroup className="p-1">
+            {options.map((option) => (
+              <CommandItem
+                key={option}
+                value={option}
+                onSelect={() => {
+                  handleSelect(option);
+                }}
+                className="text-xs font-medium flex items-center justify-between py-1.5 px-2"
+              >
+                <span className="font-mono">{option.toUpperCase()}</span>
+                <IconCheck
+                  className={cn(
+                    "h-3 w-3",
+                    value.data.value === option ? "opacity-100" : "opacity-0",
+                  )}
+                />
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        </CommandList>
+      </Command>
     </div>
   );
 };

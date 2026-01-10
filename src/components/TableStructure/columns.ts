@@ -150,11 +150,19 @@ const trailingColumns: GridColumnV2[] = [
 
 /**
  * Get structure columns based on database type
- * Inserts database-specific columns between base columns and trailing columns
+ * Order: base columns -> check -> db-specific columns -> comment -> actions
  */
 export function getStructureColumns(dbType?: DbType): GridColumnV2[] {
   const specificColumns = dbType ? dbSpecificColumns[dbType] || [] : [];
-  return [...baseColumns, ...specificColumns, ...trailingColumns];
+  // Move check before db-specific columns (charset/collation/extra)
+  const checkColumn = trailingColumns.find(col => col.id === 'check_constraint');
+  const commentAndActionsColumns = trailingColumns.filter(col => col.id !== 'check_constraint');
+  
+  if (!checkColumn) {
+    return [...baseColumns, ...specificColumns, ...trailingColumns];
+  }
+  
+  return [...baseColumns, checkColumn, ...specificColumns, ...commentAndActionsColumns];
 }
 
 // Backwards compatibility: default export with all columns (for non-connected scenarios)

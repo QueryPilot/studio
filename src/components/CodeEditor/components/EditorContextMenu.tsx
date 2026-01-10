@@ -15,9 +15,6 @@ import {
   ContextMenuGroup,
   ContextMenuLabel,
   ContextMenuShortcut,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
 import {
   IconCopy,
@@ -43,8 +40,6 @@ export interface EditorContextTarget {
 export interface EditorContextMenuProps {
   children: ReactNode;
   editorRef: MutableRefObject<EditorView | null>;
-  dialect: string;
-  onGotoDefinition?: (pos: { from: number; to: number }) => void;
   onGotoTableStructure?: (table: string, schema?: string) => void;
   onRename?: () => void;
   onExtractCte?: (span: { start: number; end: number }) => void;
@@ -60,8 +55,6 @@ function analyzeContextTarget(view: EditorView): EditorContextTarget {
   // If there's a selection, offer selection-based actions
   if (selection.from !== selection.to) {
     const selectedText = state.doc.sliceString(selection.from, selection.to);
-    // Check if selection looks like a subquery
-    const isSubquery = selectedText.trim().toLowerCase().startsWith("select");
     return {
       type: "selection",
       name: selectedText.length > 30 ? selectedText.slice(0, 30) + "..." : selectedText,
@@ -79,8 +72,8 @@ function analyzeContextTarget(view: EditorView): EditorContextTarget {
   let start = lineOffset;
   let end = lineOffset;
   
-  while (start > 0 && /\w/.test(lineText[start - 1])) start--;
-  while (end < lineText.length && /\w/.test(lineText[end])) end++;
+  while (start > 0 && /\w/.test(lineText[start - 1] ?? "")) start--;
+  while (end < lineText.length && /\w/.test(lineText[end] ?? "")) end++;
   
   if (start === end) {
     return { type: "empty" };
@@ -107,7 +100,7 @@ function analyzeContextTarget(view: EditorView): EditorContextTarget {
   if (start > 0 && lineText[start - 1] === ".") {
     // Find the table/alias before the dot
     let aliasStart = start - 2;
-    while (aliasStart > 0 && /\w/.test(lineText[aliasStart])) aliasStart--;
+    while (aliasStart > 0 && /\w/.test(lineText[aliasStart] ?? "")) aliasStart--;
     if (aliasStart < start - 2) {
       const alias = lineText.slice(aliasStart + 1, start - 1);
       return { type: "column", name: word, tableName: alias };
@@ -128,8 +121,6 @@ function analyzeContextTarget(view: EditorView): EditorContextTarget {
 export function EditorContextMenu({
   children,
   editorRef,
-  dialect,
-  onGotoDefinition,
   onGotoTableStructure,
   onRename,
   onExtractCte,
@@ -232,7 +223,7 @@ export function EditorContextMenu({
 
   return (
     <ContextMenu onOpenChange={handleOpenChange}>
-      <ContextMenuTrigger asChild>
+      <ContextMenuTrigger className="contents">
         {children}
       </ContextMenuTrigger>
       <ContextMenuContent className="w-56">

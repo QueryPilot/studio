@@ -1041,6 +1041,17 @@ export const TableStructure = memo(function TableStructure({
         } else if (column.field === "check_constraint") {
           newDefinition.checkExpression = String(extractedValue ?? "");
         } else if (column.field === "comment") {
+          // For comment changes, include the full column definition
+          // This is especially important for MySQL which requires MODIFY COLUMN with full definition
+          const originalData = row._originalData;
+          if (originalData) {
+            newDefinition.name = originalData.name;
+            newDefinition.dataType = originalData.db_type;
+            newDefinition.nullable = originalData.nullable;
+            if (originalData.default !== undefined && originalData.default !== null) {
+              newDefinition.defaultValue = originalData.default;
+            }
+          }
           newDefinition.comment = extractedValue;
         } else if (column.field === "db_type") {
           newDefinition.dataType = extractedValue;
@@ -1361,6 +1372,7 @@ export const TableStructure = memo(function TableStructure({
         const isComputedValue = (
           typeof fieldValue === "string" ? fieldValue : "NO"
         ) as "YES" | "NO";
+        const baseTheme = cellThemeOverride ?? {};
         return {
           kind: GridCellKind.Text,
           data: isComputedValue,
@@ -1369,8 +1381,24 @@ export const TableStructure = memo(function TableStructure({
           allowOverlay: false,
           contentAlign: "center" as const,
           themeOverride: {
+            ...baseTheme,
+            ...(isComputedValue === "YES" && { textDark: "#f97316" }),
+          },
+        } as const;
+      }
+
+      // MySQL/MariaDB specific columns - readonly text with truncation
+      if (column.field === "character_set" || column.field === "collation" || column.field === "extra") {
+        const displayValue = typeof fieldValue === "string" ? fieldValue : "";
+        return {
+          kind: GridCellKind.Text,
+          data: displayValue,
+          displayData: displayValue,
+          readonly: true,
+          allowOverlay: true, // Allow viewing full content
+          themeOverride: {
             ...(cellThemeOverride ?? {}),
-            textDark: isComputedValue === "YES" ? "#f97316" : cellThemeOverride?.textDark,
+            baseFontStyle: "400 11px",
           },
         } as const;
       }

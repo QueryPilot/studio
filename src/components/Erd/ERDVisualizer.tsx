@@ -234,6 +234,13 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
     return { type, constraints };
   }, []);
 
+  const hiddenColumns: ColumnMeta[] = expanded ? [] : table.columns.slice(PREVIEW_COLUMN_LIMIT);
+  const hiddenConnectedColumns: ColumnMeta[] = hiddenColumns.filter(
+    (column: ColumnMeta) =>
+      columnHandles.source.has(column.name) ||
+      columnHandles.target.has(column.name),
+  );
+
   return (
     <div
       className={[
@@ -353,8 +360,96 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
             );
           })}
           {hasMore && !expanded ? (
-            <li className="pt-1 pl-2 text-xs text-muted-foreground">
+            <li className="relative pt-1 pl-2 text-xs text-muted-foreground">
               +{table.columns.length - PREVIEW_COLUMN_LIMIT} more columns
+              {hiddenConnectedColumns.map((column: ColumnMeta) => {
+                const showSourceHandles = columnHandles.source.has(column.name);
+                const showTargetHandles = columnHandles.target.has(column.name);
+                return (
+                  <React.Fragment key={column.name}>
+                    {showTargetHandles && (
+                      <>
+                        <Handle
+                          type="target"
+                          position={Position.Left}
+                          id={makeHandleId(column.name, "target", "left")}
+                          style={{
+                            position: "absolute",
+                            left: 0,
+                            top: "50%",
+                            opacity: 0,
+                            pointerEvents: "none",
+                            width: 1,
+                            height: 1,
+                            minWidth: 0,
+                            minHeight: 0,
+                            background: "transparent",
+                            border: 0,
+                          }}
+                        />
+                        <Handle
+                          type="target"
+                          position={Position.Right}
+                          id={makeHandleId(column.name, "target", "right")}
+                          style={{
+                            position: "absolute",
+                            right: 0,
+                            top: "50%",
+                            opacity: 0,
+                            pointerEvents: "none",
+                            width: 1,
+                            height: 1,
+                            minWidth: 0,
+                            minHeight: 0,
+                            background: "transparent",
+                            border: 0,
+                          }}
+                        />
+                      </>
+                    )}
+                    {showSourceHandles && (
+                      <>
+                        <Handle
+                          type="source"
+                          position={Position.Left}
+                          id={makeHandleId(column.name, "source", "left")}
+                          style={{
+                            position: "absolute",
+                            left: 0,
+                            top: "50%",
+                            opacity: 0,
+                            pointerEvents: "none",
+                            width: 1,
+                            height: 1,
+                            minWidth: 0,
+                            minHeight: 0,
+                            background: "transparent",
+                            border: 0,
+                          }}
+                        />
+                        <Handle
+                          type="source"
+                          position={Position.Right}
+                          id={makeHandleId(column.name, "source", "right")}
+                          style={{
+                            position: "absolute",
+                            right: 0,
+                            top: "50%",
+                            opacity: 0,
+                            pointerEvents: "none",
+                            width: 1,
+                            height: 1,
+                            minWidth: 0,
+                            minHeight: 0,
+                            background: "transparent",
+                            border: 0,
+                          }}
+                        />
+                      </>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </li>
           ) : null}
         </ul>

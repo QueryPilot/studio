@@ -19,6 +19,8 @@ interface QueryEditorProps {
   dialectOverride?: SqlDialect;
   /** Callback to report the detected dialect */
   onDialectDetected?: (dialect: SqlDialect) => void;
+  /** Extra bottom padding in pixels for scrolling past end */
+  extraBottomPadding?: number;
 }
 
 export const QueryEditor = memo(
@@ -36,6 +38,7 @@ export const QueryEditor = memo(
       readOnly = false,
       dialectOverride,
       onDialectDetected,
+      extraBottomPadding = 100,
     },
     ref,
   ) {
@@ -86,6 +89,7 @@ export const QueryEditor = memo(
           height={height}
           placeholder="Enter your SQL query..."
           autoFocus={true}
+          extraBottomPadding={extraBottomPadding}
         />
       </div>
     );
