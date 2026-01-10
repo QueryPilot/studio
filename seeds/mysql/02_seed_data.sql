@@ -5,6 +5,7 @@ USE todoapp;
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- Create stored procedure for seeding
+DROP PROCEDURE IF EXISTS seed_data;
 DELIMITER $$
 
 CREATE PROCEDURE seed_data()
@@ -14,7 +15,7 @@ BEGIN
     DECLARE j INT DEFAULT 1;
     DECLARE todo_count INT;
     DECLARE random_status VARCHAR(20);
-    DECLARE random_priority VARCHAR(20);
+    DECLARE random_priority INT;
     
     -- Insert users
     WHILE i <= user_count DO
@@ -68,7 +69,7 @@ BEGIN
         
         WHILE j <= todo_count DO
             SET random_status = ELT(FLOOR(RAND() * 5) + 1, 'pending', 'in_progress', 'completed', 'cancelled', 'archived');
-            SET random_priority = ELT(FLOOR(RAND() * 4) + 1, 'low', 'medium', 'high', 'critical');
+            SET random_priority = FLOOR(RAND() * 5) + 1;
             
             INSERT INTO todos (
                 user_id, title, description, status, priority,
@@ -78,7 +79,6 @@ BEGIN
                 difficulty_level, reward_points, cost, latitude, longitude,
                 short_code, long_description, notes,
                 year_created, flags, ip_address,
-                location,
                 started_at, completed_at, reminder_at
             ) VALUES (
                 i,
@@ -156,7 +156,6 @@ BEGIN
                     NULL
                 ),
                 CONCAT('192.168.', FLOOR(RAND() * 255), '.', FLOOR(RAND() * 255)),
-                IF(RAND() > 0.9, ST_GeomFromText(CONCAT('POINT(', 37.7749 + (RAND() - 0.5), ' ', -122.4194 + (RAND() - 0.5), ')')), NULL),
                 IF(random_status IN ('in_progress', 'completed'), DATE_SUB(NOW(), INTERVAL FLOOR(RAND() * 30) DAY), NULL),
                 IF(random_status = 'completed', DATE_SUB(NOW(), INTERVAL FLOOR(RAND() * 20) DAY), NULL),
                 IF(RAND() > 0.6, DATE_ADD(NOW(), INTERVAL FLOOR(RAND() * 30) DAY), NULL)
@@ -223,11 +222,12 @@ BEGIN
     LIMIT 500;
     
     -- Add activity logs
-    INSERT INTO activity_logs (user_id, todo_id, action, details)
+    INSERT INTO activity_logs (user_id, todo_id, action, entity_type, details)
     SELECT 
         t.user_id,
         t.id,
         ELT(FLOOR(RAND() * 6) + 1, 'created', 'updated', 'status_changed', 'priority_changed', 'assigned', 'commented'),
+        'todo',
         JSON_OBJECT(
             'timestamp', DATE_SUB(NOW(), INTERVAL FLOOR(RAND() * 30) DAY),
             'ip_address', CONCAT('192.168.', FLOOR(RAND() * 255), '.', FLOOR(RAND() * 255)),

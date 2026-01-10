@@ -80,28 +80,32 @@ export async function getOutline(
   sql: string,
   dialect: string
 ): Promise<OutlineTree> {
-  console.log("[getOutline] Called with dialect:", dialect, "sql length:", sql.length);
+  // VERY VISIBLE DEBUG
+  console.log("%c[getOutline] CALLED", "background: red; color: white; font-size: 16px;", { dialect, sqlLength: sql.length });
   
   // Return cached result if sql and dialect match
   if (cache && cache.sql === sql && cache.dialect === dialect) {
-    console.log("[getOutline] Returning cached result");
+    console.log("%c[getOutline] CACHED", "background: blue; color: white;");
     return cache.outline;
   }
 
   // Check Tauri availability
-  if (!isTauriAvailable()) {
-    console.warn("[getOutline] Tauri not available!");
+  const tauriAvailable = isTauriAvailable();
+  console.log("%c[getOutline] Tauri available:", "background: yellow; color: black;", tauriAvailable);
+  
+  if (!tauriAvailable) {
+    console.error("%c[getOutline] TAURI NOT AVAILABLE!", "background: red; color: white; font-size: 20px;");
     return createFailedOutline();
   }
 
   try {
-    console.log("[getOutline] Invoking sql_get_outline...");
+    console.log("%c[getOutline] Invoking sql_get_outline...", "background: green; color: white;");
     const outline = await invoke<OutlineTree>("sql_get_outline", {
       sql,
       dialect,
     });
 
-    console.log("[getOutline] Got outline:", JSON.stringify(outline, null, 2));
+    console.log("%c[getOutline] SUCCESS!", "background: green; color: white; font-size: 16px;", outline);
 
     // Update cache
     cache = {
@@ -112,7 +116,7 @@ export async function getOutline(
 
     return outline;
   } catch (error) {
-    console.error("[getOutline] Error:", error);
+    console.error("%c[getOutline] ERROR!", "background: red; color: white; font-size: 20px;", error);
     return createFailedOutline();
   }
 }

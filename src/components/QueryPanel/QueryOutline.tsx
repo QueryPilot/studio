@@ -296,8 +296,12 @@ export const QueryOutline = memo(function QueryOutline({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Log props on every render
-  console.log("[QueryOutline] Render - sql length:", sql?.length, "dialect:", dialect, "outline:", outline?.statements?.length);
+  // VERY VISIBLE DEBUG
+  console.log("%c[QueryOutline] RENDER", "background: purple; color: white; font-size: 14px;", {
+    sqlLength: sql?.length,
+    dialect,
+    outlineStatements: outline?.statements?.length,
+  });
 
   // Debounce SQL changes to avoid excessive parsing
   const debouncedSql = useDebouncedValue(sql, 300);
