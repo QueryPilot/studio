@@ -1,7 +1,7 @@
 -- Seed data for PostgreSQL
 
 -- Temporarily disable the materialized view refresh trigger to avoid memory issues
-ALTER TABLE todos DISABLE TRIGGER tr_refresh_mv_after_todo_change;
+-- ALTER TABLE todos DISABLE TRIGGER tr_refresh_mv_after_todo_change;
 
 DO $$
 DECLARE
@@ -11,9 +11,8 @@ DECLARE
     i INTEGER;
     j INTEGER;
     random_status todo_status;
-    random_priority priority_level;
+    random_priority INTEGER;
     statuses todo_status[] := ARRAY['pending', 'in_progress', 'completed', 'cancelled', 'archived'];
-    priorities priority_level[] := ARRAY['low', 'medium', 'high', 'critical'];
     sample_tags JSONB[] := ARRAY[
         '["work", "urgent"]'::JSONB,
         '["personal", "health"]'::JSONB,
@@ -85,7 +84,8 @@ BEGIN
             ('Personal', '#33FF57', 'home', current_user_id),
             ('Shopping', '#3357FF', 'cart', current_user_id),
             ('Health', '#FF33F5', 'heart', current_user_id),
-            ('Learning', '#F5FF33', 'book', current_user_id);
+            ('Learning', '#F5FF33', 'book', current_user_id)
+        ON CONFLICT (name, user_id) DO NOTHING;
     END LOOP;
 
     -- Insert todos for each user
@@ -94,7 +94,7 @@ BEGIN
         
         FOR j IN 1..todo_count LOOP
             random_status := statuses[floor(random() * 5 + 1)];
-            random_priority := priorities[floor(random() * 4 + 1)];
+            random_priority := floor(random() * 5 + 1)::int;
             
             INSERT INTO todos (
                 user_id, title, description, status, priority,
@@ -217,11 +217,12 @@ BEGIN
     LIMIT 500;
 
     -- Add activity logs
-    INSERT INTO activity_logs (user_id, todo_id, action, details)
+    INSERT INTO activity_logs (user_id, todo_id, action, entity_type, details)
     SELECT 
         t.user_id,
         t.id,
         (ARRAY['created', 'updated', 'status_changed', 'priority_changed', 'assigned', 'commented'])[floor(random() * 6 + 1)],
+        'todo',
         jsonb_build_object(
             'timestamp', CURRENT_TIMESTAMP - ((random() * 30) || ' days')::interval,
             'ip_address', ('192.168.' || floor(random() * 255) || '.' || floor(random() * 255))::text,
@@ -235,14 +236,14 @@ BEGIN
 END $$;
 
 -- Re-enable the trigger
-ALTER TABLE todos ENABLE TRIGGER tr_refresh_mv_after_todo_change;
+-- ALTER TABLE todos ENABLE TRIGGER tr_refresh_mv_after_todo_change;
 
 -- Refresh materialized views manually once after all data is inserted
-REFRESH MATERIALIZED VIEW mv_user_activity_summary;
-REFRESH MATERIALIZED VIEW mv_todo_analytics;
+-- REFRESH MATERIALIZED VIEW mv_user_activity_summary;
+-- REFRESH MATERIALIZED VIEW mv_todo_analytics;
 
 -- Log completion
 DO $$
 BEGIN
-    RAISE NOTICE 'Materialized views refreshed successfully';
+    RAISE NOTICE 'Seed completed (skipping MV refresh as tables may have changed)';
 END $$;
