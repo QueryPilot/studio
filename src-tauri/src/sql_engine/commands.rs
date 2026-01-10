@@ -10,6 +10,7 @@ use crate::core::ConnectionManager;
 use super::{
     complete, parse_document, validate_document, CompletionRequest, SqlDialect,
     schema_store::{CacheKey, CachedSchemaBuilder, TableInfo, ColumnInfo, ForeignKeyInfo, EnumInfo, TableType},
+    outline::{OutlineBuilder, OutlineTree},
     SCHEMA_STORE,
 };
 
@@ -249,6 +250,15 @@ pub async fn sql_complete(
     })
 }
 
+/// Get SQL outline tree for document structure navigation.
+///
+/// Returns an OutlineTree with statement types, CTEs, tables, and subqueries.
+#[tauri::command]
+pub async fn sql_get_outline(sql: String, dialect: String) -> Result<OutlineTree, String> {
+    let sql_dialect = parse_dialect(&dialect);
+    Ok(OutlineBuilder::build_from_sql(&sql, sql_dialect))
+}
+
 // =============================================================================
 // Schema Push Commands (receives data from frontend - TypeScript is source of truth)
 // =============================================================================
@@ -404,6 +414,54 @@ pub async fn sql_clear_schema(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn test_sql_get_outline_simple_select() {
+        let result = sql_get_outline(
+            "SELECT * FROM users".to_string(),
+            "postgresql".to_string(),
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let outline = result.unwrap();
+        assert_eq!(outline.statements.len(), 1);
+        assert_eq!(outline.statements[0].kind, "SELECT");
+        assert_eq!(outline.statements[0].tables.len(), 1);
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+    }
+
+    #[tokio::test]
+    async fn test_sql_get_outline_with_joins() {
+        let result = sql_get_outline(
+            "SELECT * FROM users u INNER JOIN orders o ON u.id = o.user_id".to_string(),
+            "postgresql".to_string(),
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let outline = result.unwrap();
+        assert_eq!(outline.statements[0].tables.len(), 2);
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+        assert_eq!(outline.statements[0].tables[1].name, "orders");
+        assert_eq!(
+            outline.statements[0].tables[1].join_type,
+            Some("INNER".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_sql_get_outline_mysql_dialect() {
+        let result = sql_get_outline(
+            "SELECT * FROM `users`".to_string(),
+            "mysql".to_string(),
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let outline = result.unwrap();
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+    }
 
     #[test]
     fn test_parse_dialect() {
