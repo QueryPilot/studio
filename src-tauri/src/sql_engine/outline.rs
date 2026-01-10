@@ -224,7 +224,7 @@ impl<'a> OutlineBuilder<'a> {
 
         // Find CTE references in the main query body
         for cte in &mut ctes {
-            self.find_cte_references(cte, stmt_start);
+            self.find_cte_references(cte);
         }
 
         StatementOutline {
@@ -251,8 +251,9 @@ impl<'a> OutlineBuilder<'a> {
                 let cte_name = cte.alias.name.value.clone();
                 let name_span = self.find_identifier_span(&cte_name, base_offset);
 
-                // CTE span includes the entire CTE definition (name through closing paren)
-                // For simplicity, use name_span as starting point
+                // CTE span currently only captures the CTE name, not the full definition.
+                // Full definition spans would require tracking the closing paren position,
+                // which sqlparser 0.52 doesn't expose. Using name_span for now.
                 let cte_span = name_span;
 
                 ctes.push(CteOutline {
@@ -414,7 +415,7 @@ impl<'a> OutlineBuilder<'a> {
     /// Find CTE references in the source after the CTE definition.
     /// Note: CTE references intentionally overlap with table references - they track
     /// where the CTE is used in the query, which is exactly the table references.
-    fn find_cte_references(&mut self, cte: &mut CteOutline, _stmt_start: usize) {
+    fn find_cte_references(&mut self, cte: &mut CteOutline) {
         // Search for CTE name usage after its definition
         // We need to search case-insensitively and find word boundaries
         let search_start = cte.name_span.end;
