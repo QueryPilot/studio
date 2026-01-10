@@ -61,7 +61,7 @@ pub struct TableOutline {
 }
 
 /// Text span with byte offsets.
-#[derive(Serialize, Clone, Debug, Copy, PartialEq)]
+#[derive(Serialize, serde::Deserialize, Clone, Debug, Copy, PartialEq)]
 pub struct TextSpan {
     pub start: usize,
     pub end: usize,
