@@ -482,10 +482,16 @@ ORDER BY o.name`;
 SELECT
     i.name as index_name,
     t.name as table_name,
-    STRING_AGG(c.name, ',') WITHIN GROUP (ORDER BY ic.key_ordinal) as columns,
+    '[' + STRING_AGG('"' + REPLACE(c.name, '"', '\"') + '"', ',') WITHIN GROUP (ORDER BY ic.key_ordinal) + ']' as columns,
     i.is_unique as is_unique,
     i.is_primary_key as is_primary,
-    i.type_desc as index_type
+    CASE WHEN i.has_filter = 1 THEN 1 ELSE 0 END as is_partial,
+    'USING ' + ISNULL(i.type_desc COLLATE DATABASE_DEFAULT, '') + 
+        CASE WHEN i.has_filter = 1 
+            THEN ' WHERE ' + ISNULL(i.filter_definition COLLATE DATABASE_DEFAULT, '') 
+            ELSE '' 
+        END as definition,
+    0 as is_foreign_key
 FROM sys.indexes i
 JOIN sys.tables t ON i.object_id = t.object_id
 JOIN sys.schemas s ON t.schema_id = s.schema_id
@@ -494,9 +500,10 @@ JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
 WHERE s.name = '${this.escapeString(schema)}'
     AND t.name = '${this.escapeString(table)}'
     AND i.name IS NOT NULL
-GROUP BY i.name, t.name, i.is_unique, i.is_primary_key, i.type_desc
+GROUP BY i.name, t.name, i.is_unique, i.is_primary_key, i.type_desc, i.has_filter, i.filter_definition
 ORDER BY i.name`;
   }
+
 
   getIndexUsageStatsQuery(schema: string, table: string): string {
     return `
