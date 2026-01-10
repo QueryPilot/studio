@@ -97,6 +97,7 @@ interface ForeignEdgeData {
   highlighted?: boolean;
   isHovered?: boolean;
   isDragging?: boolean;
+  dimmed?: boolean;
   onHover?: (relationshipId: string) => void;
   onLeave?: () => void;
 }
@@ -132,8 +133,8 @@ const edgeStylesInjected = (() => {
         contain: layout style paint;
       }
       .erd-table-card-selected {
-        box-shadow: 0 0 0 2px hsl(var(--primary));
-        border-color: hsl(var(--primary));
+        box-shadow: 0 0 0 2px var(--primary);
+        border-color: var(--primary);
       }
       .${FLOW_CLASS} {
         -webkit-font-smoothing: antialiased;
@@ -164,8 +165,8 @@ const edgeStylesInjected = (() => {
         font-size: 11px;
         padding: 2px 6px;
         border-radius: 4px;
-        background: hsl(var(--primary));
-        color: hsl(var(--primary-foreground));
+        background: var(--primary);
+        color: var(--primary-foreground);
       }
     `;
     document.head.appendChild(style);
@@ -182,8 +183,20 @@ const makeHandleId = (
   side?: "left" | "right",
 ) => (side ? `${role}-${side}-${columnName}` : `${role}-${columnName}`);
 
+const TABLE_HANDLE_COLUMN = "__table__";
+
+const normalizeColumnName = (columnName: string): string => {
+  const trimmed = columnName.trim();
+  return trimmed.replace(/^["'`]|["'`]$/g, "");
+};
+
 const TABLE_NODE_TYPE = "table-node";
 const EDGE_TYPE = "foreign";
+
+const EDGE_COLORS = {
+  base: "var(--foreground)",
+  highlighted: "var(--primary)",
+} as const;
 
 const TableNodeComponent: React.FC<NodeProps<any>> = ({
   id,
@@ -244,7 +257,7 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
   return (
     <div
       className={[
-        "erd-table-card w-[320px] rounded-md border bg-card text-xs shadow-sm",
+        "erd-table-card relative w-[320px] rounded-md border bg-card text-xs shadow-sm",
         selected || isSelected ? "erd-table-card-selected" : "border-border",
       ].join(" ")}
       onMouseEnter={() => {
@@ -257,6 +270,58 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
         onClick(id);
       }}
     >
+      <Handle
+        type="source"
+        position={Position.Left}
+        id={makeHandleId(TABLE_HANDLE_COLUMN, "source", "left")}
+        style={{
+          opacity: 0,
+          width: 1,
+          height: 1,
+          border: "none",
+          background: "transparent",
+          pointerEvents: "none",
+        }}
+      />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id={makeHandleId(TABLE_HANDLE_COLUMN, "target", "left")}
+        style={{
+          opacity: 0,
+          width: 1,
+          height: 1,
+          border: "none",
+          background: "transparent",
+          pointerEvents: "none",
+        }}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id={makeHandleId(TABLE_HANDLE_COLUMN, "source", "right")}
+        style={{
+          opacity: 0,
+          width: 1,
+          height: 1,
+          border: "none",
+          background: "transparent",
+          pointerEvents: "none",
+        }}
+      />
+      <Handle
+        type="target"
+        position={Position.Right}
+        id={makeHandleId(TABLE_HANDLE_COLUMN, "target", "right")}
+        style={{
+          opacity: 0,
+          width: 1,
+          height: 1,
+          border: "none",
+          background: "transparent",
+          pointerEvents: "none",
+        }}
+      />
       <div className="flex items-center justify-between border-b px-2 py-1 text-xs font-semibold">
         <span className="truncate">
           {table.schema}.{table.name}
@@ -488,35 +553,35 @@ const TableNode = React.memo(TableNodeComponent, areTableNodesEqual);
 const MARKER_STYLES_CACHE = {
   "1-source-primary": {
     markerWidth: 4, markerHeight: 7, refX: 0, refY: 3.5,
-    orient: "auto", fill: "none", stroke: "hsl(var(--primary))", strokeWidth: 0.8,
+    orient: "auto", fill: "none", stroke: EDGE_COLORS.highlighted, strokeWidth: 0.8,
   },
   "1-target-primary": {
     markerWidth: 4, markerHeight: 7, refX: 4, refY: 3.5,
-    orient: "auto", fill: "none", stroke: "hsl(var(--primary))", strokeWidth: 0.8,
+    orient: "auto", fill: "none", stroke: EDGE_COLORS.highlighted, strokeWidth: 0.8,
   },
   "n-source-primary": {
     markerWidth: 7, markerHeight: 6, refX: 0, refY: 3,
-    orient: "auto", fill: "none", stroke: "hsl(var(--primary))", strokeWidth: 0.6,
+    orient: "auto", fill: "none", stroke: EDGE_COLORS.highlighted, strokeWidth: 0.6,
   },
   "n-target-primary": {
     markerWidth: 7, markerHeight: 6, refX: 7, refY: 3,
-    orient: "auto", fill: "none", stroke: "hsl(var(--primary))", strokeWidth: 0.6,
+    orient: "auto", fill: "none", stroke: EDGE_COLORS.highlighted, strokeWidth: 0.6,
   },
-  "1-source-muted": {
+  "1-source-base": {
     markerWidth: 4, markerHeight: 7, refX: 0, refY: 3.5,
-    orient: "auto", fill: "none", stroke: "hsl(var(--muted-foreground))", strokeWidth: 0.8,
+    orient: "auto", fill: "none", stroke: EDGE_COLORS.base, strokeWidth: 0.8,
   },
-  "1-target-muted": {
+  "1-target-base": {
     markerWidth: 4, markerHeight: 7, refX: 4, refY: 3.5,
-    orient: "auto", fill: "none", stroke: "hsl(var(--muted-foreground))", strokeWidth: 0.8,
+    orient: "auto", fill: "none", stroke: EDGE_COLORS.base, strokeWidth: 0.8,
   },
-  "n-source-muted": {
+  "n-source-base": {
     markerWidth: 7, markerHeight: 6, refX: 0, refY: 3,
-    orient: "auto", fill: "none", stroke: "hsl(var(--muted-foreground))", strokeWidth: 0.6,
+    orient: "auto", fill: "none", stroke: EDGE_COLORS.base, strokeWidth: 0.6,
   },
-  "n-target-muted": {
+  "n-target-base": {
     markerWidth: 7, markerHeight: 6, refX: 7, refY: 3,
-    orient: "auto", fill: "none", stroke: "hsl(var(--muted-foreground))", strokeWidth: 0.6,
+    orient: "auto", fill: "none", stroke: EDGE_COLORS.base, strokeWidth: 0.6,
   },
 } as const;
 
@@ -548,7 +613,10 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
 
   const relationshipType = `${edgeData?.sourceCardinality || "1"}-${edgeData?.targetCardinality || "1"}`;
   const highlighted = Boolean(selected || edgeData?.highlighted);
-  const colorKey = highlighted ? "primary" : "muted";
+  const colorKey = highlighted ? "primary" : "base";
+  const isDimmed = Boolean(edgeData?.dimmed);
+  const strokeOpacity = isDimmed ? 0.15 : highlighted ? 1 : 0.85;
+  const markerOpacity = strokeOpacity;
 
   const computeSmoothPath = () => {
     const result = getSmoothStepPath({
@@ -658,7 +726,7 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
       {/* Define custom markers */}
       <defs>
         {sourceMarkerStyle && (
-          <marker id={sourceMarkerId} {...sourceMarkerStyle}>
+          <marker id={sourceMarkerId} {...sourceMarkerStyle} opacity={markerOpacity}>
             {edgeData?.sourceCardinality === "1" ? (
               <line x1="0" y1="0.5" x2="0" y2="6.5" />
             ) : (
@@ -672,7 +740,7 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
           </marker>
         )}
         {targetMarkerStyle && (
-          <marker id={targetMarkerId} {...targetMarkerStyle}>
+          <marker id={targetMarkerId} {...targetMarkerStyle} opacity={markerOpacity}>
             {edgeData?.targetCardinality === "1" ? (
               <line x1="4" y1="0.5" x2="4" y2="6.5" />
             ) : (
@@ -703,12 +771,13 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
       {!highlighted && (
         <path
           d={edgePath}
-          stroke="hsl(var(--background))"
+          stroke="var(--background)"
           strokeWidth={4}
           fill="none"
           pointerEvents="none"
           style={{
             ...lineStyle,
+            opacity: isDimmed ? 0.15 : 0.35,
           }}
         />
       )}
@@ -716,10 +785,7 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
       <path
         id={id}
         d={edgePath}
-        stroke={
-          highlighted ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))"
-        }
-        strokeWidth={highlighted ? 1.5 : 0.5}
+        stroke={highlighted ? EDGE_COLORS.highlighted : EDGE_COLORS.base}
         fill="none"
         markerStart={sourceMarkerStyle ? `url(#${sourceMarkerId})` : undefined}
         markerEnd={targetMarkerStyle ? `url(#${targetMarkerId})` : markerEnd}
@@ -728,6 +794,8 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
         style={{
           ...style,
           ...lineStyle,
+          strokeWidth: highlighted ? 2 : 1.2,
+          strokeOpacity,
         }}
       />
 
@@ -819,6 +887,7 @@ const areForeignKeyEdgesEqual = (
   if (prevData.highlighted !== nextData.highlighted) return false;
   if (prevData.isHovered !== nextData.isHovered) return false;
   if (prevData.isDragging !== nextData.isDragging) return false;
+  if (prevData.dimmed !== nextData.dimmed) return false;
   
   return true;
 };
@@ -930,6 +999,40 @@ export const ERDVisualizer = React.forwardRef<
       onColumnDoubleClick,
     }), [toggleExpanded, handleTableClick, onColumnDoubleClick]);
 
+    const tableColumnLookup = useMemo(() => {
+      const lookup = new Map<string, Map<string, string>>();
+      tables.forEach((table) => {
+        const tableId = buildNodeId(table);
+        const columnLookup = new Map<string, string>();
+        table.columns.forEach((column) => {
+          columnLookup.set(column.name, column.name);
+          columnLookup.set(column.name.toLowerCase(), column.name);
+        });
+        lookup.set(tableId, columnLookup);
+      });
+      return lookup;
+    }, [tables]);
+
+    const resolveColumnName = useCallback(
+      (tableId: string, columnName: string): string | null => {
+        if (!columnName) return null;
+        const lookup = tableColumnLookup.get(tableId);
+        if (!lookup) return null;
+        const cleaned = normalizeColumnName(columnName);
+        const direct =
+          lookup.get(cleaned) ?? lookup.get(cleaned.toLowerCase());
+        if (direct) return direct;
+        if (cleaned.includes(".")) {
+          const tail = cleaned.split(".").pop() ?? "";
+          const tailMatch =
+            lookup.get(tail) ?? lookup.get(tail.toLowerCase());
+          if (tailMatch) return tailMatch;
+        }
+        return null;
+      },
+      [tableColumnLookup],
+    );
+
     const handleColumnMap = useMemo(() => {
       if (!relationships.length) {
         return new Map<string, MutableColumnHandleSets>();
@@ -956,21 +1059,23 @@ export const ERDVisualizer = React.forwardRef<
 
         const sourceEntry = ensureEntry(sourceId);
         relationship.fromColumns.forEach((columnName) => {
-          if (columnName) {
-            sourceEntry.source.add(columnName);
+          const resolved = resolveColumnName(sourceId, columnName);
+          if (resolved) {
+            sourceEntry.source.add(resolved);
           }
         });
 
         const targetEntry = ensureEntry(targetId);
         relationship.toColumns.forEach((columnName) => {
-          if (columnName) {
-            targetEntry.target.add(columnName);
+          const resolved = resolveColumnName(targetId, columnName);
+          if (resolved) {
+            targetEntry.target.add(resolved);
           }
         });
       });
 
       return map;
-    }, [relationships]);
+    }, [relationships, resolveColumnName]);
 
     // Memoize node data factory for performance - CRITICAL optimization
     // Use useMemo instead of useCallback to cache the entire data objects
@@ -1005,6 +1110,7 @@ export const ERDVisualizer = React.forwardRef<
           relationship.toTable
         }`;
         const pairCount = Math.max(
+          1,
           relationship.fromColumns.length,
           relationship.toColumns.length,
         );
@@ -1052,6 +1158,14 @@ export const ERDVisualizer = React.forwardRef<
             "";
           const targetColumn =
             relationship.toColumns[index] ?? relationship.toColumns[0] ?? "";
+          const resolvedSourceColumn = resolveColumnName(
+            sourceId,
+            sourceColumn,
+          );
+          const resolvedTargetColumn = resolveColumnName(
+            targetId,
+            targetColumn,
+          );
           const edgeId = `${relationship.id}-${index}`;
 
           return {
@@ -1059,22 +1173,22 @@ export const ERDVisualizer = React.forwardRef<
             source: sourceId,
             target: targetId,
             sourceHandle: makeHandleId(
-              sourceColumn,
+              resolvedSourceColumn ?? TABLE_HANDLE_COLUMN,
               "source",
               connectionSides.source as "left" | "right",
             ),
             targetHandle: makeHandleId(
-              targetColumn,
+              resolvedTargetColumn ?? TABLE_HANDLE_COLUMN,
               "target",
               connectionSides.target as "left" | "right",
             ),
             type: EDGE_TYPE,
             markerEnd: {
               type: MarkerType.ArrowClosed,
-              color: "hsl(var(--muted-foreground))",
+              color: EDGE_COLORS.base,
             },
             style: {
-              strokeWidth: 0.5,
+              strokeWidth: 0.9,
             },
             data: {
               relationshipId: relationship.id,
@@ -1087,7 +1201,7 @@ export const ERDVisualizer = React.forwardRef<
           } as any;
         });
       });
-    }, [relationships, handleEdgeHover, handleEdgeLeave]);
+    }, [relationships, handleEdgeHover, handleEdgeLeave, resolveColumnName]);
 
     const layoutWithDagre = useCallback(() => {
       // Calculate dynamic heights based on expanded state
@@ -1372,6 +1486,10 @@ export const ERDVisualizer = React.forwardRef<
         if (selectedTableId) {
           selectedIds.add(selectedTableId);
         }
+        const hasActiveHighlight =
+          selectedIds.size > 0 ||
+          hoveredNodeId !== null ||
+          hoveredRelationshipId !== null;
 
         // Skip edge updates during active drag for maximum performance
         if (isDraggingRef.current && draggingNodeId) {
@@ -1398,24 +1516,30 @@ export const ERDVisualizer = React.forwardRef<
             const highlighted = isRelatedToSelected || isTemporarilyHighlighted;
             const isHovered = isEdgeHovered;
             const isDragging = draggingNodeId !== null;
+            const dimmed = hasActiveHighlight && !highlighted;
+            const zIndex = highlighted ? 2 : 0;
 
             // Only update if values changed
             const currentData = edge.data as ForeignEdgeData;
             if (
               currentData.highlighted === highlighted &&
               currentData.isHovered === isHovered &&
-              currentData.isDragging === isDragging
+              currentData.isDragging === isDragging &&
+              currentData.dimmed === dimmed &&
+              edge.zIndex === zIndex
             ) {
               return edge;
             }
 
             return {
               ...edge,
+              zIndex,
               data: {
                 ...currentData,
                 highlighted,
                 isHovered,
                 isDragging,
+                dimmed,
               },
             };
           });
@@ -1496,11 +1620,11 @@ export const ERDVisualizer = React.forwardRef<
           <MiniMap
             nodeStrokeWidth={3}
             nodeColor={(node) => {
-              if (node.selected) return "hsl(var(--primary))";
-              return "hsl(var(--muted))";
+              if (node.selected) return "var(--primary)";
+              return "var(--muted)";
             }}
             nodeBorderRadius={4}
-            maskColor="hsl(var(--background) / 0.8)"
+            maskColor="color-mix(in oklch, var(--background) 80%, transparent)"
             className="!bg-secondary !border !border-border rounded-md shadow-none"
             position="bottom-right"
             pannable={true}
