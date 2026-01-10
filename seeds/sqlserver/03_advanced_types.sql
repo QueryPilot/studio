@@ -11,6 +11,15 @@ SET CONCAT_NULL_YIELDS_NULL ON;
 SET NUMERIC_ROUNDABORT OFF;
 GO
 
+-- Cleanup existing objects
+IF OBJECT_ID('dbo.spatial_test', 'U') IS NOT NULL DROP TABLE dbo.spatial_test;
+IF OBJECT_ID('dbo.computed_columns_test', 'U') IS NOT NULL DROP TABLE dbo.computed_columns_test;
+IF OBJECT_ID('dbo.sales_analysis', 'V') IS NOT NULL DROP VIEW dbo.sales_analysis;
+IF OBJECT_ID('dbo.sales_data', 'U') IS NOT NULL DROP TABLE dbo.sales_data;
+IF OBJECT_ID('dbo.status_test', 'U') IS NOT NULL DROP TABLE dbo.status_test;
+IF OBJECT_ID('dbo.numeric_types_test', 'U') IS NOT NULL DROP TABLE dbo.numeric_types_test;
+GO
+
 -- Create table with spatial and advanced MSSQL types
 CREATE TABLE spatial_test (
     id INT PRIMARY KEY IDENTITY(1,1),

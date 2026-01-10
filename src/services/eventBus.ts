@@ -31,7 +31,6 @@ type Events = {
 
   // Query Editor events
   "query-editor:format": KeyboardEventPayload;
-  "query-editor:toggle-history": KeyboardEventPayload;
   "query-editor:execute": KeyboardEventPayload;
   "query-editor:execute-background": KeyboardEventPayload;
   "query-editor:find": KeyboardEventPayload;

@@ -842,14 +842,6 @@ export const defaultCommands: Command[] = [
     },
   },
   {
-    id: "query.action.toggleHistory",
-    label: "Toggle History",
-    category: "Query",
-    handler: () => {
-      eventBus.emit("query-editor:toggle-history", {});
-    },
-  },
-  {
     id: "editor.action.executeQuery",
     label: "Execute Query",
     category: "Editor",
