@@ -1314,4 +1314,61 @@ mod tests {
         assert_eq!(outline.parse_status, ParseStatus::Full);
         assert_eq!(outline.statements[0].tables[0].name, "users");
     }
+
+    #[test]
+    fn test_user_complex_query_with_ctes() {
+        let sql = r#"
+SELECT u.id, u.username, u.email, u.full_name
+FROM users u
+WHERE u.is_active = true AND u.email_verified = true;
+
+WITH active_users AS (
+  SELECT id, username, email, full_name
+  FROM users
+  WHERE is_active = true AND email_verified = true
+),
+user_todo_stats AS (
+  SELECT
+    user_id,
+    COUNT(*) as total_todos,
+    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_count
+  FROM todos
+  GROUP BY user_id
+)
+SELECT
+  u.username,
+  u.email,
+  u.full_name,
+  s.total_todos,
+  s.completed_count,
+  ROUND(s.completed_count::numeric / s.total_todos * 100, 2) as completion_rate
+FROM active_users u
+INNER JOIN user_todo_stats s ON u.id = s.user_id
+WHERE s.total_todos > 10
+ORDER BY completion_rate DESC;
+"#;
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+        
+        println!("Parse status: {:?}", outline.parse_status);
+        println!("Statements: {}", outline.statements.len());
+        for (i, stmt) in outline.statements.iter().enumerate() {
+            println!("Statement {}: {} with {} CTEs, {} tables", i, stmt.kind, stmt.ctes.len(), stmt.tables.len());
+        }
+        
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements.len(), 2);
+        
+        // First statement: simple SELECT
+        assert_eq!(outline.statements[0].kind, "SELECT");
+        assert_eq!(outline.statements[0].tables.len(), 1);
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+        assert_eq!(outline.statements[0].tables[0].alias, Some("u".to_string()));
+        
+        // Second statement: SELECT with CTEs and JOIN
+        assert_eq!(outline.statements[1].kind, "SELECT");
+        assert_eq!(outline.statements[1].ctes.len(), 2);
+        assert_eq!(outline.statements[1].ctes[0].name, "active_users");
+        assert_eq!(outline.statements[1].ctes[1].name, "user_todo_stats");
+        assert_eq!(outline.statements[1].tables.len(), 2); // active_users u, user_todo_stats s
+    }
 }

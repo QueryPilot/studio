@@ -148,7 +148,8 @@ export class MySQLAdapter extends SqlAdapter {
     const statements: string[] = [];
 
     // Check if we have any column definition changes that require MODIFY COLUMN
-    const hasColumnDefChanges = changes.dataType !== undefined ||
+    const hasColumnDefChanges =
+      changes.dataType !== undefined ||
       changes.nullable !== undefined ||
       changes.defaultValue !== undefined ||
       changes.comment !== undefined;
@@ -179,7 +180,7 @@ export class MySQLAdapter extends SqlAdapter {
 
       // Add comment to MODIFY COLUMN if provided
       if (changes.comment !== undefined) {
-        if (changes.comment !== null && changes.comment !== '') {
+        if (changes.comment !== null && changes.comment !== "") {
           parts.push(`COMMENT ${this.quoteString(changes.comment)}`);
         }
       }
@@ -187,33 +188,46 @@ export class MySQLAdapter extends SqlAdapter {
       statements.push(`ALTER TABLE ${table} MODIFY COLUMN ${parts.join(" ")}`);
     } else if (changes.comment !== undefined) {
       // Comment-only change without datatype - show helpful message
-      if (changes.comment !== null && changes.comment !== '') {
+      if (changes.comment !== null && changes.comment !== "") {
         statements.push(
-          `-- To change column comment, use: ALTER TABLE ${table} MODIFY COLUMN ${colName} <current_type> COMMENT ${this.quoteString(changes.comment)}`
+          `-- To change column comment, use: ALTER TABLE ${table} MODIFY COLUMN ${colName} <current_type> COMMENT ${this.quoteString(
+            changes.comment,
+          )}`,
         );
       } else {
         statements.push(
-          `-- To remove column comment, use: ALTER TABLE ${table} MODIFY COLUMN ${colName} <current_type>`
+          `-- To remove column comment, use: ALTER TABLE ${table} MODIFY COLUMN ${colName} <current_type>`,
         );
       }
-    } else if (changes.nullable !== undefined || changes.defaultValue !== undefined) {
+    } else if (
+      changes.nullable !== undefined ||
+      changes.defaultValue !== undefined
+    ) {
       // Other changes without datatype - need full definition
       statements.push(
-        `-- MySQL requires full column definition: ALTER TABLE ${table} MODIFY COLUMN ${colName} <current_type> ${changes.nullable === false ? 'NOT NULL' : 'NULL'}${changes.defaultValue !== undefined ? ' DEFAULT ...' : ''}`
+        `-- MySQL requires full column definition: ALTER TABLE ${table} MODIFY COLUMN ${colName} <current_type> ${
+          changes.nullable === false ? "NOT NULL" : "NULL"
+        }${changes.defaultValue !== undefined ? " DEFAULT ..." : ""}`,
       );
     }
 
     // Handle check constraint changes (MySQL 8.0.16+)
-    if (changes.checkExpression !== undefined && changes.checkExpression !== null && changes.checkExpression !== '') {
+    if (
+      changes.checkExpression !== undefined &&
+      changes.checkExpression !== null &&
+      changes.checkExpression !== ""
+    ) {
       const features = this.getFeatures();
       if (features.supportsCheckConstraints) {
         const constraintName = `${target.table}_${columnName}_check`;
         statements.push(
-          `ALTER TABLE ${table} ADD CONSTRAINT ${this.quoteIdentifier(constraintName)} CHECK (${changes.checkExpression})`
+          `ALTER TABLE ${table} ADD CONSTRAINT ${this.quoteIdentifier(
+            constraintName,
+          )} CHECK (${changes.checkExpression})`,
         );
       } else {
         statements.push(
-          `-- CHECK constraints require MySQL 8.0.16+ or MariaDB 10.2.1+`
+          `-- CHECK constraints require MySQL 8.0.16+ or MariaDB 10.2.1+`,
         );
       }
     }
