@@ -59,6 +59,7 @@ pub mod outline;
 pub mod parser;
 // NOTE: schema_queries.rs DELETED - TypeScript adapters are single source of truth
 // Schema data is pushed from frontend via sql_set_schema command
+pub mod refactor;
 pub mod schema_store;
 pub mod semantic;
 pub mod snippets;
@@ -105,6 +106,7 @@ pub use join_suggester::{
 pub use outline::{
     CteOutline, OutlineBuilder, OutlineTree, ParseStatus, StatementOutline, TableOutline, TextSpan,
 };
+pub use refactor::{Refactor, RefactorAction, RefactorKind, RefactorRequest, RefactorResult, TextEdit};
 pub use snippets::{get_all_snippets, get_snippets, get_snippets_by_category, SnippetCategory, SnippetItem};
 pub use sp_params::{
     generate_function_call, get_builtin_function_help, get_function_overloads,

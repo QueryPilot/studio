@@ -1,4 +1,4 @@
-.PHONY: help d dev dev-profile dp build build-ai build-ai-all verify-sidecars dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup version release release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-clean test-ssh-full
+.PHONY: help d dev dev-profile dp build build-ai build-ai-all verify-sidecars dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-integration ti test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup version release release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-clean test-ssh-full
 
 SSH_KEYGEN ?= ssh-keygen
 SQLSERVER_CONTAINER ?= query-pilot-sqlserver
@@ -28,6 +28,7 @@ help:
 	@echo "  make test-unit         - Run unit tests only"
 	@echo "  make test-backend      - Run Rust tests only"
 	@echo "  make test-frontend     - Run Frontend tests only"
+	@echo "  make test-integration, make ti - Run Rust integration tests (requires Docker)"
 	@echo "  make test-watch        - Run Frontend tests in watch mode"
 	@echo "  make test-coverage     - Run tests with coverage report"
 	@echo "  make test-all          - Run all tests (unit + integration)"
@@ -117,6 +118,17 @@ test:
 	@$(MAKE) test-backend
 	@$(MAKE) test-frontend
 	@echo "All unit tests completed!"
+
+# Run integration tests (requires Docker)
+test-integration ti:
+	@echo "Running Rust integration tests..."
+	@cd src-tauri && \
+		for test in tests/*.rs; do \
+			name=$$(basename $$test .rs); \
+			echo "  - $$name"; \
+			cargo test --test $$name; \
+		done
+	@echo "Integration tests completed!"
 
 # Shorthand for test
 t:

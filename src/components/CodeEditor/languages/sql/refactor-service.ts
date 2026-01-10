@@ -116,3 +116,75 @@ export async function getOutline(
 export function clearOutlineCache(): void {
   cache = null;
 }
+
+// =============================================================================
+// Refactoring Actions API
+// =============================================================================
+
+export interface RefactorAction {
+  kind: "rename" | "extract_cte";
+  label: string;
+  symbol: string | null;
+  span: TextSpan;
+  enabled: boolean;
+  disabled_reason: string | null;
+}
+
+export interface RefactorResult {
+  new_sql: string;
+  edits: TextEdit[];
+  cursor_position: number;
+}
+
+export interface TextEdit {
+  span: TextSpan;
+  new_text: string;
+}
+
+export type RefactorRequest =
+  | { kind: "rename"; symbol_span: TextSpan; new_name: string }
+  | { kind: "extract_cte"; selection_span: TextSpan; cte_name: string };
+
+/**
+ * Get available refactor actions at cursor position
+ */
+export async function getRefactorActions(
+  sql: string,
+  dialect: string,
+  cursorOffset: number
+): Promise<RefactorAction[]> {
+  if (!isTauriAvailable()) {
+    console.warn("[refactor-service] Tauri not available");
+    return [];
+  }
+
+  try {
+    return await invoke<RefactorAction[]>("sql_get_refactor_actions", {
+      sql,
+      dialect,
+      cursorOffset,
+    });
+  } catch (error) {
+    console.error("[refactor-service] Error getting refactor actions:", error);
+    return [];
+  }
+}
+
+/**
+ * Apply a refactoring action
+ */
+export async function applyRefactor(
+  sql: string,
+  dialect: string,
+  action: RefactorRequest
+): Promise<RefactorResult> {
+  if (!isTauriAvailable()) {
+    throw new Error("Tauri not available");
+  }
+
+  return await invoke<RefactorResult>("sql_apply_refactor", {
+    sql,
+    dialect,
+    action,
+  });
+}

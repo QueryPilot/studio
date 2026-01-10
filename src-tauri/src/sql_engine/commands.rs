@@ -260,6 +260,67 @@ pub async fn sql_get_outline(sql: String, dialect: String) -> Result<OutlineTree
 }
 
 // =============================================================================
+// SQL Refactoring Commands
+// =============================================================================
+
+/// Get available refactoring actions at cursor position.
+///
+/// Returns actions like Rename and Extract to CTE based on what the cursor is on.
+/// Called on cursor move (debounced) for lightbulb UI, or on right-click for context menu.
+#[tauri::command]
+pub async fn sql_get_refactor_actions(
+    sql: String,
+    dialect: String,
+    cursor_offset: usize,
+) -> Result<Vec<super::RefactorAction>, String> {
+    use super::Refactor;
+    use sqlparser::parser::Parser;
+
+    let sql_dialect = parse_dialect(&dialect);
+    let parser_dialect = sql_dialect.to_sqlparser_dialect();
+
+    match Parser::parse_sql(&*parser_dialect, &sql) {
+        Ok(statements) => {
+            let refactor = Refactor::new(&sql, statements);
+            Ok(refactor.get_actions(cursor_offset))
+        }
+        Err(e) => Err(format!("Failed to parse SQL: {}", e)),
+    }
+}
+
+/// Apply a refactoring transformation and return the new SQL.
+///
+/// Called when user confirms a refactoring action (e.g., enters new name for rename).
+#[tauri::command]
+pub async fn sql_apply_refactor(
+    sql: String,
+    dialect: String,
+    action: super::RefactorRequest,
+) -> Result<super::RefactorResult, String> {
+    use super::{Refactor, RefactorRequest};
+    use sqlparser::parser::Parser;
+
+    let sql_dialect = parse_dialect(&dialect);
+    let parser_dialect = sql_dialect.to_sqlparser_dialect();
+
+    let statements = Parser::parse_sql(&*parser_dialect, &sql)
+        .map_err(|e| format!("Failed to parse SQL: {}", e))?;
+
+    let refactor = Refactor::new(&sql, statements);
+
+    match action {
+        RefactorRequest::Rename {
+            symbol_span,
+            new_name,
+        } => refactor.apply_rename(symbol_span, &new_name),
+        RefactorRequest::ExtractCte {
+            selection_span,
+            cte_name,
+        } => refactor.apply_extract_cte(selection_span, &cte_name),
+    }
+}
+
+// =============================================================================
 // Schema Push Commands (receives data from frontend - TypeScript is source of truth)
 // =============================================================================
 

@@ -1,6 +1,9 @@
 use async_trait::async_trait;
 use bb8::Pool;
 use bb8_tiberius::ConnectionManager;
+use futures::FutureExt;
+use regex::Regex;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use tiberius::{AuthMethod, Config, EncryptionLevel};
 use tokio::sync::RwLock;
@@ -107,6 +110,118 @@ impl MssqlAdapter {
         config.trust_cert();
 
         Ok(config)
+    }
+
+    fn quote_identifier(name: &str) -> String {
+        format!("[{}]", name.replace(']', "]]"))
+    }
+
+    fn unquote_identifier(name: &str) -> String {
+        let trimmed = name.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') && trimmed.len() >= 2 {
+            return trimmed[1..trimmed.len() - 1].replace("]]", "]");
+        }
+        trimmed.to_string()
+    }
+
+    fn parse_table_ref(table_ref: &str) -> Option<(String, String)> {
+        let token = table_ref.trim().split_whitespace().next()?;
+        let parts: Vec<&str> = token.split('.').collect();
+        match parts.len() {
+            1 => Some(("dbo".to_string(), Self::unquote_identifier(parts[0]))),
+            2 => Some((
+                Self::unquote_identifier(parts[0]),
+                Self::unquote_identifier(parts[1]),
+            )),
+            _ => None,
+        }
+    }
+
+    async fn rewrite_select_star_with_casts(
+        conn: &mut bb8::PooledConnection<'_, ConnectionManager>,
+        sql: &str,
+    ) -> Result<Option<String>> {
+        let re = Regex::new(r"(?is)^\s*select\s+(top\s+\d+\s+)?\*\s+from\s+([^\s;]+)(.*)$")
+            .map_err(|e| AppError::Internal(format!("Regex error: {}", e)))?;
+        let caps = match re.captures(sql) {
+            Some(caps) => caps,
+            None => return Ok(None),
+        };
+
+        let top_clause = caps.get(1).map(|m| m.as_str().trim().to_string());
+        let table_ref = caps.get(2).map(|m| m.as_str()).unwrap_or_default();
+        let tail = caps.get(3).map(|m| m.as_str()).unwrap_or_default();
+
+        let (schema_name, table_name) = match Self::parse_table_ref(table_ref) {
+            Some(names) => names,
+            None => return Ok(None),
+        };
+
+        let schema_escaped = schema_name.replace('\'', "''");
+        let table_escaped = table_name.replace('\'', "''");
+        let columns_sql = format!(
+            "SELECT c.name, t.name as type_name \
+             FROM sys.columns c \
+             JOIN sys.types t ON c.user_type_id = t.user_type_id \
+             JOIN sys.tables tbl ON c.object_id = tbl.object_id \
+             JOIN sys.schemas s ON tbl.schema_id = s.schema_id \
+             WHERE s.name = '{}' AND tbl.name = '{}' \
+             ORDER BY c.column_id",
+            schema_escaped, table_escaped
+        );
+
+        let mut result = conn
+            .simple_query(columns_sql.as_str())
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Column query failed: {}", e)))?;
+        let rows = result
+            .into_first_result()
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Column query failed: {}", e)))?;
+
+        if rows.is_empty() {
+            return Ok(None);
+        }
+
+        let mut column_exprs = Vec::with_capacity(rows.len());
+        for row in rows {
+            let column_name: Option<&str> = row.get(0);
+            let type_name: Option<&str> = row.get(1);
+            let column_name = match column_name {
+                Some(name) => name,
+                None => continue,
+            };
+            let quoted = Self::quote_identifier(column_name);
+            let type_name = type_name.unwrap_or("").to_ascii_lowercase();
+            let expr = match type_name.as_str() {
+                "sql_variant" => format!("CONVERT(NVARCHAR(MAX), {}) AS {}", quoted, quoted),
+                "geography" | "geometry" => format!("{}.STAsText() AS {}", quoted, quoted),
+                "hierarchyid" => format!("{}.ToString() AS {}", quoted, quoted),
+                _ => quoted,
+            };
+            column_exprs.push(expr);
+        }
+
+        if column_exprs.is_empty() {
+            return Ok(None);
+        }
+
+        let mut rewritten = String::new();
+        rewritten.push_str("SELECT ");
+        if let Some(top) = top_clause {
+            rewritten.push_str(&top);
+            rewritten.push(' ');
+        }
+        rewritten.push_str(&column_exprs.join(", "));
+        rewritten.push_str(" FROM ");
+        rewritten.push_str(&format!(
+            "{}.{}",
+            Self::quote_identifier(&schema_name),
+            Self::quote_identifier(&table_name)
+        ));
+        rewritten.push_str(tail);
+
+        Ok(Some(rewritten))
     }
 }
 
@@ -232,53 +347,127 @@ impl DbAdapter for MssqlAdapter {
             .get()
             .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
+        let escaped_sql = sql.replace('\'', "''");
+        let describe_sql = format!(
+            "SELECT column_ordinal, name, system_type_name, error_number, error_message \
+             FROM sys.dm_exec_describe_first_result_set(N'{}', NULL, 1)",
+            escaped_sql
+        );
+        let mut unsupported_columns: Vec<String> = Vec::new();
+        let mut preflight_ok = false;
 
-        let mut result = conn
-            .simple_query(sql)
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+        if let Ok(mut describe_result) = conn.simple_query(describe_sql.as_str()).await {
+            if let Ok(rows) = describe_result.into_first_result().await {
+                preflight_ok = true;
+                for row in rows {
+                    let error_number: Option<i32> = row.get(3);
+                    if error_number.is_some() {
+                        preflight_ok = false;
+                        unsupported_columns.clear();
+                        break;
+                    }
 
-        // Get column metadata - columns() is async
-        let columns_opt = result
-            .columns()
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to get columns: {}", e)))?;
-        
-        let columns: Vec<ColumnMeta> = columns_opt
-            .map(|cols| {
-                cols.iter()
-                    .map(|col| ColumnMeta {
-                        name: col.name().to_string(),
-                        data_type: MssqlTypeConverter::column_type_to_cell_type(&col.column_type()),
-                        nullable: true, // SQL Server doesn't provide this in TDS column metadata
-                        primary_key: false,
-                        db_type: MssqlTypeConverter::column_type_to_string(&col.column_type()),
-                        type_oid: None,
-                        default_value: None,
-                        comment: None,
-                        enum_values: None,
-                        type_category: None,
-                        precision: None,
-                        scale: None,
-                    })
-                    .collect()
+                    let system_type_name: Option<&str> = row.get(2);
+                    let type_name = system_type_name.unwrap_or("").to_ascii_lowercase();
+                    let is_variant = type_name.starts_with("sql_variant");
+                    let is_clr_udt = matches!(
+                        type_name.as_str(),
+                        "geography" | "geometry" | "hierarchyid"
+                    );
+
+                    if is_variant || is_clr_udt {
+                        let column_name: Option<&str> = row.get(1);
+                        let ordinal: Option<i32> = row.get(0);
+                        let label = column_name
+                            .map(|name| name.to_string())
+                            .or_else(|| ordinal.map(|idx| format!("column_{}", idx)))
+                            .unwrap_or_else(|| "column".to_string());
+                        let display_type = system_type_name.unwrap_or("UNKNOWN");
+                        unsupported_columns.push(format!("{} ({})", label, display_type));
+                    }
+                }
+            }
+        }
+
+        let mut sql = sql.to_string();
+
+        if !preflight_ok {
+            if let Some(rewritten) = Self::rewrite_select_star_with_casts(&mut conn, sql.as_str()).await? {
+                sql = rewritten;
+            }
+        } else if !unsupported_columns.is_empty() {
+            match Self::rewrite_select_star_with_casts(&mut conn, sql.as_str()).await? {
+                Some(rewritten) => {
+                    sql = rewritten;
+                }
+                None => {
+                    return Err(AppError::Unsupported(format!(
+                        "Unsupported SQL Server column types detected: {}. Cast them to NVARCHAR/VARBINARY or exclude them from the query.",
+                        unsupported_columns.join(", ")
+                    )));
+                }
+            }
+        }
+
+        let query_result = AssertUnwindSafe(async move {
+            let mut result = conn
+                .simple_query(sql.as_str())
+                .await
+                .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+
+            // Get column metadata - columns() is async
+            let columns_opt = result
+                .columns()
+                .await
+                .map_err(|e| AppError::DatabaseError(format!("Failed to get columns: {}", e)))?;
+
+            let columns: Vec<ColumnMeta> = columns_opt
+                .map(|cols| {
+                    cols.iter()
+                        .map(|col| ColumnMeta {
+                            name: col.name().to_string(),
+                            data_type: MssqlTypeConverter::column_type_to_cell_type(
+                                &col.column_type(),
+                            ),
+                            nullable: true, // SQL Server doesn't provide this in TDS column metadata
+                            primary_key: false,
+                            db_type: MssqlTypeConverter::column_type_to_string(&col.column_type()),
+                            type_oid: None,
+                            default_value: None,
+                            comment: None,
+                            enum_values: None,
+                            type_category: None,
+                            precision: None,
+                            scale: None,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            // Collect rows
+            let rows: Vec<tiberius::Row> = result
+                .into_first_result()
+                .await
+                .map_err(|e| AppError::DatabaseError(format!("Failed to collect rows: {}", e)))?;
+
+            // Convert to JSON
+            let json_rows: Vec<Vec<serde_json::Value>> =
+                rows.iter().map(SimpleConverter::row_to_json).collect();
+
+            Ok(QueryResult {
+                columns,
+                rows: json_rows,
             })
-            .unwrap_or_default();
-
-        // Collect rows
-        let rows: Vec<tiberius::Row> = result
-            .into_first_result()
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to collect rows: {}", e)))?;
-
-        // Convert to JSON
-        let json_rows: Vec<Vec<serde_json::Value>> =
-            rows.iter().map(SimpleConverter::row_to_json).collect();
-
-        Ok(QueryResult {
-            columns,
-            rows: json_rows,
         })
+        .catch_unwind()
+        .await;
+
+        match query_result {
+            Ok(result) => result,
+            Err(_) => Err(AppError::Unsupported(
+                "SQL_VARIANT columns or CLR UDTs are not supported by the MSSQL driver. Cast them to NVARCHAR/VARBINARY or exclude them from the query.".into(),
+            )),
+        }
     }
 
     async fn execute(&self, sql: &str) -> Result<u64> {
