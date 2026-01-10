@@ -68,6 +68,7 @@ import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import { eventBus } from "@/services/eventBus";
 import { debounce } from "@/utils/debounce";
 import { detectSqlDialect } from "@/utils/dialectDetector";
+import { logger } from "@/lib/logger";
 import { getThemeExtensions } from "./themes";
 import { getQueryAtCursor, getStatementAtPosition, isDestructiveQuery } from "./core";
 import { sqlFoldService } from "./extensions";
@@ -86,7 +87,9 @@ import { createStatementHighlightExtension } from "./extensions/statement-highli
 import { createRunGutterExtension } from "./extensions/run-gutter";
 import { createSqlContextMenuExtension } from "./extensions/sql-context-menu";
 import type { SqlContextMenuEvent } from "./extensions/sql-context-menu";
+import { createRefactoringExtension } from "./extensions/sql-refactoring";
 import { SqlContextMenu, type SqlContextTarget, type SqlContextAction } from "./components/SqlContextMenu";
+import { ExtractCteDialog } from "./components/ExtractCteDialog";
 
 // SQL language support
 import { createDialectLinter } from "./languages/sql/linter-strategy";
@@ -275,6 +278,13 @@ export const SqlEditor = memo(
     const [contextMenuOpen, setContextMenuOpen] = useState(false);
     const [contextMenuTarget, setContextMenuTarget] = useState<SqlContextTarget | null>(null);
     const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
+
+    // Extract CTE dialog state
+    const [extractCteDialogOpen, setExtractCteDialogOpen] = useState(false);
+    const [extractCteSelection, setExtractCteSelection] = useState<{
+      start: number;
+      end: number;
+    } | null>(null);
 
     // Determine startup value: value prop takes precedence over initialValue
     const startValue = value !== undefined ? value : initialValue;
@@ -700,6 +710,15 @@ export const SqlEditor = memo(
           createSemanticHighlightingExtension(),
           createSqlContextMenuExtension(),
 
+          // SQL Refactoring - F2 rename, Cmd+Shift+E extract CTE, Cmd+. code actions
+          createRefactoringExtension({
+            dialect: effectiveDialect,
+            onExtractCte: (selectionSpan) => {
+              setExtractCteSelection(selectionSpan);
+              setExtractCteDialogOpen(true);
+            },
+          }),
+
           // Statement highlighting - highlight active statement block
           createStatementHighlightExtension(),
 
@@ -894,6 +913,43 @@ export const SqlEditor = memo(
           onAction={handleContextMenuAction}
           onClose={() => setContextMenuOpen(false)}
           open={contextMenuOpen}
+        />
+        <ExtractCteDialog
+          open={extractCteDialogOpen}
+          onOpenChange={setExtractCteDialogOpen}
+          onConfirm={async (cteName) => {
+            if (!viewRef.current || !extractCteSelection) return;
+
+            try {
+              const sql = viewRef.current.state.doc.toString();
+              const { applyRefactor } = await import("./languages/sql/refactor-service");
+
+              const result = await applyRefactor(sql, effectiveDialect, {
+                kind: "extract_cte",
+                selection_span: extractCteSelection,
+                cte_name: cteName,
+              });
+
+              // Apply the new SQL
+              viewRef.current.dispatch({
+                changes: {
+                  from: 0,
+                  to: viewRef.current.state.doc.length,
+                  insert: result.new_sql,
+                },
+              });
+
+              // Set cursor to CTE definition
+              viewRef.current.dispatch({
+                selection: { anchor: result.cursor_position },
+              });
+
+              viewRef.current.focus();
+            } catch (error) {
+              logger.error("[ExtractCTE] Failed:", error);
+              throw error; // Let dialog handle error display
+            }
+          }}
         />
       </>
     );

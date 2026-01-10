@@ -15,7 +15,7 @@ import { startRename, createInlineRenameExtension } from "./inline-rename";
 import type { RefactorAction } from "../languages/sql/refactor-service";
 import { getRefactorActions } from "../languages/sql/refactor-service";
 
-interface RefactorOptions {
+export interface RefactorOptions {
   dialect: string;
   onExtractCte?: (selectionSpan: { start: number; end: number }) => void;
 }
@@ -227,7 +227,7 @@ export function createRefactoringExtension(options: RefactorOptions): Extension 
       decorations: DecorationSet = Decoration.none;
       pendingUpdate: ReturnType<typeof setTimeout> | null = null;
 
-      constructor(view: EditorView) {
+      constructor(_view: EditorView) {
         // Don't update on construction to avoid initial flash
       }
 
