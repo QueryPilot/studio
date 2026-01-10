@@ -906,8 +906,9 @@ export const QueryPanel = memo(function QueryPanel({
                     <div className="w-48 border-r flex-shrink-0 overflow-auto">
                       <QueryOutline
                         sql={query}
-                        onNavigate={(line) => {
-                          editorRef.current?.revealLine(line);
+                        dialect={selectedDialect === "auto" ? detectedDialect : selectedDialect}
+                        onNavigate={(position) => {
+                          editorRef.current?.setCursorPosition(position);
                         }}
                       />
                     </div>

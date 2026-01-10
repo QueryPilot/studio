@@ -81,7 +81,9 @@ describe('SqlAdapter', () => {
         { schema: 'public', table: 'users' },
         { limit: 100, offset: 50 }
       );
-      expect(sql).toBe('SELECT * FROM "public"."users" LIMIT 100 OFFSET 50');
+      expect(sql).toBe(
+        'SELECT * FROM "public"."users" ORDER BY "id" ASC LIMIT 100 OFFSET 50'
+      );
     });
 
     it('should support orderBy', () => {
@@ -107,7 +109,9 @@ describe('SqlAdapter', () => {
       const options: SelectOptions = { limit: 100 };
 
       const sql = adapter.selectWithEmbeddedFK(target, options);
-      expect(sql).toBe('SELECT * FROM "public"."todos" LIMIT 100');
+      expect(sql).toBe(
+        'SELECT * FROM "public"."todos" ORDER BY "id" ASC LIMIT 100'
+      );
     });
 
     it('should delegate to select() when embeddedFKs is empty array', () => {
@@ -115,7 +119,9 @@ describe('SqlAdapter', () => {
       const options: SelectOptions = { limit: 100, embeddedFKs: [] };
 
       const sql = adapter.selectWithEmbeddedFK(target, options);
-      expect(sql).toBe('SELECT * FROM "public"."todos" LIMIT 100');
+      expect(sql).toBe(
+        'SELECT * FROM "public"."todos" ORDER BY "id" ASC LIMIT 100'
+      );
     });
 
     it('should generate LEFT JOIN for single FK with single display column', () => {
@@ -135,6 +141,7 @@ describe('SqlAdapter', () => {
       expect(sql).toContain('SELECT "public"."todos".*');
       expect(sql).toContain('"t1"."email" AS "__qp_fk__user_id__email"');
       expect(sql).toContain('FROM "public"."todos"');
+      expect(sql).toContain('ORDER BY "public"."todos"."id" ASC');
       expect(sql).toContain('LEFT JOIN "public"."users" AS "t1" ON "public"."todos"."user_id" = "t1"."id"');
       expect(sql).toContain('LIMIT 300');
     });
