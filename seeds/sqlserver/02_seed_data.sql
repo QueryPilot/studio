@@ -22,6 +22,21 @@ DECLARE @random_priority NVARCHAR(20);
 DECLARE @category_id INT;
 DECLARE @todo_id INT;
 
+-- Cleanup existing data to avoid unique key violations on re-runs
+DELETE FROM activity_logs;
+DELETE FROM comments;
+DELETE FROM related_todos;
+DELETE FROM todo_collaborators;
+DELETE FROM todo_categories;
+DELETE FROM todos;
+DELETE FROM categories;
+DELETE FROM users;
+DBCC CHECKIDENT ('users', RESEED, 0);
+DBCC CHECKIDENT ('categories', RESEED, 0);
+DBCC CHECKIDENT ('todos', RESEED, 0);
+DBCC CHECKIDENT ('comments', RESEED, 0);
+DBCC CHECKIDENT ('activity_logs', RESEED, 0);
+
 -- Insert users
 WHILE @i <= @user_count
 BEGIN
@@ -243,15 +258,16 @@ WHERE RAND(CHECKSUM(NEWID())) < 0.3
 ORDER BY NEWID();
 
 -- Add activity logs
-INSERT INTO activity_logs (user_id, todo_id, action, details)
-SELECT TOP 1000
-    t.user_id,
-    t.id,
-    COALESCE(
-        CHOOSE((ABS(CHECKSUM(NEWID())) % 6) + 1, 'created', 'updated', 'status_changed', 'priority_changed', 'assigned', 'commented'),
-        'created'
-    ),
-    JSON_MODIFY(
+    INSERT INTO activity_logs (user_id, todo_id, action, entity_type, details)
+    SELECT TOP 1000
+        t.user_id,
+        t.id,
+        COALESCE(
+            CHOOSE((ABS(CHECKSUM(NEWID())) % 6) + 1, 'created', 'updated', 'status_changed', 'priority_changed', 'assigned', 'commented'),
+            'created'
+        ),
+        'todo',
+        JSON_MODIFY(
         JSON_MODIFY(
             JSON_MODIFY('{}', '$.timestamp', CONVERT(VARCHAR(30), DATEADD(DAY, -CAST(RAND(CHECKSUM(NEWID())) * 30 AS INT), GETUTCDATE()), 126)),
             '$.ip_address', CONCAT('192.168.', CAST(RAND(CHECKSUM(NEWID())) * 255 AS INT), '.', CAST(RAND(CHECKSUM(NEWID())) * 255 AS INT))
