@@ -1,11 +1,14 @@
 -- Oracle seed data with comprehensive data types
 
+SET SQLBLANKLINES ON;
+SET SERVEROUTPUT ON;
+
 DECLARE
     user_count NUMBER := 100;
     user_id NUMBER;
     todo_count NUMBER;
     random_status VARCHAR2(20);
-    random_priority VARCHAR2(20);
+    random_priority NUMBER;
     category_id NUMBER;
     todo_id NUMBER;
     
@@ -88,12 +91,7 @@ BEGIN
                 ELSE 'archived'
             END;
             
-            random_priority := CASE 
-                WHEN DBMS_RANDOM.VALUE < 0.25 THEN 'low'
-                WHEN DBMS_RANDOM.VALUE < 0.5 THEN 'medium'
-                WHEN DBMS_RANDOM.VALUE < 0.75 THEN 'high'
-                ELSE 'critical'
-            END;
+            random_priority := TRUNC(DBMS_RANDOM.VALUE * 5) + 1;
             
             INSERT INTO todos (
                 user_id, title, description, status, priority,
@@ -232,6 +230,30 @@ BEGIN
         END LOOP;
     END LOOP;
     
+    -- Insert activity logs
+    FOR t IN (SELECT id, user_id, created_at FROM todos WHERE ROWNUM <= 2000) LOOP
+        INSERT INTO activity_logs (
+            user_id, todo_id, action, entity_type, details, created_at
+        ) VALUES (
+            t.user_id,
+            t.id,
+            CASE 
+                WHEN DBMS_RANDOM.VALUE < 0.2 THEN 'created'
+                WHEN DBMS_RANDOM.VALUE < 0.4 THEN 'updated'
+                WHEN DBMS_RANDOM.VALUE < 0.6 THEN 'status_changed'
+                WHEN DBMS_RANDOM.VALUE < 0.8 THEN 'assigned'
+                ELSE 'commented'
+            END,
+            'todo',
+            JSON_OBJECT(
+                'changes' VALUE 'status',
+                'previous' VALUE 'pending',
+                'new' VALUE 'in_progress'
+            ),
+            t.created_at -- Use todo's created_at to distribute across partitions
+        );
+    END LOOP;
+    
     COMMIT;
     
     -- Show summary
@@ -245,4 +267,6 @@ SELECT 'Users' as table_name, COUNT(*) as count FROM users
 UNION ALL
 SELECT 'Todos' as table_name, COUNT(*) as count FROM todos
 UNION ALL
-SELECT 'Categories' as table_name, COUNT(*) as count FROM categories;
+SELECT 'Categories' as table_name, COUNT(*) as count FROM categories
+UNION ALL
+SELECT 'Activity Logs' as table_name, COUNT(*) as count FROM activity_logs;

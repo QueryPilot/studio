@@ -38,6 +38,7 @@ import {
   IconClipboardCheck,
   IconArrowLeft,
   IconInfoCircle,
+  IconFolderOpen,
 } from "@tabler/icons-react";
 import {
   Tooltip,
@@ -58,6 +59,7 @@ import { getDatabaseLogo } from "@/utils/databaseLogos";
 import { type ConnectionProfile, DbType, SslMode } from "@/types/connection";
 
 const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
+const { open } = await import("@tauri-apps/plugin-dialog");
 
 // Environment tags
 const ENVIRONMENT_TAGS = [
@@ -370,6 +372,38 @@ export function ConnectionForm() {
     } catch (error) {
       logger.error(error);
       toast.error("Clipboard Access Failed");
+    }
+  };
+
+  const handleBrowseFile = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [
+          {
+            name: "SQLite Database",
+            extensions: ["db", "sqlite", "sqlite3"],
+          },
+          {
+            name: "All Files",
+            extensions: ["*"],
+          },
+        ],
+      });
+
+      if (selected && typeof selected === "string") {
+        setDatabase(selected);
+        // If name is empty, try to set it from filename
+        if (!name) {
+          const fileName = selected.split(/[/\\]/).pop();
+          if (fileName) {
+            setName(fileName);
+          }
+        }
+      }
+    } catch (error) {
+      logger.error("Failed to open file dialog:", error);
+      toast.error("Failed to open file picker");
     }
   };
 
@@ -960,18 +994,30 @@ export function ConnectionForm() {
           ) : (
             <div>
               <Label htmlFor="database" className="text-xs">
-                IconDatabase File
+                Database File
               </Label>
-              <Input
-                id="database"
-                className="mt-1 h-8 text-xs"
-                value={database}
-                onChange={(e) => {
-                  setDatabase(e.target.value);
-                }}
-                placeholder="/path/to/database.db"
-                disabled={isTesting}
-              />
+              <div className="flex gap-2 mt-1">
+                <Input
+                  id="database"
+                  className="h-8 text-xs flex-1"
+                  value={database}
+                  onChange={(e) => {
+                    setDatabase(e.target.value);
+                  }}
+                  placeholder="/path/to/database.db"
+                  disabled={isTesting}
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 shrink-0"
+                  onClick={() => void handleBrowseFile()}
+                  disabled={isTesting}
+                  title="Browse file"
+                >
+                  <IconFolderOpen className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           )}
 
