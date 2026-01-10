@@ -374,6 +374,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                     database={metadata.database || ""}
                     schema={metadata.schema}
                     table={metadata.table || ""}
+                    dbType={dbType}
                     onActionsChange={handleViewActionsChange}
                   />
                 )}

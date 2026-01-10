@@ -8,17 +8,21 @@ import { useCommitOnUnmount } from "@/components/DataGrid/renderers/hooks/useCom
 
 type IndexNameCell = IndexNameCustomCell | EditableIndexNameCell;
 
+import { type Rectangle } from "@glideapps/glide-data-grid";
+
 interface IndexNameCellEditorProps {
   value: IndexNameCell;
   onFinishedEditing: (
     newValue?: IndexNameCell,
     movement?: readonly [-1 | 0 | 1, -1 | 0 | 1],
   ) => void;
+  target?: Rectangle;
 }
 
 const IndexNameCellEditor: React.FC<IndexNameCellEditorProps> = ({
   value,
   onFinishedEditing,
+  target,
 }) => {
   const finishedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -124,7 +128,14 @@ const IndexNameCellEditor: React.FC<IndexNameCellEditorProps> = ({
   const { isPrimary, isUnique } = value.data;
 
   return (
-    <div className="flex flex-col click-outside-ignore z-50 bg-popover border shadow-lg min-w-[200px] max-w-[400px] w-max">
+    <div
+      className="flex flex-col click-outside-ignore z-50 bg-popover border shadow-lg"
+      style={{
+        minWidth: "200px",
+        // Use target width if available to match cell width, but ensure it's at least minWidth
+        width: target ? Math.max(target.width, 200) : "100%",
+      }}
+    >
       <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50">
         {isPrimary && (
           <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />

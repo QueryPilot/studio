@@ -75,6 +75,7 @@ interface TableIndexesProps {
   database: string;
   table: string;
   schema?: string;
+  dbType?: DbType;
   onActionsChange?: (actions: React.ReactNode) => void;
 }
 
@@ -83,6 +84,7 @@ export const TableIndexes = memo(function TableIndexes({
   database,
   table,
   schema,
+  dbType: propDbType,
   onActionsChange: _onActionsChange,
 }: TableIndexesProps) {
   const [indexes, setIndexes] = useState<TableIndex[]>([]);
@@ -104,7 +106,7 @@ export const TableIndexes = memo(function TableIndexes({
 
   // Get connection info for dbType
   const connection = useConnectionStore((s) => s.getConnection(connectionId));
-  const dbType = connection?.profile.db_type ?? DbType.PostgreSQL;
+  const dbType = propDbType ?? connection?.profile.db_type ?? DbType.PostgreSQL;
   const dialect = getDialectFromDbType(dbType);
 
   // Get supported index types for this database
