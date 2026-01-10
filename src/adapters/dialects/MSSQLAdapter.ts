@@ -536,7 +536,7 @@ SELECT
     c.is_nullable as nullable,
     CASE WHEN pk.column_id IS NOT NULL THEN 1 ELSE 0 END as is_primary_key,
     dc.definition as default_value,
-    ep.value as comment,
+    CAST(ep.value AS NVARCHAR(MAX)) as comment,
     NULL as type_category,
     NULL as enum_values
 FROM sys.columns c
@@ -604,14 +604,14 @@ SELECT
     NULL as owner,
     NULL as size,
     SUM(p.rows) as row_count,
-    ep.value as comment
+    CAST(ep.value AS NVARCHAR(MAX)) as comment
 FROM sys.tables t
 JOIN sys.schemas s ON t.schema_id = s.schema_id
 LEFT JOIN sys.partitions p ON t.object_id = p.object_id AND p.index_id < 2
 LEFT JOIN sys.extended_properties ep ON ep.major_id = t.object_id AND ep.minor_id = 0 AND ep.name = 'MS_Description'
 WHERE s.name = '${this.escapeString(schema)}'
     AND t.name = '${this.escapeString(table)}'
-GROUP BY ep.value`;
+GROUP BY CAST(ep.value AS NVARCHAR(MAX))`;
   }
 
   getForeignKeyTargetsQuery(schema: string): string {
