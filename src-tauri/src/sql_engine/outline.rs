@@ -856,4 +856,462 @@ mod tests {
         assert_eq!(outline.statements[0].kind, "UPDATE");
         assert_eq!(outline.statements[0].tables[0].name, "users");
     }
+
+    // ========================================
+    // PostgreSQL-specific syntax tests
+    // ========================================
+
+    #[test]
+    fn test_postgres_double_quoted_identifier() {
+        let sql = r#"SELECT * FROM "QuotedTable""#;
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements.len(), 1);
+        assert_eq!(outline.statements[0].tables[0].name, "QuotedTable");
+    }
+
+    #[test]
+    fn test_postgres_schema_qualified_table() {
+        let sql = "SELECT * FROM public.users";
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "public.users");
+    }
+
+    #[test]
+    fn test_postgres_schema_qualified_with_quotes() {
+        let sql = r#"SELECT * FROM "MySchema"."MyTable""#;
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "MySchema.MyTable");
+    }
+
+    #[test]
+    fn test_postgres_array_literal() {
+        // Arrays in SELECT (no table reference)
+        let sql = "SELECT ARRAY[1,2,3]";
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements.len(), 1);
+        assert_eq!(outline.statements[0].kind, "SELECT");
+        assert!(outline.statements[0].tables.is_empty());
+    }
+
+    #[test]
+    fn test_postgres_array_with_table() {
+        let sql = "SELECT ARRAY[1,2,3], name FROM users";
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+    }
+
+    #[test]
+    fn test_postgres_cte_with_schema_qualified() {
+        let sql = "WITH cte AS (SELECT * FROM public.users) SELECT * FROM cte";
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].ctes.len(), 1);
+        assert_eq!(outline.statements[0].ctes[0].name, "cte");
+        // CTE should have reference
+        assert!(!outline.statements[0].ctes[0].references.is_empty());
+    }
+
+    // ========================================
+    // MySQL-specific syntax tests
+    // ========================================
+
+    #[test]
+    fn test_mysql_backtick_identifier() {
+        let sql = "SELECT * FROM `backtick_table`";
+        let outline = build_outline(sql, SqlDialect::MySQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements.len(), 1);
+        assert_eq!(outline.statements[0].tables[0].name, "backtick_table");
+    }
+
+    #[test]
+    fn test_mysql_database_qualified() {
+        let sql = "SELECT * FROM mydb.users";
+        let outline = build_outline(sql, SqlDialect::MySQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "mydb.users");
+    }
+
+    #[test]
+    fn test_mysql_backtick_database_qualified() {
+        let sql = "SELECT * FROM `my_db`.`my_table`";
+        let outline = build_outline(sql, SqlDialect::MySQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "my_db.my_table");
+    }
+
+    #[test]
+    fn test_mysql_use_and_select() {
+        // USE is a separate statement, followed by SELECT
+        let sql = "USE mydb; SELECT * FROM users";
+        let outline = build_outline(sql, SqlDialect::MySQL);
+
+        // USE statement may or may not parse depending on sqlparser support
+        // At minimum, the SELECT should parse
+        assert!(outline.statements.iter().any(|s| s.kind == "SELECT"));
+        // Check that we found the users table
+        let select_stmt = outline.statements.iter().find(|s| s.kind == "SELECT");
+        assert!(select_stmt.is_some());
+        assert_eq!(select_stmt.unwrap().tables[0].name, "users");
+    }
+
+    #[test]
+    fn test_mysql_limit_syntax() {
+        let sql = "SELECT * FROM users LIMIT 10";
+        let outline = build_outline(sql, SqlDialect::MySQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+    }
+
+    #[test]
+    fn test_mysql_join_with_backticks() {
+        let sql = "SELECT * FROM `users` u INNER JOIN `orders` o ON u.id = o.user_id";
+        let outline = build_outline(sql, SqlDialect::MySQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables.len(), 2);
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+        assert_eq!(outline.statements[0].tables[1].name, "orders");
+        assert_eq!(
+            outline.statements[0].tables[1].join_type,
+            Some("INNER".to_string())
+        );
+    }
+
+    // ========================================
+    // SQLite-specific syntax tests
+    // ========================================
+
+    #[test]
+    fn test_sqlite_bracket_identifier() {
+        let sql = "SELECT * FROM [bracket_table]";
+        let outline = build_outline(sql, SqlDialect::SQLite);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "bracket_table");
+    }
+
+    #[test]
+    fn test_sqlite_bracket_with_schema() {
+        let sql = "SELECT * FROM [main].[users]";
+        let outline = build_outline(sql, SqlDialect::SQLite);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "main.users");
+    }
+
+    #[test]
+    fn test_sqlite_attach_database() {
+        let sql = "ATTACH DATABASE 'file.db' AS db";
+        let outline = build_outline(sql, SqlDialect::SQLite);
+
+        // ATTACH may parse as OTHER or a specific type
+        // The main goal is it doesn't fail
+        assert_ne!(outline.parse_status, ParseStatus::Failed);
+    }
+
+    #[test]
+    fn test_sqlite_simple_select() {
+        let sql = "SELECT * FROM users";
+        let outline = build_outline(sql, SqlDialect::SQLite);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+    }
+
+    #[test]
+    fn test_sqlite_insert_with_brackets() {
+        let sql = "INSERT INTO [my_table] (id, name) VALUES (1, 'test')";
+        let outline = build_outline(sql, SqlDialect::SQLite);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].kind, "INSERT");
+        // Note: INSERT uses table_name.to_string() which includes brackets
+        // This is consistent with how sqlparser represents the table name
+        assert!(outline.statements[0].tables[0].name.contains("my_table"));
+    }
+
+    // ========================================
+    // SQL Server-specific syntax tests
+    // ========================================
+
+    #[test]
+    fn test_mssql_bracket_identifier() {
+        let sql = "SELECT * FROM [Users]";
+        let outline = build_outline(sql, SqlDialect::MsSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "Users");
+    }
+
+    #[test]
+    fn test_mssql_schema_qualified_brackets() {
+        let sql = "SELECT * FROM [dbo].[Users]";
+        let outline = build_outline(sql, SqlDialect::MsSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "dbo.Users");
+    }
+
+    #[test]
+    fn test_mssql_three_part_name() {
+        let sql = "SELECT * FROM [MyDatabase].[dbo].[Users]";
+        let outline = build_outline(sql, SqlDialect::MsSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        // Three-part names should show schema.table (last two parts)
+        assert_eq!(outline.statements[0].tables[0].name, "dbo.Users");
+    }
+
+    #[test]
+    fn test_mssql_top_clause() {
+        let sql = "SELECT TOP 10 * FROM users";
+        let outline = build_outline(sql, SqlDialect::MsSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].kind, "SELECT");
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+    }
+
+    #[test]
+    fn test_mssql_top_with_percent() {
+        let sql = "SELECT TOP 10 PERCENT * FROM users";
+        let outline = build_outline(sql, SqlDialect::MsSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+    }
+
+    #[test]
+    fn test_mssql_cte_style() {
+        let sql = "WITH ActiveUsers AS (SELECT * FROM [dbo].[Users] WHERE Active = 1) SELECT * FROM ActiveUsers";
+        let outline = build_outline(sql, SqlDialect::MsSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].ctes.len(), 1);
+        assert_eq!(outline.statements[0].ctes[0].name, "ActiveUsers");
+        // CTE references should be found
+        assert!(!outline.statements[0].ctes[0].references.is_empty());
+    }
+
+    #[test]
+    fn test_mssql_cross_apply() {
+        let sql = "SELECT * FROM users u CROSS APPLY (SELECT * FROM orders WHERE user_id = u.id) o";
+        let outline = build_outline(sql, SqlDialect::MsSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        // First table is users, second is the derived table from CROSS APPLY
+        assert!(outline.statements[0].tables.len() >= 1);
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+    }
+
+    // ========================================
+    // Edge case tests (all dialects)
+    // ========================================
+
+    #[test]
+    fn test_empty_sql_string() {
+        let sql = "";
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        // Empty SQL should result in Failed (no statements to parse)
+        assert!(outline.statements.is_empty());
+        // Could be Failed or Full with no statements depending on implementation
+        // The key is no statements are returned
+    }
+
+    #[test]
+    fn test_whitespace_only_sql() {
+        let sql = "   \n\t  ";
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert!(outline.statements.is_empty());
+    }
+
+    #[test]
+    fn test_mixed_validity_statements() {
+        // First statement valid, second invalid
+        let sql = "SELECT * FROM users; SELEC INVALID SYNTAX";
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Partial);
+        assert_eq!(outline.statements.len(), 1);
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+    }
+
+    #[test]
+    fn test_mixed_validity_multiple() {
+        // Valid, invalid, valid pattern
+        let sql = "SELECT 1; INVALID; SELECT 2";
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Partial);
+        // Should have 2 valid statements
+        assert_eq!(outline.statements.len(), 2);
+    }
+
+    #[test]
+    fn test_very_long_table_name() {
+        let long_name = "a".repeat(200);
+        let sql = format!("SELECT * FROM {}", long_name);
+        let outline = build_outline(&sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, long_name);
+    }
+
+    #[test]
+    fn test_unicode_identifiers_postgres() {
+        // PostgreSQL supports unicode in quoted identifiers
+        let sql = r#"SELECT * FROM "用户表""#;
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "用户表");
+    }
+
+    #[test]
+    fn test_unicode_identifiers_mysql() {
+        let sql = "SELECT * FROM `données`";
+        let outline = build_outline(sql, SqlDialect::MySQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "données");
+    }
+
+    #[test]
+    fn test_all_invalid_statements() {
+        let sql = "INVALID SYNTAX; ALSO INVALID";
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Failed);
+        assert!(outline.statements.is_empty());
+    }
+
+    #[test]
+    fn test_comments_preserved() {
+        let sql = "-- Comment\nSELECT * FROM users";
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+    }
+
+    #[test]
+    fn test_block_comment() {
+        let sql = "/* Block comment */ SELECT * FROM users";
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+    }
+
+    #[test]
+    fn test_multiple_ctes_all_dialects() {
+        // Test multiple CTEs - should work across dialects
+        for dialect in [
+            SqlDialect::PostgreSQL,
+            SqlDialect::MySQL,
+            SqlDialect::SQLite,
+            SqlDialect::MsSQL,
+        ] {
+            let sql = "WITH cte1 AS (SELECT 1), cte2 AS (SELECT 2) SELECT * FROM cte1, cte2";
+            let outline = build_outline(sql, dialect);
+
+            assert_eq!(
+                outline.parse_status,
+                ParseStatus::Full,
+                "Failed for {:?}",
+                dialect
+            );
+            assert_eq!(outline.statements[0].ctes.len(), 2, "Failed for {:?}", dialect);
+        }
+    }
+
+    #[test]
+    fn test_deeply_nested_subquery() {
+        let sql = "SELECT * FROM (SELECT * FROM (SELECT * FROM users) a) b";
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert!(!outline.statements[0].subqueries.is_empty());
+        // Check nested structure
+        let outer_subquery = &outline.statements[0].subqueries[0];
+        assert!(!outer_subquery.subqueries.is_empty());
+    }
+
+    #[test]
+    fn test_union_query() {
+        let sql = "SELECT * FROM users UNION SELECT * FROM admins";
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        // Both tables should be extracted from UNION
+        assert!(outline.statements[0].tables.len() >= 2);
+    }
+
+    #[test]
+    fn test_case_insensitive_keywords() {
+        let sql = "select * from users";
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].kind, "SELECT");
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+    }
+
+    #[test]
+    fn test_mixed_case_identifiers() {
+        let sql = "SELECT * FROM UsErS";
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        // PostgreSQL folds unquoted identifiers to lowercase
+        // But the outline should preserve what was parsed
+        assert_eq!(outline.statements[0].tables[0].name.to_lowercase(), "users");
+    }
+
+    #[test]
+    fn test_special_characters_in_quoted_identifier() {
+        let sql = r#"SELECT * FROM "table-with-dashes""#;
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "table-with-dashes");
+    }
+
+    #[test]
+    fn test_semicolon_in_string_literal() {
+        // The semicolon inside the string should not split statements
+        let sql = "SELECT 'hello; world' FROM users";
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements.len(), 1);
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+    }
+
+    #[test]
+    fn test_escaped_quotes_in_string() {
+        let sql = "SELECT 'It''s a test' FROM users";
+        let outline = build_outline(sql, SqlDialect::PostgreSQL);
+
+        assert_eq!(outline.parse_status, ParseStatus::Full);
+        assert_eq!(outline.statements[0].tables[0].name, "users");
+    }
 }
