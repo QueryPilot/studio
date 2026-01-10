@@ -307,10 +307,12 @@ ORDER BY ROUTINE_NAME`;
 SELECT
     INDEX_NAME as index_name,
     TABLE_NAME as table_name,
-    GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) as columns,
+    CONCAT('[', GROUP_CONCAT(CONCAT('"', REPLACE(COLUMN_NAME, '"', '\\\\"'), '"') ORDER BY SEQ_IN_INDEX SEPARATOR ','), ']') as columns,
     NOT NON_UNIQUE as is_unique,
     INDEX_NAME = 'PRIMARY' as is_primary,
-    INDEX_TYPE as index_type
+    0 as is_partial,
+    CONCAT('USING ', INDEX_TYPE) as definition,
+    0 as is_foreign_key
 FROM information_schema.STATISTICS
 WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
     AND TABLE_NAME = '${this.escapeString(table)}'
