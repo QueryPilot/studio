@@ -10,21 +10,16 @@ import {
 } from "react";
 import { QueryEditor } from "./QueryEditor";
 import { ResultViewer } from "./ResultViewer";
-import { QueryHistory } from "./QueryHistory";
-import { SavedQueries } from "./SavedQueries";
 import { QueryToolbar } from "./QueryToolbar";
 import { QueryOutline } from "./QueryOutline";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ResizablePanelGroup,
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
-import { IconHistory, IconStar } from '@tabler/icons-react';
 import { toast } from "sonner";
 
 import { tableStreamingService } from "@/services/tableStreamingService";
-import { queryHistoryService } from "@/services/queryHistoryService";
 import { cn } from "@/lib/utils";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
@@ -80,7 +75,6 @@ export const QueryPanel = memo(function QueryPanel({
   );
   const [abortController, setAbortController] =
     useState<AbortController | null>(null);
-  const [showHistory, setShowHistory] = useState(false);
   const [appliedLimit, setAppliedLimitInternal] = useState<{
     originalSql: string;
     limit: number;
@@ -686,19 +680,7 @@ export const QueryPanel = memo(function QueryPanel({
         setIsStreaming(false);
         setAbortController(null);
 
-        // IconDeviceFloppy to history (skip if cancelled)
-        const wasCancelled = controller.signal.aborted;
-        if (sql.trim() && !wasCancelled) {
-          await queryHistoryService.addEntry({
-            connectionId: effectiveConnectionId,
-            database,
-            query: sql,
-            executedAt: new Date(),
-            executionTime,
-            rowCount: queryResult?.rowCount,
-            error: errorMessage,
-          });
-        }
+        // Execution complete
       }
     },
     [
@@ -731,14 +713,6 @@ export const QueryPanel = memo(function QueryPanel({
       toast.info("Query cancelled");
     }
   }, [abortController, setIsExecuting, setIsStreaming]);
-
-  const handleSelectQuery = useCallback(
-    (selectedQuery: string) => {
-      setQuery(selectedQuery);
-      persistSql(selectedQuery);
-    },
-    [persistSql, setQuery],
-  );
 
   const handleBeautify = useCallback(() => {
     if (!query.trim()) return;
@@ -803,10 +777,6 @@ export const QueryPanel = memo(function QueryPanel({
     void handleExecute(explainSql);
   }, [query, dbType, handleExecute]);
 
-  const toggleHistory = useCallback(() => {
-    setShowHistory((prev) => !prev);
-  }, []);
-
   const toggleResults = useCallback(() => {
     setShowResults((prev) => !prev);
   }, []);
@@ -841,12 +811,6 @@ export const QueryPanel = memo(function QueryPanel({
       handleBeautify();
     };
 
-    const handleToggleHistory = () => {
-      if (!isFocusedRef.current) return;
-      logger.info("🟢 QueryPanel handling toggle history event");
-      toggleHistory();
-    };
-
     const handleExecuteEvent = () => {
       if (!isFocusedRef.current) return;
       logger.info("🟢 QueryPanel handling execute event");
@@ -855,15 +819,13 @@ export const QueryPanel = memo(function QueryPanel({
 
     // Subscribe ALWAYS - handlers check focus
     eventBus.on("query-editor:format", handleFormat);
-    eventBus.on("query-editor:toggle-history", handleToggleHistory);
     eventBus.on("query-editor:execute", handleExecuteEvent);
 
     return () => {
       eventBus.off("query-editor:format", handleFormat);
-      eventBus.off("query-editor:toggle-history", handleToggleHistory);
       eventBus.off("query-editor:execute", handleExecuteEvent);
     };
-  }, [handleBeautify, toggleHistory, handleExecute]);
+  }, [handleBeautify, handleExecute]);
 
   // Focus panel when QueryPanel is clicked or focused
   const handleFocusPanel = useCallback(() => {
@@ -887,7 +849,7 @@ export const QueryPanel = memo(function QueryPanel({
         >
           {/* Editor and Results */}
           <ResizablePanel
-            defaultSize={showHistory ? 70 : 100}
+            defaultSize={100}
             minSize={30}
             className="rounded-xl overflow-hidden"
           >
@@ -942,7 +904,6 @@ export const QueryPanel = memo(function QueryPanel({
                     <QueryToolbar
                       isExecuting={isExecuting}
                       query={query}
-                      showHistory={showHistory}
                       showResults={showResults}
                       showOutline={showOutline}
                       viewMode={viewMode}
@@ -954,7 +915,6 @@ export const QueryPanel = memo(function QueryPanel({
                       onCancel={handleCancel}
                       onBeautify={handleBeautify}
                       onExplain={handleExplain}
-                      onToggleHistory={toggleHistory}
                       onToggleResults={toggleResults}
                       onToggleOutline={() => setShowOutline(!showOutline)}
                       onViewModeChange={setViewMode}
@@ -1031,52 +991,6 @@ export const QueryPanel = memo(function QueryPanel({
             </ResizablePanelGroup>
           </ResizablePanel>
 
-          {showHistory && (
-            <>
-              <ResizableHandle className="bg-secondary w-1" />
-
-              {/* IconHistory and Saved Queries */}
-              <ResizablePanel defaultSize={30} minSize={20}>
-                <Tabs
-                  defaultValue="history"
-                  className="h-full flex flex-col px-1 rounded-xl"
-                  enableShortcuts={true}
-                  tabGroupId={`query-history-${tabId}`}
-                  focused={isPanelFocused && showHistory}
-                >
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger
-                      value="history"
-                      className="text-xs"
-                      tabIndex={0}
-                    >
-                      <IconHistory className="h-3 w-3 mr-1" />
-                      IconHistory
-                    </TabsTrigger>
-                    <TabsTrigger value="saved" className="text-xs" tabIndex={1}>
-                      <IconStar className="h-3 w-3 mr-1" />
-                      Saved
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="history" className="flex-1 mt-0">
-                    <QueryHistory
-                      connectionId={effectiveConnectionId}
-                      database={database}
-                      onSelectQuery={handleSelectQuery}
-                    />
-                  </TabsContent>
-                  <TabsContent value="saved" className="flex-1 mt-0">
-                    <SavedQueries
-                      connectionId={effectiveConnectionId}
-                      database={database}
-                      currentQuery={query}
-                      onSelectQuery={handleSelectQuery}
-                    />
-                  </TabsContent>
-                </Tabs>
-              </ResizablePanel>
-            </>
-          )}
         </ResizablePanelGroup>
       </div>
     </div>

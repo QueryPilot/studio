@@ -89,10 +89,6 @@ export const defaultKeybindings: Keybinding[] = [
     when: 'editorTextFocus && queryEditor',
   },
   {
-    command: 'query.action.toggleHistory',
-    key: 'alt+h',
-  },
-  {
     command: 'query.explain',
     key: 'alt+e',
     when: 'editorTextFocus && queryEditor',

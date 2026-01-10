@@ -64,12 +64,4 @@ export const queryCommands: Command[] = [
       eventBus.emit("query-editor:format", {});
     },
   },
-  {
-    id: "query.toggleHistory",
-    label: "Toggle Query History",
-    category: "Query",
-    handler: () => {
-      eventBus.emit("query-editor:toggle-history", {});
-    },
-  },
 ];
