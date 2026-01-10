@@ -4,7 +4,6 @@
 )]
 
 mod http_server;
-mod menu;
 // NOTE: window_state module removed - tracking now uses BroadcastChannel API on frontend
 
 // Use library modules
@@ -62,13 +61,13 @@ fn main() {
         .manage(app_state)
         .setup(|app| {
             // Build and set the application menu
-            let menu = menu::build_menu(&app.handle()).expect("Failed to build menu");
+            let menu = query_pilot::menu::build_menu(&app.handle()).expect("Failed to build menu");
             app.set_menu(menu).expect("Failed to set menu");
 
             // Register menu event handler
             let app_handle = app.handle().clone();
             app.on_menu_event(move |_app, event| {
-                menu::handle_menu_event(&app_handle, event);
+                query_pilot::menu::handle_menu_event(&app_handle, event);
             });
 
             // Register default global shortcut to show/activate main window
@@ -138,6 +137,8 @@ fn main() {
             // Schema push commands (TypeScript is source of truth, pushes to Rust)
             sql_engine::commands::sql_set_schema,
             sql_engine::commands::sql_clear_schema,
+            // Window menu management
+            commands::update_window_menu,
         ])
         .build(context)
         .expect("error while building tauri application");

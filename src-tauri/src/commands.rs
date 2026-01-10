@@ -1008,6 +1008,17 @@ pub async fn execute_query(
 // DDL operations (CREATE, ALTER, DROP) are handled via execute_query with
 // frontend adapter SQL generation. See: src/adapters/ for the TypeScript adapter system.
 
+// ============================================================================
+// Window Menu Management
+// ============================================================================
+
+/// Update the Window menu to reflect current open windows
+/// Called by frontend when workspace windows are opened or closed
+#[tauri::command]
+pub async fn update_window_menu(app: tauri::AppHandle) -> Result<(), String> {
+    crate::menu::update_window_menu(&app).map_err(|e: tauri::Error| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

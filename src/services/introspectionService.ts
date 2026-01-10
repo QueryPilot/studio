@@ -303,6 +303,7 @@ export const IntrospectionService = {
       is_window: getBool(row[6]),
       is_trigger: getBool(row[7]),
       source: getString(row[8]) || undefined,
+      routine_type: getString(row[9]) || undefined,
     }));
   },
 
@@ -404,6 +405,8 @@ export const IntrospectionService = {
         enum_values:
           enumSet?.kind === "enum" ? enumSet.values : getStringArray(row[8]),
         set_values: enumSet?.kind === "set" ? enumSet.values : undefined,
+        is_computed: getBool(row[9]),
+        is_identity: getBool(row[10]),
       };
     });
   },
@@ -558,7 +561,23 @@ export const IntrospectionService = {
     const result = await BackendAPI.query(connectionId, sql);
 
     if (result.rows.length > 0) {
-      return getString(result.rows[0]?.[0]);
+      const row = result.rows[0];
+      // MySQL/MariaDB SHOW CREATE returns definition in different columns:
+      // - SHOW CREATE TABLE/VIEW: column 1 (column 0 is object name)
+      // - SHOW CREATE FUNCTION/PROCEDURE: column 2 (column 0 is name, column 1 is sql_mode)
+      // Other databases return definition in column 0 with alias like "definition"
+      // Strategy: Find the first column containing a CREATE statement, fallback to column 0
+      if (Array.isArray(row)) {
+        for (const cell of row) {
+          const value = getString(cell);
+          if (value && /^\s*(CREATE|--)/i.test(value)) {
+            return value;
+          }
+        }
+        // Fallback to column 0 if no CREATE found
+        return getString(row[0]);
+      }
+      return getString(row);
     }
     return "";
   },

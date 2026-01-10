@@ -27,6 +27,9 @@ impl SshTunnel {
         remote_host: &str,
         remote_port: u16,
     ) -> Result<Self> {
+        // Validate auth method early (fail-fast for missing key files)
+        validate_auth_method(&config.auth)?;
+
         // Allocate local port
         let local_port = super::allocate_local_port().map_err(|e| {
             AppError::SshTunnelError(format!("Failed to allocate local port: {}", e))
@@ -151,6 +154,20 @@ fn create_ssh_session(host: &str, port: u16) -> Result<Session> {
     Ok(sess)
 }
 
+/// Validate auth method before attempting connection (fail-fast for missing key files)
+fn validate_auth_method(auth: &SshAuthMethod) -> Result<()> {
+    if let SshAuthMethod::KeyFile { path, .. } = auth {
+        let key_path = Path::new(path);
+        if !key_path.exists() {
+            return Err(AppError::SshKeyError(format!(
+                "SSH key file does not exist: {}",
+                key_path.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Authenticate SSH session based on auth method
 fn authenticate_session(sess: &mut Session, user: &str, auth: &SshAuthMethod) -> Result<()> {
     match auth {
@@ -161,6 +178,7 @@ fn authenticate_session(sess: &mut Session, user: &str, auth: &SshAuthMethod) ->
         }
         SshAuthMethod::KeyFile { path, passphrase } => {
             let key_path = Path::new(path);
+            // Note: existence check already done in validate_auth_method for early failure
             if !key_path.exists() {
                 return Err(AppError::SshKeyError(format!(
                     "SSH key file does not exist: {}",
@@ -418,6 +436,9 @@ fn handle_client(
 
 /// Verify SSH connection (for testing)
 pub async fn verify_connection(config: &SshTunnelConfig) -> Result<()> {
+    // Validate auth method early (fail-fast for missing key files)
+    validate_auth_method(&config.auth)?;
+
     task::spawn_blocking({
         let ssh_host = config.host.trim().to_string();
         let ssh_port = if config.port == 0 { 22 } else { config.port };

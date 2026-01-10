@@ -154,6 +154,23 @@ export function DatabaseSidebar({
     return map;
   }, [functions]);
 
+  const getFunctionObjectType = (
+    schema: string,
+    name: string,
+  ): ObjectDefinitionType =>
+    (() => {
+      const func = functionsByKey.get(`${schema}.${name}`);
+      if (func?.routine_type === "PROCEDURE") return "procedure";
+      if (!func?.routine_type && isMySQLDb && func?.return_type === "void") {
+        return "procedure";
+      }
+      return "function";
+    })();
+
+  const isProcedure = (func: FunctionMeta): boolean =>
+    func.routine_type === "PROCEDURE" ||
+    (!func.routine_type && isMySQLDb && func.return_type === "void");
+
   // Pre-compute starred items set for O(1) lookups
   const starredItemsRaw = getStarredItems(
     connectionId,
@@ -510,7 +527,7 @@ export function DatabaseSidebar({
             break;
           }
           case "function":
-            objectType = "function";
+            objectType = getFunctionObjectType(schema, name);
             break;
           default:
             continue;
@@ -557,6 +574,8 @@ export function DatabaseSidebar({
           // Add comment header for each object
           const objectLabel = isMaterializedView
             ? "MATERIALIZED VIEW"
+            : objectType === "procedure"
+            ? "PROCEDURE"
             : type.toUpperCase();
           definitions.push(`-- ${objectLabel}: ${schema}.${name}`);
           definitions.push(definition);
@@ -655,7 +674,7 @@ export function DatabaseSidebar({
             objectType = "view";
             break;
           case "function":
-            objectType = "function";
+            objectType = getFunctionObjectType(schema, name);
             break;
           default:
             continue;
@@ -1355,7 +1374,7 @@ export function DatabaseSidebar({
                     <IconMathFunction
                       className={cn(
                         "h-3.5 w-4 min-w-4 flex-shrink-0",
-                        (itemData as FunctionMeta).return_type === "void"
+                        isProcedure(itemData as FunctionMeta)
                           ? "text-orange-500"
                           : "text-purple-500",
                       )}
@@ -1677,7 +1696,7 @@ export function DatabaseSidebar({
                       <IconMathFunction
                         className={cn(
                           "h-3.5 w-4 min-w-4 flex-shrink-0",
-                          func.return_type === "void"
+                          isProcedure(func)
                             ? "text-orange-500"
                             : "text-purple-500",
                         )}

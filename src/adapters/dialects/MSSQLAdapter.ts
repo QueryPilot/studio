@@ -256,6 +256,19 @@ export class MSSQLAdapter extends SqlAdapter {
     return '';
   }
 
+  /**
+   * MSSQL needs special handling for ORDER BY fallback since views may not have 'id' column
+   * We use (SELECT NULL) as a no-op ordering for cases where no column is available
+   */
+  protected getFallbackOrderByColumn(options?: SelectOptions): string {
+    const firstColumn = options?.columns?.[0];
+    if (firstColumn && /^[A-Za-z_][A-Za-z0-9_]*$/.test(firstColumn)) {
+      return firstColumn;
+    }
+    // Return (SELECT NULL) as fallback for MSSQL to avoid "Invalid column name 'id'" errors on views
+    return "(SELECT NULL)";
+  }
+
   // ─────────────────────────────────────────────────────────────────
   // DDL Operations - T-SQL syntax
   // ─────────────────────────────────────────────────────────────────
@@ -453,7 +466,8 @@ SELECT
     CAST(0 as bit) as is_aggregate,
     CAST(0 as bit) as is_window,
     CAST(0 as bit) as is_trigger,
-    m.definition as source
+    m.definition as source,
+    CASE WHEN o.type = 'P' THEN 'PROCEDURE' ELSE 'FUNCTION' END as routine_type
 FROM sys.objects o
 JOIN sys.schemas s ON o.schema_id = s.schema_id
 LEFT JOIN sys.sql_modules m ON o.object_id = m.object_id
@@ -507,18 +521,21 @@ ORDER BY i.name`;
   getConstraintsQuery(schema: string, table: string): string {
     return `
 SELECT
-    c.name as constraint_name,
-    t.name as table_name,
-    c.type_desc as constraint_type,
-    OBJECT_NAME(fk.referenced_object_id) as foreign_table
-FROM sys.objects c
-JOIN sys.tables t ON c.parent_object_id = t.object_id
+    fk.name as constraint_name,
+    'FOREIGN KEY' as constraint_type,
+    OBJECT_NAME(fk.referenced_object_id) as foreign_table,
+    SCHEMA_NAME(OBJECTPROPERTY(fk.referenced_object_id, 'SchemaId')) as foreign_schema,
+    COL_NAME(fkc.parent_object_id, fkc.parent_column_id) as column_name,
+    COL_NAME(fkc.referenced_object_id, fkc.referenced_column_id) as foreign_column,
+    fk.delete_referential_action_desc as on_delete,
+    fk.update_referential_action_desc as on_update
+FROM sys.foreign_keys fk
+JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
+JOIN sys.tables t ON fk.parent_object_id = t.object_id
 JOIN sys.schemas s ON t.schema_id = s.schema_id
-LEFT JOIN sys.foreign_keys fk ON c.object_id = fk.object_id
 WHERE s.name = '${this.escapeString(schema)}'
     AND t.name = '${this.escapeString(table)}'
-    AND c.type IN ('PK', 'UQ', 'F', 'C')
-ORDER BY c.name`;
+ORDER BY fk.name, fkc.constraint_column_id`;
   }
 
   getColumnsQuery(schema: string, table: string): string {
@@ -538,10 +555,12 @@ SELECT
     dc.definition as default_value,
     CAST(ep.value AS NVARCHAR(MAX)) as comment,
     NULL as type_category,
-    NULL as enum_values
+    NULL as enum_values,
+    c.is_computed as is_computed,
+    c.is_identity as is_identity
 FROM sys.columns c
-JOIN sys.tables t ON c.object_id = t.object_id
-JOIN sys.schemas s ON t.schema_id = s.schema_id
+JOIN sys.objects obj ON c.object_id = obj.object_id
+JOIN sys.schemas s ON obj.schema_id = s.schema_id
 LEFT JOIN sys.default_constraints dc ON c.default_object_id = dc.object_id
 LEFT JOIN sys.extended_properties ep ON ep.major_id = c.object_id AND ep.minor_id = c.column_id AND ep.name = 'MS_Description'
 LEFT JOIN (
@@ -551,7 +570,8 @@ LEFT JOIN (
     WHERE i.is_primary_key = 1
 ) pk ON pk.object_id = c.object_id AND pk.column_id = c.column_id
 WHERE s.name = '${this.escapeString(schema)}'
-    AND t.name = '${this.escapeString(table)}'
+    AND obj.name = '${this.escapeString(table)}'
+    AND obj.type IN ('U', 'V')
 ORDER BY c.column_id`;
   }
 
@@ -637,13 +657,114 @@ ORDER BY table_name, column_name`;
   ): string {
     switch (objectType) {
       case 'table':
-        // MSSQL doesn't have a simple way to get CREATE TABLE - need to construct it
+        // Generate full CREATE TABLE DDL with columns, constraints, and indexes
         return `
-SELECT 'CREATE TABLE ' + QUOTENAME(s.name) + '.' + QUOTENAME(t.name) as definition
-FROM sys.tables t
-JOIN sys.schemas s ON t.schema_id = s.schema_id
-WHERE s.name = '${this.escapeString(schema)}'
-    AND t.name = '${this.escapeString(name)}'`;
+WITH TableInfo AS (
+    SELECT t.object_id, s.name as schema_name, t.name as table_name
+    FROM sys.tables t
+    JOIN sys.schemas s ON t.schema_id = s.schema_id
+    WHERE s.name = '${this.escapeString(schema)}' AND t.name = '${this.escapeString(name)}'
+),
+ColumnDefs AS (
+    SELECT
+        c.column_id,
+        QUOTENAME(c.name) + ' ' +
+        CASE
+            WHEN c.is_computed = 1 THEN 'AS ' + cc.definition
+            ELSE
+                UPPER(tp.name) +
+                CASE
+                    WHEN tp.name IN ('varchar', 'nvarchar', 'char', 'nchar', 'varbinary', 'binary')
+                        THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX' ELSE CAST(CASE WHEN tp.name LIKE 'n%' THEN c.max_length/2 ELSE c.max_length END AS VARCHAR) END + ')'
+                    WHEN tp.name IN ('decimal', 'numeric')
+                        THEN '(' + CAST(c.precision AS VARCHAR) + ',' + CAST(c.scale AS VARCHAR) + ')'
+                    WHEN tp.name IN ('datetime2', 'datetimeoffset', 'time')
+                        THEN '(' + CAST(c.scale AS VARCHAR) + ')'
+                    ELSE ''
+                END +
+                CASE WHEN c.is_identity = 1 THEN ' IDENTITY(' + CAST(IDENT_SEED(QUOTENAME(ti.schema_name) + '.' + QUOTENAME(ti.table_name)) AS VARCHAR) + ',' + CAST(IDENT_INCR(QUOTENAME(ti.schema_name) + '.' + QUOTENAME(ti.table_name)) AS VARCHAR) + ')' ELSE '' END +
+                CASE WHEN c.is_nullable = 0 THEN ' NOT NULL' ELSE ' NULL' END +
+                CASE WHEN dc.definition IS NOT NULL THEN ' DEFAULT ' + dc.definition ELSE '' END
+        END as column_def
+    FROM TableInfo ti
+    JOIN sys.columns c ON c.object_id = ti.object_id
+    JOIN sys.types tp ON c.user_type_id = tp.user_type_id
+    LEFT JOIN sys.computed_columns cc ON c.object_id = cc.object_id AND c.column_id = cc.column_id
+    LEFT JOIN sys.default_constraints dc ON c.default_object_id = dc.object_id
+),
+PKConstraint AS (
+    SELECT
+        'CONSTRAINT ' + QUOTENAME(kc.name) + ' PRIMARY KEY ' +
+        CASE WHEN i.type_desc = 'CLUSTERED' THEN 'CLUSTERED' ELSE 'NONCLUSTERED' END +
+        ' (' + STUFF((
+            SELECT ', ' + QUOTENAME(c.name) + CASE WHEN ic.is_descending_key = 1 THEN ' DESC' ELSE '' END
+            FROM sys.index_columns ic
+            JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+            WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
+            ORDER BY ic.key_ordinal
+            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') + ')' as pk_def
+    FROM TableInfo ti
+    JOIN sys.key_constraints kc ON kc.parent_object_id = ti.object_id AND kc.type = 'PK'
+    JOIN sys.indexes i ON i.object_id = kc.parent_object_id AND i.index_id = kc.unique_index_id
+),
+UniqueConstraints AS (
+    SELECT
+        'CONSTRAINT ' + QUOTENAME(kc.name) + ' UNIQUE ' +
+        CASE WHEN i.type_desc = 'CLUSTERED' THEN 'CLUSTERED' ELSE 'NONCLUSTERED' END +
+        ' (' + STUFF((
+            SELECT ', ' + QUOTENAME(c.name)
+            FROM sys.index_columns ic
+            JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+            WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
+            ORDER BY ic.key_ordinal
+            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') + ')' as uq_def
+    FROM TableInfo ti
+    JOIN sys.key_constraints kc ON kc.parent_object_id = ti.object_id AND kc.type = 'UQ'
+    JOIN sys.indexes i ON i.object_id = kc.parent_object_id AND i.index_id = kc.unique_index_id
+),
+FKConstraints AS (
+    SELECT
+        'CONSTRAINT ' + QUOTENAME(fk.name) + ' FOREIGN KEY (' +
+        STUFF((
+            SELECT ', ' + QUOTENAME(cp.name)
+            FROM sys.foreign_key_columns fkc
+            JOIN sys.columns cp ON fkc.parent_object_id = cp.object_id AND fkc.parent_column_id = cp.column_id
+            WHERE fkc.constraint_object_id = fk.object_id
+            ORDER BY fkc.constraint_column_id
+            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') +
+        ') REFERENCES ' + QUOTENAME(rs.name) + '.' + QUOTENAME(rt.name) + ' (' +
+        STUFF((
+            SELECT ', ' + QUOTENAME(cr.name)
+            FROM sys.foreign_key_columns fkc
+            JOIN sys.columns cr ON fkc.referenced_object_id = cr.object_id AND fkc.referenced_column_id = cr.column_id
+            WHERE fkc.constraint_object_id = fk.object_id
+            ORDER BY fkc.constraint_column_id
+            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') + ')' +
+        CASE fk.delete_referential_action WHEN 1 THEN ' ON DELETE CASCADE' WHEN 2 THEN ' ON DELETE SET NULL' WHEN 3 THEN ' ON DELETE SET DEFAULT' ELSE '' END +
+        CASE fk.update_referential_action WHEN 1 THEN ' ON UPDATE CASCADE' WHEN 2 THEN ' ON UPDATE SET NULL' WHEN 3 THEN ' ON UPDATE SET DEFAULT' ELSE '' END as fk_def
+    FROM TableInfo ti
+    JOIN sys.foreign_keys fk ON fk.parent_object_id = ti.object_id
+    JOIN sys.tables rt ON fk.referenced_object_id = rt.object_id
+    JOIN sys.schemas rs ON rt.schema_id = rs.schema_id
+),
+CheckConstraints AS (
+    SELECT 'CONSTRAINT ' + QUOTENAME(cc.name) + ' CHECK ' + cc.definition as chk_def
+    FROM TableInfo ti
+    JOIN sys.check_constraints cc ON cc.parent_object_id = ti.object_id
+)
+SELECT
+    'CREATE TABLE ' + QUOTENAME(ti.schema_name) + '.' + QUOTENAME(ti.table_name) + ' (' + CHAR(10) +
+    '    ' + STUFF((
+        SELECT ',' + CHAR(10) + '    ' + column_def
+        FROM ColumnDefs
+        ORDER BY column_id
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 6, '') +
+    ISNULL((SELECT ',' + CHAR(10) + '    ' + pk_def FROM PKConstraint), '') +
+    ISNULL(STUFF((SELECT ',' + CHAR(10) + '    ' + uq_def FROM UniqueConstraints FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 0, ''), '') +
+    ISNULL(STUFF((SELECT ',' + CHAR(10) + '    ' + fk_def FROM FKConstraints FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 0, ''), '') +
+    ISNULL(STUFF((SELECT ',' + CHAR(10) + '    ' + chk_def FROM CheckConstraints FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 0, ''), '') +
+    CHAR(10) + ');' as definition
+FROM TableInfo ti`;
       case 'sequence':
         return `
 SELECT

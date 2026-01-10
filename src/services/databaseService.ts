@@ -51,6 +51,7 @@ export interface FunctionMeta {
   name: string;
   return_type: string;
   arguments: string[];
+  routine_type?: "FUNCTION" | "PROCEDURE";
 }
 
 export interface TriggerMeta {
@@ -610,6 +611,7 @@ class DatabaseService {
         name: f.name,
         return_type: f.return_type,
         arguments: f.arguments.split(",").map((a) => a.trim()),
+        routine_type: f.routine_type || undefined,
       }));
     } catch (error) {
       logger.error("Failed to list functions:", error);
@@ -682,6 +684,8 @@ class DatabaseService {
           set_values: (c as unknown as { set_values?: string[] }).set_values,
           type_category: (c as unknown as { type_category?: string })
             .type_category,
+          is_computed: (c as unknown as { is_computed?: boolean }).is_computed,
+          is_identity: (c as unknown as { is_identity?: boolean }).is_identity,
         }),
       );
     } catch (error) {

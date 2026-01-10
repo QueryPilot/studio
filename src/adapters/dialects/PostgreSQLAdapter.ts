@@ -369,7 +369,8 @@ SELECT DISTINCT ON (n.nspname, p.proname, pg_get_function_identity_arguments(p.o
     p.prokind = 'a' as is_aggregate,
     p.prokind = 'w' as is_window,
     p.proisstrict as is_trigger,
-    pg_get_functiondef(p.oid) as source
+    pg_get_functiondef(p.oid) as source,
+    CASE WHEN p.prokind = 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END as routine_type
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 JOIN pg_language l ON l.oid = p.prolang

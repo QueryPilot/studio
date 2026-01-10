@@ -23,7 +23,7 @@ import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
 import { NullableCellRenderer } from "./NullableCellRenderer";
 import { DataTypeCellRenderer } from "./DataTypeCellRenderer";
 import { ActionsCellRenderer } from "./ActionsCellRenderer";
-import { structureColumns } from "./columns";
+import { getStructureColumns } from "./columns";
 import {
   transformStructureToRows,
   buildStructureModifiedFieldsMap,
@@ -53,6 +53,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 import type {
   CrudCommandTarget,
   ColumnAddPayload,
@@ -187,6 +188,16 @@ export const TableStructure = memo(function TableStructure({
       : "table";
 
   const isReadOnly = entityType !== "table";
+  
+  // Get database type for column configuration
+  const connection = useConnectionStore((state) =>
+    state.connections.find((c) => c.profile.id === connectionId),
+  );
+  const dbType = connection?.profile.db_type;
+  
+  // Get structure columns based on database type
+  const structureColumns = useMemo(() => getStructureColumns(dbType), [dbType]);
+  
   const { structure, isLoading, error, refresh } = useTableFullStructure({
     connectionId,
     database,
@@ -1341,6 +1352,25 @@ export const TableStructure = memo(function TableStructure({
           themeOverride: {
             ...(cellThemeOverride ?? {}),
             baseFontStyle: "400 11px monospace",
+          },
+        } as const;
+      }
+
+      // is_computed column - readonly YES/NO display
+      if (column.field === "is_computed") {
+        const isComputedValue = (
+          typeof fieldValue === "string" ? fieldValue : "NO"
+        ) as "YES" | "NO";
+        return {
+          kind: GridCellKind.Text,
+          data: isComputedValue,
+          displayData: isComputedValue,
+          readonly: true,
+          allowOverlay: false,
+          contentAlign: "center" as const,
+          themeOverride: {
+            ...(cellThemeOverride ?? {}),
+            textDark: isComputedValue === "YES" ? "#f97316" : cellThemeOverride?.textDark,
           },
         } as const;
       }
