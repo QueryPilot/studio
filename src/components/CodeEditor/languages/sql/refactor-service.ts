@@ -81,32 +81,25 @@ export async function getOutline(
   sql: string,
   dialect: string
 ): Promise<OutlineTree> {
-  // VERY VISIBLE DEBUG
-  console.log("%c[getOutline] CALLED", "background: red; color: white; font-size: 16px;", { dialect, sqlLength: sql.length });
-  
   // Return cached result if sql and dialect match
   if (cache && cache.sql === sql && cache.dialect === dialect) {
-    console.log("%c[getOutline] CACHED", "background: blue; color: white;");
     return cache.outline;
   }
 
   // Check Tauri availability
-  const tauriAvailable = isTauriAvailable();
-  console.log("%c[getOutline] Tauri available:", "background: yellow; color: black;", tauriAvailable);
-  
-  if (!tauriAvailable) {
-    console.error("%c[getOutline] TAURI NOT AVAILABLE!", "background: red; color: white; font-size: 20px;");
+  if (!isTauriAvailable()) {
+    logger.warn("[refactor-service] Tauri not available, cannot get outline");
     return createFailedOutline();
   }
 
   try {
-    console.log("%c[getOutline] Invoking sql_get_outline...", "background: green; color: white;");
+    logger.debug("[refactor-service] Calling sql_get_outline", { dialect, sqlLength: sql.length });
     const outline = await invoke<OutlineTree>("sql_get_outline", {
       sql,
       dialect,
     });
 
-    console.log("%c[getOutline] SUCCESS!", "background: green; color: white; font-size: 16px;", outline);
+    logger.debug("[refactor-service] Got outline", outline);
 
     // Update cache
     cache = {
@@ -117,7 +110,7 @@ export async function getOutline(
 
     return outline;
   } catch (error) {
-    console.error("%c[getOutline] ERROR!", "background: red; color: white; font-size: 20px;", error);
+    logger.error("[refactor-service] Error getting outline:", error);
     return createFailedOutline();
   }
 }
