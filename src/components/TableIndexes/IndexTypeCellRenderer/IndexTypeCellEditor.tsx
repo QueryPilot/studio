@@ -230,12 +230,9 @@ export const IndexTypeCellEditor: React.FC<IndexTypeCellEditorProps> = ({
   );
 };
 
-export const IndexTypeCellEditorWithProps = Object.assign(
-  IndexTypeCellEditor,
-  {
-    disablePadding: true,
-    disableStyling: false,
-  },
-);
+export const IndexTypeCellEditorWithProps = Object.assign(IndexTypeCellEditor, {
+  disablePadding: true,
+  disableStyling: false,
+});
 
 export default IndexTypeCellEditorWithProps;
