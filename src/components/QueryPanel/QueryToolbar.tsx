@@ -26,7 +26,6 @@ import {
   IconCode,
   IconLayoutRows,
   IconDotsVertical,
-  IconHistory,
   IconWand,
   IconReportAnalytics,
   IconBinaryTree,
@@ -54,7 +53,6 @@ const DIALECT_OPTIONS: Array<{
 interface QueryToolbarProps {
   isExecuting: boolean;
   query: string;
-  showHistory: boolean;
   showResults: boolean;
   showOutline?: boolean;
   viewMode: "table" | "json" | "explain" | "raw" | "stats";
@@ -69,7 +67,6 @@ interface QueryToolbarProps {
   onCancel: () => void;
   onExplain?: () => void;
   onBeautify: () => void;
-  onToggleHistory: () => void;
   onToggleResults: () => void;
   onToggleOutline?: () => void;
   onViewModeChange: (mode: "table" | "json" | "explain" | "raw" | "stats") => void;
@@ -79,7 +76,6 @@ interface QueryToolbarProps {
 export const QueryToolbar = memo(function QueryToolbar({
   isExecuting,
   query,
-  showHistory,
   showResults,
   showOutline = false,
   viewMode,
@@ -93,7 +89,6 @@ export const QueryToolbar = memo(function QueryToolbar({
   onCancel,
   onExplain,
   onBeautify,
-  onToggleHistory,
   onToggleResults,
   onToggleOutline,
   onViewModeChange,
@@ -223,18 +218,6 @@ export const QueryToolbar = memo(function QueryToolbar({
 
         {/* Right side */}
         <div className="flex items-center gap-1.5">
-          {/* History button - hidden on narrow containers */}
-          <Button
-            size="sm"
-            variant={showHistory ? "secondary" : "ghost"}
-            onClick={onToggleHistory}
-            className="!h-6 text-xs gap-1 hidden @[500px]/toolbar:flex !px-2"
-            title="Toggle history panel (⌥H)"
-          >
-            <IconHistory className="h-3 w-3" />
-            <span>History</span>
-          </Button>
-
           {/* Outline toggle button - hidden on narrow containers */}
           {onToggleOutline && (
             <Button
@@ -306,12 +289,6 @@ export const QueryToolbar = memo(function QueryToolbar({
               </DropdownMenuSub>
 
               <DropdownMenuSeparator />
-
-              {/* History */}
-              <DropdownMenuItem onClick={onToggleHistory} className="text-xs">
-                <IconHistory className="h-3 w-3 mr-2" />
-                {showHistory ? "Hide History" : "Show History"}
-              </DropdownMenuItem>
 
               {/* Outline toggle */}
               {onToggleOutline && (
