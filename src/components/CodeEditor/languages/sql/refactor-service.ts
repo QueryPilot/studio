@@ -80,25 +80,28 @@ export async function getOutline(
   sql: string,
   dialect: string
 ): Promise<OutlineTree> {
+  console.log("[getOutline] Called with dialect:", dialect, "sql length:", sql.length);
+  
   // Return cached result if sql and dialect match
   if (cache && cache.sql === sql && cache.dialect === dialect) {
+    console.log("[getOutline] Returning cached result");
     return cache.outline;
   }
 
   // Check Tauri availability
   if (!isTauriAvailable()) {
-    logger.warn("[refactor-service] Tauri not available, cannot get outline");
+    console.warn("[getOutline] Tauri not available!");
     return createFailedOutline();
   }
 
   try {
-    logger.debug("[refactor-service] Calling sql_get_outline", { dialect, sqlLength: sql.length });
+    console.log("[getOutline] Invoking sql_get_outline...");
     const outline = await invoke<OutlineTree>("sql_get_outline", {
       sql,
       dialect,
     });
 
-    logger.debug("[refactor-service] Got outline", outline);
+    console.log("[getOutline] Got outline:", JSON.stringify(outline, null, 2));
 
     // Update cache
     cache = {
@@ -109,7 +112,7 @@ export async function getOutline(
 
     return outline;
   } catch (error) {
-    logger.error("[refactor-service] Error getting outline:", error);
+    console.error("[getOutline] Error:", error);
     return createFailedOutline();
   }
 }
