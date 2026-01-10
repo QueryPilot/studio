@@ -148,7 +148,11 @@ export class MSSQLAdapter extends SqlAdapter {
 
     if (hasOrderBy) {
       const orderClauses = orderBy
-        .map((o) => `${this.quoteIdentifier(o.column)} ${o.direction}`)
+        .map((o) => {
+          // Don't quote expressions (e.g., "(SELECT NULL)" used as fallback)
+          const col = o.column.startsWith('(') ? o.column : this.quoteIdentifier(o.column);
+          return `${col} ${o.direction}`;
+        })
         .join(', ');
       sql += ` ORDER BY ${orderClauses}`;
     }
@@ -337,6 +341,32 @@ export class MSSQLAdapter extends SqlAdapter {
       }
     }
 
+    // Handle comment changes (MSSQL uses extended properties)
+    if (changes.comment !== undefined) {
+      const schema = target.schema || 'dbo';
+      if (changes.comment === null || changes.comment === '') {
+        // Drop existing comment
+        statements.push(
+          `EXEC sp_dropextendedproperty @name = N'MS_Description', @level0type = N'SCHEMA', @level0name = N'${this.escapeString(schema)}', @level1type = N'TABLE', @level1name = N'${this.escapeString(target.table)}', @level2type = N'COLUMN', @level2name = N'${this.escapeString(columnName)}'`
+        );
+      } else {
+        // Add or update comment - try update first, then add if it doesn't exist
+        statements.push(
+          `IF EXISTS (SELECT 1 FROM sys.extended_properties WHERE major_id = OBJECT_ID('${schema}.${target.table}') AND minor_id = (SELECT column_id FROM sys.columns WHERE object_id = OBJECT_ID('${schema}.${target.table}') AND name = '${this.escapeString(columnName)}') AND name = 'MS_Description') ` +
+          `EXEC sp_updateextendedproperty @name = N'MS_Description', @value = ${this.quoteString(changes.comment)}, @level0type = N'SCHEMA', @level0name = N'${this.escapeString(schema)}', @level1type = N'TABLE', @level1name = N'${this.escapeString(target.table)}', @level2type = N'COLUMN', @level2name = N'${this.escapeString(columnName)}' ` +
+          `ELSE EXEC sp_addextendedproperty @name = N'MS_Description', @value = ${this.quoteString(changes.comment)}, @level0type = N'SCHEMA', @level0name = N'${this.escapeString(schema)}', @level1type = N'TABLE', @level1name = N'${this.escapeString(target.table)}', @level2type = N'COLUMN', @level2name = N'${this.escapeString(columnName)}'`
+        );
+      }
+    }
+
+    // Handle check constraint changes
+    if (changes.checkExpression !== undefined && changes.checkExpression !== null && changes.checkExpression !== '') {
+      const constraintName = `CK_${target.table}_${columnName}`;
+      statements.push(
+        `ALTER TABLE ${table} ADD CONSTRAINT ${this.quoteIdentifier(constraintName)} CHECK (${changes.checkExpression})`
+      );
+    }
+
     return statements.join(';\n');
   }
 
@@ -427,10 +457,11 @@ export class MSSQLAdapter extends SqlAdapter {
   }
 
   getTablesQuery(schema: string): string {
+    // Uses COLLATE DATABASE_DEFAULT to avoid collation conflicts
     return `
 SELECT
-    s.name as schema_name,
-    t.name as table_name,
+    s.name COLLATE DATABASE_DEFAULT as schema_name,
+    t.name COLLATE DATABASE_DEFAULT as table_name,
     'regular' as kind,
     NULL as owner,
     NULL as size,
@@ -443,11 +474,12 @@ ORDER BY t.name`;
   }
 
   getViewsQuery(schema: string): string {
+    // Uses COLLATE DATABASE_DEFAULT to avoid collation conflicts
     return `
 SELECT
-    s.name as schema_name,
-    v.name as view_name,
-    m.definition as definition
+    s.name COLLATE DATABASE_DEFAULT as schema_name,
+    v.name COLLATE DATABASE_DEFAULT as view_name,
+    CAST(m.definition AS NVARCHAR(MAX)) COLLATE DATABASE_DEFAULT as definition
 FROM sys.views v
 JOIN sys.schemas s ON v.schema_id = s.schema_id
 LEFT JOIN sys.sql_modules m ON v.object_id = m.object_id
@@ -456,17 +488,18 @@ ORDER BY v.name`;
   }
 
   getFunctionsQuery(schema: string): string {
+    // Uses COLLATE DATABASE_DEFAULT to avoid collation conflicts
     return `
 SELECT
-    s.name as schema_name,
-    o.name as function_name,
+    s.name COLLATE DATABASE_DEFAULT as schema_name,
+    o.name COLLATE DATABASE_DEFAULT as function_name,
     '' as arguments,
-    CASE WHEN o.type = 'P' THEN 'void' ELSE COALESCE(TYPE_NAME(c.user_type_id), 'void') END as return_type,
+    CASE WHEN o.type = 'P' THEN 'void' ELSE COALESCE(TYPE_NAME(c.user_type_id) COLLATE DATABASE_DEFAULT, 'void') END as return_type,
     'T-SQL' as language,
     CAST(0 as bit) as is_aggregate,
     CAST(0 as bit) as is_window,
     CAST(0 as bit) as is_trigger,
-    m.definition as source,
+    CAST(m.definition AS NVARCHAR(MAX)) COLLATE DATABASE_DEFAULT as source,
     CASE WHEN o.type = 'P' THEN 'PROCEDURE' ELSE 'FUNCTION' END as routine_type
 FROM sys.objects o
 JOIN sys.schemas s ON o.schema_id = s.schema_id
@@ -478,15 +511,16 @@ ORDER BY o.name`;
   }
 
   getIndexesQuery(schema: string, table: string): string {
+    // Uses COLLATE DATABASE_DEFAULT to avoid collation conflicts
     return `
 SELECT
-    i.name as index_name,
-    t.name as table_name,
-    '[' + STRING_AGG('"' + REPLACE(c.name, '"', '\"') + '"', ',') WITHIN GROUP (ORDER BY ic.key_ordinal) + ']' as columns,
+    i.name COLLATE DATABASE_DEFAULT as index_name,
+    t.name COLLATE DATABASE_DEFAULT as table_name,
+    '[' + STRING_AGG('"' + REPLACE(c.name COLLATE DATABASE_DEFAULT, '"', '\"') + '"', ',') WITHIN GROUP (ORDER BY ic.key_ordinal) + ']' as columns,
     i.is_unique as is_unique,
     i.is_primary_key as is_primary,
     CASE WHEN i.has_filter = 1 THEN 1 ELSE 0 END as is_partial,
-    'USING ' + COALESCE(i.type_desc, 'NONCLUSTERED') + CASE WHEN i.has_filter = 1 THEN ' WHERE ' + i.filter_definition ELSE '' END as definition,
+    'USING ' + COALESCE(i.type_desc COLLATE DATABASE_DEFAULT, 'NONCLUSTERED') + CASE WHEN i.has_filter = 1 THEN ' WHERE ' + CAST(i.filter_definition AS NVARCHAR(MAX)) COLLATE DATABASE_DEFAULT ELSE '' END as definition,
     0 as is_foreign_key
 FROM sys.indexes i
 JOIN sys.tables t ON i.object_id = t.object_id
@@ -502,9 +536,10 @@ ORDER BY i.name`;
 
 
   getIndexUsageStatsQuery(schema: string, table: string): string {
+    // Uses COLLATE DATABASE_DEFAULT to avoid collation conflicts
     return `
 SELECT
-    i.name as index_name,
+    i.name COLLATE DATABASE_DEFAULT as index_name,
     us.user_seeks as seek_count,
     us.user_scans as scan_count,
     us.user_lookups as lookup_count,
@@ -524,28 +559,29 @@ ORDER BY i.name`;
   getConstraintsQuery(schema: string, table: string): string {
     // Query returns constraints with definition string matching the expected format:
     // [0] name, [1] table_name, [2] constraint_type, [3] definition, [4] foreign_table
+    // Uses COLLATE DATABASE_DEFAULT to avoid collation conflicts when concatenating strings
     return `
 WITH ForeignKeyDefs AS (
     SELECT
-        fk.name as constraint_name,
-        t.name as table_name,
+        fk.name COLLATE DATABASE_DEFAULT as constraint_name,
+        t.name COLLATE DATABASE_DEFAULT as table_name,
         'FOREIGN KEY' as constraint_type,
         STUFF((
-            SELECT ', ' + COL_NAME(fkc2.parent_object_id, fkc2.parent_column_id)
+            SELECT ', ' + COL_NAME(fkc2.parent_object_id, fkc2.parent_column_id) COLLATE DATABASE_DEFAULT
             FROM sys.foreign_key_columns fkc2
             WHERE fkc2.constraint_object_id = fk.object_id
             ORDER BY fkc2.constraint_column_id
             FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') as local_columns,
         STUFF((
-            SELECT ', ' + COL_NAME(fkc2.referenced_object_id, fkc2.referenced_column_id)
+            SELECT ', ' + COL_NAME(fkc2.referenced_object_id, fkc2.referenced_column_id) COLLATE DATABASE_DEFAULT
             FROM sys.foreign_key_columns fkc2
             WHERE fkc2.constraint_object_id = fk.object_id
             ORDER BY fkc2.constraint_column_id
             FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') as ref_columns,
-        SCHEMA_NAME(rt.schema_id) as ref_schema,
-        rt.name as ref_table,
-        fk.delete_referential_action_desc as on_delete,
-        fk.update_referential_action_desc as on_update
+        SCHEMA_NAME(rt.schema_id) COLLATE DATABASE_DEFAULT as ref_schema,
+        rt.name COLLATE DATABASE_DEFAULT as ref_table,
+        fk.delete_referential_action_desc COLLATE DATABASE_DEFAULT as on_delete,
+        fk.update_referential_action_desc COLLATE DATABASE_DEFAULT as on_update
     FROM sys.foreign_keys fk
     JOIN sys.tables t ON fk.parent_object_id = t.object_id
     JOIN sys.schemas s ON t.schema_id = s.schema_id
@@ -555,17 +591,17 @@ WITH ForeignKeyDefs AS (
 ),
 PrimaryKeyDefs AS (
     SELECT
-        kc.name as constraint_name,
-        t.name as table_name,
+        kc.name COLLATE DATABASE_DEFAULT as constraint_name,
+        t.name COLLATE DATABASE_DEFAULT as table_name,
         'PRIMARY KEY' as constraint_type,
         'PRIMARY KEY (' + STUFF((
-            SELECT ', ' + c.name
+            SELECT ', ' + c.name COLLATE DATABASE_DEFAULT
             FROM sys.index_columns ic
             JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
             WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
             ORDER BY ic.key_ordinal
             FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') + ')' as definition,
-        NULL as foreign_table
+        CAST(NULL AS NVARCHAR(256)) as foreign_table
     FROM sys.key_constraints kc
     JOIN sys.tables t ON kc.parent_object_id = t.object_id
     JOIN sys.schemas s ON t.schema_id = s.schema_id
@@ -576,17 +612,17 @@ PrimaryKeyDefs AS (
 ),
 UniqueKeyDefs AS (
     SELECT
-        kc.name as constraint_name,
-        t.name as table_name,
+        kc.name COLLATE DATABASE_DEFAULT as constraint_name,
+        t.name COLLATE DATABASE_DEFAULT as table_name,
         'UNIQUE' as constraint_type,
         'UNIQUE (' + STUFF((
-            SELECT ', ' + c.name
+            SELECT ', ' + c.name COLLATE DATABASE_DEFAULT
             FROM sys.index_columns ic
             JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
             WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
             ORDER BY ic.key_ordinal
             FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') + ')' as definition,
-        NULL as foreign_table
+        CAST(NULL AS NVARCHAR(256)) as foreign_table
     FROM sys.key_constraints kc
     JOIN sys.tables t ON kc.parent_object_id = t.object_id
     JOIN sys.schemas s ON t.schema_id = s.schema_id
@@ -597,11 +633,11 @@ UniqueKeyDefs AS (
 ),
 CheckDefs AS (
     SELECT
-        cc.name as constraint_name,
-        t.name as table_name,
+        cc.name COLLATE DATABASE_DEFAULT as constraint_name,
+        t.name COLLATE DATABASE_DEFAULT as table_name,
         'CHECK' as constraint_type,
-        'CHECK ' + cc.definition as definition,
-        NULL as foreign_table
+        'CHECK ' + CAST(cc.definition AS NVARCHAR(MAX)) COLLATE DATABASE_DEFAULT as definition,
+        CAST(NULL AS NVARCHAR(256)) as foreign_table
     FROM sys.check_constraints cc
     JOIN sys.tables t ON cc.parent_object_id = t.object_id
     JOIN sys.schemas s ON t.schema_id = s.schema_id
@@ -627,21 +663,22 @@ ORDER BY constraint_name`;
   }
 
   getColumnsQuery(schema: string, table: string): string {
+    // Uses COLLATE DATABASE_DEFAULT to avoid collation conflicts
     return `
 SELECT
-    c.name as column_name,
-    TYPE_NAME(c.user_type_id) + CASE
+    c.name COLLATE DATABASE_DEFAULT as column_name,
+    TYPE_NAME(c.user_type_id) COLLATE DATABASE_DEFAULT + CASE
         WHEN TYPE_NAME(c.user_type_id) IN ('varchar', 'nvarchar', 'char', 'nchar')
-            THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX' ELSE CAST(c.max_length AS VARCHAR) END + ')'
+            THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX' ELSE CAST(c.max_length AS VARCHAR(20)) END + ')'
         WHEN TYPE_NAME(c.user_type_id) IN ('decimal', 'numeric')
-            THEN '(' + CAST(c.precision AS VARCHAR) + ',' + CAST(c.scale AS VARCHAR) + ')'
+            THEN '(' + CAST(c.precision AS VARCHAR(20)) + ',' + CAST(c.scale AS VARCHAR(20)) + ')'
         ELSE ''
     END as formatted_type,
     c.user_type_id as type_oid,
     c.is_nullable as nullable,
     CASE WHEN pk.column_id IS NOT NULL THEN 1 ELSE 0 END as is_primary_key,
-    dc.definition as default_value,
-    CAST(ep.value AS NVARCHAR(MAX)) as comment,
+    CAST(dc.definition AS NVARCHAR(MAX)) COLLATE DATABASE_DEFAULT as default_value,
+    CAST(ep.value AS NVARCHAR(MAX)) COLLATE DATABASE_DEFAULT as comment,
     NULL as type_category,
     NULL as enum_values,
     c.is_computed as is_computed,
@@ -664,13 +701,14 @@ ORDER BY c.column_id`;
   }
 
   getTriggersQuery(schema: string, table: string): string {
+    // Uses COLLATE DATABASE_DEFAULT to avoid collation conflicts
     return `
 SELECT
-    tr.name as trigger_name,
-    s.name as schema_name,
-    t.name as table_name,
+    tr.name COLLATE DATABASE_DEFAULT as trigger_name,
+    s.name COLLATE DATABASE_DEFAULT as schema_name,
+    t.name COLLATE DATABASE_DEFAULT as table_name,
     tr.is_disabled,
-    m.definition as definition
+    CAST(m.definition AS NVARCHAR(MAX)) COLLATE DATABASE_DEFAULT as definition
 FROM sys.triggers tr
 JOIN sys.tables t ON tr.parent_id = t.object_id
 JOIN sys.schemas s ON t.schema_id = s.schema_id

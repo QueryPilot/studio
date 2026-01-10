@@ -24,6 +24,7 @@ export interface StructureGridRow {
   collation?: string;
   extra?: string;
   _originalData?: ColumnMeta;
+  _original?: ColumnMeta; // Alias for backwards compatibility
   _tempId?: string; // For pending column additions
   _isPending?: boolean; // True for new columns not yet committed
   _isModified?: boolean; // True for existing columns with pending modifications

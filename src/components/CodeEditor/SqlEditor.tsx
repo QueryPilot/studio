@@ -28,6 +28,7 @@ import {
   highlightActiveLineGutter,
   highlightActiveLine,
   placeholder as placeholderExt,
+  scrollPastEnd,
 } from "@codemirror/view";
 import {
   defaultKeymap,
@@ -165,6 +166,8 @@ export interface SqlEditorProps {
   className?: string;
   /** Height */
   height?: string;
+  /** Extra bottom padding in pixels for scrolling past end */
+  extraBottomPadding?: number;
 }
 
 // Compartment factory - creates instance-level compartments
@@ -260,6 +263,7 @@ export const SqlEditor = memo(
       placeholder = "Enter your SQL query...",
       className = "",
       height = "100%",
+      extraBottomPadding = 100,
     },
     ref,
   ) {
@@ -673,6 +677,9 @@ export const SqlEditor = memo(
           foldGutter(),
           // Note: lintGutter() is added by run-gutter extension if onExecute is provided
 
+          // Allow scrolling past the end of the document
+          scrollPastEnd(),
+
           // Search
           search({ top: true }),
 
@@ -863,7 +870,6 @@ export const SqlEditor = memo(
       <>
         <EditorContextMenu
           editorRef={viewRef}
-          dialect={effectiveDialect}
           onRename={handleRenameFromContextMenu}
           onExtractCte={(span) => {
             setExtractCteSelection(span);

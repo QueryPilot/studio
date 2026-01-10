@@ -100,8 +100,8 @@ export const QueryPanel = memo(function QueryPanel({
   // Results panel visibility - hidden by default, shown when query executes
   const [showResults, setShowResults] = useState(result !== null);
 
-  // Outline panel visibility - default TRUE to show the new AST-based outline
-  const [showOutline, setShowOutline] = useState(true);
+  // Outline panel visibility - hidden by default, toggleable via toolbar
+  const [showOutline, setShowOutline] = useState(false);
 
   // Get transaction state from persisted store
   const inTransaction = globalState?.inTransaction || false;
@@ -899,18 +899,6 @@ export const QueryPanel = memo(function QueryPanel({
                 className="border-none"
               >
                 <div className="flex h-full relative">
-                  {/* Query Outline Sidebar */}
-                  {showOutline && (
-                    <div className="w-48 border-r flex-shrink-0 overflow-auto">
-                      <QueryOutline
-                        sql={query}
-                        dialect={selectedDialect === "auto" ? detectedDialect : selectedDialect}
-                        onNavigate={(position) => {
-                          editorRef.current?.setCursorPosition(position);
-                        }}
-                      />
-                    </div>
-                  )}
                   <div className="flex flex-col flex-1 min-w-0 relative">
                   {/* Transaction indicator badge */}
                   {inTransaction && (
@@ -947,6 +935,7 @@ export const QueryPanel = memo(function QueryPanel({
                     height="100%"
                     dialectOverride={selectedDialect === "auto" ? undefined : selectedDialect}
                     onDialectDetected={setDetectedDialect}
+                    extraBottomPadding={100}
                   />
                   {/* Toolbar */}
                   <QueryToolbar
@@ -954,6 +943,7 @@ export const QueryPanel = memo(function QueryPanel({
                     query={query}
                     showHistory={showHistory}
                     showResults={showResults}
+                    showOutline={showOutline}
                     viewMode={viewMode}
                     focused={isPanelFocused}
                     dialect={selectedDialect}
@@ -965,10 +955,35 @@ export const QueryPanel = memo(function QueryPanel({
                     onExplain={handleExplain}
                     onToggleHistory={toggleHistory}
                     onToggleResults={toggleResults}
+                    onToggleOutline={() => setShowOutline(!showOutline)}
                     onViewModeChange={setViewMode}
                     onDialectChange={setSelectedDialect}
                   />
                   </div>
+                  {/* Query Outline Sidebar - RIGHT SIDE */}
+                  {showOutline && (
+                    <div className="w-56 border-l flex-shrink-0 overflow-auto bg-muted/30">
+                      <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/50">
+                        <span className="text-xs font-medium text-muted-foreground">Query Outline</span>
+                        <button
+                          onClick={() => setShowOutline(false)}
+                          className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                          title="Close Outline"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                      <QueryOutline
+                        sql={query}
+                        dialect={selectedDialect === "auto" ? detectedDialect : selectedDialect}
+                        onNavigate={(position) => {
+                          editorRef.current?.setCursorPosition(position);
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
               </ResizablePanel>
 
