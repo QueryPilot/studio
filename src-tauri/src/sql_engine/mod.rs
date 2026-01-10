@@ -63,6 +63,7 @@ pub mod schema_store;
 pub mod semantic;
 pub mod snippets;
 pub mod sp_params;
+pub mod symbol_finder;
 pub mod templates;
 pub mod validator;
 
@@ -110,6 +111,7 @@ pub use sp_params::{
     get_function_signature, suggest_sp_params, BuiltinFunctionHelp, FunctionOverload,
     ParamSuggestion,
 };
+pub use symbol_finder::{SymbolFinder, SymbolKind, SymbolReferences};
 pub use templates::{
     generate_create_table_template, generate_delete_template, generate_insert_for_columns,
     generate_insert_template, generate_select_template, generate_update_template,
