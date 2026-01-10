@@ -16,6 +16,7 @@ import {
   ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuTrigger,
+  ContextMenuGroup,
 } from "@/components/ui/context-menu";
 import { IconArrowRight, IconCopy } from "@tabler/icons-react";
 
@@ -99,81 +100,83 @@ export function SqlContextMenu({
       <ContextMenu open={open} onOpenChange={(open) => !open && onClose()}>
         <ContextMenuTrigger />
         <ContextMenuContent>
-          <ContextMenuLabel>{getHeaderText()}</ContextMenuLabel>
-          <ContextMenuSeparator />
+          <ContextMenuGroup>
+            <ContextMenuLabel>{getHeaderText()}</ContextMenuLabel>
+            <ContextMenuSeparator />
 
-        {/* Go to Definition - for aliases and CTEs */}
-        {(target.type === "alias" || target.type === "cte") &&
-          target.definitionPos && (
-            <ContextMenuItem
-              onSelect={() => onAction("goto-definition", target.definitionPos)}
-            >
-              <IconArrowRight />
-              Go to Definition
-            </ContextMenuItem>
-          )}
+            {/* Go to Definition - for aliases and CTEs */}
+            {(target.type === "alias" || target.type === "cte") &&
+              target.definitionPos && (
+                <ContextMenuItem
+                  onSelect={() => onAction("goto-definition", target.definitionPos)}
+                >
+                  <IconArrowRight />
+                  Go to Definition
+                </ContextMenuItem>
+              )}
 
-        {/* Go to Table Structure - for tables */}
-        {target.type === "table" && (
-          <ContextMenuItem
-            onSelect={() =>
-              onAction("goto-table-structure", {
-                table: target.name,
-                schema: target.sourceSchema,
-              })
-            }
-          >
-            <IconArrowRight />
-            Go to Table Structure
-          </ContextMenuItem>
-        )}
-
-        {/* Copy actions */}
-        {(target.type === "alias" || target.type === "cte") && (
-          <>
-            {target.definitionPos && <ContextMenuSeparator />}
-            <ContextMenuItem
-              onSelect={() => onAction("copy-name", target.name)}
-            >
-              <IconCopy />
-              Copy {target.type === "alias" ? "Alias" : "CTE"} "{target.name}"
-            </ContextMenuItem>
-            {target.sourceTable && (
+            {/* Go to Table Structure - for tables */}
+            {target.type === "table" && (
               <ContextMenuItem
                 onSelect={() =>
-                  onAction("copy-source-table", target.sourceTable)
+                  onAction("goto-table-structure", {
+                    table: target.name,
+                    schema: target.sourceSchema,
+                  })
                 }
               >
-                <IconCopy />
-                Copy Table "{target.sourceTable}"
+                <IconArrowRight />
+                Go to Table Structure
               </ContextMenuItem>
             )}
-          </>
-        )}
 
-        {target.type === "table" && (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem
-              onSelect={() => onAction("copy-name", target.name)}
-            >
-              <IconCopy />
-              Copy Table Name
-            </ContextMenuItem>
-          </>
-        )}
+            {/* Copy actions */}
+            {(target.type === "alias" || target.type === "cte") && (
+              <>
+                {target.definitionPos && <ContextMenuSeparator />}
+                <ContextMenuItem
+                  onSelect={() => onAction("copy-name", target.name)}
+                >
+                  <IconCopy />
+                  Copy {target.type === "alias" ? "Alias" : "CTE"} "{target.name}"
+                </ContextMenuItem>
+                {target.sourceTable && (
+                  <ContextMenuItem
+                    onSelect={() =>
+                      onAction("copy-source-table", target.sourceTable)
+                    }
+                  >
+                    <IconCopy />
+                    Copy Table "{target.sourceTable}"
+                  </ContextMenuItem>
+                )}
+              </>
+            )}
 
-        {target.type === "column" && (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem
-              onSelect={() => onAction("copy-name", target.name)}
-            >
-              <IconCopy />
-              Copy Column Name
-            </ContextMenuItem>
-          </>
-        )}
+            {target.type === "table" && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  onSelect={() => onAction("copy-name", target.name)}
+                >
+                  <IconCopy />
+                  Copy Table Name
+                </ContextMenuItem>
+              </>
+            )}
+
+            {target.type === "column" && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  onSelect={() => onAction("copy-name", target.name)}
+                >
+                  <IconCopy />
+                  Copy Column Name
+                </ContextMenuItem>
+              </>
+            )}
+          </ContextMenuGroup>
         </ContextMenuContent>
       </ContextMenu>
     </div>
