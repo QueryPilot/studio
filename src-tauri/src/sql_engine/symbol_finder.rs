@@ -5,7 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 use sqlparser::ast::{Expr, Query, SelectItem, SetExpr, Statement, TableFactor};
-use std::collections::HashSet;
 
 use super::outline::TextSpan;
 
@@ -196,12 +195,7 @@ impl<'a> SymbolFinder<'a> {
 
                 // Handle subqueries in WHERE clause
                 if let Some(where_clause) = &select.selection {
-                    self.collect_definitions_from_expr(
-                        where_clause,
-                        scope_start,
-                        scope_end,
-                        definitions,
-                    );
+                    self.collect_definitions_from_expr(where_clause, definitions);
                 }
             }
             SetExpr::Query(query) => {
@@ -219,8 +213,6 @@ impl<'a> SymbolFinder<'a> {
     fn collect_definitions_from_expr(
         &self,
         expr: &Expr,
-        _parent_scope_start: usize,
-        _parent_scope_end: usize,
         definitions: &mut Vec<SymbolDefinition>,
     ) {
         match expr {
@@ -231,37 +223,50 @@ impl<'a> SymbolFinder<'a> {
                 }
             }
             Expr::InSubquery { subquery, expr, .. } => {
-                self.collect_definitions_from_expr(
-                    expr,
-                    _parent_scope_start,
-                    _parent_scope_end,
-                    definitions,
-                );
+                self.collect_definitions_from_expr(expr, definitions);
+                if let Some((sub_start, sub_end)) = self.find_subquery_span(subquery) {
+                    self.collect_definitions_from_query(subquery, sub_start, sub_end, definitions);
+                }
+            }
+            Expr::Exists { subquery, .. } => {
                 if let Some((sub_start, sub_end)) = self.find_subquery_span(subquery) {
                     self.collect_definitions_from_query(subquery, sub_start, sub_end, definitions);
                 }
             }
             Expr::BinaryOp { left, right, .. } => {
-                self.collect_definitions_from_expr(
-                    left,
-                    _parent_scope_start,
-                    _parent_scope_end,
-                    definitions,
-                );
-                self.collect_definitions_from_expr(
-                    right,
-                    _parent_scope_start,
-                    _parent_scope_end,
-                    definitions,
-                );
+                self.collect_definitions_from_expr(left, definitions);
+                self.collect_definitions_from_expr(right, definitions);
+            }
+            Expr::UnaryOp { expr, .. } => {
+                self.collect_definitions_from_expr(expr, definitions);
             }
             Expr::Nested(inner) => {
-                self.collect_definitions_from_expr(
-                    inner,
-                    _parent_scope_start,
-                    _parent_scope_end,
-                    definitions,
-                );
+                self.collect_definitions_from_expr(inner, definitions);
+            }
+            Expr::Between { expr, low, high, .. } => {
+                self.collect_definitions_from_expr(expr, definitions);
+                self.collect_definitions_from_expr(low, definitions);
+                self.collect_definitions_from_expr(high, definitions);
+            }
+            Expr::Case { operand, conditions, results, else_result, .. } => {
+                if let Some(op) = operand {
+                    self.collect_definitions_from_expr(op, definitions);
+                }
+                for cond in conditions {
+                    self.collect_definitions_from_expr(cond, definitions);
+                }
+                for res in results {
+                    self.collect_definitions_from_expr(res, definitions);
+                }
+                if let Some(else_expr) = else_result {
+                    self.collect_definitions_from_expr(else_expr, definitions);
+                }
+            }
+            Expr::InList { expr, list, .. } => {
+                self.collect_definitions_from_expr(expr, definitions);
+                for item in list {
+                    self.collect_definitions_from_expr(item, definitions);
+                }
             }
             _ => {}
         }
@@ -482,19 +487,14 @@ impl<'a> SymbolFinder<'a> {
 
         // Find occurrences of this query pattern in source
         let source_upper = self.source.to_uppercase();
-        let mut used_positions: HashSet<usize> = HashSet::new();
 
-        // Track which positions we've already matched to outer queries
         let mut pos = 0;
         while let Some(found) = source_upper[pos..].find(first_keyword) {
             let abs_pos = pos + found;
-            if !used_positions.contains(&abs_pos) {
-                // Find the enclosing parentheses
-                if let Some(paren_start) = self.source[..abs_pos].rfind('(') {
-                    if let Some(paren_end) = self.find_matching_paren(paren_start) {
-                        used_positions.insert(abs_pos);
-                        return Some((paren_start, paren_end + 1));
-                    }
+            // Find the enclosing parentheses
+            if let Some(paren_start) = self.source[..abs_pos].rfind('(') {
+                if let Some(paren_end) = self.find_matching_paren(paren_start) {
+                    return Some((paren_start, paren_end + 1));
                 }
             }
             pos = abs_pos + 1;
@@ -509,12 +509,24 @@ impl<'a> SymbolFinder<'a> {
         let mut depth = 0;
         let mut in_string = false;
         let mut string_char = ' ';
+        let mut i = open_pos;
 
-        for (i, &c) in chars.iter().enumerate().skip(open_pos) {
+        while i < chars.len() {
+            let c = chars[i];
+
             if in_string {
+                // Handle escaped quotes: '' or ""
                 if c == string_char {
+                    // Check if next char is also the same quote (escaped)
+                    if i + 1 < chars.len() && chars[i + 1] == string_char {
+                        // Skip the escaped quote pair
+                        i += 2;
+                        continue;
+                    }
+                    // End of string
                     in_string = false;
                 }
+                i += 1;
                 continue;
             }
 
@@ -535,6 +547,7 @@ impl<'a> SymbolFinder<'a> {
                 }
                 _ => {}
             }
+            i += 1;
         }
 
         None
@@ -781,5 +794,55 @@ mod tests {
 
         // Should find: "FROM cte" and "JOIN cte" (not the WITH definition)
         assert_eq!(refs.len(), 2, "Should find 2 CTE references");
+    }
+
+    // ==========================================================================
+    // Escaped Quote Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_find_matching_paren_with_escaped_single_quotes() {
+        // SQL string with escaped single quote: 'O''Brien'
+        let sql = "SELECT * FROM (SELECT name FROM users WHERE name = 'O''Brien') AS sub";
+        let finder = SymbolFinder::new(sql);
+
+        // Find the opening paren position
+        let open_paren = sql.find('(').unwrap();
+        let close_paren = finder.find_matching_paren(open_paren);
+
+        assert!(close_paren.is_some(), "Should find matching paren despite escaped quotes");
+        let close_pos = close_paren.unwrap();
+        assert_eq!(&sql[close_pos..close_pos + 1], ")", "Should point to closing paren");
+
+        // Verify the matched content contains the full subquery
+        let matched = &sql[open_paren..=close_pos];
+        assert!(matched.contains("O''Brien"), "Should include the escaped quote string");
+    }
+
+    #[test]
+    fn test_find_matching_paren_with_escaped_double_quotes() {
+        // SQL string with escaped double quote: "col""name"
+        let sql = r#"SELECT * FROM (SELECT "col""name" FROM users) AS sub"#;
+        let finder = SymbolFinder::new(sql);
+
+        let open_paren = sql.find('(').unwrap();
+        let close_paren = finder.find_matching_paren(open_paren);
+
+        assert!(close_paren.is_some(), "Should find matching paren despite escaped double quotes");
+    }
+
+    #[test]
+    fn test_find_matching_paren_with_paren_inside_string() {
+        // String contains parentheses that should be ignored
+        let sql = "SELECT * FROM (SELECT name FROM users WHERE note = 'has (parens) inside') AS sub";
+        let finder = SymbolFinder::new(sql);
+
+        let open_paren = sql.find('(').unwrap();
+        let close_paren = finder.find_matching_paren(open_paren);
+
+        assert!(close_paren.is_some(), "Should find correct matching paren");
+        let close_pos = close_paren.unwrap();
+        // The closing paren should be the one after "sub", not the one inside the string
+        assert!(close_pos > sql.find("inside')").unwrap(), "Should match outer paren, not string content");
     }
 }
