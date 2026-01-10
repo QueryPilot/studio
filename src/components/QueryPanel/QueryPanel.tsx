@@ -898,93 +898,102 @@ export const QueryPanel = memo(function QueryPanel({
                 minSize={20}
                 className="border-none"
               >
-                <div className="flex h-full relative">
-                  <div className="flex flex-col flex-1 min-w-0 relative">
-                  {/* Transaction indicator badge */}
-                  {inTransaction && (
-                    <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 bg-yellow-500/90 dark:bg-yellow-600/90 text-yellow-950 dark:text-yellow-50 text-xs font-medium rounded-md shadow-md backdrop-blur-sm border border-yellow-600/20">
-                      <svg
-                        className="w-3 h-3"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                        />
-                      </svg>
-                      IN TRANSACTION
-                    </div>
-                  )}
-                  <QueryEditor
-                    ref={editorRef}
-                    connectionId={effectiveConnectionId}
-                    database={database}
-                    schema={schema}
-                    dbType={dbType}
-                    value={query}
-                    onChange={(value) => {
-                      setQuery(value);
-                      persistSql(value);
-                    }}
-                    onExecute={handleExecute}
-                    isExecuting={isExecuting}
-                    height="100%"
-                    dialectOverride={selectedDialect === "auto" ? undefined : selectedDialect}
-                    onDialectDetected={setDetectedDialect}
-                    extraBottomPadding={100}
-                  />
-                  {/* Toolbar */}
-                  <QueryToolbar
-                    isExecuting={isExecuting}
-                    query={query}
-                    showHistory={showHistory}
-                    showResults={showResults}
-                    showOutline={showOutline}
-                    viewMode={viewMode}
-                    focused={isPanelFocused}
-                    dialect={selectedDialect}
-                    detectedDialect={detectedDialect}
-                    isExplainResult={isExplainResult}
-                    onExecute={() => handleExecute()}
-                    onCancel={handleCancel}
-                    onBeautify={handleBeautify}
-                    onExplain={handleExplain}
-                    onToggleHistory={toggleHistory}
-                    onToggleResults={toggleResults}
-                    onToggleOutline={() => setShowOutline(!showOutline)}
-                    onViewModeChange={setViewMode}
-                    onDialectChange={setSelectedDialect}
-                  />
-                  </div>
-                  {/* Query Outline Sidebar - RIGHT SIDE */}
-                  {showOutline && (
-                    <div className="w-56 border-l flex-shrink-0 overflow-auto bg-muted/30">
-                      <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/50">
-                        <span className="text-xs font-medium text-muted-foreground">Query Outline</span>
-                        <button
-                          onClick={() => setShowOutline(false)}
-                          className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
-                          title="Close Outline"
+                <ResizablePanelGroup direction="horizontal" className="h-full">
+                  {/* Editor Panel */}
+                  <ResizablePanel defaultSize={75} minSize={30} className="flex flex-col relative">
+                    {/* Transaction indicator badge */}
+                    {inTransaction && (
+                      <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 bg-yellow-500/90 dark:bg-yellow-600/90 text-yellow-950 dark:text-yellow-50 text-xs font-medium rounded-md shadow-md backdrop-blur-sm border border-yellow-600/20">
+                        <svg
+                          className="w-3 h-3"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
                         >
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                          />
+                        </svg>
+                        IN TRANSACTION
                       </div>
-                      <QueryOutline
-                        sql={query}
-                        dialect={selectedDialect === "auto" ? detectedDialect : selectedDialect}
-                        onNavigate={(position) => {
-                          editorRef.current?.setCursorPosition(position);
-                        }}
-                      />
-                    </div>
+                    )}
+                    <QueryEditor
+                      ref={editorRef}
+                      connectionId={effectiveConnectionId}
+                      database={database}
+                      schema={schema}
+                      dbType={dbType}
+                      value={query}
+                      onChange={(value) => {
+                        setQuery(value);
+                        persistSql(value);
+                      }}
+                      onExecute={handleExecute}
+                      isExecuting={isExecuting}
+                      height="100%"
+                      dialectOverride={selectedDialect === "auto" ? undefined : selectedDialect}
+                      onDialectDetected={setDetectedDialect}
+                      extraBottomPadding={100}
+                    />
+                    {/* Toolbar */}
+                    <QueryToolbar
+                      isExecuting={isExecuting}
+                      query={query}
+                      showHistory={showHistory}
+                      showResults={showResults}
+                      showOutline={showOutline}
+                      viewMode={viewMode}
+                      focused={isPanelFocused}
+                      dialect={selectedDialect}
+                      detectedDialect={detectedDialect}
+                      isExplainResult={isExplainResult}
+                      onExecute={() => handleExecute()}
+                      onCancel={handleCancel}
+                      onBeautify={handleBeautify}
+                      onExplain={handleExplain}
+                      onToggleHistory={toggleHistory}
+                      onToggleResults={toggleResults}
+                      onToggleOutline={() => setShowOutline(!showOutline)}
+                      onViewModeChange={setViewMode}
+                      onDialectChange={setSelectedDialect}
+                    />
+                  </ResizablePanel>
+
+                  {/* Query Outline Sidebar - RESIZABLE RIGHT SIDE */}
+                  {showOutline && (
+                    <>
+                      <ResizableHandle className="bg-border !w-0.5 hover:bg-primary/50 transition-colors" />
+                      <ResizablePanel defaultSize={25} minSize={15} maxSize={50}>
+                        <div className="h-full flex flex-col overflow-hidden bg-muted/30">
+                          <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/50 flex-shrink-0">
+                            <span className="text-xs font-medium text-muted-foreground">Query Outline</span>
+                            <button
+                              onClick={() => setShowOutline(false)}
+                              className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                              title="Close Outline"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                          <div className="flex-1 min-h-0 overflow-auto">
+                            <QueryOutline
+                              sql={query}
+                              dialect={selectedDialect === "auto" ? detectedDialect : selectedDialect}
+                              onNavigate={(position) => {
+                                editorRef.current?.setCursorPosition(position);
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </ResizablePanel>
+                    </>
                   )}
-                </div>
+                </ResizablePanelGroup>
               </ResizablePanel>
 
               {showResults && (
