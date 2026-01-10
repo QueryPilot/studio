@@ -9,21 +9,7 @@ import { EditorView, Decoration, type DecorationSet, WidgetType } from "@codemir
 import { StateField, StateEffect, type Extension } from "@codemirror/state";
 import { logger } from "@/lib/logger";
 import { invoke } from "@tauri-apps/api/core";
-
-interface RefactorAction {
-  kind: "rename" | "extract_cte";
-  label: string;
-  symbol: string | null;
-  span: { start: number; end: number };
-  enabled: boolean;
-  disabled_reason: string | null;
-}
-
-interface RefactorResult {
-  new_sql: string;
-  edits: Array<{ span: { start: number; end: number }; new_text: string }>;
-  cursor_position: number;
-}
+import type { RefactorAction, RefactorResult } from "../languages/sql/refactor-service";
 
 // State effect to show/hide rename widget
 const showRenameWidget = StateEffect.define<{

@@ -6,6 +6,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { logger } from "@/lib/logger";
 
 // Types matching Rust structs from outline.rs
 // (serde handles snake_case to camelCase conversion)
@@ -86,7 +87,7 @@ export async function getOutline(
 
   // Check Tauri availability
   if (!isTauriAvailable()) {
-    console.warn("[refactor-service] Tauri not available");
+    logger.warn("[refactor-service] Tauri not available");
     return createFailedOutline();
   }
 
@@ -105,7 +106,7 @@ export async function getOutline(
 
     return outline;
   } catch (error) {
-    console.error("[refactor-service] Error getting outline:", error);
+    logger.error("[refactor-service] Error getting outline:", error);
     return createFailedOutline();
   }
 }
@@ -154,7 +155,7 @@ export async function getRefactorActions(
   cursorOffset: number
 ): Promise<RefactorAction[]> {
   if (!isTauriAvailable()) {
-    console.warn("[refactor-service] Tauri not available");
+    logger.warn("[refactor-service] Tauri not available");
     return [];
   }
 
@@ -165,7 +166,7 @@ export async function getRefactorActions(
       cursorOffset,
     });
   } catch (error) {
-    console.error("[refactor-service] Error getting refactor actions:", error);
+    logger.error("[refactor-service] Error getting refactor actions:", error);
     return [];
   }
 }
