@@ -224,40 +224,5 @@ impl DbAdapter for SqliteAdapter {
         })
         .await
     }
-
-    fn get_supported_types(&self) -> Vec<CellValueType> {
-        vec![
-            CellValueType::Null,
-            CellValueType::Text,
-            CellValueType::Integer,
-            CellValueType::Decimal,
-            CellValueType::Binary,
-            // SQLite doesn't have native boolean/date/time types, but we support them via affinity
-            CellValueType::Boolean,
-            CellValueType::Date,
-            CellValueType::Time,
-            CellValueType::DateTime,
-            CellValueType::Json,
-        ]
-    }
-
-    fn supports_schemas(&self) -> bool {
-        // SQLite doesn't have schemas in the traditional sense
-        false
-    }
-
-    fn supports_procedures(&self) -> bool {
-        false
-    }
-
-    fn supports_functions(&self) -> bool {
-        // SQLite has user-defined functions, but not stored procedures
-        false
-    }
-
-    fn supports_streaming(&self) -> bool {
-        // SQLite is file-based and doesn't benefit from streaming the same way
-        true
-    }
 }
 

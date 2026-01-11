@@ -1,34 +1,28 @@
-use crate::error::Result;
-use crate::types::*;
 use async_trait::async_trait;
+use crate::error::Result;
+use crate::types::{CellValueType, ConnectionProfile, ConnectionTestResult, QueryResult};
+use std::any::Any;
 
-/// Database adapter trait for connection management and query execution.
-///
-/// NOTE: Introspection methods (get_databases, get_schemas, get_tables, etc.) have been
-/// removed. The frontend now uses IntrospectionService which generates dialect-specific SQL
-/// and executes via the `query` method. See: src/services/introspectionService.ts
 #[async_trait]
 pub trait DbAdapter: Send + Sync {
-    // Downcasting support for database-specific features
-    fn as_any(&self) -> &dyn std::any::Any;
+    /// Allow downcasting to concrete type
+    fn as_any(&self) -> &dyn Any;
 
-    // Connection management
+    /// Connect to the database
     async fn connect(&mut self, profile: &ConnectionProfile) -> Result<()>;
+
+    /// Disconnect from the database
     async fn disconnect(&mut self) -> Result<()>;
+
+    /// Test the connection configuration
     async fn test_connection(&self) -> Result<ConnectionTestResult>;
+
+    /// Check if the connection is alive
     async fn is_connected(&self) -> bool;
 
-    // Query execution (used by frontend IntrospectionService for dialect-specific queries)
+    /// Execute a query and return rows (for metadata/introspection)
     async fn query(&self, sql: &str) -> Result<QueryResult>;
+
+    /// Execute a query and return affected rows count (for INSERT/UPDATE/DELETE)
     async fn execute(&self, sql: &str) -> Result<u64>;
-}
-    fn supports_procedures(&self) -> bool {
-        false
-    }
-    fn supports_functions(&self) -> bool {
-        true
-    }
-    fn supports_streaming(&self) -> bool {
-        true
-    }
 }
