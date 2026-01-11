@@ -82,7 +82,9 @@ flowchart TB
 ```typescript
 // src/services/introspectionService.ts
 const adapter = await getAdapterForConnection(connectionId);
+// The Frontend Adapter generates the SQL for introspection
 const sql = adapter.getTablesQuery(schema);
+// We send the raw SQL to the backend
 const result = await BackendAPI.query(connectionId, sql);
 // result.rows: CellValue[][]
 ```
@@ -93,10 +95,11 @@ const result = await BackendAPI.query(connectionId, sql);
 #[tauri::command]
 pub async fn query(
     conn_id: String,
-    sql: String,
+    sql: String, // SQL provided by frontend
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<QueryResult, String> {
     let conn = manager.get_connection_with_retry(&conn_id, 3).await?;
+    // Adapter simply executes the SQL string
     conn.adapter.query(&sql).await
 }
 
