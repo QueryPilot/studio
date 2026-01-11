@@ -48,6 +48,8 @@ interface WindowInfo {
   connectionId: string;
   connectionName: string;
   createdAt: Date;
+  /** Workspace ID if opened as a named workspace */
+  workspaceId?: string;
 }
 
 type WindowState = "open" | "closing";
@@ -409,6 +411,200 @@ class WindowManager {
   isWorkspaceOpen(connectionId: string): boolean {
     // Use BroadcastChannel tracker for accurate cross-window status
     return windowChannelTracker.hasOpenWindows(connectionId);
+  }
+
+  /**
+   * Check if a named workspace window is already open
+   */
+  isNamedWorkspaceOpen(workspaceId: string): boolean {
+    for (const [, info] of this.windowMetadata) {
+      if (info.workspaceId === workspaceId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Get window info for a named workspace
+   */
+  getWindowByWorkspaceId(workspaceId: string): WindowInfo | undefined {
+    for (const [, info] of this.windowMetadata) {
+      if (info.workspaceId === workspaceId) {
+        return info;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Focus an existing named workspace window
+   */
+  async focusNamedWorkspace(workspaceId: string): Promise<boolean> {
+    if (!isTauri()) {
+      return false;
+    }
+
+    const windowInfo = this.getWindowByWorkspaceId(workspaceId);
+    if (!windowInfo) {
+      return false;
+    }
+
+    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    const webview = await WebviewWindow.getByLabel(windowInfo.label);
+    
+    if (webview) {
+      try {
+        const isMinimized = await webview.isMinimized();
+        if (isMinimized) {
+          await webview.unminimize();
+        }
+        const isVisible = await webview.isVisible();
+        if (!isVisible) {
+          await webview.show();
+        }
+        await webview.setFocus();
+        return true;
+      } catch (error) {
+        logger.error(`[WindowManager] Failed to focus workspace window:`, error);
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Open a named workspace - prevents duplicates by focusing existing
+   */
+  async openNamedWorkspace(
+    workspaceId: string,
+    workspaceName: string,
+    options: {
+      icon?: string;
+    } = {},
+  ): Promise<string> {
+    // Check if workspace window already exists
+    if (this.isNamedWorkspaceOpen(workspaceId)) {
+      const focused = await this.focusNamedWorkspace(workspaceId);
+      if (focused) {
+        const existingWindow = this.getWindowByWorkspaceId(workspaceId);
+        return existingWindow?.label || `workspace-${workspaceId}`;
+      }
+    }
+
+    const targetUrl = `/workspace/${workspaceId}`;
+
+    if (!isTauri()) {
+      window.location.href = targetUrl;
+      return `workspace-${workspaceId}`;
+    }
+
+    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+
+    const label = `workspace-${workspaceId}`;
+
+    // Check if window exists by label
+    const existingWebview = await WebviewWindow.getByLabel(label);
+    if (existingWebview) {
+      await existingWebview.setFocus();
+      return label;
+    }
+
+    // Hide main window
+    try {
+      const currentWindow = WebviewWindow.getCurrent();
+      if (currentWindow.label === "main") {
+        const mainWindow = await WebviewWindow.getByLabel("main");
+        if (mainWindow) {
+          await mainWindow.hide();
+        }
+      }
+    } catch (error) {
+      logger.error("Failed to hide main window:", error);
+    }
+
+    // Create workspace window
+    const windowTitle = options.icon 
+      ? `${options.icon} ${workspaceName}` 
+      : workspaceName;
+
+    const windowOptions: Record<string, unknown> = {
+      url: targetUrl,
+      title: windowTitle,
+      width: 1400,
+      height: 900,
+      minWidth: 1000,
+      minHeight: 600,
+      center: true,
+      resizable: true,
+      maximizable: true,
+      minimizable: true,
+      closable: true,
+      decorations: true,
+      transparent: false,
+      titleBarStyle: "overlay",
+      hiddenTitle: true,
+      skipTaskbar: false,
+    };
+
+    const trafficLightPosition = getMacOSTrafficLightPosition();
+    if (trafficLightPosition) {
+      windowOptions.trafficLightPosition = trafficLightPosition;
+    }
+
+    let webview: InstanceType<typeof WebviewWindow>;
+    try {
+      webview = new WebviewWindow(
+        label,
+        windowOptions as ConstructorParameters<typeof WebviewWindow>[1],
+      );
+    } catch (error) {
+      logger.error(`[WindowManager] Failed to create workspace window:`, error);
+      // Show main window again
+      try {
+        const mainWindow = await WebviewWindow.getByLabel("main");
+        if (mainWindow) {
+          await mainWindow.show();
+        }
+      } catch {
+        // Ignore
+      }
+      throw error;
+    }
+
+    // Register window metadata with workspace ID
+    this.windowMetadata.set(label, {
+      label,
+      connectionId: workspaceId, // Use workspace ID as connection ID for tracking
+      connectionName: workspaceName,
+      createdAt: new Date(),
+      workspaceId,
+    });
+    this.windowStates.set(label, "open");
+
+    void updateWindowMenu();
+
+    // Handle window close cleanup
+    void webview.once("tauri://destroyed", async () => {
+      this.windowMetadata.delete(label);
+      this.windowStates.delete(label);
+      void updateWindowMenu();
+
+      logger.info(`[WindowManager] Workspace window ${label} destroyed`);
+
+      if (this.windowMetadata.size === 0) {
+        try {
+          const mainWindow = await WebviewWindow.getByLabel("main");
+          if (mainWindow) {
+            await mainWindow.show();
+            await mainWindow.setFocus();
+          }
+        } catch (error) {
+          logger.error("Failed to show main window:", error);
+        }
+      }
+    });
+
+    return label;
   }
 
   getActiveWindows(): Map<string, WindowInfo> {

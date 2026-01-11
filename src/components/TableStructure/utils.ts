@@ -1,5 +1,6 @@
 import type { ColumnMeta } from "@/types/database";
 import type { ForeignKeyInfo, Constraint } from "@/types/tableStructure";
+import { ConstraintType } from "@/services/backend";
 
 export type StructureModifiedField =
   | "column_name"
@@ -142,7 +143,9 @@ export function transformStructureToRows(
   const actualRows: StructureGridRow[] = columns.map((column, idx) => {
     const fkInfo = foreignKeys.find((fk) => fk.columns.includes(column.name));
 
+    // Only match CHECK constraints, not PRIMARY KEY/UNIQUE/FOREIGN KEY
     const checkConstraint = constraints.find((c) => {
+      if (c.constraint_type !== ConstraintType.Check) return false;
       if ((c as any).columnName) {
         return (c as any).columnName === column.name;
       }

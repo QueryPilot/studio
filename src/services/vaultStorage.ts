@@ -5,6 +5,7 @@ import {
   type ConnectionProfile,
   type StoredConnection,
 } from "@/types/connection";
+import type { WorkspaceConfig } from "@/types/workspace";
 
 const OPERATION_TIMEOUT = 15000; // general non-critical ops
 const READ_TIMEOUT = 180000; // 3 minutes for keychain prompt
@@ -404,6 +405,73 @@ class VaultStorageService {
       this.keychainAccessible = false;
       return false;
     }
+  }
+
+  // ============================================================================
+  // Workspace Storage (localStorage for now, will migrate to vault later)
+  // ============================================================================
+
+  private readonly WORKSPACES_KEY = "qp:workspaces";
+
+  async listWorkspaces(): Promise<WorkspaceConfig[]> {
+    try {
+      const data = localStorage.getItem(this.WORKSPACES_KEY);
+      if (!data) return [];
+      return JSON.parse(data) as WorkspaceConfig[];
+    } catch (err) {
+      logger.error("Failed to list workspaces", err);
+      return [];
+    }
+  }
+
+  async getWorkspace(id: string): Promise<WorkspaceConfig | null> {
+    const workspaces = await this.listWorkspaces();
+    return workspaces.find((ws) => ws.id === id) || null;
+  }
+
+  async storeWorkspace(config: WorkspaceConfig): Promise<string> {
+    const workspaces = await this.listWorkspaces();
+    const existing = workspaces.findIndex((ws) => ws.id === config.id);
+
+    if (existing >= 0) {
+      workspaces[existing] = config;
+    } else {
+      workspaces.push(config);
+    }
+
+    localStorage.setItem(this.WORKSPACES_KEY, JSON.stringify(workspaces));
+    logger.info(`[VaultStorage] Stored workspace: ${config.name} (${config.id})`);
+    return config.id;
+  }
+
+  async updateWorkspace(
+    id: string,
+    updates: Partial<WorkspaceConfig>,
+  ): Promise<void> {
+    const workspaces = await this.listWorkspaces();
+    const index = workspaces.findIndex((ws) => ws.id === id);
+
+    const existing = workspaces[index];
+    if (index >= 0 && existing) {
+      workspaces[index] = {
+        ...existing,
+        ...updates,
+        id: existing.id, // Ensure id is preserved
+        name: updates.name ?? existing.name,
+        connectionIds: updates.connectionIds ?? existing.connectionIds,
+        connectionStates: updates.connectionStates ?? existing.connectionStates,
+        createdAt: existing.createdAt,
+        updatedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(this.WORKSPACES_KEY, JSON.stringify(workspaces));
+    }
+  }
+
+  async deleteWorkspace(id: string): Promise<void> {
+    const workspaces = await this.listWorkspaces();
+    const filtered = workspaces.filter((ws) => ws.id !== id);
+    localStorage.setItem(this.WORKSPACES_KEY, JSON.stringify(filtered));
+    logger.info(`[VaultStorage] Deleted workspace: ${id}`);
   }
 }
 

@@ -9,6 +9,7 @@ import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 
 import { type QueryObserverResult, useQuery } from "@tanstack/react-query";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { useEffect } from "react";
 
 interface SchemaData {
@@ -101,8 +102,52 @@ const loadSchemaData = async (
   }
 };
 
-export function useSchemaData(): SchemaData {
-  const { connectionId, database, schema } = useWorkspaceSelectionStore();
+/**
+ * Hook to load schema data (tables, views, functions) for a connection.
+ *
+ * @param overrideConnectionId - Optional connectionId to use instead of focused connection.
+ *                               When provided, loads schema data for that specific connection.
+ *                               When omitted, uses the currently focused connection.
+ */
+export function useSchemaData(overrideConnectionId?: string): SchemaData {
+  // Subscribe to bundle store for focused connection (reactive)
+  const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
+  const focusedConnectionId = activeWorkspace?.focusedConnectionId ?? null;
+  // activeWorkspace is guaranteed non-null when focusedConnectionId is non-null
+  const focusedConnection =
+    activeWorkspace?.connections.get(focusedConnectionId ?? "") ?? null;
+
+  // Subscribe to legacy store for backwards compatibility
+  const legacyConnectionId = useWorkspaceSelectionStore((s) => s.connectionId);
+  const legacyDatabase = useWorkspaceSelectionStore((s) => s.database);
+  const legacySchema = useWorkspaceSelectionStore((s) => s.schema);
+
+  // Get connection by override ID from bundle store (if needed)
+  const overrideConnection = overrideConnectionId
+    ? activeWorkspace?.connections.get(overrideConnectionId)
+    : null;
+
+  // Determine effective connection context
+  let connectionId: string | null;
+  let database: string | null;
+  let schema: string | null;
+
+  if (overrideConnectionId) {
+    // Use override - get state from bundle store
+    connectionId = overrideConnectionId;
+    database = overrideConnection?.database ?? null;
+    schema = overrideConnection?.schema ?? null;
+  } else if (focusedConnection) {
+    // Use focused connection from bundle store
+    connectionId = focusedConnection.id;
+    database = focusedConnection.database;
+    schema = focusedConnection.schema;
+  } else {
+    // Fall back to legacy store
+    connectionId = legacyConnectionId;
+    database = legacyDatabase;
+    schema = legacySchema;
+  }
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["useSchemaData.SchemaData", connectionId, database, schema],

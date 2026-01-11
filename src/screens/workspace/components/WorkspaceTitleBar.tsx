@@ -20,6 +20,8 @@ import {
   IconArrowBackUp,
   IconArrowForwardUp,
   IconGitCommit,
+  IconPlus,
+  IconExternalLink,
 } from "@tabler/icons-react";
 import {
   Popover,
@@ -65,6 +67,7 @@ import { useAppStore } from "@/stores/appStore";
 import { toast } from "sonner";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import {
   Tooltip,
@@ -449,17 +452,34 @@ export function WorkspaceTitleBar({
     };
   }, [totalChanges, commitAll, discardAll]);
 
-  // Update document title with unsaved changes indicator
+  // Get workspace bundle store for window title and workspace actions
+  const getWindowTitle = useWorkspaceBundleStore((s) => s.getWindowTitle);
+  const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
+  const addConnectionToWorkspace = useWorkspaceBundleStore(
+    (s) => s.addConnectionToWorkspace,
+  );
+
+  // Check if we're in a multi-connection workspace context (can add connections)
+  const isMultiConnectionWorkspace =
+    activeWorkspace && !activeWorkspace.isTemporary;
+
+  // Update document title with unsaved changes indicator and workspace name
   useEffect(() => {
-    const dbName = selectedDatabase || connection?.database || "Query Pilot";
-    const baseTitle = `${dbName} - Query Pilot`;
-    document.title = totalChanges > 0 ? `* ${baseTitle}` : baseTitle;
+    // If in a named workspace, use workspace title
+    if (activeWorkspace && !activeWorkspace.isTemporary) {
+      document.title = getWindowTitle();
+    } else {
+      // Fallback to database name for single connection or temp workspace
+      const dbName = selectedDatabase || connection?.database || "Query Pilot";
+      const baseTitle = `${dbName} - Query Pilot`;
+      document.title = totalChanges > 0 ? `• ${baseTitle}` : baseTitle;
+    }
 
     // Cleanup: reset title on unmount
     return () => {
       document.title = "Query Pilot";
     };
-  }, [totalChanges, selectedDatabase, connection?.database]);
+  }, [totalChanges, selectedDatabase, connection?.database, activeWorkspace, getWindowTitle]);
 
   // Load connections if not already loaded
   useEffect(() => {
@@ -696,131 +716,137 @@ export function WorkspaceTitleBar({
     window.location.reload();
   };
 
-  const handleSelectDatabase = async (dbName: string, hasProfile: boolean) => {
-    // Prevent multiple simultaneous window operations
-    if (isOpeningWindow) {
-      logger.info(
-        `[WorkspaceTitleBar] Already opening a window, ignoring request for ${dbName}`,
+  /**
+   * Get or create connection profile for a database
+   */
+  const getOrCreateConnectionForDatabase = async (
+    dbName: string,
+    hasProfile: boolean,
+  ): Promise<string | null> => {
+    if (!connection) {
+      logger.error("Current connection not found");
+      return null;
+    }
+
+    const connectionStore = useConnectionStore.getState();
+
+    if (hasProfile) {
+      // Existing profile - find it
+      const existingConnection = connectionStore.findConnectionByDatabase(
+        connection.host,
+        connection.port,
+        dbName,
+        connection.username,
       );
+
+      if (!existingConnection) {
+        logger.error(
+          `[WorkspaceTitleBar] Profile not found for database ${dbName}`,
+        );
+        return null;
+      }
+
+      return existingConnection.profile.id;
+    } else {
+      // New profile - create it
+      const existingBeforeCreate = connectionStore.findConnectionByDatabase(
+        connection.host,
+        connection.port,
+        dbName,
+        connection.username,
+      );
+
+      if (existingBeforeCreate) {
+        return existingBeforeCreate.profile.id;
+      }
+
+      return await connectionStore.getOrCreateDatabaseConnection(
+        connectionId,
+        dbName,
+      );
+    }
+  };
+
+  /**
+   * Open database in a new window (default action)
+   */
+  const handleOpenDatabaseNewWindow = async (
+    dbName: string,
+    hasProfile: boolean,
+  ) => {
+    if (isOpeningWindow) return;
+    if (dbName === selectedDatabase) {
+      setOpen(false);
       return;
     }
 
-    if (dbName === selectedDatabase) {
-      setOpen(false);
-      return; // Already on this database
-    }
-
-    setOpen(false); // Close the popover
+    setOpen(false);
     setIsOpeningWindow(true);
 
     try {
-      if (!connection) {
-        logger.error("Current connection not found");
-        return;
-      }
-
-      logger.info(
-        `[WorkspaceTitleBar] Selecting database ${dbName}, hasProfile: ${hasProfile}, currentConnectionId: ${connectionId}`,
+      const targetConnectionId = await getOrCreateConnectionForDatabase(
+        dbName,
+        hasProfile,
       );
+      if (!targetConnectionId) return;
 
-      const connectionStore = useConnectionStore.getState();
-      let targetConnectionId: string;
-
-      if (hasProfile) {
-        // Existing profile - find it
-        const existingConnection = connectionStore.findConnectionByDatabase(
-          connection.host,
-          connection.port,
-          dbName,
-          connection.username,
-        );
-
-        if (!existingConnection) {
-          logger.error(
-            `[WorkspaceTitleBar] Profile not found for database ${dbName}`,
-          );
-          return;
-        }
-
-        logger.info(
-          `[WorkspaceTitleBar] Using existing profile for database ${dbName}: ${existingConnection.profile.id}`,
-        );
-        targetConnectionId = existingConnection.profile.id;
-      } else {
-        // New profile - create it
-        logger.info(
-          `[WorkspaceTitleBar] Creating new profile for database ${dbName} from source ${connectionId}`,
-        );
-
-        // CRITICAL: IconCheck if we're already creating a profile for this database
-        // This prevents infinite loops where opening a window triggers another profile creation
-        const existingBeforeCreate = connectionStore.findConnectionByDatabase(
-          connection.host,
-          connection.port,
-          dbName,
-          connection.username,
-        );
-
-        if (existingBeforeCreate) {
-          logger.info(
-            `[WorkspaceTitleBar] Profile was just created for ${dbName}, using it: ${existingBeforeCreate.profile.id}`,
-          );
-          targetConnectionId = existingBeforeCreate.profile.id;
-        } else {
-          targetConnectionId =
-            await connectionStore.getOrCreateDatabaseConnection(
-              connectionId,
-              dbName,
-            );
-
-          logger.info(
-            `[WorkspaceTitleBar] Created new profile with ID: ${targetConnectionId}`,
-          );
-
-          // Note: No need to refetch - the store already updated its cache
-          // and the UI will re-render automatically via Zustand subscriptions
-        }
-      }
-
-      logger.info(
-        `[WorkspaceTitleBar] Target connectionId: ${targetConnectionId}, isWorkspaceOpen: ${windowManager.isWorkspaceOpen(
-          targetConnectionId,
-        )}`,
-      );
-
-      // IconCheck if we need to open a new window or if one already exists
       if (windowManager.isWorkspaceOpen(targetConnectionId)) {
-        // Window exists, focus it
-        logger.info(
-          `[WorkspaceTitleBar] Focusing existing window for ${dbName}`,
-        );
         await windowManager.focusWorkspace(targetConnectionId);
       } else {
-        // Create new window for this database (keep current window open)
-        logger.info(
-          `[WorkspaceTitleBar] Opening new window for ${dbName} with connectionId: ${targetConnectionId}`,
-        );
-        await windowManager.openWorkspace(
-          targetConnectionId,
-          dbName, // Use database name as window title
-          {
-            database: dbName,
-          },
-        );
-        logger.info(`[WorkspaceTitleBar] New window opened successfully`);
+        await windowManager.openWorkspace(targetConnectionId, dbName, {
+          database: dbName,
+        });
       }
     } catch (error) {
-      logger.error("Failed to select database:", error);
-      toast.error("Failed to select database", {
+      logger.error("Failed to open database in new window:", error);
+      toast.error("Failed to open database", {
         description: error instanceof Error ? error.message : String(error),
       });
     } finally {
-      // Reset the flag after a delay to allow window creation to complete
       setTimeout(() => {
         setIsOpeningWindow(false);
       }, 1000);
     }
   };
+
+  /**
+   * Add database connection to current workspace
+   */
+  const handleAddDatabaseToWorkspace = async (
+    dbName: string,
+    hasProfile: boolean,
+  ) => {
+    if (!activeWorkspace) {
+      toast.error("No active workspace");
+      return;
+    }
+
+    setOpen(false);
+
+    try {
+      const targetConnectionId = await getOrCreateConnectionForDatabase(
+        dbName,
+        hasProfile,
+      );
+      if (!targetConnectionId) return;
+
+      // Check if already in workspace
+      if (activeWorkspace.connections.has(targetConnectionId)) {
+        toast.info("Connection already in workspace");
+        return;
+      }
+
+      await addConnectionToWorkspace(targetConnectionId);
+      toast.success(`Added ${dbName} to workspace`);
+    } catch (error) {
+      logger.error("Failed to add database to workspace:", error);
+      toast.error("Failed to add to workspace", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  // Legacy handler removed - use handleOpenDatabaseNewWindow directly
 
   const handleOpenErd = () => {
     const { focusedPanelId, panelContents, addTab, focusPanel } =
@@ -980,7 +1006,7 @@ export function WorkspaceTitleBar({
                   </CommandGroup>
                 )}
 
-                {/* Section 2: Other Databases on This IconServer */}
+                {/* Section 2: Other Databases on This Server */}
                 {groupedDatabases.thisServer.length > 0 && (
                   <CommandGroup
                     heading="On this Server"
@@ -992,16 +1018,16 @@ export function WorkspaceTitleBar({
                           key={dbItem.name}
                           value={dbItem.name}
                           onSelect={() => {
-                            void handleSelectDatabase(
+                            void handleOpenDatabaseNewWindow(
                               dbItem.name,
                               dbItem.hasProfile,
                             );
                             setSearchQuery("");
                           }}
-                          className="cursor-pointer py-1.5 px-2"
+                          className="cursor-pointer py-1.5 px-2 group/db-item"
                         >
-                          <div className="flex items-center justify-between w-full">
-                            <div className="flex items-center gap-2">
+                          <div className="flex items-center justify-between w-full gap-2">
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
                               {connection?.db_type ? (
                                 <img
                                   src={getDatabaseLogo(connection.db_type)}
@@ -1026,10 +1052,59 @@ export function WorkspaceTitleBar({
                               >
                                 {dbItem.name}
                               </span>
+                              {dbItem.hasProfile && (
+                                <IconCircle className="!h-2 !w-2 fill-primary text-primary shrink-0" />
+                              )}
                             </div>
-                            {dbItem.hasProfile && (
-                              <IconCircle className="!h-2 !w-2 fill-primary text-primary shrink-0" />
-                            )}
+                            {/* Action buttons - visible on hover */}
+                            <div className="flex items-center gap-1 opacity-0 group-hover/db-item:opacity-100 group-data-[selected=true]/command-item:opacity-100 transition-opacity shrink-0">
+                              {isMultiConnectionWorkspace && (
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    render={
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          void handleAddDatabaseToWorkspace(
+                                            dbItem.name,
+                                            dbItem.hasProfile,
+                                          );
+                                        }}
+                                        className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-foreground"
+                                      >
+                                        <IconPlus className="!h-3.5 !w-3.5" />
+                                      </button>
+                                    }
+                                  />
+                                  <TooltipContent side="top" className="text-xs">
+                                    Add to Workspace
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void handleOpenDatabaseNewWindow(
+                                          dbItem.name,
+                                          dbItem.hasProfile,
+                                        );
+                                      }}
+                                      className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-foreground"
+                                    >
+                                      <IconExternalLink className="!h-3.5 !w-3.5" />
+                                    </button>
+                                  }
+                                />
+                                <TooltipContent side="top" className="text-xs">
+                                  Open New Window
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
                           </div>
                         </CommandItem>
                       );
@@ -1044,39 +1119,95 @@ export function WorkspaceTitleBar({
                     className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
                   >
                     {groupedDatabases.otherProfiles.map((profile) => {
+                      const handleOpenProfile = () => {
+                        void windowManager.openWorkspace(
+                          profile.id,
+                          profile.name,
+                          profile.database
+                            ? { database: profile.database }
+                            : undefined,
+                        );
+                        setSearchQuery("");
+                        setOpen(false);
+                      };
+
+                      const handleAddProfile = () => {
+                        if (!activeWorkspace?.connections.has(profile.id)) {
+                          void addConnectionToWorkspace(profile.id);
+                          toast.success(`Added ${profile.name} to workspace`);
+                        } else {
+                          toast.info("Connection already in workspace");
+                        }
+                        setOpen(false);
+                      };
+
                       return (
                         <CommandItem
                           key={profile.id}
                           value={profile.id}
-                          onSelect={() => {
-                            // Switch to a different server connection
-                            void windowManager.openWorkspace(
-                              profile.id,
-                              profile.name,
-                              profile.database
-                                ? { database: profile.database }
-                                : undefined,
-                            );
-                            setSearchQuery("");
-                            setOpen(false);
-                          }}
-                          className="cursor-pointer py-1.5 px-2"
+                          onSelect={handleOpenProfile}
+                          className="cursor-pointer py-1.5 px-2 group/profile-item"
                         >
-                          <div className="flex flex-col gap-0.5 w-full">
-                            <div className="flex items-center gap-2">
-                              <img
-                                src={getDatabaseLogo(profile.db_type)}
-                                alt="database"
-                                className="h-3.5 w-3.5 shrink-0"
-                              />
-                              <span className="text-xs font-medium truncate">
-                                {profile.name}
+                          <div className="flex items-center justify-between w-full gap-2">
+                            <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <img
+                                  src={getDatabaseLogo(profile.db_type)}
+                                  alt="database"
+                                  className="h-3.5 w-3.5 shrink-0"
+                                />
+                                <span className="text-xs font-medium truncate">
+                                  {profile.name}
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-muted-foreground pl-5 truncate">
+                                {profile.host}:{profile.port}
+                                {profile.database && ` / ${profile.database}`}
                               </span>
                             </div>
-                            <span className="text-[10px] text-muted-foreground pl-5 truncate">
-                              {profile.host}:{profile.port}
-                              {profile.database && ` / ${profile.database}`}
-                            </span>
+                            {/* Action buttons - visible on hover */}
+                            <div className="flex items-center gap-1 opacity-0 group-hover/profile-item:opacity-100 group-data-[selected=true]/command-item:opacity-100 transition-opacity shrink-0">
+                              {isMultiConnectionWorkspace && (
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    render={
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleAddProfile();
+                                        }}
+                                        className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-foreground"
+                                      >
+                                        <IconPlus className="!h-3.5 !w-3.5" />
+                                      </button>
+                                    }
+                                  />
+                                  <TooltipContent side="top" className="text-xs">
+                                    Add to Workspace
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenProfile();
+                                      }}
+                                      className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-foreground"
+                                    >
+                                      <IconExternalLink className="!h-3.5 !w-3.5" />
+                                    </button>
+                                  }
+                                />
+                                <TooltipContent side="top" className="text-xs">
+                                  Open New Window
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
                           </div>
                         </CommandItem>
                       );

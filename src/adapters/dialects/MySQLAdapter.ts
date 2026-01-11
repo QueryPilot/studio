@@ -564,20 +564,25 @@ WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
   }
 
   getForeignKeyTargetsQuery(schema: string): string {
+    // Join with COLUMNS table to get DATA_TYPE (KEY_COLUMN_USAGE doesn't have it)
     return `
 SELECT DISTINCT
-    TABLE_NAME as table_name,
-    COLUMN_NAME as column_name,
-    DATA_TYPE as data_type
-FROM information_schema.KEY_COLUMN_USAGE
-WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
-    AND CONSTRAINT_NAME IN (
+    kcu.TABLE_NAME as table_name,
+    kcu.COLUMN_NAME as column_name,
+    c.DATA_TYPE as data_type
+FROM information_schema.KEY_COLUMN_USAGE kcu
+JOIN information_schema.COLUMNS c
+    ON c.TABLE_SCHEMA = kcu.TABLE_SCHEMA
+    AND c.TABLE_NAME = kcu.TABLE_NAME
+    AND c.COLUMN_NAME = kcu.COLUMN_NAME
+WHERE kcu.TABLE_SCHEMA = '${this.escapeString(schema)}'
+    AND kcu.CONSTRAINT_NAME IN (
         SELECT CONSTRAINT_NAME
         FROM information_schema.TABLE_CONSTRAINTS
         WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
             AND CONSTRAINT_TYPE IN ('PRIMARY KEY', 'UNIQUE')
     )
-ORDER BY TABLE_NAME, COLUMN_NAME`;
+ORDER BY kcu.TABLE_NAME, kcu.COLUMN_NAME`;
   }
 
   /**

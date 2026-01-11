@@ -1,7 +1,14 @@
 import { logger } from "@/lib/logger";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+  useParams,
+} from "react-router-dom";
 import { HomeScreen } from "./screens/home/HomeScreen";
 import { WorkspaceScreen } from "./screens/workspace/WorkspaceScreen";
+import { WorkspacePickerScreen } from "./screens/workspace/WorkspacePickerScreen";
 import { useEffect, useState } from "react";
 import { isTauri } from "./utils/tauri";
 import type { Update } from "@tauri-apps/plugin-updater";
@@ -9,6 +16,7 @@ import { vaultStorage } from "./services/vaultStorage";
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useConnectionWindowStore } from "./stores/connectionWindowStore";
+import { useWorkspaceBundleStore } from "./stores/workspaceBundleStore";
 
 function VaultLoadingScreen() {
   return (
@@ -24,15 +32,50 @@ function VaultLoadingScreen() {
   );
 }
 
+/**
+ * Legacy route redirect: /connection/:connectionId -> opens temp workspace
+ */
+function LegacyConnectionRedirect() {
+  const { connectionId } = useParams<{ connectionId: string }>();
+  const openSingleConnection = useWorkspaceBundleStore(
+    (s) => s.openSingleConnection,
+  );
+  const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
+
+  useEffect(() => {
+    if (connectionId) {
+      void openSingleConnection(connectionId);
+    }
+  }, [connectionId, openSingleConnection]);
+
+  // Redirect to workspace route once temp workspace is created
+  if (activeWorkspace) {
+    return <Navigate to={`/workspace/${activeWorkspace.config.id}`} replace />;
+  }
+
+  return (
+    <div className="flex items-center justify-center h-screen">
+      <div className="w-8 h-8 border-[3px] border-border border-t-primary rounded-full animate-spin" />
+    </div>
+  );
+}
+
 function AppContent() {
   return (
     <>
       <Router>
         <Routes>
           <Route path="/" element={<HomeScreen />} />
+          {/* New workspace routes */}
           <Route
-            path="/workspace/:connectionId"
+            path="/workspace/:workspaceId"
             element={<WorkspaceScreen />}
+          />
+          <Route path="/workspace" element={<WorkspacePickerScreen />} />
+          {/* Legacy route - backwards compat */}
+          <Route
+            path="/connection/:connectionId"
+            element={<LegacyConnectionRedirect />}
           />
         </Routes>
       </Router>
