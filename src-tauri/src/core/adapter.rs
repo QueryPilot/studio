@@ -21,12 +21,7 @@ pub trait DbAdapter: Send + Sync {
     // Query execution (used by frontend IntrospectionService for dialect-specific queries)
     async fn query(&self, sql: &str) -> Result<QueryResult>;
     async fn execute(&self, sql: &str) -> Result<u64>;
-
-    // Database-specific features
-    fn get_supported_types(&self) -> Vec<CellValueType>;
-    fn supports_schemas(&self) -> bool {
-        true
-    }
+}
     fn supports_procedures(&self) -> bool {
         false
     }
