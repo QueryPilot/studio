@@ -110,6 +110,96 @@ async fn cancel_query(conn_id: String, tab_id: String) -> Result<(), String>
 
 ---
 
+## System Architecture
+
+### Component Hierarchy
+
+```mermaid
+classDiagram
+    class TauriCommands {
+        +connect()
+        +query()
+        +execute_query()
+    }
+
+    class ConnectionManager {
+        -pool_map: HashMap
+        +get_connection()
+        +save_profile()
+    }
+
+    class Keyring {
+        <<External>>
+        +get_password()
+        +set_password()
+    }
+
+    class DbAdapter {
+        <<Trait>>
+        +connect()
+        +query()
+        +execute()
+    }
+
+    class PostgresAdapter
+    class MySQLAdapter
+    class SQLiteAdapter
+    class MSSQLAdapter
+
+    TauriCommands --> ConnectionManager : uses
+    ConnectionManager --> Keyring : secure storage
+    ConnectionManager --> DbAdapter : manages
+    DbAdapter <|-- PostgresAdapter
+    DbAdapter <|-- MySQLAdapter
+    DbAdapter <|-- SQLiteAdapter
+    DbAdapter <|-- MSSQLAdapter
+```
+
+## Connection Store & Security
+
+Query Pilot uses a split-storage model for connection profiles to ensure security.
+
+### 1. Metadata Storage (`connections.json`)
+Non-sensitive configuration is stored in a JSON file in the user's data directory.
+*   **Path:** `~/Library/Application Support/com.querypilot.studio/connections.json` (macOS)
+*   **Content:** Host, Port, Username, Database Name, SSL Mode, SSH Config (excluding keys).
+
+### 2. Secure Storage (OS Keychain)
+Sensitive credentials are **never** stored in plain text files. They are stored in the operating system's native keychain using the `keyring` crate.
+*   **Service Name:** `query-pilot`
+*   **Keys:** `password`, `ssh_private_key_passphrase`
+
+### 3. Encryption
+When exporting connections, secrets are encrypted using AES-256-GCM derived from a user-provided master password.
+
+## SSH Tunneling
+
+The backend handles SSH tunneling transparently using the `ssh2` crate.
+
+```mermaid
+sequenceDiagram
+    participant Frontend
+    participant Backend
+    participant SSH as SSH Client (ssh2)
+    participant DB as Database Driver
+
+    Frontend->>Backend: connect(profile + ssh_config)
+    Backend->>SSH: Establish Session
+    SSH->>Remote: Authenticate (Key/Password)
+    SSH->>Remote: Request Port Forward (localhost:random -> db_host:5432)
+    Remote-->>SSH: Channel Open
+    Backend->>DB: connect(localhost:random)
+    DB-->>Backend: Connection Established
+    Backend-->>Frontend: Connection ID
+```
+
+1.  **Session Init:** Backend starts an SSH session to the bastion host.
+2.  **Port Forwarding:** A local random port is bound and forwarded to the remote database host.
+3.  **Transparent Connection:** The database driver connects to `localhost:<random_port>`, unaware of the tunnel.
+
+
+---
+
 ## Deprecated Commands
 
 The following commands have been **removed** in favor of the Frontend Adapter architecture. The frontend now generates the SQL for these operations and uses `query()` to execute them.
