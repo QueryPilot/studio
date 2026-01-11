@@ -3,6 +3,7 @@ import { ActionBarActions } from "./ActionBarActions";
 import { SidebarSearch } from "./SidebarSearch";
 import { SidebarFavorites } from "./SidebarFavorites";
 import { SidebarRecent } from "./SidebarRecent";
+import { SidebarWorkspaces } from "./SidebarWorkspaces";
 import { EnvFilter } from "./EnvFilter";
 import { ActionBarFooter } from "./ActionBarFooter";
 
@@ -20,6 +21,9 @@ export function ActionBar() {
 
       {/* Quick Access */}
       <div className="flex-1 overflow-y-auto scrollbar-none">
+        {/* Workspaces */}
+        <SidebarWorkspaces />
+
         {/* Favorites */}
         <SidebarFavorites />
 

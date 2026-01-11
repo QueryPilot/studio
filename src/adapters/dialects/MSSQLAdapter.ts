@@ -458,6 +458,7 @@ export class MSSQLAdapter extends SqlAdapter {
 
   getTablesQuery(schema: string): string {
     // Uses COLLATE DATABASE_DEFAULT to avoid collation conflicts
+    // Aggregates partition rows to avoid duplicate table entries
     return `
 SELECT
     s.name COLLATE DATABASE_DEFAULT as schema_name,
@@ -465,11 +466,12 @@ SELECT
     'regular' as kind,
     NULL as owner,
     NULL as size,
-    p.rows as row_count
+    SUM(p.rows) as row_count
 FROM sys.tables t
 JOIN sys.schemas s ON t.schema_id = s.schema_id
 LEFT JOIN sys.partitions p ON t.object_id = p.object_id AND p.index_id < 2
 WHERE s.name = '${this.escapeString(schema)}'
+GROUP BY s.name, t.name
 ORDER BY t.name`;
   }
 

@@ -586,6 +586,7 @@ export function CommandPalette(): React.ReactElement {
               listRef={listRef}
               query={query}
               onSelect={handleDatabaseSelect}
+              onClose={closePalette}
             />
           ) : nestedMode.type === "switch-schema" ? (
             <NestedSchemaList
@@ -598,6 +599,7 @@ export function CommandPalette(): React.ReactElement {
               listRef={listRef}
               query={query}
               onSelect={handleConnectionSelect}
+              onClose={closePalette}
             />
           )}
           <ActionsPopover

@@ -1,13 +1,15 @@
-import { useMemo, useEffect } from 'react';
-import { useHomeScreenStore } from '../../store/homeScreenStore';
-import { WelcomeSection } from './WelcomeSection';
-import { ConnectionsSection } from './ConnectionsSection';
-import { ConnectionForm } from './ConnectionForm';
-import { ConnectionRow } from '../shared/ConnectionRow';
-import { SecondaryTagFilter } from '../shared/SecondaryTagFilter';
-import { ERDWorkspacesSection } from './ERDWorkspacesSection';
-import { useConnectionStore } from '@/stores/connectionStoreNew';
-import { toast } from 'sonner';
+import { useMemo, useEffect } from "react";
+import { useHomeScreenStore } from "../../store/homeScreenStore";
+import { WelcomeSection } from "./WelcomeSection";
+import { ConnectionsSection } from "./ConnectionsSection";
+import { ConnectionForm } from "./ConnectionForm";
+import { ConnectionRow } from "../shared/ConnectionRow";
+import { ERDWorkspacesSection } from "./ERDWorkspacesSection";
+import { WorkspacesSection } from "./WorkspacesSection";
+import { WorkspaceForm } from "./WorkspaceForm";
+import { WorkspaceDetailView } from "./WorkspaceDetailView";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { toast } from "sonner";
 
 export function MainContent() {
   const contentMode = useHomeScreenStore((s) => s.contentMode);
@@ -80,10 +82,34 @@ export function MainContent() {
     });
   }, [connections, searchQuery]);
 
-  if (contentMode === 'form') {
+  if (contentMode === "form") {
     return (
       <div className="h-full overflow-y-auto">
         <ConnectionForm />
+      </div>
+    );
+  }
+
+  if (contentMode === "workspace-list") {
+    return (
+      <div className="h-full overflow-y-auto">
+        <WorkspacesSection />
+      </div>
+    );
+  }
+
+  if (contentMode === "workspace-form") {
+    return (
+      <div className="h-full overflow-y-auto">
+        <WorkspaceForm />
+      </div>
+    );
+  }
+
+  if (contentMode === "workspace-detail") {
+    return (
+      <div className="h-full overflow-y-auto">
+        <WorkspaceDetailView />
       </div>
     );
   }
