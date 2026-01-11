@@ -2,6 +2,90 @@
  * TypeScript types for workspace and tab management
  */
 
+import type { GridNode, PanelContent } from "@/types/workbench";
+import type { ConnectionProfile } from "@/types/connection";
+
+// ============================================================================
+// Named Multi-Root Workspace Types (NEW)
+// ============================================================================
+
+/**
+ * Workspace configuration - persistable to vault or .qpworkspace files.
+ * A workspace bundles multiple connections with their state and tab layout.
+ */
+export interface WorkspaceConfig {
+  /** Unique identifier (UUID) */
+  id: string;
+  /** Display name, e.g., "Production Stack", "Local Dev" */
+  name: string;
+  /** Optional emoji or icon name */
+  icon?: string;
+
+  /** Ordered list of connection profile IDs (supports drag-reorder) */
+  connectionIds: string[];
+
+  /** Per-connection saved state (database/schema selection + tab layout) */
+  connectionStates: Record<
+    string,
+    {
+      database: string;
+      schema: string;
+      /** Per-connection tab layout - restored when switching between connections */
+      tabLayout?: {
+        layoutTree: GridNode;
+        panelContents: Array<[string, PanelContent]>;
+      };
+    }
+  >;
+
+  /** Global tab layout state - for workspace-level save (deprecated, use per-connection) */
+  tabLayout?: {
+    layoutTree: GridNode;
+    panelContents: Array<[string, PanelContent]>;
+  };
+
+  /** Metadata */
+  createdAt: string;
+  updatedAt: string;
+  lastOpenedAt?: string;
+}
+
+/**
+ * Runtime connection state - in-memory only, tracks live connection status.
+ */
+export interface OpenConnection {
+  /** Same as profile.id */
+  id: string;
+  /** Full connection profile */
+  profile: ConnectionProfile;
+  /** Current connection status */
+  status: "connecting" | "connected" | "error" | "disconnected";
+  /** Currently selected database */
+  database: string;
+  /** Currently selected schema */
+  schema: string;
+  /** Error message if status is "error" */
+  error?: string;
+}
+
+/**
+ * Active workspace runtime state - represents a currently open workspace.
+ */
+export interface ActiveWorkspace {
+  /** The persisted workspace configuration */
+  config: WorkspaceConfig;
+  /** True if this is a temporary workspace (single connection, not saved) */
+  isTemporary: boolean;
+  /** Map of connectionId -> OpenConnection runtime state */
+  connections: Map<string, OpenConnection>;
+  /** ID of the connection currently focused in sidebar */
+  focusedConnectionId: string | null;
+}
+
+// ============================================================================
+// Legacy Workspace Types (existing)
+// ============================================================================
+
 export interface ColumnFilter {
   column: string;
   operator:

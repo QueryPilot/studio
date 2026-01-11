@@ -9,6 +9,7 @@ import {
   type Direction,
   type DragDropContext,
 } from "@/types/workbench";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import {
   splitPanel,
   closePanel,
@@ -64,6 +65,14 @@ interface WorkbenchStore {
     tabId: string,
     updates: Partial<TabMetadata>,
   ) => void;
+  
+  // Workspace layout persistence
+  setLayoutTree: (tree: GridNode) => void;
+  restorePanelContents: (contents: Map<string, PanelContent>) => void;
+
+  // Per-connection layout persistence (localStorage)
+  saveConnectionLayout: (connectionId: string) => void;
+  restoreConnectionLayout: (connectionId: string) => boolean;
 }
 
 const useWorkbenchStore = create<WorkbenchStore>()(
@@ -649,6 +658,19 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         layoutTree: updatedTree,
         panelContents: newContents,
       });
+
+      // Bi-directional sync: Update sidebar focus to match tab's connection
+      const tabMeta = panel.metadata?.[tabId];
+      if (tabMeta?.connectionId) {
+        const bundleStore = useWorkspaceBundleStore.getState();
+        const { activeWorkspace, setFocusedConnection } = bundleStore;
+        if (activeWorkspace?.connections.has(tabMeta.connectionId)) {
+          // Only update if different to avoid loops
+          if (activeWorkspace.focusedConnectionId !== tabMeta.connectionId) {
+            setFocusedConnection(tabMeta.connectionId);
+          }
+        }
+      }
     },
 
     updateTabMetadata: (panelId, tabId, updates) => {
@@ -677,6 +699,84 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         layoutTree: updatedTree,
         panelContents: newContents,
       });
+    },
+
+    // Workspace layout persistence methods
+    setLayoutTree: (tree) => {
+      set({ layoutTree: tree });
+    },
+
+    restorePanelContents: (contents) => {
+      set({ panelContents: contents });
+    },
+
+    // Per-connection layout persistence (localStorage)
+    saveConnectionLayout: (connectionId) => {
+      const { layoutTree, panelContents } = get();
+      if (!layoutTree || !connectionId) return;
+
+      const key = `workbench-connection-${connectionId}`;
+      try {
+        const data = {
+          layoutTree,
+          panelContents: Array.from(panelContents.entries()),
+          savedAt: Date.now(),
+        };
+        localStorage.setItem(key, JSON.stringify(data));
+        logger.info(`[Workbench] Saved layout for connection: ${connectionId}`);
+      } catch (error) {
+        logger.error(`[Workbench] Failed to save layout for ${connectionId}:`, error);
+      }
+    },
+
+    restoreConnectionLayout: (connectionId) => {
+      if (!connectionId) return false;
+
+      const key = `workbench-connection-${connectionId}`;
+      try {
+        const saved = localStorage.getItem(key);
+        if (!saved) return false;
+
+        const data = JSON.parse(saved) as {
+          layoutTree: GridNode;
+          panelContents: Array<[string, PanelContent]>;
+          savedAt: number;
+        };
+
+        // Validate the data
+        if (!data.layoutTree || !data.panelContents) {
+          logger.warn(`[Workbench] Invalid saved layout for ${connectionId}`);
+          localStorage.removeItem(key);
+          return false;
+        }
+
+        // Restore the layout
+        const panels = getAllPanels(data.layoutTree);
+        const panelContentsMap = new Map(data.panelContents);
+
+        // Verify panel IDs match
+        const treeIds = panels.map((p) => p.id).sort();
+        const mapIds = Array.from(panelContentsMap.keys()).sort();
+
+        if (JSON.stringify(treeIds) !== JSON.stringify(mapIds)) {
+          logger.warn(`[Workbench] Panel ID mismatch for ${connectionId}, resetting`);
+          localStorage.removeItem(key);
+          return false;
+        }
+
+        set({
+          layoutTree: data.layoutTree,
+          panelContents: panelContentsMap,
+          focusedPanelId: panels[0]?.id ?? null,
+        });
+
+        logger.info(`[Workbench] Restored layout for connection: ${connectionId}`);
+        return true;
+      } catch (error) {
+        logger.error(`[Workbench] Failed to restore layout for ${connectionId}:`, error);
+        localStorage.removeItem(key);
+        return false;
+      }
     },
   }),
   // PERSIST DISABLED - REMOVE COMMENTS TO RE-ENABLE

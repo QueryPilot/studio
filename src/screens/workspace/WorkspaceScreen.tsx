@@ -4,12 +4,14 @@ import { useEffect, useState, useCallback } from "react";
 import { WorkspaceTitleBar } from "./components/WorkspaceTitleBar";
 import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { DatabaseSchemaSelector } from "./components/DatabaseSchemaSelector";
+import { ConnectionActivityBar } from "./components/ConnectionActivityBar";
 import { WorkbenchLayout } from "@/components/Workbench";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { useShallow } from "zustand/react/shallow";
 import { usePanelStore } from "@/stores/panelStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { databaseService } from "@/services/databaseService";
 import {
   ResizablePanelGroup,
@@ -33,7 +35,30 @@ import { useMenuEventListener } from "@/hooks/useMenuEventListener";
 const DEFAULT_SIDEBARS = { left: true, right: false };
 
 export function WorkspaceScreen() {
-  const { connectionId } = useParams<{ connectionId: string }>();
+  // Get workspaceId from route params
+  const { workspaceId } = useParams<{ workspaceId?: string }>();
+
+  // Get workspace bundle store state
+  const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
+  const savedWorkspaces = useWorkspaceBundleStore((s) => s.savedWorkspaces);
+  const loadSavedWorkspaces = useWorkspaceBundleStore((s) => s.loadSavedWorkspaces);
+  const openWorkspace = useWorkspaceBundleStore((s) => s.openWorkspace);
+  const openSingleConnection = useWorkspaceBundleStore((s) => s.openSingleConnection);
+  // Get focused connection - compute from state to ensure proper subscription
+  const focusedConnectionId = activeWorkspace?.focusedConnectionId ?? null;
+  const focusedConnection =
+    activeWorkspace?.connections.get(focusedConnectionId ?? "") ?? null;
+  
+  // Get connection store state - needed to ensure connections are loaded
+  const connections = useConnectionStore((s) => s.connections);
+  const fetchConnections = useConnectionStore((s) => s.fetchConnections);
+  
+  // Track if workspaces and connections have been loaded
+  const [workspacesLoaded, setWorkspacesLoaded] = useState(false);
+  const [connectionsLoaded, setConnectionsLoaded] = useState(false);
+
+  // Get connection ID from focused connection in workspace
+  const connectionId = focusedConnection?.id;
 
   useMenuEventListener();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -73,6 +98,79 @@ export function WorkspaceScreen() {
   );
 
   useConnectionAutoReconnect(connectionId);
+
+  // Load connections on mount (essential for workspace to function)
+  useEffect(() => {
+    if (connections.length === 0 && !connectionsLoaded) {
+      void fetchConnections().then(() => {
+        setConnectionsLoaded(true);
+      }).catch(() => {
+        // Still mark as loaded even on error to prevent infinite loop
+        setConnectionsLoaded(true);
+      });
+    } else if (connections.length > 0) {
+      setConnectionsLoaded(true);
+    }
+  }, [connections.length, connectionsLoaded, fetchConnections]);
+
+  // Load saved workspaces on mount (needed before we can open a named workspace by ID)
+  useEffect(() => {
+    // Only load if we have a workspace ID that's not a temp workspace
+    const isTempWorkspace = workspaceId?.startsWith("temp-");
+    
+    if (workspaceId && !isTempWorkspace && savedWorkspaces.length === 0 && !workspacesLoaded) {
+      void loadSavedWorkspaces().then(() => {
+        setWorkspacesLoaded(true);
+      });
+    } else {
+      // For temp workspaces or when workspaces are already loaded
+      setWorkspacesLoaded(true);
+    }
+  }, [workspaceId, savedWorkspaces.length, workspacesLoaded, loadSavedWorkspaces]);
+
+  // Handle workspace opening based on route
+  useEffect(() => {
+    if (!workspaceId) return;
+    
+    // Skip if workspace is already active and matches the route
+    if (activeWorkspace?.config.id === workspaceId) {
+      return;
+    }
+
+    // For temp workspaces (temp-*), the LegacyConnectionRedirect already created them
+    if (workspaceId.startsWith("temp-")) {
+      return; // activeWorkspace should already be set
+    }
+
+    // Wait for both workspaces AND connections to be loaded
+    if (!workspacesLoaded || !connectionsLoaded) return;
+
+    // Check if this is a saved workspace ID
+    const isInSavedWorkspaces = savedWorkspaces.some((ws) => ws.id === workspaceId);
+    
+    if (isInSavedWorkspaces) {
+      // It's a named workspace - open it
+      void openWorkspace(workspaceId);
+    } else {
+      // It's likely a connection ID (legacy single connection flow)
+      // Open it as a single connection temp workspace
+      // Pass URL params as overrides if present
+      void openSingleConnection(workspaceId, {
+        database: urlDbname || undefined,
+        schema: urlSchema || undefined,
+      });
+    }
+  }, [
+    workspaceId,
+    activeWorkspace?.config.id,
+    workspacesLoaded,
+    connectionsLoaded,
+    savedWorkspaces,
+    openWorkspace,
+    openSingleConnection,
+    urlDbname,
+    urlSchema,
+  ]);
 
   // Update URL params without navigation
   const updateUrlParams = useCallback(
@@ -186,22 +284,15 @@ export function WorkspaceScreen() {
   useEffect(() => {
     if (connectionId) {
       // Initialize workspace for this connection
-      setIsLoading(true);
       initWorkspace(connectionId);
       initializePanels(connectionId);
 
       // Register this window with the connection tracker (BroadcastChannel)
       void windowChannelTracker.registerWindow(connectionId);
 
-      // Connect to the database with optional database override (using extracted urlDbname)
-      void databaseService
-        .connectById(connectionId, urlDbname || undefined)
-        .catch((err: unknown) => {
-          logger.error("Failed to connect to database:", err);
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
+      // Note: Connection is now handled by openSingleConnection/openWorkspace
+      // in workspaceBundleStore. We just need to track loading state from there.
+      setIsLoading(false);
     }
 
     // Cleanup on unmount
@@ -214,7 +305,7 @@ export function WorkspaceScreen() {
       // React may unmount for other reasons (hot reload, route change) where
       // we don't want to disconnect. Only actual window close should disconnect.
     };
-  }, [connectionId, urlDbname, initWorkspace, initializePanels]);
+  }, [connectionId, initWorkspace, initializePanels]);
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -355,16 +446,25 @@ export function WorkspaceScreen() {
     );
   }
 
+  // Check if we're in multi-connection workspace mode
+  const isMultiConnectionMode =
+    activeWorkspace && activeWorkspace.connections.size > 1;
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background">
       {/* Title Bar */}
       <WorkspaceTitleBar connectionId={connectionId} isConnecting={isLoading} />
 
-      {/* Main Content Area */}
-      <ResizablePanelGroup
-        direction="horizontal"
-        className="flex-1 p-1.5 pt-0 bg-secondary"
-      >
+      {/* Main Content Area with optional Activity Bar */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Connection Activity Bar (shown in multi-connection mode) */}
+        {isMultiConnectionMode && <ConnectionActivityBar />}
+
+        {/* Resizable Panels */}
+        <ResizablePanelGroup
+          direction="horizontal"
+          className="flex-1 p-1.5 pt-0 bg-secondary"
+        >
         {/* Left Sidebar - Database Explorer */}
         {sidebars.left && (
           <>
@@ -437,7 +537,8 @@ export function WorkspaceScreen() {
             </ResizablePanel>
           </>
         )}
-      </ResizablePanelGroup>
+        </ResizablePanelGroup>
+      </div>
 
       {/* Global Preferences Dialog */}
       <PreferencesDialog />
