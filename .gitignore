@@ -76,3 +76,4 @@ coverage/
 # Sidecar binaries (built from scripts)
 src-tauri/sidecars/*
 !src-tauri/sidecars/.gitkeep
+.worktrees/
