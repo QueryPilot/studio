@@ -329,35 +329,5 @@ impl DbAdapter for MySqlAdapter {
 
         Ok(affected)
     }
-
-    fn get_supported_types(&self) -> Vec<CellValueType> {
-        vec![
-            CellValueType::Null,
-            CellValueType::Text,
-            CellValueType::Integer,
-            CellValueType::Decimal,
-            CellValueType::Boolean,
-            CellValueType::Date,
-            CellValueType::Time,
-            CellValueType::DateTime,
-            CellValueType::Binary,
-            CellValueType::Json,
-            CellValueType::Bit,
-            CellValueType::Geometry,
-        ]
-    }
-
-    fn supports_schemas(&self) -> bool {
-        // MySQL uses databases instead of schemas
-        false
-    }
-
-    fn supports_procedures(&self) -> bool {
-        true
-    }
-
-    fn supports_functions(&self) -> bool {
-        true
-    }
 }
 
