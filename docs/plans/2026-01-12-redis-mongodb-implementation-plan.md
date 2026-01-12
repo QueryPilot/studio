@@ -2506,32 +2506,3184 @@ git commit -m "feat(redis): add frontend Redis adapter"
 
 ---
 
-## Summary: Remaining Phases
+## Phase 3: Editors
 
-This plan covers **Phase 1 (Foundation)** and **Phase 2 (Core Implementation)** in full detail.
+### Task 3.1: Create DocumentEditor Base Component
 
-**Phases 3-5 will include:**
+**Files:**
+- Create: `src/components/DocumentEditor/index.tsx`
+- Create: `src/components/DocumentEditor/types.ts`
+- Create: `src/components/DocumentEditor/Breadcrumb.tsx`
 
-### Phase 3: Editors (Tasks 3.1 - 3.10)
-- DocumentEditor component with TreeView + Breadcrumb
-- Redis type-specific editors (String, Hash, List, Set, ZSet, Stream)
-- FallbackEditor for unknown types
-- CodeMirror modes for MQL and Redis CLI
-- Value drawer component
+**Step 1: Create types**
 
-### Phase 4: Advanced Features (Tasks 4.1 - 4.12)
-- MongoDB: Indexes UI, Aggregation builder, Schema validation, GridFS, Change streams
-- Redis: TTL management, Key analysis, Server info panel
-- Connection string parser (bidirectional)
-- Import/Export (JSON)
+Create `src/components/DocumentEditor/types.ts`:
 
-### Phase 5: Polish (Tasks 5.1 - 5.6)
-- Error handling refinement
-- Performance optimization
-- Integration tests with testcontainers
-- Documentation
-- Final testing
+```typescript
+export interface DocumentNode {
+  key: string;
+  value: unknown;
+  type: 'string' | 'number' | 'boolean' | 'null' | 'object' | 'array';
+  path: string[];
+  expanded?: boolean;
+  children?: DocumentNode[];
+}
+
+export interface DocumentEditorProps {
+  document: object;
+  onUpdate?: (path: string[], value: unknown) => void;
+  onDelete?: (path: string[]) => void;
+  readOnly?: boolean;
+  maxDepth?: number;
+}
+
+export interface BreadcrumbProps {
+  path: string[];
+  onNavigate: (path: string[]) => void;
+}
+
+export interface TreeViewProps {
+  nodes: DocumentNode[];
+  focusPath: string[];
+  onToggle: (path: string[]) => void;
+  onSelect: (path: string[]) => void;
+  onEdit: (path: string[], value: unknown) => void;
+}
+```
+
+**Step 2: Create Breadcrumb component**
+
+Create `src/components/DocumentEditor/Breadcrumb.tsx`:
+
+```typescript
+import { ChevronRight } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+interface BreadcrumbProps {
+  path: string[];
+  rootLabel?: string;
+  onNavigate: (path: string[]) => void;
+}
+
+export function Breadcrumb({ path, rootLabel = 'root', onNavigate }: BreadcrumbProps) {
+  const segments = [rootLabel, ...path];
+
+  return (
+    <nav className="flex items-center gap-1 text-sm text-muted-foreground px-3 py-2 border-b bg-muted/30">
+      <span className="text-xs">📍</span>
+      {segments.map((segment, index) => {
+        const isLast = index === segments.length - 1;
+        const segmentPath = path.slice(0, index);
+
+        return (
+          <span key={index} className="flex items-center gap-1">
+            {index > 0 && <ChevronRight className="h-3 w-3" />}
+            <button
+              onClick={() => onNavigate(segmentPath)}
+              className={cn(
+                'hover:text-foreground transition-colors',
+                isLast && 'text-foreground font-medium'
+              )}
+              disabled={isLast}
+            >
+              {segment}
+            </button>
+          </span>
+        );
+      })}
+    </nav>
+  );
+}
+```
+
+**Step 3: Create main DocumentEditor component**
+
+Create `src/components/DocumentEditor/index.tsx`:
+
+```typescript
+import { useState, useMemo, useCallback } from 'react';
+import { Breadcrumb } from './Breadcrumb';
+import { TreeView } from './TreeView';
+import type { DocumentEditorProps, DocumentNode } from './types';
+
+function parseDocument(obj: unknown, path: string[] = []): DocumentNode[] {
+  if (obj === null) {
+    return [{ key: 'null', value: null, type: 'null', path }];
+  }
+
+  if (typeof obj !== 'object') {
+    return [];
+  }
+
+  const entries = Array.isArray(obj)
+    ? obj.map((v, i) => [String(i), v] as const)
+    : Object.entries(obj);
+
+  return entries.map(([key, value]) => {
+    const nodePath = [...path, key];
+    const type = getValueType(value);
+
+    const node: DocumentNode = {
+      key,
+      value,
+      type,
+      path: nodePath,
+      expanded: false,
+    };
+
+    if (type === 'object' || type === 'array') {
+      node.children = parseDocument(value, nodePath);
+    }
+
+    return node;
+  });
+}
+
+function getValueType(value: unknown): DocumentNode['type'] {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  if (typeof value === 'object') return 'object';
+  if (typeof value === 'boolean') return 'boolean';
+  if (typeof value === 'number') return 'number';
+  return 'string';
+}
+
+export function DocumentEditor({
+  document,
+  onUpdate,
+  onDelete,
+  readOnly = false,
+  maxDepth = 10,
+}: DocumentEditorProps) {
+  const [focusPath, setFocusPath] = useState<string[]>([]);
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+
+  const nodes = useMemo(() => parseDocument(document), [document]);
+
+  const handleToggle = useCallback((path: string[]) => {
+    const pathKey = path.join('.');
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(pathKey)) {
+        next.delete(pathKey);
+      } else {
+        next.add(pathKey);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleNavigate = useCallback((path: string[]) => {
+    setFocusPath(path);
+    // Auto-expand parent paths
+    const pathsToExpand = path.map((_, i) => path.slice(0, i + 1).join('.'));
+    setExpandedPaths((prev) => new Set([...prev, ...pathsToExpand]));
+  }, []);
+
+  const handleEdit = useCallback(
+    (path: string[], value: unknown) => {
+      if (!readOnly && onUpdate) {
+        onUpdate(path, value);
+      }
+    },
+    [readOnly, onUpdate]
+  );
+
+  return (
+    <div className="flex flex-col h-full bg-background border rounded-md">
+      <Breadcrumb path={focusPath} onNavigate={handleNavigate} />
+      <div className="flex-1 overflow-auto p-2">
+        <TreeView
+          nodes={nodes}
+          focusPath={focusPath}
+          expandedPaths={expandedPaths}
+          onToggle={handleToggle}
+          onSelect={setFocusPath}
+          onEdit={handleEdit}
+          readOnly={readOnly}
+          maxDepth={maxDepth}
+        />
+      </div>
+    </div>
+  );
+}
+
+export * from './types';
+```
+
+**Step 4: Verify compilation**
+
+Run: `pnpm typecheck`
+Expected: May fail due to missing TreeView - that's next task
+
+**Step 5: Commit**
+
+```bash
+git add src/components/DocumentEditor/
+git commit -m "feat: add DocumentEditor base component with Breadcrumb"
+```
 
 ---
 
-**Shall I continue with Phase 3-5 detailed tasks, or is this enough to start implementation?**
+### Task 3.2: Create TreeView Component
+
+**Files:**
+- Create: `src/components/DocumentEditor/TreeView.tsx`
+- Create: `src/components/DocumentEditor/TreeNode.tsx`
+- Create: `src/components/DocumentEditor/FieldEditor.tsx`
+
+**Step 1: Create FieldEditor for inline editing**
+
+Create `src/components/DocumentEditor/FieldEditor.tsx`:
+
+```typescript
+import { useState, useRef, useEffect } from 'react';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Check, X } from 'lucide-react';
+
+interface FieldEditorProps {
+  value: unknown;
+  type: string;
+  onSave: (value: unknown) => void;
+  onCancel: () => void;
+}
+
+export function FieldEditor({ value, type, onSave, onCancel }: FieldEditorProps) {
+  const [editValue, setEditValue] = useState(
+    type === 'object' || type === 'array' ? JSON.stringify(value, null, 2) : String(value ?? '')
+  );
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
+  const handleSave = () => {
+    let parsedValue: unknown = editValue;
+
+    try {
+      if (type === 'number') {
+        parsedValue = Number(editValue);
+        if (isNaN(parsedValue as number)) return;
+      } else if (type === 'boolean') {
+        parsedValue = editValue.toLowerCase() === 'true';
+      } else if (type === 'null') {
+        parsedValue = null;
+      } else if (type === 'object' || type === 'array') {
+        parsedValue = JSON.parse(editValue);
+      }
+    } catch {
+      return; // Invalid input
+    }
+
+    onSave(parsedValue);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === 'Escape') {
+      onCancel();
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-1">
+      <Input
+        ref={inputRef}
+        value={editValue}
+        onChange={(e) => setEditValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        className="h-6 text-xs font-mono"
+      />
+      <Button size="icon" variant="ghost" className="h-6 w-6" onClick={handleSave}>
+        <Check className="h-3 w-3 text-green-500" />
+      </Button>
+      <Button size="icon" variant="ghost" className="h-6 w-6" onClick={onCancel}>
+        <X className="h-3 w-3 text-red-500" />
+      </Button>
+    </div>
+  );
+}
+```
+
+**Step 2: Create TreeNode component**
+
+Create `src/components/DocumentEditor/TreeNode.tsx`:
+
+```typescript
+import { useState } from 'react';
+import { ChevronRight, ChevronDown } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { FieldEditor } from './FieldEditor';
+import type { DocumentNode } from './types';
+
+interface TreeNodeProps {
+  node: DocumentNode;
+  depth: number;
+  isExpanded: boolean;
+  isFocused: boolean;
+  onToggle: () => void;
+  onSelect: () => void;
+  onEdit: (value: unknown) => void;
+  readOnly: boolean;
+  maxDepth: number;
+  expandedPaths: Set<string>;
+  onTogglePath: (path: string[]) => void;
+  onSelectPath: (path: string[]) => void;
+  onEditPath: (path: string[], value: unknown) => void;
+}
+
+const TYPE_COLORS: Record<string, string> = {
+  string: 'text-green-600 dark:text-green-400',
+  number: 'text-blue-600 dark:text-blue-400',
+  boolean: 'text-purple-600 dark:text-purple-400',
+  null: 'text-gray-500',
+  object: 'text-foreground',
+  array: 'text-foreground',
+};
+
+export function TreeNode({
+  node,
+  depth,
+  isExpanded,
+  isFocused,
+  onToggle,
+  onSelect,
+  onEdit,
+  readOnly,
+  maxDepth,
+  expandedPaths,
+  onTogglePath,
+  onSelectPath,
+  onEditPath,
+}: TreeNodeProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const hasChildren = node.children && node.children.length > 0;
+  const isExpandable = (node.type === 'object' || node.type === 'array') && hasChildren;
+  const atMaxDepth = depth >= maxDepth;
+
+  const formatValue = (value: unknown, type: string): string => {
+    if (type === 'null') return 'null';
+    if (type === 'string') return `"${value}"`;
+    if (type === 'object') return `{${node.children?.length || 0} fields}`;
+    if (type === 'array') return `[${node.children?.length || 0} items]`;
+    return String(value);
+  };
+
+  const handleDoubleClick = () => {
+    if (!readOnly && node.type !== 'object' && node.type !== 'array') {
+      setIsEditing(true);
+    }
+  };
+
+  const handleSave = (value: unknown) => {
+    onEdit(value);
+    setIsEditing(false);
+  };
+
+  return (
+    <div>
+      <div
+        className={cn(
+          'flex items-center gap-1 py-0.5 px-1 rounded cursor-pointer hover:bg-muted/50',
+          isFocused && 'bg-muted ring-1 ring-primary/50'
+        )}
+        style={{ paddingLeft: `${depth * 16 + 4}px` }}
+        onClick={onSelect}
+        onDoubleClick={handleDoubleClick}
+      >
+        {/* Expand/Collapse toggle */}
+        <span className="w-4 h-4 flex items-center justify-center">
+          {isExpandable && !atMaxDepth ? (
+            <button onClick={(e) => { e.stopPropagation(); onToggle(); }}>
+              {isExpanded ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
+            </button>
+          ) : null}
+        </span>
+
+        {/* Key */}
+        <span className="text-sm font-medium text-muted-foreground">{node.key}:</span>
+
+        {/* Value */}
+        {isEditing ? (
+          <FieldEditor
+            value={node.value}
+            type={node.type}
+            onSave={handleSave}
+            onCancel={() => setIsEditing(false)}
+          />
+        ) : (
+          <span className={cn('text-sm font-mono', TYPE_COLORS[node.type])}>
+            {formatValue(node.value, node.type)}
+          </span>
+        )}
+      </div>
+
+      {/* Children */}
+      {isExpanded && hasChildren && !atMaxDepth && (
+        <div>
+          {node.children!.map((child) => {
+            const childPathKey = child.path.join('.');
+            return (
+              <TreeNode
+                key={childPathKey}
+                node={child}
+                depth={depth + 1}
+                isExpanded={expandedPaths.has(childPathKey)}
+                isFocused={false}
+                onToggle={() => onTogglePath(child.path)}
+                onSelect={() => onSelectPath(child.path)}
+                onEdit={(value) => onEditPath(child.path, value)}
+                readOnly={readOnly}
+                maxDepth={maxDepth}
+                expandedPaths={expandedPaths}
+                onTogglePath={onTogglePath}
+                onSelectPath={onSelectPath}
+                onEditPath={onEditPath}
+              />
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+**Step 3: Create TreeView component**
+
+Create `src/components/DocumentEditor/TreeView.tsx`:
+
+```typescript
+import { TreeNode } from './TreeNode';
+import type { DocumentNode } from './types';
+
+interface TreeViewProps {
+  nodes: DocumentNode[];
+  focusPath: string[];
+  expandedPaths: Set<string>;
+  onToggle: (path: string[]) => void;
+  onSelect: (path: string[]) => void;
+  onEdit: (path: string[], value: unknown) => void;
+  readOnly: boolean;
+  maxDepth: number;
+}
+
+export function TreeView({
+  nodes,
+  focusPath,
+  expandedPaths,
+  onToggle,
+  onSelect,
+  onEdit,
+  readOnly,
+  maxDepth,
+}: TreeViewProps) {
+  const focusPathKey = focusPath.join('.');
+
+  return (
+    <div className="font-mono text-sm">
+      {nodes.map((node) => {
+        const pathKey = node.path.join('.');
+        return (
+          <TreeNode
+            key={pathKey}
+            node={node}
+            depth={0}
+            isExpanded={expandedPaths.has(pathKey)}
+            isFocused={pathKey === focusPathKey}
+            onToggle={() => onToggle(node.path)}
+            onSelect={() => onSelect(node.path)}
+            onEdit={(value) => onEdit(node.path, value)}
+            readOnly={readOnly}
+            maxDepth={maxDepth}
+            expandedPaths={expandedPaths}
+            onTogglePath={onToggle}
+            onSelectPath={onSelect}
+            onEditPath={onEdit}
+          />
+        );
+      })}
+    </div>
+  );
+}
+```
+
+**Step 4: Verify compilation**
+
+Run: `pnpm typecheck`
+Expected: Passes
+
+**Step 5: Commit**
+
+```bash
+git add src/components/DocumentEditor/
+git commit -m "feat: add TreeView and TreeNode components for DocumentEditor"
+```
+
+---
+
+### Task 3.3: Create ValueDrawer Component
+
+**Files:**
+- Create: `src/components/ValueDrawer/index.tsx`
+- Create: `src/components/ValueDrawer/types.ts`
+
+**Step 1: Create types**
+
+Create `src/components/ValueDrawer/types.ts`:
+
+```typescript
+import type { RedisType, RedisValue } from '@/adapters/types/redis';
+
+export interface ValueDrawerProps {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}
+
+export interface RedisValueDrawerProps {
+  open: boolean;
+  onClose: () => void;
+  keyName: string;
+  keyType: RedisType;
+  value: RedisValue | null;
+  ttl: number;
+  onSave?: (value: RedisValue) => void;
+  onDelete?: () => void;
+  onSetTTL?: (seconds: number) => void;
+  readOnly?: boolean;
+}
+
+export interface MongoDocumentDrawerProps {
+  open: boolean;
+  onClose: () => void;
+  collection: string;
+  document: object | null;
+  onSave?: (document: object) => void;
+  onDelete?: () => void;
+  readOnly?: boolean;
+}
+```
+
+**Step 2: Create ValueDrawer component**
+
+Create `src/components/ValueDrawer/index.tsx`:
+
+```typescript
+import { X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import type { ValueDrawerProps } from './types';
+
+export function ValueDrawer({
+  open,
+  onClose,
+  title,
+  subtitle,
+  children,
+}: ValueDrawerProps) {
+  if (!open) return null;
+
+  return (
+    <div
+      className={cn(
+        'fixed inset-y-0 right-0 z-50 w-[400px] bg-background border-l shadow-xl',
+        'transform transition-transform duration-200 ease-out',
+        open ? 'translate-x-0' : 'translate-x-full'
+      )}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b">
+        <div>
+          <h3 className="font-semibold text-sm">{title}</h3>
+          {subtitle && (
+            <p className="text-xs text-muted-foreground">{subtitle}</p>
+          )}
+        </div>
+        <Button variant="ghost" size="icon" onClick={onClose}>
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-auto p-4">{children}</div>
+    </div>
+  );
+}
+
+export * from './types';
+```
+
+**Step 3: Verify compilation**
+
+Run: `pnpm typecheck`
+Expected: Passes
+
+**Step 4: Commit**
+
+```bash
+git add src/components/ValueDrawer/
+git commit -m "feat: add ValueDrawer base component"
+```
+
+---
+
+### Task 3.4: Create Redis StringEditor
+
+**Files:**
+- Create: `src/components/RedisValueEditors/StringEditor.tsx`
+- Create: `src/components/RedisValueEditors/types.ts`
+- Create: `src/components/RedisValueEditors/index.ts`
+
+**Step 1: Create types**
+
+Create `src/components/RedisValueEditors/types.ts`:
+
+```typescript
+import type { RedisValue } from '@/adapters/types/redis';
+
+export interface RedisEditorProps<T = RedisValue> {
+  value: T;
+  onChange: (value: T) => void;
+  readOnly?: boolean;
+}
+
+export interface StringEditorProps extends RedisEditorProps<string> {
+  isJson?: boolean;
+}
+
+export interface HashEditorProps extends RedisEditorProps<Record<string, string>> {}
+
+export interface ListEditorProps extends RedisEditorProps<string[]> {
+  onPush?: (value: string, side: 'left' | 'right') => void;
+  onPop?: (side: 'left' | 'right') => void;
+}
+
+export interface SetEditorProps extends RedisEditorProps<string[]> {
+  onAdd?: (member: string) => void;
+  onRemove?: (member: string) => void;
+}
+
+export interface ZSetEditorProps extends RedisEditorProps<Array<{ member: string; score: number }>> {
+  onAdd?: (member: string, score: number) => void;
+  onRemove?: (member: string) => void;
+}
+```
+
+**Step 2: Create StringEditor**
+
+Create `src/components/RedisValueEditors/StringEditor.tsx`:
+
+```typescript
+import { useState, useMemo } from 'react';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { cn } from '@/lib/utils';
+import type { StringEditorProps } from './types';
+
+export function StringEditor({ value, onChange, readOnly = false }: StringEditorProps) {
+  const [viewMode, setViewMode] = useState<'raw' | 'formatted'>('raw');
+
+  const isValidJson = useMemo(() => {
+    try {
+      JSON.parse(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [value]);
+
+  const formattedValue = useMemo(() => {
+    if (!isValidJson) return value;
+    try {
+      return JSON.stringify(JSON.parse(value), null, 2);
+    } catch {
+      return value;
+    }
+  }, [value, isValidJson]);
+
+  const displayValue = viewMode === 'formatted' ? formattedValue : value;
+
+  const handleChange = (newValue: string) => {
+    if (readOnly) return;
+    
+    if (viewMode === 'formatted' && isValidJson) {
+      // Minify back when saving from formatted view
+      try {
+        const parsed = JSON.parse(newValue);
+        onChange(JSON.stringify(parsed));
+      } catch {
+        onChange(newValue);
+      }
+    } else {
+      onChange(newValue);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      {isValidJson && (
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">JSON detected</span>
+          <ToggleGroup
+            type="single"
+            value={viewMode}
+            onValueChange={(v) => v && setViewMode(v as 'raw' | 'formatted')}
+            size="sm"
+          >
+            <ToggleGroupItem value="raw" className="text-xs">
+              Raw
+            </ToggleGroupItem>
+            <ToggleGroupItem value="formatted" className="text-xs">
+              Formatted
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
+      )}
+
+      <Textarea
+        value={displayValue}
+        onChange={(e) => handleChange(e.target.value)}
+        readOnly={readOnly}
+        className={cn(
+          'font-mono text-sm min-h-[200px] resize-y',
+          readOnly && 'bg-muted cursor-not-allowed'
+        )}
+        placeholder="Enter string value..."
+      />
+
+      <div className="flex justify-between text-xs text-muted-foreground">
+        <span>{value.length} characters</span>
+        <span>{new Blob([value]).size} bytes</span>
+      </div>
+    </div>
+  );
+}
+```
+
+**Step 3: Create index export**
+
+Create `src/components/RedisValueEditors/index.ts`:
+
+```typescript
+export { StringEditor } from './StringEditor';
+export * from './types';
+```
+
+**Step 4: Verify compilation**
+
+Run: `pnpm typecheck`
+Expected: Passes
+
+**Step 5: Commit**
+
+```bash
+git add src/components/RedisValueEditors/
+git commit -m "feat: add Redis StringEditor component"
+```
+
+---
+
+### Task 3.5: Create Redis HashEditor
+
+**Files:**
+- Modify: `src/components/RedisValueEditors/HashEditor.tsx`
+- Modify: `src/components/RedisValueEditors/index.ts`
+
+**Step 1: Create HashEditor**
+
+Create `src/components/RedisValueEditors/HashEditor.tsx`:
+
+```typescript
+import { useState } from 'react';
+import { Plus, Trash2, Save } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import type { HashEditorProps } from './types';
+
+export function HashEditor({ value, onChange, readOnly = false }: HashEditorProps) {
+  const [newField, setNewField] = useState('');
+  const [newValue, setNewValue] = useState('');
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+
+  const entries = Object.entries(value);
+
+  const handleAdd = () => {
+    if (!newField.trim() || readOnly) return;
+    
+    onChange({
+      ...value,
+      [newField.trim()]: newValue,
+    });
+    setNewField('');
+    setNewValue('');
+  };
+
+  const handleDelete = (field: string) => {
+    if (readOnly) return;
+    
+    const updated = { ...value };
+    delete updated[field];
+    onChange(updated);
+  };
+
+  const handleEdit = (field: string) => {
+    setEditingField(field);
+    setEditValue(value[field]);
+  };
+
+  const handleSaveEdit = () => {
+    if (editingField === null || readOnly) return;
+    
+    onChange({
+      ...value,
+      [editingField]: editValue,
+    });
+    setEditingField(null);
+    setEditValue('');
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent, action: () => void) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      action();
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="text-xs text-muted-foreground">
+        {entries.length} field{entries.length !== 1 ? 's' : ''}
+      </div>
+
+      <div className="border rounded-md overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[40%]">Field</TableHead>
+              <TableHead>Value</TableHead>
+              {!readOnly && <TableHead className="w-[80px]">Actions</TableHead>}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {entries.map(([field, val]) => (
+              <TableRow key={field}>
+                <TableCell className="font-mono text-sm">{field}</TableCell>
+                <TableCell>
+                  {editingField === field ? (
+                    <div className="flex gap-1">
+                      <Input
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={(e) => handleKeyDown(e, handleSaveEdit)}
+                        className="h-7 text-sm font-mono"
+                        autoFocus
+                      />
+                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleSaveEdit}>
+                        <Save className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <span
+                      className="font-mono text-sm cursor-pointer hover:bg-muted px-1 rounded"
+                      onDoubleClick={() => handleEdit(field)}
+                    >
+                      {val}
+                    </span>
+                  )}
+                </TableCell>
+                {!readOnly && (
+                  <TableCell>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 text-destructive"
+                      onClick={() => handleDelete(field)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </TableCell>
+                )}
+              </TableRow>
+            ))}
+
+            {/* Add new field row */}
+            {!readOnly && (
+              <TableRow>
+                <TableCell>
+                  <Input
+                    value={newField}
+                    onChange={(e) => setNewField(e.target.value)}
+                    placeholder="New field..."
+                    className="h-7 text-sm"
+                    onKeyDown={(e) => handleKeyDown(e, handleAdd)}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    value={newValue}
+                    onChange={(e) => setNewValue(e.target.value)}
+                    placeholder="Value..."
+                    className="h-7 text-sm font-mono"
+                    onKeyDown={(e) => handleKeyDown(e, handleAdd)}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7"
+                    onClick={handleAdd}
+                    disabled={!newField.trim()}
+                  >
+                    <Plus className="h-3 w-3" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+```
+
+**Step 2: Update exports**
+
+Update `src/components/RedisValueEditors/index.ts`:
+
+```typescript
+export { StringEditor } from './StringEditor';
+export { HashEditor } from './HashEditor';
+export * from './types';
+```
+
+**Step 3: Verify compilation**
+
+Run: `pnpm typecheck`
+Expected: Passes
+
+**Step 4: Commit**
+
+```bash
+git add src/components/RedisValueEditors/
+git commit -m "feat: add Redis HashEditor component"
+```
+
+---
+
+### Task 3.6: Create Redis ListEditor
+
+**Files:**
+- Create: `src/components/RedisValueEditors/ListEditor.tsx`
+- Modify: `src/components/RedisValueEditors/index.ts`
+
+**Step 1: Create ListEditor**
+
+Create `src/components/RedisValueEditors/ListEditor.tsx`:
+
+```typescript
+import { useState } from 'react';
+import { Plus, Trash2, GripVertical, ArrowUp, ArrowDown } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
+import type { ListEditorProps } from './types';
+
+export function ListEditor({
+  value,
+  onChange,
+  onPush,
+  onPop,
+  readOnly = false,
+}: ListEditorProps) {
+  const [newValue, setNewValue] = useState('');
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editValue, setEditValue] = useState('');
+
+  const handleAdd = (side: 'left' | 'right') => {
+    if (!newValue.trim() || readOnly) return;
+
+    if (onPush) {
+      onPush(newValue.trim(), side);
+    } else {
+      const updated =
+        side === 'left' ? [newValue.trim(), ...value] : [...value, newValue.trim()];
+      onChange(updated);
+    }
+    setNewValue('');
+  };
+
+  const handleDelete = (index: number) => {
+    if (readOnly) return;
+    const updated = value.filter((_, i) => i !== index);
+    onChange(updated);
+  };
+
+  const handleEdit = (index: number) => {
+    setEditingIndex(index);
+    setEditValue(value[index]);
+  };
+
+  const handleSaveEdit = () => {
+    if (editingIndex === null || readOnly) return;
+    const updated = [...value];
+    updated[editingIndex] = editValue;
+    onChange(updated);
+    setEditingIndex(null);
+    setEditValue('');
+  };
+
+  const handleMove = (index: number, direction: 'up' | 'down') => {
+    if (readOnly) return;
+    const newIndex = direction === 'up' ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= value.length) return;
+
+    const updated = [...value];
+    [updated[index], updated[newIndex]] = [updated[newIndex], updated[index]];
+    onChange(updated);
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="text-xs text-muted-foreground">
+        {value.length} item{value.length !== 1 ? 's' : ''}
+      </div>
+
+      {/* Add new item */}
+      {!readOnly && (
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => handleAdd('left')}
+            disabled={!newValue.trim()}
+          >
+            <ArrowUp className="h-3 w-3 mr-1" />
+            LPUSH
+          </Button>
+          <Input
+            value={newValue}
+            onChange={(e) => setNewValue(e.target.value)}
+            placeholder="New item..."
+            className="flex-1 h-8 text-sm font-mono"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleAdd('right');
+            }}
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => handleAdd('right')}
+            disabled={!newValue.trim()}
+          >
+            RPUSH
+            <ArrowDown className="h-3 w-3 ml-1" />
+          </Button>
+        </div>
+      )}
+
+      {/* List items */}
+      <div className="border rounded-md divide-y">
+        {value.length === 0 ? (
+          <div className="p-4 text-center text-sm text-muted-foreground">
+            Empty list
+          </div>
+        ) : (
+          value.map((item, index) => (
+            <div
+              key={index}
+              className={cn(
+                'flex items-center gap-2 px-2 py-1.5 hover:bg-muted/50',
+                editingIndex === index && 'bg-muted'
+              )}
+            >
+              {!readOnly && (
+                <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
+              )}
+
+              <span className="text-xs text-muted-foreground w-8">[{index}]</span>
+
+              {editingIndex === index ? (
+                <Input
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveEdit();
+                    if (e.key === 'Escape') setEditingIndex(null);
+                  }}
+                  onBlur={handleSaveEdit}
+                  className="flex-1 h-7 text-sm font-mono"
+                  autoFocus
+                />
+              ) : (
+                <span
+                  className="flex-1 font-mono text-sm cursor-pointer truncate"
+                  onDoubleClick={() => handleEdit(index)}
+                >
+                  {item}
+                </span>
+              )}
+
+              {!readOnly && (
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6"
+                    onClick={() => handleMove(index, 'up')}
+                    disabled={index === 0}
+                  >
+                    <ArrowUp className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6"
+                    onClick={() => handleMove(index, 'down')}
+                    disabled={index === value.length - 1}
+                  >
+                    <ArrowDown className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6 text-destructive"
+                    onClick={() => handleDelete(index)}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+**Step 2: Update exports**
+
+Update `src/components/RedisValueEditors/index.ts`:
+
+```typescript
+export { StringEditor } from './StringEditor';
+export { HashEditor } from './HashEditor';
+export { ListEditor } from './ListEditor';
+export * from './types';
+```
+
+**Step 3: Verify compilation**
+
+Run: `pnpm typecheck`
+Expected: Passes
+
+**Step 4: Commit**
+
+```bash
+git add src/components/RedisValueEditors/
+git commit -m "feat: add Redis ListEditor component"
+```
+
+---
+
+### Task 3.7: Create Redis SetEditor
+
+**Files:**
+- Create: `src/components/RedisValueEditors/SetEditor.tsx`
+- Modify: `src/components/RedisValueEditors/index.ts`
+
+**Step 1: Create SetEditor**
+
+Create `src/components/RedisValueEditors/SetEditor.tsx`:
+
+```typescript
+import { useState } from 'react';
+import { X, Plus } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import type { SetEditorProps } from './types';
+
+export function SetEditor({
+  value,
+  onChange,
+  onAdd,
+  onRemove,
+  readOnly = false,
+}: SetEditorProps) {
+  const [newMember, setNewMember] = useState('');
+
+  const handleAdd = () => {
+    if (!newMember.trim() || readOnly) return;
+    if (value.includes(newMember.trim())) return; // Sets don't allow duplicates
+
+    if (onAdd) {
+      onAdd(newMember.trim());
+    } else {
+      onChange([...value, newMember.trim()]);
+    }
+    setNewMember('');
+  };
+
+  const handleRemove = (member: string) => {
+    if (readOnly) return;
+
+    if (onRemove) {
+      onRemove(member);
+    } else {
+      onChange(value.filter((m) => m !== member));
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="text-xs text-muted-foreground">
+        {value.length} member{value.length !== 1 ? 's' : ''}
+      </div>
+
+      {/* Add new member */}
+      {!readOnly && (
+        <div className="flex gap-2">
+          <Input
+            value={newMember}
+            onChange={(e) => setNewMember(e.target.value)}
+            placeholder="Add member..."
+            className="flex-1 h-8 text-sm font-mono"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleAdd();
+            }}
+          />
+          <Button
+            size="sm"
+            onClick={handleAdd}
+            disabled={!newMember.trim() || value.includes(newMember.trim())}
+          >
+            <Plus className="h-3 w-3 mr-1" />
+            SADD
+          </Button>
+        </div>
+      )}
+
+      {/* Members as tags */}
+      <div className="flex flex-wrap gap-2 p-3 border rounded-md min-h-[100px] bg-muted/20">
+        {value.length === 0 ? (
+          <span className="text-sm text-muted-foreground">Empty set</span>
+        ) : (
+          value.map((member) => (
+            <Badge
+              key={member}
+              variant="secondary"
+              className="font-mono text-sm py-1 px-2 gap-1"
+            >
+              {member}
+              {!readOnly && (
+                <button
+                  onClick={() => handleRemove(member)}
+                  className="ml-1 hover:text-destructive"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </Badge>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+**Step 2: Update exports**
+
+Update `src/components/RedisValueEditors/index.ts`:
+
+```typescript
+export { StringEditor } from './StringEditor';
+export { HashEditor } from './HashEditor';
+export { ListEditor } from './ListEditor';
+export { SetEditor } from './SetEditor';
+export * from './types';
+```
+
+**Step 3: Verify compilation**
+
+Run: `pnpm typecheck`
+Expected: Passes
+
+**Step 4: Commit**
+
+```bash
+git add src/components/RedisValueEditors/
+git commit -m "feat: add Redis SetEditor component"
+```
+
+---
+
+### Task 3.8: Create Redis ZSetEditor
+
+**Files:**
+- Create: `src/components/RedisValueEditors/ZSetEditor.tsx`
+- Modify: `src/components/RedisValueEditors/index.ts`
+
+**Step 1: Create ZSetEditor**
+
+Create `src/components/RedisValueEditors/ZSetEditor.tsx`:
+
+```typescript
+import { useState } from 'react';
+import { Plus, Trash2, ArrowUpDown } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import type { ZSetEditorProps } from './types';
+
+export function ZSetEditor({
+  value,
+  onChange,
+  onAdd,
+  onRemove,
+  readOnly = false,
+}: ZSetEditorProps) {
+  const [newMember, setNewMember] = useState('');
+  const [newScore, setNewScore] = useState('0');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  const sortedValue = [...value].sort((a, b) =>
+    sortOrder === 'desc' ? b.score - a.score : a.score - b.score
+  );
+
+  const handleAdd = () => {
+    if (!newMember.trim() || readOnly) return;
+    const score = parseFloat(newScore);
+    if (isNaN(score)) return;
+
+    if (onAdd) {
+      onAdd(newMember.trim(), score);
+    } else {
+      // Check if member already exists
+      const existing = value.findIndex((m) => m.member === newMember.trim());
+      if (existing >= 0) {
+        // Update score
+        const updated = [...value];
+        updated[existing] = { member: newMember.trim(), score };
+        onChange(updated);
+      } else {
+        onChange([...value, { member: newMember.trim(), score }]);
+      }
+    }
+    setNewMember('');
+    setNewScore('0');
+  };
+
+  const handleRemove = (member: string) => {
+    if (readOnly) return;
+
+    if (onRemove) {
+      onRemove(member);
+    } else {
+      onChange(value.filter((m) => m.member !== member));
+    }
+  };
+
+  const toggleSort = () => {
+    setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">
+          {value.length} member{value.length !== 1 ? 's' : ''}
+        </span>
+        <Button size="sm" variant="ghost" onClick={toggleSort}>
+          <ArrowUpDown className="h-3 w-3 mr-1" />
+          Score {sortOrder === 'desc' ? '↓' : '↑'}
+        </Button>
+      </div>
+
+      <div className="border rounded-md overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Member</TableHead>
+              <TableHead className="w-[120px]">Score</TableHead>
+              {!readOnly && <TableHead className="w-[60px]">Actions</TableHead>}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sortedValue.map(({ member, score }) => (
+              <TableRow key={member}>
+                <TableCell className="font-mono text-sm">{member}</TableCell>
+                <TableCell className="font-mono text-sm text-blue-600 dark:text-blue-400">
+                  {score}
+                </TableCell>
+                {!readOnly && (
+                  <TableCell>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 text-destructive"
+                      onClick={() => handleRemove(member)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </TableCell>
+                )}
+              </TableRow>
+            ))}
+
+            {/* Add new member row */}
+            {!readOnly && (
+              <TableRow>
+                <TableCell>
+                  <Input
+                    value={newMember}
+                    onChange={(e) => setNewMember(e.target.value)}
+                    placeholder="Member..."
+                    className="h-7 text-sm font-mono"
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="number"
+                    value={newScore}
+                    onChange={(e) => setNewScore(e.target.value)}
+                    className="h-7 text-sm font-mono"
+                  />
+                </TableCell>
+                <TableCell>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7"
+                    onClick={handleAdd}
+                    disabled={!newMember.trim()}
+                  >
+                    <Plus className="h-3 w-3" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+```
+
+**Step 2: Update exports**
+
+Update `src/components/RedisValueEditors/index.ts`:
+
+```typescript
+export { StringEditor } from './StringEditor';
+export { HashEditor } from './HashEditor';
+export { ListEditor } from './ListEditor';
+export { SetEditor } from './SetEditor';
+export { ZSetEditor } from './ZSetEditor';
+export * from './types';
+```
+
+**Step 3: Verify compilation**
+
+Run: `pnpm typecheck`
+Expected: Passes
+
+**Step 4: Commit**
+
+```bash
+git add src/components/RedisValueEditors/
+git commit -m "feat: add Redis ZSetEditor component"
+```
+
+---
+
+### Task 3.9: Create Redis StreamViewer and FallbackEditor
+
+**Files:**
+- Create: `src/components/RedisValueEditors/StreamViewer.tsx`
+- Create: `src/components/RedisValueEditors/FallbackEditor.tsx`
+- Modify: `src/components/RedisValueEditors/index.ts`
+
+**Step 1: Create StreamViewer (read-only)**
+
+Create `src/components/RedisValueEditors/StreamViewer.tsx`:
+
+```typescript
+import { Clock } from 'lucide-react';
+import type { StreamEntry } from '@/adapters/types/redis';
+
+interface StreamViewerProps {
+  entries: StreamEntry[];
+  streamLength: number;
+}
+
+export function StreamViewer({ entries, streamLength }: StreamViewerProps) {
+  const parseTimestamp = (id: string): Date | null => {
+    const [timestamp] = id.split('-');
+    const ms = parseInt(timestamp, 10);
+    if (isNaN(ms)) return null;
+    return new Date(ms);
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="text-xs text-muted-foreground">
+        Showing {entries.length} of {streamLength} entries (streams are append-only)
+      </div>
+
+      <div className="border rounded-md divide-y max-h-[400px] overflow-y-auto">
+        {entries.length === 0 ? (
+          <div className="p-4 text-center text-sm text-muted-foreground">
+            Empty stream
+          </div>
+        ) : (
+          entries.map((entry) => {
+            const timestamp = parseTimestamp(entry.id);
+
+            return (
+              <div key={entry.id} className="p-3">
+                {/* Entry header */}
+                <div className="flex items-center gap-2 mb-2">
+                  <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">
+                    {entry.id}
+                  </code>
+                  {timestamp && (
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {timestamp.toLocaleString()}
+                    </span>
+                  )}
+                </div>
+
+                {/* Entry fields */}
+                <div className="grid grid-cols-2 gap-1 text-sm">
+                  {Object.entries(entry.fields).map(([field, value]) => (
+                    <div key={field} className="contents">
+                      <span className="text-muted-foreground">{field}:</span>
+                      <span className="font-mono truncate">{value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+**Step 2: Create FallbackEditor**
+
+Create `src/components/RedisValueEditors/FallbackEditor.tsx`:
+
+```typescript
+import { AlertTriangle, Copy, Trash2, Clock } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import type { RedisType } from '@/adapters/types/redis';
+
+interface FallbackEditorProps {
+  keyName: string;
+  keyType: RedisType;
+  rawValue: string;
+  ttl: number;
+  sizeBytes?: number;
+  encoding?: string;
+  onCopy?: () => void;
+  onDelete?: () => void;
+  onSetTTL?: () => void;
+}
+
+export function FallbackEditor({
+  keyName,
+  keyType,
+  rawValue,
+  ttl,
+  sizeBytes,
+  encoding,
+  onCopy,
+  onDelete,
+  onSetTTL,
+}: FallbackEditorProps) {
+  return (
+    <div className="flex flex-col gap-4">
+      <Alert variant="default">
+        <AlertTriangle className="h-4 w-4" />
+        <AlertDescription>
+          No specialized editor for type <code className="font-mono">{keyType}</code>.
+          Showing raw value (read-only).
+        </AlertDescription>
+      </Alert>
+
+      {/* Metadata */}
+      <div className="grid grid-cols-2 gap-2 text-sm">
+        <div className="text-muted-foreground">Type:</div>
+        <div className="font-mono">{keyType}</div>
+
+        <div className="text-muted-foreground">TTL:</div>
+        <div className="font-mono flex items-center gap-1">
+          <Clock className="h-3 w-3" />
+          {ttl === -1 ? 'No expiry' : ttl === -2 ? 'Key not found' : `${ttl}s`}
+        </div>
+
+        {sizeBytes !== undefined && (
+          <>
+            <div className="text-muted-foreground">Size:</div>
+            <div className="font-mono">{sizeBytes} bytes</div>
+          </>
+        )}
+
+        {encoding && (
+          <>
+            <div className="text-muted-foreground">Encoding:</div>
+            <div className="font-mono">{encoding}</div>
+          </>
+        )}
+      </div>
+
+      {/* Raw value */}
+      <div>
+        <div className="text-xs text-muted-foreground mb-1">Raw Value:</div>
+        <pre className="bg-muted p-3 rounded-md text-xs font-mono overflow-auto max-h-[200px] whitespace-pre-wrap break-all">
+          {rawValue}
+        </pre>
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-2">
+        {onCopy && (
+          <Button size="sm" variant="outline" onClick={onCopy}>
+            <Copy className="h-3 w-3 mr-1" />
+            Copy Value
+          </Button>
+        )}
+        {onSetTTL && (
+          <Button size="sm" variant="outline" onClick={onSetTTL}>
+            <Clock className="h-3 w-3 mr-1" />
+            Set TTL
+          </Button>
+        )}
+        {onDelete && (
+          <Button size="sm" variant="destructive" onClick={onDelete}>
+            <Trash2 className="h-3 w-3 mr-1" />
+            Delete Key
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+**Step 3: Update exports**
+
+Update `src/components/RedisValueEditors/index.ts`:
+
+```typescript
+export { StringEditor } from './StringEditor';
+export { HashEditor } from './HashEditor';
+export { ListEditor } from './ListEditor';
+export { SetEditor } from './SetEditor';
+export { ZSetEditor } from './ZSetEditor';
+export { StreamViewer } from './StreamViewer';
+export { FallbackEditor } from './FallbackEditor';
+export * from './types';
+```
+
+**Step 4: Verify compilation**
+
+Run: `pnpm typecheck`
+Expected: Passes
+
+**Step 5: Commit**
+
+```bash
+git add src/components/RedisValueEditors/
+git commit -m "feat: add Redis StreamViewer and FallbackEditor components"
+```
+
+---
+
+### Task 3.10: Create MQL Editor (CodeMirror JavaScript mode)
+
+**Files:**
+- Create: `src/components/CodeEditor/MqlEditor.tsx`
+- Modify: `src/components/CodeEditor/index.ts`
+
+**Step 1: Create MqlEditor**
+
+Create `src/components/CodeEditor/MqlEditor.tsx`:
+
+```typescript
+import { forwardRef, useEffect, useImperativeHandle, useRef, useMemo } from 'react';
+import { EditorState, Compartment } from '@codemirror/state';
+import {
+  EditorView,
+  keymap,
+  lineNumbers,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  drawSelection,
+  highlightActiveLine,
+} from '@codemirror/view';
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { javascript } from '@codemirror/lang-javascript';
+import {
+  syntaxHighlighting,
+  defaultHighlightStyle,
+  bracketMatching,
+  foldGutter,
+  foldKeymap,
+} from '@codemirror/language';
+import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
+import { lintKeymap } from '@codemirror/lint';
+import { useTheme } from '@/contexts/ThemeContext';
+import { getThemeExtensions } from './themes';
+
+export interface MqlEditorHandle {
+  getValue: () => string;
+  setValue: (value: string) => void;
+  focus: () => void;
+}
+
+interface MqlEditorProps {
+  initialValue?: string;
+  onChange?: (value: string) => void;
+  onExecute?: (query: string) => void;
+  readOnly?: boolean;
+  height?: string;
+  placeholder?: string;
+}
+
+export const MqlEditor = forwardRef<MqlEditorHandle, MqlEditorProps>(
+  (
+    {
+      initialValue = '',
+      onChange,
+      onExecute,
+      readOnly = false,
+      height = '200px',
+      placeholder = 'db.collection.find({ field: "value" })',
+    },
+    ref
+  ) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const viewRef = useRef<EditorView | null>(null);
+    const { theme } = useTheme();
+
+    const themeCompartment = useMemo(() => new Compartment(), []);
+
+    useImperativeHandle(ref, () => ({
+      getValue: () => viewRef.current?.state.doc.toString() ?? '',
+      setValue: (value: string) => {
+        if (viewRef.current) {
+          viewRef.current.dispatch({
+            changes: {
+              from: 0,
+              to: viewRef.current.state.doc.length,
+              insert: value,
+            },
+          });
+        }
+      },
+      focus: () => viewRef.current?.focus(),
+    }));
+
+    useEffect(() => {
+      if (!containerRef.current) return;
+
+      const executeKeymap = keymap.of([
+        {
+          key: 'Mod-Enter',
+          run: () => {
+            if (onExecute && viewRef.current) {
+              onExecute(viewRef.current.state.doc.toString());
+            }
+            return true;
+          },
+        },
+      ]);
+
+      const updateListener = EditorView.updateListener.of((update) => {
+        if (update.docChanged && onChange) {
+          onChange(update.state.doc.toString());
+        }
+      });
+
+      const state = EditorState.create({
+        doc: initialValue,
+        extensions: [
+          lineNumbers(),
+          highlightActiveLineGutter(),
+          highlightSpecialChars(),
+          history(),
+          foldGutter(),
+          drawSelection(),
+          EditorState.allowMultipleSelections.of(true),
+          syntaxHighlighting(defaultHighlightStyle),
+          bracketMatching(),
+          autocompletion(),
+          highlightActiveLine(),
+          javascript(), // Use JavaScript mode for MQL
+          keymap.of([
+            ...defaultKeymap,
+            ...historyKeymap,
+            ...foldKeymap,
+            ...completionKeymap,
+            ...lintKeymap,
+          ]),
+          executeKeymap,
+          updateListener,
+          themeCompartment.of(getThemeExtensions(theme)),
+          EditorView.editable.of(!readOnly),
+          EditorView.theme({
+            '&': { height },
+            '.cm-scroller': { overflow: 'auto' },
+          }),
+          EditorView.contentAttributes.of({
+            'aria-label': 'MongoDB Query Editor',
+          }),
+        ],
+      });
+
+      const view = new EditorView({
+        state,
+        parent: containerRef.current,
+      });
+
+      viewRef.current = view;
+
+      return () => {
+        view.destroy();
+        viewRef.current = null;
+      };
+    }, []); // Only run once on mount
+
+    // Update theme when it changes
+    useEffect(() => {
+      if (viewRef.current) {
+        viewRef.current.dispatch({
+          effects: themeCompartment.reconfigure(getThemeExtensions(theme)),
+        });
+      }
+    }, [theme, themeCompartment]);
+
+    return (
+      <div
+        ref={containerRef}
+        className="border rounded-md overflow-hidden"
+        data-placeholder={placeholder}
+      />
+    );
+  }
+);
+
+MqlEditor.displayName = 'MqlEditor';
+```
+
+**Step 2: Update CodeEditor exports**
+
+Update `src/components/CodeEditor/index.ts` to add:
+
+```typescript
+export { MqlEditor } from './MqlEditor';
+export type { MqlEditorHandle } from './MqlEditor';
+```
+
+**Step 3: Verify compilation**
+
+Run: `pnpm typecheck`
+Expected: Passes
+
+**Step 4: Commit**
+
+```bash
+git add src/components/CodeEditor/
+git commit -m "feat: add MqlEditor component for MongoDB queries"
+```
+
+---
+
+### Task 3.11: Create Redis CLI Editor
+
+**Files:**
+- Create: `src/components/CodeEditor/RedisEditor.tsx`
+- Modify: `src/components/CodeEditor/index.ts`
+
+**Step 1: Create RedisEditor**
+
+Create `src/components/CodeEditor/RedisEditor.tsx`:
+
+```typescript
+import { forwardRef, useEffect, useImperativeHandle, useRef, useMemo } from 'react';
+import { EditorState, Compartment } from '@codemirror/state';
+import {
+  EditorView,
+  keymap,
+  lineNumbers,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  drawSelection,
+  highlightActiveLine,
+} from '@codemirror/view';
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { StreamLanguage } from '@codemirror/language';
+import { shell } from '@codemirror/legacy-modes/mode/shell';
+import {
+  syntaxHighlighting,
+  defaultHighlightStyle,
+} from '@codemirror/language';
+import {
+  autocompletion,
+  completionKeymap,
+  CompletionContext,
+} from '@codemirror/autocomplete';
+import { useTheme } from '@/contexts/ThemeContext';
+import { getThemeExtensions } from './themes';
+
+// Redis commands for autocomplete
+const REDIS_COMMANDS = [
+  'GET', 'SET', 'DEL', 'EXISTS', 'EXPIRE', 'TTL', 'KEYS', 'SCAN',
+  'HGET', 'HSET', 'HGETALL', 'HDEL', 'HKEYS', 'HVALS', 'HMSET', 'HMGET',
+  'LPUSH', 'RPUSH', 'LPOP', 'RPOP', 'LRANGE', 'LLEN', 'LINDEX', 'LSET',
+  'SADD', 'SREM', 'SMEMBERS', 'SISMEMBER', 'SCARD', 'SUNION', 'SINTER',
+  'ZADD', 'ZREM', 'ZRANGE', 'ZRANGEBYSCORE', 'ZSCORE', 'ZCARD', 'ZRANK',
+  'XADD', 'XREAD', 'XRANGE', 'XLEN', 'XINFO',
+  'PING', 'INFO', 'DBSIZE', 'FLUSHDB', 'SELECT', 'CONFIG', 'CLIENT',
+  'MULTI', 'EXEC', 'WATCH', 'UNWATCH', 'DISCARD',
+  'PUBLISH', 'SUBSCRIBE', 'PSUBSCRIBE',
+  'JSON.GET', 'JSON.SET', 'JSON.DEL', // RedisJSON
+  'FT.SEARCH', 'FT.CREATE', // RediSearch
+];
+
+const redisCompletions = (context: CompletionContext) => {
+  const word = context.matchBefore(/\w*/);
+  if (!word || (word.from === word.to && !context.explicit)) return null;
+
+  const input = word.text.toUpperCase();
+  const options = REDIS_COMMANDS
+    .filter((cmd) => cmd.startsWith(input))
+    .map((cmd) => ({
+      label: cmd,
+      type: 'keyword',
+    }));
+
+  return {
+    from: word.from,
+    options,
+  };
+};
+
+export interface RedisEditorHandle {
+  getValue: () => string;
+  setValue: (value: string) => void;
+  focus: () => void;
+}
+
+interface RedisEditorProps {
+  initialValue?: string;
+  onChange?: (value: string) => void;
+  onExecute?: (command: string) => void;
+  readOnly?: boolean;
+  height?: string;
+  placeholder?: string;
+}
+
+export const RedisEditor = forwardRef<RedisEditorHandle, RedisEditorProps>(
+  (
+    {
+      initialValue = '',
+      onChange,
+      onExecute,
+      readOnly = false,
+      height = '100px',
+      placeholder = 'HGETALL user:123',
+    },
+    ref
+  ) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const viewRef = useRef<EditorView | null>(null);
+    const { theme } = useTheme();
+
+    const themeCompartment = useMemo(() => new Compartment(), []);
+
+    useImperativeHandle(ref, () => ({
+      getValue: () => viewRef.current?.state.doc.toString() ?? '',
+      setValue: (value: string) => {
+        if (viewRef.current) {
+          viewRef.current.dispatch({
+            changes: {
+              from: 0,
+              to: viewRef.current.state.doc.length,
+              insert: value,
+            },
+          });
+        }
+      },
+      focus: () => viewRef.current?.focus(),
+    }));
+
+    useEffect(() => {
+      if (!containerRef.current) return;
+
+      const executeKeymap = keymap.of([
+        {
+          key: 'Mod-Enter',
+          run: () => {
+            if (onExecute && viewRef.current) {
+              onExecute(viewRef.current.state.doc.toString());
+            }
+            return true;
+          },
+        },
+        {
+          key: 'Enter',
+          run: () => {
+            // Execute on Enter for single-line commands
+            if (onExecute && viewRef.current) {
+              const doc = viewRef.current.state.doc.toString();
+              if (!doc.includes('\n')) {
+                onExecute(doc);
+                return true;
+              }
+            }
+            return false;
+          },
+        },
+      ]);
+
+      const updateListener = EditorView.updateListener.of((update) => {
+        if (update.docChanged && onChange) {
+          onChange(update.state.doc.toString());
+        }
+      });
+
+      const state = EditorState.create({
+        doc: initialValue,
+        extensions: [
+          lineNumbers(),
+          highlightActiveLineGutter(),
+          highlightSpecialChars(),
+          history(),
+          drawSelection(),
+          syntaxHighlighting(defaultHighlightStyle),
+          highlightActiveLine(),
+          StreamLanguage.define(shell), // Use shell mode for Redis CLI
+          autocompletion({ override: [redisCompletions] }),
+          keymap.of([
+            ...defaultKeymap,
+            ...historyKeymap,
+            ...completionKeymap,
+          ]),
+          executeKeymap,
+          updateListener,
+          themeCompartment.of(getThemeExtensions(theme)),
+          EditorView.editable.of(!readOnly),
+          EditorView.theme({
+            '&': { height },
+            '.cm-scroller': { overflow: 'auto' },
+          }),
+          EditorView.contentAttributes.of({
+            'aria-label': 'Redis Command Editor',
+          }),
+        ],
+      });
+
+      const view = new EditorView({
+        state,
+        parent: containerRef.current,
+      });
+
+      viewRef.current = view;
+
+      return () => {
+        view.destroy();
+        viewRef.current = null;
+      };
+    }, []);
+
+    useEffect(() => {
+      if (viewRef.current) {
+        viewRef.current.dispatch({
+          effects: themeCompartment.reconfigure(getThemeExtensions(theme)),
+        });
+      }
+    }, [theme, themeCompartment]);
+
+    return (
+      <div
+        ref={containerRef}
+        className="border rounded-md overflow-hidden"
+        data-placeholder={placeholder}
+      />
+    );
+  }
+);
+
+RedisEditor.displayName = 'RedisEditor';
+```
+
+**Step 2: Update CodeEditor exports**
+
+Update `src/components/CodeEditor/index.ts` to add:
+
+```typescript
+export { RedisEditor } from './RedisEditor';
+export type { RedisEditorHandle } from './RedisEditor';
+```
+
+**Step 3: Verify compilation**
+
+Run: `pnpm typecheck`
+Expected: Passes
+
+**Step 4: Commit**
+
+```bash
+git add src/components/CodeEditor/
+git commit -m "feat: add RedisEditor component with command autocomplete"
+```
+
+---
+
+## Phase 4: Advanced Features
+
+### Task 4.1: Implement MongoDB DocumentQueryable Trait (Rust)
+
+**Files:**
+- Modify: `src-tauri/src/adapters/mongodb/adapter.rs`
+
+**Step 1: Implement DocumentQueryable trait**
+
+Add to `src-tauri/src/adapters/mongodb/adapter.rs`:
+
+```rust
+use bson::{doc, Document};
+use mongodb::options::{FindOptions as MongoFindOptions, IndexOptions};
+use futures::TryStreamExt;
+use serde_json::Value;
+
+#[async_trait]
+impl DocumentQueryable for MongoDbAdapter {
+    async fn find_documents(
+        &self,
+        collection: &str,
+        filter: Value,
+        options: FindOptions,
+    ) -> Result<Vec<Value>, AppError> {
+        let db = self.database.read().await;
+        let db = db.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let coll = db.collection::<Document>(collection);
+        let filter_doc: Document = bson::to_document(&filter)
+            .map_err(|e| AppError::Query(format!("Invalid filter: {}", e)))?;
+        
+        let mut mongo_options = MongoFindOptions::default();
+        mongo_options.skip = options.skip;
+        mongo_options.limit = options.limit.map(|l| l as i64);
+        
+        if let Some(sort) = options.sort {
+            mongo_options.sort = Some(bson::to_document(&sort)?);
+        }
+        if let Some(proj) = options.projection {
+            mongo_options.projection = Some(bson::to_document(&proj)?);
+        }
+        
+        let mut cursor = coll.find(filter_doc).with_options(mongo_options).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        let mut results = Vec::new();
+        while let Some(doc) = cursor.try_next().await
+            .map_err(|e| AppError::Query(e.to_string()))? {
+            let value: Value = bson::from_document(doc)
+                .map_err(|e| AppError::Query(e.to_string()))?;
+            results.push(value);
+        }
+        
+        Ok(results)
+    }
+
+    async fn insert_document(&self, collection: &str, doc: Value) -> Result<InsertResult, AppError> {
+        let db = self.database.read().await;
+        let db = db.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let coll = db.collection::<Document>(collection);
+        let document: Document = bson::to_document(&doc)
+            .map_err(|e| AppError::Query(format!("Invalid document: {}", e)))?;
+        
+        let result = coll.insert_one(document).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(InsertResult {
+            inserted_id: result.inserted_id.to_string(),
+        })
+    }
+
+    async fn insert_documents(&self, collection: &str, docs: Vec<Value>) -> Result<InsertManyResult, AppError> {
+        let db = self.database.read().await;
+        let db = db.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let coll = db.collection::<Document>(collection);
+        let documents: Vec<Document> = docs.into_iter()
+            .map(|d| bson::to_document(&d))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Query(format!("Invalid document: {}", e)))?;
+        
+        let result = coll.insert_many(documents).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(InsertManyResult {
+            inserted_ids: result.inserted_ids.values().map(|id| id.to_string()).collect(),
+            inserted_count: result.inserted_ids.len() as u64,
+        })
+    }
+
+    async fn update_document(
+        &self,
+        collection: &str,
+        filter: Value,
+        update: Value,
+    ) -> Result<UpdateResult, AppError> {
+        let db = self.database.read().await;
+        let db = db.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let coll = db.collection::<Document>(collection);
+        let filter_doc: Document = bson::to_document(&filter)?;
+        let update_doc: Document = bson::to_document(&update)?;
+        
+        let result = coll.update_one(filter_doc, update_doc).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(UpdateResult {
+            matched_count: result.matched_count,
+            modified_count: result.modified_count,
+        })
+    }
+
+    async fn delete_document(&self, collection: &str, filter: Value) -> Result<DeleteResult, AppError> {
+        let db = self.database.read().await;
+        let db = db.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let coll = db.collection::<Document>(collection);
+        let filter_doc: Document = bson::to_document(&filter)?;
+        
+        let result = coll.delete_one(filter_doc).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(DeleteResult {
+            deleted_count: result.deleted_count,
+        })
+    }
+
+    async fn aggregate(&self, collection: &str, pipeline: Vec<Value>) -> Result<Vec<Value>, AppError> {
+        let db = self.database.read().await;
+        let db = db.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let coll = db.collection::<Document>(collection);
+        let pipeline_docs: Vec<Document> = pipeline.into_iter()
+            .map(|s| bson::to_document(&s))
+            .collect::<Result<Vec<_>, _>>()?;
+        
+        let mut cursor = coll.aggregate(pipeline_docs).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        let mut results = Vec::new();
+        while let Some(doc) = cursor.try_next().await? {
+            let value: Value = bson::from_document(doc)?;
+            results.push(value);
+        }
+        
+        Ok(results)
+    }
+
+    async fn count_documents(&self, collection: &str, filter: Option<Value>) -> Result<u64, AppError> {
+        let db = self.database.read().await;
+        let db = db.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let coll = db.collection::<Document>(collection);
+        let filter_doc = match filter {
+            Some(f) => bson::to_document(&f)?,
+            None => doc! {},
+        };
+        
+        let count = coll.count_documents(filter_doc).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(count)
+    }
+
+    async fn list_collections(&self) -> Result<Vec<CollectionInfo>, AppError> {
+        let db = self.database.read().await;
+        let db = db.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let collections = db.list_collection_names().await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(collections.into_iter().map(|name| CollectionInfo {
+            name,
+            doc_count: None,
+            size_bytes: None,
+        }).collect())
+    }
+
+    async fn run_command(&self, command: Value) -> Result<Value, AppError> {
+        let db = self.database.read().await;
+        let db = db.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let cmd_doc: Document = bson::to_document(&command)?;
+        let result = db.run_command(cmd_doc).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(bson::from_document(result)?)
+    }
+}
+```
+
+**Step 2: Verify compilation**
+
+Run: `cd src-tauri && cargo check`
+Expected: Compiles
+
+**Step 3: Commit**
+
+```bash
+git add src-tauri/src/adapters/mongodb/adapter.rs
+git commit -m "feat(mongodb): implement DocumentQueryable trait"
+```
+
+---
+
+### Task 4.2: Implement Redis KeyValueOperable Trait (Rust)
+
+**Files:**
+- Modify: `src-tauri/src/adapters/redis/adapter.rs`
+
+**Step 1: Implement KeyValueOperable trait**
+
+Add to `src-tauri/src/adapters/redis/adapter.rs`:
+
+```rust
+use fred::prelude::*;
+use std::collections::HashMap;
+
+#[async_trait]
+impl KeyValueOperable for RedisAdapter {
+    async fn get_key(&self, key: &str) -> Result<Option<RedisValue>, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let result: Option<String> = client.get(key).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(result.map(|s| RedisValue::String(s)))
+    }
+
+    async fn set_key(&self, key: &str, value: RedisValue, options: SetOptions) -> Result<(), AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let str_value = match value {
+            RedisValue::String(s) => s,
+            RedisValue::Integer(i) => i.to_string(),
+            RedisValue::Float(f) => f.to_string(),
+            RedisValue::Boolean(b) => b.to_string(),
+            _ => return Err(AppError::Query("Unsupported value type for SET".into())),
+        };
+        
+        match (options.ttl_seconds, options.nx, options.xx) {
+            (Some(ttl), false, false) => {
+                client.set(key, str_value, Some(Expiration::EX(ttl as i64)), None, false).await?;
+            }
+            (None, true, false) => {
+                client.set(key, str_value, None, Some(SetOptions::NX), false).await?;
+            }
+            (None, false, true) => {
+                client.set(key, str_value, None, Some(SetOptions::XX), false).await?;
+            }
+            _ => {
+                client.set(key, str_value, None, None, false).await?;
+            }
+        }
+        
+        Ok(())
+    }
+
+    async fn delete_keys(&self, keys: &[String]) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let count: u64 = client.del(keys).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(count)
+    }
+
+    async fn key_exists(&self, keys: &[String]) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let count: u64 = client.exists(keys).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(count)
+    }
+
+    async fn scan_keys(&self, pattern: &str, cursor: u64, count: u32) -> Result<ScanResult, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let (new_cursor, keys): (u64, Vec<String>) = client
+            .scan(pattern, Some(cursor), Some(count as u64))
+            .await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        // Get type and TTL for each key
+        let mut key_infos = Vec::new();
+        for key in keys {
+            let key_type = self.get_key_type(&key).await.unwrap_or(RedisType::Unknown);
+            let ttl = self.get_key_ttl(&key).await.unwrap_or(-1);
+            
+            key_infos.push(KeyInfo {
+                key,
+                key_type,
+                ttl,
+                size_bytes: None,
+            });
+        }
+        
+        Ok(ScanResult {
+            cursor: new_cursor,
+            keys: key_infos,
+        })
+    }
+
+    async fn get_key_type(&self, key: &str) -> Result<RedisType, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let type_str: String = client.type_(key).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        let redis_type = match type_str.as_str() {
+            "string" => RedisType::String,
+            "list" => RedisType::List,
+            "set" => RedisType::Set,
+            "zset" => RedisType::ZSet,
+            "hash" => RedisType::Hash,
+            "stream" => RedisType::Stream,
+            _ => RedisType::Unknown,
+        };
+        
+        Ok(redis_type)
+    }
+
+    async fn get_key_ttl(&self, key: &str) -> Result<i64, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let ttl: i64 = client.ttl(key).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(ttl)
+    }
+
+    async fn set_key_ttl(&self, key: &str, seconds: u64) -> Result<bool, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let result: bool = client.expire(key, seconds as i64).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(result)
+    }
+
+    async fn execute_raw(&self, command: &str, args: &[String]) -> Result<RedisValue, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let result: fred::types::RedisValue = client
+            .custom_raw(fred::types::CustomCommand::new(command, None, false), args.to_vec())
+            .await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(convert_redis_value(result))
+    }
+
+    async fn get_database_size(&self) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let size: u64 = client.dbsize().await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(size)
+    }
+
+    async fn select_database(&self, index: u8) -> Result<(), AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        client.select(index).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(())
+    }
+
+    async fn get_server_info(&self, section: Option<&str>) -> Result<HashMap<String, String>, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let info_kind = section.map(|s| InfoKind::Custom(s.to_string()));
+        let info_str: String = client.info(info_kind).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        let mut result = HashMap::new();
+        for line in info_str.lines() {
+            if let Some((key, value)) = line.split_once(':') {
+                result.insert(key.to_string(), value.to_string());
+            }
+        }
+        
+        Ok(result)
+    }
+}
+
+fn convert_redis_value(value: fred::types::RedisValue) -> RedisValue {
+    match value {
+        fred::types::RedisValue::Null => RedisValue::Nil,
+        fred::types::RedisValue::String(s) => RedisValue::String(s.to_string()),
+        fred::types::RedisValue::Integer(i) => RedisValue::Integer(i),
+        fred::types::RedisValue::Double(f) => RedisValue::Float(f),
+        fred::types::RedisValue::Boolean(b) => RedisValue::Boolean(b),
+        fred::types::RedisValue::Array(arr) => {
+            RedisValue::Array(arr.into_iter().map(convert_redis_value).collect())
+        }
+        fred::types::RedisValue::Map(map) => {
+            let converted: HashMap<String, RedisValue> = map.into_iter()
+                .filter_map(|(k, v)| {
+                    k.into_string().map(|key| (key, convert_redis_value(v)))
+                })
+                .collect();
+            RedisValue::Map(converted)
+        }
+        fred::types::RedisValue::Bytes(b) => RedisValue::Bytes(b.to_vec()),
+        _ => RedisValue::Nil,
+    }
+}
+```
+
+**Step 2: Verify compilation**
+
+Run: `cd src-tauri && cargo check`
+Expected: Compiles
+
+**Step 3: Commit**
+
+```bash
+git add src-tauri/src/adapters/redis/adapter.rs
+git commit -m "feat(redis): implement KeyValueOperable trait"
+```
+
+---
+
+### Task 4.3: Implement Redis RichKeyValueOperable Trait (Rust)
+
+**Files:**
+- Modify: `src-tauri/src/adapters/redis/adapter.rs`
+
+**Step 1: Implement RichKeyValueOperable trait**
+
+Add to `src-tauri/src/adapters/redis/adapter.rs`:
+
+```rust
+#[async_trait]
+impl RichKeyValueOperable for RedisAdapter {
+    async fn hash_get_all(&self, key: &str) -> Result<HashMap<String, String>, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let result: HashMap<String, String> = client.hgetall(key).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(result)
+    }
+
+    async fn hash_set(&self, key: &str, fields: HashMap<String, String>) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let pairs: Vec<(String, String)> = fields.into_iter().collect();
+        let count: u64 = client.hset(key, pairs).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(count)
+    }
+
+    async fn hash_delete(&self, key: &str, fields: &[String]) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let count: u64 = client.hdel(key, fields).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(count)
+    }
+
+    async fn list_range(&self, key: &str, start: i64, stop: i64) -> Result<Vec<String>, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let result: Vec<String> = client.lrange(key, start, stop).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(result)
+    }
+
+    async fn list_push(&self, key: &str, values: &[String], side: ListSide) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let count: u64 = match side {
+            ListSide::Left => client.lpush(key, values).await,
+            ListSide::Right => client.rpush(key, values).await,
+        }.map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(count)
+    }
+
+    async fn list_len(&self, key: &str) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let len: u64 = client.llen(key).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(len)
+    }
+
+    async fn set_members(&self, key: &str) -> Result<Vec<String>, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let result: Vec<String> = client.smembers(key).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(result)
+    }
+
+    async fn set_add(&self, key: &str, members: &[String]) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let count: u64 = client.sadd(key, members).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(count)
+    }
+
+    async fn set_remove(&self, key: &str, members: &[String]) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let count: u64 = client.srem(key, members).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(count)
+    }
+
+    async fn zset_range(
+        &self,
+        key: &str,
+        start: i64,
+        stop: i64,
+        with_scores: bool,
+    ) -> Result<Vec<ZSetMember>, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        if with_scores {
+            let result: Vec<(String, f64)> = client.zrange(key, start, stop, None, false, None, true).await
+                .map_err(|e| AppError::Query(e.to_string()))?;
+            
+            Ok(result.into_iter().map(|(member, score)| ZSetMember { member, score }).collect())
+        } else {
+            let members: Vec<String> = client.zrange(key, start, stop, None, false, None, false).await
+                .map_err(|e| AppError::Query(e.to_string()))?;
+            
+            Ok(members.into_iter().map(|member| ZSetMember { member, score: 0.0 }).collect())
+        }
+    }
+
+    async fn zset_add(&self, key: &str, members: &[ZSetMember]) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let pairs: Vec<(f64, String)> = members.iter()
+            .map(|m| (m.score, m.member.clone()))
+            .collect();
+        
+        let count: u64 = client.zadd(key, None, None, false, false, pairs).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(count)
+    }
+
+    async fn stream_range(
+        &self,
+        key: &str,
+        start: &str,
+        end: &str,
+        count: Option<u32>,
+    ) -> Result<Vec<StreamEntry>, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let result: Vec<(String, HashMap<String, String>)> = client
+            .xrange(key, start, end, count.map(|c| c as u64))
+            .await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(result.into_iter().map(|(id, fields)| StreamEntry { id, fields }).collect())
+    }
+
+    async fn stream_len(&self, key: &str) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or(AppError::NotConnected)?;
+        
+        let len: u64 = client.xlen(key).await
+            .map_err(|e| AppError::Query(e.to_string()))?;
+        
+        Ok(len)
+    }
+}
+```
+
+**Step 2: Verify compilation**
+
+Run: `cd src-tauri && cargo check`
+Expected: Compiles
+
+**Step 3: Commit**
+
+```bash
+git add src-tauri/src/adapters/redis/adapter.rs
+git commit -m "feat(redis): implement RichKeyValueOperable trait"
+```
+
+---
+
+## Phase 5: Polish
+
+### Task 5.1: Add Integration Tests with testcontainers
+
+**Files:**
+- Create: `src-tauri/tests/integration/mongodb_test.rs`
+- Create: `src-tauri/tests/integration/redis_test.rs`
+
+**Step 1: Create MongoDB integration test**
+
+Create `src-tauri/tests/integration/mongodb_test.rs`:
+
+```rust
+use testcontainers::{clients::Cli, GenericImage};
+
+#[tokio::test]
+async fn test_mongodb_crud_operations() {
+    let docker = Cli::default();
+    let mongo_image = GenericImage::new("mongo", "7.0")
+        .with_exposed_port(27017);
+    
+    let container = docker.run(mongo_image);
+    let port = container.get_host_port_ipv4(27017);
+    
+    let mut adapter = MongoDbAdapter::new();
+    let config = ConnectionConfig {
+        db_type: DbType::MongoDB,
+        host: "localhost".to_string(),
+        port,
+        database: Some("test".to_string()),
+        ..Default::default()
+    };
+    
+    adapter.connect(&config).await.unwrap();
+    
+    // Test insert
+    let doc = serde_json::json!({
+        "name": "Alice",
+        "age": 30
+    });
+    let result = adapter.insert_document("users", doc).await.unwrap();
+    assert!(!result.inserted_id.is_empty());
+    
+    // Test find
+    let docs = adapter.find_documents("users", serde_json::json!({}), Default::default()).await.unwrap();
+    assert_eq!(docs.len(), 1);
+    
+    // Test update
+    let update_result = adapter.update_document(
+        "users",
+        serde_json::json!({"name": "Alice"}),
+        serde_json::json!({"$set": {"age": 31}})
+    ).await.unwrap();
+    assert_eq!(update_result.modified_count, 1);
+    
+    // Test delete
+    let delete_result = adapter.delete_document(
+        "users",
+        serde_json::json!({"name": "Alice"})
+    ).await.unwrap();
+    assert_eq!(delete_result.deleted_count, 1);
+    
+    adapter.disconnect().await.unwrap();
+}
+```
+
+**Step 2: Create Redis integration test**
+
+Create `src-tauri/tests/integration/redis_test.rs`:
+
+```rust
+use testcontainers::{clients::Cli, GenericImage};
+
+#[tokio::test]
+async fn test_redis_key_operations() {
+    let docker = Cli::default();
+    let redis_image = GenericImage::new("redis", "7.2")
+        .with_exposed_port(6379);
+    
+    let container = docker.run(redis_image);
+    let port = container.get_host_port_ipv4(6379);
+    
+    let mut adapter = RedisAdapter::new();
+    let config = ConnectionConfig {
+        db_type: DbType::Redis,
+        host: "localhost".to_string(),
+        port,
+        database: Some("0".to_string()),
+        ..Default::default()
+    };
+    
+    adapter.connect(&config).await.unwrap();
+    
+    // Test set/get
+    adapter.set_key("test:key", RedisValue::String("hello".to_string()), Default::default()).await.unwrap();
+    let value = adapter.get_key("test:key").await.unwrap();
+    assert_eq!(value, Some(RedisValue::String("hello".to_string())));
+    
+    // Test hash
+    let mut fields = HashMap::new();
+    fields.insert("name".to_string(), "Alice".to_string());
+    fields.insert("age".to_string(), "30".to_string());
+    adapter.hash_set("test:user", fields).await.unwrap();
+    
+    let hash = adapter.hash_get_all("test:user").await.unwrap();
+    assert_eq!(hash.get("name"), Some(&"Alice".to_string()));
+    
+    // Test list
+    adapter.list_push("test:list", &["a".to_string(), "b".to_string()], ListSide::Right).await.unwrap();
+    let list = adapter.list_range("test:list", 0, -1).await.unwrap();
+    assert_eq!(list, vec!["a", "b"]);
+    
+    // Test set
+    adapter.set_add("test:set", &["x".to_string(), "y".to_string()]).await.unwrap();
+    let members = adapter.set_members("test:set").await.unwrap();
+    assert!(members.contains(&"x".to_string()));
+    
+    // Test delete
+    let deleted = adapter.delete_keys(&["test:key".to_string()]).await.unwrap();
+    assert_eq!(deleted, 1);
+    
+    adapter.disconnect().await.unwrap();
+}
+```
+
+**Step 3: Add testcontainers to dev dependencies**
+
+Add to `src-tauri/Cargo.toml`:
+
+```toml
+[dev-dependencies]
+testcontainers = "0.15"
+```
+
+**Step 4: Run tests**
+
+Run: `cd src-tauri && cargo test --test integration`
+Expected: PASS (requires Docker running)
+
+**Step 5: Commit**
+
+```bash
+git add src-tauri/tests/integration/ src-tauri/Cargo.toml
+git commit -m "test: add integration tests with testcontainers"
+```
+
+---
+
+### Task 5.2: Add Connection String Parser
+
+**Files:**
+- Create: `src/adapters/utils/connectionStringParser.ts`
+- Modify: `src/adapters/index.ts`
+
+**Step 1: Create connection string parser**
+
+Create `src/adapters/utils/connectionStringParser.ts`:
+
+```typescript
+import type { MongoConnectionConfig } from '../types/mongodb';
+import type { RedisConnectionConfig } from '../types/redis';
+
+export function parseMongoConnectionString(connectionString: string): Partial<MongoConnectionConfig> {
+  try {
+    const url = new URL(connectionString);
+    
+    const hosts = url.host.split(',').map((h) => {
+      const [host, portStr] = h.split(':');
+      return { host, port: parseInt(portStr, 10) || 27017 };
+    });
+    
+    const config: Partial<MongoConnectionConfig> = {
+      hosts,
+      database: url.pathname.slice(1) || undefined,
+      user: url.username || undefined,
+      password: url.password || undefined,
+      ssl: url.protocol === 'mongodb+srv:',
+      connectionString,
+    };
+    
+    // Parse query params
+    const params = url.searchParams;
+    if (params.has('authSource')) {
+      config.authSource = params.get('authSource')!;
+    }
+    if (params.has('replicaSet')) {
+      config.replicaSet = params.get('replicaSet')!;
+    }
+    
+    return config;
+  } catch {
+    throw new Error('Invalid MongoDB connection string');
+  }
+}
+
+export function buildMongoConnectionString(config: MongoConnectionConfig): string {
+  if (config.connectionString) return config.connectionString;
+  
+  const protocol = config.ssl ? 'mongodb+srv' : 'mongodb';
+  const auth = config.user && config.password
+    ? `${encodeURIComponent(config.user)}:${encodeURIComponent(config.password)}@`
+    : '';
+  const hosts = config.hosts.map((h) => `${h.host}:${h.port}`).join(',');
+  const database = config.database || '';
+  
+  const params = new URLSearchParams();
+  if (config.authSource) params.set('authSource', config.authSource);
+  if (config.replicaSet) params.set('replicaSet', config.replicaSet);
+  
+  const queryString = params.toString();
+  return `${protocol}://${auth}${hosts}/${database}${queryString ? '?' + queryString : ''}`;
+}
+
+export function parseRedisConnectionString(connectionString: string): Partial<RedisConnectionConfig> {
+  try {
+    const url = new URL(connectionString);
+    
+    const config: Partial<RedisConnectionConfig> = {
+      host: url.hostname,
+      port: parseInt(url.port, 10) || 6379,
+      database: parseInt(url.pathname.slice(1), 10) || 0,
+      user: url.username || undefined,
+      password: url.password || undefined,
+      ssl: url.protocol === 'rediss:',
+      connectionString,
+      mode: 'standalone',
+    };
+    
+    return config;
+  } catch {
+    throw new Error('Invalid Redis connection string');
+  }
+}
+
+export function buildRedisConnectionString(config: RedisConnectionConfig): string {
+  if (config.connectionString) return config.connectionString;
+  
+  const protocol = config.ssl ? 'rediss' : 'redis';
+  const auth = config.password
+    ? config.user
+      ? `${encodeURIComponent(config.user)}:${encodeURIComponent(config.password)}@`
+      : `:${encodeURIComponent(config.password)}@`
+    : '';
+  
+  return `${protocol}://${auth}${config.host}:${config.port}/${config.database}`;
+}
+```
+
+**Step 2: Export from adapters index**
+
+Add to `src/adapters/index.ts`:
+
+```typescript
+export * from './utils/connectionStringParser';
+```
+
+**Step 3: Verify compilation**
+
+Run: `pnpm typecheck`
+Expected: Passes
+
+**Step 4: Commit**
+
+```bash
+git add src/adapters/utils/connectionStringParser.ts src/adapters/index.ts
+git commit -m "feat: add bidirectional connection string parser"
+```
+
+---
+
+### Task 5.3: Frontend Unit Tests
+
+**Files:**
+- Create: `src/adapters/__tests__/connectionStringParser.test.ts`
+- Create: `src/components/RedisValueEditors/__tests__/StringEditor.test.tsx`
+
+**Step 1: Test connection string parser**
+
+Create `src/adapters/__tests__/connectionStringParser.test.ts`:
+
+```typescript
+import { describe, it, expect } from 'vitest';
+import {
+  parseMongoConnectionString,
+  buildMongoConnectionString,
+  parseRedisConnectionString,
+  buildRedisConnectionString,
+} from '../utils/connectionStringParser';
+
+describe('MongoDB connection string', () => {
+  it('parses basic connection string', () => {
+    const config = parseMongoConnectionString('mongodb://localhost:27017/mydb');
+    expect(config.hosts?.[0]).toEqual({ host: 'localhost', port: 27017 });
+    expect(config.database).toBe('mydb');
+  });
+
+  it('parses connection string with auth', () => {
+    const config = parseMongoConnectionString('mongodb://user:pass@localhost:27017/mydb');
+    expect(config.user).toBe('user');
+    expect(config.password).toBe('pass');
+  });
+
+  it('parses replica set', () => {
+    const config = parseMongoConnectionString(
+      'mongodb://host1:27017,host2:27017/mydb?replicaSet=rs0'
+    );
+    expect(config.hosts?.length).toBe(2);
+    expect(config.replicaSet).toBe('rs0');
+  });
+
+  it('builds connection string from config', () => {
+    const config = {
+      hosts: [{ host: 'localhost', port: 27017 }],
+      database: 'test',
+      user: 'admin',
+      password: 'secret',
+    };
+    const str = buildMongoConnectionString(config);
+    expect(str).toContain('mongodb://admin:secret@localhost:27017/test');
+  });
+});
+
+describe('Redis connection string', () => {
+  it('parses basic connection string', () => {
+    const config = parseRedisConnectionString('redis://localhost:6379/0');
+    expect(config.host).toBe('localhost');
+    expect(config.port).toBe(6379);
+    expect(config.database).toBe(0);
+  });
+
+  it('parses connection string with password', () => {
+    const config = parseRedisConnectionString('redis://:mypassword@localhost:6379/1');
+    expect(config.password).toBe('mypassword');
+    expect(config.database).toBe(1);
+  });
+
+  it('handles rediss:// for SSL', () => {
+    const config = parseRedisConnectionString('rediss://localhost:6379/0');
+    expect(config.ssl).toBe(true);
+  });
+
+  it('builds connection string from config', () => {
+    const config = {
+      host: 'redis.example.com',
+      port: 6380,
+      database: 2,
+      password: 'secret',
+      ssl: true,
+      mode: 'standalone' as const,
+    };
+    const str = buildRedisConnectionString(config);
+    expect(str).toBe('rediss://:secret@redis.example.com:6380/2');
+  });
+});
+```
+
+**Step 2: Run tests**
+
+Run: `pnpm test:unit connectionStringParser`
+Expected: PASS
+
+**Step 3: Commit**
+
+```bash
+git add src/adapters/__tests__/
+git commit -m "test: add connection string parser unit tests"
+```
+
+---
+
+**Plan complete and saved to `docs/plans/2026-01-12-redis-mongodb-implementation-plan.md`.**
+
+Two execution options:
+
+**1. Subagent-Driven (this session)** - I dispatch fresh subagent per task, review between tasks, fast iteration
+
+**2. Parallel Session (separate)** - Open new session with executing-plans, batch execution with checkpoints
+
+**Which approach?**
