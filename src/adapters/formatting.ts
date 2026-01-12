@@ -232,10 +232,14 @@ function operatorToSql(operator: FilterOperator | string, dbType: DbType): strin
 /**
  * Convert a single FilterCondition to SQL WHERE fragment
  */
-function conditionToSql(condition: FilterCondition, dbType: DbType): string {
-  const column = condition.castToText
-    ? `${quoteIdentifier(condition.column, dbType)}::text`
-    : quoteIdentifier(condition.column, dbType);
+function conditionToSql(
+  condition: FilterCondition,
+  dbType: DbType,
+  columnPrefix?: string
+): string {
+  const baseColumn = quoteIdentifier(condition.column, dbType);
+  const qualifiedColumn = columnPrefix ? `${columnPrefix}.${baseColumn}` : baseColumn;
+  const column = condition.castToText ? `${qualifiedColumn}::text` : qualifiedColumn;
 
   const operator = condition.operator as FilterOperator;
 
@@ -264,7 +268,11 @@ function conditionToSql(condition: FilterCondition, dbType: DbType): string {
 /**
  * Convert a FilterGroup to SQL WHERE fragment (recursive)
  */
-function groupToSql(group: FilterGroup, dbType: DbType): string {
+function groupToSql(
+  group: FilterGroup,
+  dbType: DbType,
+  columnPrefix?: string
+): string {
   if (group.conditions.length === 0) {
     return '';
   }
@@ -273,12 +281,12 @@ function groupToSql(group: FilterGroup, dbType: DbType): string {
 
   for (const item of group.conditions) {
     if ('type' in item && item.type === 'group') {
-      const nested = groupToSql(item as FilterGroup, dbType);
+      const nested = groupToSql(item as FilterGroup, dbType, columnPrefix);
       if (nested) {
         parts.push(`(${nested})`);
       }
     } else {
-      const sql = conditionToSql(item as FilterCondition, dbType);
+      const sql = conditionToSql(item as FilterCondition, dbType, columnPrefix);
       if (sql) {
         parts.push(sql);
       }
@@ -288,13 +296,172 @@ function groupToSql(group: FilterGroup, dbType: DbType): string {
   return parts.join(` ${group.logical} `);
 }
 
+function qualifyRawWhereClause(
+  clause: string,
+  columnPrefix: string,
+  columnNames: string[]
+): string {
+  const prefix = `${columnPrefix}.`;
+  const columnSet = new Set(columnNames);
+  const columnLowerSet = new Set(columnNames.map((name) => name.toLowerCase()));
+  const isWhitespace = (char: string) => /\s/.test(char);
+
+  const findPrevNonWhitespace = (fromIndex: number) => {
+    for (let i = fromIndex; i >= 0; i--) {
+      const char = clause.charAt(i);
+      if (!isWhitespace(char)) {
+        return char;
+      }
+    }
+    return undefined;
+  };
+
+  const findNextNonWhitespace = (fromIndex: number) => {
+    for (let i = fromIndex; i < clause.length; i++) {
+      const char = clause.charAt(i);
+      if (!isWhitespace(char)) {
+        return char;
+      }
+    }
+    return undefined;
+  };
+
+  const isIdentifierStart = (char: string) => /[A-Za-z_]/.test(char);
+  const isIdentifierPart = (char: string) => /[A-Za-z0-9_]/.test(char);
+
+  let result = '';
+  let i = 0;
+  let inSingleQuote = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  while (i < clause.length) {
+    const char = clause.charAt(i);
+    const nextChar = clause.charAt(i + 1);
+
+    if (inLineComment) {
+      result += char;
+      if (char === '\n') {
+        inLineComment = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inBlockComment) {
+      result += char;
+      if (char === '*' && nextChar === '/') {
+        result += nextChar;
+        i += 2;
+        inBlockComment = false;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (!inSingleQuote && char === '-' && nextChar === '-') {
+      result += char + nextChar;
+      i += 2;
+      inLineComment = true;
+      continue;
+    }
+
+    if (!inSingleQuote && char === '/' && nextChar === '*') {
+      result += char + nextChar;
+      i += 2;
+      inBlockComment = true;
+      continue;
+    }
+
+    if (inSingleQuote) {
+      result += char;
+      if (char === "'" && nextChar === "'") {
+        result += nextChar;
+        i += 2;
+        continue;
+      }
+      if (char === "'") {
+        inSingleQuote = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (char === "'") {
+      inSingleQuote = true;
+      result += char;
+      i += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      const start = i;
+      i += 1;
+      let identifier = '';
+      while (i < clause.length) {
+        const innerChar = clause.charAt(i);
+        const innerNext = clause.charAt(i + 1);
+        if (innerChar === '"' && innerNext === '"') {
+          identifier += '"';
+          i += 2;
+          continue;
+        }
+        if (innerChar === '"') {
+          i += 1;
+          break;
+        }
+        identifier += innerChar;
+        i += 1;
+      }
+      const token = clause.slice(start, i);
+      const prevChar = findPrevNonWhitespace(start - 1);
+      const nextNonWhitespace = findNextNonWhitespace(i);
+      const isQualified =
+        prevChar === '.' || prevChar === ':' || nextNonWhitespace === '.';
+      const shouldPrefix = !isQualified && columnSet.has(identifier);
+
+      result += shouldPrefix ? prefix + token : token;
+      continue;
+    }
+
+    if (isIdentifierStart(char)) {
+      const start = i;
+      i += 1;
+      while (i < clause.length && isIdentifierPart(clause.charAt(i))) {
+        i += 1;
+      }
+      const token = clause.slice(start, i);
+      const prevChar = findPrevNonWhitespace(start - 1);
+      const nextNonWhitespace = findNextNonWhitespace(i);
+      const isQualified =
+        prevChar === '.' || prevChar === ':' || nextNonWhitespace === '.';
+      const isFunctionCall = nextNonWhitespace === '(';
+      const shouldPrefix =
+        !isQualified &&
+        !isFunctionCall &&
+        columnLowerSet.has(token.toLowerCase());
+
+      result += shouldPrefix ? prefix + token : token;
+      continue;
+    }
+
+    result += char;
+    i += 1;
+  }
+
+  return result;
+}
+
 /**
  * Convert FilterConfig to a raw SQL WHERE clause string
  * Returns undefined if no filters are configured
  */
 export function filterConfigToWhereClause(
   filter: FilterConfig | undefined,
-  dbType: DbType | string
+  dbType: DbType | string,
+  columnPrefix?: string,
+  columnNames?: string[]
 ): string | undefined {
   if (!filter) {
     return undefined;
@@ -302,12 +469,19 @@ export function filterConfigToWhereClause(
 
   // Raw WHERE clause takes precedence (AI-generated filters)
   if (filter.rawWhereClause) {
+    if (columnPrefix && columnNames?.length) {
+      return qualifyRawWhereClause(
+        filter.rawWhereClause,
+        columnPrefix,
+        columnNames
+      );
+    }
     return filter.rawWhereClause;
   }
 
   // Convert structured filter to SQL
   const type = toDbType(dbType);
-  const sql = groupToSql(filter.root, type);
+  const sql = groupToSql(filter.root, type, columnPrefix);
 
   return sql || undefined;
 }
