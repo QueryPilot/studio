@@ -378,7 +378,7 @@ export abstract class SqlAdapter implements DatabaseAdapter {
       return firstColumn;
     }
     // Return first column as fallback instead of hardcoded 'id' which may not exist
-    return firstColumn || "(SELECT NULL)";
+    return firstColumn || "id";
   }
 
   /**

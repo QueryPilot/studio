@@ -163,6 +163,38 @@ impl DbAdapter for SqliteAdapter {
         let sql = sql.to_string();
 
         self.execute_blocking(move |conn| {
+            // Check if this is a multi-statement query (contains multiple semicolons or transaction keywords)
+            let trimmed = sql.trim();
+            let is_multi_statement = trimmed.matches(';').count() > 1
+                || trimmed.to_uppercase().contains("BEGIN")
+                || trimmed.to_uppercase().contains("COMMIT");
+
+            if is_multi_statement {
+                // Use execute_batch for multi-statement queries (transactions, DDL scripts)
+                // This doesn't return results, just executes the statements
+                conn.execute_batch(&sql)
+                    .map_err(|e| AppError::DatabaseError(format!("Batch execute failed: {}", e)))?;
+                
+                // Return empty result for batch operations
+                return Ok(QueryResult {
+                    columns: vec![ColumnMeta {
+                        name: "result".to_string(),
+                        data_type: CellValueType::Text,
+                        nullable: true,
+                        primary_key: false,
+                        db_type: "TEXT".to_string(),
+                        type_oid: None,
+                        default_value: None,
+                        comment: None,
+                        enum_values: None,
+                        type_category: None,
+                        precision: None,
+                        scale: None,
+                    }],
+                    rows: vec![vec![serde_json::Value::String("Batch executed successfully".to_string())]],
+                });
+            }
+
             let mut stmt = conn
                 .prepare(&sql)
                 .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
@@ -216,11 +248,24 @@ impl DbAdapter for SqliteAdapter {
         let sql = sql.to_string();
 
         self.execute_blocking(move |conn| {
-            let affected = conn
-                .execute(&sql, [])
-                .map_err(|e| AppError::DatabaseError(format!("Execute failed: {}", e)))?;
+            // Check if this is a multi-statement query (contains multiple semicolons or transaction keywords)
+            let trimmed = sql.trim();
+            let is_multi_statement = trimmed.matches(';').count() > 1
+                || trimmed.to_uppercase().contains("BEGIN")
+                || trimmed.to_uppercase().contains("COMMIT");
 
-            Ok(affected as u64)
+            if is_multi_statement {
+                // Use execute_batch for multi-statement queries (transactions, DDL scripts)
+                conn.execute_batch(&sql)
+                    .map_err(|e| AppError::DatabaseError(format!("Batch execute failed: {}", e)))?;
+                // execute_batch doesn't return affected rows count
+                Ok(0)
+            } else {
+                let affected = conn
+                    .execute(&sql, [])
+                    .map_err(|e| AppError::DatabaseError(format!("Execute failed: {}", e)))?;
+                Ok(affected as u64)
+            }
         })
         .await
     }

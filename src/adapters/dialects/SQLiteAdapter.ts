@@ -194,19 +194,30 @@ export class SQLiteAdapter extends SqlAdapter {
 
   /**
    * SQLite transaction syntax
+   * Filters out comment-only statements to avoid empty transactions
    */
   transaction(operations: string[]): string {
     if (operations.length === 0) {
       return '';
     }
 
-    // Filter out non-string operations
+    // Filter out non-string operations and comment-only statements
     const statements = operations.filter(
-      (op): op is string => typeof op === 'string' && op.trim().length > 0
+      (op): op is string => {
+        if (typeof op !== 'string') return false;
+        const trimmed = op.trim();
+        if (trimmed.length === 0) return false;
+        // Skip comment-only statements (lines starting with --)
+        if (trimmed.startsWith('--') && !trimmed.includes('\n')) return false;
+        return true;
+      }
     );
 
     if (statements.length === 0) {
-      return '';
+      // Return only the comments without transaction wrapper
+      return operations
+        .filter((op): op is string => typeof op === 'string' && op.trim().length > 0)
+        .join(';\n');
     }
 
     return `BEGIN TRANSACTION;\n${statements.join(';\n')};\nCOMMIT;`;
@@ -369,19 +380,22 @@ ORDER BY name`;
   }
 
   getIndexesQuery(_schema: string, table: string): string {
+    // Note: pragma_index_list doesn't have a 'sql' column - get definition from sqlite_master
+    // Also, pragma_index_info may return NULL for some index types (FTS, etc.) so we handle that
     return `
 SELECT
     il.name as index_name,
     '${this.escapeString(table)}' as table_name,
-    '[' || GROUP_CONCAT('"' || REPLACE(ii.name, '"', '\"') || '"', ',') || ']' as columns,
-    il.\`unique\` as is_unique,
+    COALESCE('[' || GROUP_CONCAT('"' || REPLACE(ii.name, '"', '\\"') || '"') || ']', '[]') as columns,
+    il."unique" as is_unique,
     il.origin = 'pk' as is_primary,
-    0 as is_partial,
-    il.sql as definition,
+    il.partial as is_partial,
+    sm.sql as definition,
     0 as is_foreign_key
 FROM pragma_index_list('${this.escapeString(table)}') il
 LEFT JOIN pragma_index_info(il.name) ii ON 1=1
-GROUP BY il.name, il.\`unique\`, il.origin, il.sql
+LEFT JOIN sqlite_master sm ON sm.type = 'index' AND sm.name = il.name
+GROUP BY il.name, il."unique", il.origin, il.partial, sm.sql
 ORDER BY il.name`;
   }
 
@@ -391,21 +405,27 @@ ORDER BY il.name`;
   }
 
   getConstraintsQuery(_schema: string, table: string): string {
+    // For SQLite, we need to build FK definitions from pragma_foreign_key_list
+    // The definition must match the format: FOREIGN KEY (col) REFERENCES table(col) ON DELETE/UPDATE action
     return `
 SELECT
     name as constraint_name,
     '${this.escapeString(table)}' as table_name,
-    CASE
-        WHEN pk THEN 'PRIMARY KEY'
-        ELSE 'FOREIGN KEY'
-    END as constraint_type
+    'PRIMARY KEY' as constraint_type,
+    NULL as definition,
+    NULL as foreign_table
 FROM pragma_table_info('${this.escapeString(table)}')
 WHERE pk > 0
 UNION ALL
 SELECT
     'fk_' || id as constraint_name,
     '${this.escapeString(table)}' as table_name,
-    'FOREIGN KEY' as constraint_type
+    'FOREIGN KEY' as constraint_type,
+    'FOREIGN KEY (' || "from" || ') REFERENCES ' || "table" || '(' || "to" || ')' ||
+        CASE WHEN on_delete != 'NO ACTION' THEN ' ON DELETE ' || on_delete ELSE '' END ||
+        CASE WHEN on_update != 'NO ACTION' THEN ' ON UPDATE ' || on_update ELSE '' END
+    as definition,
+    "table" as foreign_table
 FROM pragma_foreign_key_list('${this.escapeString(table)}')`;
   }
 

@@ -48,6 +48,8 @@ function buildStatsQuery(
   const tableName = `${schemaPrefix}"${table}"`;
 
   // Build stats for each column
+  // Use SUM(CASE WHEN ... THEN 1 ELSE 0 END) instead of COUNT(*) FILTER (WHERE ...)
+  // because FILTER clause is PostgreSQL-specific and not supported by SQLite
   const statsCtes = columns.map((col, idx) => {
     const colQuoted = `"${col}"`;
     return `
@@ -56,7 +58,7 @@ function buildStatsQuery(
           '${col.replace(/'/g, "''")}' AS column_name,
           MIN(${colQuoted}) AS min_val,
           MAX(${colQuoted}) AS max_val,
-          COUNT(*) FILTER (WHERE ${colQuoted} IS NULL) AS null_count,
+          SUM(CASE WHEN ${colQuoted} IS NULL THEN 1 ELSE 0 END) AS null_count,
           COUNT(DISTINCT ${colQuoted}) AS distinct_count
         FROM ${tableName}
       )

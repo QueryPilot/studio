@@ -203,6 +203,21 @@ export const ForeignKeyCellEditor: React.FC<ForeignKeyCellEditorProps> = ({
           </div>
           <CommandList className="max-h-[240px]">
             <CommandGroup>
+              {/* Clear FK option - show when there's an existing value */}
+              {originalValueRef.current && (
+                <CommandItem
+                  value="__clear_fk__"
+                  onSelect={() => handleSelect("")}
+                  className="text-xs font-mono flex items-center justify-between text-destructive hover:text-destructive"
+                >
+                  <div className="flex items-center gap-2">
+                    <span>Clear foreign key</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground">
+                    Remove reference
+                  </span>
+                </CommandItem>
+              )}
               {filteredSuggestions.length === 0 && normalizedInput && (
                 <CommandItem
                   value={normalizedInput}
