@@ -868,6 +868,13 @@ export class SqlDiffGenerator {
     command: CrudCommandFor<'fk.add'>,
     dbType: SupportedDbType,
   ): SqlDiffStatement {
+    // SQLite doesn't support ALTER TABLE ADD CONSTRAINT
+    if (dbType === DbType.SQLite) {
+      const def = command.payload.definition;
+      const sql = `-- SQLite does not support ADD CONSTRAINT. Table recreation required to add FK "${def.name}" on (${def.columns.join(', ')}) referencing ${def.referenceTable}(${def.referenceColumns.join(', ')}).`;
+      return this.createStatement(command, dbType, sql);
+    }
+
     const tableName = getTableName(command.target, dbType);
     const def = command.payload.definition;
     const constraintName = quoteIdentifier(def.name, dbType);
@@ -898,6 +905,11 @@ export class SqlDiffGenerator {
     const tableName = getTableName(command.target, dbType);
     let sql: string;
     switch (dbType) {
+      case DbType.SQLite:
+        // SQLite doesn't support ALTER TABLE DROP CONSTRAINT
+        // Table recreation is required to remove foreign keys
+        sql = `-- SQLite does not support DROP CONSTRAINT for "${command.payload.constraintName}". Table recreation required.`;
+        break;
       case DbType.SQLServer:
         sql = `ALTER TABLE ${tableName} DROP CONSTRAINT ${quoteIdentifier(
           command.payload.constraintName,

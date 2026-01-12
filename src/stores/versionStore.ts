@@ -49,7 +49,7 @@ export const useVersionStore = create<VersionStore>((set, get) => ({
   setVersion: (connectionId, version, detectedDbType) => {
     // Parse version based on detected type
     const isMariaDB = detectedDbType === 'MariaDB' || version.toLowerCase().includes('mariadb');
-    const isSQLite = version.toLowerCase().includes('sqlite');
+    const isSQLite = detectedDbType === 'SQLite' || version.toLowerCase().includes('sqlite');
     const isPostgreSQL = detectedDbType === 'PostgreSQL' || version.toLowerCase().includes('postgresql');
 
     let parsed: ParsedVersion;
@@ -133,6 +133,7 @@ export function getMySQLFeaturesForConnection(connectionId: string): MySQLVersio
 export function getSQLiteFeaturesForConnection(connectionId: string): SQLiteVersionFeatures {
   const features = useVersionStore.getState().getSQLiteFeatures(connectionId);
   // Return conservative defaults if no version info available
+  // Version should be fetched when connection is established
   if (!features) {
     return {
       supportsReturning: false,

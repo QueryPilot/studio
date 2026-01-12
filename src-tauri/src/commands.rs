@@ -488,6 +488,64 @@ async fn execute_generic_stream(
     Ok(())
 }
 
+/// SQLite-specific query execution using the adapter's query() method
+/// SQLite doesn't support the same streaming protocol as PostgreSQL,
+/// so we use a simpler approach: execute via adapter and stream results
+async fn execute_sqlite_query(
+    sql: &str,
+    metadata_channel: &tauri::ipc::Channel<StreamMessage>,
+    data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
+    conn: &crate::core::manager::LiveConnection,
+) -> std::result::Result<(), String> {
+    let start = std::time::Instant::now();
+
+    // Use the adapter's query method which handles multi-statement and transactions
+    let result = conn
+        .adapter
+        .query(sql)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let query_elapsed = start.elapsed().as_millis();
+
+    // Send metadata (columns) via Started message
+    let _ = metadata_channel.send(StreamMessage::Started {
+        columns: result.columns.clone(),
+        estimated_rows: Some(result.rows.len() as i64),
+    });
+
+    // Encode rows to MessagePack
+    let encode_start = std::time::Instant::now();
+    let row_count = result.rows.len();
+    
+    // Convert rows to the expected format (Vec<Vec<Value>>)
+    let rows_data: Vec<Vec<serde_json::Value>> = result.rows.into_iter().collect();
+    
+    let msgpack_bytes = rmp_serde::to_vec(&rows_data)
+        .map_err(|e| format!("MessagePack encoding failed: {}", e))?;
+
+    let encode_elapsed = encode_start.elapsed().as_millis();
+
+    // Send data via binary channel
+    let _ = data_channel.send(tauri::ipc::Response::new(msgpack_bytes));
+
+    let total_elapsed = start.elapsed().as_millis();
+
+    // Send completion message via Success
+    let _ = metadata_channel.send(StreamMessage::Success {
+        total_rows: row_count,
+        execution_time_ms: total_elapsed as u64,
+        cursor_setup_ms: Some(0),
+        total_streaming_ms: Some(total_elapsed as u64),
+        fetch_count: Some(1),
+        network_ms: Some(query_elapsed as u64),
+        conversion_ms: Some(encode_elapsed as u64),
+        ipc_send_ms: Some(0),
+    });
+
+    Ok(())
+}
+
 /// PostgreSQL-specific streaming implementation with optimized binary protocol
 async fn execute_postgres_stream(
     sql: &str,
@@ -994,12 +1052,27 @@ pub async fn execute_query(
     // Can be overridden per-query via timeout_secs parameter
     let timeout_duration = std::time::Duration::from_secs(timeout_secs.unwrap_or(300));
 
-    tokio::time::timeout(
-        timeout_duration,
-        execute_single_fetch_stream(&sql, &metadata_channel, &data_channel, &conn),
-    )
-    .await
-    .map_err(|_| format!("Query timed out after {} seconds", timeout_duration.as_secs()))?
+    // Route based on database type
+    // SQLite uses the adapter's query() method, PostgreSQL uses streaming
+    match conn.profile.db_type {
+        crate::types::DbType::SQLite => {
+            tokio::time::timeout(
+                timeout_duration,
+                execute_sqlite_query(&sql, &metadata_channel, &data_channel, &conn),
+            )
+            .await
+            .map_err(|_| format!("Query timed out after {} seconds", timeout_duration.as_secs()))?
+        }
+        _ => {
+            // PostgreSQL and other databases use the streaming path
+            tokio::time::timeout(
+                timeout_duration,
+                execute_single_fetch_stream(&sql, &metadata_channel, &data_channel, &conn),
+            )
+            .await
+            .map_err(|_| format!("Query timed out after {} seconds", timeout_duration.as_secs()))?
+        }
+    }
 }
 
 // ============================================================================

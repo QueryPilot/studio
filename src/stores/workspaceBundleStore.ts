@@ -458,6 +458,16 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       // Connect
       try {
         await databaseService.connectById(connectionId);
+        
+        // Fetch and store the database version for feature detection
+        // This is important for SQLite to detect RENAME COLUMN, DROP COLUMN support
+        await databaseService.testConnection(connectionId).catch((err) => {
+          logger.warn(
+            `[WorkspaceBundleStore] Failed to fetch version for ${connectionId}:`,
+            err,
+          );
+        });
+        
         set((s) => {
           if (!s.activeWorkspace) return s;
           const newConnections = new Map(s.activeWorkspace.connections);
@@ -496,6 +506,12 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
             },
           };
         });
+      }
+
+      // Auto-save the workspace after adding a connection (skip for temporary workspaces)
+      const updatedWorkspace = get().activeWorkspace;
+      if (updatedWorkspace && !updatedWorkspace.isTemporary) {
+        await get().saveCurrentWorkspace();
       }
     },
 
