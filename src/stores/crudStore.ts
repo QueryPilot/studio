@@ -612,8 +612,46 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
         throw new Error("No SQL statements were generated from the commands");
       }
 
+      // Filter out comment-only statements (SQLite limitations, etc.)
+      const executableStatements = sqlStatements.filter((sql) => {
+        const trimmed = sql.trim();
+        // Skip if it's only a comment (starts with -- and has no other SQL)
+        if (trimmed.startsWith("--")) {
+          // Check if there's actual SQL after the comment line
+          const lines = trimmed.split("\n");
+          const hasActualSql = lines.some((line) => {
+            const lineTrimmed = line.trim();
+            return lineTrimmed.length > 0 && !lineTrimmed.startsWith("--");
+          });
+          return hasActualSql;
+        }
+        return true;
+      });
+
+      // If all statements were comments (unsupported operations), show informative error
+      if (executableStatements.length === 0) {
+        const commentMessages = sqlStatements
+          .filter((sql) => sql.trim().startsWith("--"))
+          .map((sql) => sql.trim().replace(/^--\s*/, ""))
+          .join("\n");
+        
+        logger.warn("[CrudStore] All statements are comments (unsupported operations):", {
+          commandCount: commands.length,
+          comments: commentMessages,
+        });
+        
+        // Clear committing state before throwing
+        set((state) => {
+          const committingTableKeys = new Set(state.committingTableKeys);
+          committingTableKeys.delete(tableKey);
+          return { committingTableKeys };
+        });
+        
+        throw new Error(commentMessages || "These operations are not supported for this database type");
+      }
+
       // Wrap in transaction
-      const transactionSql = adapter.transaction(sqlStatements);
+      const transactionSql = adapter.transaction(executableStatements);
 
       logger.info("[CrudStore] Executing SQL transaction:", {
         connectionId,

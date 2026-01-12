@@ -77,3 +77,4 @@ coverage/
 src-tauri/sidecars/*
 !src-tauri/sidecars/.gitkeep
 .worktrees/
+seeds/sqlite/todoapp.db-*
