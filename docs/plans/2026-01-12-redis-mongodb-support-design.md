@@ -12,14 +12,15 @@ This document outlines the design for adding Redis and MongoDB support to Query 
 | Architecture      | Capability-based traits (extensible per paradigm)                   |
 | Backend Command   | Paradigm-level enums (`DocumentOperation`, `KeyValueOperation`)     |
 | Query Input       | Native languages (MQL for Mongo, CLI for Redis)                     |
-| Sidebar           | Mongo: DB → Collections. Redis: DB 0-15 only                        |
+| Sidebar           | Mongo: DB → Collections. Redis: DB 0-15 + key pattern grouping      |
 | Value Editing     | Drawer + Breadcrumb + Inline Expansion                              |
 | Redis Editors     | Specialized per type + Fallback for unknown                         |
 | MongoDB Features  | All (CRUD, Indexes, Aggregation, Schema, GridFS, Streams, Sharding) |
-| Connection Config | Form + Connection String (bidirectional)                            |
-| Rust Crates       | `mongodb` (official) + `fred` (Redis)                               |
+| Connection Config | Form + Connection String (bidirectional, incl. SRV for Atlas)       |
+| Rust Crates       | `mongodb = "3.4"` (official) + `fred = "10.1"` (Redis)              |
 | Development       | Parallel (MongoDB + Redis tracks)                                   |
 | Streaming         | MessagePack (same as SQL), lazy value loading for Redis             |
+| Connection Pool   | Fred built-in `RedisPool`, mongodb driver built-in pooling          |
 
 ---
 
@@ -127,6 +128,17 @@ interface DocumentQueryable {
   renameCollection(oldName: string, newName: string): Promise<void>;
   getCollectionStats(collection: string): Promise<CollectionStats>;
   
+  // Time series collections (MongoDB 5.0+)
+  createTimeSeriesCollection(
+    name: string,
+    options: {
+      timeField: string;
+      metaField?: string;
+      granularity?: 'seconds' | 'minutes' | 'hours';
+      expireAfterSeconds?: number;
+    }
+  ): Promise<void>;
+  
   // Indexes
   listIndexes(collection: string): Promise<IndexInfo[]>;
   createIndex(collection: string, keys: object, options?: IndexOptions): Promise<string>;
@@ -147,6 +159,17 @@ interface DocumentQueryable {
   
   // Sharding
   getShardingStatus(): Promise<ShardingInfo>;
+  
+  // Transactions (MongoDB 4.0+ replica sets, 4.2+ sharded clusters)
+  startSession(): Promise<SessionHandle>;
+  withTransaction<T>(
+    sessionId: string,
+    fn: () => Promise<T>,
+    options?: TransactionOptions
+  ): Promise<T>;
+  commitTransaction(sessionId: string): Promise<void>;
+  abortTransaction(sessionId: string): Promise<void>;
+  endSession(sessionId: string): Promise<void>;
   
   // Escape hatch
   runCommand(command: object): Promise<Document>;
@@ -229,6 +252,32 @@ interface RichKeyValueOperable extends KeyValueOperable {
   streamRange(key: string, start: string, end: string, count?: number): Promise<StreamEntry[]>;
   streamLen(key: string): Promise<number>;
   streamInfo(key: string): Promise<StreamInfo>;
+  
+  // ACL (Redis 6+)
+  aclWhoAmI(): Promise<string>;
+  aclList(): Promise<string[]>;
+  
+  // Module detection
+  moduleList(): Promise<ModuleInfo[]>;
+}
+```
+
+### 2.5 RedisModuleOperable (Optional - Redis Stack)
+
+```typescript
+// Only available when modules are detected
+interface RedisModuleOperable {
+  // RedisJSON module
+  jsonGet(key: string, path?: string): Promise<unknown>;
+  jsonSet(key: string, path: string, value: unknown): Promise<void>;
+  jsonMerge(key: string, path: string, value: unknown): Promise<void>;
+  jsonDel(key: string, path?: string): Promise<number>;
+  jsonType(key: string, path?: string): Promise<string>;
+  
+  // RediSearch module (basic support)
+  ftSearch(index: string, query: string, options?: SearchOptions): Promise<SearchResult>;
+  ftInfo(index: string): Promise<IndexInfo>;
+  ftList(): Promise<string[]>;
 }
 ```
 
@@ -380,9 +429,13 @@ src/components/
 │   ├── RedisConnectionForm.tsx     # Form + connection string
 │   └── ConnectionStringParser.ts   # Bidirectional parsing
 │
-└── Sidebar/                        # Updated tree structure
-    ├── MongoTree.tsx               # Database → Collections
-    └── RedisTree.tsx               # Database (0-15) only
+├── Sidebar/                        # Updated tree structure
+│   ├── MongoTree.tsx               # Database → Collections
+│   └── RedisTree.tsx               # Database (0-15) + key pattern grouping
+│
+└── stores/                         # NEW: Frontend state management
+    ├── mongoStore.ts               # Active MongoDB sessions, current DB, aggregation state
+    └── redisStore.ts               # Active Redis connection, selected DB, key browser state
 ```
 
 ### 4.2 Document/Value Editor UX
@@ -411,15 +464,45 @@ Drawer with Breadcrumb + Inline Expansion:
 
 ### 4.3 Redis Type Editors
 
-| Type     | Editor Component       | Behavior                                        |
-| -------- | ---------------------- | ----------------------------------------------- |
-| `string` | Text/JSON Editor       | Auto-detect JSON, toggle raw vs. formatted      |
-| `hash`   | Mini DataGrid (2 cols) | Field / Value table, inline add/edit/delete     |
-| `list`   | Sortable List          | Drag to reorder, supports LPUSH/RPUSH/LREM      |
-| `set`    | Tag Input              | Pills/chips UI, click × to remove, input to add |
-| `zset`   | Mini DataGrid + Score  | Member / Score table, sortable by score         |
-| `stream` | Timeline (read-only)   | Chronological entries, ID + fields, no edit     |
-| Unknown  | Fallback               | Read-only raw view + metadata                   |
+| Type       | Editor Component       | Behavior                                        |
+| ---------- | ---------------------- | ----------------------------------------------- |
+| `string`   | Text/JSON Editor       | Auto-detect JSON, toggle raw vs. formatted      |
+| `hash`     | Mini DataGrid (2 cols) | Field / Value table, inline add/edit/delete     |
+| `list`     | Sortable List          | Drag to reorder, supports LPUSH/RPUSH/LREM      |
+| `set`      | Tag Input              | Pills/chips UI, click × to remove, input to add |
+| `zset`     | Mini DataGrid + Score  | Member / Score table, sortable by score         |
+| `stream`   | Timeline (read-only)   | Chronological entries, ID + fields, no edit     |
+| `ReJSON-RL`| DocumentEditor         | Reuse MongoDB DocumentEditor for JSON paths     |
+| Unknown    | Fallback               | Read-only raw view + metadata                   |
+
+### 4.4 Redis Sidebar with Key Pattern Grouping
+
+```
+Redis Sidebar:
+├── 📊 Server Info (expandable)
+│   ├── Version: 7.2.0
+│   ├── Memory: 128MB / 4GB
+│   └── Modules: [ReJSON, RediSearch]
+│
+├── [0] default (1,234 keys)
+│   ├── 📁 user:* (500 keys)
+│   │   ├── user:1
+│   │   ├── user:2
+│   │   └── ... (scan on expand)
+│   ├── 📁 session:* (300 keys)
+│   ├── 📁 cache:* (200 keys)
+│   └── 📁 [other] (234 keys)
+│
+├── [1] cache (empty)
+├── [2] sessions (50 keys)
+└── ... (collapse empty DBs)
+```
+
+Key grouping logic:
+1. On connect, run `SCAN 0 COUNT 1000` to sample keys
+2. Extract common prefixes (split on `:` or `.`)
+3. Group keys with >5 occurrences into virtual folders
+4. Lazy-load folder contents on expand
 
 ---
 
@@ -439,9 +522,29 @@ interface MongoConnectionConfig {
   ssl?: SslConfig;
   ssh?: SshTunnelConfig;
   
+  // Atlas / SRV support
+  srv?: boolean;                    // Use mongodb+srv:// DNS seed list
+  directConnection?: boolean;       // Force single-node connection (testing)
+  appName?: string;                 // Application name for Atlas monitoring
+  
+  // Authentication
+  authMechanism?: 'SCRAM-SHA-256' | 'SCRAM-SHA-1' | 'MONGODB-X509' | 'MONGODB-AWS';
+  
   // Mode 2: Connection string
-  connectionString?: string;  // mongodb://user:pass@host1,host2/db?replicaSet=rs0
+  connectionString?: string;  // mongodb://... or mongodb+srv://...
 }
+```
+
+**Connection String Examples:**
+```
+# Standard replica set
+mongodb://user:pass@host1:27017,host2:27017/mydb?replicaSet=rs0
+
+# Atlas SRV (recommended for cloud)
+mongodb+srv://user:pass@cluster0.abc123.mongodb.net/mydb?retryWrites=true&w=majority
+
+# With explicit auth mechanism
+mongodb+srv://user:pass@cluster0.mongodb.net/mydb?authMechanism=SCRAM-SHA-256&authSource=admin
 ```
 
 ### 5.2 Redis
@@ -452,36 +555,71 @@ interface RedisConnectionConfig {
   host: string;
   port: number;
   database: number;           // 0-15
-  user?: string;              // Redis 6+ ACL
-  password?: string;
   ssl?: SslConfig;
   ssh?: SshTunnelConfig;
+  
+  // Authentication (Redis 6+ ACL preferred)
+  auth?: 
+    | { type: 'acl'; username: string; password: string }  // Redis 6+ ACL
+    | { type: 'password'; password: string };               // Legacy AUTH
   
   // Cluster/Sentinel
   mode: 'standalone' | 'cluster' | 'sentinel';
   sentinelMaster?: string;
+  sentinelPassword?: string;        // Sentinel auth (separate from Redis auth)
   nodes?: { host: string; port: number }[];
   
   // Mode 2: Connection string
-  connectionString?: string;  // redis://user:pass@host:6379/0
+  connectionString?: string;  // redis://user:pass@host:6379/0 or rediss:// for TLS
 }
+```
+
+**Connection String Examples:**
+```
+# Standalone with ACL (Redis 6+)
+redis://myuser:mypass@localhost:6379/0
+
+# Standalone with legacy password
+redis://:mypass@localhost:6379/0
+
+# TLS connection
+rediss://user:pass@redis.example.com:6380/0
+
+# Cluster (multiple nodes)
+redis://host1:6379,host2:6379,host3:6379
 ```
 
 ### 5.3 DbType Enum Update
 
+**Rust (`src-tauri/src/types.rs`):**
 ```rust
 pub enum DbType {
     // SQL (existing)
     PostgreSQL,
     MySQL,
+    MariaDB,        // Keep existing
     SQLite,
-    MSSQL,
+    SQLServer,      // Keep existing name
     
     // Document (new)
     MongoDB,
     
     // KeyValue (new)
     Redis,
+}
+```
+
+**TypeScript (`src/types/connection.ts`):**
+```typescript
+export enum DbType {
+  PostgreSQL = "PostgreSQL",
+  MySQL = "MySQL",
+  MariaDB = "MariaDB",
+  SQLite = "SQLite",
+  SQLServer = "SQLServer",
+  // New
+  MongoDB = "MongoDB",
+  Redis = "Redis",
 }
 ```
 
@@ -522,6 +660,7 @@ pub enum AdapterError {
     ConnectionFailed { message: String, code: Option<String> },
     AuthenticationFailed { message: String },
     Timeout { operation: String, duration_ms: u64 },
+    SrvResolutionFailed { host: String, message: String },  // MongoDB Atlas DNS
     
     // SQL-specific
     SqlSyntaxError { message: String, position: Option<u32> },
@@ -529,15 +668,32 @@ pub enum AdapterError {
     // Document-specific
     DocumentValidationFailed { collection: String, errors: Vec<ValidationError> },
     DuplicateKey { collection: String, key: Value },
+    TransactionFailed { session_id: String, message: String },
     
     // KeyValue-specific
     KeyNotFound { key: String },
     WrongType { key: String, expected: String, actual: String },
     
+    // Redis cluster-specific
+    ClusterRedirect { 
+        kind: ClusterRedirectKind,  // MOVED or ASK
+        slot: u16, 
+        addr: String,
+    },
+    ClusterDown { message: String },
+    
+    // Redis module-specific
+    ModuleNotLoaded { module: String },
+    
     // Common
     PermissionDenied { operation: String },
     NotSupported { operation: String, reason: String },
     Unknown { message: String },
+}
+
+pub enum ClusterRedirectKind {
+    Moved,
+    Ask,
 }
 ```
 
@@ -546,71 +702,129 @@ pub enum AdapterError {
 ## 8. Implementation Phases
 
 ### Phase 1: Foundation (Week 1-2)
-- Update DbType enum
-- Add paradigm traits (DocumentQueryable, KeyValueOperable)
-- Base adapter infrastructure
-- Connection config types
+- [ ] Update DbType enum (Rust + TypeScript)
+- [ ] Add paradigm traits (DocumentQueryable, KeyValueOperable)
+- [ ] Base adapter infrastructure
+- [ ] Connection config types (MongoConnectionConfig, RedisConnectionConfig)
+- [ ] Set up testcontainers for integration tests
+- [ ] Create mongoStore.ts and redisStore.ts
 
 ### Phase 2: Core Implementation (Week 3-5)
 **MongoDB Track:**
-- mongodb crate integration
-- MongoDbAdapter (connect, disconnect, basic CRUD)
-- MongoConnectionForm
-- Sidebar: Database/Collection tree
-- CollectionBrowser (grid)
+- [ ] mongodb crate 3.4 integration
+- [ ] MongoDbAdapter (connect, disconnect, basic CRUD)
+- [ ] SRV/Atlas connection string support
+- [ ] MongoConnectionForm (with connection string toggle)
+- [ ] Sidebar: Database/Collection tree
+- [ ] CollectionBrowser (grid)
 
 **Redis Track (parallel):**
-- fred crate integration
-- RedisAdapter (connect, disconnect, basic ops)
-- RedisConnectionForm
-- Sidebar: Database 0-15
-- KeyBrowser (grid)
+- [ ] fred crate 10.1 integration
+- [ ] RedisAdapter (connect, disconnect, basic ops)
+- [ ] ACL v2 authentication support
+- [ ] RedisConnectionForm (with connection string toggle)
+- [ ] Sidebar: Database 0-15 + key pattern grouping
+- [ ] KeyBrowser (grid with lazy value loading)
 
 ### Phase 3: Editors (Week 6-7)
 **MongoDB Track:**
-- DocumentEditor component (TreeView + Breadcrumb)
-- CodeEditor: JS/MQL mode
-- Inline CRUD in grid
+- [ ] DocumentEditor component (TreeView + Breadcrumb)
+- [ ] CodeEditor: JSON mode with MQL hints
+- [ ] Inline CRUD in grid
 
 **Redis Track (parallel):**
-- StringEditor, HashEditor, ListEditor
-- SetEditor, ZSetEditor
-- StreamViewer, FallbackEditor
-- CodeEditor: Redis mode
+- [ ] StringEditor, HashEditor, ListEditor
+- [ ] SetEditor, ZSetEditor
+- [ ] StreamViewer, FallbackEditor
+- [ ] CodeEditor: Redis CLI mode
+- [ ] Module detection (on connect, show/hide features)
 
 ### Phase 4: Advanced Features (Week 8-10)
 **MongoDB Track:**
-- Indexes UI
-- Aggregation pipeline builder
-- Schema validation UI
-- GridFS browser
-- Change streams viewer
-- Sharding info panel
+- [ ] Indexes UI
+- [ ] Aggregation pipeline builder
+- [ ] Schema validation UI
+- [ ] GridFS browser
+- [ ] Change streams viewer
+- [ ] Sharding info panel
+- [ ] Transaction support (startSession, withTransaction)
 
 **Redis Track (parallel):**
-- TTL management UI
-- Key analysis/stats
-- Cluster mode (if time)
+- [ ] TTL management UI
+- [ ] Key analysis/stats (MEMORY USAGE)
+- [ ] Cluster mode support
+- [ ] RedisJSON editor (if module detected)
+- [ ] RediSearch basic UI (if module detected)
 
 ### Phase 5: Polish (Week 11-12)
-- Connection string parser (bidirectional)
-- Error handling refinement
-- Performance optimization
-- Testing & bug fixes
+- [ ] Connection string parser (bidirectional, both DBs)
+- [ ] Error handling refinement (cluster redirects, SRV failures)
+- [ ] Performance optimization
+- [ ] Integration tests (testcontainers)
+- [ ] Frontend component tests
+- [ ] Documentation updates
 
 ---
 
 ## 9. Testing Strategy
 
 ### Backend (Rust)
-- **Unit:** Mock database responses, test adapter logic
-- **Integration:** Use `testcontainers` crate for real MongoDB/Redis
-- **Commands:** Test Tauri commands with mock adapters
+
+**Unit Tests:**
+- Mock database responses, test adapter logic
+- Test BSON ↔ MessagePack conversion
+- Test Redis value type detection
+
+**Integration Tests (with testcontainers):**
+```rust
+#[tokio::test]
+async fn test_mongodb_crud() {
+    let container = GenericImage::new("mongo", "7")
+        .with_exposed_port(27017)
+        .start()
+        .await;
+    
+    let adapter = MongoDbAdapter::new(&format!(
+        "mongodb://localhost:{}", 
+        container.get_host_port(27017)
+    )).await.unwrap();
+    
+    // Test CRUD operations
+}
+
+#[tokio::test]
+async fn test_redis_data_types() {
+    let container = GenericImage::new("redis", "7")
+        .with_exposed_port(6379)
+        .start()
+        .await;
+    
+    let adapter = RedisAdapter::new(&format!(
+        "redis://localhost:{}", 
+        container.get_host_port(6379)
+    )).await.unwrap();
+    
+    // Test all data types: string, hash, list, set, zset, stream
+}
+```
+
+**Commands:** Test Tauri commands with mock adapters
 
 ### Frontend (TypeScript)
-- **Unit:** Vitest for adapters, utility functions
-- **Component:** React Testing Library for editors
-- **Integration:** Mock Tauri IPC, test full component flows
+
+**Unit Tests:**
+- Vitest for adapters, utility functions
+- Connection string parsing (both directions)
+- Key pattern detection algorithm
+
+**Component Tests:**
+- React Testing Library for editors
+- DocumentEditor tree navigation
+- Redis type editor interactions
+
+**Integration Tests:**
+- Mock Tauri IPC, test full component flows
+- Store actions with mocked backend responses
 
 ---
 
@@ -619,10 +833,235 @@ pub enum AdapterError {
 ### Rust (Cargo.toml)
 ```toml
 [dependencies]
-mongodb = "2.8"
-fred = "9.0"
+# MongoDB - Official driver with GridFS, change streams, transactions
+mongodb = { version = "3.4", features = ["sync"] }  # Use async by default
+
+# Redis - High-performance async client
+fred = { version = "10.1", features = [
+    "subscriber-client",     # Pub/Sub support
+    "sentinel-client",       # Sentinel mode
+    "replicas",              # Read from replicas
+    "dns",                   # DNS resolution for cluster
+] }
+
+[dev-dependencies]
+# Integration testing with real databases
+testcontainers = "0.15"
+testcontainers-modules = { version = "0.3", features = ["redis", "mongo"] }
+```
+
+### Frontend Dependencies
+```json
+{
+  "dependencies": {
+    "@codemirror/lang-json": "^6.0.1"
+  }
+}
 ```
 
 ### CodeMirror Modes
-- MongoDB: Built-in JavaScript mode
-- Redis: Custom mode or extended shell mode
+- **MongoDB:** `@codemirror/lang-json` for document editing + custom MQL syntax highlighting
+- **Redis:** Custom Lezer grammar for Redis CLI commands (or basic shell mode as fallback)
+
+---
+
+## 11. Frontend Store Structure
+
+### 11.1 MongoDB Store (`src/stores/mongoStore.ts`)
+
+```typescript
+interface MongoStoreState {
+  // Current context
+  currentDatabase: string | null;
+  currentCollection: string | null;
+  
+  // Sessions for transactions
+  activeSessions: Map<string, SessionInfo>;
+  
+  // Aggregation builder state
+  aggregationPipeline: AggregationStage[];
+  aggregationResult: Document[] | null;
+  
+  // Collection cache
+  collectionStats: Map<string, CollectionStats>;
+  
+  // Actions
+  setCurrentDatabase: (db: string) => void;
+  setCurrentCollection: (collection: string) => void;
+  addAggregationStage: (stage: AggregationStage) => void;
+  removeAggregationStage: (index: number) => void;
+  runAggregation: () => Promise<void>;
+}
+```
+
+### 11.2 Redis Store (`src/stores/redisStore.ts`)
+
+```typescript
+interface RedisStoreState {
+  // Current context
+  currentDatabase: number;  // 0-15
+  
+  // Server info
+  serverInfo: ServerInfo | null;
+  loadedModules: ModuleInfo[];
+  
+  // Key browser state
+  keyPatterns: KeyPattern[];  // Detected patterns for grouping
+  selectedKey: string | null;
+  keyValue: RedisValue | null;
+  
+  // Scan state (for pagination)
+  scanCursor: string;
+  scanPattern: string;
+  scannedKeys: KeyMetadata[];
+  
+  // Actions
+  selectDatabase: (index: number) => Promise<void>;
+  scanKeys: (pattern: string, reset?: boolean) => Promise<void>;
+  selectKey: (key: string) => Promise<void>;
+  refreshServerInfo: () => Promise<void>;
+  detectModules: () => Promise<void>;
+}
+```
+
+---
+
+## 12. Migration Considerations
+
+### 12.1 Existing Adapter Updates
+
+The frontend adapter factory (`src/adapters/index.ts`) needs updates:
+
+```typescript
+const adapterModules = {
+  // Existing
+  [DbType.PostgreSQL]: () => import('./dialects/PostgreSQLAdapter'),
+  [DbType.MySQL]: () => import('./dialects/MySQLAdapter'),
+  [DbType.MariaDB]: () => import('./dialects/MySQLAdapter'),
+  [DbType.SQLite]: () => import('./dialects/SQLiteAdapter'),
+  [DbType.SQLServer]: () => import('./dialects/MSSQLAdapter'),
+  
+  // New - these use different paradigms, need separate handling
+  [DbType.MongoDB]: () => import('./dialects/MongoDBAdapter'),
+  [DbType.Redis]: () => import('./dialects/RedisAdapter'),
+};
+```
+
+### 12.2 Connection Form Updates
+
+`ConnectionForm.tsx` needs to conditionally render different forms:
+
+```typescript
+const dbTypeOptions = [
+  // Existing SQL
+  { value: "postgresql", label: "PostgreSQL", paradigm: "sql" },
+  { value: "mysql", label: "MySQL", paradigm: "sql" },
+  // ...
+  
+  // New
+  { value: "mongodb", label: "MongoDB", paradigm: "document" },
+  { value: "redis", label: "Redis", paradigm: "keyvalue" },
+];
+
+// Render different form based on paradigm
+{paradigm === 'sql' && <SqlConnectionFields />}
+{paradigm === 'document' && <MongoConnectionForm />}
+{paradigm === 'keyvalue' && <RedisConnectionForm />}
+```
+
+---
+
+## 13. Risks & Mitigations
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| **MongoDB 3.x API breaking changes** | High | Review migration guide before starting; allocate extra time in Phase 2 |
+| **Redis cluster complexity** | Medium | Start with standalone mode; cluster support can slip to Phase 5 |
+| **SRV DNS resolution in Tauri** | Medium | Test early on macOS/Windows; may need system DNS resolver fallback |
+| **Large key scans blocking UI** | High | Implement SCAN with small COUNT (100); use virtualized lists |
+| **Redis module detection edge cases** | Low | Graceful fallback to core types if MODULE LIST fails |
+| **GridFS large file handling** | Medium | Stream files in chunks; add size limits in UI |
+| **Change streams connection drops** | Medium | Implement reconnection logic with resume tokens |
+| **SSH tunnel + Redis cluster** | High | May not be feasible; document limitation or defer |
+
+---
+
+## 14. Resolved Questions
+
+### 14.1 Query History for Non-SQL Paradigms
+
+**Decision:** Unified table with polymorphic content.
+
+```typescript
+interface QueryHistoryEntry {
+  id: string;
+  connectionId: string;
+  paradigm: 'sql' | 'document' | 'keyvalue';
+  timestamp: Date;
+  executionTimeMs: number;
+  
+  // Polymorphic content
+  content: 
+    | { type: 'sql'; query: string }
+    | { type: 'mql'; collection: string; operation: string; filter?: object; pipeline?: object[] }
+    | { type: 'redis'; command: string; args: string[] };
+}
+```
+
+**Rationale:** Single table enables unified "recent queries" across all paradigms while preserving type-specific structure for each.
+
+---
+
+### 14.2 Workspace Behavior
+
+**Decision:** Hybrid tabs within panel.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ MongoDB: mydb.users                                             │
+├─────────────────────────────────────────────────────────────────┤
+│ [Query] [Browse] [Indexes] [Schema] [Aggregation]               │
+├─────────────────────────────────────────────────────────────────┤
+│  (Content changes based on selected tab)                        │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│ Redis: localhost:6379 [DB 0]                                    │
+├─────────────────────────────────────────────────────────────────┤
+│ [CLI] [Browse] [Server Info]                                    │
+├─────────────────────────────────────────────────────────────────┤
+│  (Content changes based on selected tab)                        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Rationale:** One panel per connection with paradigm-specific tabs gives users flexibility in how they work with data.
+
+---
+
+### 14.3 Import/Export
+
+**Decision:** JSON export/import in Phase 4, RDB deferred.
+
+| Feature               | Phase   |
+| --------------------- | ------- |
+| MongoDB → JSON export | Phase 4 |
+| MongoDB ← JSON import | Phase 4 |
+| Redis → JSON export   | Phase 4 |
+| Redis ← JSON import   | Phase 4 |
+| Redis → RDB export    | Deferred |
+| Redis ← RDB import    | Deferred |
+
+**Rationale:** JSON import/export uses existing CRUD infrastructure. RDB requires special handling (BGSAVE, file access) with lower priority.
+
+---
+
+### 14.4 AI Integration
+
+**Decision:** All paradigms, phased rollout.
+
+| Phase   | AI Capability                                   |
+| ------- | ----------------------------------------------- |
+| Phase 3 | Basic MongoDB/Redis command generation          |
+| Phase 4 | Aggregation pipelines, complex Redis patterns   |
+
+**Rationale:** The AI already understands these syntaxes. Main work is providing paradigm context and schema information (collections, key patterns).
