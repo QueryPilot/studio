@@ -13,6 +13,7 @@ import { type RawCellValue } from "./backend";
 import { getStreamDecodeWorker } from "./streamDecodeWorkerClient";
 import { getAdapterForConnection } from "@/adapters";
 import {
+  formatTableName,
   filterConfigToWhereClause,
   sortConfigToOrderBy,
 } from "@/adapters/formatting";
@@ -108,7 +109,19 @@ export async function streamEntityPage(
 
   // Use dialect-aware SQL generation for proper quoting per database type
   const adapter = await getAdapterForConnection(connectionId);
-  const rawWhere = filterConfigToWhereClause(params.filters, adapter.dbType);
+  const columnPrefix = embeddedFKs?.length
+    ? formatTableName(schema, entityName, adapter.dbType)
+    : undefined;
+  const columnNames =
+    embeddedFKs?.length && params.columnsHint?.length
+      ? params.columnsHint.map((col) => col.name)
+      : undefined;
+  const rawWhere = filterConfigToWhereClause(
+    params.filters,
+    adapter.dbType,
+    columnPrefix,
+    columnNames,
+  );
   const orderBy = sortConfigToOrderBy(params.sorts);
 
   const selectOptions = {
