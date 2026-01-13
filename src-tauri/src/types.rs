@@ -27,13 +27,25 @@ impl ConnectionProfile {
     // identity is the provided id (UUID) from the frontend/vault
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum DbType {
     PostgreSQL,
     MySQL,
     MariaDB,
     SQLite,
     SQLServer,
+    // New paradigms
+    MongoDB,
+    Redis,
+}
+
+/// Database paradigm - categorizes databases by their query model
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DatabaseParadigm {
+    Sql,
+    Document,
+    KeyValue,
 }
 
 impl DbType {
@@ -50,6 +62,31 @@ impl DbType {
     /// Check if this is a MySQL-compatible database (MySQL or MariaDB)
     pub fn is_mysql_compatible(&self) -> bool {
         matches!(self, DbType::MySQL | DbType::MariaDB)
+    }
+
+    /// Get the database paradigm for this database type
+    pub fn paradigm(&self) -> DatabaseParadigm {
+        match self {
+            DbType::PostgreSQL | DbType::MySQL | DbType::MariaDB | 
+            DbType::SQLite | DbType::SQLServer => DatabaseParadigm::Sql,
+            DbType::MongoDB => DatabaseParadigm::Document,
+            DbType::Redis => DatabaseParadigm::KeyValue,
+        }
+    }
+
+    /// Check if this database uses SQL
+    pub fn is_sql(&self) -> bool {
+        self.paradigm() == DatabaseParadigm::Sql
+    }
+
+    /// Check if this is a document database
+    pub fn is_document(&self) -> bool {
+        self.paradigm() == DatabaseParadigm::Document
+    }
+
+    /// Check if this is a key-value database
+    pub fn is_keyvalue(&self) -> bool {
+        self.paradigm() == DatabaseParadigm::KeyValue
     }
 }
 

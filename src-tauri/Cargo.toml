@@ -57,6 +57,13 @@ tiberius = { version = "0.12", default-features = false, features = ["rustls", "
 bb8 = "0.8"
 bb8-tiberius = "0.15"
 
+# Document DB (MongoDB)
+mongodb = "3.4"
+bson = "2.11"
+
+# Key-Value DB (Redis)
+fred = { version = "10.1", features = ["sentinel-client", "replicas"] }
+
 # Data types
 fallible-iterator = "0.2"
 bytes = "1"

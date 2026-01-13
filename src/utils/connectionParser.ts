@@ -6,7 +6,9 @@ export type DatabaseType =
   | "mysql"
   | "mariadb"
   | "sqlite"
-  | "mssql";
+  | "mssql"
+  | "mongodb"
+  | "redis";
 
 export interface ParsedEnvConfig {
   dbType?: DatabaseType;

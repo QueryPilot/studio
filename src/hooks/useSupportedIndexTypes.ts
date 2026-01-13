@@ -40,6 +40,15 @@ const DEFAULT_INDEX_TYPES: Record<DbType, { types: string[]; default: string }> 
     types: ["clustered", "nonclustered", "columnstore"],
     default: "nonclustered",
   },
+  // Non-SQL databases don't have traditional indexes in the same way
+  [DbType.MongoDB]: {
+    types: ["single", "compound", "text", "hashed", "2dsphere", "2d"],
+    default: "single",
+  },
+  [DbType.Redis]: {
+    types: [], // Redis doesn't have indexes in the traditional sense
+    default: "",
+  },
 };
 
 /**

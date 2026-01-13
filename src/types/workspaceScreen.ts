@@ -2,7 +2,16 @@
  * Enhanced types for workspace screen with panel hierarchy
  */
 
-export type TabType = "table" | "query" | "schema" | "function" | "result" | "erd" | "design";
+export type TabType = 
+  | "table" 
+  | "query" 
+  | "schema" 
+  | "function" 
+  | "result" 
+  | "erd" 
+  | "design"
+  | "mongo-collection"
+  | "redis-key";
 
 export interface TabPayload {
   // Common

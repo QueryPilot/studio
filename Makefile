@@ -1,4 +1,4 @@
-.PHONY: help d dev dev-profile dp build build-ai build-ai-all verify-sidecars dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-integration ti test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup version release release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-clean test-ssh-full
+.PHONY: help d dev dev-profile dp build build-ai build-ai-all verify-sidecars dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-integration ti test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle seed-mongodb seed-redis setup version release release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-clean test-ssh-full
 
 SSH_KEYGEN ?= ssh-keygen
 SQLSERVER_CONTAINER ?= query-pilot-sqlserver
@@ -46,6 +46,8 @@ help:
 	@echo "  make seed-sqlite    - Seed SQLite only"
 	@echo "  make seed-sqlserver - Seed SQL Server only"
 	@echo "  make seed-oracle    - Seed Oracle only"
+	@echo "  make seed-mongodb   - Seed MongoDB only"
+	@echo "  make seed-redis     - Seed Redis only"
 	@echo "  make reseed-all     - Drop and reseed all databases (DELETES existing data)"
 	@echo ""
 	@echo "Release Management:"
@@ -269,7 +271,19 @@ seed-oracle:
 	@docker exec -i query-pilot-oracle sqlplus -s todoapp/DevPass123@localhost:1521/XE < seeds/oracle/02_seed_data.sql || true
 	@echo "Oracle seeding attempted (may require manual setup for complex schemas)"
 
-seed-all: seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle
+seed-mongodb:
+	@echo "MongoDB is seeded automatically via init scripts."
+	@echo "If you need to manually re-seed, run:"
+	@echo "  docker exec -i query-pilot-mongodb mongosh -u devuser -p devpass123 --authenticationDatabase admin todoapp < seeds/mongodb/01_init_todoapp.js"
+	@echo "Checking MongoDB collections..."
+	@docker exec query-pilot-mongodb mongosh -u devuser -p devpass123 --authenticationDatabase admin todoapp --quiet --eval "db.getCollectionNames()" 2>/dev/null || echo "MongoDB not running or not ready"
+
+seed-redis:
+	@echo "Seeding Redis..."
+	@bash seeds/redis/seed_redis.sh
+	@echo "Redis seeded successfully!"
+
+seed-all: seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle seed-mongodb seed-redis
 	@echo "All databases seeded successfully!"
 
 # Reset and reseed databases (cleans existing data first)
@@ -300,6 +314,8 @@ setup: docker-up
 	@echo "  SQLite:     seeds/sqlite/todoapp.db"
 	@echo "  SQL Server: localhost:11434 (user: sa, pass: DevPass123, db: todoapp)"
 	@echo "  Oracle:     localhost:11521 (user: todoapp, pass: DevPass123, service: XE)"
+	@echo "  MongoDB:    localhost:17017 (user: devuser, pass: devpass123, db: todoapp)"
+	@echo "  Redis:      localhost:16379 (pass: devpass123)"
 	@echo ""
 	@echo "Run 'make dev' to start the application"
 

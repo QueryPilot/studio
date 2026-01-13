@@ -1,5 +1,5 @@
 // CodeEditor-specific types
-export type CodeEditorLanguage = "sql" | "json" | "text" | "dbml";
+export type CodeEditorLanguage = "sql" | "json" | "text" | "dbml" | "redis";
 export type SqlDialect = "postgresql" | "plsql" | "mysql" | "sqlite" | "mssql";
 export type EditorTheme = "light" | "dark" | "auto";
 
