@@ -1,10 +1,4 @@
-/**
- * Redis Sidebar Component
- *
- * Displays databases (0-15) and keys for Redis connections.
- */
-
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   IconDatabase,
@@ -13,11 +7,7 @@ import {
   IconSearch,
   IconChevronRight,
   IconChevronDown,
-  IconHash,
-  IconList,
-  IconBraces,
-  IconSortAscending,
-  IconTimeline,
+  IconFolder,
 } from "@tabler/icons-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -32,11 +22,6 @@ interface RedisSidebarProps {
   isLoading?: boolean;
 }
 
-interface KeyInfo {
-  key: string;
-  type: string;
-}
-
 // Redis supports 16 databases by default (0-15)
 const REDIS_DATABASES = Array.from({ length: 16 }, (_, i) => i);
 
@@ -47,13 +32,17 @@ export function RedisSidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedDbs, setExpandedDbs] = useState<Set<number>>(new Set([0]));
   const [dbSizes, setDbSizes] = useState<Map<number, number>>(new Map());
-  const [keys, setKeys] = useState<Map<number, KeyInfo[]>>(new Map());
-  const [loadingDbs, setLoadingDbs] = useState<Set<number>>(new Set());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { currentDatabase, selectedKey, setCurrentDatabase, selectKey } =
-    useRedisStore();
+  const { 
+    currentDatabase, 
+    setCurrentDatabase, 
+    fetchNextPage, 
+    groupedKeys, 
+    scannedKeys,
+    setScanPattern
+  } = useRedisStore();
 
   const { addTabToPanel, activePanelId } = usePanelStore();
 
@@ -81,99 +70,63 @@ export function RedisSidebar({
     }
   };
 
-  const loadKeysForDb = useCallback(
-    async (dbIndex: number, _pattern = "*") => {
-      setLoadingDbs((prev) => new Set(prev).add(dbIndex));
-
-      try {
-        // For now, we'll use INFO to get key count since we don't have SCAN yet
-        // In a real implementation, we'd use SCAN for pagination
-        const size = await invoke<number>("redis_dbsize", {
-          connId: connectionId,
-        });
-        
-        setDbSizes((prev) => new Map(prev).set(dbIndex, size));
-        
-        // Note: We don't have KEYS/SCAN command exposed yet
-        // For now, just show the database is expandable
-        setKeys((prev) => new Map(prev).set(dbIndex, []));
-      } catch (err) {
-        console.error(`Failed to load keys for db ${dbIndex}:`, err);
-      } finally {
-        setLoadingDbs((prev) => {
-          const next = new Set(prev);
-          next.delete(dbIndex);
-          return next;
-        });
-      }
-    },
-    [connectionId]
-  );
-
   const toggleDatabase = (dbIndex: number) => {
     setExpandedDbs((prev) => {
       const next = new Set(prev);
       if (next.has(dbIndex)) {
         next.delete(dbIndex);
       } else {
+        // Ensure single expansion logic to match store
+        next.clear(); 
         next.add(dbIndex);
-        // Load keys if not already loaded
-        if (!keys.has(dbIndex)) {
-          void loadKeysForDb(dbIndex);
-        }
+        
+        // Sync state and refresh
+        setCurrentDatabase(dbIndex);
+        // Execute DB switch
+        invoke("keyvalue_execute", { 
+          connId: connectionId, 
+          operation: { type: "selectDb", index: dbIndex } 
+        }).then(() => {
+          void fetchNextPage();
+        }).catch(err => console.error("Failed to select DB:", err));
       }
       return next;
     });
-    setCurrentDatabase(dbIndex);
   };
 
-  const handleKeyClick = (dbIndex: number, keyName: string, _keyType: string) => {
-    setCurrentDatabase(dbIndex);
-    selectKey(keyName);
-
-    // Open a key viewer tab in the active panel
+  const handleGroupClick = (prefix: string) => {
+    setScanPattern(prefix + "*");
+    
+    // Check if we need to open a tab
     const tabId = uuidv4();
     if (activePanelId) {
       addTabToPanel(activePanelId, {
         id: tabId,
-        title: keyName,
+        title: `Browser: ${prefix}*`,
         type: "redis-key",
         connectionId,
         payload: {
-          database: String(dbIndex),
-          tableName: keyName, // Using tableName to store key name
+          database: String(currentDatabase),
+          // No table/selectedKey -> renders Grid
         },
       });
     }
   };
 
-  const getKeyTypeIcon = (type: string) => {
-    switch (type.toLowerCase()) {
-      case "string":
-        return <IconKey className="h-3.5 w-3.5 text-green-500" />;
-      case "hash":
-        return <IconHash className="h-3.5 w-3.5 text-blue-500" />;
-      case "list":
-        return <IconList className="h-3.5 w-3.5 text-purple-500" />;
-      case "set":
-        return <IconBraces className="h-3.5 w-3.5 text-orange-500" />;
-      case "zset":
-        return <IconSortAscending className="h-3.5 w-3.5 text-pink-500" />;
-      case "stream":
-        return <IconTimeline className="h-3.5 w-3.5 text-cyan-500" />;
-      default:
-        return <IconKey className="h-3.5 w-3.5 text-muted-foreground" />;
+  const openKeyBrowser = (dbIndex: number) => {
+    const tabId = uuidv4();
+    if (activePanelId) {
+      addTabToPanel(activePanelId, {
+        id: tabId,
+        title: `DB ${dbIndex} Keys`,
+        type: "redis-key",
+        connectionId,
+        payload: {
+          database: String(dbIndex),
+        },
+      });
     }
   };
-
-  // Filter databases that have keys or match search
-  const filteredDatabases = REDIS_DATABASES.filter((dbIndex) => {
-    if (!searchQuery) return true;
-    const dbKeys = keys.get(dbIndex) || [];
-    return dbKeys.some((k) =>
-      k.key.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  });
 
   if (initialLoading) {
     return (
@@ -220,25 +173,24 @@ export function RedisSidebar({
 
       {/* Database List */}
       <div className="flex-1 overflow-y-auto p-1">
-        {filteredDatabases.map((dbIndex) => {
+        {REDIS_DATABASES.map((dbIndex) => {
           const size = dbSizes.get(dbIndex) ?? 0;
           const isExpanded = expandedDbs.has(dbIndex);
-          const isLoading = loadingDbs.has(dbIndex);
-          const dbKeys = keys.get(dbIndex) || [];
+          // Only show content if this DB is the actively selected one in store
+          const isActive = currentDatabase === dbIndex; 
+          const showContent = isExpanded && isActive;
 
           return (
             <div key={dbIndex} className="select-none">
               {/* Database Node */}
               <button
                 className={cn(
-                  "flex items-center gap-1.5 w-full px-2 py-1 text-xs rounded hover:bg-accent",
-                  currentDatabase === dbIndex && "bg-accent"
+                  "flex items-center gap-1.5 w-full px-2 py-1 text-xs rounded hover:bg-accent group",
+                  isActive && "bg-accent"
                 )}
                 onClick={() => toggleDatabase(dbIndex)}
               >
-                {isLoading ? (
-                  <div className="h-3 w-3 border border-primary border-t-transparent rounded-full animate-spin" />
-                ) : isExpanded ? (
+                {isExpanded ? (
                   <IconChevronDown className="h-3 w-3 text-muted-foreground" />
                 ) : (
                   <IconChevronRight className="h-3 w-3 text-muted-foreground" />
@@ -250,54 +202,68 @@ export function RedisSidebar({
                     {size} keys
                   </span>
                 )}
+                <div 
+                  className="hidden group-hover:flex ml-1 p-0.5 rounded hover:bg-background/50"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openKeyBrowser(dbIndex);
+                  }}
+                  title="Open Key Grid"
+                >
+                  <IconKey className="h-3 w-3 text-muted-foreground" />
+                </div>
               </button>
 
-              {/* Keys */}
-              {isExpanded && (
-                <div className="ml-4 border-l border-border/50">
-                  {dbKeys.length === 0 && !isLoading && (
-                    <div className="px-2 py-1 text-[10px] text-muted-foreground ml-1">
-                      Use CLI to browse keys
+              {/* Groups & Keys */}
+              {showContent && (
+                <div className="ml-4 border-l border-border/50 pl-1">
+                  {/* Groups */}
+                  {Array.from(groupedKeys.entries()).map(([prefix, count]) => (
+                    <button
+                      key={prefix}
+                      className="flex items-center gap-1.5 w-full px-2 py-1 text-xs rounded hover:bg-accent text-left"
+                      onClick={() => handleGroupClick(prefix)}
+                    >
+                      <IconFolder className="h-3.5 w-3.5 text-yellow-500" />
+                      <span className="truncate font-mono text-[11px] flex-1">
+                        {prefix}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {count}
+                      </span>
+                    </button>
+                  ))}
+
+                  {/* Scanned Keys Preview (limit to 10 to avoid clutter) */}
+                  {scannedKeys.slice(0, 10).map((key) => (
+                    <div 
+                      key={key.key}
+                      className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground"
+                    >
+                      <IconKey className="h-3 w-3 opacity-50" />
+                      <span className="truncate font-mono text-[10px]">{key.key}</span>
+                    </div>
+                  ))}
+                  
+                  {scannedKeys.length > 10 && (
+                    <div 
+                      className="px-2 py-1 text-[10px] text-muted-foreground italic cursor-pointer hover:text-foreground"
+                      onClick={() => openKeyBrowser(dbIndex)}
+                    >
+                      ... and {scannedKeys.length - 10} more loaded
                     </div>
                   )}
-                  {dbKeys
-                    .filter(
-                      (k) =>
-                        !searchQuery ||
-                        k.key.toLowerCase().includes(searchQuery.toLowerCase())
-                    )
-                    .map((keyInfo) => (
-                      <button
-                        key={keyInfo.key}
-                        className={cn(
-                          "flex items-center gap-1.5 w-full px-2 py-1 text-xs rounded hover:bg-accent ml-1",
-                          selectedKey === keyInfo.key &&
-                            currentDatabase === dbIndex &&
-                            "bg-accent"
-                        )}
-                        onClick={() =>
-                          handleKeyClick(dbIndex, keyInfo.key, keyInfo.type)
-                        }
-                      >
-                        {getKeyTypeIcon(keyInfo.type)}
-                        <span className="truncate font-mono text-[11px]">
-                          {keyInfo.key}
-                        </span>
-                      </button>
-                    ))}
+
+                  {scannedKeys.length === 0 && (
+                    <div className="px-2 py-1 text-[10px] text-muted-foreground">
+                      No keys loaded
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           );
         })}
-      </div>
-
-      {/* Quick Info */}
-      <div className="p-2 border-t text-[10px] text-muted-foreground">
-        <div className="flex justify-between">
-          <span>DB 0 Keys:</span>
-          <span>{dbSizes.get(0) ?? 0}</span>
-        </div>
       </div>
     </div>
   );
