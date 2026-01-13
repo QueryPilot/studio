@@ -385,4 +385,25 @@ mod tests {
         assert!(!opts.nx);
         assert!(!opts.xx);
     }
+
+    #[test]
+    fn mongodb_adapter_implements_document_queryable() {
+        use crate::adapters::MongoDbAdapter;
+        fn assert_impl<T: DocumentQueryable>() {}
+        assert_impl::<MongoDbAdapter>();
+    }
+
+    #[test]
+    fn redis_adapter_implements_keyvalue_ops() {
+        use crate::adapters::RedisAdapter;
+        fn assert_impl<T: KeyValueOperable>() {}
+        assert_impl::<RedisAdapter>();
+    }
+
+    #[test]
+    fn redis_adapter_implements_rich_keyvalue_ops() {
+        use crate::adapters::RedisAdapter;
+        fn assert_impl<T: RichKeyValueOperable>() {}
+        assert_impl::<RedisAdapter>();
+    }
 }
