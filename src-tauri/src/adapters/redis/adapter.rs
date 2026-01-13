@@ -169,9 +169,18 @@ impl RedisAdapter {
             ));
         }
 
-        // Just update tracking - actual selection happens via config
-        *self.current_db.write().await = db;
-        Ok(())
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                c.select(db as i64).await.map_err(|e| {
+                    AppError::DatabaseError(format!("SELECT failed: {}", e))
+                })?;
+                drop(client);
+                *self.current_db.write().await = db;
+                Ok(())
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
     }
 
     /// Get server info as raw string
@@ -664,5 +673,72 @@ mod tests {
 
         let config = RedisAdapter::build_config(&profile);
         assert!(config.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_select_db_requires_connection() {
+        let adapter = RedisAdapter::new();
+        let result = adapter.select_db(2).await;
+        assert!(
+            result.is_err(),
+            "select_db should fail when not connected"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_select_db_validates_range() {
+        let adapter = RedisAdapter::new();
+        let result = adapter.select_db(16).await;
+        assert!(result.is_err(), "select_db should reject db index > 15");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires live Redis server on localhost:6379"]
+    async fn test_select_db_issues_select_command() {
+        use std::collections::HashMap;
+
+        let profile = ConnectionProfile {
+            id: "test".to_string(),
+            name: "test".to_string(),
+            db_type: crate::types::DbType::Redis,
+            host: "localhost".to_string(),
+            port: 6379,
+            database: "0".to_string(),
+            username: String::new(),
+            password: None,
+            ssl_mode: None,
+            ssl_config: None,
+            ssh_tunnel: None,
+            bastion: None,
+            options: HashMap::new(),
+            group: None,
+        };
+
+        let adapter = RedisAdapter::new();
+        adapter.connect(&profile).await.expect("Failed to connect to Redis");
+
+        adapter.select_db(2).await.expect("select_db should succeed");
+        assert_eq!(adapter.current_database().await, 2);
+
+        let test_key = format!("__test_select_db_{}", std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos());
+
+        adapter.set_string(&test_key, "test_value", None).await.expect("SET should work");
+
+        adapter.select_db(0).await.expect("select_db to 0 should succeed");
+        let result = adapter.get_string(&test_key).await.expect("GET should work");
+        assert!(
+            result.is_none(),
+            "Key set in db2 should not exist in db0"
+        );
+
+        adapter.select_db(2).await.expect("select_db back to 2");
+        let result = adapter.get_string(&test_key).await.expect("GET should work");
+        assert_eq!(result, Some("test_value".to_string()));
+
+        adapter.delete_key(&test_key).await.expect("cleanup");
+        adapter.disconnect().await.expect("disconnect");
     }
 }

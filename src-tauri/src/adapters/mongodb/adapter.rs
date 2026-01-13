@@ -120,8 +120,7 @@ impl MongoDbAdapter {
         };
 
         if is_srv {
-            // SRV format doesn't include port
-            format!("{}://{}{}:{}/{}{}", protocol, auth, profile.host, profile.port, db, options_str)
+            format!("{}://{}{}/{}{}", protocol, auth, profile.host, db, options_str)
         } else {
             format!(
                 "{}://{}{}:{}/{}{}",
@@ -811,5 +810,80 @@ mod tests {
 
         let conn_str = MongoDbAdapter::build_connection_string(&profile);
         assert_eq!(conn_str, "mongodb://user:pass@localhost:27017/testdb");
+    }
+
+    #[test]
+    fn test_build_srv_connection_string_no_port() {
+        use std::collections::HashMap;
+
+        let mut options = HashMap::new();
+        options.insert("srv".to_string(), "true".to_string());
+
+        let profile = ConnectionProfile {
+            id: "test".to_string(),
+            name: "test".to_string(),
+            db_type: crate::types::DbType::MongoDB,
+            host: "cluster0.mongodb.net".to_string(),
+            port: 27017, // port should be ignored for SRV
+            database: "mydb".to_string(),
+            username: String::new(),
+            password: None,
+            ssl_mode: None,
+            ssl_config: None,
+            ssh_tunnel: None,
+            bastion: None,
+            options,
+            group: None,
+        };
+
+        let conn_str = MongoDbAdapter::build_connection_string(&profile);
+        assert!(
+            conn_str.starts_with("mongodb+srv://"),
+            "SRV connection should use mongodb+srv:// protocol, got: {}",
+            conn_str
+        );
+        assert!(
+            !conn_str.contains(":27017"),
+            "SRV connection must NOT include port, got: {}",
+            conn_str
+        );
+        assert_eq!(conn_str, "mongodb+srv://cluster0.mongodb.net/mydb");
+    }
+
+    #[test]
+    fn test_build_srv_connection_string_with_auth_no_port() {
+        use std::collections::HashMap;
+
+        let mut options = HashMap::new();
+        options.insert("srv".to_string(), "true".to_string());
+
+        let profile = ConnectionProfile {
+            id: "test".to_string(),
+            name: "test".to_string(),
+            db_type: crate::types::DbType::MongoDB,
+            host: "cluster0.mongodb.net".to_string(),
+            port: 27017,
+            database: "mydb".to_string(),
+            username: "admin".to_string(),
+            password: Some("secret".to_string()),
+            ssl_mode: None,
+            ssl_config: None,
+            ssh_tunnel: None,
+            bastion: None,
+            options,
+            group: None,
+        };
+
+        let conn_str = MongoDbAdapter::build_connection_string(&profile);
+        assert!(
+            conn_str.starts_with("mongodb+srv://"),
+            "SRV connection should use mongodb+srv:// protocol"
+        );
+        assert!(
+            !conn_str.contains(":27017"),
+            "SRV connection must NOT include port, got: {}",
+            conn_str
+        );
+        assert_eq!(conn_str, "mongodb+srv://admin:secret@cluster0.mongodb.net/mydb");
     }
 }
