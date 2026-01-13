@@ -106,6 +106,10 @@ function getDefaultPort(type: DatabaseType): string {
       return "1433";
     case "sqlite":
       return "";
+    case "mongodb":
+      return "27017";
+    case "redis":
+      return "6379";
     default:
       return "";
   }
@@ -494,6 +498,10 @@ export function ConnectionForm() {
           ? DbType.MariaDB
           : dbType === "sqlite"
           ? DbType.SQLite
+          : dbType === "mongodb"
+          ? DbType.MongoDB
+          : dbType === "redis"
+          ? DbType.Redis
           : DbType.SQLServer,
       host: dbType !== "sqlite" ? host : "localhost",
       port:
@@ -656,6 +664,12 @@ export function ConnectionForm() {
       label: "SQL Server",
       logo: getDatabaseLogo(DbType.SQLServer),
     },
+    {
+      value: "mongodb",
+      label: "MongoDB",
+      logo: getDatabaseLogo(DbType.MongoDB),
+    },
+    { value: "redis", label: "Redis", logo: getDatabaseLogo(DbType.Redis) },
   ];
 
   const currentDbType = dbTypeOptions.find((opt) => opt.value === dbType);

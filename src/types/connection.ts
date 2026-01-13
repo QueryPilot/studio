@@ -23,6 +23,30 @@ export enum DbType {
   MariaDB = "MariaDB",
   SQLite = "SQLite",
   SQLServer = "SQLServer",
+  // New paradigms
+  MongoDB = "MongoDB",
+  Redis = "Redis",
+}
+
+/** Database paradigm - categorizes databases by their query model */
+export type DatabaseParadigm = 'sql' | 'document' | 'keyvalue';
+
+/**
+ * Get the database paradigm for a given database type
+ */
+export function getParadigm(dbType: DbType): DatabaseParadigm {
+  switch (dbType) {
+    case DbType.PostgreSQL:
+    case DbType.MySQL:
+    case DbType.MariaDB:
+    case DbType.SQLite:
+    case DbType.SQLServer:
+      return 'sql';
+    case DbType.MongoDB:
+      return 'document';
+    case DbType.Redis:
+      return 'keyvalue';
+  }
 }
 
 /**
@@ -30,6 +54,27 @@ export enum DbType {
  */
 export function isMySQLCompatible(dbType: DbType): boolean {
   return dbType === DbType.MySQL || dbType === DbType.MariaDB;
+}
+
+/**
+ * Check if database type uses SQL
+ */
+export function isSql(dbType: DbType): boolean {
+  return getParadigm(dbType) === 'sql';
+}
+
+/**
+ * Check if database type is a document database
+ */
+export function isDocument(dbType: DbType): boolean {
+  return getParadigm(dbType) === 'document';
+}
+
+/**
+ * Check if database type is a key-value database
+ */
+export function isKeyValue(dbType: DbType): boolean {
+  return getParadigm(dbType) === 'keyvalue';
 }
 
 export enum SslMode {

@@ -433,6 +433,10 @@ async fn execute_single_fetch_stream(
         DbType::SQLServer => {
             execute_generic_stream(sql, metadata_channel, data_channel, conn).await
         }
+        // Non-SQL databases don't use SQL streaming - handled by their own commands
+        DbType::MongoDB | DbType::Redis => {
+            Err("SQL streaming not supported for non-SQL databases".to_string())
+        }
     }
 }
 
@@ -1090,6 +1094,374 @@ pub async fn execute_query(
 #[tauri::command]
 pub async fn update_window_menu(app: tauri::AppHandle) -> Result<(), String> {
     crate::menu::update_window_menu(&app).map_err(|e: tauri::Error| e.to_string())
+}
+
+// ============================================================================
+// MongoDB Commands
+// ============================================================================
+
+/// List all databases in MongoDB
+#[tauri::command]
+pub async fn mongo_list_databases(
+    conn_id: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<Vec<crate::core::capabilities::DatabaseInfo>, String> {
+    let mongo_adapters = manager.mongo_adapters.read().await;
+    let adapter = mongo_adapters.get(&conn_id)
+        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    
+    adapter.list_databases().await.map_err(|e| e.to_string())
+}
+
+/// List collections in the current MongoDB database
+#[tauri::command]
+pub async fn mongo_list_collections(
+    conn_id: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<Vec<crate::core::capabilities::CollectionInfo>, String> {
+    let mongo_adapters = manager.mongo_adapters.read().await;
+    let adapter = mongo_adapters.get(&conn_id)
+        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    
+    adapter.list_collections().await.map_err(|e| e.to_string())
+}
+
+/// Find documents in a MongoDB collection
+#[tauri::command]
+pub async fn mongo_find_documents(
+    conn_id: String,
+    collection: String,
+    filter: serde_json::Value,
+    skip: Option<u64>,
+    limit: Option<u64>,
+    sort: Option<serde_json::Value>,
+    projection: Option<serde_json::Value>,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let mongo_adapters = manager.mongo_adapters.read().await;
+    let adapter = mongo_adapters.get(&conn_id)
+        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    
+    let options = crate::core::capabilities::FindOptions {
+        skip,
+        limit: limit.or(Some(100)),
+        sort,
+        projection,
+    };
+    
+    adapter.find_documents(&collection, filter, options).await.map_err(|e| e.to_string())
+}
+
+/// Insert a document into a MongoDB collection
+#[tauri::command]
+pub async fn mongo_insert_document(
+    conn_id: String,
+    collection: String,
+    document: serde_json::Value,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<crate::core::capabilities::InsertResult, String> {
+    let mongo_adapters = manager.mongo_adapters.read().await;
+    let adapter = mongo_adapters.get(&conn_id)
+        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    
+    adapter.insert_document(&collection, document).await.map_err(|e| e.to_string())
+}
+
+/// Update a document in a MongoDB collection
+#[tauri::command]
+pub async fn mongo_update_document(
+    conn_id: String,
+    collection: String,
+    filter: serde_json::Value,
+    update: serde_json::Value,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<crate::core::capabilities::UpdateResult, String> {
+    let mongo_adapters = manager.mongo_adapters.read().await;
+    let adapter = mongo_adapters.get(&conn_id)
+        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    
+    adapter.update_document(&collection, filter, update).await.map_err(|e| e.to_string())
+}
+
+/// Delete a document from a MongoDB collection
+#[tauri::command]
+pub async fn mongo_delete_document(
+    conn_id: String,
+    collection: String,
+    filter: serde_json::Value,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<crate::core::capabilities::DeleteResult, String> {
+    let mongo_adapters = manager.mongo_adapters.read().await;
+    let adapter = mongo_adapters.get(&conn_id)
+        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    
+    adapter.delete_document(&collection, filter).await.map_err(|e| e.to_string())
+}
+
+/// Run an aggregation pipeline on a MongoDB collection
+#[tauri::command]
+pub async fn mongo_aggregate(
+    conn_id: String,
+    collection: String,
+    pipeline: Vec<serde_json::Value>,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let mongo_adapters = manager.mongo_adapters.read().await;
+    let adapter = mongo_adapters.get(&conn_id)
+        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    
+    adapter.aggregate(&collection, pipeline).await.map_err(|e| e.to_string())
+}
+
+/// Count documents in a MongoDB collection
+#[tauri::command]
+pub async fn mongo_count_documents(
+    conn_id: String,
+    collection: String,
+    filter: Option<serde_json::Value>,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<u64, String> {
+    let mongo_adapters = manager.mongo_adapters.read().await;
+    let adapter = mongo_adapters.get(&conn_id)
+        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    
+    adapter.count_documents(&collection, filter).await.map_err(|e| e.to_string())
+}
+
+/// List indexes for a MongoDB collection
+#[tauri::command]
+pub async fn mongo_list_indexes(
+    conn_id: String,
+    collection: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let mongo_adapters = manager.mongo_adapters.read().await;
+    let adapter = mongo_adapters.get(&conn_id)
+        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    
+    adapter.list_indexes(&collection).await.map_err(|e| e.to_string())
+}
+
+/// Create an index on a MongoDB collection
+#[tauri::command]
+pub async fn mongo_create_index(
+    conn_id: String,
+    collection: String,
+    keys: serde_json::Value,
+    options: Option<serde_json::Value>,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<String, String> {
+    let mongo_adapters = manager.mongo_adapters.read().await;
+    let adapter = mongo_adapters.get(&conn_id)
+        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    
+    adapter.create_index(&collection, keys, options).await.map_err(|e| e.to_string())
+}
+
+/// Drop an index from a MongoDB collection
+#[tauri::command]
+pub async fn mongo_drop_index(
+    conn_id: String,
+    collection: String,
+    index_name: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<(), String> {
+    let mongo_adapters = manager.mongo_adapters.read().await;
+    let adapter = mongo_adapters.get(&conn_id)
+        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    
+    adapter.drop_index(&collection, &index_name).await.map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Redis Commands
+// ============================================================================
+
+/// Get a string value from Redis
+#[tauri::command]
+pub async fn redis_get(
+    conn_id: String,
+    key: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<Option<String>, String> {
+    let redis_adapters = manager.redis_adapters.read().await;
+    let adapter = redis_adapters.get(&conn_id)
+        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    
+    adapter.get_string(&key).await.map_err(|e| e.to_string())
+}
+
+/// Set a string value in Redis
+#[tauri::command]
+pub async fn redis_set(
+    conn_id: String,
+    key: String,
+    value: String,
+    ttl_seconds: Option<u64>,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<(), String> {
+    let redis_adapters = manager.redis_adapters.read().await;
+    let adapter = redis_adapters.get(&conn_id)
+        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    
+    adapter.set_string(&key, &value, ttl_seconds).await.map_err(|e| e.to_string())
+}
+
+/// Delete a key from Redis
+#[tauri::command]
+pub async fn redis_delete(
+    conn_id: String,
+    key: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<u64, String> {
+    let redis_adapters = manager.redis_adapters.read().await;
+    let adapter = redis_adapters.get(&conn_id)
+        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    
+    adapter.delete_key(&key).await.map_err(|e| e.to_string())
+}
+
+/// Get TTL of a key in Redis
+#[tauri::command]
+pub async fn redis_ttl(
+    conn_id: String,
+    key: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<i64, String> {
+    let redis_adapters = manager.redis_adapters.read().await;
+    let adapter = redis_adapters.get(&conn_id)
+        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    
+    adapter.key_ttl(&key).await.map_err(|e| e.to_string())
+}
+
+/// Set TTL on a key in Redis
+#[tauri::command]
+pub async fn redis_expire(
+    conn_id: String,
+    key: String,
+    seconds: u64,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<bool, String> {
+    let redis_adapters = manager.redis_adapters.read().await;
+    let adapter = redis_adapters.get(&conn_id)
+        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    
+    adapter.set_key_ttl(&key, seconds).await.map_err(|e| e.to_string())
+}
+
+/// Check if a key exists in Redis
+#[tauri::command]
+pub async fn redis_exists(
+    conn_id: String,
+    key: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<bool, String> {
+    let redis_adapters = manager.redis_adapters.read().await;
+    let adapter = redis_adapters.get(&conn_id)
+        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    
+    adapter.key_exists(&key).await.map_err(|e| e.to_string())
+}
+
+/// Get database size (number of keys)
+#[tauri::command]
+pub async fn redis_dbsize(
+    conn_id: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<u64, String> {
+    let redis_adapters = manager.redis_adapters.read().await;
+    let adapter = redis_adapters.get(&conn_id)
+        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    
+    adapter.dbsize().await.map_err(|e| e.to_string())
+}
+
+/// Get server info
+#[tauri::command]
+pub async fn redis_info(
+    conn_id: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<String, String> {
+    let redis_adapters = manager.redis_adapters.read().await;
+    let adapter = redis_adapters.get(&conn_id)
+        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    
+    adapter.get_server_info_raw().await.map_err(|e| e.to_string())
+}
+
+/// Get all hash fields and values
+#[tauri::command]
+pub async fn redis_hgetall(
+    conn_id: String,
+    key: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let redis_adapters = manager.redis_adapters.read().await;
+    let adapter = redis_adapters.get(&conn_id)
+        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    
+    adapter.hash_get_all(&key).await.map_err(|e| e.to_string())
+}
+
+/// Set a hash field
+#[tauri::command]
+pub async fn redis_hset(
+    conn_id: String,
+    key: String,
+    field: String,
+    value: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<bool, String> {
+    let redis_adapters = manager.redis_adapters.read().await;
+    let adapter = redis_adapters.get(&conn_id)
+        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    
+    adapter.hash_set_field(&key, &field, &value).await.map_err(|e| e.to_string())
+}
+
+/// Get list range
+#[tauri::command]
+pub async fn redis_lrange(
+    conn_id: String,
+    key: String,
+    start: i64,
+    stop: i64,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<Vec<String>, String> {
+    let redis_adapters = manager.redis_adapters.read().await;
+    let adapter = redis_adapters.get(&conn_id)
+        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    
+    adapter.list_range(&key, start, stop).await.map_err(|e| e.to_string())
+}
+
+/// Get set members
+#[tauri::command]
+pub async fn redis_smembers(
+    conn_id: String,
+    key: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<Vec<String>, String> {
+    let redis_adapters = manager.redis_adapters.read().await;
+    let adapter = redis_adapters.get(&conn_id)
+        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    
+    adapter.set_members(&key).await.map_err(|e| e.to_string())
+}
+
+/// Get key type
+#[tauri::command]
+pub async fn redis_type(
+    conn_id: String,
+    key: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<String, String> {
+    let redis_adapters = manager.redis_adapters.read().await;
+    let adapter = redis_adapters.get(&conn_id)
+        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    
+    adapter.key_type(&key).await.map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

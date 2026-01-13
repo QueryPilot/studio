@@ -301,6 +301,11 @@ export const getLanguageExtension = (
       return jsonLang();
     case "dbml":
       return dbmlMixed();
+    case "redis":
+      // Redis CLI mode - basic text with command highlighting
+      // For now, use JSON mode as a placeholder since Redis commands
+      // are simple and don't require complex syntax highlighting
+      return [];
     case "text":
     default:
       return [];

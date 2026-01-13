@@ -36,6 +36,8 @@ import { ERDPanel } from "@/components/Erd";
 import { TableDesigner } from "@/components/TableDesigner";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { FeatureErrorBoundary } from "@/components/FeatureErrorBoundary";
+import { CollectionBrowser } from "@/components/MongoDB/CollectionBrowser";
+import { KeyBrowser } from "@/components/Redis/KeyBrowser";
 
 interface PanelContentRendererProps {
   panelId: string;
@@ -167,6 +169,34 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
             database={metadata?.database || ""}
             schema={metadata?.schema}
             dbType={dbType}
+            className="h-full"
+          />
+        </FeatureErrorBoundary>
+      );
+    }
+
+    // MongoDB Collection Browser
+    if (type === "mongo-collection" && metadata) {
+      return (
+        <FeatureErrorBoundary featureName="MongoDB Collection">
+          <CollectionBrowser
+            connectionId={metadata.connectionId || activeConnectionId || ""}
+            database={metadata.database || ""}
+            collection={metadata.table || ""}
+            className="h-full"
+          />
+        </FeatureErrorBoundary>
+      );
+    }
+
+    // Redis Key Browser
+    if (type === "redis-key" && metadata) {
+      return (
+        <FeatureErrorBoundary featureName="Redis Key">
+          <KeyBrowser
+            connectionId={metadata.connectionId || activeConnectionId || ""}
+            database={parseInt(metadata.database || "0", 10)}
+            selectedKey={metadata.table}
             className="h-full"
           />
         </FeatureErrorBoundary>

@@ -1,14 +1,18 @@
 use dashmap::{DashMap, DashSet};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Notify, RwLock};
 use tokio::task::JoinHandle;
 
+use crate::adapters::mongodb::MongoDbAdapter;
 use crate::adapters::mssql::MssqlAdapter;
 use crate::adapters::mysql::MySqlAdapter;
 use crate::adapters::postgres::PostgresAdapter;
+use crate::adapters::redis::RedisAdapter;
 use crate::adapters::sqlite::SqliteAdapter;
+use crate::core::capabilities::BaseCapability;
 use crate::error::{AppError, Result};
 use crate::ssh::secrets::delete_ssh_passphrase;
 use crate::ssh::SshTunnel;
@@ -52,6 +56,10 @@ pub struct ConnectionManager {
     idle_timeout: Duration,
     reaper_handle: Arc<tokio::sync::Mutex<Option<JoinHandle<()>>>>,
     total_connections: Arc<AtomicUsize>,
+    // MongoDB adapters (separate from SQL adapters)
+    pub mongo_adapters: Arc<RwLock<HashMap<String, MongoDbAdapter>>>,
+    // Redis adapters (separate from SQL adapters)
+    pub redis_adapters: Arc<RwLock<HashMap<String, RedisAdapter>>>,
 }
 
 pub struct LiveConnection {
@@ -100,6 +108,8 @@ impl ConnectionManager {
             idle_timeout: Duration::from_secs(1800), // 30 minutes
             reaper_handle: Arc::new(tokio::sync::Mutex::new(None)),
             total_connections: Arc::new(AtomicUsize::new(0)),
+            mongo_adapters: Arc::new(RwLock::new(HashMap::new())),
+            redis_adapters: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -308,6 +318,16 @@ impl ConnectionManager {
         conn_id: &str,
         profile: &ConnectionProfile,
     ) -> Result<String> {
+        // Handle MongoDB connections separately
+        if profile.db_type == DbType::MongoDB {
+            return self.create_mongo_connection(conn_id, profile).await;
+        }
+        
+        // Handle Redis connections separately
+        if profile.db_type == DbType::Redis {
+            return self.create_redis_connection(conn_id, profile).await;
+        }
+        
         let tunnel_status = self.ensure_tunnel(conn_id, profile).await?;
         let effective_profile = Self::build_effective_profile(profile, &tunnel_status);
 
@@ -374,6 +394,98 @@ impl ConnectionManager {
         // Store profile separately for reconnection after reaper
         self.profiles.insert(conn_id.to_string(), profile.clone());
         self.total_connections.fetch_add(1, Ordering::SeqCst);
+        Ok(conn_id.to_string())
+    }
+    
+    /// Create MongoDB connection
+    async fn create_mongo_connection(
+        &self,
+        conn_id: &str,
+        profile: &ConnectionProfile,
+    ) -> Result<String> {
+        // Check if MongoDB adapter already exists
+        {
+            let adapters = self.mongo_adapters.read().await;
+            if let Some(adapter) = adapters.get(conn_id) {
+                if adapter.is_connected() {
+                    return Ok(conn_id.to_string());
+                }
+            }
+        }
+        
+        // Create new MongoDB adapter
+        let adapter = MongoDbAdapter::new();
+        
+        tracing::info!(
+            "Connecting to MongoDB at {}:{}/{} (type: {:?})",
+            profile.host,
+            profile.port,
+            profile.database,
+            profile.db_type
+        );
+        
+        if let Err(err) = adapter.connect(profile).await {
+            tracing::error!("MongoDB connection failed: {}", err);
+            return Err(err);
+        }
+        
+        tracing::info!("MongoDB connection established successfully");
+        
+        // Store the adapter
+        {
+            let mut adapters = self.mongo_adapters.write().await;
+            adapters.insert(conn_id.to_string(), adapter);
+        }
+        
+        self.profiles.insert(conn_id.to_string(), profile.clone());
+        self.total_connections.fetch_add(1, Ordering::SeqCst);
+        
+        Ok(conn_id.to_string())
+    }
+    
+    /// Create Redis connection
+    async fn create_redis_connection(
+        &self,
+        conn_id: &str,
+        profile: &ConnectionProfile,
+    ) -> Result<String> {
+        // Check if Redis adapter already exists
+        {
+            let adapters = self.redis_adapters.read().await;
+            if let Some(adapter) = adapters.get(conn_id) {
+                if adapter.is_connected() {
+                    return Ok(conn_id.to_string());
+                }
+            }
+        }
+        
+        // Create new Redis adapter
+        let adapter = RedisAdapter::new();
+        
+        tracing::info!(
+            "Connecting to Redis at {}:{}/{} (type: {:?})",
+            profile.host,
+            profile.port,
+            profile.database,
+            profile.db_type
+        );
+        
+        if let Err(err) = adapter.connect(profile).await {
+            tracing::error!("Redis connection failed: {}", err);
+            return Err(err);
+        }
+        
+        tracing::info!("Redis connection established successfully");
+        
+        // Store the adapter
+        {
+            let mut adapters = self.redis_adapters.write().await;
+            adapters.insert(conn_id.to_string(), adapter);
+        }
+        
+        self.profiles.insert(conn_id.to_string(), profile.clone());
+        self.total_connections.fetch_add(1, Ordering::SeqCst);
+        
         Ok(conn_id.to_string())
     }
 
@@ -472,6 +584,32 @@ impl ConnectionManager {
     }
 
     pub async fn disconnect(&self, conn_id: &str) -> Result<()> {
+        // Handle MongoDB disconnect
+        {
+            let mut mongo_adapters = self.mongo_adapters.write().await;
+            if let Some(adapter) = mongo_adapters.remove(conn_id) {
+                if let Err(e) = adapter.disconnect().await {
+                    tracing::warn!("MongoDB disconnect error for {}: {}", conn_id, e);
+                }
+                self.total_connections.fetch_sub(1, Ordering::SeqCst);
+                self.profiles.remove(conn_id);
+                return Ok(());
+            }
+        }
+        
+        // Handle Redis disconnect
+        {
+            let mut redis_adapters = self.redis_adapters.write().await;
+            if let Some(adapter) = redis_adapters.remove(conn_id) {
+                if let Err(e) = adapter.disconnect().await {
+                    tracing::warn!("Redis disconnect error for {}: {}", conn_id, e);
+                }
+                self.total_connections.fetch_sub(1, Ordering::SeqCst);
+                self.profiles.remove(conn_id);
+                return Ok(());
+            }
+        }
+        
         // Remove from pool first - this is always safe and non-blocking
         if let Some((_, mut conn)) = self.connections.remove(conn_id) {
             // Disconnect adapter with timeout - don't hang on dead connections
@@ -547,6 +685,13 @@ impl ConnectionManager {
             DbType::MySQL | DbType::MariaDB => Ok(Box::new(MySqlAdapter::new())),
             DbType::SQLite => Ok(Box::new(SqliteAdapter::new())),
             DbType::SQLServer => Ok(Box::new(MssqlAdapter::new())),
+            // TODO: MongoDB and Redis adapters will be implemented in Phase 2
+            DbType::MongoDB => Err(crate::error::AppError::Unsupported(
+                "MongoDB adapter not yet implemented".to_string(),
+            )),
+            DbType::Redis => Err(crate::error::AppError::Unsupported(
+                "Redis adapter not yet implemented".to_string(),
+            )),
         }
     }
 

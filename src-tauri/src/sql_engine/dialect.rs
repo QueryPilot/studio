@@ -62,6 +62,8 @@ impl From<crate::types::DbType> for SqlDialect {
             crate::types::DbType::MySQL | crate::types::DbType::MariaDB => SqlDialect::MySQL,
             crate::types::DbType::SQLite => SqlDialect::SQLite,
             crate::types::DbType::SQLServer => SqlDialect::MsSQL,
+            // Non-SQL databases default to PostgreSQL dialect (they won't use SQL parsing anyway)
+            crate::types::DbType::MongoDB | crate::types::DbType::Redis => SqlDialect::PostgreSQL,
         }
     }
 }

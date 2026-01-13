@@ -46,7 +46,7 @@ import type { DatabaseAdapter, TableRef, RowData, WhereClause } from './types';
 import { useConnectionStore } from '@/stores/connectionStoreNew';
 
 // Lazy imports to avoid circular dependencies
-const adapterModules = {
+const adapterModules: Partial<Record<DbType, () => Promise<new (connectionId: string) => DatabaseAdapter>>> = {
   [DbType.PostgreSQL]: () =>
     import('./dialects/PostgreSQLAdapter').then((m) => m.PostgreSQLAdapter),
   [DbType.MySQL]: () =>
@@ -57,6 +57,8 @@ const adapterModules = {
     import('./dialects/SQLiteAdapter').then((m) => m.SQLiteAdapter),
   [DbType.SQLServer]: () =>
     import('./dialects/MSSQLAdapter').then((m) => m.MSSQLAdapter),
+  // MongoDB and Redis use different paradigms and will have their own adapters
+  // They don't implement the SQL DatabaseAdapter interface
 };
 
 // Cache adapters by connection ID
@@ -826,3 +828,12 @@ export async function generateSqlPreview(
 
   return sections.join('\n\n') || '-- No changes to commit';
 }
+
+// Export capability types and interfaces
+export * from './capabilities';
+export * from './types/redis';
+export * from './types/mongodb';
+
+// Export MongoDB and Redis adapters
+export { MongoDBAdapter } from './mongodb/MongoDBAdapter';
+export { RedisAdapter } from './redis/RedisAdapter';
