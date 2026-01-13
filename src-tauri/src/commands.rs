@@ -45,6 +45,7 @@ fn extract_db_error_message(e: &tokio_postgres::Error) -> String {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SshTestResult {
     pub success: bool,
     pub latency_ms: u64,
@@ -1635,7 +1636,7 @@ pub async fn redis_scan_stream(
 /// Operation enum for document database commands (MongoDB, etc.)
 /// This provides a unified IPC interface instead of per-command functions.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum DocumentOperation {
     Find {
         collection: String,
@@ -1676,7 +1677,7 @@ pub enum DocumentOperation {
 
 /// Result enum for document operations
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+#[serde(tag = "type", content = "data", rename_all = "camelCase")]
 pub enum DocumentResult {
     Documents(Vec<serde_json::Value>),
     Insert(crate::core::capabilities::InsertResult),
@@ -1690,7 +1691,7 @@ pub enum DocumentResult {
 
 /// Operation enum for key-value database commands (Redis, etc.)
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum KeyValueOperation {
     // Basic operations
     Get { key: String },
@@ -1736,7 +1737,7 @@ pub enum KeyValueOperation {
 
 /// Result enum for key-value operations
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+#[serde(tag = "type", content = "data", rename_all = "camelCase")]
 pub enum KeyValueResult {
     Value(Option<crate::core::capabilities::RedisValue>),
     Ok,
@@ -1954,7 +1955,7 @@ mod tests {
     fn test_document_operation_serialization() {
         let op = DocumentOperation::ListCollections;
         let json = serde_json::to_string(&op).unwrap();
-        assert!(json.contains("list_collections"));
+        assert!(json.contains("listCollections"));
         
         let op2 = DocumentOperation::Find {
             collection: "users".to_string(),
@@ -1970,7 +1971,7 @@ mod tests {
     fn test_keyvalue_operation_serialization() {
         let op = KeyValueOperation::DbSize;
         let json = serde_json::to_string(&op).unwrap();
-        assert!(json.contains("db_size"));
+        assert!(json.contains("dbSize"));
         
         let op2 = KeyValueOperation::Get { key: "test_key".to_string() };
         let json2 = serde_json::to_string(&op2).unwrap();
