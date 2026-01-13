@@ -9,6 +9,9 @@ export enum DbType {
   MariaDB = "MariaDB",
   SQLite = "SQLite",
   SQLServer = "SQLServer",
+  // New paradigms
+  MongoDB = "MongoDB",
+  Redis = "Redis",
 }
 
 export enum SslMode {

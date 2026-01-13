@@ -3,7 +3,10 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { useEffect, useState, useCallback } from "react";
 import { WorkspaceTitleBar } from "./components/WorkspaceTitleBar";
 import { DatabaseSidebar } from "./components/DatabaseSidebar";
+import { MongoDBSidebar } from "./components/MongoDBSidebar";
+import { RedisSidebar } from "./components/RedisSidebar";
 import { DatabaseSchemaSelector } from "./components/DatabaseSchemaSelector";
+import { DbType } from "@/types/connection";
 import { ConnectionActivityBar } from "./components/ConnectionActivityBar";
 import { WorkbenchLayout } from "@/components/Workbench";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
@@ -476,23 +479,55 @@ export function WorkspaceScreen() {
               maxSize={30}
               className="flex flex-col rounded-xl bg-background"
             >
-              {/* Schema Selector aligned with tabs */}
-              <div className="flex items-center overflow-hidden">
-                <DatabaseSchemaSelector
-                  connectionId={connectionId}
-                  selectedSchema={selectedSchema ?? ""}
-                  onSchemaChange={setSelectedSchema}
-                />
-              </div>
-              {/* Database Sidebar */}
-              <div className="flex-1 overflow-hidden">
-                <DatabaseSidebar
-                  connectionId={connectionId}
-                  isLoading={isLoading}
-                  selectedDatabase={selectedDatabase ?? ""}
-                  selectedSchema={selectedSchema ?? ""}
-                />
-              </div>
+              {(() => {
+                const stored = connections.find((c) => c.profile.id === connectionId);
+                const dbType = stored?.profile.db_type;
+                
+                if (dbType === DbType.MongoDB) {
+                  return (
+                    <div className="flex-1 overflow-hidden">
+                      <MongoDBSidebar
+                        connectionId={connectionId}
+                        isLoading={isLoading}
+                      />
+                    </div>
+                  );
+                }
+                
+                if (dbType === DbType.Redis) {
+                  return (
+                    <div className="flex-1 overflow-hidden">
+                      <RedisSidebar
+                        connectionId={connectionId}
+                        isLoading={isLoading}
+                      />
+                    </div>
+                  );
+                }
+                
+                // Default: SQL databases
+                return (
+                  <>
+                    {/* Schema Selector aligned with tabs */}
+                    <div className="flex items-center overflow-hidden">
+                      <DatabaseSchemaSelector
+                        connectionId={connectionId}
+                        selectedSchema={selectedSchema ?? ""}
+                        onSchemaChange={setSelectedSchema}
+                      />
+                    </div>
+                    {/* Database Sidebar */}
+                    <div className="flex-1 overflow-hidden">
+                      <DatabaseSidebar
+                        connectionId={connectionId}
+                        isLoading={isLoading}
+                        selectedDatabase={selectedDatabase ?? ""}
+                        selectedSchema={selectedSchema ?? ""}
+                      />
+                    </div>
+                  </>
+                );
+              })()}
             </ResizablePanel>
             <ResizableHandle />
           </>

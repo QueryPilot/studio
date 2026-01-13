@@ -99,26 +99,41 @@ services:
       retries: 10
       start_period: 90s
 
-  # mongodb:
-  #   image: mongo:7.0
-  #   container_name: query-pilot-mongodb
-  #   ports:
-  #     - "17017:27017"
-  #   environment:
-  #     MONGO_INITDB_ROOT_USERNAME: devuser
-  #     MONGO_INITDB_ROOT_PASSWORD: devpass123
-  #     MONGO_INITDB_DATABASE: todoapp
-  #   volumes:
-  #     - mongodb_data:/data/db
-  #     - ./seeds/mongodb:/docker-entrypoint-initdb.d
-  #   networks:
-  #     - query-pilot-network
-  #   healthcheck:
-  #     test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
-  #   command: ["mongod", "--auth"]
+  mongodb:
+    image: mongo:7.0
+    container_name: query-pilot-mongodb
+    ports:
+      - "17017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: devuser
+      MONGO_INITDB_ROOT_PASSWORD: devpass123
+      MONGO_INITDB_DATABASE: todoapp
+    volumes:
+      - mongodb_data:/data/db
+      - ./seeds/mongodb:/docker-entrypoint-initdb.d:ro
+    networks:
+      - query-pilot-network
+    healthcheck:
+      test: ["CMD", "mongosh", "-u", "devuser", "-p", "devpass123", "--authenticationDatabase", "admin", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: query-pilot-redis
+    ports:
+      - "16379:6379"
+    command: redis-server --requirepass devpass123
+    volumes:
+      - redis_data:/data
+    networks:
+      - query-pilot-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "devpass123", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   oracle:
     image: gvenzl/oracle-xe:21-slim-faststart
@@ -196,3 +211,4 @@ volumes:
   sqlserver_data:
   oracle_data:
   mongodb_data:
+  redis_data:

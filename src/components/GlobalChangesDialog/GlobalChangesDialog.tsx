@@ -40,13 +40,16 @@ import { toast } from "sonner";
 import ReactDiffViewer from "react-diff-viewer-continued";
 import { useTheme } from "next-themes";
 
-// Map DbType to SqlDialect for CodeEditor
+// Map DbType to SqlDialect for CodeEditor (SQL databases only)
 const dbTypeToDialect: Record<DbType, SqlDialect> = {
   [DbType.PostgreSQL]: "postgresql",
   [DbType.MySQL]: "mysql",
   [DbType.MariaDB]: "mysql", // MariaDB uses MySQL syntax
   [DbType.SQLite]: "sqlite",
   [DbType.SQLServer]: "mssql",
+  // Non-SQL databases default to PostgreSQL dialect for syntax highlighting
+  [DbType.MongoDB]: "postgresql",
+  [DbType.Redis]: "postgresql",
 };
 
 interface GlobalChangesDialogProps {

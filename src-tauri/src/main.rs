@@ -139,6 +139,32 @@ fn main() {
             sql_engine::commands::sql_clear_schema,
             // Window menu management
             commands::update_window_menu,
+            // MongoDB commands
+            commands::mongo_list_databases,
+            commands::mongo_list_collections,
+            commands::mongo_find_documents,
+            commands::mongo_insert_document,
+            commands::mongo_update_document,
+            commands::mongo_delete_document,
+            commands::mongo_aggregate,
+            commands::mongo_count_documents,
+            commands::mongo_list_indexes,
+            commands::mongo_create_index,
+            commands::mongo_drop_index,
+            // Redis commands
+            commands::redis_get,
+            commands::redis_set,
+            commands::redis_delete,
+            commands::redis_ttl,
+            commands::redis_expire,
+            commands::redis_exists,
+            commands::redis_dbsize,
+            commands::redis_info,
+            commands::redis_hgetall,
+            commands::redis_hset,
+            commands::redis_lrange,
+            commands::redis_smembers,
+            commands::redis_type,
         ])
         .build(context)
         .expect("error while building tauri application");

@@ -24,7 +24,7 @@ import { IntrospectionService } from "./introspectionService";
 export interface ConnectionConfig {
   id: string;
   name: string;
-  db_type: "PostgreSQL" | "MySQL" | "MariaDB" | "SQLite" | "SQLServer";
+  db_type: "PostgreSQL" | "MySQL" | "MariaDB" | "SQLite" | "SQLServer" | "MongoDB" | "Redis";
   host: string;
   port: number;
   database: string;
