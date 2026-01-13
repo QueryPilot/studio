@@ -1,29 +1,23 @@
-/**
- * MongoDB Frontend Adapter
- *
- * Provides client-side interface for MongoDB operations via Tauri IPC.
- */
-
 import { invoke } from '@tauri-apps/api/core';
 import { DbType, type DatabaseParadigm } from '@/types/connection';
 import type {
   BaseAdapter,
   AdapterCapability,
   ConnectionTestResult,
+  DocumentQueryable,
 } from '../capabilities';
 import type {
   FindOptions,
   InsertResult,
+  InsertManyResult,
   UpdateResult,
   DeleteResult,
   CollectionInfo,
   MongoDatabaseInfo,
 } from '../types/mongodb';
+import type { DocumentOperation, DocumentResult } from '../types/ipc';
 
-/**
- * MongoDB adapter implementing document database operations
- */
-export class MongoDBAdapter implements BaseAdapter {
+export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
   readonly connectionId: string;
   readonly dbType: DbType = DbType.MongoDB;
   readonly paradigm: DatabaseParadigm = 'document';
@@ -33,8 +27,6 @@ export class MongoDBAdapter implements BaseAdapter {
   constructor(connectionId: string) {
     this.connectionId = connectionId;
   }
-
-  // ============ BaseAdapter Implementation ============
 
   async connect(): Promise<void> {
     await invoke('connect', { connectionId: this.connectionId });
@@ -58,18 +50,21 @@ export class MongoDBAdapter implements BaseAdapter {
     return ['document-queryable', 'schema-introspectable'];
   }
 
-  // ============ Document Operations ============
-
-  /**
-   * Find documents in a collection
-   */
-  async findDocuments<T = Record<string, unknown>>(
-    collection: string,
-    filter: Record<string, unknown> = {},
-    options?: FindOptions
-  ): Promise<T[]> {
-    return invoke('mongo_find_documents', {
+  private async execute<T>(operation: DocumentOperation): Promise<T> {
+    const result = await invoke<DocumentResult>('document_execute', {
       connId: this.connectionId,
+      operation,
+    });
+    return result.data as T;
+  }
+
+  async findDocuments(
+    collection: string,
+    filter: object = {},
+    options?: FindOptions
+  ): Promise<object[]> {
+    return this.execute<object[]>({
+      type: 'find',
       collection,
       filter,
       skip: options?.skip,
@@ -79,90 +74,72 @@ export class MongoDBAdapter implements BaseAdapter {
     });
   }
 
-  /**
-   * Insert a single document
-   */
-  async insertDocument(
-    collection: string,
-    document: Record<string, unknown>
-  ): Promise<InsertResult> {
-    return invoke('mongo_insert_document', {
-      connId: this.connectionId,
+  async insertDocument(collection: string, document: object): Promise<InsertResult> {
+    return this.execute<InsertResult>({
+      type: 'insert',
       collection,
       document,
     });
   }
 
-  /**
-   * Update a single document
-   */
+  async insertDocuments(collection: string, documents: object[]): Promise<InsertManyResult> {
+    return this.execute<InsertManyResult>({
+      type: 'insert_many',
+      collection,
+      documents,
+    });
+  }
+
   async updateDocument(
     collection: string,
-    filter: Record<string, unknown>,
-    update: Record<string, unknown>
+    filter: object,
+    update: object
   ): Promise<UpdateResult> {
-    return invoke('mongo_update_document', {
-      connId: this.connectionId,
+    return this.execute<UpdateResult>({
+      type: 'update',
       collection,
       filter,
       update,
     });
   }
 
-  /**
-   * Delete a single document
-   */
-  async deleteDocument(
-    collection: string,
-    filter: Record<string, unknown>
-  ): Promise<DeleteResult> {
-    return invoke('mongo_delete_document', {
-      connId: this.connectionId,
+  async deleteDocument(collection: string, filter: object): Promise<DeleteResult> {
+    return this.execute<DeleteResult>({
+      type: 'delete',
       collection,
       filter,
     });
   }
 
-  /**
-   * Run an aggregation pipeline
-   */
-  async aggregate<T = Record<string, unknown>>(
-    collection: string,
-    pipeline: Record<string, unknown>[]
-  ): Promise<T[]> {
-    return invoke('mongo_aggregate', {
-      connId: this.connectionId,
+  async aggregate(collection: string, pipeline: object[]): Promise<object[]> {
+    return this.execute<object[]>({
+      type: 'aggregate',
       collection,
       pipeline,
     });
   }
 
-  /**
-   * Count documents in a collection
-   */
-  async countDocuments(
-    collection: string,
-    filter?: Record<string, unknown>
-  ): Promise<number> {
-    return invoke('mongo_count_documents', {
-      connId: this.connectionId,
+  async countDocuments(collection: string, filter?: object): Promise<number> {
+    return this.execute<number>({
+      type: 'count',
       collection,
       filter,
     });
   }
 
-  /**
-   * List all collections in the current database
-   */
   async listCollections(): Promise<CollectionInfo[]> {
-    return invoke('mongo_list_collections', {
-      connId: this.connectionId,
+    return this.execute<CollectionInfo[]>({
+      type: 'list_collections',
     });
   }
 
-  /**
-   * List all databases
-   */
+  async runCommand(command: object): Promise<object> {
+    return this.execute<object>({
+      type: 'run_command',
+      command,
+    });
+  }
+
   async listDatabases(): Promise<MongoDatabaseInfo[]> {
     const result = await invoke<{ name: string }[]>('mongo_list_databases', {
       connId: this.connectionId,

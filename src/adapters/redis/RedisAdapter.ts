@@ -1,21 +1,22 @@
-/**
- * Redis Frontend Adapter
- *
- * Provides client-side interface for Redis operations via Tauri IPC.
- */
-
 import { invoke } from '@tauri-apps/api/core';
 import { DbType, type DatabaseParadigm } from '@/types/connection';
 import type {
   BaseAdapter,
   AdapterCapability,
   ConnectionTestResult,
+  RichKeyValueOperable,
+  SetOptions,
 } from '../capabilities';
+import type {
+  RedisValue,
+  RedisType,
+  ScanResult,
+  ZSetMember,
+  StreamEntry,
+} from '../types/redis';
+import type { KeyValueOperation, KeyValueResult } from '../types/ipc';
 
-/**
- * Redis adapter implementing key-value database operations
- */
-export class RedisAdapter implements BaseAdapter {
+export class RedisAdapter implements BaseAdapter, RichKeyValueOperable {
   readonly connectionId: string;
   readonly dbType: DbType = DbType.Redis;
   readonly paradigm: DatabaseParadigm = 'keyvalue';
@@ -26,8 +27,6 @@ export class RedisAdapter implements BaseAdapter {
   constructor(connectionId: string) {
     this.connectionId = connectionId;
   }
-
-  // ============ BaseAdapter Implementation ============
 
   async connect(): Promise<void> {
     await invoke('connect', { connectionId: this.connectionId });
@@ -51,143 +50,146 @@ export class RedisAdapter implements BaseAdapter {
     return ['keyvalue-operable', 'rich-keyvalue-operable'];
   }
 
-  // ============ Key-Value Operations ============
-
-  /**
-   * Get a string value
-   */
-  async getString(key: string): Promise<string | null> {
-    return invoke('redis_get', {
+  private async execute(operation: KeyValueOperation): Promise<KeyValueResult> {
+    return invoke<KeyValueResult>('keyvalue_execute', {
       connId: this.connectionId,
-      key,
+      operation,
     });
   }
 
-  /**
-   * Set a string value
-   */
-  async setString(key: string, value: string, ttlSeconds?: number): Promise<void> {
-    await invoke('redis_set', {
-      connId: this.connectionId,
-      key,
-      value,
-      ttlSeconds,
-    });
+  async getKey(key: string): Promise<RedisValue | null> {
+    const result = await this.execute({ type: 'get', key });
+    return result.type === 'value' ? result.data : null;
   }
 
-  /**
-   * Delete a key
-   */
-  async deleteKey(key: string): Promise<number> {
-    return invoke('redis_delete', {
-      connId: this.connectionId,
-      key,
-    });
+  async setKey(key: string, value: RedisValue, options?: SetOptions): Promise<void> {
+    await this.execute({ type: 'set', key, value, options });
   }
 
-  /**
-   * Check if a key exists
-   */
-  async keyExists(key: string): Promise<boolean> {
-    return invoke('redis_exists', {
-      connId: this.connectionId,
-      key,
-    });
+  async deleteKeys(keys: string[]): Promise<number> {
+    const result = await this.execute({ type: 'delete', keys });
+    return result.type === 'count' ? result.data : 0;
   }
 
-  /**
-   * Get TTL of a key (-1 if no expiry, -2 if key doesn't exist)
-   */
+  async keyExists(keys: string[]): Promise<number> {
+    const result = await this.execute({ type: 'exists', keys });
+    return result.type === 'count' ? result.data : 0;
+  }
+
+  async scanKeys(pattern: string, cursor?: string, count?: number): Promise<ScanResult> {
+    const result = await this.execute({
+      type: 'scan',
+      pattern,
+      cursor: cursor ? parseInt(cursor, 10) : 0,
+      count: count ?? 10,
+    });
+    return result.type === 'scan' ? result.data : { cursor: '0', keys: [] };
+  }
+
+  async getKeyType(key: string): Promise<RedisType> {
+    const result = await this.execute({ type: 'type', key });
+    return result.type === 'key_type' ? result.data : 'unknown';
+  }
+
   async getKeyTTL(key: string): Promise<number> {
-    return invoke('redis_ttl', {
-      connId: this.connectionId,
-      key,
-    });
+    const result = await this.execute({ type: 'ttl', key });
+    return result.type === 'ttl' ? result.data : -1;
   }
 
-  /**
-   * Set TTL on a key
-   */
   async setKeyTTL(key: string, seconds: number): Promise<boolean> {
-    return invoke('redis_expire', {
-      connId: this.connectionId,
-      key,
-      seconds,
-    });
+    const result = await this.execute({ type: 'set_ttl', key, seconds });
+    return result.type === 'bool' ? result.data : false;
   }
 
-  /**
-   * Get database size (number of keys)
-   */
+  async executeRaw(command: string, args: string[]): Promise<RedisValue> {
+    const result = await this.execute({ type: 'execute_raw', command, args });
+    if (result.type === 'value' && result.data) {
+      return result.data;
+    }
+    return { type: 'nil' };
+  }
+
   async getDatabaseSize(): Promise<number> {
-    return invoke('redis_dbsize', {
-      connId: this.connectionId,
-    });
+    const result = await this.execute({ type: 'db_size' });
+    return result.type === 'count' ? result.data : 0;
   }
 
-  /**
-   * Get server info
-   */
-  async getServerInfo(): Promise<string> {
-    return invoke('redis_info', {
-      connId: this.connectionId,
-    });
+  async selectDatabase(index: number): Promise<void> {
+    await this.execute({ type: 'select_db', index });
+    this._currentDb = index;
   }
 
-  /**
-   * Get current database index
-   */
+  async getServerInfo(section?: string): Promise<Record<string, string>> {
+    const result = await this.execute({ type: 'server_info', section });
+    return result.type === 'server_info' ? result.data : {};
+  }
+
   getCurrentDatabase(): number {
     return this._currentDb;
   }
 
-  // ============ Hash Operations ============
-
-  /**
-   * Get all fields and values from a hash
-   */
   async hashGetAll(key: string): Promise<Record<string, string>> {
-    return invoke('redis_hgetall', {
-      connId: this.connectionId,
-      key,
-    });
+    const result = await this.execute({ type: 'hash_get_all', key });
+    return result.type === 'hash' ? result.data : {};
   }
 
-  /**
-   * Set a hash field
-   */
-  async hashSet(key: string, field: string, value: string): Promise<boolean> {
-    return invoke('redis_hset', {
-      connId: this.connectionId,
-      key,
-      field,
-      value,
-    });
+  async hashSet(key: string, fields: Record<string, string>): Promise<number> {
+    const result = await this.execute({ type: 'hash_set', key, fields });
+    return result.type === 'count' ? result.data : 0;
   }
 
-  // ============ List Operations ============
+  async hashDelete(key: string, fields: string[]): Promise<number> {
+    const result = await this.execute({ type: 'hash_delete', key, fields });
+    return result.type === 'count' ? result.data : 0;
+  }
 
-  /**
-   * Get list range
-   */
   async listRange(key: string, start: number, stop: number): Promise<string[]> {
-    return invoke('redis_lrange', {
-      connId: this.connectionId,
-      key,
-      start,
-      stop,
-    });
+    const result = await this.execute({ type: 'list_range', key, start, stop });
+    return result.type === 'list' ? result.data : [];
   }
 
-  // ============ Set Operations ============
+  async listPush(key: string, values: string[], side: 'left' | 'right'): Promise<number> {
+    const result = await this.execute({ type: 'list_push', key, values, side });
+    return result.type === 'count' ? result.data : 0;
+  }
 
-  /**
-   * Get set members
-   */
+  async listLen(key: string): Promise<number> {
+    const result = await this.execute({ type: 'list_len', key });
+    return result.type === 'count' ? result.data : 0;
+  }
+
   async setMembers(key: string): Promise<string[]> {
-    return invoke('redis_smembers', {
-      connId: this.connectionId,
-      key,
-    });
+    const result = await this.execute({ type: 'set_members', key });
+    return result.type === 'set' ? result.data : [];
+  }
+
+  async setAdd(key: string, members: string[]): Promise<number> {
+    const result = await this.execute({ type: 'set_add', key, members });
+    return result.type === 'count' ? result.data : 0;
+  }
+
+  async setRemove(key: string, members: string[]): Promise<number> {
+    const result = await this.execute({ type: 'set_remove', key, members });
+    return result.type === 'count' ? result.data : 0;
+  }
+
+  async zsetRange(key: string, start: number, stop: number, withScores?: boolean): Promise<ZSetMember[]> {
+    const result = await this.execute({ type: 'zset_range', key, start, stop, with_scores: withScores ?? false });
+    return result.type === 'zset' ? result.data : [];
+  }
+
+  async zsetAdd(key: string, members: ZSetMember[]): Promise<number> {
+    const result = await this.execute({ type: 'zset_add', key, members });
+    return result.type === 'count' ? result.data : 0;
+  }
+
+  async streamRange(key: string, start: string, end: string, count?: number): Promise<StreamEntry[]> {
+    const result = await this.execute({ type: 'stream_range', key, start, end, count });
+    return result.type === 'stream' ? result.data : [];
+  }
+
+  async streamLen(key: string): Promise<number> {
+    const result = await this.execute({ type: 'stream_len', key });
+    return result.type === 'count' ? result.data : 0;
   }
 }
