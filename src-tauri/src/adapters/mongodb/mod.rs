@@ -4,7 +4,9 @@
 //! mongodb Rust driver.
 
 mod adapter;
+mod msgpack_converter;
 mod types;
 
 pub use adapter::MongoDbAdapter;
+pub use msgpack_converter::BsonMsgPackEncoder;
 pub use types::*;

@@ -354,6 +354,17 @@ export type StreamMessage =
   | { type: "error"; code: string; message: string }
   | { type: "interrupted"; resumable: boolean; message: string };
 
+export type DocumentStreamMessage =
+  | { type: "started"; collection: string; estimated_count?: number }
+  | { type: "success"; total_documents: number; execution_time_ms: number }
+  | { type: "error"; code: string; message: string };
+
+export type KeyValueStreamMessage =
+  | { type: "started"; pattern: string; estimated_keys?: number }
+  | { type: "progress"; cursor: number; keys_so_far: number }
+  | { type: "success"; total_keys: number; execution_time_ms: number }
+  | { type: "error"; code: string; message: string };
+
 // Backend API
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class BackendAPI {

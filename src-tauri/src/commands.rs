@@ -4,6 +4,8 @@ use tauri::State;
 use tokio::time::{timeout, Duration};
 
 use crate::adapters::postgres::DirectMsgPackEncoder;
+use crate::adapters::mongodb::BsonMsgPackEncoder;
+use crate::adapters::redis::RedisMsgPackEncoder;
 use rmp_serde;
 use crate::core::ConnectionManager;
 use crate::ssh;
@@ -1462,6 +1464,143 @@ pub async fn redis_type(
         .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
     
     adapter.key_type(&key).await.map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Streaming Commands for MongoDB and Redis
+// ============================================================================
+
+#[tauri::command]
+pub async fn mongo_find_documents_stream(
+    conn_id: String,
+    collection: String,
+    filter: serde_json::Value,
+    skip: Option<u64>,
+    limit: Option<u64>,
+    sort: Option<serde_json::Value>,
+    projection: Option<serde_json::Value>,
+    batch_size: Option<usize>,
+    metadata_channel: tauri::ipc::Channel<DocumentStreamMessage>,
+    data_channel: tauri::ipc::Channel<tauri::ipc::Response>,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<(), String> {
+    let start = Instant::now();
+    let batch_size = batch_size.unwrap_or(100);
+    
+    let mongo_adapters = manager.mongo_adapters.read().await;
+    let adapter = mongo_adapters.get(&conn_id)
+        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    
+    let estimated_count = adapter.count_documents(&collection, Some(filter.clone()))
+        .await
+        .ok();
+    
+    metadata_channel.send(DocumentStreamMessage::Started {
+        collection: collection.clone(),
+        estimated_count,
+    }).map_err(|e| e.to_string())?;
+    
+    let options = crate::core::capabilities::FindOptions {
+        skip,
+        limit,
+        sort,
+        projection,
+    };
+    
+    let documents = adapter.find_documents(&collection, filter, options)
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    let mut encoder = BsonMsgPackEncoder::new();
+    let total_documents = documents.len();
+    
+    for chunk in documents.chunks(batch_size) {
+        let bson_docs: Vec<bson::Document> = chunk.iter()
+            .filter_map(|v| {
+                bson::to_document(v).ok()
+            })
+            .collect();
+        
+        let encoded = encoder.encode_batch(&bson_docs)
+            .map_err(|e| e.to_string())?;
+        
+        data_channel.send(tauri::ipc::Response::new(encoded))
+            .map_err(|e| e.to_string())?;
+    }
+    
+    let execution_time_ms = start.elapsed().as_millis() as u64;
+    
+    metadata_channel.send(DocumentStreamMessage::Success {
+        total_documents,
+        execution_time_ms,
+    }).map_err(|e| e.to_string())?;
+    
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn redis_scan_stream(
+    conn_id: String,
+    pattern: String,
+    count: Option<u32>,
+    metadata_channel: tauri::ipc::Channel<KeyValueStreamMessage>,
+    data_channel: tauri::ipc::Channel<tauri::ipc::Response>,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<(), String> {
+    use crate::core::capabilities::KeyValueOperable;
+    
+    let start = Instant::now();
+    let count_per_scan = count.unwrap_or(100);
+    
+    let redis_adapters = manager.redis_adapters.read().await;
+    let adapter = redis_adapters.get(&conn_id)
+        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    
+    let estimated_keys = adapter.dbsize().await.ok();
+    
+    metadata_channel.send(KeyValueStreamMessage::Started {
+        pattern: pattern.clone(),
+        estimated_keys,
+    }).map_err(|e| e.to_string())?;
+    
+    let mut encoder = RedisMsgPackEncoder::new();
+    let mut cursor: u64 = 0;
+    let mut total_keys = 0;
+    
+    loop {
+        let scan_result = adapter.scan_keys(&pattern, cursor, count_per_scan)
+            .await
+            .map_err(|e| e.to_string())?;
+        
+        if !scan_result.keys.is_empty() {
+            let encoded = encoder.encode_keys(&scan_result.keys)
+                .map_err(|e| e.to_string())?;
+            
+            data_channel.send(tauri::ipc::Response::new(encoded))
+                .map_err(|e| e.to_string())?;
+            
+            total_keys += scan_result.keys.len();
+        }
+        
+        metadata_channel.send(KeyValueStreamMessage::Progress {
+            cursor: scan_result.cursor,
+            keys_so_far: total_keys,
+        }).map_err(|e| e.to_string())?;
+        
+        cursor = scan_result.cursor;
+        if cursor == 0 {
+            break;
+        }
+    }
+    
+    let execution_time_ms = start.elapsed().as_millis() as u64;
+    
+    metadata_channel.send(KeyValueStreamMessage::Success {
+        total_keys,
+        execution_time_ms,
+    }).map_err(|e| e.to_string())?;
+    
+    Ok(())
 }
 
 // ============================================================================
