@@ -1514,12 +1514,37 @@ pub async fn mongo_find_documents_stream(
     let mut encoder = BsonMsgPackEncoder::new();
     let total_documents = documents.len();
     
+    // Critical: Current implementation buffers entire result set in memory before chunking.
+    // This is not true streaming - true cursor streaming is deferred to future work.
+    // For now, enforce a size limit to prevent memory exhaustion.
+    const MAX_STREAMING_DOCUMENTS: usize = 100_000;
+    if total_documents > MAX_STREAMING_DOCUMENTS {
+        return Err(format!(
+            "Result set too large for streaming: {} documents exceeds limit of {}. \
+            Use a filter or limit to reduce the result set size.",
+            total_documents, MAX_STREAMING_DOCUMENTS
+        ));
+    }
+    
+    if total_documents > 10_000 {
+        tracing::warn!(
+            "Large result set ({} documents) being buffered in memory. \
+            True cursor streaming is not yet implemented.",
+            total_documents
+        );
+    }
+    
     for chunk in documents.chunks(batch_size) {
+        // Convert each document with proper error handling instead of silently dropping failures
         let bson_docs: Vec<bson::Document> = chunk.iter()
-            .filter_map(|v| {
-                bson::to_document(v).ok()
+            .enumerate()
+            .map(|(i, v)| {
+                bson::to_document(v).map_err(|e| format!(
+                    "Failed to convert document at index {} to BSON: {}",
+                    i, e
+                ))
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
         
         let encoded = encoder.encode_batch(&bson_docs)
             .map_err(|e| e.to_string())?;
