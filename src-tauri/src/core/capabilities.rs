@@ -167,6 +167,7 @@ pub trait RichKeyValueOperable: KeyValueOperable {
 // ============ Supporting Types ============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CapabilityTestResult {
     pub success: bool,
     pub message: String,
@@ -185,18 +186,21 @@ pub enum AdapterCapability {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CapabilityQueryResult {
     pub columns: Vec<CapabilityColumnMeta>,
     pub rows: Vec<Vec<Value>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CapabilityColumnMeta {
     pub name: String,
     pub data_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FindOptions {
     pub skip: Option<u64>,
     pub limit: Option<u64>,
@@ -216,28 +220,33 @@ impl Default for FindOptions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InsertResult {
     pub inserted_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InsertManyResult {
     pub inserted_ids: Vec<String>,
     pub inserted_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateResult {
     pub matched_count: u64,
     pub modified_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DeleteResult {
     pub deleted_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CollectionInfo {
     pub name: String,
     pub doc_count: Option<u64>,
@@ -245,22 +254,26 @@ pub struct CollectionInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DatabaseInfo {
     pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SchemaInfo {
     pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TableInfo {
     pub name: String,
     pub table_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ColumnInfo {
     pub name: String,
     pub data_type: String,
@@ -270,6 +283,7 @@ pub struct ColumnInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct IndexInfo {
     pub name: String,
     pub columns: Vec<String>,
@@ -319,6 +333,7 @@ impl std::fmt::Display for RedisType {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SetOptions {
     pub ttl_seconds: Option<u64>,
     /// Only set if not exists
@@ -328,12 +343,14 @@ pub struct SetOptions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanResult {
     pub cursor: u64,
     pub keys: Vec<KeyInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct KeyInfo {
     pub key: String,
     pub key_type: RedisType,
@@ -349,12 +366,14 @@ pub enum ListSide {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ZSetMember {
     pub member: String,
     pub score: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StreamEntry {
     pub id: String,
     pub fields: HashMap<String, String>,
