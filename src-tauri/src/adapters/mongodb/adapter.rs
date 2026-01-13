@@ -744,6 +744,75 @@ impl MongoDbAdapter {
     }
 }
 
+#[async_trait]
+impl DocumentQueryable for MongoDbAdapter {
+    async fn find_documents(
+        &self,
+        collection: &str,
+        filter: Value,
+        options: FindOptions,
+    ) -> Result<Vec<Value>, AppError> {
+        self.find_documents(collection, filter, options).await
+    }
+
+    async fn insert_document(
+        &self,
+        collection: &str,
+        doc: Value,
+    ) -> Result<InsertResult, AppError> {
+        self.insert_document(collection, doc).await
+    }
+
+    async fn insert_documents(
+        &self,
+        collection: &str,
+        docs: Vec<Value>,
+    ) -> Result<InsertManyResult, AppError> {
+        self.insert_documents(collection, docs).await
+    }
+
+    async fn update_document(
+        &self,
+        collection: &str,
+        filter: Value,
+        update: Value,
+    ) -> Result<UpdateResult, AppError> {
+        self.update_document(collection, filter, update).await
+    }
+
+    async fn delete_document(
+        &self,
+        collection: &str,
+        filter: Value,
+    ) -> Result<DeleteResult, AppError> {
+        self.delete_document(collection, filter).await
+    }
+
+    async fn aggregate(
+        &self,
+        collection: &str,
+        pipeline: Vec<Value>,
+    ) -> Result<Vec<Value>, AppError> {
+        self.aggregate(collection, pipeline).await
+    }
+
+    async fn count_documents(
+        &self,
+        collection: &str,
+        filter: Option<Value>,
+    ) -> Result<u64, AppError> {
+        self.count_documents(collection, filter).await
+    }
+
+    async fn list_collections(&self) -> Result<Vec<CollectionInfo>, AppError> {
+        self.list_collections().await
+    }
+
+    async fn run_command(&self, command: Value) -> Result<Value, AppError> {
+        self.run_command(command).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
