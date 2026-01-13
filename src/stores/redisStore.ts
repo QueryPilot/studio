@@ -6,6 +6,7 @@
  */
 
 import { create } from "zustand";
+import { invoke } from "@tauri-apps/api/core";
 import type { 
   RedisValue, 
   RedisType, 
@@ -27,8 +28,14 @@ export interface KeyMetadata {
   sizeBytes?: number;
 }
 
+interface ScanResult {
+  cursor: number;
+  keys: KeyMetadata[];
+}
+
 export interface RedisStoreState {
   // Current context
+  connectionId: string | null;
   currentDatabase: number; // 0-15
 
   // Server info
@@ -43,16 +50,20 @@ export interface RedisStoreState {
   keyTTL: number | null;
 
   // Scan state (for pagination)
-  scanCursor: string;
+  scanCursor: number;
   scanPattern: string;
   scannedKeys: KeyMetadata[];
   scanLoading: boolean;
   scanComplete: boolean;
 
+  // Grouping state
+  groupedKeys: Map<string, number>;
+
   // Database info
   databaseSizes: Map<number, number>; // db index -> key count
 
   // Actions
+  setConnectionId: (id: string) => void;
   setCurrentDatabase: (index: number) => void;
   
   // Server info actions
@@ -67,10 +78,8 @@ export interface RedisStoreState {
 
   // Scan actions
   setScanPattern: (pattern: string) => void;
-  startScan: (pattern: string) => void;
-  appendScannedKeys: (keys: KeyMetadata[], cursor: string, complete: boolean) => void;
-  setScanLoading: (loading: boolean) => void;
   resetScan: () => void;
+  fetchNextPage: (count?: number) => Promise<void>;
 
   // Database info actions
   setDatabaseSize: (index: number, size: number) => void;
@@ -83,6 +92,7 @@ export interface RedisStoreState {
 // ============ Initial State ============
 
 const initialState = {
+  connectionId: null,
   currentDatabase: 0,
   serverInfo: null as RedisServerInfo | null,
   loadedModules: [] as ModuleInfo[],
@@ -91,18 +101,33 @@ const initialState = {
   keyValue: null as RedisValue | null,
   keyType: null as RedisType | null,
   keyTTL: null as number | null,
-  scanCursor: "0",
+  scanCursor: 0,
   scanPattern: "*",
   scannedKeys: [] as KeyMetadata[],
   scanLoading: false,
   scanComplete: false,
+  groupedKeys: new Map<string, number>(),
   databaseSizes: new Map<number, number>(),
+};
+
+const computeGroups = (keys: KeyMetadata[]): Map<string, number> => {
+  const groups = new Map<string, number>();
+  for (const k of keys) {
+    const parts = k.key.split(":");
+    if (parts.length > 1) {
+      const prefix = parts[0] + ":";
+      groups.set(prefix, (groups.get(prefix) || 0) + 1);
+    }
+  }
+  return groups;
 };
 
 // ============ Store ============
 
-export const useRedisStore = create<RedisStoreState>()((set) => ({
+export const useRedisStore = create<RedisStoreState>()((set, get) => ({
   ...initialState,
+
+  setConnectionId: (id) => set({ connectionId: id }),
 
   setCurrentDatabase: (index) => {
     set({ 
@@ -112,10 +137,11 @@ export const useRedisStore = create<RedisStoreState>()((set) => ({
       keyValue: null,
       keyType: null,
       keyTTL: null,
-      scanCursor: "0",
+      scanCursor: 0,
       scannedKeys: [],
       scanComplete: false,
       keyPatterns: [],
+      groupedKeys: new Map(),
     });
   },
 
@@ -159,38 +185,57 @@ export const useRedisStore = create<RedisStoreState>()((set) => ({
   // Scan actions
   setScanPattern: (pattern) => {
     set({ scanPattern: pattern });
-  },
-
-  startScan: (pattern) => {
-    set({
-      scanPattern: pattern,
-      scanCursor: "0",
-      scannedKeys: [],
-      scanLoading: true,
-      scanComplete: false,
-    });
-  },
-
-  appendScannedKeys: (keys, cursor, complete) => {
-    set((state) => ({
-      scannedKeys: [...state.scannedKeys, ...keys],
-      scanCursor: cursor,
-      scanComplete: complete,
-      scanLoading: false,
-    }));
-  },
-
-  setScanLoading: (loading) => {
-    set({ scanLoading: loading });
+    get().resetScan();
   },
 
   resetScan: () => {
     set({
-      scanCursor: "0",
+      scanCursor: 0,
       scannedKeys: [],
       scanLoading: false,
       scanComplete: false,
+      groupedKeys: new Map(),
     });
+  },
+
+  fetchNextPage: async (count = 100) => {
+    const { connectionId, scanCursor, scanPattern, scanComplete, scanLoading } = get();
+    
+    if (!connectionId || scanComplete || scanLoading) return;
+
+    set({ scanLoading: true });
+
+    try {
+      const result = await invoke<{ type: string; data: ScanResult }>("keyvalue_execute", {
+        connId: connectionId,
+        operation: {
+          type: "scan",
+          pattern: scanPattern,
+          cursor: scanCursor,
+          count,
+        },
+      });
+
+      if (result.type === "scan") {
+        const { cursor: newCursor, keys } = result.data;
+        
+        set((state) => {
+          const allKeys = [...state.scannedKeys, ...keys];
+          const groups = computeGroups(allKeys);
+
+          return {
+            scannedKeys: allKeys,
+            scanCursor: newCursor,
+            scanComplete: newCursor === 0,
+            scanLoading: false,
+            groupedKeys: groups,
+          };
+        });
+      }
+    } catch (err) {
+      console.error("Failed to scan keys:", err);
+      set({ scanLoading: false });
+    }
   },
 
   // Database info actions
@@ -213,3 +258,5 @@ export const useRedisStore = create<RedisStoreState>()((set) => ({
     });
   },
 }));
+
+
