@@ -1464,9 +1464,371 @@ pub async fn redis_type(
     adapter.key_type(&key).await.map_err(|e| e.to_string())
 }
 
+// ============================================================================
+// Paradigm-Level IPC Commands
+// ============================================================================
+
+/// Operation enum for document database commands (MongoDB, etc.)
+/// This provides a unified IPC interface instead of per-command functions.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DocumentOperation {
+    Find {
+        collection: String,
+        filter: serde_json::Value,
+        #[serde(flatten)]
+        options: crate::core::capabilities::FindOptions,
+    },
+    Insert {
+        collection: String,
+        document: serde_json::Value,
+    },
+    InsertMany {
+        collection: String,
+        documents: Vec<serde_json::Value>,
+    },
+    Update {
+        collection: String,
+        filter: serde_json::Value,
+        update: serde_json::Value,
+    },
+    Delete {
+        collection: String,
+        filter: serde_json::Value,
+    },
+    Aggregate {
+        collection: String,
+        pipeline: Vec<serde_json::Value>,
+    },
+    Count {
+        collection: String,
+        filter: Option<serde_json::Value>,
+    },
+    ListCollections,
+    RunCommand {
+        command: serde_json::Value,
+    },
+}
+
+/// Result enum for document operations
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+pub enum DocumentResult {
+    Documents(Vec<serde_json::Value>),
+    Insert(crate::core::capabilities::InsertResult),
+    InsertMany(crate::core::capabilities::InsertManyResult),
+    Update(crate::core::capabilities::UpdateResult),
+    Delete(crate::core::capabilities::DeleteResult),
+    Count(u64),
+    Collections(Vec<crate::core::capabilities::CollectionInfo>),
+    Command(serde_json::Value),
+}
+
+/// Operation enum for key-value database commands (Redis, etc.)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum KeyValueOperation {
+    // Basic operations
+    Get { key: String },
+    Set {
+        key: String,
+        value: crate::core::capabilities::RedisValue,
+        #[serde(default)]
+        options: crate::core::capabilities::SetOptions,
+    },
+    Delete { keys: Vec<String> },
+    Exists { keys: Vec<String> },
+    Scan {
+        pattern: String,
+        cursor: u64,
+        count: u32,
+    },
+    Type { key: String },
+    Ttl { key: String },
+    SetTtl { key: String, seconds: u64 },
+    ExecuteRaw { command: String, args: Vec<String> },
+    DbSize,
+    SelectDb { index: u8 },
+    ServerInfo { section: Option<String> },
+    // Rich operations - Hash
+    HashGetAll { key: String },
+    HashSet { key: String, fields: std::collections::HashMap<String, String> },
+    HashDelete { key: String, fields: Vec<String> },
+    // Rich operations - List
+    ListRange { key: String, start: i64, stop: i64 },
+    ListPush { key: String, values: Vec<String>, side: crate::core::capabilities::ListSide },
+    ListLen { key: String },
+    // Rich operations - Set
+    SetMembers { key: String },
+    SetAdd { key: String, members: Vec<String> },
+    SetRemove { key: String, members: Vec<String> },
+    // Rich operations - Sorted Set
+    ZSetRange { key: String, start: i64, stop: i64, with_scores: bool },
+    ZSetAdd { key: String, members: Vec<crate::core::capabilities::ZSetMember> },
+    // Rich operations - Stream
+    StreamRange { key: String, start: String, end: String, count: Option<u32> },
+    StreamLen { key: String },
+}
+
+/// Result enum for key-value operations
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+pub enum KeyValueResult {
+    Value(Option<crate::core::capabilities::RedisValue>),
+    Ok,
+    Count(u64),
+    Bool(bool),
+    Scan(crate::core::capabilities::ScanResult),
+    KeyType(crate::core::capabilities::RedisType),
+    Ttl(i64),
+    ServerInfo(std::collections::HashMap<String, String>),
+    // Rich results
+    Hash(std::collections::HashMap<String, String>),
+    List(Vec<String>),
+    Set(Vec<String>),
+    ZSet(Vec<crate::core::capabilities::ZSetMember>),
+    Stream(Vec<crate::core::capabilities::StreamEntry>),
+}
+
+/// Execute a document database operation (MongoDB, etc.)
+/// This is a paradigm-level command that routes to the appropriate trait method.
+#[tauri::command]
+pub async fn document_execute(
+    conn_id: String,
+    operation: DocumentOperation,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<DocumentResult, String> {
+    #[allow(unused_imports)]
+    use crate::core::capabilities::DocumentQueryable;
+    
+    let mongo_adapters = manager.mongo_adapters.read().await;
+    let adapter = mongo_adapters.get(&conn_id)
+        .ok_or_else(|| "Document adapter not found for this connection".to_string())?;
+    
+    match operation {
+        DocumentOperation::Find { collection, filter, options } => {
+            let docs = adapter.find_documents(&collection, filter, options).await
+                .map_err(|e| e.to_string())?;
+            Ok(DocumentResult::Documents(docs))
+        }
+        DocumentOperation::Insert { collection, document } => {
+            let result = adapter.insert_document(&collection, document).await
+                .map_err(|e| e.to_string())?;
+            Ok(DocumentResult::Insert(result))
+        }
+        DocumentOperation::InsertMany { collection, documents } => {
+            let result = adapter.insert_documents(&collection, documents).await
+                .map_err(|e| e.to_string())?;
+            Ok(DocumentResult::InsertMany(result))
+        }
+        DocumentOperation::Update { collection, filter, update } => {
+            let result = adapter.update_document(&collection, filter, update).await
+                .map_err(|e| e.to_string())?;
+            Ok(DocumentResult::Update(result))
+        }
+        DocumentOperation::Delete { collection, filter } => {
+            let result = adapter.delete_document(&collection, filter).await
+                .map_err(|e| e.to_string())?;
+            Ok(DocumentResult::Delete(result))
+        }
+        DocumentOperation::Aggregate { collection, pipeline } => {
+            let docs = adapter.aggregate(&collection, pipeline).await
+                .map_err(|e| e.to_string())?;
+            Ok(DocumentResult::Documents(docs))
+        }
+        DocumentOperation::Count { collection, filter } => {
+            let count = adapter.count_documents(&collection, filter).await
+                .map_err(|e| e.to_string())?;
+            Ok(DocumentResult::Count(count))
+        }
+        DocumentOperation::ListCollections => {
+            let collections = adapter.list_collections().await
+                .map_err(|e| e.to_string())?;
+            Ok(DocumentResult::Collections(collections))
+        }
+        DocumentOperation::RunCommand { command } => {
+            let result = adapter.run_command(command).await
+                .map_err(|e| e.to_string())?;
+            Ok(DocumentResult::Command(result))
+        }
+    }
+}
+
+/// Execute a key-value database operation (Redis, etc.)
+/// This is a paradigm-level command that routes to the appropriate trait method.
+#[tauri::command]
+pub async fn keyvalue_execute(
+    conn_id: String,
+    operation: KeyValueOperation,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<KeyValueResult, String> {
+    use crate::core::capabilities::{KeyValueOperable, RichKeyValueOperable};
+    
+    let redis_adapters = manager.redis_adapters.read().await;
+    let adapter = redis_adapters.get(&conn_id)
+        .ok_or_else(|| "Key-value adapter not found for this connection".to_string())?;
+    
+    match operation {
+        // Basic operations
+        KeyValueOperation::Get { key } => {
+            let value = adapter.get_key(&key).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Value(value))
+        }
+        KeyValueOperation::Set { key, value, options } => {
+            adapter.set_key(&key, value, options).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Ok)
+        }
+        KeyValueOperation::Delete { keys } => {
+            let count = adapter.delete_keys(&keys).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Count(count))
+        }
+        KeyValueOperation::Exists { keys } => {
+            let count = KeyValueOperable::key_exists(adapter, &keys).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Count(count))
+        }
+        KeyValueOperation::Scan { pattern, cursor, count } => {
+            let result = adapter.scan_keys(&pattern, cursor, count).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Scan(result))
+        }
+        KeyValueOperation::Type { key } => {
+            let key_type = adapter.get_key_type(&key).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::KeyType(key_type))
+        }
+        KeyValueOperation::Ttl { key } => {
+            let ttl = adapter.get_key_ttl(&key).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Ttl(ttl))
+        }
+        KeyValueOperation::SetTtl { key, seconds } => {
+            let success = adapter.set_key_ttl(&key, seconds).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Bool(success))
+        }
+        KeyValueOperation::ExecuteRaw { command, args } => {
+            let value = adapter.execute_raw(&command, &args).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Value(Some(value)))
+        }
+        KeyValueOperation::DbSize => {
+            let size = adapter.get_database_size().await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Count(size))
+        }
+        KeyValueOperation::SelectDb { index } => {
+            adapter.select_database(index).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Ok)
+        }
+        KeyValueOperation::ServerInfo { section } => {
+            let info = adapter.get_server_info(section.as_deref()).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::ServerInfo(info))
+        }
+        // Rich operations - Hash
+        KeyValueOperation::HashGetAll { key } => {
+            let hash = adapter.hash_get_all(&key).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Hash(hash))
+        }
+        KeyValueOperation::HashSet { key, fields } => {
+            let count = adapter.hash_set(&key, fields).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Count(count))
+        }
+        KeyValueOperation::HashDelete { key, fields } => {
+            let count = adapter.hash_delete(&key, &fields).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Count(count))
+        }
+        // Rich operations - List
+        KeyValueOperation::ListRange { key, start, stop } => {
+            let list = adapter.list_range(&key, start, stop).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::List(list))
+        }
+        KeyValueOperation::ListPush { key, values, side } => {
+            let count = adapter.list_push(&key, &values, side).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Count(count))
+        }
+        KeyValueOperation::ListLen { key } => {
+            let len = adapter.list_len(&key).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Count(len))
+        }
+        // Rich operations - Set
+        KeyValueOperation::SetMembers { key } => {
+            let members = adapter.set_members(&key).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Set(members))
+        }
+        KeyValueOperation::SetAdd { key, members } => {
+            let count = RichKeyValueOperable::set_add(adapter, &key, &members).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Count(count))
+        }
+        KeyValueOperation::SetRemove { key, members } => {
+            let count = RichKeyValueOperable::set_remove(adapter, &key, &members).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Count(count))
+        }
+        // Rich operations - Sorted Set
+        KeyValueOperation::ZSetRange { key, start, stop, with_scores } => {
+            let members = adapter.zset_range(&key, start, stop, with_scores).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::ZSet(members))
+        }
+        KeyValueOperation::ZSetAdd { key, members } => {
+            let count = RichKeyValueOperable::zset_add(adapter, &key, &members).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Count(count))
+        }
+        // Rich operations - Stream
+        KeyValueOperation::StreamRange { key, start, end, count } => {
+            let entries = adapter.stream_range(&key, &start, &end, count).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Stream(entries))
+        }
+        KeyValueOperation::StreamLen { key } => {
+            let len = adapter.stream_len(&key).await.map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::Count(len))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ============================================================================
+    // Paradigm-Level Command Tests
+    // ============================================================================
+    
+    #[test]
+    fn test_document_operation_serialization() {
+        let op = DocumentOperation::ListCollections;
+        let json = serde_json::to_string(&op).unwrap();
+        assert!(json.contains("list_collections"));
+        
+        let op2 = DocumentOperation::Find {
+            collection: "users".to_string(),
+            filter: serde_json::json!({"name": "test"}),
+            options: crate::core::capabilities::FindOptions::default(),
+        };
+        let json2 = serde_json::to_string(&op2).unwrap();
+        assert!(json2.contains("find"));
+        assert!(json2.contains("users"));
+    }
+    
+    #[test]
+    fn test_keyvalue_operation_serialization() {
+        let op = KeyValueOperation::DbSize;
+        let json = serde_json::to_string(&op).unwrap();
+        assert!(json.contains("db_size"));
+        
+        let op2 = KeyValueOperation::Get { key: "test_key".to_string() };
+        let json2 = serde_json::to_string(&op2).unwrap();
+        assert!(json2.contains("get"));
+        assert!(json2.contains("test_key"));
+    }
+    
+    #[test]
+    fn test_document_result_serialization() {
+        let result = DocumentResult::Count(42);
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("count"));
+        assert!(json.contains("42"));
+    }
+    
+    #[test]
+    fn test_keyvalue_result_serialization() {
+        let result = KeyValueResult::Count(100);
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("count"));
+        assert!(json.contains("100"));
+    }
 
     #[test]
     fn test_is_select_query_simple_select() {

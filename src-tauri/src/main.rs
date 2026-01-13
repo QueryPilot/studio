@@ -165,6 +165,9 @@ fn main() {
             commands::redis_lrange,
             commands::redis_smembers,
             commands::redis_type,
+            // Paradigm-level IPC commands
+            commands::document_execute,
+            commands::keyvalue_execute,
         ])
         .build(context)
         .expect("error while building tauri application");
