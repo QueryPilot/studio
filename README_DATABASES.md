@@ -11,6 +11,8 @@ The test environment includes:
 - **SQLite** - File-based database with comprehensive types
 - **SQL Server 2022** - With XML, hierarchyid, and spatial types
 - **Oracle 21c XE** - With CLOB, XMLTYPE, and interval types
+- **MongoDB 7** - Document database with collections, aggregation pipelines
+- **Redis 7** - Key-value store with rich data types (strings, hashes, lists, sets, sorted sets, streams)
 
 Each database is seeded with:
 
@@ -38,11 +40,13 @@ make dev
 | SQLite     | -         | -     | -        | -           | seeds/sqlite/todoapp.db |
 | SQL Server | localhost | 11434 | sa       | DevPass123  | todoapp                 |
 | Oracle     | localhost | 11521 | todoapp  | DevPass123  | XE (service)            |
+| MongoDB    | localhost | 27017 | -        | -           | test                    |
+| Redis      | localhost | 6379  | -        | -           | 0 (default)             |
 
 ## Connection Strings
 
 Tip: You can paste most of these into the Connection Form (Paste Config) to auto-fill fields:
-- Standard URIs: `postgresql://`, `mysql://`, `mssql://`, `sqlite://`
+- Standard URIs: `postgresql://`, `mysql://`, `mssql://`, `sqlite://`, `mongodb://`, `mongodb+srv://`, `redis://`, `rediss://`
 - JDBC URIs: `jdbc:postgresql://`, `jdbc:mysql://`, `jdbc:sqlserver://`
 - SQL Server ADO.NET strings: `Server=...;Database=...;User Id=...;Password=...;`
 - MySQL DSN: `mysql:host=...;port=...;dbname=...;charset=utf8mb4`
@@ -158,6 +162,53 @@ sqlplus todoapp/DevPass123@localhost:11521/XE
 XE_LOCAL = (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=localhost)(PORT=11521))(CONNECT_DATA=(SERVICE_NAME=XE)))
 ```
 
+### MongoDB
+
+```
+# Standard connection string
+mongodb://localhost:27017/test
+
+# With authentication
+mongodb://user:password@localhost:27017/mydb?authSource=admin
+
+# Atlas SRV (for MongoDB Atlas cloud)
+mongodb+srv://user:password@cluster0.abc123.mongodb.net/mydb?retryWrites=true&w=majority
+
+# Replica set
+mongodb://host1:27017,host2:27017,host3:27017/mydb?replicaSet=rs0
+
+# With TLS
+mongodb://localhost:27017/mydb?tls=true
+
+# mongosh command line
+mongosh mongodb://localhost:27017/test
+```
+
+### Redis
+
+```
+# Standard connection string
+redis://localhost:6379/0
+
+# With ACL authentication (Redis 6+)
+redis://username:password@localhost:6379/0
+
+# With legacy password authentication
+redis://:password@localhost:6379/0
+
+# TLS connection
+rediss://localhost:6380/0
+
+# Cluster mode (multiple nodes)
+redis://host1:6379,host2:6379,host3:6379
+
+# redis-cli command line
+redis-cli -h localhost -p 6379
+
+# With database selection
+redis-cli -h localhost -p 6379 -n 2
+```
+
 ## Query Pilot Connection Examples
 
 When connecting from Query Pilot, use these settings:
@@ -201,6 +252,22 @@ When connecting from Query Pilot, use these settings:
 - Username: `todoapp`
 - Password: `DevPass123`
 - **Note**: Oracle requires manual schema setup due to SQL\*Plus limitations with complex DDL
+
+### MongoDB Connection
+
+- Host: `localhost`
+- Port: `27017`
+- Database: `test`
+- Authentication: None (for local development)
+- **Note**: For Atlas connections, use `mongodb+srv://` connection strings
+
+### Redis Connection
+
+- Host: `localhost`
+- Port: `6379`
+- Database: `0` (default, Redis has databases 0-15)
+- Authentication: None (for local development)
+- **Note**: For TLS connections, use `rediss://` scheme
 
 ## Available Commands
 
