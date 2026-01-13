@@ -840,6 +840,8 @@ pub enum ClusterRedirectKind {
 **MongoDB Track:**
 
 - [x] DocumentEditor component - src/components/MongoDB/DocumentEditor.tsx
+- [x] TreeView with breadcrumb navigation - src/components/MongoDB/DocumentEditor/TreeView.tsx
+- [x] Breadcrumb path navigation - src/components/MongoDB/DocumentEditor/Breadcrumb.tsx
 - [x] CodeEditor: JSON mode with MQL hints (uses existing JSON mode)
 - [x] Inline CRUD in grid (via CollectionBrowser)
 
@@ -849,7 +851,8 @@ pub enum ClusterRedirectKind {
 - [x] HashEditor - src/components/Redis/editors/HashEditor.tsx
 - [x] ListEditor - src/components/Redis/editors/ListEditor.tsx
 - [x] SetEditor - src/components/Redis/editors/SetEditor.tsx
-- [ ] ZSetEditor, StreamViewer (deferred)
+- [x] ZSetEditor - src/components/Redis/editors/ZSetEditor.tsx
+- [x] StreamViewer - src/components/Redis/editors/StreamViewer.tsx
 - [x] CodeEditor: Redis CLI mode (added to types)
 - [ ] Module detection (deferred)
 
