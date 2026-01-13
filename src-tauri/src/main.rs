@@ -165,6 +165,9 @@ fn main() {
             commands::redis_lrange,
             commands::redis_smembers,
             commands::redis_type,
+            // Streaming commands
+            commands::mongo_find_documents_stream,
+            commands::redis_scan_stream,
             // Paradigm-level IPC commands
             commands::document_execute,
             commands::keyvalue_execute,

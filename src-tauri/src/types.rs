@@ -669,3 +669,43 @@ pub struct StreamQueryParams {
     pub sql: String,
     pub batch_size: Option<usize>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum DocumentStreamMessage {
+    Started {
+        collection: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        estimated_count: Option<u64>,
+    },
+    Success {
+        total_documents: usize,
+        execution_time_ms: u64,
+    },
+    Error {
+        code: String,
+        message: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum KeyValueStreamMessage {
+    Started {
+        pattern: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        estimated_keys: Option<u64>,
+    },
+    Progress {
+        cursor: u64,
+        keys_so_far: usize,
+    },
+    Success {
+        total_keys: usize,
+        execution_time_ms: u64,
+    },
+    Error {
+        code: String,
+        message: String,
+    },
+}
