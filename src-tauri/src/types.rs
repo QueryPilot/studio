@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ConnectionProfile {
     pub id: String,
     pub name: String,
@@ -100,7 +99,6 @@ pub enum SslMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct SslConfig {
     pub key_file: Option<String>,
     pub cert_file: Option<String>,
@@ -108,7 +106,6 @@ pub struct SslConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct SshTunnelConfig {
     pub host: String,
     pub port: u16,

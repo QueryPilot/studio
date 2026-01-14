@@ -72,6 +72,19 @@ interface WorkspaceBundleStore {
   getConnectionById: (id: string) => OpenConnection | undefined;
   getTabsForConnection: (connectionId: string) => string[];
   getWindowTitle: () => string;
+
+  // Workspace-Connection grouping helpers
+  getWorkspacesForConnection: (connectionId: string) => WorkspaceConfig[];
+  getConnectionsByWorkspace: () => Map<string, string[]>;
+  getUncategorizedConnectionIds: () => string[];
+  addConnectionToSavedWorkspace: (
+    workspaceId: string,
+    connectionId: string,
+  ) => Promise<void>;
+  removeConnectionFromSavedWorkspace: (
+    workspaceId: string,
+    connectionId: string,
+  ) => Promise<void>;
 }
 
 export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
@@ -823,6 +836,87 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       if (!activeWorkspace) return "QueryPilot";
       const name = activeWorkspace.config.name;
       return isDirty ? `• ${name} - QueryPilot` : `${name} - QueryPilot`;
+    },
+
+    getWorkspacesForConnection: (connectionId: string) => {
+      const { savedWorkspaces } = get();
+      return savedWorkspaces.filter((ws) =>
+        ws.connectionIds.includes(connectionId),
+      );
+    },
+
+    getConnectionsByWorkspace: () => {
+      const { savedWorkspaces } = get();
+      const result = new Map<string, string[]>();
+
+      for (const ws of savedWorkspaces) {
+        result.set(ws.id, [...ws.connectionIds]);
+      }
+
+      return result;
+    },
+
+    getUncategorizedConnectionIds: () => {
+      const { savedWorkspaces } = get();
+      const allConnections = useConnectionStore.getState().connections;
+      const categorizedIds = new Set<string>();
+
+      for (const ws of savedWorkspaces) {
+        for (const connId of ws.connectionIds) {
+          categorizedIds.add(connId);
+        }
+      }
+
+      return allConnections
+        .map((c) => c.profile.id)
+        .filter((id) => !categorizedIds.has(id));
+    },
+
+    addConnectionToSavedWorkspace: async (workspaceId, connectionId) => {
+      const { savedWorkspaces } = get();
+      const workspace = savedWorkspaces.find((ws) => ws.id === workspaceId);
+      if (!workspace) {
+        logger.error(
+          `[WorkspaceBundleStore] Workspace not found: ${workspaceId}`,
+        );
+        return;
+      }
+
+      if (workspace.connectionIds.includes(connectionId)) {
+        logger.warn(
+          `[WorkspaceBundleStore] Connection already in workspace: ${connectionId}`,
+        );
+        return;
+      }
+
+      const updatedConnectionIds = [...workspace.connectionIds, connectionId];
+      await get().updateWorkspace(workspaceId, {
+        connectionIds: updatedConnectionIds,
+      });
+      logger.info(
+        `[WorkspaceBundleStore] Added connection ${connectionId} to workspace ${workspaceId}`,
+      );
+    },
+
+    removeConnectionFromSavedWorkspace: async (workspaceId, connectionId) => {
+      const { savedWorkspaces } = get();
+      const workspace = savedWorkspaces.find((ws) => ws.id === workspaceId);
+      if (!workspace) {
+        logger.error(
+          `[WorkspaceBundleStore] Workspace not found: ${workspaceId}`,
+        );
+        return;
+      }
+
+      const updatedConnectionIds = workspace.connectionIds.filter(
+        (id) => id !== connectionId,
+      );
+      await get().updateWorkspace(workspaceId, {
+        connectionIds: updatedConnectionIds,
+      });
+      logger.info(
+        `[WorkspaceBundleStore] Removed connection ${connectionId} from workspace ${workspaceId}`,
+      );
     },
   }),
 );

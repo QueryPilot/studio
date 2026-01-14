@@ -62,6 +62,14 @@ function looksLikeConnectionUri(text: string): boolean {
   if (/^(postgres|postgresql|mysql|mariadb|mssql|sqlserver|sqlite):/i.test(trimmed)) {
     return true;
   }
+  // MongoDB URIs (standard and SRV format for Atlas)
+  if (/^mongodb(\+srv)?:\/\//i.test(trimmed)) {
+    return true;
+  }
+  // Redis URIs (standard and TLS)
+  if (/^rediss?:\/\//i.test(trimmed)) {
+    return true;
+  }
   if (/^(server|data source|address|addr|network address)\s*=/i.test(trimmed)) {
     return true;
   }
@@ -166,6 +174,10 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     config.dbType = "mssql";
   } else if (hasPrefix("SQLITE_")) {
     config.dbType = "sqlite";
+  } else if (hasPrefix("MONGO_") || hasPrefix("MONGODB_")) {
+    config.dbType = "mongodb";
+  } else if (hasPrefix("REDIS_")) {
+    config.dbType = "redis";
   }
 
   // Map environment variables to config fields
@@ -175,6 +187,9 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     "MYSQL_HOST",
     "MARIADB_HOST",
     "MSSQL_HOST",
+    "MONGODB_HOST",
+    "MONGO_HOST",
+    "REDIS_HOST",
     "DB_HOST",
     "DATABASE_HOST",
     "HOST",
@@ -186,6 +201,9 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     "MYSQL_PORT",
     "MARIADB_PORT",
     "MSSQL_PORT",
+    "MONGODB_PORT",
+    "MONGO_PORT",
+    "REDIS_PORT",
     "DB_PORT",
     "DATABASE_PORT",
     "PORT",
@@ -197,6 +215,9 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     "MYSQL_USER",
     "MARIADB_USER",
     "MSSQL_USER",
+    "MONGODB_USER",
+    "MONGO_USER",
+    "REDIS_USER",
     "DB_USER",
     "DATABASE_USER",
     "USER",
@@ -209,6 +230,9 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     "MYSQL_PASSWORD",
     "MARIADB_PASSWORD",
     "MSSQL_PASSWORD",
+    "MONGODB_PASSWORD",
+    "MONGO_PASSWORD",
+    "REDIS_PASSWORD",
     "DB_PASSWORD",
     "DATABASE_PASSWORD",
     "PASSWORD",
@@ -223,6 +247,9 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     "MSSQL_DATABASE",
     "SQLITE_DATABASE",
     "SQLITE_DB",
+    "MONGODB_DATABASE",
+    "MONGO_DATABASE",
+    "REDIS_DATABASE",
     "DB_NAME",
     "DATABASE_NAME",
     "DATABASE",
@@ -636,14 +663,177 @@ function parseMySqlDsn(input: string): ParsedUriConfig {
   return config;
 }
 
+function parseMongoDbUri(uri: string): ParsedUriConfig {
+  const config: ParsedUriConfig = { dbType: "mongodb" };
+
+  const isSrv = /^mongodb\+srv:\/\//i.test(uri);
+  const normalized = uri.replace(/^mongodb(\+srv)?:\/\//i, "");
+
+  const splitResult = normalized.split("/");
+  const authAndHosts = splitResult[0] ?? "";
+  const pathAndQuery = splitResult.slice(1).join("/");
+
+  let authPart = "";
+  let hostsPart = authAndHosts;
+
+  if (authAndHosts.includes("@")) {
+    const atIndex = authAndHosts.lastIndexOf("@");
+    authPart = authAndHosts.slice(0, atIndex);
+    hostsPart = authAndHosts.slice(atIndex + 1);
+  }
+
+  if (authPart) {
+    const colonIndex = authPart.indexOf(":");
+    if (colonIndex !== -1) {
+      config.username = decodeURIComponent(authPart.slice(0, colonIndex));
+      config.password = decodeURIComponent(authPart.slice(colonIndex + 1));
+    } else {
+      config.username = decodeURIComponent(authPart);
+    }
+  }
+
+  const hostsList = hostsPart.split(",");
+  if (hostsList.length > 0 && hostsList[0]) {
+    const firstHost = hostsList[0];
+    const bracketMatch = firstHost.match(/^\[([^\]]+)\]:(\d+)$/);
+    if (bracketMatch) {
+      config.host = bracketMatch[1];
+      config.port = bracketMatch[2];
+    } else {
+      const [h, p] = firstHost.split(":");
+      config.host = h;
+      if (p && !isSrv) {
+        config.port = p;
+      }
+    }
+  }
+
+  const [dbPath, queryString] = pathAndQuery.split("?");
+  if (dbPath) {
+    config.database = decodeURIComponent(dbPath);
+  }
+
+  if (queryString) {
+    const params = new URLSearchParams(queryString);
+    const options: Record<string, string> = {};
+
+    for (const [key, value] of params.entries()) {
+      const keyLower = key.toLowerCase();
+      if (keyLower === "authsource") {
+        options.authSource = value;
+      } else if (keyLower === "replicaset") {
+        options.replicaSet = value;
+      } else if (keyLower === "ssl" || keyLower === "tls") {
+        const boolVal = value.toLowerCase();
+        if (boolVal === "true" || boolVal === "1") {
+          config.sslMode = SslMode.Require;
+        } else if (boolVal === "false" || boolVal === "0") {
+          config.sslMode = SslMode.Disable;
+        } else {
+          options[key] = value;
+        }
+      } else {
+        options[key] = value;
+      }
+    }
+
+    if (hostsList.length > 1) {
+      options.hosts = hostsList.join(",");
+    }
+
+    if (isSrv) {
+      options.srv = "true";
+    }
+
+    if (Object.keys(options).length > 0) {
+      config.options = options;
+    }
+  } else {
+    const options: Record<string, string> = {};
+    if (hostsList.length > 1) {
+      options.hosts = hostsList.join(",");
+    }
+    if (isSrv) {
+      options.srv = "true";
+    }
+    if (Object.keys(options).length > 0) {
+      config.options = options;
+    }
+  }
+
+  return config;
+}
+
+function parseRedisUri(uri: string): ParsedUriConfig {
+  const config: ParsedUriConfig = { dbType: "redis" };
+
+  const isTls = /^rediss:\/\//i.test(uri);
+  if (isTls) {
+    config.sslMode = SslMode.Require;
+  }
+
+  const normalized = uri.replace(/^rediss?:\/\//i, "");
+
+  const splitResult = normalized.split("/");
+  const authAndHost = splitResult[0] ?? "";
+  const pathAndQuery = splitResult.slice(1).join("/");
+
+  let authPart = "";
+  let hostPart = authAndHost;
+
+  if (authAndHost.includes("@")) {
+    const atIndex = authAndHost.lastIndexOf("@");
+    authPart = authAndHost.slice(0, atIndex);
+    hostPart = authAndHost.slice(atIndex + 1);
+  }
+
+  if (authPart) {
+    const colonIndex = authPart.indexOf(":");
+    if (colonIndex === 0) {
+      config.password = decodeURIComponent(authPart.slice(1));
+    } else if (colonIndex !== -1) {
+      config.username = decodeURIComponent(authPart.slice(0, colonIndex));
+      config.password = decodeURIComponent(authPart.slice(colonIndex + 1));
+    } else {
+      config.username = decodeURIComponent(authPart);
+    }
+  }
+
+  if (hostPart) {
+    const bracketMatch = hostPart.match(/^\[([^\]]+)\]:(\d+)$/);
+    if (bracketMatch) {
+      config.host = bracketMatch[1];
+      config.port = bracketMatch[2];
+    } else {
+      const [h, p] = hostPart.split(":");
+      config.host = h || "localhost";
+      if (p) config.port = p;
+    }
+  }
+
+  const [dbPath, queryString] = pathAndQuery.split("?");
+  if (dbPath) {
+    config.database = dbPath;
+  }
+
+  if (queryString) {
+    const params = new URLSearchParams(queryString);
+    applyQueryParams(config, params);
+  }
+
+  return config;
+}
+
 function parseSqliteUri(input: string): ParsedUriConfig {
   let trimmed = input.trim();
   if (/^sqlite:/i.test(trimmed)) {
     trimmed = trimmed.replace(/^sqlite:/i, "");
   }
 
-  const [pathPart, queryPart] = trimmed.split("?", 2);
-  let path = pathPart;
+  const splitResult = trimmed.split("?", 2);
+  let path = splitResult[0] ?? "";
+  const queryPart = splitResult[1];
+  
   if (path.startsWith("//")) {
     path = path.slice(2);
   }
@@ -686,6 +876,10 @@ function parseStandardUrl(uri: string): ParsedUriConfig {
     dbType = protocol === "mariadb" ? "mariadb" : "mysql";
   } else if (protocol === "mssql" || protocol === "sqlserver") {
     dbType = "mssql";
+  } else if (protocol === "mongodb" || protocol === "mongodb+srv") {
+    dbType = "mongodb";
+  } else if (protocol === "redis" || protocol === "rediss") {
+    dbType = "redis";
   } else {
     throw new Error(`Unsupported protocol: ${protocol}`);
   }
@@ -732,6 +926,14 @@ export function parseConnectionUri(uri: string): ParsedUriConfig {
 
   if (/^sqlite:/i.test(trimmed) || looksLikeSqlitePath(trimmed)) {
     return parseSqliteUri(trimmed);
+  }
+
+  if (/^mongodb(\+srv)?:\/\//i.test(trimmed)) {
+    return parseMongoDbUri(trimmed);
+  }
+
+  if (/^rediss?:\/\//i.test(trimmed)) {
+    return parseRedisUri(trimmed);
   }
 
   if (/^(mssql|sqlserver):\/\//i.test(trimmed) && trimmed.includes(";")) {
