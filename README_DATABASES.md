@@ -40,7 +40,7 @@ make dev
 | SQLite     | -         | -     | -        | -           | seeds/sqlite/todoapp.db |
 | SQL Server | localhost | 11434 | sa       | DevPass123  | todoapp                 |
 | Oracle     | localhost | 11521 | todoapp  | DevPass123  | XE (service)            |
-| MongoDB    | localhost | 27017 | -        | -           | test                    |
+| MongoDB    | localhost | 17017 | devuser  | devpass123  | todoapp                 |
 | Redis      | localhost | 6379  | -        | -           | 0 (default)             |
 
 ## Connection Strings
@@ -165,11 +165,11 @@ XE_LOCAL = (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=localhost)(PORT=11521))(CON
 ### MongoDB
 
 ```
-# Standard connection string
-mongodb://localhost:27017/test
+# Standard connection string (with authentication)
+mongodb://devuser:devpass123@localhost:17017/todoapp?authSource=admin
 
-# With authentication
-mongodb://user:password@localhost:27017/mydb?authSource=admin
+# Without specifying database (defaults to admin)
+mongodb://devuser:devpass123@localhost:17017?authSource=admin
 
 # Atlas SRV (for MongoDB Atlas cloud)
 mongodb+srv://user:password@cluster0.abc123.mongodb.net/mydb?retryWrites=true&w=majority
@@ -181,7 +181,7 @@ mongodb://host1:27017,host2:27017,host3:27017/mydb?replicaSet=rs0
 mongodb://localhost:27017/mydb?tls=true
 
 # mongosh command line
-mongosh mongodb://localhost:27017/test
+mongosh mongodb://devuser:devpass123@localhost:17017/todoapp?authSource=admin
 ```
 
 ### Redis
@@ -256,9 +256,11 @@ When connecting from Query Pilot, use these settings:
 ### MongoDB Connection
 
 - Host: `localhost`
-- Port: `27017`
-- Database: `test`
-- Authentication: None (for local development)
+- Port: `17017`
+- Database: `todoapp`
+- Username: `devuser`
+- Password: `devpass123`
+- Auth Source: `admin`
 - **Note**: For Atlas connections, use `mongodb+srv://` connection strings
 
 ### Redis Connection

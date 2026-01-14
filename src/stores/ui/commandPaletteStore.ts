@@ -3,7 +3,8 @@ import { create } from "zustand";
 export type NestedMode =
   | { type: "switch-database" }
   | { type: "switch-schema" }
-  | { type: "open-connection" };
+  | { type: "open-connection" }
+  | { type: "switch-workspace" };
 
 interface CommandPaletteState {
   isOpen: boolean;

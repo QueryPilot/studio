@@ -39,6 +39,7 @@ import {
   IconArrowLeft,
   IconInfoCircle,
   IconFolderOpen,
+  IconFolder,
 } from "@tabler/icons-react";
 import {
   Tooltip,
@@ -47,6 +48,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { toast } from "sonner";
 import {
@@ -205,6 +207,32 @@ export function ConnectionForm() {
   const [groupTags, setGroupTags] = useState<GroupTag[]>(getGroupTags());
   const [tagsCommandOpen, setTagsCommandOpen] = useState(false);
   const [groupSearchValue, setGroupSearchValue] = useState("");
+
+  // Workspace assignment state
+  const savedWorkspaces = useWorkspaceBundleStore((s) => s.savedWorkspaces);
+  const getWorkspacesForConnection = useWorkspaceBundleStore(
+    (s) => s.getWorkspacesForConnection,
+  );
+  const addConnectionToSavedWorkspace = useWorkspaceBundleStore(
+    (s) => s.addConnectionToSavedWorkspace,
+  );
+  const removeConnectionFromSavedWorkspace = useWorkspaceBundleStore(
+    (s) => s.removeConnectionFromSavedWorkspace,
+  );
+  const createWorkspace = useWorkspaceBundleStore((s) => s.createWorkspace);
+
+  const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>(
+    () => {
+      if (isEditMode && connection) {
+        return getWorkspacesForConnection(connection.profile.id).map(
+          (ws) => ws.id,
+        );
+      }
+      return [];
+    },
+  );
+  const [workspacesCommandOpen, setWorkspacesCommandOpen] = useState(false);
+  const [workspaceSearchValue, setWorkspaceSearchValue] = useState("");
 
   // SSH tunnel state
   const existingSshTunnel = connection?.profile.ssh_tunnel;
@@ -550,6 +578,24 @@ export function ConnectionForm() {
     return profile;
   };
 
+  const syncWorkspaceMemberships = async (connectionId: string) => {
+    const currentWorkspaces = getWorkspacesForConnection(connectionId);
+    const currentWorkspaceIds = new Set(currentWorkspaces.map((ws) => ws.id));
+    const selectedIds = new Set(selectedWorkspaceIds);
+
+    for (const wsId of selectedWorkspaceIds) {
+      if (!currentWorkspaceIds.has(wsId)) {
+        await addConnectionToSavedWorkspace(wsId, connectionId);
+      }
+    }
+
+    for (const ws of currentWorkspaces) {
+      if (!selectedIds.has(ws.id)) {
+        await removeConnectionFromSavedWorkspace(ws.id, connectionId);
+      }
+    }
+  };
+
   const handleTest = async () => {
     setIsTesting(true);
     setTestSuccess(false);
@@ -600,6 +646,8 @@ export function ConnectionForm() {
         await persistConnection(profile, selectedTags);
       }
 
+      await syncWorkspaceMemberships(profile.id);
+
       toast.success("Success", {
         description: isEditMode
           ? "Connection updated successfully"
@@ -631,6 +679,8 @@ export function ConnectionForm() {
       } else {
         await persistConnection(profile, selectedTags);
       }
+
+      await syncWorkspaceMemberships(profile.id);
 
       // TODO: Implement actual connection
       logger.info("Connect to", profile.id);
@@ -898,6 +948,148 @@ export function ConnectionForm() {
                 </PopoverContent>
               </Popover>
             </div>
+          </div>
+
+          {/* Workspaces */}
+          <div>
+            <Label className="flex items-center gap-1.5 text-xs">
+              <IconLayout2 className="h-3 w-3 text-muted-foreground" />
+              Workspaces
+            </Label>
+            <Popover
+              open={workspacesCommandOpen}
+              onOpenChange={setWorkspacesCommandOpen}
+            >
+              <PopoverTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    className="w-full justify-between mt-1 h-8 text-xs"
+                    disabled={isTesting}
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+                      {selectedWorkspaceIds.length > 0 ? (
+                        <span className="truncate">
+                          {selectedWorkspaceIds
+                            .map(
+                              (id) =>
+                                savedWorkspaces.find((ws) => ws.id === id)
+                                  ?.name || id,
+                            )
+                            .join(", ")}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">
+                          No workspaces
+                        </span>
+                      )}
+                    </div>
+                    <IconChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                  </Button>
+                }
+              />
+              <PopoverContent className="w-[300px] p-0">
+                <Command>
+                  <CommandInput
+                    placeholder="Search or create workspace..."
+                    value={workspaceSearchValue}
+                    onValueChange={setWorkspaceSearchValue}
+                    className="text-xs h-8"
+                  />
+                  <CommandList>
+                    <CommandEmpty>
+                      <div className="py-2 text-center">
+                        <p className="text-xs text-muted-foreground mb-2">
+                          No workspace found.
+                        </p>
+                        {workspaceSearchValue && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              void (async () => {
+                                const wsId = await createWorkspace(
+                                  workspaceSearchValue.trim(),
+                                  [],
+                                );
+                                setSelectedWorkspaceIds((prev) => [
+                                  ...prev,
+                                  wsId,
+                                ]);
+                                setWorkspacesCommandOpen(false);
+                                setWorkspaceSearchValue("");
+                              })();
+                            }}
+                            className="gap-1.5 h-6 px-2 text-xs"
+                          >
+                            <IconPlus className="h-3 w-3" />
+                            Create "{workspaceSearchValue}"
+                          </Button>
+                        )}
+                      </div>
+                    </CommandEmpty>
+
+                    {savedWorkspaces.length > 0 && (
+                      <CommandGroup heading="Workspaces" className="text-xs">
+                        {savedWorkspaces.map((ws) => (
+                          <CommandItem
+                            key={ws.id}
+                            value={ws.name}
+                            onSelect={() => {
+                              setSelectedWorkspaceIds((prev) =>
+                                prev.includes(ws.id)
+                                  ? prev.filter((id) => id !== ws.id)
+                                  : [...prev, ws.id],
+                              );
+                            }}
+                            className="flex items-center justify-between text-xs"
+                          >
+                            <div className="flex items-center gap-2">
+                              <IconLayout2 className="h-3 w-3 text-muted-foreground" />
+                              <span>{ws.name}</span>
+                            </div>
+                            {selectedWorkspaceIds.includes(ws.id) && (
+                              <IconCheck className="h-3 w-3" />
+                            )}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    )}
+
+                    {workspaceSearchValue &&
+                      !savedWorkspaces.some(
+                        (ws) =>
+                          ws.name.toLowerCase() ===
+                          workspaceSearchValue.toLowerCase(),
+                      ) && (
+                        <CommandGroup>
+                          <CommandItem
+                            value={`create-${workspaceSearchValue}`}
+                            onSelect={() => {
+                              void (async () => {
+                                const wsId = await createWorkspace(
+                                  workspaceSearchValue.trim(),
+                                  [],
+                                );
+                                setSelectedWorkspaceIds((prev) => [
+                                  ...prev,
+                                  wsId,
+                                ]);
+                                setWorkspacesCommandOpen(false);
+                                setWorkspaceSearchValue("");
+                              })();
+                            }}
+                            className="text-xs"
+                          >
+                            <IconPlus className="h-3 w-3 mr-2" />
+                            Create "{workspaceSearchValue}"
+                          </CommandItem>
+                        </CommandGroup>
+                      )}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
 
           {/* Connection Details */}

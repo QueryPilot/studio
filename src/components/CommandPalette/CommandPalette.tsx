@@ -28,6 +28,7 @@ import {
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { contextService } from "@/services/contextService";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
@@ -46,6 +47,7 @@ import { useFrecency } from "./useFrecency";
 import { NestedDatabaseList } from "./NestedDatabaseList";
 import { NestedSchemaList } from "./NestedSchemaList";
 import { NestedConnectionList } from "./NestedConnectionList";
+import { NestedWorkspaceList } from "./NestedWorkspaceList";
 import { ActionsPopover } from "./ActionsPopover";
 import {
   useItemActions,
@@ -504,6 +506,25 @@ export function CommandPalette(): React.ReactElement {
     [closePalette],
   );
 
+  const handleWorkspaceSelect = useCallback(
+    async (workspaceId: string) => {
+      try {
+        const ws = useWorkspaceBundleStore
+          .getState()
+          .savedWorkspaces.find((w) => w.id === workspaceId);
+        await windowManager.openNamedWorkspace(
+          workspaceId,
+          ws?.name ?? "Workspace",
+        );
+        closePalette();
+      } catch (err) {
+        console.error("Failed to open workspace:", err);
+        toast.error("Failed to open workspace");
+      }
+    },
+    [closePalette],
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       // Exit nested mode on backspace when query is empty
@@ -555,6 +576,8 @@ export function CommandPalette(): React.ReactElement {
         return "Search schemas...";
       case "open-connection":
         return "Search connections...";
+      case "switch-workspace":
+        return "Search workspaces...";
     }
   };
 
@@ -593,6 +616,12 @@ export function CommandPalette(): React.ReactElement {
               listRef={listRef}
               query={query}
               onSelect={handleSchemaSelect}
+            />
+          ) : nestedMode.type === "switch-workspace" ? (
+            <NestedWorkspaceList
+              listRef={listRef}
+              query={query}
+              onSelect={handleWorkspaceSelect}
             />
           ) : (
             <NestedConnectionList

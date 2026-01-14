@@ -739,6 +739,16 @@ export const defaultCommands: Command[] = [
       store.setNestedMode({ type: "open-connection" });
     },
   },
+  {
+    id: "workspace.switch",
+    label: "Switch Workspace",
+    category: "Workspace",
+    description: "Switch to a different saved workspace",
+    handler: () => {
+      const store = useCommandPaletteStore.getState();
+      store.setNestedMode({ type: "switch-workspace" });
+    },
+  },
   // Tab Group Navigation Commands (Cmd/Ctrl + 1-9)
   {
     id: "tabs.switchToTab1",
