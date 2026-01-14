@@ -9,8 +9,9 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { windowManager } from "@/services/windowManager";
 import type { OpenConnection } from "@/types/workspace";
-import { IconPlus } from "@tabler/icons-react";
+import { IconPlus, IconFolder } from "@tabler/icons-react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -132,8 +133,10 @@ function ConnectionItem({
 
 export function ConnectionActivityBar() {
   const [addPopoverOpen, setAddPopoverOpen] = useState(false);
+  const [workspaceSwitcherOpen, setWorkspaceSwitcherOpen] = useState(false);
 
   const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
+  const savedWorkspaces = useWorkspaceBundleStore((s) => s.savedWorkspaces);
   const focusedConnectionId = activeWorkspace?.focusedConnectionId;
   const setFocusedConnection = useWorkspaceBundleStore(
     (s) => s.setFocusedConnection,
@@ -237,6 +240,73 @@ export function ConnectionActivityBar() {
                         </span>
                         <span className="truncate text-[10px] text-muted-foreground">
                           {conn.profile.host}:{conn.profile.port}
+                        </span>
+                      </div>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+      </div>
+
+      <div className="flex justify-center items-center mt-2 mb-1">
+        <Popover
+          open={workspaceSwitcherOpen}
+          onOpenChange={setWorkspaceSwitcherOpen}
+        >
+          <Tooltip>
+            <TooltipTrigger>
+              <PopoverTrigger
+                className={cn(
+                  "inline-flex items-center justify-center",
+                  "h-7 w-7 rounded-lg",
+                  "text-muted-foreground hover:text-foreground",
+                  "hover:bg-primary/30 transition-colors",
+                )}
+              >
+                <IconFolder className="w-4 h-4" />
+              </PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={12} className="z-50">
+              Switch Workspace
+            </TooltipContent>
+          </Tooltip>
+          <PopoverContent
+            side="right"
+            sideOffset={8}
+            align="end"
+            className="w-64 p-0"
+          >
+            <Command className="rounded-lg p-0">
+              <CommandInput
+                placeholder="Search workspaces..."
+                className="text-xs"
+              />
+              <CommandList className="max-h-48 min-h-0">
+                <CommandEmpty className="py-4 text-xs text-muted-foreground">
+                  No workspaces found
+                </CommandEmpty>
+                <CommandGroup heading="Workspaces">
+                  {savedWorkspaces.map((ws) => (
+                    <CommandItem
+                      key={ws.id}
+                      value={ws.name}
+                      onSelect={() => {
+                        void windowManager.openNamedWorkspace(ws.id, ws.name);
+                        setWorkspaceSwitcherOpen(false);
+                      }}
+                      className="gap-2"
+                    >
+                      <IconFolder className="w-4 h-4 shrink-0 text-muted-foreground" />
+                      <div className="flex flex-col flex-1 min-w-0">
+                        <span className="truncate text-xs font-medium">
+                          {ws.name}
+                        </span>
+                        <span className="truncate text-[10px] text-muted-foreground">
+                          {ws.connectionIds.length} connection
+                          {ws.connectionIds.length !== 1 ? "s" : ""}
                         </span>
                       </div>
                     </CommandItem>
