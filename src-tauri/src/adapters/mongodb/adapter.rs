@@ -209,6 +209,14 @@ impl Default for MongoDbAdapter {
 
 #[async_trait]
 impl BaseCapability for MongoDbAdapter {
+    async fn connect(&self, profile: &ConnectionProfile) -> Result<(), AppError> {
+        MongoDbAdapter::connect(self, profile).await
+    }
+
+    async fn disconnect(&self) -> Result<(), AppError> {
+        MongoDbAdapter::disconnect(self).await
+    }
+
     async fn test_connection(&self) -> Result<CapabilityTestResult, AppError> {
         let client = self.client.read().await;
 
@@ -268,10 +276,7 @@ impl BaseCapability for MongoDbAdapter {
     }
 
     fn get_capabilities(&self) -> Vec<AdapterCapability> {
-        vec![
-            AdapterCapability::DocumentQueryable,
-            AdapterCapability::SchemaIntrospectable,
-        ]
+        vec![AdapterCapability::DocumentQueryable]
     }
 }
 
@@ -705,7 +710,7 @@ impl MongoDbAdapter {
         &self,
         collection: &str,
         keys: Value,
-        options: Option<Value>,
+        _options: Option<Value>,
     ) -> Result<String, AppError> {
         let db = self.database.read().await;
         match db.as_ref() {
@@ -828,7 +833,6 @@ mod tests {
         let adapter = MongoDbAdapter::new();
         let caps = adapter.get_capabilities();
         assert!(caps.contains(&AdapterCapability::DocumentQueryable));
-        assert!(caps.contains(&AdapterCapability::SchemaIntrospectable));
     }
 
     #[test]

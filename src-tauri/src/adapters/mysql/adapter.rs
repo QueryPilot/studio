@@ -6,8 +6,11 @@ use tokio::sync::RwLock;
 
 use super::simple_converter::SimpleConverter;
 use super::types::MySqlTypeConverter;
-use crate::core::adapter::DbAdapter;
-use crate::error::{AppError, Result};
+use crate::core::capabilities::{
+    AdapterCapability, BaseCapability, CapabilityColumnMeta, CapabilityQueryResult,
+    CapabilityTestResult, SqlQueryable,
+};
+use crate::error::AppError;
 use crate::types::*;
 
 pub struct MySqlAdapter {
@@ -22,7 +25,7 @@ impl MySqlAdapter {
     }
 
     /// Get a connection from the pool
-    pub async fn get_conn(&self) -> Result<Conn> {
+    pub async fn get_conn(&self) -> Result<Conn, AppError> {
         let pool_guard = self.pool.read().await;
         let pool = pool_guard
             .as_ref()
@@ -39,7 +42,7 @@ impl MySqlAdapter {
     }
 
     /// Execute multiple SQL statements within a transaction
-    pub async fn execute_in_transaction(&self, statements: Vec<String>) -> Result<Vec<u64>> {
+    pub async fn execute_in_transaction(&self, statements: Vec<String>) -> Result<Vec<u64>, AppError> {
         let mut conn = self.get_conn().await?;
 
         // Start transaction manually
@@ -67,7 +70,7 @@ impl MySqlAdapter {
         Ok(results)
     }
 
-    fn build_opts(profile: &ConnectionProfile) -> Result<Opts> {
+    fn build_opts(profile: &ConnectionProfile) -> Result<Opts, AppError> {
         // Build connection options directly instead of using URL parsing
         // This avoids issues with special characters and URL encoding
         let mut builder = OptsBuilder::default()
@@ -161,12 +164,8 @@ impl Default for MySqlAdapter {
 }
 
 #[async_trait]
-impl DbAdapter for MySqlAdapter {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
-    async fn connect(&mut self, profile: &ConnectionProfile) -> Result<()> {
+impl BaseCapability for MySqlAdapter {
+    async fn connect(&self, profile: &ConnectionProfile) -> Result<(), AppError> {
         // Disconnect if already connected
         if self.pool.read().await.is_some() {
             self.disconnect().await?;
@@ -183,13 +182,10 @@ impl DbAdapter for MySqlAdapter {
         let pool = Pool::new(opts);
 
         // Test the connection
-        let conn = pool
-            .get_conn()
-            .await
-            .map_err(|e| {
-                tracing::error!("MySQL connection failed: {}", e);
-                AppError::Internal(format!("Failed to connect: {}", e))
-            })?;
+        let conn = pool.get_conn().await.map_err(|e| {
+            tracing::error!("MySQL connection failed: {}", e);
+            AppError::Internal(format!("Failed to connect: {}", e))
+        })?;
 
         // Drop connection back to pool
         drop(conn);
@@ -200,7 +196,7 @@ impl DbAdapter for MySqlAdapter {
         Ok(())
     }
 
-    async fn disconnect(&mut self) -> Result<()> {
+    async fn disconnect(&self) -> Result<(), AppError> {
         if let Some(pool) = self.pool.write().await.take() {
             pool.disconnect().await.map_err(|e| {
                 AppError::Internal(format!("Failed to disconnect: {}", e))
@@ -209,7 +205,8 @@ impl DbAdapter for MySqlAdapter {
         Ok(())
     }
 
-    async fn test_connection(&self) -> Result<ConnectionTestResult> {
+    async fn test_connection(&self) -> Result<CapabilityTestResult, AppError> {
+        let start = std::time::Instant::now();
         // Use timeout to avoid hanging on dead connections
         let test = async {
             let mut conn = self.get_conn().await?;
@@ -221,20 +218,12 @@ impl DbAdapter for MySqlAdapter {
                 .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
 
             match row {
-                Some((version, database, user)) => {
-                    // Detect MariaDB from version string (e.g., "10.11.2-MariaDB")
-                    let detected_db_type = DbType::detect_mysql_variant(&version);
-                    let is_mariadb = detected_db_type == DbType::MariaDB;
-
-                    Ok(ConnectionTestResult {
-                        success: true,
-                        message: format!("Connected to {} as {}", database, user),
-                        version: Some(version),
-                        warnings: vec![],
-                        // Only set detected_db_type if it's MariaDB (differs from MySQL)
-                        detected_db_type: if is_mariadb { Some(DbType::MariaDB) } else { None },
-                    })
-                }
+                Some((version, database, user)) => Ok(CapabilityTestResult {
+                    success: true,
+                    message: format!("Connected to {} as {}", database, user),
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    server_version: Some(version),
+                }),
                 None => Err(AppError::DatabaseError(
                     "Failed to get connection info".into(),
                 )),
@@ -247,22 +236,20 @@ impl DbAdapter for MySqlAdapter {
             .map_err(|_| AppError::ConnectionClosed("Connection test timed out".into()))?
     }
 
-    async fn is_connected(&self) -> bool {
-        // Use timeout to avoid hanging on dead connections
-        let check = async {
-            let mut conn = self.get_conn().await.ok()?;
-            conn.query_drop("SELECT 1").await.ok()?;
-            Some(())
-        };
-        
-        // 5 second timeout - long enough for slow connections, short enough to not freeze UI
-        tokio::time::timeout(std::time::Duration::from_secs(5), check)
-            .await
-            .map(|r| r.is_some())
-            .unwrap_or(false)
+    fn is_connected(&self) -> bool {
+        self.pool.blocking_read().is_some()
     }
 
-    async fn query(&self, sql: &str) -> Result<QueryResult> {
+    fn get_capabilities(&self) -> Vec<AdapterCapability> {
+        vec![
+            AdapterCapability::SqlQueryable,
+        ]
+    }
+}
+
+#[async_trait]
+impl SqlQueryable for MySqlAdapter {
+    async fn execute_query(&self, sql: &str) -> Result<CapabilityQueryResult, AppError> {
         let mut conn = self.get_conn().await?;
 
         let mut result = conn
@@ -272,27 +259,11 @@ impl DbAdapter for MySqlAdapter {
 
         // Get column metadata
         let columns_ref = result.columns_ref();
-        let columns: Vec<ColumnMeta> = columns_ref
+        let columns: Vec<CapabilityColumnMeta> = columns_ref
             .iter()
-            .map(|col| {
-                let is_unsigned = col.flags().contains(mysql_async::consts::ColumnFlags::UNSIGNED_FLAG);
-                ColumnMeta {
-                    name: col.name_str().to_string(),
-                    data_type: MySqlTypeConverter::column_type_to_cell_type(
-                        col.column_type(),
-                        is_unsigned,
-                    ),
-                    nullable: !col.flags().contains(mysql_async::consts::ColumnFlags::NOT_NULL_FLAG),
-                    primary_key: col.flags().contains(mysql_async::consts::ColumnFlags::PRI_KEY_FLAG),
-                    db_type: MySqlTypeConverter::column_type_to_string(col.column_type()),
-                    type_oid: None,
-                    default_value: None,
-                    comment: None,
-                    enum_values: None,
-                    type_category: None,
-                    precision: None,
-                    scale: None,
-                }
+            .map(|col| CapabilityColumnMeta {
+                name: col.name_str().to_string(),
+                data_type: MySqlTypeConverter::column_type_to_string(col.column_type()),
             })
             .collect();
 
@@ -305,13 +276,13 @@ impl DbAdapter for MySqlAdapter {
         // Convert to JSON
         let json_rows = SimpleConverter::rows_to_json(&rows);
 
-        Ok(QueryResult {
+        Ok(CapabilityQueryResult {
             columns,
             rows: json_rows,
         })
     }
 
-    async fn execute(&self, sql: &str) -> Result<u64> {
+    async fn execute_statement(&self, sql: &str) -> Result<u64, AppError> {
         let mut conn = self.get_conn().await?;
 
         let result = conn
@@ -330,6 +301,4 @@ impl DbAdapter for MySqlAdapter {
         Ok(affected)
     }
 }
-
-crate::impl_sql_capabilities!(MySqlAdapter, pool_check: async_rwlock_blocking);
 
