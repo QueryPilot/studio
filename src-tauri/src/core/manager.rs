@@ -11,107 +11,204 @@ use crate::adapters::mysql::MySqlAdapter;
 use crate::adapters::postgres::PostgresAdapter;
 use crate::adapters::redis::RedisAdapter;
 use crate::adapters::sqlite::SqliteAdapter;
-use crate::core::adapter::DbAdapter;
-use crate::core::capabilities::BaseCapability;
+use crate::core::capabilities::{
+    BaseCapability, CapabilityTestResult, DocumentQueryable, RichKeyValueOperable, SqlQueryable,
+};
 use crate::error::{AppError, Result};
 use crate::ssh::secrets::delete_ssh_passphrase;
 use crate::ssh::SshTunnel;
 use crate::types::*;
 
-pub enum UnifiedAdapter {
-    Postgres(PostgresAdapter),
-    MySql(MySqlAdapter),
-    Sqlite(SqliteAdapter),
-    Mssql(MssqlAdapter),
-    MongoDb(MongoDbAdapter),
-    Redis(RedisAdapter),
+/// Unified adapter that wraps any database adapter and provides paradigm-specific access.
+///
+/// Uses raw pointers to store trait object references for paradigm capabilities,
+/// avoiding the need for enum dispatch or unsafe downcasting at runtime.
+///
+/// # Safety
+/// The raw pointers stored in `sql`, `document`, and `keyvalue` fields point to
+/// the same allocation as `inner`. They are valid for the lifetime of `inner`
+/// and we never mutate through them. The constructors ensure this invariant.
+pub struct UnifiedAdapter {
+    /// The underlying adapter implementing BaseCapability
+    inner: Box<dyn BaseCapability>,
+
+    /// Pointer to SqlQueryable trait object (if supported)
+    sql: Option<*const dyn SqlQueryable>,
+
+    /// Pointer to DocumentQueryable trait object (if supported)
+    document: Option<*const dyn DocumentQueryable>,
+
+    /// Pointer to RichKeyValueOperable trait object (if supported)
+    keyvalue: Option<*const dyn RichKeyValueOperable>,
+
+    /// Concrete adapter pointers for adapter-specific access
+    postgres: Option<*const PostgresAdapter>,
+    mongo: Option<*const MongoDbAdapter>,
+    redis: Option<*const RedisAdapter>,
+
+    /// Database type
+    db_type: DbType,
 }
 
+// SAFETY: The raw pointers point to the same allocation as `inner`.
+// They're valid for the lifetime of `inner` and we never mutate through them.
+unsafe impl Send for UnifiedAdapter {}
+unsafe impl Sync for UnifiedAdapter {}
+
 impl UnifiedAdapter {
+    /// Create a new UnifiedAdapter for PostgreSQL
+    pub fn postgres(adapter: PostgresAdapter) -> Self {
+        let boxed = Box::new(adapter);
+        let ptr = &*boxed as *const PostgresAdapter;
+        let sql_ptr: *const dyn SqlQueryable = ptr;
+        Self {
+            inner: boxed,
+            sql: Some(sql_ptr),
+            document: None,
+            keyvalue: None,
+            postgres: Some(ptr),
+            mongo: None,
+            redis: None,
+            db_type: DbType::PostgreSQL,
+        }
+    }
+
+    /// Create a new UnifiedAdapter for MySQL/MariaDB
+    pub fn mysql(adapter: MySqlAdapter, db_type: DbType) -> Self {
+        let boxed = Box::new(adapter);
+        let ptr = &*boxed as *const MySqlAdapter;
+        let sql_ptr: *const dyn SqlQueryable = ptr;
+        Self {
+            inner: boxed,
+            sql: Some(sql_ptr),
+            document: None,
+            keyvalue: None,
+            postgres: None,
+            mongo: None,
+            redis: None,
+            db_type,
+        }
+    }
+
+    /// Create a new UnifiedAdapter for SQLite
+    pub fn sqlite(adapter: SqliteAdapter) -> Self {
+        let boxed = Box::new(adapter);
+        let ptr = &*boxed as *const SqliteAdapter;
+        let sql_ptr: *const dyn SqlQueryable = ptr;
+        Self {
+            inner: boxed,
+            sql: Some(sql_ptr),
+            document: None,
+            keyvalue: None,
+            postgres: None,
+            mongo: None,
+            redis: None,
+            db_type: DbType::SQLite,
+        }
+    }
+
+    /// Create a new UnifiedAdapter for SQL Server
+    pub fn mssql(adapter: MssqlAdapter) -> Self {
+        let boxed = Box::new(adapter);
+        let ptr = &*boxed as *const MssqlAdapter;
+        let sql_ptr: *const dyn SqlQueryable = ptr;
+        Self {
+            inner: boxed,
+            sql: Some(sql_ptr),
+            document: None,
+            keyvalue: None,
+            postgres: None,
+            mongo: None,
+            redis: None,
+            db_type: DbType::SQLServer,
+        }
+    }
+
+    /// Create a new UnifiedAdapter for MongoDB
+    pub fn mongodb(adapter: MongoDbAdapter) -> Self {
+        let boxed = Box::new(adapter);
+        let ptr = &*boxed as *const MongoDbAdapter;
+        let doc_ptr: *const dyn DocumentQueryable = ptr;
+        Self {
+            inner: boxed,
+            sql: None,
+            document: Some(doc_ptr),
+            keyvalue: None,
+            postgres: None,
+            mongo: Some(ptr),
+            redis: None,
+            db_type: DbType::MongoDB,
+        }
+    }
+
+    /// Create a new UnifiedAdapter for Redis
+    pub fn redis(adapter: RedisAdapter) -> Self {
+        let boxed = Box::new(adapter);
+        let ptr = &*boxed as *const RedisAdapter;
+        let kv_ptr: *const dyn RichKeyValueOperable = ptr;
+        Self {
+            inner: boxed,
+            sql: None,
+            document: None,
+            keyvalue: Some(kv_ptr),
+            postgres: None,
+            mongo: None,
+            redis: Some(ptr),
+            db_type: DbType::Redis,
+        }
+    }
+
+    // ========== BaseCapability delegation ==========
+
     pub fn is_connected(&self) -> bool {
-        match self {
-            Self::Postgres(a) => BaseCapability::is_connected(a),
-            Self::MySql(a) => BaseCapability::is_connected(a),
-            Self::Sqlite(a) => BaseCapability::is_connected(a),
-            Self::Mssql(a) => BaseCapability::is_connected(a),
-            Self::MongoDb(a) => BaseCapability::is_connected(a),
-            Self::Redis(a) => BaseCapability::is_connected(a),
-        }
+        self.inner.is_connected()
     }
 
-    pub async fn test_connection(&self) -> Result<crate::core::capabilities::CapabilityTestResult> {
-        match self {
-            Self::Postgres(a) => BaseCapability::test_connection(a).await,
-            Self::MySql(a) => BaseCapability::test_connection(a).await,
-            Self::Sqlite(a) => BaseCapability::test_connection(a).await,
-            Self::Mssql(a) => BaseCapability::test_connection(a).await,
-            Self::MongoDb(a) => BaseCapability::test_connection(a).await,
-            Self::Redis(a) => BaseCapability::test_connection(a).await,
-        }
+    pub async fn test_connection(&self) -> Result<CapabilityTestResult> {
+        self.inner.test_connection().await
     }
 
-    pub async fn disconnect(&mut self) -> Result<()> {
-        match self {
-            Self::Postgres(a) => a.disconnect().await,
-            Self::MySql(a) => a.disconnect().await,
-            Self::Sqlite(a) => a.disconnect().await,
-            Self::Mssql(a) => a.disconnect().await,
-            Self::MongoDb(a) => a.disconnect().await,
-            Self::Redis(a) => a.disconnect().await,
-        }
+    pub async fn disconnect(&self) -> Result<()> {
+        self.inner.disconnect().await
     }
 
-    pub async fn connect(&mut self, profile: &ConnectionProfile) -> Result<()> {
-        match self {
-            Self::Postgres(a) => a.connect(profile).await,
-            Self::MySql(a) => a.connect(profile).await,
-            Self::Sqlite(a) => a.connect(profile).await,
-            Self::Mssql(a) => a.connect(profile).await,
-            Self::MongoDb(_) => Err(AppError::Unsupported("MongoDB reconnect via this path not supported".into())),
-            Self::Redis(_) => Err(AppError::Unsupported("Redis reconnect via this path not supported".into())),
-        }
-    }
-
-    pub fn as_sql(&self) -> Option<&dyn crate::core::adapter::DbAdapter> {
-        match self {
-            Self::Postgres(a) => Some(a),
-            Self::MySql(a) => Some(a),
-            Self::Sqlite(a) => Some(a),
-            Self::Mssql(a) => Some(a),
-            Self::MongoDb(_) | Self::Redis(_) => None,
-        }
-    }
-
-    pub fn as_mongo(&self) -> Option<&MongoDbAdapter> {
-        match self {
-            Self::MongoDb(a) => Some(a),
-            _ => None,
-        }
-    }
-
-    pub fn as_redis(&self) -> Option<&RedisAdapter> {
-        match self {
-            Self::Redis(a) => Some(a),
-            _ => None,
-        }
-    }
-
-    pub fn as_postgres(&self) -> Option<&PostgresAdapter> {
-        match self {
-            Self::Postgres(a) => Some(a),
-            _ => None,
-        }
+    pub async fn connect(&self, profile: &ConnectionProfile) -> Result<()> {
+        self.inner.connect(profile).await
     }
 
     pub fn db_type(&self) -> DbType {
-        match self {
-            Self::Postgres(_) => DbType::PostgreSQL,
-            Self::MySql(_) => DbType::MySQL,
-            Self::Sqlite(_) => DbType::SQLite,
-            Self::Mssql(_) => DbType::SQLServer,
-            Self::MongoDb(_) => DbType::MongoDB,
-            Self::Redis(_) => DbType::Redis,
-        }
+        self.db_type
+    }
+
+    // ========== Paradigm-specific access ==========
+
+    /// Get SQL queryable interface (returns None for MongoDB/Redis)
+    pub fn as_sql(&self) -> Option<&dyn SqlQueryable> {
+        self.sql.map(|p| unsafe { &*p })
+    }
+
+    /// Get document queryable interface (returns None for SQL/Redis)
+    pub fn as_document(&self) -> Option<&dyn DocumentQueryable> {
+        self.document.map(|p| unsafe { &*p })
+    }
+
+    /// Get key-value operable interface (returns None for SQL/MongoDB)
+    pub fn as_keyvalue(&self) -> Option<&dyn RichKeyValueOperable> {
+        self.keyvalue.map(|p| unsafe { &*p })
+    }
+
+    // ========== Concrete adapter access ==========
+
+    pub fn as_postgres(&self) -> Option<&PostgresAdapter> {
+        self.postgres.map(|p| unsafe { &*p })
+    }
+
+    pub fn as_mongo(&self) -> Option<&MongoDbAdapter> {
+        self.mongo.map(|p| unsafe { &*p })
+    }
+
+    pub fn as_redis(&self) -> Option<&RedisAdapter> {
+        self.redis.map(|p| unsafe { &*p })
     }
 }
 
@@ -311,7 +408,7 @@ impl ConnectionManager {
                 }
 
                 for key in to_remove {
-                    if let Some((_, mut conn)) = connections.remove(&key) {
+                    if let Some((_, conn)) = connections.remove(&key) {
                         let _ = conn.adapter.disconnect().await;
                     }
                 }
@@ -406,22 +503,13 @@ impl ConnectionManager {
         conn_id: &str,
         profile: &ConnectionProfile,
     ) -> Result<String> {
-        // Handle MongoDB connections separately
-        if profile.db_type == DbType::MongoDB {
-            return self.create_mongo_connection(conn_id, profile).await;
-        }
-        
-        // Handle Redis connections separately
-        if profile.db_type == DbType::Redis {
-            return self.create_redis_connection(conn_id, profile).await;
-        }
-        
+        // Unified path for all database types - tunnel support for all
         let tunnel_status = self.ensure_tunnel(conn_id, profile).await?;
         let effective_profile = Self::build_effective_profile(profile, &tunnel_status);
 
         // Check if connection exists. If it does but the adapter is no longer connected,
         // attempt a transparent reconnect to heal broken sessions after reloads/network hiccups.
-        if let Some((_, mut conn)) = self.connections.remove(conn_id) {
+        if let Some((_, conn)) = self.connections.remove(conn_id) {
             let needs_reconnect =
                 !conn.adapter.is_connected() || tunnel_status.requires_reconnect();
 
@@ -437,8 +525,17 @@ impl ConnectionManager {
             }
 
             *conn.last_used.write().await = Instant::now();
-            conn.profile = profile.clone();
-            self.connections.insert(conn_id.to_string(), conn);
+            // Note: profile update requires mutable access, but we can insert fresh
+            let updated_conn = LiveConnection {
+                id: conn.id,
+                adapter: conn.adapter,
+                profile: profile.clone(),
+                created_at: conn.created_at,
+                last_used: conn.last_used,
+                query_count: conn.query_count,
+                active_queries: conn.active_queries,
+            };
+            self.connections.insert(conn_id.to_string(), updated_conn);
             self.profiles.insert(conn_id.to_string(), profile.clone());
             return Ok(conn_id.to_string());
         }
@@ -448,8 +545,8 @@ impl ConnectionManager {
             self.start_reaper_internal().await;
         }
 
-        // Create new connection
-        let mut adapter = self.create_adapter(profile)?;
+        // Create new connection (unified factory for all db types)
+        let adapter = self.create_adapter(profile)?;
         tracing::info!(
             "Connecting to {}:{}/{} (type: {:?})",
             effective_profile.host,
@@ -482,98 +579,6 @@ impl ConnectionManager {
         // Store profile separately for reconnection after reaper
         self.profiles.insert(conn_id.to_string(), profile.clone());
         self.total_connections.fetch_add(1, Ordering::SeqCst);
-        Ok(conn_id.to_string())
-    }
-    
-    /// Create MongoDB connection
-    async fn create_mongo_connection(
-        &self,
-        conn_id: &str,
-        profile: &ConnectionProfile,
-    ) -> Result<String> {
-        if let Some(conn) = self.connections.get(conn_id) {
-            if conn.adapter.is_connected() {
-                return Ok(conn_id.to_string());
-            }
-        }
-        
-        let adapter = MongoDbAdapter::new();
-        
-        tracing::info!(
-            "Connecting to MongoDB at {}:{}/{} (type: {:?})",
-            profile.host,
-            profile.port,
-            profile.database,
-            profile.db_type
-        );
-        
-        if let Err(err) = adapter.connect(profile).await {
-            tracing::error!("MongoDB connection failed: {}", err);
-            return Err(err);
-        }
-        
-        tracing::info!("MongoDB connection established successfully");
-        
-        let live_connection = LiveConnection {
-            id: conn_id.to_string(),
-            adapter: UnifiedAdapter::MongoDb(adapter),
-            profile: profile.clone(),
-            created_at: Instant::now(),
-            last_used: Arc::new(RwLock::new(Instant::now())),
-            query_count: Arc::new(AtomicUsize::new(0)),
-            active_queries: Arc::new(AtomicUsize::new(0)),
-        };
-        
-        self.connections.insert(conn_id.to_string(), live_connection);
-        self.profiles.insert(conn_id.to_string(), profile.clone());
-        self.total_connections.fetch_add(1, Ordering::SeqCst);
-        
-        Ok(conn_id.to_string())
-    }
-    
-    /// Create Redis connection
-    async fn create_redis_connection(
-        &self,
-        conn_id: &str,
-        profile: &ConnectionProfile,
-    ) -> Result<String> {
-        if let Some(conn) = self.connections.get(conn_id) {
-            if conn.adapter.is_connected() {
-                return Ok(conn_id.to_string());
-            }
-        }
-        
-        let adapter = RedisAdapter::new();
-        
-        tracing::info!(
-            "Connecting to Redis at {}:{}/{} (type: {:?})",
-            profile.host,
-            profile.port,
-            profile.database,
-            profile.db_type
-        );
-        
-        if let Err(err) = adapter.connect(profile).await {
-            tracing::error!("Redis connection failed: {}", err);
-            return Err(err);
-        }
-        
-        tracing::info!("Redis connection established successfully");
-        
-        let live_connection = LiveConnection {
-            id: conn_id.to_string(),
-            adapter: UnifiedAdapter::Redis(adapter),
-            profile: profile.clone(),
-            created_at: Instant::now(),
-            last_used: Arc::new(RwLock::new(Instant::now())),
-            query_count: Arc::new(AtomicUsize::new(0)),
-            active_queries: Arc::new(AtomicUsize::new(0)),
-        };
-        
-        self.connections.insert(conn_id.to_string(), live_connection);
-        self.profiles.insert(conn_id.to_string(), profile.clone());
-        self.total_connections.fetch_add(1, Ordering::SeqCst);
-        
         Ok(conn_id.to_string())
     }
 
@@ -672,7 +677,7 @@ impl ConnectionManager {
     }
 
     pub async fn disconnect(&self, conn_id: &str) -> Result<()> {
-        if let Some((_, mut conn)) = self.connections.remove(conn_id) {
+        if let Some((_, conn)) = self.connections.remove(conn_id) {
             let disconnect_result = tokio::time::timeout(
                 Duration::from_secs(2),
                 conn.adapter.disconnect(),
@@ -741,16 +746,14 @@ impl ConnectionManager {
         profile: &ConnectionProfile,
     ) -> Result<UnifiedAdapter> {
         match profile.db_type {
-            DbType::PostgreSQL => Ok(UnifiedAdapter::Postgres(PostgresAdapter::new())),
-            DbType::MySQL | DbType::MariaDB => Ok(UnifiedAdapter::MySql(MySqlAdapter::new())),
-            DbType::SQLite => Ok(UnifiedAdapter::Sqlite(SqliteAdapter::new())),
-            DbType::SQLServer => Ok(UnifiedAdapter::Mssql(MssqlAdapter::new())),
-            DbType::MongoDB => Err(crate::error::AppError::Unsupported(
-                "Use create_mongo_connection for MongoDB".to_string(),
-            )),
-            DbType::Redis => Err(crate::error::AppError::Unsupported(
-                "Use create_redis_connection for Redis".to_string(),
-            )),
+            DbType::PostgreSQL => Ok(UnifiedAdapter::postgres(PostgresAdapter::new())),
+            DbType::MySQL | DbType::MariaDB => {
+                Ok(UnifiedAdapter::mysql(MySqlAdapter::new(), profile.db_type))
+            }
+            DbType::SQLite => Ok(UnifiedAdapter::sqlite(SqliteAdapter::new())),
+            DbType::SQLServer => Ok(UnifiedAdapter::mssql(MssqlAdapter::new())),
+            DbType::MongoDB => Ok(UnifiedAdapter::mongodb(MongoDbAdapter::new())),
+            DbType::Redis => Ok(UnifiedAdapter::redis(RedisAdapter::new())),
         }
     }
 

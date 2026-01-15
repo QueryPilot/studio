@@ -10,14 +10,26 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use crate::error::AppError;
+use crate::types::ConnectionProfile;
 
 // ============ Capability Traits ============
 
 /// Base capability - all adapters implement this
 #[async_trait]
 pub trait BaseCapability: Send + Sync {
+    /// Connect to the database using the provided profile
+    async fn connect(&self, profile: &ConnectionProfile) -> Result<(), AppError>;
+    
+    /// Disconnect from the database
+    async fn disconnect(&self) -> Result<(), AppError>;
+    
+    /// Test the connection and return status
     async fn test_connection(&self) -> Result<CapabilityTestResult, AppError>;
+    
+    /// Check if currently connected
     fn is_connected(&self) -> bool;
+    
+    /// Get the capabilities this adapter supports
     fn get_capabilities(&self) -> Vec<AdapterCapability>;
 }
 
@@ -26,20 +38,6 @@ pub trait BaseCapability: Send + Sync {
 pub trait SqlQueryable: BaseCapability {
     async fn execute_query(&self, sql: &str) -> Result<CapabilityQueryResult, AppError>;
     async fn execute_statement(&self, sql: &str) -> Result<u64, AppError>;
-}
-
-/// Schema introspection - SQL and MongoDB
-#[async_trait]
-pub trait SchemaIntrospectable: BaseCapability {
-    async fn get_databases(&self) -> Result<Vec<DatabaseInfo>, AppError>;
-    async fn get_schemas(&self, database: &str) -> Result<Vec<SchemaInfo>, AppError>;
-    async fn get_tables(
-        &self,
-        database: &str,
-        schema: Option<&str>,
-    ) -> Result<Vec<TableInfo>, AppError>;
-    async fn get_columns(&self, table: &str) -> Result<Vec<ColumnInfo>, AppError>;
-    async fn get_indexes(&self, table: &str) -> Result<Vec<IndexInfo>, AppError>;
 }
 
 /// Document databases (MongoDB, CouchDB, Firestore)
@@ -179,7 +177,6 @@ pub struct CapabilityTestResult {
 #[serde(rename_all = "kebab-case")]
 pub enum AdapterCapability {
     SqlQueryable,
-    SchemaIntrospectable,
     DocumentQueryable,
     KeyValueOperable,
     RichKeyValueOperable,
@@ -377,163 +374,6 @@ pub struct ZSetMember {
 pub struct StreamEntry {
     pub id: String,
     pub fields: HashMap<String, String>,
-}
-
-// ============ Macros for SQL Adapter Capability Implementation ============
-
-/// Macro to implement BaseCapability and SqlQueryable for SQL adapters.
-/// Eliminates boilerplate duplication across Postgres, MySQL, SQLite, MSSQL adapters.
-///
-/// Usage:
-/// ```ignore
-/// impl_sql_capabilities!(PostgresAdapter, pool_check: sync_rwlock);
-/// impl_sql_capabilities!(MySqlAdapter, pool_check: async_rwlock_blocking);
-/// impl_sql_capabilities!(SqliteAdapter, pool_check: async_mutex_block_on);
-/// impl_sql_capabilities!(MssqlAdapter, pool_check: async_rwlock_blocking);
-/// ```
-#[macro_export]
-macro_rules! impl_sql_capabilities {
-    ($adapter:ty, pool_check: sync_rwlock) => {
-        #[async_trait::async_trait]
-        impl $crate::core::capabilities::BaseCapability for $adapter {
-            async fn test_connection(&self) -> std::result::Result<$crate::core::capabilities::CapabilityTestResult, $crate::error::AppError> {
-                use $crate::core::adapter::DbAdapter;
-                let start = std::time::Instant::now();
-                let result = DbAdapter::test_connection(self).await?;
-                Ok($crate::core::capabilities::CapabilityTestResult {
-                    success: result.success,
-                    message: result.message,
-                    latency_ms: Some(start.elapsed().as_millis() as u64),
-                    server_version: result.version,
-                })
-            }
-
-            fn is_connected(&self) -> bool {
-                self.pool.read().unwrap().is_some()
-            }
-
-            fn get_capabilities(&self) -> Vec<$crate::core::capabilities::AdapterCapability> {
-                vec![
-                    $crate::core::capabilities::AdapterCapability::SqlQueryable,
-                    $crate::core::capabilities::AdapterCapability::SchemaIntrospectable,
-                ]
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl $crate::core::capabilities::SqlQueryable for $adapter {
-            async fn execute_query(&self, sql: &str) -> std::result::Result<$crate::core::capabilities::CapabilityQueryResult, $crate::error::AppError> {
-                use $crate::core::adapter::DbAdapter;
-                let result = DbAdapter::query(self, sql).await?;
-                Ok($crate::core::capabilities::CapabilityQueryResult {
-                    columns: result.columns.into_iter().map(|c| $crate::core::capabilities::CapabilityColumnMeta {
-                        name: c.name,
-                        data_type: c.db_type,
-                    }).collect(),
-                    rows: result.rows,
-                })
-            }
-
-            async fn execute_statement(&self, sql: &str) -> std::result::Result<u64, $crate::error::AppError> {
-                use $crate::core::adapter::DbAdapter;
-                DbAdapter::execute(self, sql).await
-            }
-        }
-    };
-    ($adapter:ty, pool_check: async_rwlock_blocking) => {
-        #[async_trait::async_trait]
-        impl $crate::core::capabilities::BaseCapability for $adapter {
-            async fn test_connection(&self) -> std::result::Result<$crate::core::capabilities::CapabilityTestResult, $crate::error::AppError> {
-                use $crate::core::adapter::DbAdapter;
-                let start = std::time::Instant::now();
-                let result = DbAdapter::test_connection(self).await?;
-                Ok($crate::core::capabilities::CapabilityTestResult {
-                    success: result.success,
-                    message: result.message,
-                    latency_ms: Some(start.elapsed().as_millis() as u64),
-                    server_version: result.version,
-                })
-            }
-
-            fn is_connected(&self) -> bool {
-                self.pool.blocking_read().is_some()
-            }
-
-            fn get_capabilities(&self) -> Vec<$crate::core::capabilities::AdapterCapability> {
-                vec![
-                    $crate::core::capabilities::AdapterCapability::SqlQueryable,
-                    $crate::core::capabilities::AdapterCapability::SchemaIntrospectable,
-                ]
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl $crate::core::capabilities::SqlQueryable for $adapter {
-            async fn execute_query(&self, sql: &str) -> std::result::Result<$crate::core::capabilities::CapabilityQueryResult, $crate::error::AppError> {
-                use $crate::core::adapter::DbAdapter;
-                let result = DbAdapter::query(self, sql).await?;
-                Ok($crate::core::capabilities::CapabilityQueryResult {
-                    columns: result.columns.into_iter().map(|c| $crate::core::capabilities::CapabilityColumnMeta {
-                        name: c.name,
-                        data_type: c.db_type,
-                    }).collect(),
-                    rows: result.rows,
-                })
-            }
-
-            async fn execute_statement(&self, sql: &str) -> std::result::Result<u64, $crate::error::AppError> {
-                use $crate::core::adapter::DbAdapter;
-                DbAdapter::execute(self, sql).await
-            }
-        }
-    };
-    ($adapter:ty, pool_check: async_mutex_block_on) => {
-        #[async_trait::async_trait]
-        impl $crate::core::capabilities::BaseCapability for $adapter {
-            async fn test_connection(&self) -> std::result::Result<$crate::core::capabilities::CapabilityTestResult, $crate::error::AppError> {
-                use $crate::core::adapter::DbAdapter;
-                let start = std::time::Instant::now();
-                let result = DbAdapter::test_connection(self).await?;
-                Ok($crate::core::capabilities::CapabilityTestResult {
-                    success: result.success,
-                    message: result.message,
-                    latency_ms: Some(start.elapsed().as_millis() as u64),
-                    server_version: result.version,
-                })
-            }
-
-            fn is_connected(&self) -> bool {
-                futures::executor::block_on(self.is_conn_open())
-            }
-
-            fn get_capabilities(&self) -> Vec<$crate::core::capabilities::AdapterCapability> {
-                vec![
-                    $crate::core::capabilities::AdapterCapability::SqlQueryable,
-                    $crate::core::capabilities::AdapterCapability::SchemaIntrospectable,
-                ]
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl $crate::core::capabilities::SqlQueryable for $adapter {
-            async fn execute_query(&self, sql: &str) -> std::result::Result<$crate::core::capabilities::CapabilityQueryResult, $crate::error::AppError> {
-                use $crate::core::adapter::DbAdapter;
-                let result = DbAdapter::query(self, sql).await?;
-                Ok($crate::core::capabilities::CapabilityQueryResult {
-                    columns: result.columns.into_iter().map(|c| $crate::core::capabilities::CapabilityColumnMeta {
-                        name: c.name,
-                        data_type: c.db_type,
-                    }).collect(),
-                    rows: result.rows,
-                })
-            }
-
-            async fn execute_statement(&self, sql: &str) -> std::result::Result<u64, $crate::error::AppError> {
-                use $crate::core::adapter::DbAdapter;
-                DbAdapter::execute(self, sql).await
-            }
-        }
-    };
 }
 
 #[cfg(test)]

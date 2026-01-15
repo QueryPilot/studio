@@ -1,6 +1,5 @@
 pub mod adapters;
 pub mod ai;
-pub mod commands;
 pub mod core;
 pub mod error;
 pub mod keychain;
@@ -13,6 +12,9 @@ pub mod storage;
 pub mod types;
 pub mod updater;
 pub mod vault;
+
+// Commands module - organized by paradigm
+pub mod commands;
 // NOTE: window_state module removed - tracking now uses BroadcastChannel API on frontend
 
 // Test modules - separated for better organization

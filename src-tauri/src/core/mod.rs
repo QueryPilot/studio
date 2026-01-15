@@ -1,4 +1,3 @@
-pub mod adapter;
 pub mod capabilities;
 pub mod cell_value;
 pub mod manager;

@@ -190,7 +190,7 @@ async fn invoke_tauri_command(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
     
     let result = sql_adapter
-        .query(&sql)
+        .execute_query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -224,7 +224,7 @@ async fn invoke_get_columns(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
     
     let result = sql_adapter
-        .query(&sql)
+        .execute_query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -256,7 +256,7 @@ async fn invoke_get_constraints(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
     
     let result = sql_adapter
-        .query(&sql)
+        .execute_query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -287,7 +287,7 @@ async fn invoke_get_indexes(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
     
     let result = sql_adapter
-        .query(&sql)
+        .execute_query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -316,7 +316,7 @@ async fn invoke_get_schemas(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
     
     let result = sql_adapter
-        .query(&sql)
+        .execute_query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -347,7 +347,7 @@ async fn invoke_get_views(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
     
     let result = sql_adapter
-        .query(&sql)
+        .execute_query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -375,7 +375,7 @@ async fn invoke_get_table_count(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
     
     let result = sql_adapter
-        .query(&sql)
+        .execute_query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -408,7 +408,7 @@ async fn invoke_get_triggers(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
     
     let result = sql_adapter
-        .query(&sql)
+        .execute_query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -440,7 +440,7 @@ async fn invoke_get_functions(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
     
     let result = sql_adapter
-        .query(&sql)
+        .execute_query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -483,7 +483,7 @@ async fn invoke_get_object_definition(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
     
     let result = sql_adapter
-        .query(&sql)
+        .execute_query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -549,7 +549,7 @@ async fn invoke_get_sample_data(
         .as_sql()
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
 
-    let query_future = sql_adapter.query(&sql);
+    let query_future = sql_adapter.execute_query(&sql);
 
     let result = timeout(Duration::from_secs(30), query_future)
         .await
@@ -624,7 +624,7 @@ async fn invoke_execute_query(
         .as_sql()
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
 
-    let query_future = sql_adapter.query(&sql);
+    let query_future = sql_adapter.execute_query(&sql);
 
     let result = timeout(Duration::from_secs(30), query_future)
         .await
