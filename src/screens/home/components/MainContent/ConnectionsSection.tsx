@@ -1,20 +1,32 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   IconDatabase,
   IconLayoutGrid,
   IconList,
-  IconFolder,
   IconChevronRight,
   IconPlayerPlay,
+  IconLayout2,
+  IconPlus,
+  IconTrash,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
 import { Kbd } from "@/components/ui/kbd";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { ConnectionCard } from "../shared/ConnectionCard";
 import { ConnectionRow } from "../shared/ConnectionRow";
 import { windowManager } from "@/services/windowManager";
+import { toast } from "sonner";
 import type { StoredConnection } from "@/types/connection";
 import type { WorkspaceConfig } from "@/types/workspace";
 
@@ -45,11 +57,15 @@ function ConnectionGroup({
   viewMode,
   isCollapsed,
   onToggleCollapse,
+  onAddConnection,
+  onDeleteWorkspace,
 }: {
   group: WorkspaceGroup;
   viewMode: ViewMode;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  onAddConnection: (workspaceId: string) => void;
+  onDeleteWorkspace: (workspace: WorkspaceConfig) => void;
 }) {
   const sortedConnections = useMemo(
     () => sortConnections(group.connections),
@@ -66,40 +82,73 @@ function ConnectionGroup({
 
   return (
     <div className="mb-4">
-      <button
-        type="button"
-        onClick={onToggleCollapse}
-        className="flex items-center gap-2 mb-2 w-full text-left group hover:bg-accent/50 rounded-md px-2 py-1.5 -mx-2 transition-colors"
-      >
-        <IconChevronRight
-          className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${isCollapsed ? "" : "rotate-90"}`}
-        />
-        {group.workspace ? (
-          <IconLayout2 className="h-3.5 w-3.5 text-muted-foreground" />
-        ) : (
-          <IconDatabase className="h-3.5 w-3.5 text-muted-foreground" />
-        )}
-        <span className="text-sm font-medium">
-          {group.workspace?.name ?? "Uncategorized"}
-        </span>
-        <span className="text-xs text-muted-foreground">
-          ({group.connections.length})
-        </span>
-        {group.workspace && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={(e) => {
-              e.stopPropagation();
-              void handleOpenWorkspace();
-            }}
-            className="ml-auto h-6 px-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-          >
-            <IconPlayerPlay className="h-3 w-3 mr-1" />
-            Open
-          </Button>
-        )}
-      </button>
+      <div className="flex items-center gap-2 mb-2 w-full text-left group hover:bg-accent/50 rounded-md px-2 py-1.5 -mx-2 transition-colors">
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          className="flex items-center gap-2 flex-1"
+        >
+          <IconChevronRight
+            className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${
+              isCollapsed ? "" : "rotate-90"
+            }`}
+          />
+          {group.workspace ? (
+            <IconLayout2 className="h-3.5 w-3.5 text-muted-foreground" />
+          ) : (
+            <IconDatabase className="h-3.5 w-3.5 text-muted-foreground" />
+          )}
+          <span className="text-sm font-medium">
+            {group.workspace?.name ?? "Uncategorized"}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            ({group.connections.length})
+          </span>
+        </button>
+        <div className="flex items-center gap-1">
+          {group.workspace && (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddConnection(group.workspace!.id);
+                }}
+                className="h-6 px-2 text-xs"
+                title="Add connection to workspace"
+              >
+                <IconPlus className="h-3 w-3 mr-1" />
+                Add
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleOpenWorkspace();
+                }}
+                className="h-6 px-2 text-xs"
+              >
+                <IconPlayerPlay className="h-3 w-3 mr-1" />
+                Open
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteWorkspace(group.workspace!);
+                }}
+                className="h-6 px-2 text-xs text-destructive hover:text-destructive"
+                title="Delete workspace"
+              >
+                <IconTrash className="h-3 w-3" />
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
 
       {!isCollapsed && (
         <div className="pl-7">
@@ -131,9 +180,15 @@ function ConnectionGroup({
 
 export function ConnectionsSection() {
   const connections = useConnectionStore((s) => s.connections);
+  const deleteConnection = useConnectionStore((s) => s.deleteConnection);
   const activeEnvFilters = useHomeScreenStore((s) => s.activeEnvFilters);
+  const openConnectionForm = useHomeScreenStore((s) => s.openConnectionForm);
 
   const savedWorkspaces = useWorkspaceBundleStore((s) => s.savedWorkspaces);
+  const loadSavedWorkspaces = useWorkspaceBundleStore(
+    (s) => s.loadSavedWorkspaces,
+  );
+  const deleteWorkspace = useWorkspaceBundleStore((s) => s.deleteWorkspace);
   const getConnectionsByWorkspace = useWorkspaceBundleStore(
     (s) => s.getConnectionsByWorkspace,
   );
@@ -145,6 +200,16 @@ export function ConnectionsSection() {
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(
     new Set(),
   );
+
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    workspace: WorkspaceConfig | null;
+  }>({ isOpen: false, workspace: null });
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  useEffect(() => {
+    void loadSavedWorkspaces();
+  }, [loadSavedWorkspaces]);
 
   const filteredConnections = useMemo(() => {
     if (
@@ -167,9 +232,9 @@ export function ConnectionsSection() {
       map.set(conn.profile.id, conn);
     }
     return map;
-  }, [filteredConnections]);
+   }, [filteredConnections]);
 
-  const workspaceGroups = useMemo(() => {
+   const workspaceGroups = useMemo(() => {
     const groups: WorkspaceGroup[] = [];
     const workspaceToConnections = getConnectionsByWorkspace();
     const uncategorizedIds = getUncategorizedConnectionIds();
@@ -194,12 +259,7 @@ export function ConnectionsSection() {
     }
 
     return groups;
-  }, [
-    savedWorkspaces,
-    connectionMap,
-    getConnectionsByWorkspace,
-    getUncategorizedConnectionIds,
-  ]);
+  }, [savedWorkspaces, connectionMap, getConnectionsByWorkspace, getUncategorizedConnectionIds]);
 
   const toggleWorkspaceCollapse = (wsId: string) => {
     setCollapsedWorkspaces((prev) => {
@@ -211,6 +271,43 @@ export function ConnectionsSection() {
       }
       return next;
     });
+  };
+
+  const handleDeleteWorkspaceOnly = async () => {
+    if (!deleteDialog.workspace) return;
+    setIsDeleting(true);
+    try {
+      await deleteWorkspace(deleteDialog.workspace.id);
+      toast.success(`Deleted workspace "${deleteDialog.workspace.name}"`);
+      setDeleteDialog({ isOpen: false, workspace: null });
+    } catch (error) {
+      toast.error("Failed to delete workspace", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleDeleteWithConnections = async () => {
+    if (!deleteDialog.workspace) return;
+    setIsDeleting(true);
+    try {
+      for (const connId of deleteDialog.workspace.connectionIds) {
+        await deleteConnection(connId);
+      }
+      await deleteWorkspace(deleteDialog.workspace.id);
+      toast.success(
+        `Deleted workspace "${deleteDialog.workspace.name}" and ${deleteDialog.workspace.connectionIds.length} connection(s)`,
+      );
+      setDeleteDialog({ isOpen: false, workspace: null });
+    } catch (error) {
+      toast.error("Failed to delete", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -229,7 +326,9 @@ export function ConnectionsSection() {
             <Button
               variant="ghost"
               size="sm"
-              className={`h-7 px-2 rounded-r-none ${viewMode === "grid" ? "bg-muted" : ""}`}
+              className={`h-7 px-2 rounded-r-none ${
+                viewMode === "grid" ? "bg-muted" : ""
+              }`}
               onClick={() => {
                 setViewMode("grid");
               }}
@@ -240,7 +339,9 @@ export function ConnectionsSection() {
             <Button
               variant="ghost"
               size="sm"
-              className={`h-7 px-2 rounded-l-none ${viewMode === "list" ? "bg-muted" : ""}`}
+              className={`h-7 px-2 rounded-l-none ${
+                viewMode === "list" ? "bg-muted" : ""
+              }`}
               onClick={() => {
                 setViewMode("list");
               }}
@@ -281,15 +382,78 @@ export function ConnectionsSection() {
               isCollapsed={collapsedWorkspaces.has(
                 group.workspace?.id ?? "uncategorized",
               )}
-              onToggleCollapse={() =>
-                toggleWorkspaceCollapse(
-                  group.workspace?.id ?? "uncategorized",
-                )
-              }
+              onToggleCollapse={() => {
+                toggleWorkspaceCollapse(group.workspace?.id ?? "uncategorized");
+              }}
+              onAddConnection={(workspaceId) => {
+                openConnectionForm("create", undefined, workspaceId);
+              }}
+              onDeleteWorkspace={(workspace) => {
+                setDeleteDialog({ isOpen: true, workspace });
+              }}
             />
           ))}
         </div>
       )}
+
+      <Dialog
+        open={deleteDialog.isOpen}
+        onOpenChange={(open) => !open && setDeleteDialog({ isOpen: false, workspace: null })}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <IconAlertTriangle className="w-5 h-5 text-destructive" />
+              Delete Workspace
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{deleteDialog.workspace?.name}"?
+              {deleteDialog.workspace && deleteDialog.workspace.connectionIds.length > 0 && (
+                <span className="block mt-2 text-foreground">
+                  This workspace contains {deleteDialog.workspace.connectionIds.length} connection
+                  {deleteDialog.workspace.connectionIds.length !== 1 ? "s" : ""}.
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-2">
+            <button
+              type="button"
+              onClick={() => void handleDeleteWorkspaceOnly()}
+              disabled={isDeleting}
+              className="w-full text-left p-3 rounded-lg border hover:bg-accent transition-colors disabled:opacity-50"
+            >
+              <div className="font-medium text-sm">Keep connections</div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Only remove the workspace. Connections will remain available.
+              </div>
+            </button>
+            {deleteDialog.workspace && deleteDialog.workspace.connectionIds.length > 0 && (
+              <button
+                type="button"
+                onClick={() => void handleDeleteWithConnections()}
+                disabled={isDeleting}
+                className="w-full text-left p-3 rounded-lg border border-destructive/30 hover:bg-destructive/5 transition-colors disabled:opacity-50"
+              >
+                <div className="font-medium text-sm text-destructive">Delete everything</div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  Permanently delete workspace and all {deleteDialog.workspace.connectionIds.length} connection
+                  {deleteDialog.workspace.connectionIds.length !== 1 ? "s" : ""}.
+                </div>
+              </button>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setDeleteDialog({ isOpen: false, workspace: null })}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -8,8 +8,9 @@ The test environment includes:
 
 - **PostgreSQL 16** - With advanced types (JSONB, arrays, full-text search, etc.)
 - **MySQL 8.3** - With JSON support and spatial types
+- **MariaDB 11** - MySQL-compatible alternative (separate from MySQL)
 - **SQLite** - File-based database with comprehensive types
-- **SQL Server 2022** - With XML, hierarchyid, and spatial types
+- **SQL Server 2019** - With XML, hierarchyid, and spatial types
 - **Oracle 21c XE** - With CLOB, XMLTYPE, and interval types
 - **MongoDB 7** - Document database with collections, aggregation pipelines
 - **Redis 7** - Key-value store with rich data types (strings, hashes, lists, sets, sorted sets, streams)
@@ -37,11 +38,12 @@ make dev
 | ---------- | --------- | ----- | -------- | ----------- | ----------------------- |
 | PostgreSQL | localhost | 15432 | devuser  | devpass123  | todoapp                 |
 | MySQL      | localhost | 13306 | devuser  | devpass123  | todoapp                 |
+| MariaDB    | localhost | 13307 | devuser  | devpass123  | todoapp                 |
 | SQLite     | -         | -     | -        | -           | seeds/sqlite/todoapp.db |
 | SQL Server | localhost | 11434 | sa       | DevPass123  | todoapp                 |
 | Oracle     | localhost | 11521 | todoapp  | DevPass123  | XE (service)            |
 | MongoDB    | localhost | 17017 | devuser  | devpass123  | todoapp                 |
-| Redis      | localhost | 6379  | -        | -           | 0 (default)             |
+| Redis      | localhost | 16379 | -        | devpass123  | 0 (default)             |
 
 ## Connection Strings
 
@@ -92,6 +94,25 @@ mysql -h localhost -P 13306 -u devuser -pdevpass123 todoapp
 
 # PHP/PDO format
 mysql:host=localhost;port=13306;dbname=todoapp;charset=utf8mb4
+```
+
+### MariaDB
+
+```
+# Standard connection string
+mysql://devuser:devpass123@localhost:13307/todoapp
+
+# With charset
+mysql://devuser:devpass123@localhost:13307/todoapp?charset=utf8mb4
+
+# JDBC format
+jdbc:mariadb://localhost:13307/todoapp
+
+# mariadb command line
+mariadb -h localhost -P 13307 -u devuser -pdevpass123 todoapp
+
+# PHP/PDO format
+mysql:host=localhost;port=13307;dbname=todoapp;charset=utf8mb4
 ```
 
 ### SQLite
@@ -187,26 +208,27 @@ mongosh mongodb://devuser:devpass123@localhost:17017/todoapp?authSource=admin
 ### Redis
 
 ```
-# Standard connection string
-redis://localhost:6379/0
+# Standard connection string (with password)
+redis://:devpass123@localhost:16379/0
 
-# With ACL authentication (Redis 6+)
-redis://username:password@localhost:6379/0
-
-# With legacy password authentication
-redis://:password@localhost:6379/0
+# Without password (not configured)
+redis://localhost:16379/0
 
 # TLS connection
-rediss://localhost:6380/0
+rediss://:devpass123@localhost:16379/0
 
 # Cluster mode (multiple nodes)
-redis://host1:6379,host2:6379,host3:6379
+redis://:devpass123@host1:16379,:devpass123@host2:16379,:devpass123@host3:16379
 
-# redis-cli command line
-redis-cli -h localhost -p 6379
+# redis-cli command line (with password)
+redis-cli -h localhost -p 16379 -a devpass123
 
 # With database selection
-redis-cli -h localhost -p 6379 -n 2
+redis-cli -h localhost -p 16379 -a devpass123 -n 2
+
+# Warning: Using -a flag is insecure. Use REDISCLI_AUTH environment variable instead:
+export REDISCLI_AUTH=devpass123
+redis-cli -h localhost -p 16379
 ```
 
 ## Query Pilot Connection Examples
@@ -226,6 +248,14 @@ When connecting from Query Pilot, use these settings:
 
 - Host: `localhost`
 - Port: `13306`
+- Database: `todoapp`
+- Username: `devuser`
+- Password: `devpass123`
+
+### MariaDB Connection
+
+- Host: `localhost`
+- Port: `13307`
 - Database: `todoapp`
 - Username: `devuser`
 - Password: `devpass123`
@@ -266,9 +296,9 @@ When connecting from Query Pilot, use these settings:
 ### Redis Connection
 
 - Host: `localhost`
-- Port: `6379`
+- Port: `16379`
 - Database: `0` (default, Redis has databases 0-15)
-- Authentication: None (for local development)
+- Password: `devpass123`
 - **Note**: For TLS connections, use `rediss://` scheme
 
 ## Available Commands

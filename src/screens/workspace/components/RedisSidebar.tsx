@@ -7,7 +7,7 @@ import {
   IconSearch,
   IconChevronRight,
   IconChevronDown,
-  IconFolder,
+  IconLayout2,
 } from "@tabler/icons-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -35,13 +35,13 @@ export function RedisSidebar({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { 
-    currentDatabase, 
-    setCurrentDatabase, 
-    fetchNextPage, 
-    groupedKeys, 
+  const {
+    currentDatabase,
+    setCurrentDatabase,
+    fetchNextPage,
+    groupedKeys,
     scannedKeys,
-    setScanPattern
+    setScanPattern,
   } = useRedisStore();
 
   const { addTabToPanel, activePanelId } = usePanelStore();
@@ -77,18 +77,22 @@ export function RedisSidebar({
         next.delete(dbIndex);
       } else {
         // Ensure single expansion logic to match store
-        next.clear(); 
+        next.clear();
         next.add(dbIndex);
-        
+
         // Sync state and refresh
         setCurrentDatabase(dbIndex);
         // Execute DB switch
-        invoke("keyvalue_execute", { 
-          connId: connectionId, 
-          operation: { type: "selectDb", index: dbIndex } 
-        }).then(() => {
-          void fetchNextPage();
-        }).catch(err => console.error("Failed to select DB:", err));
+        invoke("keyvalue_execute", {
+          connId: connectionId,
+          operation: { type: "selectDb", index: dbIndex },
+        })
+          .then(() => {
+            void fetchNextPage();
+          })
+          .catch((err: unknown) => {
+            console.error("Failed to select DB:", err);
+          });
       }
       return next;
     });
@@ -96,7 +100,7 @@ export function RedisSidebar({
 
   const handleGroupClick = (prefix: string) => {
     setScanPattern(prefix + "*");
-    
+
     // Check if we need to open a tab
     const tabId = uuidv4();
     if (activePanelId) {
@@ -147,7 +151,9 @@ export function RedisSidebar({
           <Input
             placeholder="Search keys..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+            }}
             className="h-7 pl-7 text-xs"
           />
         </div>
@@ -166,7 +172,7 @@ export function RedisSidebar({
 
       {/* Error State */}
       {error && (
-        <div className="p-2 text-xs text-destructive bg-destructive/10 m-2 rounded">
+        <div className="p-2 text-xs text-destructive select-text bg-destructive/10 m-2 rounded">
           {error}
         </div>
       )}
@@ -177,7 +183,7 @@ export function RedisSidebar({
           const size = dbSizes.get(dbIndex) ?? 0;
           const isExpanded = expandedDbs.has(dbIndex);
           // Only show content if this DB is the actively selected one in store
-          const isActive = currentDatabase === dbIndex; 
+          const isActive = currentDatabase === dbIndex;
           const showContent = isExpanded && isActive;
 
           return (
@@ -186,9 +192,11 @@ export function RedisSidebar({
               <button
                 className={cn(
                   "flex items-center gap-1.5 w-full px-2 py-1 text-xs rounded hover:bg-accent group",
-                  isActive && "bg-accent"
+                  isActive && "bg-accent",
                 )}
-                onClick={() => toggleDatabase(dbIndex)}
+                onClick={() => {
+                  toggleDatabase(dbIndex);
+                }}
               >
                 {isExpanded ? (
                   <IconChevronDown className="h-3 w-3 text-muted-foreground" />
@@ -202,7 +210,7 @@ export function RedisSidebar({
                     {size} keys
                   </span>
                 )}
-                <div 
+                <div
                   className="hidden group-hover:flex ml-1 p-0.5 rounded hover:bg-background/50"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -222,9 +230,11 @@ export function RedisSidebar({
                     <button
                       key={prefix}
                       className="flex items-center gap-1.5 w-full px-2 py-1 text-xs rounded hover:bg-accent text-left"
-                      onClick={() => handleGroupClick(prefix)}
+                      onClick={() => {
+                        handleGroupClick(prefix);
+                      }}
                     >
-                      <IconFolder className="h-3.5 w-3.5 text-yellow-500" />
+                      <IconLayout2 className="h-3.5 w-3.5 text-yellow-500" />
                       <span className="truncate font-mono text-[11px] flex-1">
                         {prefix}
                       </span>
@@ -236,19 +246,23 @@ export function RedisSidebar({
 
                   {/* Scanned Keys Preview (limit to 10 to avoid clutter) */}
                   {scannedKeys.slice(0, 10).map((key) => (
-                    <div 
+                    <div
                       key={key.key}
                       className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground"
                     >
                       <IconKey className="h-3 w-3 opacity-50" />
-                      <span className="truncate font-mono text-[10px]">{key.key}</span>
+                      <span className="truncate font-mono text-[10px]">
+                        {key.key}
+                      </span>
                     </div>
                   ))}
-                  
+
                   {scannedKeys.length > 10 && (
-                    <div 
+                    <div
                       className="px-2 py-1 text-[10px] text-muted-foreground italic cursor-pointer hover:text-foreground"
-                      onClick={() => openKeyBrowser(dbIndex)}
+                      onClick={() => {
+                        openKeyBrowser(dbIndex);
+                      }}
                     >
                       ... and {scannedKeys.length - 10} more loaded
                     </div>

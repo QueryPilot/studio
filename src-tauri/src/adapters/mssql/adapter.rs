@@ -659,6 +659,8 @@ impl DbAdapter for MssqlAdapter {
     }
 }
 
+crate::impl_sql_capabilities!(MssqlAdapter, pool_check: async_rwlock_blocking);
+
 #[cfg(test)]
 mod tests {
     use super::*;

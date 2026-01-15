@@ -3,11 +3,9 @@ export type ContentMode =
   | "form"
   | "details"
   | "workspace-list"
-  | "workspace-detail"
-  | "workspace-form";
+  | "workspace-detail";
 
 export type FormMode = "create" | "edit" | "import";
-export type WorkspaceFormMode = "create" | "edit";
 
 export interface HomeScreenState {
   // Content mode
@@ -20,12 +18,11 @@ export interface HomeScreenState {
   // Form state
   formMode: FormMode;
   formConnectionId: string | null;
+  formPreselectedWorkspaceId: string | null;
 
   // Workspace state
-  selectedWorkspaceId: string | null; // For detail view
-  workspaceFilterId: string | null; // Filter connections by workspace
-  workspaceFormMode: WorkspaceFormMode;
-  editingWorkspaceId: string | null;
+  selectedWorkspaceId: string | null;
+  workspaceFilterId: string | null;
 
   // Filters
   activeEnvFilters: string[];
@@ -39,7 +36,7 @@ export interface HomeScreenState {
   // Actions
   setContentMode: (mode: ContentMode) => void;
   selectConnection: (id: string | null) => void;
-  openConnectionForm: (mode: FormMode, id?: string) => void;
+  openConnectionForm: (mode: FormMode, id?: string, workspaceId?: string) => void;
   closeForm: () => void;
   toggleEnvFilter: (env: string) => void;
   setSearchQuery: (query: string) => void;
@@ -58,7 +55,6 @@ export interface HomeScreenState {
   // Workspace actions
   showWorkspaceList: () => void;
   showWorkspaceDetail: (workspaceId: string) => void;
-  showWorkspaceForm: (mode: WorkspaceFormMode, workspaceId?: string) => void;
   setWorkspaceFilter: (workspaceId: string | null) => void;
   clearWorkspaceFilter: () => void;
 }

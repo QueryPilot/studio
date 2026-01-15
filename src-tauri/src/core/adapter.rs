@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use crate::error::Result;
-use crate::types::{CellValueType, ConnectionProfile, ConnectionTestResult, QueryResult};
+use crate::types::{ConnectionProfile, ConnectionTestResult, QueryResult};
 use std::any::Any;
 
 #[async_trait]

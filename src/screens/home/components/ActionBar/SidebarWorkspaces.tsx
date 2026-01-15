@@ -1,15 +1,22 @@
 import { useState, useEffect } from "react";
 import {
-  IconFolder,
+  IconLayout2,
   IconChevronDown,
   IconChevronRight,
   IconPlus,
+  IconPlayerPlay,
+  IconPlugConnected,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { windowManager } from "@/services/windowManager";
 import { toast } from "sonner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export function SidebarWorkspaces() {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -18,7 +25,8 @@ export function SidebarWorkspaces() {
   const loadSavedWorkspaces = useWorkspaceBundleStore(
     (s) => s.loadSavedWorkspaces,
   );
-  const showWorkspaceForm = useHomeScreenStore((s) => s.showWorkspaceForm);
+  const showWorkspaceList = useHomeScreenStore((s) => s.showWorkspaceList);
+  const openConnectionForm = useHomeScreenStore((s) => s.openConnectionForm);
 
   // Load workspaces on mount
   useEffect(() => {
@@ -42,7 +50,7 @@ export function SidebarWorkspaces() {
         toast.error("Workspace not found");
         return;
       }
-      
+
       // Use windowManager to open (handles multi-window prevention)
       await windowManager.openNamedWorkspace(workspaceId, workspace.name, {
         icon: workspace.icon,
@@ -55,14 +63,18 @@ export function SidebarWorkspaces() {
   };
 
   const handleCreateWorkspace = () => {
-    showWorkspaceForm("create");
+    showWorkspaceList();
+  };
+
+  const handleAddConnectionToWorkspace = (_workspaceId: string) => {
+    openConnectionForm("create");
   };
 
   if (savedWorkspaces.length === 0) {
     return (
       <div className="px-2 py-1">
         <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground flex items-center gap-2">
-          <IconFolder className="h-3 w-3" />
+          <IconLayout2 className="h-3 w-3" />
           <span>Workspaces</span>
         </div>
         <button
@@ -86,7 +98,9 @@ export function SidebarWorkspaces() {
     <div className="px-2 py-1">
       <button
         type="button"
-        onClick={() => { setIsCollapsed(!isCollapsed); }}
+        onClick={() => {
+          setIsCollapsed(!isCollapsed);
+        }}
         className={cn(
           "flex items-center gap-2 w-full px-2 py-1.5 rounded-md",
           "text-xs font-medium text-muted-foreground",
@@ -99,7 +113,7 @@ export function SidebarWorkspaces() {
         ) : (
           <IconChevronDown className="h-3 w-3" />
         )}
-        <IconFolder className="h-3 w-3" />
+        <IconLayout2 className="h-3 w-3" />
         <span>Workspaces</span>
         <span className="ml-auto text-[10px] opacity-60">
           {savedWorkspaces.length}
@@ -109,23 +123,53 @@ export function SidebarWorkspaces() {
       {!isCollapsed && (
         <div className="mt-1 space-y-0.5">
           {recentWorkspaces.map((ws) => (
-            <button
+            <div
               key={ws.id}
-              type="button"
-              onClick={() => void handleOpenWorkspace(ws.id)}
               className={cn(
-                "flex items-center gap-2.5 h-8 w-full px-2.5 rounded-lg",
-                "text-muted-foreground hover:text-foreground",
+                "flex items-center gap-1.5 h-8 w-full px-2 rounded-lg group",
+                "text-muted-foreground",
                 "hover:bg-foreground/6",
                 "transition-all duration-150 ease-out",
               )}
             >
-              <span className="text-sm shrink-0">{ws.icon || "📦"}</span>
+              <IconLayout2 className="h-3 w-3 shrink-0" />
               <span className="text-xs truncate flex-1">{ws.name}</span>
-              <span className="text-[10px] opacity-50">
+              <span className="text-[10px] opacity-50 group-hover:hidden">
                 {ws.connectionIds.length}
               </span>
-            </button>
+              <div className="hidden group-hover:flex items-center gap-0.5">
+                <Tooltip>
+                  <TooltipTrigger
+                    onClick={() => void handleOpenWorkspace(ws.id)}
+                    className={cn(
+                      "p-1 rounded hover:bg-foreground/10",
+                      "text-muted-foreground hover:text-foreground",
+                      "transition-colors",
+                    )}
+                  >
+                    <IconPlayerPlay className="h-3.5 w-3.5" />
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">
+                    Open Workspace
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    onClick={() => handleAddConnectionToWorkspace(ws.id)}
+                    className={cn(
+                      "p-1 rounded hover:bg-foreground/10",
+                      "text-muted-foreground hover:text-foreground",
+                      "transition-colors",
+                    )}
+                  >
+                    <IconPlugConnected className="h-3.5 w-3.5" />
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">
+                    Add Connection
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+            </div>
           ))}
 
           {/* Create new workspace */}

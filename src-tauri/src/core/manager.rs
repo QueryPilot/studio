@@ -1,5 +1,4 @@
 use dashmap::{DashMap, DashSet};
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -12,11 +11,109 @@ use crate::adapters::mysql::MySqlAdapter;
 use crate::adapters::postgres::PostgresAdapter;
 use crate::adapters::redis::RedisAdapter;
 use crate::adapters::sqlite::SqliteAdapter;
+use crate::core::adapter::DbAdapter;
 use crate::core::capabilities::BaseCapability;
 use crate::error::{AppError, Result};
 use crate::ssh::secrets::delete_ssh_passphrase;
 use crate::ssh::SshTunnel;
 use crate::types::*;
+
+pub enum UnifiedAdapter {
+    Postgres(PostgresAdapter),
+    MySql(MySqlAdapter),
+    Sqlite(SqliteAdapter),
+    Mssql(MssqlAdapter),
+    MongoDb(MongoDbAdapter),
+    Redis(RedisAdapter),
+}
+
+impl UnifiedAdapter {
+    pub fn is_connected(&self) -> bool {
+        match self {
+            Self::Postgres(a) => BaseCapability::is_connected(a),
+            Self::MySql(a) => BaseCapability::is_connected(a),
+            Self::Sqlite(a) => BaseCapability::is_connected(a),
+            Self::Mssql(a) => BaseCapability::is_connected(a),
+            Self::MongoDb(a) => BaseCapability::is_connected(a),
+            Self::Redis(a) => BaseCapability::is_connected(a),
+        }
+    }
+
+    pub async fn test_connection(&self) -> Result<crate::core::capabilities::CapabilityTestResult> {
+        match self {
+            Self::Postgres(a) => BaseCapability::test_connection(a).await,
+            Self::MySql(a) => BaseCapability::test_connection(a).await,
+            Self::Sqlite(a) => BaseCapability::test_connection(a).await,
+            Self::Mssql(a) => BaseCapability::test_connection(a).await,
+            Self::MongoDb(a) => BaseCapability::test_connection(a).await,
+            Self::Redis(a) => BaseCapability::test_connection(a).await,
+        }
+    }
+
+    pub async fn disconnect(&mut self) -> Result<()> {
+        match self {
+            Self::Postgres(a) => a.disconnect().await,
+            Self::MySql(a) => a.disconnect().await,
+            Self::Sqlite(a) => a.disconnect().await,
+            Self::Mssql(a) => a.disconnect().await,
+            Self::MongoDb(a) => a.disconnect().await,
+            Self::Redis(a) => a.disconnect().await,
+        }
+    }
+
+    pub async fn connect(&mut self, profile: &ConnectionProfile) -> Result<()> {
+        match self {
+            Self::Postgres(a) => a.connect(profile).await,
+            Self::MySql(a) => a.connect(profile).await,
+            Self::Sqlite(a) => a.connect(profile).await,
+            Self::Mssql(a) => a.connect(profile).await,
+            Self::MongoDb(_) => Err(AppError::Unsupported("MongoDB reconnect via this path not supported".into())),
+            Self::Redis(_) => Err(AppError::Unsupported("Redis reconnect via this path not supported".into())),
+        }
+    }
+
+    pub fn as_sql(&self) -> Option<&dyn crate::core::adapter::DbAdapter> {
+        match self {
+            Self::Postgres(a) => Some(a),
+            Self::MySql(a) => Some(a),
+            Self::Sqlite(a) => Some(a),
+            Self::Mssql(a) => Some(a),
+            Self::MongoDb(_) | Self::Redis(_) => None,
+        }
+    }
+
+    pub fn as_mongo(&self) -> Option<&MongoDbAdapter> {
+        match self {
+            Self::MongoDb(a) => Some(a),
+            _ => None,
+        }
+    }
+
+    pub fn as_redis(&self) -> Option<&RedisAdapter> {
+        match self {
+            Self::Redis(a) => Some(a),
+            _ => None,
+        }
+    }
+
+    pub fn as_postgres(&self) -> Option<&PostgresAdapter> {
+        match self {
+            Self::Postgres(a) => Some(a),
+            _ => None,
+        }
+    }
+
+    pub fn db_type(&self) -> DbType {
+        match self {
+            Self::Postgres(_) => DbType::PostgreSQL,
+            Self::MySql(_) => DbType::MySQL,
+            Self::Sqlite(_) => DbType::SQLite,
+            Self::Mssql(_) => DbType::SQLServer,
+            Self::MongoDb(_) => DbType::MongoDB,
+            Self::Redis(_) => DbType::Redis,
+        }
+    }
+}
 
 enum ManagedTunnel {
     Ssh(SshTunnel),
@@ -44,28 +141,21 @@ impl ManagedTunnel {
 
 pub struct ConnectionManager {
     connections: Arc<DashMap<String, LiveConnection>>,
-    // Store profiles separately so we can reconnect after reaper removes connection
     profiles: Arc<DashMap<String, ConnectionProfile>>,
     tunnels: Arc<DashMap<String, ManagedTunnel>>,
-    /// Track in-flight connection attempts to prevent duplicate tunnel creation
     pending_connections: Arc<DashSet<String>>,
-    /// Notification for when a connection attempt completes (replaces polling)
     connection_ready: Arc<Notify>,
     #[allow(dead_code)]
     queries: Arc<DashMap<String, QueryHandle>>,
     idle_timeout: Duration,
     reaper_handle: Arc<tokio::sync::Mutex<Option<JoinHandle<()>>>>,
     total_connections: Arc<AtomicUsize>,
-    // MongoDB adapters (separate from SQL adapters)
-    pub mongo_adapters: Arc<RwLock<HashMap<String, MongoDbAdapter>>>,
-    // Redis adapters (separate from SQL adapters)
-    pub redis_adapters: Arc<RwLock<HashMap<String, RedisAdapter>>>,
 }
 
 pub struct LiveConnection {
     #[allow(dead_code)]
     pub id: String,
-    pub adapter: Box<dyn crate::core::adapter::DbAdapter>,
+    pub adapter: UnifiedAdapter,
     pub profile: ConnectionProfile,
     #[allow(dead_code)]
     pub created_at: Instant,
@@ -105,11 +195,9 @@ impl ConnectionManager {
             pending_connections: Arc::new(DashSet::new()),
             connection_ready: Arc::new(Notify::new()),
             queries: Arc::new(DashMap::new()),
-            idle_timeout: Duration::from_secs(1800), // 30 minutes
+            idle_timeout: Duration::from_secs(1800),
             reaper_handle: Arc::new(tokio::sync::Mutex::new(None)),
             total_connections: Arc::new(AtomicUsize::new(0)),
-            mongo_adapters: Arc::new(RwLock::new(HashMap::new())),
-            redis_adapters: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -335,7 +423,7 @@ impl ConnectionManager {
         // attempt a transparent reconnect to heal broken sessions after reloads/network hiccups.
         if let Some((_, mut conn)) = self.connections.remove(conn_id) {
             let needs_reconnect =
-                !conn.adapter.is_connected().await || tunnel_status.requires_reconnect();
+                !conn.adapter.is_connected() || tunnel_status.requires_reconnect();
 
             if needs_reconnect {
                 if let Err(err) = conn.adapter.connect(&effective_profile).await {
@@ -403,17 +491,12 @@ impl ConnectionManager {
         conn_id: &str,
         profile: &ConnectionProfile,
     ) -> Result<String> {
-        // Check if MongoDB adapter already exists
-        {
-            let adapters = self.mongo_adapters.read().await;
-            if let Some(adapter) = adapters.get(conn_id) {
-                if adapter.is_connected() {
-                    return Ok(conn_id.to_string());
-                }
+        if let Some(conn) = self.connections.get(conn_id) {
+            if conn.adapter.is_connected() {
+                return Ok(conn_id.to_string());
             }
         }
         
-        // Create new MongoDB adapter
         let adapter = MongoDbAdapter::new();
         
         tracing::info!(
@@ -431,12 +514,17 @@ impl ConnectionManager {
         
         tracing::info!("MongoDB connection established successfully");
         
-        // Store the adapter
-        {
-            let mut adapters = self.mongo_adapters.write().await;
-            adapters.insert(conn_id.to_string(), adapter);
-        }
+        let live_connection = LiveConnection {
+            id: conn_id.to_string(),
+            adapter: UnifiedAdapter::MongoDb(adapter),
+            profile: profile.clone(),
+            created_at: Instant::now(),
+            last_used: Arc::new(RwLock::new(Instant::now())),
+            query_count: Arc::new(AtomicUsize::new(0)),
+            active_queries: Arc::new(AtomicUsize::new(0)),
+        };
         
+        self.connections.insert(conn_id.to_string(), live_connection);
         self.profiles.insert(conn_id.to_string(), profile.clone());
         self.total_connections.fetch_add(1, Ordering::SeqCst);
         
@@ -449,17 +537,12 @@ impl ConnectionManager {
         conn_id: &str,
         profile: &ConnectionProfile,
     ) -> Result<String> {
-        // Check if Redis adapter already exists
-        {
-            let adapters = self.redis_adapters.read().await;
-            if let Some(adapter) = adapters.get(conn_id) {
-                if adapter.is_connected() {
-                    return Ok(conn_id.to_string());
-                }
+        if let Some(conn) = self.connections.get(conn_id) {
+            if conn.adapter.is_connected() {
+                return Ok(conn_id.to_string());
             }
         }
         
-        // Create new Redis adapter
         let adapter = RedisAdapter::new();
         
         tracing::info!(
@@ -477,12 +560,17 @@ impl ConnectionManager {
         
         tracing::info!("Redis connection established successfully");
         
-        // Store the adapter
-        {
-            let mut adapters = self.redis_adapters.write().await;
-            adapters.insert(conn_id.to_string(), adapter);
-        }
+        let live_connection = LiveConnection {
+            id: conn_id.to_string(),
+            adapter: UnifiedAdapter::Redis(adapter),
+            profile: profile.clone(),
+            created_at: Instant::now(),
+            last_used: Arc::new(RwLock::new(Instant::now())),
+            query_count: Arc::new(AtomicUsize::new(0)),
+            active_queries: Arc::new(AtomicUsize::new(0)),
+        };
         
+        self.connections.insert(conn_id.to_string(), live_connection);
         self.profiles.insert(conn_id.to_string(), profile.clone());
         self.total_connections.fetch_add(1, Ordering::SeqCst);
         
@@ -584,35 +672,7 @@ impl ConnectionManager {
     }
 
     pub async fn disconnect(&self, conn_id: &str) -> Result<()> {
-        // Handle MongoDB disconnect
-        {
-            let mut mongo_adapters = self.mongo_adapters.write().await;
-            if let Some(adapter) = mongo_adapters.remove(conn_id) {
-                if let Err(e) = adapter.disconnect().await {
-                    tracing::warn!("MongoDB disconnect error for {}: {}", conn_id, e);
-                }
-                self.total_connections.fetch_sub(1, Ordering::SeqCst);
-                self.profiles.remove(conn_id);
-                return Ok(());
-            }
-        }
-        
-        // Handle Redis disconnect
-        {
-            let mut redis_adapters = self.redis_adapters.write().await;
-            if let Some(adapter) = redis_adapters.remove(conn_id) {
-                if let Err(e) = adapter.disconnect().await {
-                    tracing::warn!("Redis disconnect error for {}: {}", conn_id, e);
-                }
-                self.total_connections.fetch_sub(1, Ordering::SeqCst);
-                self.profiles.remove(conn_id);
-                return Ok(());
-            }
-        }
-        
-        // Remove from pool first - this is always safe and non-blocking
         if let Some((_, mut conn)) = self.connections.remove(conn_id) {
-            // Disconnect adapter with timeout - don't hang on dead connections
             let disconnect_result = tokio::time::timeout(
                 Duration::from_secs(2),
                 conn.adapter.disconnect(),
@@ -679,19 +739,26 @@ impl ConnectionManager {
     fn create_adapter(
         &self,
         profile: &ConnectionProfile,
-    ) -> Result<Box<dyn crate::core::adapter::DbAdapter>> {
+    ) -> Result<UnifiedAdapter> {
         match profile.db_type {
-            DbType::PostgreSQL => Ok(Box::new(PostgresAdapter::new())),
-            DbType::MySQL | DbType::MariaDB => Ok(Box::new(MySqlAdapter::new())),
-            DbType::SQLite => Ok(Box::new(SqliteAdapter::new())),
-            DbType::SQLServer => Ok(Box::new(MssqlAdapter::new())),
-            // TODO: MongoDB and Redis adapters will be implemented in Phase 2
+            DbType::PostgreSQL => Ok(UnifiedAdapter::Postgres(PostgresAdapter::new())),
+            DbType::MySQL | DbType::MariaDB => Ok(UnifiedAdapter::MySql(MySqlAdapter::new())),
+            DbType::SQLite => Ok(UnifiedAdapter::Sqlite(SqliteAdapter::new())),
+            DbType::SQLServer => Ok(UnifiedAdapter::Mssql(MssqlAdapter::new())),
             DbType::MongoDB => Err(crate::error::AppError::Unsupported(
-                "MongoDB adapter not yet implemented".to_string(),
+                "Use create_mongo_connection for MongoDB".to_string(),
             )),
             DbType::Redis => Err(crate::error::AppError::Unsupported(
-                "Redis adapter not yet implemented".to_string(),
+                "Use create_redis_connection for Redis".to_string(),
             )),
+        }
+    }
+
+    pub async fn ping_connection(&self, conn_id: &str) -> Result<bool> {
+        if let Some(conn) = self.connections.get(conn_id) {
+            Ok(conn.adapter.is_connected())
+        } else {
+            Ok(false)
         }
     }
 
