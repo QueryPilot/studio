@@ -184,8 +184,12 @@ async fn invoke_tauri_command(
            FROM pg_tables WHERE schemaname = '{}' ORDER BY tablename"#,
         schema
     );
-    let result = conn
+    let sql_adapter = conn
         .adapter
+        .as_sql()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
+    
+    let result = sql_adapter
         .query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -214,8 +218,12 @@ async fn invoke_get_columns(
            ORDER BY ordinal_position"#,
         schema, table
     );
-    let result = conn
+    let sql_adapter = conn
         .adapter
+        .as_sql()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
+    
+    let result = sql_adapter
         .query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -242,8 +250,12 @@ async fn invoke_get_constraints(
            WHERE table_name = '{}'"#,
         table
     );
-    let result = conn
+    let sql_adapter = conn
         .adapter
+        .as_sql()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
+    
+    let result = sql_adapter
         .query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -269,8 +281,12 @@ async fn invoke_get_indexes(
            FROM pg_indexes WHERE tablename = '{}'"#,
         table
     );
-    let result = conn
+    let sql_adapter = conn
         .adapter
+        .as_sql()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
+    
+    let result = sql_adapter
         .query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -294,9 +310,13 @@ async fn invoke_get_schemas(
     let sql = r#"SELECT schema_name as name FROM information_schema.schemata
                  WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
                  ORDER BY schema_name"#;
-    let result = conn
+    let sql_adapter = conn
         .adapter
-        .query(sql)
+        .as_sql()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
+    
+    let result = sql_adapter
+        .query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -321,8 +341,12 @@ async fn invoke_get_views(
            WHERE table_schema = '{}' ORDER BY table_name"#,
         schema
     );
-    let result = conn
+    let sql_adapter = conn
         .adapter
+        .as_sql()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
+    
+    let result = sql_adapter
         .query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -345,8 +369,12 @@ async fn invoke_get_table_count(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let sql = format!(r#"SELECT COUNT(*) as count FROM "{}"."{}" "#, schema, table);
-    let result = conn
+    let sql_adapter = conn
         .adapter
+        .as_sql()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
+    
+    let result = sql_adapter
         .query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -374,8 +402,12 @@ async fn invoke_get_triggers(
            WHERE trigger_schema = '{}' AND event_object_table = '{}'"#,
         schema, table
     );
-    let result = conn
+    let sql_adapter = conn
         .adapter
+        .as_sql()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
+    
+    let result = sql_adapter
         .query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -402,8 +434,12 @@ async fn invoke_get_functions(
            WHERE routine_schema = '{}' AND routine_type = 'FUNCTION'"#,
         schema
     );
-    let result = conn
+    let sql_adapter = conn
         .adapter
+        .as_sql()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
+    
+    let result = sql_adapter
         .query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -441,8 +477,12 @@ async fn invoke_get_object_definition(
             schema, object_name
         ),
     };
-    let result = conn
+    let sql_adapter = conn
         .adapter
+        .as_sql()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
+    
+    let result = sql_adapter
         .query(&sql)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -504,8 +544,12 @@ async fn invoke_get_sample_data(
         schema, table, safe_limit
     );
 
-    // Execute query with 30s timeout
-    let query_future = conn.adapter.query(&sql);
+    let sql_adapter = conn
+        .adapter
+        .as_sql()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
+
+    let query_future = sql_adapter.query(&sql);
 
     let result = timeout(Duration::from_secs(30), query_future)
         .await
@@ -575,8 +619,12 @@ async fn invoke_execute_query(
             }
         })?;
 
-    // Execute query with 30s timeout
-    let query_future = conn.adapter.query(&sql);
+    let sql_adapter = conn
+        .adapter
+        .as_sql()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Only SQL databases are supported".to_string()))?;
+
+    let query_future = sql_adapter.query(&sql);
 
     let result = timeout(Duration::from_secs(30), query_future)
         .await

@@ -6,7 +6,6 @@ import { ConnectionForm } from "./ConnectionForm";
 import { ConnectionRow } from "../shared/ConnectionRow";
 import { ERDWorkspacesSection } from "./ERDWorkspacesSection";
 import { WorkspacesSection } from "./WorkspacesSection";
-import { WorkspaceForm } from "./WorkspaceForm";
 import { WorkspaceDetailView } from "./WorkspaceDetailView";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { toast } from "sonner";
@@ -94,14 +93,6 @@ export function MainContent() {
     return (
       <div className="h-full overflow-y-auto">
         <WorkspacesSection />
-      </div>
-    );
-  }
-
-  if (contentMode === "workspace-form") {
-    return (
-      <div className="h-full overflow-y-auto">
-        <WorkspaceForm />
       </div>
     );
   }

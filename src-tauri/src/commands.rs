@@ -144,8 +144,12 @@ pub async fn switch_database(
         .get_connection(&conn_id)
         .ok_or_else(|| "Connection not found after reconnect".to_string())?;
 
-    let result = conn
+    let sql_adapter = conn
         .adapter
+        .as_sql()
+        .ok_or_else(|| "switch_database is only supported for SQL databases".to_string())?;
+    
+    let result = sql_adapter
         .query("SELECT current_database()")
         .await
         .map_err(|e| e.to_string())?;
@@ -183,10 +187,18 @@ pub async fn test_connection(
         .await
         .map_err(|e| e.to_string())?;
 
-    conn.adapter
+    let result = conn.adapter
         .test_connection()
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    
+    Ok(ConnectionTestResult {
+        success: result.success,
+        message: result.message,
+        version: result.server_version,
+        warnings: vec![],
+        detected_db_type: Some(conn.adapter.db_type()),
+    })
 }
 
 // NOTE: Introspection commands (get_databases, get_schemas, get_tables, etc.) have been
@@ -231,7 +243,12 @@ pub async fn query(
     // Can be overridden per-query via timeout_secs parameter
     let timeout_duration = std::time::Duration::from_secs(timeout_secs.unwrap_or(300));
 
-    tokio::time::timeout(timeout_duration, conn.adapter.query(&sql))
+    let sql_adapter = conn
+        .adapter
+        .as_sql()
+        .ok_or_else(|| "query command only supports SQL databases".to_string())?;
+
+    tokio::time::timeout(timeout_duration, sql_adapter.query(&sql))
         .await
         .map_err(|_| format!("Query timed out after {} seconds", timeout_duration.as_secs()))?
         .map_err(|e| e.to_string())
@@ -242,12 +259,19 @@ pub async fn get_connection_health(
     conn_id: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<ConnectionHealth, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
+    let conn = match manager.get_connection(&conn_id) {
+        Some(c) => c,
+        None => {
+            return Ok(ConnectionHealth {
+                connection_id: conn_id,
+                status: "connecting".to_string(),
+                healthy: false,
+                rtt_ms: None,
+                error: None,
+            });
+        }
+    };
 
-    // Test the connection
     let test_result = conn
         .adapter
         .test_connection()
@@ -262,7 +286,7 @@ pub async fn get_connection_health(
             "error".to_string()
         },
         healthy: test_result.success,
-        rtt_ms: None,
+        rtt_ms: test_result.latency_ms,
         error: if !test_result.success {
             Some(test_result.message)
         } else {
@@ -276,15 +300,8 @@ pub async fn ping(
     conn_id: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<u64, String> {
-    use std::time::Instant;
-
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
     let start = Instant::now();
-    let is_connected = conn.adapter.is_connected().await;
+    let is_connected = manager.ping_connection(&conn_id).await.map_err(|e| e.to_string())?;
     let elapsed = start.elapsed().as_millis() as u64;
 
     if is_connected {
@@ -453,8 +470,12 @@ async fn execute_generic_stream(
 ) -> std::result::Result<(), String> {
     let start_time = std::time::Instant::now();
     
-    // Use the adapter's query method which works for all database types
-    let result = conn.adapter.query(sql).await.map_err(|e| e.to_string())?;
+    let sql_adapter = conn
+        .adapter
+        .as_sql()
+        .ok_or_else(|| "execute_generic_stream only supports SQL databases".to_string())?;
+
+    let result = sql_adapter.query(sql).await.map_err(|e| e.to_string())?;
     
     let query_elapsed = start_time.elapsed().as_millis();
     tracing::info!("  ⏱ Query execution: {}ms, {} rows", query_elapsed, result.rows.len());
@@ -506,9 +527,12 @@ async fn execute_sqlite_query(
 ) -> std::result::Result<(), String> {
     let start = std::time::Instant::now();
 
-    // Use the adapter's query method which handles multi-statement and transactions
-    let result = conn
+    let sql_adapter = conn
         .adapter
+        .as_sql()
+        .ok_or_else(|| "execute_sqlite_query only supports SQL databases".to_string())?;
+
+    let result = sql_adapter
         .query(sql)
         .await
         .map_err(|e| e.to_string())?;
@@ -565,8 +589,7 @@ async fn execute_postgres_stream(
     // Get pool from PostgresAdapter
     let pool = conn
         .adapter
-        .as_any()
-        .downcast_ref::<crate::adapters::postgres::PostgresAdapter>()
+        .as_postgres()
         .and_then(|adapter| adapter.get_pool())
         .ok_or_else(|| "PostgreSQL pool not available".to_string())?;
 
@@ -1109,9 +1132,8 @@ pub async fn mongo_list_databases(
     conn_id: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<Vec<crate::core::capabilities::DatabaseInfo>, String> {
-    let mongo_adapters = manager.mongo_adapters.read().await;
-    let adapter = mongo_adapters.get(&conn_id)
-        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_mongo().ok_or_else(|| "Not a MongoDB connection".to_string())?;
     
     adapter.list_databases().await.map_err(|e| e.to_string())
 }
@@ -1122,9 +1144,8 @@ pub async fn mongo_list_collections(
     conn_id: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<Vec<crate::core::capabilities::CollectionInfo>, String> {
-    let mongo_adapters = manager.mongo_adapters.read().await;
-    let adapter = mongo_adapters.get(&conn_id)
-        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_mongo().ok_or_else(|| "Not a MongoDB connection".to_string())?;
     
     adapter.list_collections().await.map_err(|e| e.to_string())
 }
@@ -1141,9 +1162,8 @@ pub async fn mongo_find_documents(
     projection: Option<serde_json::Value>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<Vec<serde_json::Value>, String> {
-    let mongo_adapters = manager.mongo_adapters.read().await;
-    let adapter = mongo_adapters.get(&conn_id)
-        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_mongo().ok_or_else(|| "Not a MongoDB connection".to_string())?;
     
     let options = crate::core::capabilities::FindOptions {
         skip,
@@ -1163,9 +1183,8 @@ pub async fn mongo_insert_document(
     document: serde_json::Value,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<crate::core::capabilities::InsertResult, String> {
-    let mongo_adapters = manager.mongo_adapters.read().await;
-    let adapter = mongo_adapters.get(&conn_id)
-        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_mongo().ok_or_else(|| "Not a MongoDB connection".to_string())?;
     
     adapter.insert_document(&collection, document).await.map_err(|e| e.to_string())
 }
@@ -1179,9 +1198,8 @@ pub async fn mongo_update_document(
     update: serde_json::Value,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<crate::core::capabilities::UpdateResult, String> {
-    let mongo_adapters = manager.mongo_adapters.read().await;
-    let adapter = mongo_adapters.get(&conn_id)
-        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_mongo().ok_or_else(|| "Not a MongoDB connection".to_string())?;
     
     adapter.update_document(&collection, filter, update).await.map_err(|e| e.to_string())
 }
@@ -1194,9 +1212,8 @@ pub async fn mongo_delete_document(
     filter: serde_json::Value,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<crate::core::capabilities::DeleteResult, String> {
-    let mongo_adapters = manager.mongo_adapters.read().await;
-    let adapter = mongo_adapters.get(&conn_id)
-        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_mongo().ok_or_else(|| "Not a MongoDB connection".to_string())?;
     
     adapter.delete_document(&collection, filter).await.map_err(|e| e.to_string())
 }
@@ -1209,9 +1226,8 @@ pub async fn mongo_aggregate(
     pipeline: Vec<serde_json::Value>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<Vec<serde_json::Value>, String> {
-    let mongo_adapters = manager.mongo_adapters.read().await;
-    let adapter = mongo_adapters.get(&conn_id)
-        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_mongo().ok_or_else(|| "Not a MongoDB connection".to_string())?;
     
     adapter.aggregate(&collection, pipeline).await.map_err(|e| e.to_string())
 }
@@ -1224,9 +1240,8 @@ pub async fn mongo_count_documents(
     filter: Option<serde_json::Value>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<u64, String> {
-    let mongo_adapters = manager.mongo_adapters.read().await;
-    let adapter = mongo_adapters.get(&conn_id)
-        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_mongo().ok_or_else(|| "Not a MongoDB connection".to_string())?;
     
     adapter.count_documents(&collection, filter).await.map_err(|e| e.to_string())
 }
@@ -1238,9 +1253,8 @@ pub async fn mongo_list_indexes(
     collection: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<Vec<serde_json::Value>, String> {
-    let mongo_adapters = manager.mongo_adapters.read().await;
-    let adapter = mongo_adapters.get(&conn_id)
-        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_mongo().ok_or_else(|| "Not a MongoDB connection".to_string())?;
     
     adapter.list_indexes(&collection).await.map_err(|e| e.to_string())
 }
@@ -1254,9 +1268,8 @@ pub async fn mongo_create_index(
     options: Option<serde_json::Value>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<String, String> {
-    let mongo_adapters = manager.mongo_adapters.read().await;
-    let adapter = mongo_adapters.get(&conn_id)
-        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_mongo().ok_or_else(|| "Not a MongoDB connection".to_string())?;
     
     adapter.create_index(&collection, keys, options).await.map_err(|e| e.to_string())
 }
@@ -1269,9 +1282,8 @@ pub async fn mongo_drop_index(
     index_name: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<(), String> {
-    let mongo_adapters = manager.mongo_adapters.read().await;
-    let adapter = mongo_adapters.get(&conn_id)
-        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_mongo().ok_or_else(|| "Not a MongoDB connection".to_string())?;
     
     adapter.drop_index(&collection, &index_name).await.map_err(|e| e.to_string())
 }
@@ -1287,9 +1299,8 @@ pub async fn redis_get(
     key: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<Option<String>, String> {
-    let redis_adapters = manager.redis_adapters.read().await;
-    let adapter = redis_adapters.get(&conn_id)
-        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_redis().ok_or_else(|| "Not a Redis connection".to_string())?;
     
     adapter.get_string(&key).await.map_err(|e| e.to_string())
 }
@@ -1303,9 +1314,8 @@ pub async fn redis_set(
     ttl_seconds: Option<u64>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<(), String> {
-    let redis_adapters = manager.redis_adapters.read().await;
-    let adapter = redis_adapters.get(&conn_id)
-        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_redis().ok_or_else(|| "Not a Redis connection".to_string())?;
     
     adapter.set_string(&key, &value, ttl_seconds).await.map_err(|e| e.to_string())
 }
@@ -1317,9 +1327,8 @@ pub async fn redis_delete(
     key: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<u64, String> {
-    let redis_adapters = manager.redis_adapters.read().await;
-    let adapter = redis_adapters.get(&conn_id)
-        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_redis().ok_or_else(|| "Not a Redis connection".to_string())?;
     
     adapter.delete_key(&key).await.map_err(|e| e.to_string())
 }
@@ -1331,9 +1340,8 @@ pub async fn redis_ttl(
     key: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<i64, String> {
-    let redis_adapters = manager.redis_adapters.read().await;
-    let adapter = redis_adapters.get(&conn_id)
-        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_redis().ok_or_else(|| "Not a Redis connection".to_string())?;
     
     adapter.key_ttl(&key).await.map_err(|e| e.to_string())
 }
@@ -1346,9 +1354,8 @@ pub async fn redis_expire(
     seconds: u64,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<bool, String> {
-    let redis_adapters = manager.redis_adapters.read().await;
-    let adapter = redis_adapters.get(&conn_id)
-        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_redis().ok_or_else(|| "Not a Redis connection".to_string())?;
     
     adapter.set_key_ttl(&key, seconds).await.map_err(|e| e.to_string())
 }
@@ -1360,9 +1367,8 @@ pub async fn redis_exists(
     key: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<bool, String> {
-    let redis_adapters = manager.redis_adapters.read().await;
-    let adapter = redis_adapters.get(&conn_id)
-        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_redis().ok_or_else(|| "Not a Redis connection".to_string())?;
     
     adapter.key_exists(&key).await.map_err(|e| e.to_string())
 }
@@ -1373,9 +1379,8 @@ pub async fn redis_dbsize(
     conn_id: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<u64, String> {
-    let redis_adapters = manager.redis_adapters.read().await;
-    let adapter = redis_adapters.get(&conn_id)
-        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_redis().ok_or_else(|| "Not a Redis connection".to_string())?;
     
     adapter.dbsize().await.map_err(|e| e.to_string())
 }
@@ -1386,9 +1391,8 @@ pub async fn redis_info(
     conn_id: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<String, String> {
-    let redis_adapters = manager.redis_adapters.read().await;
-    let adapter = redis_adapters.get(&conn_id)
-        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_redis().ok_or_else(|| "Not a Redis connection".to_string())?;
     
     adapter.get_server_info_raw().await.map_err(|e| e.to_string())
 }
@@ -1400,9 +1404,8 @@ pub async fn redis_hgetall(
     key: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<std::collections::HashMap<String, String>, String> {
-    let redis_adapters = manager.redis_adapters.read().await;
-    let adapter = redis_adapters.get(&conn_id)
-        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_redis().ok_or_else(|| "Not a Redis connection".to_string())?;
     
     adapter.hash_get_all(&key).await.map_err(|e| e.to_string())
 }
@@ -1416,9 +1419,8 @@ pub async fn redis_hset(
     value: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<bool, String> {
-    let redis_adapters = manager.redis_adapters.read().await;
-    let adapter = redis_adapters.get(&conn_id)
-        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_redis().ok_or_else(|| "Not a Redis connection".to_string())?;
     
     adapter.hash_set_field(&key, &field, &value).await.map_err(|e| e.to_string())
 }
@@ -1432,9 +1434,8 @@ pub async fn redis_lrange(
     stop: i64,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<Vec<String>, String> {
-    let redis_adapters = manager.redis_adapters.read().await;
-    let adapter = redis_adapters.get(&conn_id)
-        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_redis().ok_or_else(|| "Not a Redis connection".to_string())?;
     
     adapter.list_range(&key, start, stop).await.map_err(|e| e.to_string())
 }
@@ -1446,9 +1447,8 @@ pub async fn redis_smembers(
     key: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<Vec<String>, String> {
-    let redis_adapters = manager.redis_adapters.read().await;
-    let adapter = redis_adapters.get(&conn_id)
-        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_redis().ok_or_else(|| "Not a Redis connection".to_string())?;
     
     adapter.set_members(&key).await.map_err(|e| e.to_string())
 }
@@ -1460,9 +1460,8 @@ pub async fn redis_type(
     key: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<String, String> {
-    let redis_adapters = manager.redis_adapters.read().await;
-    let adapter = redis_adapters.get(&conn_id)
-        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_redis().ok_or_else(|| "Not a Redis connection".to_string())?;
     
     adapter.key_type(&key).await.map_err(|e| e.to_string())
 }
@@ -1488,9 +1487,8 @@ pub async fn mongo_find_documents_stream(
     let start = Instant::now();
     let batch_size = batch_size.unwrap_or(100);
     
-    let mongo_adapters = manager.mongo_adapters.read().await;
-    let adapter = mongo_adapters.get(&conn_id)
-        .ok_or_else(|| "MongoDB adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_mongo().ok_or_else(|| "Not a MongoDB connection".to_string())?;
     
     let estimated_count = adapter.count_documents(&collection, Some(filter.clone()))
         .await
@@ -1578,9 +1576,8 @@ pub async fn redis_scan_stream(
     let start = Instant::now();
     let count_per_scan = count.unwrap_or(100);
     
-    let redis_adapters = manager.redis_adapters.read().await;
-    let adapter = redis_adapters.get(&conn_id)
-        .ok_or_else(|| "Redis adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_redis().ok_or_else(|| "Not a Redis connection".to_string())?;
     
     let estimated_keys = adapter.dbsize().await.ok();
     
@@ -1766,9 +1763,8 @@ pub async fn document_execute(
     #[allow(unused_imports)]
     use crate::core::capabilities::DocumentQueryable;
     
-    let mongo_adapters = manager.mongo_adapters.read().await;
-    let adapter = mongo_adapters.get(&conn_id)
-        .ok_or_else(|| "Document adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_mongo().ok_or_else(|| "Not a MongoDB connection".to_string())?;
     
     match operation {
         DocumentOperation::Find { collection, filter, options } => {
@@ -1829,9 +1825,8 @@ pub async fn keyvalue_execute(
 ) -> Result<KeyValueResult, String> {
     use crate::core::capabilities::{KeyValueOperable, RichKeyValueOperable};
     
-    let redis_adapters = manager.redis_adapters.read().await;
-    let adapter = redis_adapters.get(&conn_id)
-        .ok_or_else(|| "Key-value adapter not found for this connection".to_string())?;
+    let conn = manager.get_connection_with_retry(&conn_id, 3).await.map_err(|e| e.to_string())?;
+    let adapter = conn.adapter.as_redis().ok_or_else(|| "Not a Redis connection".to_string())?;
     
     match operation {
         // Basic operations

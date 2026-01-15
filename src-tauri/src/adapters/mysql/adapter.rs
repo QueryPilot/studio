@@ -331,3 +331,5 @@ impl DbAdapter for MySqlAdapter {
     }
 }
 
+crate::impl_sql_capabilities!(MySqlAdapter, pool_check: async_rwlock_blocking);
+

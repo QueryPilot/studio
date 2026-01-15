@@ -679,9 +679,9 @@ export function WorkspaceTitleBar({
     try {
       logger.info("Going home from workspace:", connectionId);
 
-      // Disconnect from the current database
+      // Disconnect from the current database (with timeout to prevent freeze on dead connections)
       if (connectionId && databaseService.isConnectionActive(connectionId)) {
-        await databaseService.disconnect(connectionId);
+        await databaseService.disconnectWithTimeout(connectionId, 3000);
       }
 
       // IconCheck if we're in a separate window or the main window
