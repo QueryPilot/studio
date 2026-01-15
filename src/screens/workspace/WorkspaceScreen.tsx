@@ -3,10 +3,10 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { useEffect, useState, useCallback } from "react";
 import { WorkspaceTitleBar } from "./components/WorkspaceTitleBar";
 import { DatabaseSidebar } from "./components/DatabaseSidebar";
-import { MongoDBSidebar } from "./components/MongoDBSidebar";
-import { RedisSidebar } from "./components/RedisSidebar";
 import { DatabaseSchemaSelector } from "./components/DatabaseSchemaSelector";
 import { DbType } from "@/types/connection";
+import { UnifiedSidebar } from "@/components/Sidebar/UnifiedSidebar";
+import { createSidebarAdapter, shouldUseUnifiedSidebar } from "@/adapters/sidebar/AdapterFactory";
 import { ConnectionActivityBar } from "./components/ConnectionActivityBar";
 import { WorkbenchLayout } from "@/components/Workbench";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
@@ -482,29 +482,23 @@ export function WorkspaceScreen() {
               {(() => {
                 const stored = connections.find((c) => c.profile.id === connectionId);
                 const dbType = stored?.profile.db_type;
-                
-                if (dbType === DbType.MongoDB) {
-                  return (
-                    <div className="flex-1 overflow-hidden">
-                      <MongoDBSidebar
-                        connectionId={connectionId}
-                        isLoading={isLoading}
-                      />
-                    </div>
-                  );
+
+                // Use unified sidebar for MongoDB and Redis
+                if (dbType && shouldUseUnifiedSidebar(dbType)) {
+                  const adapter = createSidebarAdapter(dbType);
+                  if (adapter) {
+                    return (
+                      <div className="flex-1 overflow-hidden">
+                        <UnifiedSidebar
+                          connectionId={connectionId}
+                          adapter={adapter}
+                          isLoading={isLoading}
+                        />
+                      </div>
+                    );
+                  }
                 }
-                
-                if (dbType === DbType.Redis) {
-                  return (
-                    <div className="flex-1 overflow-hidden">
-                      <RedisSidebar
-                        connectionId={connectionId}
-                        isLoading={isLoading}
-                      />
-                    </div>
-                  );
-                }
-                
+
                 // Default: SQL databases
                 return (
                   <>

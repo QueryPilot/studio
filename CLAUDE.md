@@ -69,9 +69,14 @@ make release-manual VERSION=1.2.3  # Manual release
 
 **Backend (Rust + Tauri 2)**
 - `src-tauri/src/` - Rust backend
-- `src-tauri/src/commands.rs` - ~50+ Tauri IPC commands
-- `src-tauri/src/core/manager.rs` - Connection pool with DashMap
-- `src-tauri/src/adapters/` - Database adapter trait implementations
+- `src-tauri/src/commands/` - Tauri IPC commands organized by paradigm:
+  - `connection.rs` - Unified connection lifecycle (connect, disconnect, test)
+  - `sql.rs` - SQL-specific commands (query, execute_query, switch_database)
+  - `document.rs` - Document database commands (MongoDB operations)
+  - `keyvalue.rs` - Key-value commands (Redis operations)
+- `src-tauri/src/core/manager.rs` - Connection pool with DashMap + UnifiedAdapter
+- `src-tauri/src/core/capabilities.rs` - Capability traits for multi-paradigm support
+- `src-tauri/src/adapters/` - Database adapter implementations (PostgreSQL, MySQL, SQLite, MSSQL, MongoDB, Redis)
 - `src-tauri/src/ai/` - AI sidecar manager
 - `src-tauri/src/ssh/` - SSH tunnel management
 - `src-tauri/src/vault.rs` - Encrypted storage for connection profiles
@@ -137,6 +142,29 @@ Multiple stores with specific concerns:
 - Subscribers (query hooks) refetch when their table's timestamp changes
 - Proper cleanup prevents listener leaks
 
+### Unified Adapter Architecture
+
+Query Pilot uses a **capability-based trait system** for multi-paradigm database support:
+
+**Capability Traits (`src-tauri/src/core/capabilities.rs`):**
+- `BaseCapability` - All adapters implement: `connect()`, `disconnect()`, `test_connection()`, `is_connected()`
+- `SqlQueryable` - SQL databases: `execute_query()`, `execute_statement()`
+- `DocumentQueryable` - Document DBs (MongoDB): `find_documents()`, `insert_document()`, `aggregate()`, etc.
+- `KeyValueOperable` - Basic KV: `get_key()`, `set_key()`, `scan_keys()`, `delete_keys()`
+- `RichKeyValueOperable` - Redis-specific: Hash, List, Set, ZSet, Stream operations
+
+**UnifiedAdapter Pattern:**
+- Wraps concrete adapters with capability pointers
+- Runtime capability checking via `as_sql()`, `as_document()`, `as_keyvalue()`
+- Type-safe paradigm dispatch in command handlers
+
+**Supported Paradigms:**
+| Paradigm | Databases | Frontend Adapter |
+|----------|-----------|------------------|
+| SQL | PostgreSQL, MySQL, SQLite, SQL Server | `DatabaseAdapter` |
+| Document | MongoDB | `MongoDBAdapter` |
+| Key-Value | Redis | `RedisAdapter` |
+
 ### Database Connection Management
 
 **Rust ConnectionManager (`src-tauri/src/core/manager.rs`):**
@@ -144,7 +172,7 @@ Multiple stores with specific concerns:
 - Dual-layer tunnel support: SSH tunnels (with health checks) or AWS Session Manager
 - Deduplicates concurrent connection attempts via inflight promises
 - Reaper process removes idle connections automatically
-- Per-connection adapter pattern for multi-DB support (PostgreSQL, MySQL, SQLite, SQL Server)
+- UnifiedAdapter for multi-paradigm support (SQL, Document, Key-Value)
 
 **Frontend Connection Lifecycle:**
 - `vaultStorage` service handles encrypted vault storage (Tauri `vault_write`/`vault_read`)
@@ -233,9 +261,21 @@ src/
 
 ```
 src-tauri/src/
-├── commands.rs             # ~50+ Tauri IPC command handlers
-├── core/                   # Connection manager, pool, adapters
+├── commands/               # Tauri IPC commands by paradigm
+│   ├── connection.rs       # Connect/disconnect/test (all DBs)
+│   ├── sql.rs              # SQL query execution
+│   ├── document.rs         # MongoDB document operations
+│   └── keyvalue.rs         # Redis key-value operations
+├── core/                   # Connection management
+│   ├── manager.rs          # ConnectionManager + UnifiedAdapter
+│   └── capabilities.rs     # Capability traits (BaseCapability, SqlQueryable, etc.)
 ├── adapters/               # Database adapter implementations
+│   ├── postgres/           # PostgreSQL
+│   ├── mysql/              # MySQL/MariaDB
+│   ├── sqlite/             # SQLite
+│   ├── mssql/              # SQL Server
+│   ├── mongodb/            # MongoDB (DocumentQueryable)
+│   └── redis/              # Redis (RichKeyValueOperable)
 ├── ai/                     # AI sidecar manager
 ├── ssh/                    # SSH tunnel management
 ├── aws/                    # AWS Session Manager integration
@@ -278,11 +318,12 @@ src-tauri/src/
 1. **MessagePack Serialization**: Used for large data transfers (row batches) to eliminate JSON overhead
 2. **IPC Channel Streaming**: Direct IPC channels for query results (bypasses `window.emit` for sub-100ms latency)
 3. **Service Locator**: `ConnectionManager` and `AIManager` managed globally via Tauri state
-4. **Adapter Pattern**: `DbAdapter` trait for multi-database support
-5. **Event-Driven Invalidation**: Table-level listeners in `dataInvalidationStore` for reactive updates
-6. **Debounced Writes**: Vault storage with 250ms debounce to batch edits
-7. **BroadcastChannel for Multi-Window**: Cross-window coordination without Tauri events
-8. **Web Worker Isolation**: CPU-intensive validation runs in workers to prevent UI freezing
+4. **Capability-Based Adapters**: `UnifiedAdapter` wraps paradigm-specific traits (`SqlQueryable`, `DocumentQueryable`, `RichKeyValueOperable`)
+5. **Frontend Type Guards**: `isSqlAdapter()`, `isDocumentAdapter()`, `isKeyValueAdapter()` for type-safe paradigm dispatch
+6. **Event-Driven Invalidation**: Table-level listeners in `dataInvalidationStore` for reactive updates
+7. **Debounced Writes**: Vault storage with 250ms debounce to batch edits
+8. **BroadcastChannel for Multi-Window**: Cross-window coordination without Tauri events
+9. **Web Worker Isolation**: CPU-intensive validation runs in workers to prevent UI freezing
 
 ## Testing Strategy
 
@@ -320,6 +361,8 @@ src-tauri/src/
 - Tauri 2
 - tokio-postgres (PostgreSQL adapter)
 - mysql_async (MySQL adapter)
+- mongodb (MongoDB adapter - Document paradigm)
+- redis (Redis adapter - Key-Value paradigm)
 - keyring (OS keychain integration)
 - dashmap (concurrent connection pool)
 - rmp-serde (MessagePack serialization)
@@ -329,10 +372,25 @@ src-tauri/src/
 
 ### Adding a New Database Command
 
-1. Define Rust command in `src-tauri/src/commands.rs` or relevant module
+1. Define Rust command in `src-tauri/src/commands/<paradigm>.rs`:
+   - `connection.rs` for connection lifecycle commands
+   - `sql.rs` for SQL-specific commands
+   - `document.rs` for MongoDB commands
+   - `keyvalue.rs` for Redis commands
 2. Add `#[tauri::command]` attribute
 3. Register command in `src-tauri/src/lib.rs` `.invoke_handler()`
 4. Call from frontend via `invoke('command_name', { args })`
+
+### Adding a New Database Adapter
+
+See [docs/guides/CONTRIBUTING_DB.md](docs/guides/CONTRIBUTING_DB.md) for detailed instructions. Key steps:
+
+1. Determine paradigm (SQL, Document, or Key-Value)
+2. Create adapter in `src-tauri/src/adapters/<dbname>/`
+3. Implement `BaseCapability` + paradigm-specific trait
+4. Add `UnifiedAdapter` constructor in `manager.rs`
+5. Register in factory and add `DbType` variant
+6. Create frontend adapter in `src/adapters/`
 
 ### Adding a New Zustand Store
 
@@ -349,9 +407,10 @@ src-tauri/src/
 
 ### Modifying Database Adapters
 
-1. Update trait in `src-tauri/src/adapters/mod.rs` if needed
-2. Implement changes in specific adapter (e.g., `postgres.rs`)
-3. Add tests in `src-tauri/tests/` or inline `#[cfg(test)]` modules
+1. Update capability trait in `src-tauri/src/core/capabilities.rs` if adding new operations
+2. Implement changes in specific adapter (e.g., `adapters/postgres/adapter.rs`)
+3. If adding new paradigm capabilities, update `UnifiedAdapter` in `manager.rs`
+4. Add tests in `src-tauri/tests/` or inline `#[cfg(test)]` modules
 
 ## Path Aliases
 
