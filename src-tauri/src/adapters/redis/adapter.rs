@@ -227,6 +227,14 @@ impl Default for RedisAdapter {
 
 #[async_trait]
 impl BaseCapability for RedisAdapter {
+    async fn connect(&self, profile: &ConnectionProfile) -> Result<(), AppError> {
+        RedisAdapter::connect(self, profile).await
+    }
+
+    async fn disconnect(&self) -> Result<(), AppError> {
+        RedisAdapter::disconnect(self).await
+    }
+
     async fn test_connection(&self) -> Result<CapabilityTestResult, AppError> {
         let client = self.client.read().await;
 
@@ -234,13 +242,13 @@ impl BaseCapability for RedisAdapter {
             Some(c) => {
                 let start = Instant::now();
 
-                let result: Result<String, _> = c.ping(None).await;
+                let result: std::result::Result<String, _> = c.ping(None).await;
                 let latency = start.elapsed().as_millis() as u64;
 
                 match result {
                     Ok(_) => {
                         // Get server version from INFO
-                        let info: Result<String, _> = c.info(None).await;
+                        let info: std::result::Result<String, _> = c.info(None).await;
 
                         let version = info.ok().and_then(|info_str| {
                             info_str

@@ -1,12 +1,15 @@
 use async_trait::async_trait;
 use deadpool_postgres::{Config, ManagerConfig, Pool, RecyclingMethod, Runtime};
 use tokio_postgres::NoTls;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use super::simple_converter::SimpleConverter;
-use super::types::PostgresTypeConverter;
-use crate::core::adapter::DbAdapter;
-use crate::error::{AppError, Result};
+use crate::core::capabilities::{
+    AdapterCapability, BaseCapability, CapabilityColumnMeta, CapabilityQueryResult,
+    CapabilityTestResult, SqlQueryable,
+};
+use crate::error::AppError;
 use crate::types::*;
 
 pub struct PostgresAdapter {
@@ -21,12 +24,12 @@ impl PostgresAdapter {
     }
 
     /// Get the pool for streaming queries
-    pub fn get_pool(&self) -> Option<Pool> {
-        self.pool.read().unwrap().clone()
+    pub async fn get_pool(&self) -> Option<Pool> {
+        self.pool.read().await.clone()
     }
 
-    async fn get_client(&self) -> Result<deadpool_postgres::Client> {
-        let pool = self.get_pool().ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+    async fn get_client(&self) -> Result<deadpool_postgres::Client, AppError> {
+        let pool = self.get_pool().await.ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
         pool.get().await.map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))
     }
 }
@@ -38,13 +41,9 @@ impl Default for PostgresAdapter {
 }
 
 #[async_trait]
-impl DbAdapter for PostgresAdapter {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
-    async fn connect(&mut self, profile: &ConnectionProfile) -> Result<()> {
-        if self.pool.read().unwrap().is_some() {
+impl BaseCapability for PostgresAdapter {
+    async fn connect(&self, profile: &ConnectionProfile) -> Result<(), AppError> {
+        if self.pool.read().await.is_some() {
             self.disconnect().await?;
         }
 
@@ -59,10 +58,10 @@ impl DbAdapter for PostgresAdapter {
         });
 
         // Handle options
-        for (key, value) in &profile.options {
-             match key.to_lowercase().as_str() {
+        for (key, _value) in &profile.options {
+            match key.to_lowercase().as_str() {
                 "connect_timeout" => {
-                    // deadpool config doesn't have connect_timeout directly on Config root usually, 
+                    // deadpool config doesn't have connect_timeout directly on Config root usually,
                     // it might be in pool options or handled via Runtime.
                     // For now, ignore or set generic options if Config supports it.
                 }
@@ -73,22 +72,26 @@ impl DbAdapter for PostgresAdapter {
             }
         }
 
-        let pool = cfg.create_pool(Some(Runtime::Tokio1), NoTls)
+        let pool = cfg
+            .create_pool(Some(Runtime::Tokio1), NoTls)
             .map_err(|e| AppError::Internal(format!("Failed to create pool: {}", e)))?;
 
         // Test connection
-        let _ = pool.get().await.map_err(|e| AppError::Internal(format!("Failed to connect: {}", e)))?;
+        let _ = pool
+            .get()
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to connect: {}", e)))?;
 
-        *self.pool.write().unwrap() = Some(pool);
+        *self.pool.write().await = Some(pool);
         Ok(())
     }
 
-    async fn disconnect(&mut self) -> Result<()> {
-        *self.pool.write().unwrap() = None;
+    async fn disconnect(&self) -> Result<(), AppError> {
+        *self.pool.write().await = None;
         Ok(())
     }
 
-    async fn test_connection(&self) -> Result<ConnectionTestResult> {
+    async fn test_connection(&self) -> Result<CapabilityTestResult, AppError> {
         let test_fn = async {
             let client = self.get_client().await?;
             let row = client
@@ -100,12 +103,11 @@ impl DbAdapter for PostgresAdapter {
             let database: String = row.get(1);
             let user: String = row.get(2);
 
-            Ok(ConnectionTestResult {
+            Ok(CapabilityTestResult {
                 success: true,
                 message: format!("Connected to {} as {}", database, user),
-                version: Some(version),
-                warnings: vec![],
-                detected_db_type: None,
+                latency_ms: None,
+                server_version: Some(version),
             })
         };
 
@@ -114,42 +116,32 @@ impl DbAdapter for PostgresAdapter {
             .map_err(|_| AppError::ConnectionClosed("Connection test timed out".into()))?
     }
 
-    async fn is_connected(&self) -> bool {
-        let check = async {
-            let client = self.get_client().await.ok()?;
-            client.simple_query("SELECT 1").await.ok()?;
-            Some(())
-        };
-        
-        tokio::time::timeout(std::time::Duration::from_secs(5), check)
-            .await
-            .map(|r| r.is_some())
-            .unwrap_or(false)
+    fn is_connected(&self) -> bool {
+        self.pool.blocking_read().is_some()
     }
 
-    async fn query(&self, sql: &str) -> Result<QueryResult> {
+    fn get_capabilities(&self) -> Vec<AdapterCapability> {
+        vec![
+            AdapterCapability::SqlQueryable,
+        ]
+    }
+}
+
+#[async_trait]
+impl SqlQueryable for PostgresAdapter {
+    async fn execute_query(&self, sql: &str) -> Result<CapabilityQueryResult, AppError> {
         let client = self.get_client().await?;
         let stmt = client
             .prepare(sql)
             .await
             .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
 
-        let columns: Vec<ColumnMeta> = stmt
+        let columns: Vec<CapabilityColumnMeta> = stmt
             .columns()
             .iter()
-            .map(|col| ColumnMeta {
+            .map(|col| CapabilityColumnMeta {
                 name: col.name().to_string(),
-                data_type: PostgresTypeConverter::oid_to_cell_type(col.type_().oid()),
-                nullable: true,
-                primary_key: false,
-                db_type: col.type_().name().to_string(),
-                type_oid: Some(col.type_().oid()),
-                default_value: None,
-                comment: None,
-                enum_values: None,
-                type_category: None,
-                precision: None,
-                scale: None,
+                data_type: col.type_().name().to_string(),
             })
             .collect();
 
@@ -160,13 +152,13 @@ impl DbAdapter for PostgresAdapter {
 
         let json_rows = SimpleConverter::rows_to_json(&rows);
 
-        Ok(QueryResult {
+        Ok(CapabilityQueryResult {
             columns,
             rows: json_rows,
         })
     }
 
-    async fn execute(&self, sql: &str) -> Result<u64> {
+    async fn execute_statement(&self, sql: &str) -> Result<u64, AppError> {
         let client = self.get_client().await?;
         let affected = client
             .execute(sql, &[])
@@ -175,5 +167,3 @@ impl DbAdapter for PostgresAdapter {
         Ok(affected)
     }
 }
-
-crate::impl_sql_capabilities!(PostgresAdapter, pool_check: sync_rwlock);

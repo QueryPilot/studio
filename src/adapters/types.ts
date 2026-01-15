@@ -627,3 +627,62 @@ export type ObjectDefinitionType =
   | 'domain'
   | 'composite'
   | 'index';
+
+// ============================================================================
+// Base Adapter Types for Multi-Paradigm Support
+// ============================================================================
+
+/**
+ * Base adapter interface - all adapters implement this
+ */
+export interface BaseAdapter {
+  /** Connection ID for this adapter */
+  readonly connectionId: string;
+  /** Database type (PostgreSQL, MySQL, MongoDB, Redis, etc.) */
+  readonly dbType: DbType;
+  /** Database paradigm (sql, document, keyvalue) */
+  readonly paradigm: DatabaseParadigm;
+}
+
+/**
+ * MongoDB adapter interface (document paradigm)
+ */
+export interface MongoDBAdapter extends BaseAdapter {
+  readonly paradigm: 'document';
+}
+
+/**
+ * Redis adapter interface (keyvalue paradigm)
+ */
+export interface RedisAdapter extends BaseAdapter {
+  readonly paradigm: 'keyvalue';
+}
+
+// ============================================================================
+// Type Guards for Paradigm-Specific Adapters
+// ============================================================================
+
+/**
+ * Check if an adapter is a SQL adapter
+ */
+export function isSqlAdapter(adapter: BaseAdapter): adapter is DatabaseAdapter {
+  return adapter.paradigm === 'sql';
+}
+
+/**
+ * Check if an adapter is a Document adapter (MongoDB)
+ */
+export function isDocumentAdapter(
+  adapter: BaseAdapter
+): adapter is MongoDBAdapter {
+  return adapter.paradigm === 'document';
+}
+
+/**
+ * Check if an adapter is a KeyValue adapter (Redis)
+ */
+export function isKeyValueAdapter(
+  adapter: BaseAdapter
+): adapter is RedisAdapter {
+  return adapter.paradigm === 'keyvalue';
+}

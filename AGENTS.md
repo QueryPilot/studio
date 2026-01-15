@@ -61,13 +61,42 @@ Query Pilot is a local-first desktop database IDE built on a hybrid architecture
 
 ## 4. Architecture & Patterns
 
-- **IPC Communication**:
-  - Small data: Use standard Tauri commands (`invoke`).
-  - Large data (Grids/Results): Use **Streaming** via IPC channels (MessagePack) to avoid `window.emit` serialization overhead.
-- **Safety**:
-  - Never commit secrets.
-  - Use `vault` storage for sensitive user data (connection credentials).
-- **Filesystem**: Always use absolute paths when interfacing with tools.
+### Multi-Database Adapter System
+Query Pilot uses a **Unified Adapter Architecture** that supports multiple database paradigms:
+
+- **SQL Databases**: PostgreSQL, MySQL/MariaDB, SQLite, SQL Server
+- **Document Databases**: MongoDB
+- **Key-Value Stores**: Redis
+
+#### Adding a New Database Adapter
+To add a new database, implement:
+1. `BaseCapability` trait (connect, disconnect, test_connection)
+2. Paradigm-specific trait (`SqlQueryable`, `DocumentQueryable`, or `RichKeyValueOperable`)
+3. Register in `UnifiedAdapter` factory (`src-tauri/src/core/manager.rs`)
+
+No dispatcher modifications required - the `UnifiedAdapter` struct handles dynamic dispatch.
+
+#### Backend Commands Organization (`src-tauri/src/commands/`)
+- `connection.rs`: Unified connection lifecycle (connect, disconnect, test)
+- `sql.rs`: SQL-specific commands (query, execute_query, switch_database)
+- `document.rs`: Document database commands (MongoDB operations)
+- `keyvalue.rs`: Key-value commands (Redis operations)
+
+#### Frontend Adapter System (`src/adapters/`)
+- `getAdapter()` returns `BaseAdapter` for any database type
+- `getSqlAdapter()` returns `DatabaseAdapter` for SQL databases only
+- Use type guards: `isSqlAdapter()`, `isDocumentAdapter()`, `isKeyValueAdapter()`
+
+### IPC Communication
+- **Small data**: Use standard Tauri commands (`invoke`).
+- **Large data (Grids/Results)**: Use **Streaming** via IPC channels (MessagePack) to avoid `window.emit` serialization overhead.
+
+### Safety
+- Never commit secrets.
+- Use `vault` storage for sensitive user data (connection credentials).
+
+### Filesystem
+- Always use absolute paths when interfacing with tools.
 
 ## 5. Agent Operational Protocols
 
