@@ -598,6 +598,14 @@ export const IntrospectionService = {
             return value;
           }
         }
+        // MySQL: NULL in definition column indicates missing SHOW ROUTINE or SELECT privilege
+        const objectName = getString(row[0]);
+        const hasNullDefinition = row.some(
+          (cell, index) => index > 0 && cell === null,
+        );
+        if (objectName && hasNullDefinition && row.length > 1) {
+          return `-- This user does not have permission to view the definition of '${objectName}'\n-- Required privilege: SHOW ROUTINE (for functions/procedures) or SELECT (for views)`;
+        }
         // Fallback to column 0 if no CREATE found
         return getString(row[0]);
       }
