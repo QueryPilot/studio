@@ -264,10 +264,12 @@ impl DbAdapter for SqliteAdapter {
                 let affected = conn
                     .execute(&sql, [])
                     .map_err(|e| AppError::DatabaseError(format!("Execute failed: {}", e)))?;
-                Ok(affected as u64)
-            }
-        })
-        .await
+            Ok(affected as u64)
+        }
+    })
+    .await
     }
 }
+
+crate::impl_sql_capabilities!(SqliteAdapter, pool_check: async_mutex_block_on);
 

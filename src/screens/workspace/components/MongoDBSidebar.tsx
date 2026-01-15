@@ -8,7 +8,7 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   IconDatabase,
-  IconFolder,
+  IconLayout2,
   IconRefresh,
   IconSearch,
   IconChevronRight,
@@ -73,7 +73,7 @@ export function MongoDBSidebar({
           collections: [],
           isExpanded: false,
           isLoading: false,
-        }))
+        })),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -84,20 +84,18 @@ export function MongoDBSidebar({
 
   const loadCollections = async (dbName: string) => {
     setDatabases((prev) =>
-      prev.map((db) =>
-        db.name === dbName ? { ...db, isLoading: true } : db
-      )
+      prev.map((db) => (db.name === dbName ? { ...db, isLoading: true } : db)),
     );
 
     try {
       // First, set the current database context
       setCurrentDatabase(dbName);
-      
+
       const result = await invoke<{ name: string; type: string }[]>(
         "mongo_list_collections",
-        { connId: connectionId }
+        { connId: connectionId },
       );
-      
+
       setDatabases((prev) =>
         prev.map((db) =>
           db.name === dbName
@@ -107,15 +105,15 @@ export function MongoDBSidebar({
                 isExpanded: true,
                 isLoading: false,
               }
-            : db
-        )
+            : db,
+        ),
       );
     } catch (err) {
       console.error("Failed to load collections:", err);
       setDatabases((prev) =>
         prev.map((db) =>
-          db.name === dbName ? { ...db, isLoading: false } : db
-        )
+          db.name === dbName ? { ...db, isLoading: false } : db,
+        ),
       );
     }
   };
@@ -127,9 +125,7 @@ export function MongoDBSidebar({
     if (db.isExpanded) {
       // Collapse
       setDatabases((prev) =>
-        prev.map((d) =>
-          d.name === dbName ? { ...d, isExpanded: false } : d
-        )
+        prev.map((d) => (d.name === dbName ? { ...d, isExpanded: false } : d)),
       );
     } else {
       // Expand and load collections if needed
@@ -137,9 +133,7 @@ export function MongoDBSidebar({
         void loadCollections(dbName);
       } else {
         setDatabases((prev) =>
-          prev.map((d) =>
-            d.name === dbName ? { ...d, isExpanded: true } : d
-          )
+          prev.map((d) => (d.name === dbName ? { ...d, isExpanded: true } : d)),
         );
       }
     }
@@ -192,7 +186,9 @@ export function MongoDBSidebar({
           <Input
             placeholder="Search..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+            }}
             className="h-7 pl-7 text-xs"
           />
         </div>
@@ -211,7 +207,7 @@ export function MongoDBSidebar({
 
       {/* Error State */}
       {error && (
-        <div className="p-2 text-xs text-destructive bg-destructive/10 m-2 rounded">
+        <div className="p-2 text-xs text-destructive select-text bg-destructive/10 m-2 rounded">
           {error}
         </div>
       )}
@@ -230,9 +226,11 @@ export function MongoDBSidebar({
             <button
               className={cn(
                 "flex items-center gap-1.5 w-full px-2 py-1 text-xs rounded hover:bg-accent",
-                currentDatabase === db.name && "bg-accent"
+                currentDatabase === db.name && "bg-accent",
               )}
-              onClick={() => toggleDatabase(db.name)}
+              onClick={() => {
+                toggleDatabase(db.name);
+              }}
             >
               {db.isLoading ? (
                 <div className="h-3 w-3 border border-primary border-t-transparent rounded-full animate-spin" />
@@ -257,7 +255,7 @@ export function MongoDBSidebar({
                   .filter(
                     (c) =>
                       !searchQuery ||
-                      c.toLowerCase().includes(searchQuery.toLowerCase())
+                      c.toLowerCase().includes(searchQuery.toLowerCase()),
                   )
                   .map((collection) => (
                     <button
@@ -266,11 +264,13 @@ export function MongoDBSidebar({
                         "flex items-center gap-1.5 w-full px-2 py-1 text-xs rounded hover:bg-accent ml-1",
                         currentCollection === collection &&
                           currentDatabase === db.name &&
-                          "bg-accent"
+                          "bg-accent",
                       )}
-                      onClick={() => handleCollectionClick(db.name, collection)}
+                      onClick={() => {
+                        handleCollectionClick(db.name, collection);
+                      }}
                     >
-                      <IconFolder className="h-3.5 w-3.5 text-amber-500" />
+                      <IconLayout2 className="h-3.5 w-3.5 text-amber-500" />
                       <span className="truncate">{collection}</span>
                     </button>
                   ))}

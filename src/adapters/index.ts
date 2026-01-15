@@ -44,6 +44,7 @@ import type {
 import { sqlDiffGenerator } from '@/services/sqlDiffGenerator';
 import type { DatabaseAdapter, TableRef, RowData, WhereClause } from './types';
 import { useConnectionStore } from '@/stores/connectionStoreNew';
+import { getParadigm } from '@/types/connection';
 
 // Lazy imports to avoid circular dependencies
 const adapterModules: Partial<Record<DbType, () => Promise<new (connectionId: string) => DatabaseAdapter>>> = {
@@ -57,31 +58,23 @@ const adapterModules: Partial<Record<DbType, () => Promise<new (connectionId: st
     import('./dialects/SQLiteAdapter').then((m) => m.SQLiteAdapter),
   [DbType.SQLServer]: () =>
     import('./dialects/MSSQLAdapter').then((m) => m.MSSQLAdapter),
-  // MongoDB and Redis use different paradigms and will have their own adapters
-  // They don't implement the SQL DatabaseAdapter interface
 };
 
-// Cache adapters by connection ID
+export function isSqlParadigm(dbType: DbType): boolean {
+  return getParadigm(dbType) === 'sql';
+}
+
 const adapterCache = new Map<string, DatabaseAdapter>();
 
-/**
- * Get or create an adapter for the given connection
- *
- * @param connectionId - Connection ID
- * @param dbType - Database type
- * @returns Database adapter instance
- */
 export async function getAdapter(
   connectionId: string,
   dbType: DbType
 ): Promise<DatabaseAdapter> {
-  // Return cached adapter if exists
   const cached = adapterCache.get(connectionId);
   if (cached) {
     return cached;
   }
 
-  // Create new adapter
   const adapterLoader = adapterModules[dbType];
   if (!adapterLoader) {
     throw new Error(`Unsupported database type: ${dbType}`);
@@ -90,7 +83,6 @@ export async function getAdapter(
   const AdapterClass = await adapterLoader();
   const adapter = new AdapterClass(connectionId);
 
-  // Cache and return
   adapterCache.set(connectionId, adapter);
   return adapter;
 }
@@ -114,6 +106,14 @@ export function getConnectionDbType(connectionId: string): DbType {
  */
 export async function getAdapterForConnection(connectionId: string): Promise<DatabaseAdapter> {
   const dbType = getConnectionDbType(connectionId);
+  return getAdapter(connectionId, dbType);
+}
+
+export async function getSqlAdapterForConnection(connectionId: string): Promise<DatabaseAdapter | null> {
+  const dbType = getConnectionDbType(connectionId);
+  if (!isSqlParadigm(dbType)) {
+    return null;
+  }
   return getAdapter(connectionId, dbType);
 }
 

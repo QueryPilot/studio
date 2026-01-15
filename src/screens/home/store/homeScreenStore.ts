@@ -4,7 +4,6 @@ import type {
   HomeScreenState,
   ContentMode,
   FormMode,
-  WorkspaceFormMode,
 } from "../types";
 
 export const useHomeScreenStore = create<HomeScreenState>()(
@@ -15,6 +14,7 @@ export const useHomeScreenStore = create<HomeScreenState>()(
       selectedConnectionIds: new Set<string>(),
       formMode: "create",
       formConnectionId: null,
+      formPreselectedWorkspaceId: null,
       activeEnvFilters: ["all"],
       searchQuery: "",
       actionBarExpanded: false,
@@ -24,8 +24,6 @@ export const useHomeScreenStore = create<HomeScreenState>()(
       // Workspace state
       selectedWorkspaceId: null,
       workspaceFilterId: null,
-      workspaceFormMode: "create",
-      editingWorkspaceId: null,
 
       setContentMode: (mode: ContentMode) => set({ contentMode: mode }),
 
@@ -35,17 +33,19 @@ export const useHomeScreenStore = create<HomeScreenState>()(
           contentMode: id ? "details" : "browse",
         }),
 
-      openConnectionForm: (mode: FormMode, id?: string) =>
+      openConnectionForm: (mode: FormMode, id?: string, workspaceId?: string) =>
         set({
           contentMode: "form",
           formMode: mode,
           formConnectionId: id ?? null,
+          formPreselectedWorkspaceId: workspaceId ?? null,
         }),
 
       closeForm: () =>
         set({
           contentMode: "browse",
           formConnectionId: null,
+          formPreselectedWorkspaceId: null,
         }),
 
       toggleEnvFilter: (env: string) =>
@@ -123,13 +123,6 @@ export const useHomeScreenStore = create<HomeScreenState>()(
         set({
           contentMode: "workspace-detail",
           selectedWorkspaceId: workspaceId,
-        }),
-
-      showWorkspaceForm: (mode: WorkspaceFormMode, workspaceId?: string) =>
-        set({
-          contentMode: "workspace-form",
-          workspaceFormMode: mode,
-          editingWorkspaceId: workspaceId ?? null,
         }),
 
       setWorkspaceFilter: (workspaceId: string | null) =>

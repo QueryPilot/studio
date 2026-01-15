@@ -47,10 +47,12 @@ const dbTypeToDialect: Record<DbType, SqlDialect> = {
   [DbType.MariaDB]: "mysql", // MariaDB uses MySQL syntax
   [DbType.SQLite]: "sqlite",
   [DbType.SQLServer]: "mssql",
-  // Non-SQL databases default to PostgreSQL dialect for syntax highlighting
   [DbType.MongoDB]: "postgresql",
   [DbType.Redis]: "postgresql",
 };
+
+const isNoSqlDatabase = (dbType: DbType): boolean =>
+  dbType === DbType.MongoDB || dbType === DbType.Redis;
 
 interface GlobalChangesDialogProps {
   connectionId: string;
@@ -245,6 +247,13 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   const [generatedSQL, setGeneratedSQL] = useState<string>("-- Loading...");
 
   useEffect(() => {
+    if (isNoSqlDatabase(dbType)) {
+      setGeneratedSQL(
+        `-- SQL preview not available for ${dbType === DbType.MongoDB ? "MongoDB" : "Redis"}\n-- Changes will be applied using native ${dbType === DbType.MongoDB ? "MongoDB" : "Redis"} operations`
+      );
+      return;
+    }
+
     const generateSQL = async () => {
       const commandsMap = new Map(connectionCommands);
       try {

@@ -175,3 +175,5 @@ impl DbAdapter for PostgresAdapter {
         Ok(affected)
     }
 }
+
+crate::impl_sql_capabilities!(PostgresAdapter, pool_check: sync_rwlock);

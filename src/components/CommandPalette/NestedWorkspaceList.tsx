@@ -1,6 +1,5 @@
 import React, { useMemo } from "react";
 import Fuse, { type IFuseOptions } from "fuse.js";
-import { IconFolder } from "@tabler/icons-react";
 
 import {
   CommandEmpty,
@@ -9,6 +8,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
+import { IconLayout2 } from "@tabler/icons-react";
 
 interface WorkspaceItem {
   id: string;

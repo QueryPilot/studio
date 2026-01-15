@@ -11,7 +11,7 @@ import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { windowManager } from "@/services/windowManager";
 import type { OpenConnection } from "@/types/workspace";
-import { IconPlus, IconFolder } from "@tabler/icons-react";
+import { IconPlus, IconLayout2 } from "@tabler/icons-react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -112,7 +112,7 @@ function ConnectionItem({
               {connection.profile.host}:{connection.profile.port}
             </p>
             {connection.status === "error" && connection.error && (
-              <p className="text-xs text-destructive mt-1 leading-tight">
+              <p className="text-xs text-destructive select-text mt-1 leading-tight">
                 {connection.error}
               </p>
             )}
@@ -266,7 +266,7 @@ export function ConnectionActivityBar() {
                   "hover:bg-primary/30 transition-colors",
                 )}
               >
-                <IconFolder className="w-4 h-4" />
+                <IconLayout2 className="w-4 h-4" />
               </PopoverTrigger>
             </TooltipTrigger>
             <TooltipContent side="right" sideOffset={12} className="z-50">
@@ -299,7 +299,7 @@ export function ConnectionActivityBar() {
                       }}
                       className="gap-2"
                     >
-                      <IconFolder className="w-4 h-4 shrink-0 text-muted-foreground" />
+                      <IconLayout2 className="w-4 h-4 shrink-0 text-muted-foreground" />
                       <div className="flex flex-col flex-1 min-w-0">
                         <span className="truncate text-xs font-medium">
                           {ws.name}
