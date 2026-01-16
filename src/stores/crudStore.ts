@@ -1,15 +1,8 @@
 import { nanoid } from "nanoid";
 import { create } from "zustand";
 
-import {
-  getAdapter,
-  applyColumnRenames,
-  applyTableRenames,
-  trackColumnRename,
-  trackTableRename,
-  commandToSql,
-} from "@/adapters";
 import { logger } from "@/lib/logger";
+import { getOperationExecutor } from "@/services/operationExecutors";
 import type {
   CommitResult,
   CrudCommand,
@@ -570,104 +563,27 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
       }
       const dbType = connection.profile.db_type;
 
-      // Get adapter for this connection
-      const adapter = await getAdapter(connectionId, dbType);
-
       // Mark table as committing (for optimistic updates)
       set((state) => ({
         committingTableKeys: new Set(state.committingTableKeys).add(tableKey),
       }));
 
-      // Convert commands to SQL statements using adapter
-      // Track column renames so subsequent commands use new names
-      const columnRenames = new Map<string, string>();
-      const tableRenames = new Map<string, string>();
-      const sqlStatements: string[] = [];
-      for (const cmd of commands) {
-        // Apply any pending renames to this command
-        const tableAdjustedCmd = applyTableRenames(cmd, tableRenames);
-        const adjustedCmd = applyColumnRenames(tableAdjustedCmd, columnRenames);
-
-        // Track renames for subsequent commands (handles chained renames)
-        trackColumnRename(columnRenames, cmd, adjustedCmd);
-        trackTableRename(tableRenames, cmd, tableAdjustedCmd);
-
-        const sql = commandToSql(adapter, adjustedCmd);
-        logger.info("[CrudStore] Command to SQL:", {
-          type: cmd.type,
-          payload: cmd.payload,
-          sql: sql ?? "(null - skipped)",
-        });
-        if (sql) {
-          sqlStatements.push(sql);
-        }
-      }
-
-      // Check if we have any SQL to execute
-      if (sqlStatements.length === 0) {
-        logger.warn("[CrudStore] No SQL statements generated from commands:", {
-          commandCount: commands.length,
-          commandTypes: commands.map((c) => c.type),
-        });
-        throw new Error("No SQL statements were generated from the commands");
-      }
-
-      // Filter out comment-only statements (SQLite limitations, etc.)
-      const executableStatements = sqlStatements.filter((sql) => {
-        const trimmed = sql.trim();
-        // Skip if it's only a comment (starts with -- and has no other SQL)
-        if (trimmed.startsWith("--")) {
-          // Check if there's actual SQL after the comment line
-          const lines = trimmed.split("\n");
-          const hasActualSql = lines.some((line) => {
-            const lineTrimmed = line.trim();
-            return lineTrimmed.length > 0 && !lineTrimmed.startsWith("--");
-          });
-          return hasActualSql;
-        }
-        return true;
-      });
-
-      // If all statements were comments (unsupported operations), show informative error
-      if (executableStatements.length === 0) {
-        const commentMessages = sqlStatements
-          .filter((sql) => sql.trim().startsWith("--"))
-          .map((sql) => sql.trim().replace(/^--\s*/, ""))
-          .join("\n");
-        
-        logger.warn("[CrudStore] All statements are comments (unsupported operations):", {
-          commandCount: commands.length,
-          comments: commentMessages,
-        });
-        
-        // Clear committing state before throwing
-        set((state) => {
-          const committingTableKeys = new Set(state.committingTableKeys);
-          committingTableKeys.delete(tableKey);
-          return { committingTableKeys };
-        });
-        
-        throw new Error(commentMessages || "These operations are not supported for this database type");
-      }
-
-      // Wrap in transaction
-      const transactionSql = adapter.transaction(executableStatements);
-
-      logger.info("[CrudStore] Executing SQL transaction:", {
-        connectionId,
-        commandCount: commands.length,
-        statementCount: sqlStatements.length,
-        sql: transactionSql,
-      });
-
       try {
-        // Execute via adapter
-        logger.info("[CrudStore] About to execute SQL via adapter...");
-        const execResult = await adapter.execute(transactionSql);
-        logger.info("[CrudStore] Adapter execute returned:", {
-          columns: execResult.columns?.length ?? 0,
-          rowCount: execResult.rowCount,
+        // Get operation executor for this connection
+        const executor = await getOperationExecutor(connectionId, dbType);
+
+        logger.info("[CrudStore] Executing commands via executor:", {
+          connectionId,
+          commandCount: commands.length,
+          paradigm: executor.paradigm,
         });
+
+        // Execute via executor
+        const execResult = await executor.execute(commands);
+
+        if (!execResult.success) {
+          throw new Error(execResult.errors[0]?.message ?? "Execution failed");
+        }
 
         const durationMs = Math.round(performance.now() - startTime);
 

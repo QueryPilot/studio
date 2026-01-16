@@ -6,7 +6,7 @@ import type { CrudCommand, CrudCommandPayload } from "@/types/crud";
 import { DbType } from "@/types/connection";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { useValidationStore } from "@/stores/validationStore";
-import { generateSqlPreview } from "@/adapters";
+import { getOperationExecutor } from "@/services/operationExecutors";
 import { CodeEditor, type SqlDialect } from "@/components/CodeEditor";
 import {
   Dialog,
@@ -254,23 +254,32 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
       return;
     }
 
-    const generateSQL = async () => {
+    const generatePreview = async () => {
       const commandsMap = new Map(connectionCommands);
+      const allCommands: CrudCommand[] = [];
+      commandsMap.forEach((commands) => allCommands.push(...commands));
+
+      if (allCommands.length === 0) {
+        setGeneratedSQL("-- No changes to commit");
+        return;
+      }
+
       try {
-        const sql = await generateSqlPreview(connectionId, dbType, commandsMap);
-        logger.info("[GlobalChangesDialog] Generated SQL:", {
-          connectionCommandsCount: connectionCommands.length,
-          dbType,
-          sqlLength: sql.length,
-          sqlPreview: sql.slice(0, 200),
+        const executor = await getOperationExecutor(connectionId, dbType);
+        const preview = executor.preview(allCommands);
+
+        logger.info("[GlobalChangesDialog] Generated preview:", {
+          type: preview.type,
+          operationCount: preview.operations.length,
         });
-        setGeneratedSQL(sql);
+
+        setGeneratedSQL(preview.content);
       } catch (error) {
-        logger.error("[GlobalChangesDialog] Failed to generate SQL:", error);
-        setGeneratedSQL("-- Error generating SQL preview");
+        logger.error("[GlobalChangesDialog] Failed to generate preview:", error);
+        setGeneratedSQL("-- Error generating preview");
       }
     };
-    generateSQL();
+    generatePreview();
   }, [connectionCommands, connectionId, dbType]);
 
   // Debug: Log grouped data
