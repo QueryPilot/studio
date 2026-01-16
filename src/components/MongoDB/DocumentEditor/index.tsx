@@ -21,8 +21,9 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
+import { ViewModeToggle } from "@/components/DataGrid/components/ViewModeToggle";
+import { BreadcrumbNav } from "@/components/DataGrid/components/BreadcrumbNav";
 import { TreeView } from "./TreeView";
-import { Breadcrumb } from "./Breadcrumb";
 
 type JsonValue =
   | string
@@ -141,25 +142,15 @@ export function DocumentEditor({
               {isNew ? "New Document" : "Edit Document"}
             </SheetTitle>
             
-            <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
-              <Button
-                variant={viewMode === "tree" ? "secondary" : "ghost"}
-                size="sm"
-                className="h-7 px-2"
-                onClick={() => { setViewMode("tree"); }}
-              >
-                <IconBinaryTree2 className="h-4 w-4 mr-1" />
-                Tree
-              </Button>
-              <Button
-                variant={viewMode === "json" ? "secondary" : "ghost"}
-                size="sm"
-                className="h-7 px-2"
-                onClick={() => { setViewMode("json"); }}
-              >
-                <IconCode className="h-4 w-4 mr-1" />
-                JSON
-              </Button>
+            <div className="flex items-center gap-2">
+              <ViewModeToggle
+                modes={[
+                  { id: "tree", label: "Tree", icon: <IconBinaryTree2 className="h-4 w-4" /> },
+                  { id: "json", label: "JSON", icon: <IconCode className="h-4 w-4" /> },
+                ]}
+                activeMode={viewMode}
+                onChange={(mode) => setViewMode(mode as "tree" | "json")}
+              />
             </div>
           </div>
         </SheetHeader>
@@ -168,7 +159,13 @@ export function DocumentEditor({
           {viewMode === "tree" ? (
             <>
               <div className="px-2 border-b pb-2">
-                <Breadcrumb path={currentPath} onNavigate={handleNavigate} />
+                <BreadcrumbNav
+                    path={currentPath.map((id, index) => ({
+                      id,
+                      type: index === currentPath.length - 1 ? "object" : "object", // Simple mapping for now
+                    }))}
+                    onNavigate={(newPath) => handleNavigate(newPath.map(p => p.id))}
+                />
               </div>
 
               <div className="flex-1 overflow-auto border rounded-md bg-muted/20">
@@ -223,4 +220,3 @@ export function DocumentEditor({
 }
 
 export { TreeView } from "./TreeView";
-export { Breadcrumb } from "./Breadcrumb";

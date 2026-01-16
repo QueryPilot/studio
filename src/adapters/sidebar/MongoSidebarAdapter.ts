@@ -18,6 +18,7 @@ import {
   IconTrash,
 } from '@tabler/icons-react';
 import useWorkbenchStore from '@/stores/workbenchStore';
+import { toast } from 'sonner';
 
 export class MongoSidebarAdapter implements SidebarAdapter {
   async loadRootNodes(connectionId: string): Promise<TreeNode[]> {
@@ -95,31 +96,42 @@ export class MongoSidebarAdapter implements SidebarAdapter {
   }
 
   onNodeClick(node: TreeNode, connectionId: string): void {
-    if (node.type === 'collection') {
-      const database = node.metadata.database as string;
-      const collection = node.metadata.collection as string;
+    try {
+      if (node.type === 'collection') {
+        const database = node.metadata.database as string;
+        const collection = node.metadata.collection as string;
 
-      const { focusedPanelId, addTab, panelContents, focusPanel } =
-        useWorkbenchStore.getState();
+        const { focusedPanelId, addTab, panelContents, focusPanel } =
+          useWorkbenchStore.getState();
 
-      let targetPanelId = focusedPanelId;
-      if (!targetPanelId && panelContents.size > 0) {
-        const firstPanelId = Array.from(panelContents.keys())[0];
-        if (firstPanelId) {
-          targetPanelId = firstPanelId;
-          focusPanel(firstPanelId);
+        let targetPanelId = focusedPanelId;
+        if (!targetPanelId && panelContents.size > 0) {
+          const firstPanelId = Array.from(panelContents.keys())[0];
+          if (firstPanelId) {
+            targetPanelId = firstPanelId;
+            focusPanel(firstPanelId);
+          }
         }
+
+        if (!targetPanelId) {
+          toast.error('No panel available', {
+            description: 'Could not find a panel to open the collection',
+          });
+          return;
+        }
+
+        const tabId = `mongo-${database}-${collection}`;
+        addTab(targetPanelId, tabId, {
+          type: 'mongo-collection',
+          title: collection,
+          connectionId,
+          database,
+          table: collection,
+        });
       }
-
-      if (!targetPanelId) return;
-
-      const tabId = `mongo-${database}-${collection}`;
-      addTab(targetPanelId, tabId, {
-        type: 'mongo-collection',
-        title: collection,
-        connectionId,
-        database,
-        table: collection,
+    } catch (error) {
+      toast.error(`Failed to open ${node.label}`, {
+        description: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -141,61 +153,24 @@ export class MongoSidebarAdapter implements SidebarAdapter {
           },
         },
         {
-          id: 'view-indexes',
-          label: 'View Indexes',
-          icon: IconBookmark,
-          onClick: () => {
-            // TODO: Open indexes tab
-            console.log('View indexes:', firstNode);
-          },
-        },
-        {
-          id: 'create-index',
-          label: 'Create Index',
-          icon: IconPlus,
-          onClick: () => {
-            // TODO: Open create index dialog
-            console.log('Create index:', firstNode);
-          },
-          separator: true,
-        },
-        {
-          id: 'stats',
-          label: 'Collection Stats',
-          icon: IconChartBar,
-          onClick: () => {
-            // TODO: Show stats dialog
-            console.log('Show stats:', firstNode);
-          },
-        },
-        {
-          id: 'export',
-          label: 'Export Collection',
-          icon: IconDownload,
-          onClick: () => {
-            // TODO: Export collection
-            console.log('Export collection:', firstNode);
-          },
-        },
-        {
           id: 'copy-name',
           label: 'Copy Collection Name',
           icon: IconCopy,
           onClick: async () => {
-            await navigator.clipboard.writeText(firstNode.label);
+            try {
+              await navigator.clipboard.writeText(firstNode.label);
+              toast.success('Copied to clipboard', {
+                description: `Collection name: ${firstNode.label}`,
+              });
+            } catch (error) {
+              toast.error('Failed to copy', {
+                description: error instanceof Error ? error.message : String(error),
+              });
+            }
           },
           separator: true,
         },
-        {
-          id: 'drop',
-          label: 'Drop Collection...',
-          icon: IconTrash,
-          destructive: true,
-          onClick: () => {
-            // TODO: Show confirmation dialog
-            console.log('Drop collection:', firstNode);
-          },
-        },
+        // Future actions: View Indexes, Create Index, Collection Stats, Export, Drop
       ];
 
       return items;
@@ -204,20 +179,20 @@ export class MongoSidebarAdapter implements SidebarAdapter {
     if (firstNode.type === 'database') {
       return [
         {
-          id: 'refresh',
-          label: 'Refresh',
-          icon: IconEye,
-          onClick: () => {
-            // Trigger refresh via expanding/collapsing
-            console.log('Refresh database:', firstNode);
-          },
-        },
-        {
           id: 'copy-name',
           label: 'Copy Database Name',
           icon: IconCopy,
           onClick: async () => {
-            await navigator.clipboard.writeText(firstNode.label);
+            try {
+              await navigator.clipboard.writeText(firstNode.label);
+              toast.success('Copied to clipboard', {
+                description: `Database name: ${firstNode.label}`,
+              });
+            } catch (error) {
+              toast.error('Failed to copy', {
+                description: error instanceof Error ? error.message : String(error),
+              });
+            }
           },
         },
       ];

@@ -17,6 +17,7 @@ import {
 } from '@tabler/icons-react';
 import type { SidebarAdapter, TreeNode } from '@/types/sidebar';
 import { UnifiedContextMenu } from './UnifiedContextMenu';
+import { toast } from 'sonner';
 
 interface UnifiedSidebarProps {
   connectionId: string;
@@ -70,10 +71,18 @@ export function UnifiedSidebar({
     if (node.children) return; // Already loaded
 
     try {
+      // Set loading state
+      setRootNodes((prev) => updateNodeLoading(prev, node.id, true));
+
       const children = await adapter.loadChildren(node, connectionId);
       setRootNodes((prev) => updateNodeChildren(prev, node.id, children));
     } catch (err) {
       console.error('Failed to load children:', err);
+      toast.error(`Failed to load ${node.label}`, {
+        description: err instanceof Error ? err.message : String(err),
+      });
+      // Clear loading state on error
+      setRootNodes((prev) => updateNodeLoading(prev, node.id, false));
     }
   };
 
@@ -90,6 +99,25 @@ export function UnifiedSidebar({
         return {
           ...node,
           children: updateNodeChildren(node.children, nodeId, children),
+        };
+      }
+      return node;
+    });
+  };
+
+  const updateNodeLoading = (
+    nodes: TreeNode[],
+    nodeId: string,
+    isLoading: boolean
+  ): TreeNode[] => {
+    return nodes.map((node) => {
+      if (node.id === nodeId) {
+        return { ...node, isLoading };
+      }
+      if (node.children) {
+        return {
+          ...node,
+          children: updateNodeLoading(node.children, nodeId, isLoading),
         };
       }
       return node;

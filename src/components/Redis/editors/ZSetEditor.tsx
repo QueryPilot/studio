@@ -1,176 +1,121 @@
-/**
- * Redis ZSet Editor
- */
-
-import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { IconPlus, IconCheck } from "@tabler/icons-react";
+import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
-
-interface ZSetMember {
-  member: string;
-  score: number;
-}
+import { Plus, Check } from "lucide-react";
+import { ZSetMember } from "@/adapters/types/redis";
 
 interface ZSetEditorProps {
   connectionId: string;
+  database: number;
   keyName: string;
-  value: ZSetMember[];
   onUpdate: () => void;
 }
 
-export function ZSetEditor({
+export const ZSetEditor = ({
   connectionId,
+  database,
   keyName,
-  value,
   onUpdate,
-}: ZSetEditorProps) {
+}: ZSetEditorProps) => {
+  const [members, setMembers] = useState<ZSetMember[]>([]);
   const [newMember, setNewMember] = useState("");
-  const [newScore, setNewScore] = useState("0");
-  const [editingMember, setEditingMember] = useState<string | null>(null);
-  const [editScore, setEditScore] = useState("");
+  const [newScore, setNewScore] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleAddMember = async () => {
-    if (!newMember) {
-      toast.error("Member value required");
-      return;
-    }
+  useEffect(() => {
+    fetchMembers();
+  }, [keyName]);
 
-    const score = parseFloat(newScore);
-    if (isNaN(score)) {
-      toast.error("Score must be a number");
-      return;
-    }
-
+  const fetchMembers = async () => {
     try {
-      await invoke("redis_zadd", {
-        connId: connectionId,
-        key: keyName,
-        member: newMember,
-        score,
+      const result = await invoke<ZSetMember[]>("keyvalue_execute", {
+        connectionId,
+        command: "zset_range",
+        args: [database.toString(), keyName, "0", "-1", "withscores"],
       });
-      toast.success("Member added");
-      setNewMember("");
-      setNewScore("0");
-      onUpdate();
-    } catch (err) {
-      toast.error(`Add failed: ${err}`);
+      setMembers(result || []);
+    } catch (error) {
+      toast.error(`Failed to fetch ZSet: ${error}`);
+      setMembers([]);
     }
   };
 
-  const handleUpdateScore = async (member: string) => {
-    const score = parseFloat(editScore);
-    if (isNaN(score)) {
-      toast.error("Score must be a number");
-      return;
-    }
+  const handleAdd = async () => {
+    if (!newMember || !newScore) return;
 
     try {
-      await invoke("redis_zadd", {
-        connId: connectionId,
-        key: keyName,
-        member,
-        score,
+      setIsLoading(true);
+      await invoke("keyvalue_execute", {
+        connectionId,
+        command: "zset_add",
+        args: [database.toString(), keyName, newMember, newScore],
       });
-      toast.success("Score updated");
-      setEditingMember(null);
+      setNewMember("");
+      setNewScore("");
+      fetchMembers();
       onUpdate();
-    } catch (err) {
-      toast.error(`Update failed: ${err}`);
+      toast.success("Member added");
+    } catch (error) {
+      toast.error(`Failed to add member: ${error}`);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className="space-y-3">
-      <div className="border rounded">
+    <div className="flex flex-col gap-4">
+      <div className="flex gap-2">
+        <Input
+          placeholder="Member"
+          value={newMember}
+          onChange={(e) => setNewMember(e.target.value)}
+          className="flex-1"
+        />
+        <Input
+          type="number"
+          placeholder="Score"
+          value={newScore}
+          onChange={(e) => setNewScore(e.target.value)}
+          className="w-32"
+        />
+        <Button onClick={handleAdd} disabled={isLoading || !newMember || !newScore}>
+          <Plus className="h-4 w-4 mr-1" />
+          Add
+        </Button>
+      </div>
+
+      <div className="rounded-md border">
         <table className="w-full text-sm">
-          <thead className="bg-muted/50">
-            <tr>
+          <thead>
+            <tr className="border-b bg-muted/50">
               <th className="p-2 text-left font-medium">Member</th>
-              <th className="p-2 text-left font-medium w-32">Score</th>
-              <th className="w-10"></th>
+              <th className="p-2 text-right font-medium">Score</th>
+              <th className="p-2 text-right font-medium w-[100px]">Action</th>
             </tr>
           </thead>
           <tbody>
-            {value.map(({ member, score }) => (
-              <tr key={member} className="border-t">
-                <td className="p-2 font-mono text-xs">{member}</td>
-                <td className="p-2">
-                  {editingMember === member ? (
-                    <div className="flex items-center gap-2">
-                      <Input
-                        value={editScore}
-                        onChange={(e) => { setEditScore(e.target.value); }}
-                        className="h-7 text-xs font-mono w-24"
-                        type="number"
-                        step="any"
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") void handleUpdateScore(member);
-                          if (e.key === "Escape") setEditingMember(null);
-                        }}
-                      />
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-6 w-6"
-                        onClick={() => { void handleUpdateScore(member); }}
-                      >
-                        <IconCheck className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  ) : (
-                    <span
-                      className="font-mono text-xs cursor-pointer hover:bg-accent px-1 rounded"
-                      onClick={() => {
-                        setEditingMember(member);
-                        setEditScore(String(score));
-                      }}
-                    >
-                      {score}
-                    </span>
-                  )}
-                </td>
-                <td className="p-2 text-right"></td>
-              </tr>
-            ))}
-            {value.length === 0 && (
+            {members.length === 0 ? (
               <tr>
                 <td colSpan={3} className="p-4 text-center text-muted-foreground">
                   No members
                 </td>
               </tr>
+            ) : (
+              members.map(({ member, score }) => (
+                <tr key={member} className="border-t">
+                  <td className="p-2 font-mono text-xs">{member}</td>
+                  <td className="p-2 text-right font-mono text-xs">{score}</td>
+                  <td className="p-2 text-right">
+                    {/* Actions can be added later */}
+                  </td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>
       </div>
-
-      <div className="flex items-center gap-2">
-        <Input
-          value={newMember}
-          onChange={(e) => { setNewMember(e.target.value); }}
-          placeholder="Member"
-          className="h-7 text-xs font-mono flex-1"
-        />
-        <Input
-          value={newScore}
-          onChange={(e) => { setNewScore(e.target.value); }}
-          placeholder="Score"
-          className="h-7 text-xs font-mono w-24"
-          type="number"
-          step="any"
-        />
-        <Button size="sm" onClick={handleAddMember}>
-          <IconPlus className="h-4 w-4 mr-1" />
-          Add
-        </Button>
-      </div>
-
-      <p className="text-xs text-muted-foreground">
-        {value.length} member(s)
-      </p>
     </div>
   );
-}
+};
