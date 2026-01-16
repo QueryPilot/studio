@@ -6,43 +6,26 @@ import type {
 } from "@/types/crud";
 import { DbType } from "@/types/connection";
 
-// Mock adapter
-const mockExecute = vi.fn();
-const mockAdapter = {
-  dbType: DbType.PostgreSQL,
+// Mock executor
+const mockExecute = vi.fn().mockResolvedValue({
+  success: true,
+  affectedCount: 1,
+  errors: [],
+});
+
+const mockExecutor = {
   paradigm: "sql" as const,
-  connectionId: "conn-1",
   execute: mockExecute,
-  insert: vi.fn((target) => `INSERT INTO "${target.schema}"."${target.table}" ...`),
-  update: vi.fn((target) => `UPDATE "${target.schema}"."${target.table}" SET ...`),
-  delete: vi.fn((target) => `DELETE FROM "${target.schema}"."${target.table}" ...`),
-  select: vi.fn(() => "SELECT ..."),
-  transaction: vi.fn((stmts: string[]) => `BEGIN;\n${stmts.join(";\n")};\nCOMMIT;`),
-  formatValue: vi.fn((v) => String(v)),
-  quoteIdentifier: vi.fn((n) => `"${n}"`),
-  quoteString: vi.fn((s) => `'${s}'`),
+  preview: vi.fn(() => ({
+    type: "sql",
+    content: "MOCK SQL",
+    operations: [],
+  })),
+  validate: vi.fn(() => ({ valid: true, errors: [] })),
 };
 
-vi.mock("@/adapters", () => ({
-  getAdapter: vi.fn(() => Promise.resolve(mockAdapter)),
-  // Simple pass-through for rename tracking (not tested in this file)
-  applyColumnRenames: vi.fn((cmd) => cmd),
-  applyTableRenames: vi.fn((cmd) => cmd),
-  trackColumnRename: vi.fn(),
-  trackTableRename: vi.fn(),
-  // Mock commandToSql to generate simple SQL statements
-  commandToSql: vi.fn((adapter, cmd) => {
-    switch (cmd.type) {
-      case 'data.insert':
-        return `INSERT INTO "${cmd.target.schema}"."${cmd.target.table}" VALUES (...)`;
-      case 'data.update':
-        return `UPDATE "${cmd.target.schema}"."${cmd.target.table}" SET ...`;
-      case 'data.delete':
-        return `DELETE FROM "${cmd.target.schema}"."${cmd.target.table}" WHERE ...`;
-      default:
-        return `-- ${cmd.type}`;
-    }
-  }),
+vi.mock("@/services/operationExecutors", () => ({
+  getOperationExecutor: vi.fn(() => Promise.resolve(mockExecutor)),
 }));
 
 // Mock connection store
@@ -104,8 +87,11 @@ describe("crudStore", () => {
       committingTableKeys: new Set(),
     });
     vi.clearAllMocks();
-    // Default: successful execution
-    mockExecute.mockResolvedValue({ columns: [], rows: [] });
+    mockExecute.mockResolvedValue({
+      success: true,
+      affectedCount: 1,
+      errors: [],
+    });
   });
 
   describe("Command Staging", () => {
@@ -454,11 +440,7 @@ describe("crudStore", () => {
       const result = await store.commitChanges(tableKey);
 
       expect(result.success).toBe(true);
-      expect(mockExecute).toHaveBeenCalledWith(
-        expect.stringContaining("BEGIN"),
-      );
-      // commandToSql is used now instead of direct adapter method calls
-      expect(mockAdapter.transaction).toHaveBeenCalled();
+      expect(mockExecute).toHaveBeenCalledOnce();
 
       // Commands are kept for optimistic display until clearCommittedChanges is called
       store.clearCommittedChanges(tableKey);
@@ -472,8 +454,11 @@ describe("crudStore", () => {
     it("should handle commit failure", async () => {
       const store = useCrudStore.getState();
 
-      // Mock SQL execution failure
-      mockExecute.mockRejectedValue(new Error("Constraint violation"));
+      mockExecute.mockResolvedValueOnce({
+        success: false,
+        affectedCount: 0,
+        errors: [{ commandId: "cmd-1", message: "Constraint violation" }],
+      });
 
       store.stageCommand(mockCommand);
       const tableKey = store.getTableKey(mockTarget);
