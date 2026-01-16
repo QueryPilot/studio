@@ -2,7 +2,7 @@ import { GridCellKind, type GridCell } from '@glideapps/glide-data-grid';
 import type { GridColumnV2, GridRowModel } from '../types';
 import type { CrudCommand } from '@/types/crud';
 import type { GridEditCommitEvent } from '../types';
-import type { SqlDataSource as SqlDataSourceInterface } from './types';
+import type { SqlDataSource as SqlDataSourceInterface, DataSourceIdentifier } from './types';
 
 export interface SqlDataSourceConfig {
   connectionId: string;
@@ -18,10 +18,7 @@ export interface SqlDataSourceConfig {
 export class SqlDataSource implements SqlDataSourceInterface {
   readonly paradigm = 'sql' as const;
   readonly connectionId: string;
-  readonly identifier: Extract<
-    import('./types').DataSourceIdentifier,
-    { type: 'table' }
-  >;
+  readonly identifier: Extract<DataSourceIdentifier, { type: 'table' }>;
   readonly editable = true;
 
   private columns: GridColumnV2[] = [];
