@@ -839,6 +839,18 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
     },
 
     getWorkspacesForConnection: (connectionId: string) => {
+      const connectionStore = useConnectionStore.getState();
+      const conn = connectionStore.getConnection(connectionId);
+
+      // Prefer connection metadata (new way)
+      if (conn?.metadata.workspace_ids) {
+        const { savedWorkspaces } = get();
+        return savedWorkspaces.filter(ws =>
+          conn.metadata.workspace_ids!.includes(ws.id)
+        );
+      }
+
+      // Fallback to workspace.connectionIds (legacy)
       const { savedWorkspaces } = get();
       return savedWorkspaces.filter((ws) =>
         ws.connectionIds.includes(connectionId),
@@ -846,30 +858,33 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
     },
 
     getConnectionsByWorkspace: () => {
-      const { savedWorkspaces } = get();
+      const connectionStore = useConnectionStore.getState();
       const result = new Map<string, string[]>();
 
+      // Initialize with empty arrays
+      const { savedWorkspaces } = get();
       for (const ws of savedWorkspaces) {
-        result.set(ws.id, [...ws.connectionIds]);
+        result.set(ws.id, []);
+      }
+
+      // Build from connection metadata
+      for (const conn of connectionStore.connections) {
+        const workspaceIds = conn.metadata.workspace_ids || [];
+        for (const wsId of workspaceIds) {
+          const existing = result.get(wsId) || [];
+          existing.push(conn.profile.id);
+          result.set(wsId, existing);
+        }
       }
 
       return result;
     },
 
     getUncategorizedConnectionIds: () => {
-      const { savedWorkspaces } = get();
       const allConnections = useConnectionStore.getState().connections;
-      const categorizedIds = new Set<string>();
-
-      for (const ws of savedWorkspaces) {
-        for (const connId of ws.connectionIds) {
-          categorizedIds.add(connId);
-        }
-      }
-
       return allConnections
-        .map((c) => c.profile.id)
-        .filter((id) => !categorizedIds.has(id));
+        .filter(c => !c.metadata.workspace_ids || c.metadata.workspace_ids.length === 0)
+        .map(c => c.profile.id);
     },
 
     addConnectionToSavedWorkspace: async (workspaceId, connectionId) => {

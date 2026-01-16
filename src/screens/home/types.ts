@@ -3,7 +3,9 @@ export type ContentMode =
   | "form"
   | "details"
   | "workspace-list"
-  | "workspace-detail";
+  | "workspace-detail"
+  | "workspace-form"
+  | "workspace-creation-form";
 
 export type FormMode = "create" | "edit" | "import";
 
@@ -19,6 +21,10 @@ export interface HomeScreenState {
   formMode: FormMode;
   formConnectionId: string | null;
   formPreselectedWorkspaceId: string | null;
+
+  // Workspace form state
+  workspaceFormMode: "create" | "edit";
+  workspaceFormId: string | null;
 
   // Workspace state
   selectedWorkspaceId: string | null;
@@ -57,4 +63,8 @@ export interface HomeScreenState {
   showWorkspaceDetail: (workspaceId: string) => void;
   setWorkspaceFilter: (workspaceId: string | null) => void;
   clearWorkspaceFilter: () => void;
+  openWorkspaceForm: (mode: "create" | "edit", workspaceId?: string) => void;
+  closeWorkspaceForm: () => void;
+  openWorkspaceCreationForm: () => void;
+  closeWorkspaceCreationForm: () => void;
 }

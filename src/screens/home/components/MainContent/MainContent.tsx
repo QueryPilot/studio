@@ -3,6 +3,8 @@ import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { WelcomeSection } from "./WelcomeSection";
 import { ConnectionsSection } from "./ConnectionsSection";
 import { ConnectionForm } from "./ConnectionForm";
+import { WorkspaceForm } from "./WorkspaceForm";
+import { WorkspaceCreationForm } from "./WorkspaceCreationForm";
 import { ConnectionRow } from "../shared/ConnectionRow";
 import { ERDWorkspacesSection } from "./ERDWorkspacesSection";
 import { WorkspacesSection } from "./WorkspacesSection";
@@ -89,6 +91,14 @@ export function MainContent() {
     );
   }
 
+  if (contentMode === "workspace-form") {
+    return (
+      <div className="h-full overflow-y-auto">
+        <WorkspaceForm />
+      </div>
+    );
+  }
+
   if (contentMode === "workspace-list") {
     return (
       <div className="h-full overflow-y-auto">
@@ -101,6 +111,14 @@ export function MainContent() {
     return (
       <div className="h-full overflow-y-auto">
         <WorkspaceDetailView />
+      </div>
+    );
+  }
+
+  if (contentMode === "workspace-creation-form") {
+    return (
+      <div className="h-full overflow-y-auto">
+        <WorkspaceCreationForm />
       </div>
     );
   }

@@ -7,7 +7,7 @@ cd src-tauri/sidecar-ai
 
 # Install dependencies
 echo "Installing dependencies..."
-bun install
+npm install --legacy-peer-deps
 
 # Create sidecars directory if it doesn't exist
 mkdir -p ../sidecars
