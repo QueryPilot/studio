@@ -28,6 +28,9 @@ import { StringEditor } from "./editors/StringEditor";
 import { HashEditor } from "./editors/HashEditor";
 import { ListEditor } from "./editors/ListEditor";
 import { SetEditor } from "./editors/SetEditor";
+import { ZSetEditor } from "./editors/ZSetEditor";
+import { StreamEditor } from "./editors/StreamEditor";
+import { KeyHeader } from "@/components/DataGrid/components/KeyHeader";
 import { usePanelStore } from "@/stores/panelStore";
 import { v4 as uuidv4 } from "uuid";
 
@@ -140,7 +143,7 @@ export function KeyBrowser({
         });
       }
       
-      // ZSet and Stream not yet supported in editor, show placeholder
+      // ZSet and Stream fetch their own data in the editor
       
       setKeyDetails({
         key: keyName,
@@ -263,36 +266,19 @@ export function KeyBrowser({
 
         {/* Key Details */}
         {keyDetails && !isLoading && (
-          <div className="flex-1 overflow-auto">
-            {/* Meta Header */}
-            <div className="flex items-center gap-3 p-3 border-b bg-muted/30">
-              {getTypeIcon(keyDetails.type)}
-              <div className="flex-1">
-                <p className="text-xs text-muted-foreground capitalize">
-                  Type: {keyDetails.type}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <IconClock className="h-4 w-4 text-muted-foreground" />
-                <span className="text-xs">
-                  TTL: {keyDetails.ttl === -1 ? "No expiry" : `${keyDetails.ttl}s`}
-                </span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 text-xs"
-                  onClick={() => {
-                    const ttl = prompt("Enter TTL in seconds:", "3600");
-                    if (ttl) handleSetTTL(parseInt(ttl));
-                  }}
-                >
-                  Set TTL
-                </Button>
-              </div>
-            </div>
+          <div className="flex h-full flex-col">
+            <KeyHeader
+              metadata={{
+                key: keyName,
+                type: keyDetails.type,
+                ttl: keyDetails.ttl,
+              }}
+              onRefresh={fetchKeyDetails}
+              onDelete={handleDeleteKey}
+            />
 
             {/* Value Editor */}
-            <div className="p-3">
+            <div className="flex-1 overflow-auto p-4">
               {keyDetails.type === "string" && (
                 <StringEditor
                   connectionId={connectionId}
@@ -325,7 +311,23 @@ export function KeyBrowser({
                   onUpdate={fetchKeyDetails}
                 />
               )}
-              {(keyDetails.type === "zset" || keyDetails.type === "stream" || keyDetails.type === "unknown") && (
+              {keyDetails.type === "zset" && (
+                <ZSetEditor
+                    connectionId={connectionId}
+                    database={_database}
+                    keyName={keyDetails.key}
+                    onUpdate={fetchKeyDetails}
+                />
+              )}
+              {keyDetails.type === "stream" && (
+                <StreamEditor
+                    connectionId={connectionId}
+                    database={_database}
+                    keyName={keyDetails.key}
+                    onUpdate={fetchKeyDetails}
+                />
+              )}
+              {keyDetails.type === "unknown" && (
                 <div className="text-sm text-muted-foreground">
                   Unsupported key type for editing: {keyDetails.type}
                 </div>

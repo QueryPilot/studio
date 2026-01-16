@@ -11,12 +11,10 @@ import {
   IconKey,
   IconLayout2,
   IconEye,
-  IconClock,
-  IconEdit,
   IconCopy,
-  IconTrash,
 } from '@tabler/icons-react';
 import useWorkbenchStore from '@/stores/workbenchStore';
+import { toast } from 'sonner';
 
 // Redis supports 16 databases by default (0-15)
 const REDIS_DATABASES = Array.from({ length: 16 }, (_, i) => i);
@@ -157,81 +155,102 @@ export class RedisSidebarAdapter implements SidebarAdapter {
   }
 
   onNodeClick(node: TreeNode, connectionId: string): void {
-    if (node.type === 'key-group') {
-      const dbIndex = node.metadata.dbIndex as number;
-      const prefix = node.metadata.prefix as string;
+    try {
+      if (node.type === 'key-group') {
+        const dbIndex = node.metadata.dbIndex as number;
+        const prefix = node.metadata.prefix as string;
 
-      const { focusedPanelId, addTab, panelContents, focusPanel } =
-        useWorkbenchStore.getState();
+        const { focusedPanelId, addTab, panelContents, focusPanel } =
+          useWorkbenchStore.getState();
 
-      let targetPanelId = focusedPanelId;
-      if (!targetPanelId && panelContents.size > 0) {
-        const firstPanelId = Array.from(panelContents.keys())[0];
-        if (firstPanelId) {
-          targetPanelId = firstPanelId;
-          focusPanel(firstPanelId);
+        let targetPanelId = focusedPanelId;
+        if (!targetPanelId && panelContents.size > 0) {
+          const firstPanelId = Array.from(panelContents.keys())[0];
+          if (firstPanelId) {
+            targetPanelId = firstPanelId;
+            focusPanel(firstPanelId);
+          }
         }
-      }
 
-      if (!targetPanelId) return;
-
-      const tabId = `redis-db${dbIndex}-${prefix}`;
-      addTab(targetPanelId, tabId, {
-        type: 'redis-key',
-        title: `Browser: ${prefix}*`,
-        connectionId,
-        database: String(dbIndex),
-      });
-    } else if (node.type === 'key') {
-      const dbIndex = node.metadata.dbIndex as number;
-      const key = node.metadata.key as string;
-
-      const { focusedPanelId, addTab, panelContents, focusPanel } =
-        useWorkbenchStore.getState();
-
-      let targetPanelId = focusedPanelId;
-      if (!targetPanelId && panelContents.size > 0) {
-        const firstPanelId = Array.from(panelContents.keys())[0];
-        if (firstPanelId) {
-          targetPanelId = firstPanelId;
-          focusPanel(firstPanelId);
+        if (!targetPanelId) {
+          toast.error('No panel available', {
+            description: 'Could not find a panel to open the key group',
+          });
+          return;
         }
-      }
 
-      if (!targetPanelId) return;
+        const tabId = `redis-db${dbIndex}-${prefix}`;
+        addTab(targetPanelId, tabId, {
+          type: 'redis-key',
+          title: `Browser: ${prefix}*`,
+          connectionId,
+          database: String(dbIndex),
+        });
+      } else if (node.type === 'key') {
+        const dbIndex = node.metadata.dbIndex as number;
+        const key = node.metadata.key as string;
 
-      const tabId = `redis-key-${dbIndex}-${key}`;
-      addTab(targetPanelId, tabId, {
-        type: 'redis-key',
-        title: key,
-        connectionId,
-        database: String(dbIndex),
-        table: key, // Use table field for selected key
-      });
-    } else if (node.type === 'database') {
-      // Open database browser
-      const dbIndex = node.metadata.dbIndex as number;
+        const { focusedPanelId, addTab, panelContents, focusPanel } =
+          useWorkbenchStore.getState();
 
-      const { focusedPanelId, addTab, panelContents, focusPanel } =
-        useWorkbenchStore.getState();
-
-      let targetPanelId = focusedPanelId;
-      if (!targetPanelId && panelContents.size > 0) {
-        const firstPanelId = Array.from(panelContents.keys())[0];
-        if (firstPanelId) {
-          targetPanelId = firstPanelId;
-          focusPanel(firstPanelId);
+        let targetPanelId = focusedPanelId;
+        if (!targetPanelId && panelContents.size > 0) {
+          const firstPanelId = Array.from(panelContents.keys())[0];
+          if (firstPanelId) {
+            targetPanelId = firstPanelId;
+            focusPanel(firstPanelId);
+          }
         }
+
+        if (!targetPanelId) {
+          toast.error('No panel available', {
+            description: 'Could not find a panel to open the key',
+          });
+          return;
+        }
+
+        const tabId = `redis-key-${dbIndex}-${key}`;
+        addTab(targetPanelId, tabId, {
+          type: 'redis-key',
+          title: key,
+          connectionId,
+          database: String(dbIndex),
+          table: key, // Use table field for selected key
+        });
+      } else if (node.type === 'database') {
+        // Open database browser
+        const dbIndex = node.metadata.dbIndex as number;
+
+        const { focusedPanelId, addTab, panelContents, focusPanel } =
+          useWorkbenchStore.getState();
+
+        let targetPanelId = focusedPanelId;
+        if (!targetPanelId && panelContents.size > 0) {
+          const firstPanelId = Array.from(panelContents.keys())[0];
+          if (firstPanelId) {
+            targetPanelId = firstPanelId;
+            focusPanel(firstPanelId);
+          }
+        }
+
+        if (!targetPanelId) {
+          toast.error('No panel available', {
+            description: 'Could not find a panel to open the database',
+          });
+          return;
+        }
+
+        const tabId = `redis-db${dbIndex}-keys`;
+        addTab(targetPanelId, tabId, {
+          type: 'redis-key',
+          title: `DB ${dbIndex} Keys`,
+          connectionId,
+          database: String(dbIndex),
+        });
       }
-
-      if (!targetPanelId) return;
-
-      const tabId = `redis-db${dbIndex}-keys`;
-      addTab(targetPanelId, tabId, {
-        type: 'redis-key',
-        title: `DB ${dbIndex} Keys`,
-        connectionId,
-        database: String(dbIndex),
+    } catch (error) {
+      toast.error(`Failed to open ${node.label}`, {
+        description: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -253,51 +272,24 @@ export class RedisSidebarAdapter implements SidebarAdapter {
           },
         },
         {
-          id: 'set-ttl',
-          label: 'Set TTL',
-          icon: IconClock,
-          onClick: () => {
-            // TODO: Open TTL dialog
-            console.log('Set TTL:', firstNode);
-          },
-        },
-        {
-          id: 'rename',
-          label: 'Rename Key',
-          icon: IconEdit,
-          onClick: () => {
-            // TODO: Open rename dialog
-            console.log('Rename key:', firstNode);
-          },
-        },
-        {
           id: 'copy-name',
           label: 'Copy Key Name',
           icon: IconCopy,
           onClick: async () => {
-            await navigator.clipboard.writeText(firstNode.label);
-          },
-        },
-        {
-          id: 'copy-value',
-          label: 'Copy Value',
-          icon: IconCopy,
-          onClick: async () => {
-            // TODO: Fetch and copy value
-            console.log('Copy value:', firstNode);
+            try {
+              await navigator.clipboard.writeText(firstNode.label);
+              toast.success('Copied to clipboard', {
+                description: `Key name: ${firstNode.label}`,
+              });
+            } catch (error) {
+              toast.error('Failed to copy', {
+                description: error instanceof Error ? error.message : String(error),
+              });
+            }
           },
           separator: true,
         },
-        {
-          id: 'delete',
-          label: 'Delete Key...',
-          icon: IconTrash,
-          destructive: true,
-          onClick: () => {
-            // TODO: Show confirmation dialog
-            console.log('Delete key:', firstNode);
-          },
-        },
+        // Future actions: Set TTL, Rename, Copy Value, Delete
       ];
 
       return items;
@@ -318,8 +310,17 @@ export class RedisSidebarAdapter implements SidebarAdapter {
           label: 'Copy Pattern',
           icon: IconCopy,
           onClick: async () => {
-            const pattern = firstNode.metadata.pattern as string;
-            await navigator.clipboard.writeText(pattern);
+            try {
+              const pattern = firstNode.metadata.pattern as string;
+              await navigator.clipboard.writeText(pattern);
+              toast.success('Copied to clipboard', {
+                description: `Pattern: ${pattern}`,
+              });
+            } catch (error) {
+              toast.error('Failed to copy', {
+                description: error instanceof Error ? error.message : String(error),
+              });
+            }
           },
         },
       ];
@@ -335,16 +336,7 @@ export class RedisSidebarAdapter implements SidebarAdapter {
             this.onNodeClick(firstNode, connectionId);
           },
         },
-        {
-          id: 'flush',
-          label: 'Flush Database...',
-          icon: IconTrash,
-          destructive: true,
-          onClick: () => {
-            // TODO: Show confirmation dialog
-            console.log('Flush database:', firstNode);
-          },
-        },
+        // Future actions: Flush Database
       ];
     }
 

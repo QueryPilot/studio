@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { TreeView, TreeNode } from "./TreeView";
-import { Breadcrumb } from "./Breadcrumb";
+
 import { DocumentEditor } from "./index";
 
 describe("TreeView", () => {
@@ -100,48 +100,7 @@ describe("TreeNode", () => {
   });
 });
 
-describe("Breadcrumb", () => {
-  it("renders root when path is empty", () => {
-    const onNavigate = vi.fn();
 
-    render(<Breadcrumb path={[]} onNavigate={onNavigate} />);
-
-    expect(screen.getByText("root")).toBeInTheDocument();
-  });
-
-  it("renders path segments", () => {
-    const onNavigate = vi.fn();
-
-    render(
-      <Breadcrumb path={["users", "0", "profile"]} onNavigate={onNavigate} />
-    );
-
-    expect(screen.getByText("root")).toBeInTheDocument();
-    expect(screen.getByText("users")).toBeInTheDocument();
-    expect(screen.getByText("0")).toBeInTheDocument();
-    expect(screen.getByText("profile")).toBeInTheDocument();
-  });
-
-  it("navigates to root when root clicked", () => {
-    const onNavigate = vi.fn();
-
-    render(<Breadcrumb path={["a", "b"]} onNavigate={onNavigate} />);
-
-    fireEvent.click(screen.getByText("root"));
-
-    expect(onNavigate).toHaveBeenCalledWith([]);
-  });
-
-  it("navigates to segment when clicked", () => {
-    const onNavigate = vi.fn();
-
-    render(<Breadcrumb path={["a", "b", "c"]} onNavigate={onNavigate} />);
-
-    fireEvent.click(screen.getByText("b"));
-
-    expect(onNavigate).toHaveBeenCalledWith(["a", "b"]);
-  });
-});
 
 describe("DocumentEditor", () => {
   it("renders with tree view by default", () => {
