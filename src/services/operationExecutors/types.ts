@@ -48,16 +48,83 @@ export interface OperationExecutor {
 
   /**
    * Execute staged commands against the database
+   *
+   * Transaction Behavior:
+   * - SQL: Commands execute in a single transaction (all-or-nothing)
+   * - MongoDB: Uses multi-document transactions if available
+   * - Redis: Commands execute via MULTI/EXEC (atomic batch)
+   *
+   * Failure Handling:
+   * - SQL: Entire transaction rolls back on any failure
+   * - MongoDB: Rolls back if transaction supported, otherwise partial execution
+   * - Redis: MULTI/EXEC fails atomically, no partial execution
+   *
+   * @param commands - Array of CRUD commands to execute
+   * @returns Promise resolving to execution result with success status and errors
    */
   execute(commands: CrudCommand[]): Promise<ExecuteResult>;
 
   /**
-   * Generate preview of what commands will do
+   * Generate a human-readable preview of what commands will do
+   *
+   * This is a synchronous operation that does not touch the database.
+   * Useful for showing users what will happen before they commit changes.
+   *
+   * @param commands - Array of CRUD commands to preview
+   * @returns Preview object with paradigm-specific content and structured operations
    */
   preview(commands: CrudCommand[]): OperationPreview;
 
   /**
-   * Validate a command before staging
+   * Validate a single command before staging
+   *
+   * Performs syntax and semantic validation without database connection.
+   * Does not check for data conflicts - that happens during execution.
+   *
+   * @param command - CRUD command to validate
+   * @returns Validation result with any errors found
    */
   validate(command: CrudCommand): ValidationResult;
+}
+
+/**
+ * SQL-specific operation executor
+ */
+export interface SqlOperationExecutor extends OperationExecutor {
+  readonly paradigm: 'sql';
+}
+
+/**
+ * Document-specific operation executor (MongoDB)
+ */
+export interface DocumentOperationExecutor extends OperationExecutor {
+  readonly paradigm: 'document';
+}
+
+/**
+ * Key-Value operation executor (Redis)
+ */
+export interface KeyValueOperationExecutor extends OperationExecutor {
+  readonly paradigm: 'keyvalue';
+}
+
+/**
+ * Type guard to check if executor is SQL
+ */
+export function isSqlExecutor(executor: OperationExecutor): executor is SqlOperationExecutor {
+  return executor.paradigm === 'sql';
+}
+
+/**
+ * Type guard to check if executor is Document
+ */
+export function isDocumentExecutor(executor: OperationExecutor): executor is DocumentOperationExecutor {
+  return executor.paradigm === 'document';
+}
+
+/**
+ * Type guard to check if executor is KeyValue
+ */
+export function isKeyValueExecutor(executor: OperationExecutor): executor is KeyValueOperationExecutor {
+  return executor.paradigm === 'keyvalue';
 }
