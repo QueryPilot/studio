@@ -14,6 +14,7 @@ import { UuidCellRenderer } from "./UuidCell";
 import { ReferenceCellRenderer } from "./ReferenceCell";
 import { JSONCellRenderer } from "./JSONCell";
 import { HStoreCellRenderer } from "./HStoreCell";
+import { ExpandableCellRenderer } from "./ExpandableCell";
 // New renderers for extended type support
 import { InetCellRenderer, MacAddrCellRenderer } from "./NetworkCell";
 import { RangeCellRenderer } from "./RangeCell";
@@ -42,6 +43,7 @@ export function useDataGridRenderers(): {
       TextMultiLineCellRenderer as unknown as CustomRenderer<AnyCell>,
       UuidCellRenderer as unknown as CustomRenderer<AnyCell>,
       ReferenceCellRenderer as unknown as CustomRenderer<AnyCell>,
+      ExpandableCellRenderer as unknown as CustomRenderer<AnyCell>,
       // New renderers for extended type support
       InetCellRenderer as unknown as CustomRenderer<AnyCell>,
       MacAddrCellRenderer as unknown as CustomRenderer<AnyCell>,

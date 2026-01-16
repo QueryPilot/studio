@@ -1,10 +1,35 @@
 import type { DbType } from '@/types/connection';
 import { getParadigm } from '@/types/connection';
 import { getSqlAdapter } from '@/adapters';
+import type { DocumentQueryable, RichKeyValueOperable } from '@/adapters/capabilities';
+import { MongoDBAdapter } from '@/adapters/mongodb/MongoDBAdapter';
+import { RedisAdapter } from '@/adapters/redis/RedisAdapter';
 import type { OperationExecutor } from './types';
 import { SqlOperationExecutor } from './SqlOperationExecutor';
+import { DocumentOperationExecutor } from './DocumentOperationExecutor';
+import { KeyValueOperationExecutor } from './KeyValueOperationExecutor';
 
 const executorCache = new Map<string, OperationExecutor>();
+const documentAdapterCache = new Map<string, DocumentQueryable>();
+const keyValueAdapterCache = new Map<string, RichKeyValueOperable>();
+
+async function getDocumentAdapter(connectionId: string): Promise<DocumentQueryable> {
+  const cached = documentAdapterCache.get(connectionId);
+  if (cached) return cached;
+  
+  const adapter = new MongoDBAdapter(connectionId);
+  documentAdapterCache.set(connectionId, adapter);
+  return adapter;
+}
+
+async function getKeyValueAdapter(connectionId: string): Promise<RichKeyValueOperable> {
+  const cached = keyValueAdapterCache.get(connectionId);
+  if (cached) return cached;
+  
+  const adapter = new RedisAdapter(connectionId);
+  keyValueAdapterCache.set(connectionId, adapter);
+  return adapter;
+}
 
 export async function getOperationExecutor(
   connectionId: string,
@@ -26,11 +51,15 @@ export async function getOperationExecutor(
     }
 
     case 'document': {
-      throw new Error('Document executor not yet implemented');
+      const adapter = await getDocumentAdapter(connectionId);
+      executor = new DocumentOperationExecutor(adapter, connectionId);
+      break;
     }
 
     case 'keyvalue': {
-      throw new Error('KeyValue executor not yet implemented');
+      const adapter = await getKeyValueAdapter(connectionId);
+      executor = new KeyValueOperationExecutor(adapter, connectionId);
+      break;
     }
 
     default:
