@@ -1,2 +1,3 @@
 export * from './types';
-export * from './SqlDataSource';
+export { SqlDataSource as SqlDataSourceImpl } from './SqlDataSource';
+export type { SqlDataSourceConfig } from './SqlDataSource';
