@@ -2,6 +2,7 @@ import type { GridCell } from '@glideapps/glide-data-grid';
 import type { GridColumnV2, GridRowModel } from '../types';
 import type { CrudCommand } from '@/types/crud';
 import type { GridEditCommitEvent } from '../types';
+import type { RedisType } from '@/adapters/types/redis';
 
 /**
  * Identifier for different data source types
@@ -48,19 +49,81 @@ export interface SqlDataSource extends GridDataSource {
 }
 
 /**
+ * Represents a segment in the document navigation path
+ */
+export interface PathSegment {
+  /** The key or index used to navigate */
+  key: string | number;
+  /** Display label for breadcrumb */
+  label: string;
+  /** Type of the value at this segment */
+  type: 'object' | 'array' | 'document';
+}
+
+/**
  * Document database-specific data source (MongoDB)
+ * Extends GridDataSource with path navigation for nested documents
  */
 export interface DocumentDataSource extends GridDataSource {
   readonly paradigm: 'document';
   readonly identifier: Extract<DataSourceIdentifier, { type: 'collection' }>;
+
+  // Path navigation for nested documents/arrays
+  readonly currentPath: PathSegment[];
+
+  /**
+   * Check if user can navigate into the cell (is object/array)
+   */
+  canStepInto(row: number, col: number): boolean;
+
+  /**
+   * Navigate into a nested object/array at the given cell
+   */
+  stepInto(row: number, col: number): void;
+
+  /**
+   * Navigate back up one level in the path
+   */
+  stepOut(): void;
+
+  /**
+   * Navigate to a specific path segment (breadcrumb click)
+   */
+  navigateToPath(pathIndex: number): void;
+
+  /**
+   * Get the document ID for the currently focused document
+   */
+  getCurrentDocumentId(): string | null;
+}
+
+/**
+ * Metadata about the currently selected Redis key
+ */
+export interface KeyMetadata {
+  key: string;
+  type: RedisType;
+  ttl: number;
+  size?: number;
 }
 
 /**
  * Key-Value database-specific data source (Redis)
+ * Displays key data with type-aware column mapping
  */
 export interface KeyValueDataSource extends GridDataSource {
   readonly paradigm: 'keyvalue';
   readonly identifier: Extract<DataSourceIdentifier, { type: 'keyspace' }>;
+
+  readonly currentKey: KeyMetadata | null;
+
+  selectKey(key: string): Promise<void>;
+
+  clearSelection(): void;
+
+  setKeyTTL(seconds: number): Promise<void>;
+
+  deleteCurrentKey(): Promise<void>;
 }
 
 /**

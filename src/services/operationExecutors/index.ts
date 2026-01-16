@@ -6,8 +6,8 @@ export type {
   ValidationResult,
   OperationExecutor,
   SqlOperationExecutor as SqlOperationExecutorInterface,
-  DocumentOperationExecutor,
-  KeyValueOperationExecutor,
+  DocumentOperationExecutor as DocumentOperationExecutorInterface,
+  KeyValueOperationExecutor as KeyValueOperationExecutorInterface,
 } from './types';
 
 export {
@@ -17,6 +17,8 @@ export {
 } from './types';
 
 export { SqlOperationExecutor } from './SqlOperationExecutor';
+export { DocumentOperationExecutor } from './DocumentOperationExecutor';
+export { KeyValueOperationExecutor } from './KeyValueOperationExecutor';
 export {
   getOperationExecutor,
   clearOperationExecutor,
