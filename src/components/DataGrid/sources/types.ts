@@ -40,22 +40,46 @@ export interface GridDataSource<TRow = GridRowModel> {
 }
 
 /**
+ * SQL-specific data source
+ */
+export interface SqlDataSource extends GridDataSource {
+  readonly paradigm: 'sql';
+  readonly identifier: Extract<DataSourceIdentifier, { type: 'table' }>;
+}
+
+/**
+ * Document database-specific data source (MongoDB)
+ */
+export interface DocumentDataSource extends GridDataSource {
+  readonly paradigm: 'document';
+  readonly identifier: Extract<DataSourceIdentifier, { type: 'collection' }>;
+}
+
+/**
+ * Key-Value database-specific data source (Redis)
+ */
+export interface KeyValueDataSource extends GridDataSource {
+  readonly paradigm: 'keyvalue';
+  readonly identifier: Extract<DataSourceIdentifier, { type: 'keyspace' }>;
+}
+
+/**
  * Type guard to check if source is SQL
  */
-export function isSqlDataSource(source: GridDataSource): boolean {
+export function isSqlDataSource(source: GridDataSource): source is SqlDataSource {
   return source.paradigm === 'sql';
 }
 
 /**
  * Type guard to check if source is Document (MongoDB)
  */
-export function isDocumentDataSource(source: GridDataSource): boolean {
+export function isDocumentDataSource(source: GridDataSource): source is DocumentDataSource {
   return source.paradigm === 'document';
 }
 
 /**
  * Type guard to check if source is KeyValue (Redis)
  */
-export function isKeyValueDataSource(source: GridDataSource): boolean {
+export function isKeyValueDataSource(source: GridDataSource): source is KeyValueDataSource {
   return source.paradigm === 'keyvalue';
 }
