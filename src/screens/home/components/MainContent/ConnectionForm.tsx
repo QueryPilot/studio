@@ -58,7 +58,8 @@ import {
   type DatabaseType,
 } from "@/utils/connectionParser";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
-import { type ConnectionProfile, DbType, SslMode } from "@/types/connection";
+import { type ConnectionProfile, DbType, SslMode, type GroupTag } from "@/types/connection";
+import { vaultStorage } from "@/services/vaultStorage";
 
 const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
 const { open } = await import("@tauri-apps/plugin-dialog");
@@ -82,20 +83,6 @@ const TAG_COLORS = [
   { value: "orange", class: "bg-orange-500", textClass: "text-orange-50" },
   { value: "cyan", class: "bg-cyan-500", textClass: "text-cyan-50" },
 ];
-
-interface GroupTag {
-  name: string;
-  color: string;
-}
-
-const getGroupTags = (): GroupTag[] => {
-  const stored = localStorage.getItem("query_pilot_group_tags");
-  return stored ? (JSON.parse(stored) as GroupTag[]) : [];
-};
-
-const saveGroupTags = (tags: GroupTag[]) => {
-  localStorage.setItem("query_pilot_group_tags", JSON.stringify(tags));
-};
 
 function getDefaultPort(type: DatabaseType): string {
   switch (type) {
@@ -208,9 +195,16 @@ export function ConnectionForm() {
   });
 
   // Group tag management
-  const [groupTags, setGroupTags] = useState<GroupTag[]>(getGroupTags());
+  const [groupTags, setGroupTags] = useState<GroupTag[]>([]);
   const [tagsCommandOpen, setTagsCommandOpen] = useState(false);
   const [groupSearchValue, setGroupSearchValue] = useState("");
+
+  // Load group tags from vault
+  useEffect(() => {
+    vaultStorage.listGroupTags().then(setGroupTags).catch((err) => {
+      logger.error("Failed to load group tags", err);
+    });
+  }, []);
 
   // Workspace assignment state
   const savedWorkspaces = useWorkspaceBundleStore((s) => s.savedWorkspaces);
@@ -479,7 +473,7 @@ export function ConnectionForm() {
     }
   };
 
-  const handleCreateGroup = (groupName: string) => {
+  const handleCreateGroup = async (groupName: string) => {
     if (!groupName.trim()) return;
 
     const exists = groupTags.some((t) => t.name === groupName);
@@ -493,9 +487,9 @@ export function ConnectionForm() {
     const color = randomColor?.class || "bg-gray-500";
 
     const newGroup: GroupTag = { name: groupName.trim(), color };
-    const updatedTags = [...groupTags, newGroup];
-    setGroupTags(updatedTags);
-    saveGroupTags(updatedTags);
+    await vaultStorage.storeGroupTag(newGroup);
+    const updated = await vaultStorage.listGroupTags();
+    setGroupTags(updated);
     handleTagToggle(groupName);
     setTagsCommandOpen(false);
     setGroupSearchValue("");
@@ -587,6 +581,14 @@ export function ConnectionForm() {
   };
 
   const syncWorkspaceMemberships = async (connectionId: string) => {
+    // Update connection metadata with workspace_ids
+    const conn = await vaultStorage.getConnection(connectionId);
+    if (conn) {
+      conn.metadata.workspace_ids = selectedWorkspaceIds;
+      await vaultStorage.updateMetadata(connectionId, conn.metadata);
+    }
+
+    // Keep workspace.connectionIds in sync (for backward compatibility)
     const currentWorkspaces = getWorkspacesForConnection(connectionId);
     const currentWorkspaceIds = new Set(currentWorkspaces.map((ws) => ws.id));
     const selectedIds = new Set(selectedWorkspaceIds);

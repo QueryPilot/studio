@@ -14,6 +14,7 @@ import {
   IconDownload,
   IconTrash,
   IconAlertTriangle,
+  IconPencil,
 } from "@tabler/icons-react";
 import {
   DropdownMenu,
@@ -45,6 +46,10 @@ export function WorkspacesSection() {
   const deleteConnection = useConnectionStore((s) => s.deleteConnection);
 
   const showWorkspaceDetail = useHomeScreenStore((s) => s.showWorkspaceDetail);
+  const openWorkspaceForm = useHomeScreenStore((s) => s.openWorkspaceForm);
+  const openWorkspaceCreationForm = useHomeScreenStore(
+    (s) => s.openWorkspaceCreationForm,
+  );
 
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
@@ -186,7 +191,7 @@ export function WorkspacesSection() {
         </div>
         <Button
           onClick={() => {
-            setIsCreateDialogOpen(true);
+            openWorkspaceCreationForm();
           }}
         >
           <IconPlus className="w-4 h-4 mr-2" />
@@ -205,7 +210,7 @@ export function WorkspacesSection() {
           </p>
           <Button
             onClick={() => {
-              setIsCreateDialogOpen(true);
+              openWorkspaceCreationForm();
             }}
           >
             <IconPlus className="w-4 h-4 mr-2" />
@@ -251,6 +256,15 @@ export function WorkspacesSection() {
                     >
                       <IconPlayerPlay className="w-4 h-4 mr-2" />
                       Open
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openWorkspaceForm("edit", ws.id);
+                      }}
+                    >
+                      <IconPencil className="w-4 h-4 mr-2" />
+                      Edit
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={(e) => {

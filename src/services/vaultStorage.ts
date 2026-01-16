@@ -4,8 +4,10 @@ import {
   type ConnectionMetadata,
   type ConnectionProfile,
   type StoredConnection,
+  type GroupTag,
 } from "@/types/connection";
 import type { WorkspaceConfig } from "@/types/workspace";
+import { type VaultData, VAULT_VERSION } from "@/types/vault";
 
 const OPERATION_TIMEOUT = 15000; // general non-critical ops
 const READ_TIMEOUT = 180000; // 3 minutes for keychain prompt
@@ -36,6 +38,10 @@ class VaultStorageService {
   private deletedIds: Set<string> = new Set();
   private indexDirty = false;
   private keychainAccessible = true; // Track if keychain is accessible
+  private groupTagsCache: GroupTag[] | null = null;
+  private groupTagsDirty = false;
+  private workspacesCache: WorkspaceConfig[] | null = null;
+  private workspacesDirty = false;
 
   private scheduleSave(): void {
     if (this.saveScheduled) return;
@@ -53,7 +59,9 @@ class VaultStorageService {
     if (
       !this.indexDirty &&
       this.dirtyIds.size === 0 &&
-      this.deletedIds.size === 0
+      this.deletedIds.size === 0 &&
+      !this.groupTagsDirty &&
+      !this.workspacesDirty
     ) {
       this.saveScheduled = false;
       return;
@@ -65,13 +73,8 @@ class VaultStorageService {
       return;
     }
 
-    const snapshot = Array.from(this.connectionCache.values());
     try {
-      await withTimeout(
-        invoke("vault_write", { plaintextJson: JSON.stringify(snapshot) }),
-        STORE_TIMEOUT,
-        "Write encrypted snapshot",
-      );
+      await this.writeVaultData();
     } catch (err) {
       logger.error("Failed to write snapshot", err);
       if (err instanceof Error && (
@@ -85,8 +88,26 @@ class VaultStorageService {
       this.dirtyIds.clear();
       this.deletedIds.clear();
       this.indexDirty = false;
+      this.groupTagsDirty = false;
+      this.workspacesDirty = false;
       this.saveScheduled = false;
     }
+  }
+
+  private async writeVaultData(): Promise<void> {
+    const vaultData: VaultData = {
+      version: VAULT_VERSION,
+      connections: Array.from(this.connectionCache.values()),
+      groupTags: this.groupTagsCache || [],
+      workspaces: this.workspacesCache || [],
+      migratedAt: new Date().toISOString(),
+    };
+
+    await withTimeout(
+      invoke("vault_write", { plaintextJson: JSON.stringify(vaultData) }),
+      STORE_TIMEOUT,
+      "Write encrypted vault",
+    );
   }
 
   async initialize(): Promise<void> {
@@ -141,6 +162,7 @@ class VaultStorageService {
         use_count: 0,
         tags: [],
         is_favorite: false,
+        workspace_ids: [], // Initialize as empty array
       },
     };
 
@@ -302,19 +324,30 @@ class VaultStorageService {
       const data = await withTimeout(
         invoke<string | null>("vault_read"),
         READ_TIMEOUT,
-        "Read connections snapshot",
+        "Read vault snapshot",
       );
 
       this.keychainAccessible = true;
 
       if (data) {
-        const arr = JSON.parse(data) as StoredConnection[];
-        this.connectionCache.clear();
-        for (const sc of arr) {
-          if (sc.profile.id) this.connectionCache.set(sc.profile.id, sc);
-        }
-        if (!this.indexCache) {
-          this.indexCache = arr.map((s) => s.profile.id).filter(Boolean);
+        const parsed = JSON.parse(data);
+
+        // Detect legacy format (array) vs new format (object)
+        if (Array.isArray(parsed)) {
+          logger.info("[VaultStorage] Detected legacy vault format, migrating...");
+          await this.migrateLegacyVault(parsed);
+        } else {
+          // New format: VaultData
+          const vaultData = parsed as VaultData;
+          this.connectionCache.clear();
+          for (const sc of vaultData.connections) {
+            if (sc.profile.id) this.connectionCache.set(sc.profile.id, sc);
+          }
+          this.groupTagsCache = vaultData.groupTags || [];
+          this.workspacesCache = vaultData.workspaces || [];
+          if (!this.indexCache) {
+            this.indexCache = vaultData.connections.map(s => s.profile.id).filter(Boolean);
+          }
         }
         return;
       }
@@ -322,11 +355,9 @@ class VaultStorageService {
       // No data exists (null returned) - initialize with empty state
       this.connectionCache.clear();
       this.indexCache = [];
-      try {
-        await invoke("vault_write", { plaintextJson: JSON.stringify([]) });
-      } catch {
-        // Ignore errors when initializing empty vault
-      }
+      this.groupTagsCache = [];
+      this.workspacesCache = [];
+      await this.writeVaultData();
     } catch (err) {
       logger.error("Failed to read vault - keychain may be inaccessible", err);
 
@@ -346,11 +377,73 @@ class VaultStorageService {
 
       // CRITICAL: Do NOT clear cache or write empty data on error
       // Leave existing in-memory state intact (or empty if first load)
-      // This prevents overwriting vault when keychain is slow/denied
       if (!this.indexCache) {
         this.indexCache = [];
       }
+      if (!this.groupTagsCache) {
+        this.groupTagsCache = [];
+      }
+      if (!this.workspacesCache) {
+        this.workspacesCache = [];
+      }
     }
+  }
+
+  private async migrateLegacyVault(connections: StoredConnection[]): Promise<void> {
+    logger.info("[VaultStorage] Starting migration from legacy format");
+
+    // Load connections
+    this.connectionCache.clear();
+    for (const sc of connections) {
+      if (sc.profile.id) this.connectionCache.set(sc.profile.id, sc);
+    }
+
+    // Migrate group tags from localStorage
+    try {
+      const groupTagsJson = localStorage.getItem("query_pilot_group_tags");
+      this.groupTagsCache = groupTagsJson ? JSON.parse(groupTagsJson) : [];
+      logger.info(`[VaultStorage] Migrated ${this.groupTagsCache?.length || 0} group tags`);
+    } catch (err) {
+      logger.warn("Failed to migrate group tags", err);
+      this.groupTagsCache = [];
+    }
+
+    // Migrate workspaces from localStorage
+    try {
+      const workspacesJson = localStorage.getItem("qp:workspaces");
+      const workspaces: WorkspaceConfig[] = workspacesJson ? JSON.parse(workspacesJson) : [];
+      this.workspacesCache = workspaces;
+      logger.info(`[VaultStorage] Migrated ${workspaces.length} workspaces`);
+
+      // CRITICAL: Add workspace_ids to connection metadata (bidirectional sync)
+      for (const workspace of workspaces) {
+        for (const connectionId of workspace.connectionIds) {
+          const conn = this.connectionCache.get(connectionId);
+          if (conn) {
+            if (!conn.metadata.workspace_ids) {
+              conn.metadata.workspace_ids = [];
+            }
+            if (!conn.metadata.workspace_ids.includes(workspace.id)) {
+              conn.metadata.workspace_ids.push(workspace.id);
+              this.dirtyIds.add(connectionId);
+            }
+          }
+        }
+      }
+      logger.info("[VaultStorage] Synced workspace_ids to connection metadata");
+    } catch (err) {
+      logger.warn("Failed to migrate workspaces", err);
+      this.workspacesCache = [];
+    }
+
+    // Mark dirty and schedule async flush (non-blocking)
+    this.groupTagsDirty = true;
+    this.workspacesDirty = true;
+    this.indexDirty = true;
+
+    // Don't await - schedule the flush to happen in the background
+    this.scheduleSave();
+    logger.info("[VaultStorage] Migration complete (saving in background)");
   }
 
   async preloadAll(): Promise<void> {
@@ -378,12 +471,26 @@ class VaultStorageService {
       this.keychainAccessible = true;
 
       if (data) {
-        const arr = JSON.parse(data) as StoredConnection[];
-        this.connectionCache.clear();
-        for (const sc of arr) {
-          if (sc.profile.id) this.connectionCache.set(sc.profile.id, sc);
+        const parsed = JSON.parse(data);
+
+        if (Array.isArray(parsed)) {
+          // Legacy format
+          this.connectionCache.clear();
+          for (const sc of parsed) {
+            if (sc.profile.id) this.connectionCache.set(sc.profile.id, sc);
+          }
+          this.indexCache = parsed.map((s: StoredConnection) => s.profile.id).filter(Boolean);
+        } else {
+          // New format
+          const vaultData = parsed as VaultData;
+          this.connectionCache.clear();
+          for (const sc of vaultData.connections) {
+            if (sc.profile.id) this.connectionCache.set(sc.profile.id, sc);
+          }
+          this.groupTagsCache = vaultData.groupTags || [];
+          this.workspacesCache = vaultData.workspaces || [];
+          this.indexCache = vaultData.connections.map(s => s.profile.id).filter(Boolean);
         }
-        this.indexCache = arr.map((s) => s.profile.id).filter(Boolean);
       }
 
       return true;
@@ -408,20 +515,45 @@ class VaultStorageService {
   }
 
   // ============================================================================
-  // Workspace Storage (localStorage for now, will migrate to vault later)
+  // Group Tags Storage
   // ============================================================================
 
-  private readonly WORKSPACES_KEY = "qp:workspaces";
+  async listGroupTags(): Promise<GroupTag[]> {
+    await this.ensureInitialized();
+    return this.groupTagsCache || [];
+  }
+
+  async storeGroupTag(tag: GroupTag): Promise<void> {
+    await this.ensureInitialized();
+    const tags = this.groupTagsCache || [];
+    const existing = tags.findIndex(t => t.name === tag.name);
+
+    if (existing >= 0) {
+      tags[existing] = tag;
+    } else {
+      tags.push(tag);
+    }
+
+    this.groupTagsCache = tags;
+    this.groupTagsDirty = true;
+    await this.flushPendingChanges();  // Immediate flush for UX
+  }
+
+  async deleteGroupTag(name: string): Promise<void> {
+    await this.ensureInitialized();
+    const tags = this.groupTagsCache || [];
+    this.groupTagsCache = tags.filter(t => t.name !== name);
+    this.groupTagsDirty = true;
+    this.scheduleSave();
+  }
+
+  // ============================================================================
+  // Workspace Storage (migrated to vault)
+  // ============================================================================
 
   async listWorkspaces(): Promise<WorkspaceConfig[]> {
-    try {
-      const data = localStorage.getItem(this.WORKSPACES_KEY);
-      if (!data) return [];
-      return JSON.parse(data) as WorkspaceConfig[];
-    } catch (err) {
-      logger.error("Failed to list workspaces", err);
-      return [];
-    }
+    await this.ensureInitialized();
+    return this.workspacesCache || [];
   }
 
   async getWorkspace(id: string): Promise<WorkspaceConfig | null> {
@@ -430,7 +562,8 @@ class VaultStorageService {
   }
 
   async storeWorkspace(config: WorkspaceConfig): Promise<string> {
-    const workspaces = await this.listWorkspaces();
+    await this.ensureInitialized();
+    const workspaces = this.workspacesCache || [];
     const existing = workspaces.findIndex((ws) => ws.id === config.id);
 
     if (existing >= 0) {
@@ -439,7 +572,13 @@ class VaultStorageService {
       workspaces.push(config);
     }
 
-    localStorage.setItem(this.WORKSPACES_KEY, JSON.stringify(workspaces));
+    this.workspacesCache = [...workspaces];
+    this.workspacesDirty = true;
+
+    // Update connection metadata with workspace_ids (bidirectional sync)
+    await this.syncWorkspaceConnectionIds(config);
+
+    await this.flushPendingChanges();  // Immediate flush
     logger.info(`[VaultStorage] Stored workspace: ${config.name} (${config.id})`);
     return config.id;
   }
@@ -448,30 +587,76 @@ class VaultStorageService {
     id: string,
     updates: Partial<WorkspaceConfig>,
   ): Promise<void> {
-    const workspaces = await this.listWorkspaces();
+    await this.ensureInitialized();
+    const workspaces = this.workspacesCache || [];
     const index = workspaces.findIndex((ws) => ws.id === id);
-
     const existing = workspaces[index];
+
     if (index >= 0 && existing) {
-      workspaces[index] = {
+      const updated = {
         ...existing,
         ...updates,
-        id: existing.id, // Ensure id is preserved
-        name: updates.name ?? existing.name,
+        id: existing.id,
         connectionIds: updates.connectionIds ?? existing.connectionIds,
-        connectionStates: updates.connectionStates ?? existing.connectionStates,
-        createdAt: existing.createdAt,
         updatedAt: new Date().toISOString(),
       };
-      localStorage.setItem(this.WORKSPACES_KEY, JSON.stringify(workspaces));
+      workspaces[index] = updated;
+      this.workspacesCache = [...workspaces];
+      this.workspacesDirty = true;
+
+      if (updates.connectionIds) {
+        await this.syncWorkspaceConnectionIds(updated);
+      }
+      this.scheduleSave();
     }
   }
 
   async deleteWorkspace(id: string): Promise<void> {
-    const workspaces = await this.listWorkspaces();
-    const filtered = workspaces.filter((ws) => ws.id !== id);
-    localStorage.setItem(this.WORKSPACES_KEY, JSON.stringify(filtered));
+    await this.ensureInitialized();
+    const workspace = (this.workspacesCache || []).find(ws => ws.id === id);
+
+    // Remove workspace_id from all connections
+    if (workspace) {
+      for (const connectionId of workspace.connectionIds) {
+        const conn = this.connectionCache.get(connectionId);
+        if (conn?.metadata.workspace_ids) {
+          conn.metadata.workspace_ids = conn.metadata.workspace_ids.filter(
+            wsId => wsId !== id
+          );
+          this.dirtyIds.add(connectionId);
+        }
+      }
+    }
+
+    this.workspacesCache = (this.workspacesCache || []).filter(ws => ws.id !== id);
+    this.workspacesDirty = true;
+    await this.flushPendingChanges();
     logger.info(`[VaultStorage] Deleted workspace: ${id}`);
+  }
+
+  private async syncWorkspaceConnectionIds(workspace: WorkspaceConfig): Promise<void> {
+    // Add workspace_id to connections in this workspace
+    for (const connectionId of workspace.connectionIds) {
+      const conn = this.connectionCache.get(connectionId);
+      if (conn) {
+        if (!conn.metadata.workspace_ids) conn.metadata.workspace_ids = [];
+        if (!conn.metadata.workspace_ids.includes(workspace.id)) {
+          conn.metadata.workspace_ids.push(workspace.id);
+          this.dirtyIds.add(connectionId);
+        }
+      }
+    }
+
+    // Remove workspace_id from connections no longer in workspace
+    for (const [connId, conn] of this.connectionCache.entries()) {
+      if (conn.metadata.workspace_ids?.includes(workspace.id) &&
+          !workspace.connectionIds.includes(connId)) {
+        conn.metadata.workspace_ids = conn.metadata.workspace_ids.filter(
+          id => id !== workspace.id
+        );
+        this.dirtyIds.add(connId);
+      }
+    }
   }
 }
 

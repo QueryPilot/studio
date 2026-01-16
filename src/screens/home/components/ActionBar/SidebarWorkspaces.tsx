@@ -25,7 +25,9 @@ export function SidebarWorkspaces() {
   const loadSavedWorkspaces = useWorkspaceBundleStore(
     (s) => s.loadSavedWorkspaces,
   );
-  const showWorkspaceList = useHomeScreenStore((s) => s.showWorkspaceList);
+  const openWorkspaceCreationForm = useHomeScreenStore(
+    (s) => s.openWorkspaceCreationForm,
+  );
   const openConnectionForm = useHomeScreenStore((s) => s.openConnectionForm);
 
   // Load workspaces on mount
@@ -63,7 +65,7 @@ export function SidebarWorkspaces() {
   };
 
   const handleCreateWorkspace = () => {
-    showWorkspaceList();
+    openWorkspaceCreationForm();
   };
 
   const handleAddConnectionToWorkspace = (_workspaceId: string) => {
