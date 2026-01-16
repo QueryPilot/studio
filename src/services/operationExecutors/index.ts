@@ -17,3 +17,8 @@ export {
 } from './types';
 
 export { SqlOperationExecutor } from './SqlOperationExecutor';
+export {
+  getOperationExecutor,
+  clearOperationExecutor,
+  clearAllOperationExecutors,
+} from './factory';
