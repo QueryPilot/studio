@@ -21,6 +21,10 @@ export const useHomeScreenStore = create<HomeScreenState>()(
       sidebarWidth: 200,
       collapsedGroups: [],
 
+      // Workspace form state
+      workspaceFormMode: "create",
+      workspaceFormId: null,
+
       // Workspace state
       selectedWorkspaceId: null,
       workspaceFilterId: null,
@@ -129,6 +133,29 @@ export const useHomeScreenStore = create<HomeScreenState>()(
         set({ workspaceFilterId: workspaceId }),
 
       clearWorkspaceFilter: () => set({ workspaceFilterId: null }),
+
+      openWorkspaceForm: (mode: "create" | "edit", workspaceId?: string) =>
+        set({
+          contentMode: "workspace-form",
+          workspaceFormMode: mode,
+          workspaceFormId: workspaceId ?? null,
+        }),
+
+      closeWorkspaceForm: () =>
+        set({
+          contentMode: "browse",
+          workspaceFormId: null,
+        }),
+
+      openWorkspaceCreationForm: () =>
+        set({
+          contentMode: "workspace-creation-form",
+        }),
+
+      closeWorkspaceCreationForm: () =>
+        set({
+          contentMode: "browse",
+        }),
     }),
     {
       name: "home-screen-state",

@@ -63,8 +63,8 @@ export async function handleChatStream(request: Request): Promise<Response> {
     const aiProvider = ProviderService.createProvider(provider);
     const aiModel = aiProvider(model);
 
-    // Convert UIMessages to ModelMessages (CoreMessages)
-    const modelMessages = convertToModelMessages(messages);
+    // Convert UIMessages to ModelMessages (CoreMessages) - v6: now async
+    const modelMessages = await convertToModelMessages(messages);
 
     // Build system prompt with connection context
     const systemPrompt = getChatSystemPrompt(

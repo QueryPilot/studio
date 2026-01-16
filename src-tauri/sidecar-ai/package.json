@@ -10,14 +10,14 @@
     "@types/bun": "latest"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^2.0.39",
-    "@ai-sdk/gateway": "^2.0.15",
-    "@ai-sdk/google": "^2.0.25",
-    "@ai-sdk/openai": "^2.0.58",
-    "@ai-sdk/xai": "^2.0.36",
-    "@openrouter/ai-sdk-provider": "^1.2.5",
+    "@ai-sdk/anthropic": "^3.0.0",
+    "@ai-sdk/gateway": "^3.0.0",
+    "@ai-sdk/google": "^3.0.0",
+    "@ai-sdk/openai": "^3.0.0",
+    "@ai-sdk/xai": "^3.0.0",
+    "@openrouter/ai-sdk-provider": "^6.0.0-alpha.1",
     "@sentry/node": "^10.25.0",
-    "ai": "^5.0.82",
+    "ai": "^6.0.0",
     "ollama-ai-provider": "^1.2.0",
     "zod": "^4.1.12"
   }
