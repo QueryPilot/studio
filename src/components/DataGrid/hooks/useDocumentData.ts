@@ -8,7 +8,7 @@
  * - CRUD command creation for the staging pipeline
  */
 
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { GridCell, Item } from '@glideapps/glide-data-grid';
 import { GridCellKind } from '@glideapps/glide-data-grid';
@@ -42,6 +42,8 @@ interface DocumentWithId extends Record<string, unknown> {
   _id: unknown;
 }
 
+type DocumentId = string | number | Record<string, unknown>;
+
 const DEFAULT_PAGE_SIZE = 50;
 
 // ============================================================================
@@ -61,8 +63,9 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
   // Navigation state
   const [currentPath, setCurrentPath] = useState<PathSegment[]>([]);
-  const [currentDocumentId, setCurrentDocumentId] = useState<string | null>(null);
+  const [currentDocumentId, setCurrentDocumentId] = useState<DocumentId | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
+  const [pagedDocuments, setPagedDocuments] = useState<DocumentWithId[]>([]);
 
   // Get or create adapter
   const getAdapter = useCallback(() => {
@@ -74,8 +77,8 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
   // Query key for document fetching
   const queryKey = useMemo(
-    () => ['document-data', connectionId, database, collection, currentPath, currentPage],
-    [connectionId, database, collection, currentPath, currentPage]
+    () => ['document-data', connectionId, database, collection, currentPath, currentDocumentId, currentPage],
+    [connectionId, database, collection, currentPath, currentDocumentId, currentPage]
   );
 
   // Fetch documents
@@ -105,7 +108,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         return [];
       }
 
-      const docs = await adapter.findDocuments(collection, { _id: { $oid: docId } }, { limit: 1 });
+      const docs = await adapter.findDocuments(collection, { _id: docId }, { limit: 1 });
       if (docs.length === 0) {
         return [];
       }
@@ -163,8 +166,30 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     staleTime: 60000, // 1 minute (counts change less frequently)
   });
 
+  useEffect(() => {
+    if (!rawDocuments) {
+      setPagedDocuments([]);
+      return;
+    }
+
+    if (currentPath.length > 0) {
+      return;
+    }
+
+    setPagedDocuments((prev) => {
+      const nextPage = rawDocuments as DocumentWithId[];
+      if (currentPage === 0) {
+        return nextPage;
+      }
+      if (nextPage.length === 0) {
+        return prev;
+      }
+      return [...prev, ...nextPage];
+    });
+  }, [rawDocuments, currentPage, currentPath.length]);
+
   // Transform documents to rows
-  const documents = rawDocuments || [];
+  const documents = currentPath.length > 0 ? (rawDocuments || []) : pagedDocuments;
 
   // Generate columns based on current level
   const columns = useMemo<GridColumnV2[]>(() => {
@@ -293,18 +318,25 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       // Set the document ID if we're at root level
       if (currentPath.length === 0) {
         const doc = documents[row] as DocumentWithId;
-        const docId = doc._id;
-        if (docId && typeof docId === 'object' && '$oid' in docId) {
-          setCurrentDocumentId((docId as { $oid: string }).$oid);
-        } else if (typeof docId === 'string') {
-          setCurrentDocumentId(docId);
+        const docId = doc?._id;
+        if (docId !== undefined) {
+          setCurrentDocumentId(docId as DocumentId);
         }
       }
 
+      const isArrayLevel = currentPath.length > 0 && currentPath[currentPath.length - 1]?.type === 'array';
+      const arrayIndex = isArrayLevel ? (rowData.__index as { value?: unknown } | undefined)?.value : undefined;
+      const segmentKey = isArrayLevel && typeof arrayIndex === 'number'
+        ? arrayIndex
+        : column.field;
+      const segmentLabel = isArrayLevel && typeof arrayIndex === 'number'
+        ? `[${arrayIndex}]`
+        : (column.title || column.field);
+
       // Add new path segment
       const newSegment: PathSegment = {
-        key: column.field,
-        label: column.title || column.field,
+        key: segmentKey,
+        label: segmentLabel,
         type: valueType === 'array' ? 'array' : 'object',
       };
 
@@ -357,20 +389,28 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
   );
 
   // Get current document ID
-  const getCurrentDocumentId = useCallback((): string | null => {
-    return currentDocumentId;
+  const getCurrentDocumentId = useCallback((): JsonValue | null => {
+    return (currentDocumentId ?? null) as JsonValue | null;
   }, [currentDocumentId]);
 
   // Pagination
-  const hasMore = documents.length >= pageSize;
+  const hasMore = currentPath.length === 0 && (rawDocuments?.length ?? 0) >= pageSize;
 
   const fetchNextPage = useCallback(async (): Promise<void> => {
+    if (currentPath.length > 0) {
+      return;
+    }
     setCurrentPage((prev) => prev + 1);
-  }, []);
+  }, [currentPath.length]);
 
   const refetch = useCallback(async (): Promise<void> => {
+    if (currentPage !== 0) {
+      setPagedDocuments([]);
+      setCurrentPage(0);
+      return;
+    }
     await refetchQuery();
-  }, [refetchQuery]);
+  }, [currentPage, refetchQuery]);
 
   // CRUD helpers
   const createEditCommand = useCallback(
@@ -382,14 +422,12 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       }
 
       // Get document ID for the update filter
-      let docId: string | undefined;
+      let docId: DocumentId | undefined;
       if (currentPath.length === 0) {
         const doc = documents[rowIndex] as DocumentWithId | undefined;
         const id = doc?._id;
-        if (id && typeof id === 'object' && '$oid' in id) {
-          docId = (id as { $oid: string }).$oid;
-        } else if (typeof id === 'string') {
-          docId = id;
+        if (id !== undefined) {
+          docId = id as DocumentId;
         }
       } else {
         docId = currentDocumentId || undefined;
@@ -401,8 +439,15 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       }
 
       // Build the field path for nested updates
+      const isArrayLevel = currentPath.length > 0 && currentPath[currentPath.length - 1]?.type === 'array';
+      const arrayIndex = isArrayLevel
+        ? (rowData.__index as { value?: unknown } | undefined)?.value
+        : undefined;
       const fieldPath = currentPath.length > 0
-        ? [...currentPath.map((s) => s.key), column.field].join('.')
+        ? [
+            ...currentPath.map((s) => s.key),
+            ...(isArrayLevel && typeof arrayIndex === 'number' ? [arrayIndex] : [column.field]),
+          ].join('.')
         : column.field;
 
       // Extract the actual value from the cell (convert to JsonValue)
@@ -431,7 +476,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
       const payload: DataUpdatePayload = {
         column: fieldPath,
-        primaryKeys: { _id: docId },
+        primaryKeys: { _id: docId as JsonValue },
         oldValue: oldValueJson,
         newValue: newValueJson,
       };
@@ -489,17 +534,11 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
   const createDeleteCommand = useCallback(
     (row: GridRowModel): CrudCommand => {
       // Get document ID from row
-      const idValue = row._id?.value;
-      let docId: string | undefined;
-
-      if (idValue && typeof idValue === 'object' && '$oid' in idValue) {
-        docId = (idValue as { $oid: string }).$oid;
-      } else if (typeof idValue === 'string') {
-        docId = idValue;
-      }
+      const idValue = row._id?.value as DocumentId | undefined;
+      const docId = idValue;
 
       const payload: DataDeletePayload = {
-        primaryKeys: { _id: docId || '' },
+        primaryKeys: { _id: (docId ?? null) as JsonValue },
       };
 
       return {

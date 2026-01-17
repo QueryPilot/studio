@@ -54,7 +54,7 @@ services:
       MYSQL_DATABASE: todoapp
     volumes:
       - mariadb_data:/var/lib/mysql
-      - ./seeds/mysql:/docker-entrypoint-initdb.d
+      - ./seeds/mariadb:/docker-entrypoint-initdb.d
     networks:
       - query-pilot-network
     healthcheck:

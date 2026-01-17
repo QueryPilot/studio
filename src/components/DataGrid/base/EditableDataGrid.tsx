@@ -124,8 +124,8 @@ export interface EditableDataGridProps
   coerceValue?: (value: string) => string | number | boolean | null;
   onSelectionChange?: (selection: GridSelection) => void;
   onActiveCellChange?: (cell: Item | null) => void;
-  /** Optional cell activation handler (e.g., for drill-down navigation) */
-  onCellActivated?: (cell: Item) => void;
+  /** Optional cell activation handler (e.g., for drill-down navigation); return true to mark handled */
+  onCellActivated?: (cell: Item) => boolean | void;
   getRowThemeOverride?: DataEditorProps["getRowThemeOverride"];
   highlightRegions?: DataEditorProps["highlightRegions"];
   onHeaderClicked?: DataEditorProps["onHeaderClicked"];
@@ -361,10 +361,12 @@ export const EditableDataGrid = forwardRef<
 
   const handleCellActivated = useCallback(
     (cell: Item) => {
-      // If custom activation handler provided (e.g., for drill-down), call it
+      // If custom activation handler provided (e.g., for drill-down), allow it to short-circuit
       if (onCellActivatedProp) {
-        onCellActivatedProp(cell);
-        return;
+        const handled = onCellActivatedProp(cell);
+        if (handled) {
+          return;
+        }
       }
 
       const coords = getCoordinates(cell);
