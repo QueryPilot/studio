@@ -140,6 +140,29 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     staleTime: 30000, // 30 seconds
   });
 
+  // Query key for total count
+  const countQueryKey = useMemo(
+    () => ['document-count', connectionId, database, collection],
+    [connectionId, database, collection]
+  );
+
+  // Fetch total document count (only at root level)
+  const { data: totalCount } = useQuery({
+    queryKey: countQueryKey,
+    queryFn: async () => {
+      const adapter = getAdapter();
+      try {
+        const count = await adapter.countDocuments(collection, {});
+        return count;
+      } catch {
+        // Count is optional, return undefined on error
+        return undefined;
+      }
+    },
+    enabled: enabled && !!connectionId && !!collection && currentPath.length === 0,
+    staleTime: 60000, // 1 minute (counts change less frequently)
+  });
+
   // Transform documents to rows
   const documents = rawDocuments || [];
 
@@ -514,7 +537,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     stepOut,
     navigateToPath,
     getCurrentDocumentId,
-    totalCount: undefined, // TODO: Implement count query
+    totalCount,
     createEditCommand,
     createInsertCommand,
     createDeleteCommand,
