@@ -1,23 +1,21 @@
 /**
- * DocumentDataGrid - MongoDB document browser using the unified DataGrid
+ * DocumentDataGrid - MongoDB document browser using the unified BaseDataGrid architecture
  *
  * Features:
+ * - BaseDataGrid foundation with all unified features
  * - Drill-down navigation for nested objects/arrays
  * - Dynamic column generation from document keys
- * - Breadcrumb navigation
+ * - Breadcrumb navigation in topToolbar
  * - CRUD operations via the staging pipeline
  */
 
-import { memo, useCallback, useRef } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import type { Item } from '@glideapps/glide-data-grid';
-import { EditableDataGrid, type EditableDataGridRef } from '../base';
+import { BaseDataGrid } from '../base/BaseDataGrid';
 import { BreadcrumbNav } from '../components/BreadcrumbNav';
-import { DataGridSkeleton } from '../components/DataGridSkeleton';
-import { DataGridEmptyState, DataGridErrorState } from '../components/DataGridStates';
 import { useDocumentData } from '../hooks/useDocumentData';
 import { useCrudStore } from '@/stores/crudStore';
-import { useDataGridRenderers } from '../renderers';
-import type { GridRowInsertEvent, GridRowDeleteEvent, GridRowModel } from '../types';
+import type { GridEditCommitEvent, GridRowInsertEvent, GridRowDeleteEvent, GridRowModel } from '../types';
 import type { CellValue } from '@/types';
 import { cn } from '@/lib/utils';
 import { logger } from '@/lib/logger';
@@ -46,20 +44,14 @@ export interface DocumentDataGridProps {
 // ============================================================================
 
 export const DocumentDataGrid = memo(function DocumentDataGrid({
-  gridId: _gridId,
+  gridId,
   connectionId,
   database,
   collection,
   pageSize = 50,
   className,
 }: DocumentDataGridProps) {
-  void _gridId; // Reserved for future use (persisted view state)
-  const gridRef = useRef<EditableDataGridRef>(null);
-  const { customRenderers } = useDataGridRenderers();
   const stageCommand = useCrudStore((s) => s.stageCommand);
-
-  // Table key for the EditableDataGrid
-  const tableKey = `${connectionId}:${database}::${collection}`;
 
   // Get document data
   const data = useDocumentData({
@@ -88,7 +80,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
 
   // Handle cell edit commit
   const handleCellEditCommit = useCallback(
-    (event: Parameters<typeof data.createEditCommand>[0]) => {
+    (event: GridEditCommitEvent) => {
       const cmd = data.createEditCommand(event);
       if (cmd) {
         stageCommand(cmd);
@@ -148,107 +140,55 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
     [data, stageCommand]
   );
 
-  // Loading state
-  if (data.isLoading && data.rows.length === 0) {
-    return (
-      <div className={cn('flex flex-col h-full', className)}>
-        <BreadcrumbNav
-          path={data.currentPath}
-          collectionName={collection}
-          onNavigate={data.navigateToPath}
-          onNavigateToRoot={() => data.navigateToPath(-1)}
-        />
-        <DataGridSkeleton />
-      </div>
-    );
-  }
-
-  // Error state
-  if (data.error) {
-    return (
-      <div className={cn('flex flex-col h-full', className)}>
-        <BreadcrumbNav
-          path={data.currentPath}
-          collectionName={collection}
-          onNavigate={data.navigateToPath}
-          onNavigateToRoot={() => data.navigateToPath(-1)}
-        />
-        <DataGridErrorState
-          error={data.error.message}
-          onRetry={data.refetch}
-        />
-      </div>
-    );
-  }
-
-  // Empty state
-  if (data.rows.length === 0 && !data.isLoading) {
-    return (
-      <div className={cn('flex flex-col h-full', className)}>
-        <BreadcrumbNav
-          path={data.currentPath}
-          collectionName={collection}
-          onNavigate={data.navigateToPath}
-          onNavigateToRoot={() => data.navigateToPath(-1)}
-        />
-        <DataGridEmptyState
-          title={data.currentPath.length > 0 ? 'No data at this path' : 'Empty collection'}
-          description={
-            data.currentPath.length > 0
-              ? 'Navigate back to view other data'
-              : 'No documents found in this collection'
-          }
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div className={cn('flex flex-col h-full', className)}>
-      {/* Breadcrumb navigation */}
+  // Breadcrumb navigation toolbar
+  const topToolbar = useMemo(
+    () => (
       <BreadcrumbNav
         path={data.currentPath}
         collectionName={collection}
         onNavigate={data.navigateToPath}
         onNavigateToRoot={() => data.navigateToPath(-1)}
       />
+    ),
+    [data.currentPath, data.navigateToPath, collection]
+  );
 
-      {/* Data grid */}
-      <div className="flex-1 min-h-0">
-        <EditableDataGrid
-          ref={gridRef}
-          tableKey={tableKey}
-          rows={data.rows}
-          columns={data.columns}
-          getCellContent={data.getCellContent}
-          customRenderers={customRenderers}
-          onCellActivated={handleCellActivated}
-          onCellEditCommit={handleCellEditCommit}
-          onRowInsert={handleRowInsert}
-          onRowDelete={handleRowDelete}
-        />
-      </div>
+  // Determine read-only state (nested paths are read-only)
+  const readOnly = data.currentPath.length > 0;
 
-      {/* Pagination footer */}
-      {data.hasMore && (
-        <div className="flex items-center justify-center py-2 border-t border-border bg-muted/30">
-          <button
-            type="button"
-            onClick={data.fetchNextPage}
-            disabled={data.isLoading}
-            className={cn(
-              'px-4 py-1.5 text-sm font-medium rounded-md',
-              'bg-primary text-primary-foreground',
-              'hover:bg-primary/90',
-              'disabled:opacity-50 disabled:cursor-not-allowed',
-              'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2'
-            )}
-          >
-            {data.isLoading ? 'Loading...' : 'Load More'}
-          </button>
-        </div>
-      )}
-    </div>
+  // Loading and error states
+  const isLoading = data.isLoading && data.rows.length === 0;
+  const errorMessage = data.error ? data.error.message : null;
+
+  return (
+    <BaseDataGrid
+      gridId={gridId}
+      rows={data.rows}
+      columns={data.columns}
+      getCellContent={data.getCellContent}
+      isLoading={isLoading}
+      error={errorMessage}
+      hasMore={data.hasMore}
+      onLoadMore={data.fetchNextPage}
+      estimatedTotal={data.totalCount}
+      isEstimatedCount={false}
+      onCellActivated={handleCellActivated}
+      onCellEditCommit={handleCellEditCommit}
+      onRowInsert={handleRowInsert}
+      onRowDelete={handleRowDelete}
+      topToolbar={topToolbar}
+      connectionId={connectionId}
+      database={database}
+      tableName={collection}
+      paradigm="document"
+      enableFiltering={false}
+      enableSorting={false}
+      enableExport={true}
+      enableRowPinning={false}
+      enableFKPreview={false}
+      readOnly={readOnly}
+      className={cn('document-datagrid', className)}
+    />
   );
 });
 
