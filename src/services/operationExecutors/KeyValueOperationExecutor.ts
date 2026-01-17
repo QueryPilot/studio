@@ -1,6 +1,6 @@
 import type { CrudCommand } from '@/types/crud';
 import type { RichKeyValueOperable } from '@/adapters/capabilities';
-import type { RedisValue } from '@/adapters/types/redis';
+import type { RedisValue, ZSetMember } from '@/adapters/types/redis';
 import { logger } from '@/lib/logger';
 import type {
   ExecuteResult,
@@ -12,12 +12,13 @@ import type {
 } from './types';
 
 type RedisOperation = {
-  type: 'set' | 'delete' | 'hset' | 'hdel' | 'lpush' | 'rpush' | 'sadd' | 'srem';
+  type: 'set' | 'delete' | 'hset' | 'hdel' | 'lpush' | 'rpush' | 'sadd' | 'srem' | 'zadd';
   key: string;
   value?: RedisValue;
   field?: string;
   fields?: Record<string, string>;
   members?: string[];
+  zsetMembers?: ZSetMember[];
 };
 
 export class KeyValueOperationExecutor implements KeyValueOperationExecutorInterface {
@@ -135,7 +136,8 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
       }
 
       case 'data.delete': {
-        return { type: 'delete', key };
+        const redisType = payload.redisType ?? 'string';
+        return this.createDeleteOperation(key, payload, redisType);
       }
 
       default:
@@ -170,6 +172,20 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
           members: Object.values(values).map(String),
         };
 
+      case 'zset': {
+        const member = values.member !== undefined ? String(values.member) : '';
+        const scoreValue = values.score ?? 0;
+        const score = typeof scoreValue === 'number' ? scoreValue : Number(scoreValue);
+        const zsetMembers: ZSetMember[] = member
+          ? [{ member, score: Number.isFinite(score) ? score : 0 }]
+          : [];
+        return {
+          type: 'zadd',
+          key,
+          zsetMembers,
+        };
+      }
+
       default:
         return {
           type: 'set',
@@ -200,12 +216,55 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
         }
         return { type: 'hset', key, fields: {} };
 
+      case 'zset': {
+        const member = payload.primaryKeys?.member;
+        if (member === undefined || member === null) {
+          return { type: 'zadd', key, zsetMembers: [] };
+        }
+        const scoreValue = payload.newValue ?? 0;
+        const score = typeof scoreValue === 'number' ? scoreValue : Number(scoreValue);
+        return {
+          type: 'zadd',
+          key,
+          zsetMembers: [{ member: String(member), score: Number.isFinite(score) ? score : 0 }],
+        };
+      }
+
       default:
         return {
           type: 'set',
           key,
           value: this.toRedisValue(payload.newValue),
         };
+    }
+  }
+
+  private createDeleteOperation(
+    key: string,
+    payload: {
+      primaryKeys?: Record<string, unknown>;
+    },
+    redisType: string
+  ): RedisOperation {
+    switch (redisType) {
+      case 'hash': {
+        const field = payload.primaryKeys?.field;
+        return {
+          type: 'hdel',
+          key,
+          members: field !== undefined && field !== null ? [String(field)] : [],
+        };
+      }
+      case 'set': {
+        const member = payload.primaryKeys?.member;
+        return {
+          type: 'srem',
+          key,
+          members: member !== undefined && member !== null ? [String(member)] : [],
+        };
+      }
+      default:
+        return { type: 'delete', key };
     }
   }
 
@@ -242,6 +301,10 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
       case 'srem':
         await this.adapter.setRemove(op.key, op.members ?? []);
         break;
+
+      case 'zadd':
+        await this.adapter.zsetAdd(op.key, op.zsetMembers ?? []);
+        break;
     }
   }
 
@@ -263,6 +326,8 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
         return `SADD ${op.key} <members>`;
       case 'srem':
         return `SREM ${op.key} <members>`;
+      case 'zadd':
+        return `ZADD ${op.key} <score> <member>`;
     }
   }
 
@@ -293,6 +358,12 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
           return `SADD "${op.key}" ${(op.members ?? []).map(m => `"${m}"`).join(' ')}`;
         case 'srem':
           return `SREM "${op.key}" ${(op.members ?? []).map(m => `"${m}"`).join(' ')}`;
+        case 'zadd': {
+          const members = (op.zsetMembers ?? [])
+            .map(({ score, member }) => `${score} "${member}"`)
+            .join(' ');
+          return `ZADD "${op.key}" ${members}`;
+        }
       }
     }).join('\n');
   }

@@ -62,6 +62,14 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     return adapterRef.current;
   }, [connectionId]);
 
+  const getAdapterWithDb = useCallback(async () => {
+    const adapter = getAdapter();
+    if (adapter.getCurrentDatabase() !== database) {
+      await adapter.selectDatabase(database);
+    }
+    return adapter;
+  }, [getAdapter, database]);
+
   // Query key for key metadata
   const metadataQueryKey = useMemo(
     () => ['redis-key-metadata', connectionId, database, selectedKeyName],
@@ -81,7 +89,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
         return null;
       }
 
-      const adapter = getAdapter();
+      const adapter = await getAdapterWithDb();
 
       const [type, ttl] = await Promise.all([
         adapter.getKeyType(selectedKeyName),
@@ -140,7 +148,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
         return null;
       }
 
-      const adapter = getAdapter();
+      const adapter = await getAdapterWithDb();
       const type = currentKey.type;
 
       switch (type) {
@@ -245,7 +253,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
         return;
       }
 
-      const adapter = getAdapter();
+      const adapter = await getAdapterWithDb();
       await adapter.setKeyTTL(selectedKeyName, seconds);
 
       // Refresh metadata
@@ -262,7 +270,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
       return;
     }
 
-    const adapter = getAdapter();
+    const adapter = await getAdapterWithDb();
     await adapter.deleteKeys([selectedKeyName]);
 
     // Clear selection
@@ -296,7 +304,18 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
         return null;
       }
 
+      if (currentKey.type === 'list' || currentKey.type === 'set' || currentKey.type === 'stream') {
+        return null;
+      }
+
+      if (currentKey.type === 'zset' && column.field !== 'score') {
+        return null;
+      }
+
       const rowKey = getRedisRowKey(rowData, currentKey.type);
+      const updateColumn = currentKey.type === 'hash'
+        ? String((rowKey as { field?: unknown }).field ?? column.field)
+        : column.field;
 
       // Extract old value
       const cellValue = rowData[column.field];
@@ -323,8 +342,8 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
       }
 
       const payload: DataUpdatePayload = {
-        column: column.field,
-        columnType: currentKey.type,
+        column: updateColumn,
+        redisType: currentKey.type,
         primaryKeys: { key: selectedKeyName, ...rowKey },
         oldValue: oldValueJson,
         newValue: newValueJson,
@@ -351,16 +370,40 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
 
   const createInsertCommand = useCallback(
     (values: Record<string, unknown>): CrudCommand => {
-      // Convert values to JsonValue record
-      const jsonValues: Record<string, JsonValue> = {};
-      for (const [key, val] of Object.entries(values)) {
-        jsonValues[key] = val as JsonValue;
-      }
-      // Include the key type as metadata
-      jsonValues.__keyType = currentKey?.type ?? null;
+      const keyType = currentKey?.type ?? 'string';
+      const insertValues: Record<string, JsonValue> = {};
 
-      const payload: DataInsertPayload = {
-        values: jsonValues,
+      switch (keyType) {
+        case 'hash': {
+          const field = values.field;
+          if (field !== undefined && field !== null && field !== '') {
+            insertValues[String(field)] = (values.value ?? null) as JsonValue;
+          }
+          break;
+        }
+        case 'list':
+          insertValues.value = (values.value ?? null) as JsonValue;
+          break;
+        case 'set':
+          insertValues.member = (values.member ?? null) as JsonValue;
+          break;
+        case 'zset':
+          insertValues.member = (values.member ?? null) as JsonValue;
+          insertValues.score = (values.score ?? null) as JsonValue;
+          break;
+        case 'stream':
+          break;
+        case 'string':
+        case 'unknown':
+        default:
+          insertValues.value = (values.value ?? null) as JsonValue;
+          break;
+      }
+
+      // Convert values to JsonValue record
+      const payload: DataInsertPayload & { redisType?: string } = {
+        values: insertValues,
+        redisType: keyType,
       };
 
       return {
@@ -386,8 +429,9 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     (row: GridRowModel): CrudCommand => {
       const rowKey = currentKey ? getRedisRowKey(row, currentKey.type) : {};
 
-      const payload: DataDeletePayload = {
+      const payload: DataDeletePayload & { redisType?: string } = {
         primaryKeys: { key: selectedKeyName || '', ...rowKey },
+        redisType: currentKey?.type,
       };
 
       return {

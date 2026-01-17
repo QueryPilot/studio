@@ -208,7 +208,7 @@ export interface SequenceDefinitionInput {
 export interface DataUpdatePayload extends CrudCommandPayload {
   readonly column: string;
   readonly columnType?: string; // PostgreSQL type for explicit casting (e.g., "money", "inet")
-  readonly primaryKeys: Record<string, CrudPrimitive>;
+  readonly primaryKeys: Record<string, JsonValue>;
   readonly oldValue?: JsonValue;
   readonly newValue: JsonValue;
 }
@@ -220,7 +220,7 @@ export interface DataInsertPayload extends CrudCommandPayload {
 }
 
 export interface DataDeletePayload extends CrudCommandPayload {
-  readonly primaryKeys: Record<string, CrudPrimitive>;
+  readonly primaryKeys: Record<string, JsonValue>;
 }
 
 export interface ColumnAddPayload extends CrudCommandPayload {
@@ -556,9 +556,9 @@ export type JsonValue =
  * Convenience type representing a row diff for data previews.
  */
 export interface DataRowDiff {
-  readonly primaryKey: Record<string, CrudPrimitive>;
-  readonly before?: Record<string, CrudPrimitive>;
-  readonly after?: Record<string, CrudPrimitive>;
+  readonly primaryKey: Record<string, JsonValue>;
+  readonly before?: Record<string, JsonValue>;
+  readonly after?: Record<string, JsonValue>;
   readonly operation?: "insert" | "update" | "delete";
 }
 

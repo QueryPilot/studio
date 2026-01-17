@@ -152,6 +152,50 @@ describe('KeyValueOperationExecutor', () => {
       expect(mockAdapter.deleteKeys).toHaveBeenCalledWith(['mykey']);
     });
 
+    it('should execute HDEL command for hash delete', async () => {
+      const commands = [
+        createCommand('data.delete', 'user:1', {
+          primaryKeys: { field: 'age' },
+          redisType: 'hash',
+        }),
+      ];
+
+      const result = await executor.execute(commands);
+
+      expect(result.success).toBe(true);
+      expect(mockAdapter.hashDelete).toHaveBeenCalledWith('user:1', ['age']);
+    });
+
+    it('should execute SREM command for set delete', async () => {
+      const commands = [
+        createCommand('data.delete', 'tags', {
+          primaryKeys: { member: 'blue' },
+          redisType: 'set',
+        }),
+      ];
+
+      const result = await executor.execute(commands);
+
+      expect(result.success).toBe(true);
+      expect(mockAdapter.setRemove).toHaveBeenCalledWith('tags', ['blue']);
+    });
+
+    it('should execute ZADD command for zset insert', async () => {
+      const commands = [
+        createCommand('data.insert', 'myzset', {
+          values: { member: 'alice', score: 1.5 },
+          redisType: 'zset',
+        }),
+      ];
+
+      const result = await executor.execute(commands);
+
+      expect(result.success).toBe(true);
+      expect(mockAdapter.zsetAdd).toHaveBeenCalledWith('myzset', [
+        { member: 'alice', score: 1.5 },
+      ]);
+    });
+
     it('should handle execution errors', async () => {
       vi.mocked(mockAdapter.setKey).mockRejectedValueOnce(
         new Error('Connection lost')
