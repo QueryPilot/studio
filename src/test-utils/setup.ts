@@ -79,3 +79,8 @@ Object.defineProperty(navigator, 'clipboard', {
   writable: true,
   configurable: true,
 });
+
+// Mock Path2D (required for canvas rendering in DataGrid)
+global.Path2D = class Path2D {
+  constructor(_path?: string | Path2D) {}
+} as any;
