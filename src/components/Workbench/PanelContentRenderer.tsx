@@ -20,7 +20,7 @@ import {
   IconAssembly,
   IconLayoutGrid,
 } from "@tabler/icons-react";
-import { TableDataGrid } from "@/components/DataGrid";
+import { TableDataGrid, DocumentDataGrid, KeyValueDataGrid } from "@/components/DataGrid";
 import { TableStructure } from "@/components/TableStructure";
 import { TableIndexes } from "@/components/TableIndexes";
 import { TableTriggers } from "@/components/TableTriggers";
@@ -36,8 +36,6 @@ import { ERDPanel } from "@/components/Erd";
 import { TableDesigner } from "@/components/TableDesigner";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { FeatureErrorBoundary } from "@/components/FeatureErrorBoundary";
-import { CollectionBrowser } from "@/components/MongoDB/CollectionBrowser";
-import { KeyBrowser } from "@/components/Redis/KeyBrowser";
 
 interface PanelContentRendererProps {
   panelId: string;
@@ -175,11 +173,13 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       );
     }
 
-    // MongoDB Collection Browser
+    // MongoDB Collection Browser (using unified DataGrid)
     if (type === "mongo-collection" && metadata) {
+      const mongoGridId = `document:${metadata.connectionId || activeConnectionId}:${metadata.database}:${metadata.table}`;
       return (
         <FeatureErrorBoundary featureName="MongoDB Collection">
-          <CollectionBrowser
+          <DocumentDataGrid
+            gridId={mongoGridId}
             connectionId={metadata.connectionId || activeConnectionId || ""}
             database={metadata.database || ""}
             collection={metadata.table || ""}
@@ -189,14 +189,16 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       );
     }
 
-    // Redis Key Browser
+    // Redis Key Browser (using unified DataGrid)
     if (type === "redis-key" && metadata) {
+      const redisGridId = `keyvalue:${metadata.connectionId || activeConnectionId}:${metadata.database}:${metadata.table || 'browser'}`;
       return (
         <FeatureErrorBoundary featureName="Redis Key">
-          <KeyBrowser
+          <KeyValueDataGrid
+            gridId={redisGridId}
             connectionId={metadata.connectionId || activeConnectionId || ""}
             database={parseInt(metadata.database || "0", 10)}
-            selectedKey={metadata.table}
+            initialKey={metadata.table}
             className="h-full"
           />
         </FeatureErrorBoundary>
