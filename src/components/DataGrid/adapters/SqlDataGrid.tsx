@@ -1,287 +1,365 @@
 /**
- * SqlDataGrid - SQL table browser using the unified BaseDataGrid architecture
+ * SqlDataGrid - SQL table browser with FK-specific features
  *
- * Features:
- * - BaseDataGrid foundation with all unified features
- * - SQL-specific toolbar with Add Row and Staging Actions
- * - FK preview, filtering, sorting, export, row pinning
- * - CRUD operations via the staging pipeline
+ * This is a thin wrapper around BaseDataGrid that adds SQL-specific features:
+ * - FK preview hover icons and popover
+ * - Embedded FK values
+ * - FK-related context menu items (referenced table columns)
+ * - SQL filter mode in QuickFilter
+ *
+ * All general features (QuickFilter, clipboard, fill, column management, etc.)
+ * are handled by BaseDataGrid.
  */
 
-import { memo, useMemo, useCallback, useRef, useState, useEffect } from 'react';
-import type { Item } from '@glideapps/glide-data-grid';
+import { logger } from '@/lib/logger';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import type { Item, GridCell } from '@glideapps/glide-data-grid';
 import { BaseDataGrid } from '../base/BaseDataGrid';
-import { Button } from '@/components/ui/button';
-import { IconPlus } from '@tabler/icons-react';
-import { StagingActionsToolbar } from '../components/StagingActionsToolbar';
+import type { GridColumnV2 } from '../types';
 import { useTableDataQuery } from '@/hooks/useTableDataQuery';
 import { useTableFullStructure } from '@/hooks/useTableFullStructure';
-import { useCrudStore } from '@/stores/crudStore';
-import { useDataInvalidationStore } from '@/stores/dataInvalidationStore';
-import { buildGridCellV2 } from '../utils/cellFactory';
-import { createInsertCommand, createCrudTarget } from '../utils/crudHelpers';
-import type { GridColumnV2, GridRowModel, GridEditCommitEvent, GridRowInsertEvent, GridRowDeleteEvent } from '../types';
-import type { ColumnMeta } from '@/types';
-import type { TableDataRow } from '@/services/tableDataTypes';
-import { logger } from '@/lib/logger';
-import { cn } from '@/lib/utils';
-
-// ============================================================================
-// Types
-// ============================================================================
+import { useReferencedTableColumns } from '@/hooks/useReferencedTableColumns';
+import { truncateTextToWidth } from '../utils/textUtils';
+import { computeBaseWidth } from './columnUtils';
+import {
+  DataGridEmptyState,
+  DataGridErrorState,
+} from '../components/DataGridStates';
+import { DataGridSkeleton } from '../components/DataGridSkeleton';
+import { StagingActionsToolbar } from '../components/StagingActionsToolbar';
+import { FKPreviewPopover } from '../components/FKPreviewPopover';
+import { openTableObject } from '@/utils/workbench/openers';
+import { DbType } from '@/types';
+import { useCellHoverIcons } from '../hooks';
+import { useEmbeddedFKPreferencesStore } from '../stores/embeddedFKPreferencesStore';
+import type { EmbeddedFKConfig } from '@/adapters/types';
+import type { EditableDataGridRef } from '../base';
 
 export interface SqlDataGridProps {
-  /** Unique grid ID for state management */
-  gridId: string;
-  /** Connection ID */
   connectionId: string;
-  /** Database name */
-  database: string;
-  /** Schema name (optional) */
+  database?: string;
   schema?: string;
-  /** Table name */
   table: string;
-  /** Is this a view? */
-  isView?: boolean;
-  /** Entity kind */
-  kind?: 'Table' | 'View' | 'MaterializedView';
-  /** Actions change callback */
-  onActionsChange?: (actions: React.ReactNode) => void;
-  /** Initial WHERE clause filter */
-  initialFilter?: string;
-  /** Panel ID for FK reference navigation */
-  panelId?: string;
-  /** CSS class name */
-  className?: string;
+  dbType: DbType;
+  readOnly?: boolean;
+  onRefresh?: () => void;
 }
 
-// ============================================================================
-// Component
-// ============================================================================
+export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
+  const { connectionId, database, schema, table, dbType, readOnly = false, onRefresh } = props;
 
-export const SqlDataGrid = memo(function SqlDataGrid({
-  gridId,
-  connectionId,
-  database,
-  schema,
-  table,
-  isView = false,
-  kind = 'Table',
-  initialFilter,
-  className,
-}: SqlDataGridProps) {
-  const stageCommand = useCrudStore((s) => s.stageCommand);
-  const hasStagedChanges = useCrudStore((s) => {
-    const target = createCrudTarget({ connectionId, database, schema, table });
-    return (s.commands[target]?.length ?? 0) > 0;
-  });
+  const gridId = `${connectionId}:${database}:${schema}:${table}`;
+  const gridRef = useRef<EditableDataGridRef>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const registerListener = useDataInvalidationStore((s) => s.registerListener);
-
-  // Determine entity type
-  const entityType: 'table' | 'view' | 'materialized_view' =
-    kind === 'MaterializedView'
-      ? 'materialized_view'
-      : kind === 'View' || isView
-      ? 'view'
-      : 'table';
-
-  const readOnly = entityType !== 'table';
-
-  // Load table structure for FK data and column metadata
-  const { structure: tableStructure } = useTableFullStructure({
+  // --- Data Fetching ---
+  const tableDataQuery = useTableDataQuery({
     connectionId,
-    database,
-    table,
+    database: database ?? '',
     schema,
-    options: {
-      includeIndexes: false,
-      includeConstraints: true,
-      includeTriggers: false,
-      includeStatistics: false,
-      includeForeignKeys: true,
-    },
+    entityName: table,
+    entityType: 'table',
+    enabled: true,
   });
 
-  // Load table data with pagination
   const {
-    rows: rawRows,
-    columns: rawColumns,
+    rows,
+    columns: columnMeta,
+    estimatedTotal,
+    isEstimatedCount,
     status,
-    error: queryError,
-    isFetching,
-    isFetchingNextPage,
+    error,
     hasNextPage,
     fetchNextPage,
     refetch,
-    estimatedTotal,
-    isEstimatedCount,
-  } = useTableDataQuery({
+  } = tableDataQuery;
+
+  const isLoading = status === 'loading';
+  const isError = status === 'error';
+
+  const tableStructureQuery = useTableFullStructure({
     connectionId,
-    database,
-    schema,
-    entityName: table,
-    entityType,
-    pageSize: 300,
-    enabled: true,
-    reuseStructure: true,
+    database: database ?? '',
+    schema: schema ?? '',
+    table,
   });
 
-  // Register data invalidation listener
-  useEffect(() => {
-    const unsubscribe = registerListener(
-      { connectionId, database, schema, table },
-      () => {
-        logger.info('sql-datagrid', 'Data invalidated, refetching', { table });
-        refetch();
-      }
-    );
-    return unsubscribe;
-  }, [connectionId, database, schema, table, registerListener, refetch]);
+  const tableStructure = tableStructureQuery.data?.structure;
 
-  // Transform raw data to GridRowModel and GridColumnV2
-  const rows = useMemo<GridRowModel[]>(() => {
-    return rawRows.map((row: TableDataRow, idx) => ({
-      id: `row_${idx}`,
-      data: row.data,
-      isLoading: false,
-    }));
-  }, [rawRows]);
-
-  const columns = useMemo<GridColumnV2[]>(() => {
-    return rawColumns.map((col: ColumnMeta, idx) => ({
-      id: `col_${idx}`,
-      field: `col_${idx}`,
-      title: col.name,
-      name: col.name,
-      width: 150,
-      type: col.type,
-      meta: col,
-    }));
-  }, [rawColumns]);
-
-  // getCellContent for Glide Data Grid
-  const getCellContent = useCallback(
-    (cell: Item) => {
-      const [colIdx, rowIdx] = cell;
-      if (rowIdx >= rows.length || colIdx >= columns.length) {
-        return { kind: 'text' as const, data: '', displayData: '', allowOverlay: false };
-      }
-      const row = rows[rowIdx];
-      const column = columns[colIdx];
-      const value = row.data[colIdx];
-      return buildGridCellV2(value, column, {
-        connectionId,
-        database,
-        schema,
-        table,
-        rowData: row.data,
-        foreignKeys: tableStructure?.foreignKeys ?? [],
-      });
-    },
-    [rows, columns, connectionId, database, schema, table, tableStructure]
+  // Convert ColumnMeta[] to GridColumnV2[]
+  const columns = useMemo<GridColumnV2[]>(
+    () =>
+      columnMeta
+        .filter((meta) => !meta.name.startsWith('__qp_fk__'))
+        .map((meta, idx) => {
+          const uniqueField = `col_${idx}`;
+          return {
+            id: meta.name,
+            field: uniqueField,
+            title: meta.name,
+            name: meta.name,
+            width: computeBaseWidth(meta.name, meta.db_type),
+            type: meta.db_type,
+            meta,
+          } as GridColumnV2;
+        }),
+    [columnMeta]
   );
 
-  // CRUD handlers
+  // --- FK Metadata ---
+  const fkReferenceByColumn = useMemo(() => {
+    const map = new Map<
+      string,
+      { referenced_schema: string; referenced_table: string; referenced_column: string }
+    >();
+    if (tableStructure?.foreignKeys) {
+      for (const fk of tableStructure.foreignKeys) {
+        for (let i = 0; i < fk.columns.length; i++) {
+          const colName = fk.columns[i];
+          const refCol = fk.referenced_columns[i];
+          if (colName && refCol) {
+            map.set(colName, {
+              referenced_schema: fk.referenced_schema,
+              referenced_table: fk.referenced_table,
+              referenced_column: refCol,
+            });
+          }
+        }
+      }
+    }
+    return map;
+  }, [tableStructure?.foreignKeys]);
+
+  // --- Embedded FK Configuration ---
+  const embeddedFKPrefs = useEmbeddedFKPreferencesStore((s) => s.preferences.get(gridId));
+
+  const embeddedFKs = useMemo<EmbeddedFKConfig[]>(() => {
+    if (!embeddedFKPrefs || !tableStructure?.foreignKeys) return [];
+
+    const configs: EmbeddedFKConfig[] = [];
+    for (const fk of tableStructure.foreignKeys) {
+      for (let i = 0; i < fk.columns.length; i++) {
+        const colName = fk.columns[i];
+        const refCol = fk.referenced_columns[i];
+        if (!colName || !refCol) continue;
+
+        const prefKey = `${fk.referenced_schema}.${fk.referenced_table}.${refCol}`;
+        const pref = embeddedFKPrefs.get(prefKey);
+        if (pref?.displayColumns && pref.displayColumns.length > 0) {
+          configs.push({
+            fkColumn: colName,
+            refSchema: fk.referenced_schema,
+            refTable: fk.referenced_table,
+            refPkColumn: refCol,
+            refDisplayColumns: pref.displayColumns,
+          });
+        }
+      }
+    }
+    return configs;
+  }, [embeddedFKPrefs, tableStructure?.foreignKeys]);
+
+  // Build embedded FK field map (columnName -> embeddedFieldName)
+  const embeddedFKFieldMapRef = useRef(new Map<string, string>());
+  useEffect(() => {
+    const map = new Map<string, string>();
+    for (const cfg of embeddedFKs) {
+      const embeddedFieldName = `_fk_${cfg.fkColumn}_display`;
+      map.set(cfg.fkColumn, embeddedFieldName);
+    }
+    embeddedFKFieldMapRef.current = map;
+  }, [embeddedFKs]);
+
+  // Build staged FK embedded values map (for updates)
+  const stagedFKEmbeddedValuesRef = useRef<Map<string, string | null>>(new Map());
+
+  // --- Referenced Table Columns (for context menu) ---
+  const referencedTableColumns = useReferencedTableColumns(
+    connectionId,
+    database,
+    fkReferenceByColumn
+  );
+
+  // --- FK Hover Icons & Preview ---
+  const {
+    onItemHovered: handleCellHovered,
+    drawCell: drawCellWithHoverIcons,
+    fkPreviewState,
+    clearFkPreview,
+  } = useCellHoverIcons({
+    columns,
+    rows,
+    enabled: true,
+    enableFKPreview: true,
+    gridRef,
+    containerRef,
+    onOpenReference: undefined, // Not used for SQL (we use context menu instead)
+  });
+
+  const handleFKPreviewClick = useCallback(() => {
+    if (!fkPreviewState) return;
+    const { fkReference, fkValue } = fkPreviewState;
+
+    openTableObject({
+      connectionId,
+      database: database ?? '',
+      dbType,
+      schema: fkReference.referenced_schema,
+      table: fkReference.referenced_table,
+      viewType: 'data',
+      filterColumnName: fkReference.referenced_column,
+      filterValue: fkValue,
+    });
+    clearFkPreview();
+  }, [fkPreviewState, connectionId, database, dbType, clearFkPreview]);
+
+  // --- Custom getCellContent for Embedded FK ---
+  const customGetCellContent = useCallback(
+    (cell: Item, baseCell: GridCell): GridCell => {
+      const [colIndex, rowIndex] = cell;
+      const column = columns[colIndex];
+      const row = rows[rowIndex];
+      if (!column || !row) return baseCell;
+
+      // Check if this column has embedded FK value
+      if (column.meta?.is_fk && column.name) {
+        const embeddedFieldName = embeddedFKFieldMapRef.current.get(column.name);
+        if (embeddedFieldName) {
+          const stagedKey = `${rowIndex}:${column.name}`;
+          const embeddedCellValue = row[embeddedFieldName];
+          const embeddedValue =
+            stagedFKEmbeddedValuesRef.current.get(stagedKey) ??
+            (embeddedCellValue && typeof embeddedCellValue === 'object' && 'value' in embeddedCellValue
+              ? embeddedCellValue.value
+              : embeddedCellValue);
+
+          if (embeddedValue) {
+            // Display "FK_VALUE (embedded_value)"
+            const fkCellValue = row[column.field];
+            const fkValue =
+              fkCellValue && typeof fkCellValue === 'object' && 'value' in fkCellValue
+                ? fkCellValue.value
+                : fkCellValue;
+            const displayText = fkValue ? `${fkValue} (${embeddedValue})` : String(embeddedValue);
+
+            // Return a properly typed GridCell
+            return {
+              ...baseCell,
+              displayData: truncateTextToWidth(displayText, 300),
+              themeOverride: {
+                ...baseCell.themeOverride,
+                textDark: '#0066cc', // Blue for FK with embedded value
+              },
+            } as GridCell;
+          }
+        }
+      }
+
+      return baseCell;
+    },
+    [columns, rows]
+  );
+
+  // --- CRUD Handlers ---
   const handleCellEditCommit = useCallback(
-    (event: GridEditCommitEvent) => {
-      // TODO: Create edit command and stage it
-      logger.info('sql-datagrid', 'Cell edit commit', event);
+    (event: any) => {
+      logger.info('[SqlDataGrid] Cell edit commit', { event });
+      // TODO: Implement CRUD staging
     },
     []
   );
 
   const handleRowInsert = useCallback(
-    (event: GridRowInsertEvent) => {
-      // TODO: Create insert command and stage it
-      logger.info('sql-datagrid', 'Row insert', event);
+    (event: any) => {
+      logger.info('[SqlDataGrid] Row insert', { event });
+      // TODO: Implement CRUD staging
     },
     []
   );
 
   const handleRowDelete = useCallback(
-    (event: GridRowDeleteEvent) => {
-      // TODO: Create delete command and stage it
-      logger.info('sql-datagrid', 'Row delete', event);
+    (event: any) => {
+      logger.info('[SqlDataGrid] Row delete', { event });
+      // TODO: Implement CRUD staging
     },
     []
   );
 
-  const handleAddRow = useCallback(() => {
-    if (!tableStructure) return;
-    const cmd = createInsertCommand({
-      target: createCrudTarget({ connectionId, database, schema, table }),
-      columns: tableStructure.columns,
-      values: [],
-    });
-    stageCommand(cmd);
-    logger.info('sql-datagrid', 'Added new row command');
-  }, [connectionId, database, schema, table, tableStructure, stageCommand]);
 
-  // SQL-specific toolbar
-  const topToolbar = useMemo(
-    () => (
-      <div className="flex items-center gap-2 pb-1.5 pt-0.5">
-        {/* Add Row Button (tables only) */}
-        {kind === 'Table' && !readOnly && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleAddRow}
-            title="Add new row"
-          >
-            <IconPlus className="h-3 w-3" />
-          </Button>
-        )}
+  // --- Loading States ---
+  if (isLoading) {
+    return <DataGridSkeleton />;
+  }
 
-        {/* Staging Actions */}
-        {hasStagedChanges && (
-          <StagingActionsToolbar
-            connectionId={connectionId}
-            database={database}
-            schema={schema}
-            table={table}
-            onCommitSuccess={refetch}
-          />
-        )}
-      </div>
-    ),
-    [kind, readOnly, hasStagedChanges, connectionId, database, schema, table, refetch, handleAddRow]
-  );
+  if (isError) {
+    return (
+      <DataGridErrorState
+        message={error instanceof Error ? error.message : 'Failed to load table data'}
+        onRetry={refetch}
+      />
+    );
+  }
 
-  // Loading and error states
-  const isLoading = status === 'loading' && !isFetching;
-  const errorMessage = queryError ? String(queryError) : null;
+  if (rows.length === 0) {
+    return <DataGridEmptyState message="No data in table" />;
+  }
 
+  // --- Render ---
   return (
-    <BaseDataGrid
-      gridId={gridId}
-      rows={rows}
-      columns={columns}
-      getCellContent={getCellContent}
-      isLoading={isLoading}
-      isLoadingMore={isFetchingNextPage}
-      error={errorMessage}
-      hasMore={hasNextPage}
-      onLoadMore={fetchNextPage}
-      estimatedTotal={estimatedTotal}
-      isEstimatedCount={isEstimatedCount}
-      onCellEditCommit={handleCellEditCommit}
-      onRowInsert={handleRowInsert}
-      onRowDelete={handleRowDelete}
-      topToolbar={topToolbar}
-      connectionId={connectionId}
-      database={database}
-      schema={schema}
-      tableName={table}
-      paradigm="sql"
-      enableFKPreview={true}
-      enableFiltering={true}
-      enableSorting={true}
-      enableExport={true}
-      enableRowPinning={true}
-      readOnly={readOnly}
-      className={cn('sql-datagrid', className)}
-    />
+    <div className="flex h-full flex-col">
+      {/* Top Toolbar (Staging Actions) */}
+      <StagingActionsToolbar
+        connectionId={connectionId}
+        database={database}
+        schema={schema ?? ''}
+        table={table}
+        onRefresh={onRefresh}
+      />
+
+      {/* BaseDataGrid with all general features + FK-specific features */}
+      <BaseDataGrid
+        gridId={gridId}
+        rows={rows}
+        columns={columns}
+        connectionId={connectionId}
+        database={database}
+        schema={schema}
+        tableName={table}
+        paradigm="sql"
+        dialect={dbType}
+        estimatedTotal={estimatedTotal}
+        isEstimatedCount={isEstimatedCount}
+        hasMore={hasNextPage}
+        onLoadMore={fetchNextPage}
+        readOnly={readOnly}
+        enableFiltering={true}
+        enableSorting={true}
+        enableExport={true}
+        enableRowPinning={true}
+        enableColumnManagement={true}
+        enableClipboard={true}
+        enableFillOperations={true}
+        enableStagedChanges={true}
+        onCellEditCommit={handleCellEditCommit}
+        onRowInsert={handleRowInsert}
+        onRowDelete={handleRowDelete}
+        // FK-specific features
+        fkPreviewComponent={
+          fkPreviewState ? (
+            <FKPreviewPopover
+              isOpen={true}
+              position={{ x: fkPreviewState.cellBounds.x, y: fkPreviewState.cellBounds.y }}
+              data={null} // TODO: Fetch preview data
+              column={columns[fkPreviewState.col]}
+              onClick={handleFKPreviewClick}
+              onClose={clearFkPreview}
+            />
+          ) : undefined
+        }
+        hoverIconsDrawCell={drawCellWithHoverIcons}
+        customGetCellContent={customGetCellContent}
+        className="flex-1"
+      />
+    </div>
   );
 });
