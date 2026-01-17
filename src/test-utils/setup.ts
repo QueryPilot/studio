@@ -69,3 +69,13 @@ global.ResizeObserver = class ResizeObserver {
   observe() {}
   unobserve() {}
 } as any;
+
+// Mock Clipboard API (required for copy/paste functionality)
+Object.defineProperty(navigator, 'clipboard', {
+  value: {
+    writeText: vi.fn().mockResolvedValue(undefined),
+    readText: vi.fn().mockResolvedValue(''),
+  },
+  writable: true,
+  configurable: true,
+});
