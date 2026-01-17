@@ -1,6 +1,14 @@
 import type { AIProviderConfig } from "../types";
+import {
+  getEnabledOAuthProviders,
+  shouldIncludeOAuthProviders,
+} from "./oauth-providers";
 
-export const SUPPORTED_PROVIDERS: AIProviderConfig[] = [
+/**
+ * API Key-based providers (Tier 1: Primary)
+ * These are production-proven and recommended for most users.
+ */
+export const API_KEY_PROVIDERS: AIProviderConfig[] = [
   {
     name: "openai",
     models: [
@@ -36,6 +44,7 @@ export const SUPPORTED_PROVIDERS: AIProviderConfig[] = [
       },
     ],
     requiresApiKey: true,
+    authType: "apiKey",
   },
   {
     name: "anthropic",
@@ -60,6 +69,7 @@ export const SUPPORTED_PROVIDERS: AIProviderConfig[] = [
       },
     ],
     requiresApiKey: true,
+    authType: "apiKey",
   },
   {
     name: "google",
@@ -96,6 +106,7 @@ export const SUPPORTED_PROVIDERS: AIProviderConfig[] = [
       },
     ],
     requiresApiKey: true,
+    authType: "apiKey",
   },
   {
     name: "xai",
@@ -270,5 +281,20 @@ export const SUPPORTED_PROVIDERS: AIProviderConfig[] = [
       },
     ],
     requiresApiKey: false,
+    authType: "none",
   },
+];
+
+/**
+ * Combined provider list with tiered fallback support
+ *
+ * Tier 1 (Primary): API Key providers - most reliable
+ * Tier 2 (Enhanced): OAuth providers - opt-in, experimental
+ * Tier 3 (Local): Ollama - offline fallback
+ *
+ * OAuth providers are only included if explicitly enabled.
+ */
+export const SUPPORTED_PROVIDERS: AIProviderConfig[] = [
+  ...API_KEY_PROVIDERS,
+  ...(shouldIncludeOAuthProviders() ? getEnabledOAuthProviders() : []),
 ];

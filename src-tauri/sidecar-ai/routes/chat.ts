@@ -2,10 +2,12 @@ import { streamText, convertToModelMessages, stepCountIs } from "ai";
 import { getCorsHeaders } from "../middleware/cors";
 import { ProviderService } from "../services/provider.service";
 import { tools } from "../tools";
-import type { ChatRequest } from "../types";
+import { registry } from "../tools/registry";
+import { createAiSdkTools } from "../tools/base";
+import type { ChatRequest, TauriClient } from "../types";
 import { validateConnectionContext } from "../utils/security";
-import { getChatSystemPrompt } from "../prompts/chat";
-import { MAX_TOOL_STEPS } from "../config/constants";
+import { getPromptEngine } from "../prompts/engine";
+import { MAX_TOOL_STEPS, TAURI_API_URL } from "../config/constants";
 import { metrics, ToolMetrics } from "../utils/metrics";
 import { rateLimiter, addRateLimitHeaders } from "../utils/rate-limiter";
 import {
@@ -35,13 +37,13 @@ export async function handleChatStream(request: Request): Promise<Response> {
 
   try {
     const body: ChatRequest = await request.json();
-    const { messages, provider, model } = body;
+    const { messages, provider, model, context } = body;
 
-    // Extract and validate connection context from headers
+    // Extract and validate connection context from request body
     const rawContext = {
-      connectionId: request.headers.get("X-Connection-Id") || "",
-      database: request.headers.get("X-Connection-Database") || "",
-      schema: request.headers.get("X-Connection-Schema") || "",
+      connectionId: context?.connectionId || request.headers.get("X-Connection-Id") || "",
+      database: context?.database || "",
+      schema: context?.schema || "",
     };
 
     const validation = validateConnectionContext(rawContext);
@@ -66,10 +68,69 @@ export async function handleChatStream(request: Request): Promise<Response> {
     // Convert UIMessages to ModelMessages (CoreMessages) - v6: now async
     const modelMessages = await convertToModelMessages(messages);
 
-    // Build system prompt with connection context
-    const systemPrompt = getChatSystemPrompt(
-      connectionId ? { connectionId, database, schema } : undefined,
-    );
+    // Create TauriClient for registry tools
+    const tauri: TauriClient = {
+      invoke: async (command: string, args?: Record<string, unknown>) => {
+        const response = await fetch(`${TAURI_API_URL}/__tauri__/invoke`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cmd: command, args }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Tauri command ${command} failed: ${response.statusText}`);
+        }
+
+        return response.json();
+      },
+    };
+
+    // Get capability-aware tools from registry
+    let registryTools = {};
+    let registeredToolsList: any[] = [];
+    if (connectionId) {
+      try {
+        const registeredTools = await registry.getToolsForConnection(connectionId, tauri);
+        registeredToolsList = registeredTools;
+        const toolContext = {
+          connectionId,
+          conversationId: request.headers.get("X-Conversation-Id") || "",
+        };
+        registryTools = createAiSdkTools(registeredTools, toolContext, tauri);
+      } catch (error) {
+        console.warn("Failed to load registry tools, using legacy tools only:", error);
+      }
+    }
+
+    // Merge legacy tools with registry tools
+    const allTools = { ...tools, ...registryTools };
+
+    // Build system prompt using PromptEngine
+    const promptEngine = await getPromptEngine();
+    const systemPrompt = promptEngine.render("system", {
+      connection: connectionId
+        ? {
+            connectionId,
+            database,
+            schema,
+            paradigm: "sql", // TODO: Get from capabilities
+            activeTable: context?.activeTable,
+            activeCollection: context?.activeCollection,
+            activeKey: context?.activeKey,
+            recentTables: context?.recentTables || [],
+            recentCollections: context?.recentCollections || [],
+            lastAction: context?.lastAction,
+          }
+        : undefined,
+      tools: registeredToolsList.map((tool) => ({
+        name: tool.name,
+        friendlyName: tool.friendlyName,
+        description: tool.description,
+        category: tool.category || "general",
+        capabilities: tool.capabilities || [],
+      })),
+      maxToolSteps: MAX_TOOL_STEPS,
+    });
 
     // Track AI generation with metrics
     const aiMetric = ToolMetrics.chat(provider);
@@ -79,7 +140,7 @@ export async function handleChatStream(request: Request): Promise<Response> {
       model: aiModel,
       system: systemPrompt,
       messages: modelMessages,
-      tools,
+      tools: allTools,
       stopWhen: stepCountIs(MAX_TOOL_STEPS),
       onFinish: ({ finishReason }) => {
         // Track completion metrics

@@ -8,6 +8,7 @@ import { cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { clearMocks } from '@tauri-apps/api/mocks';
 import { randomFillSync } from 'crypto';
+import 'fake-indexeddb/auto';
 
 // Setup crypto for Tauri IPC (required for mockIPC to work)
 beforeAll(() => {
