@@ -6,6 +6,35 @@ import {
 } from "./middleware/cors";
 import { routes } from "./routes";
 import { captureException as sentryCaptureException } from "./utils/sentry";
+import { registry } from "./tools/registry";
+import { sqlTools } from "./tools/sql";
+import { documentTools } from "./tools/document";
+import { keyvalueTools } from "./tools/keyvalue";
+import { generateSuggestions } from "./services/suggestions";
+import type { WorkspaceContext } from "./types";
+
+// Initialize tool registry
+console.log("⚙️  Initializing tool registry...");
+
+// Register SQL tools
+for (const tool of sqlTools) {
+  registry.register(tool);
+  console.log(`  ✓ Registered SQL tool: ${tool.name} (${tool.capabilities.join(", ")})`);
+}
+
+// Register Document tools
+for (const tool of documentTools) {
+  registry.register(tool);
+  console.log(`  ✓ Registered Document tool: ${tool.name} (${tool.capabilities.join(", ")})`);
+}
+
+// Register Key-Value tools
+for (const tool of keyvalueTools) {
+  registry.register(tool);
+  console.log(`  ✓ Registered Key-Value tool: ${tool.name} (${tool.capabilities.join(", ")})`);
+}
+
+console.log(`✅ Tool registry initialized with ${registry.getAll().length} tools`);
 
 // Route configuration with methods
 const routeConfig: Record<
@@ -19,6 +48,69 @@ const routeConfig: Record<
   "/chat": { method: "POST", handler: routes["/chat"] },
   "/text-to-sql": { method: "POST", handler: routes["/text-to-sql"] },
   "/openrouter-models": { method: "GET", handler: routes["/openrouter-models"] },
+  "/tools": {
+    method: "GET",
+    handler: (req: Request) => {
+      const stats = registry.stats();
+      return new Response(
+        JSON.stringify(
+          {
+            tools: registry.getAll().map((t) => ({
+              name: t.name,
+              friendlyName: t.friendlyName,
+              description: t.description,
+              category: t.category,
+              capabilities: t.capabilities,
+            })),
+            stats,
+          },
+          null,
+          2
+        ),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            ...getCorsHeaders(req),
+          },
+        }
+      );
+    },
+  },
+  "/suggestions": {
+    method: "POST",
+    handler: async (req: Request) => {
+      try {
+        const body = await req.json();
+        const context = body.context as WorkspaceContext;
+
+        const suggestions = generateSuggestions(context);
+
+        return new Response(
+          JSON.stringify({ suggestions }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+              ...getCorsHeaders(req),
+            },
+          }
+        );
+      } catch (error) {
+        console.error("Error generating suggestions:", error);
+        return new Response(
+          JSON.stringify({ error: "Failed to generate suggestions" }),
+          {
+            status: 500,
+            headers: {
+              "Content-Type": "application/json",
+              ...getCorsHeaders(req),
+            },
+          }
+        );
+      }
+    },
+  },
 };
 
 // HTTP server using Bun's built-in server

@@ -35,4 +35,9 @@ export class ConfigService {
   static isConfigLoaded(): boolean {
     return configLoaded;
   }
+
+  static clearApiKeys(): void {
+    Object.keys(apiKeys).forEach((key) => delete apiKeys[key]);
+    configLoaded = false;
+  }
 }

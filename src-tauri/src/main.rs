@@ -171,6 +171,11 @@ fn main() {
             // Paradigm-level IPC commands
             commands::document_execute,
             commands::keyvalue_execute,
+            // AI sidecar introspection commands
+            commands::ai_get_capabilities,
+            commands::ai_sql_execute,
+            commands::ai_document_execute,
+            commands::ai_keyvalue_execute,
         ])
         .build(context)
         .expect("error while building tauri application");
