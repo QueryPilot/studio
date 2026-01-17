@@ -20,7 +20,7 @@ import {
   IconAssembly,
   IconLayoutGrid,
 } from "@tabler/icons-react";
-import { TableDataGrid, DocumentDataGrid, KeyValueDataGrid } from "@/components/DataGrid";
+import { SqlDataGrid, DocumentDataGrid, KeyValueDataGrid } from "@/components/DataGrid";
 import { TableStructure } from "@/components/TableStructure";
 import { TableIndexes } from "@/components/TableIndexes";
 import { TableTriggers } from "@/components/TableTriggers";
@@ -363,8 +363,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
               <div className="absolute inset-0 px-1">
                 {activeView === "data" && (
                   <FeatureErrorBoundary featureName="Data Grid">
-                    <TableDataGrid
-                      mode="table"
+                    <SqlDataGrid
                       gridId={tableGridId ?? `table:${tabId}`}
                       connectionId={
                         activeConnectionId || metadata.connectionId || ""

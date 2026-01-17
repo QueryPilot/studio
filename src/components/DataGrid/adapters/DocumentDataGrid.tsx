@@ -98,7 +98,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
         continue;
       }
       if (cell && typeof cell === 'object' && 'value' in cell) {
-        values[key] = (cell as CellValue).value;
+        values[key] = (cell).value;
       } else {
         values[key] = cell;
       }
@@ -147,10 +147,10 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
         path={data.currentPath}
         collectionName={collection}
         onNavigate={data.navigateToPath}
-        onNavigateToRoot={() => data.navigateToPath(-1)}
+        onNavigateToRoot={() => { data.navigateToPath(-1); }}
       />
     ),
-    [data.currentPath, data.navigateToPath, collection]
+    [data, collection]
   );
 
   // Determine read-only state (nested paths are read-only)
