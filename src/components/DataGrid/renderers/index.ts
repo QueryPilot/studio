@@ -23,6 +23,8 @@ import { XmlCellRenderer } from "./XmlCell";
 import { BitCellRenderer } from "./BitCell";
 import { ByteaCellRenderer } from "./ByteaCell";
 import { GeometryCellRenderer } from "./GeometryCell";
+// Document paradigm support
+import { DrillableCellRenderer } from "./DrillableCell";
 
 type AnyCell = CustomCell<Record<string, unknown>>;
 
@@ -53,6 +55,8 @@ export function useDataGridRenderers(): {
       BitCellRenderer as unknown as CustomRenderer<AnyCell>,
       ByteaCellRenderer as unknown as CustomRenderer<AnyCell>,
       GeometryCellRenderer as unknown as CustomRenderer<AnyCell>,
+      // Document paradigm support
+      DrillableCellRenderer as unknown as CustomRenderer<AnyCell>,
     ],
     [],
   );

@@ -121,3 +121,9 @@ export type {
 } from './useFillOperations';
 
 export { useColumnStats } from './useColumnStats';
+
+// Paradigm-specific data hooks for unified DataGrid
+export { useDocumentData } from './useDocumentData';
+export type { UseDocumentDataParams } from './useDocumentData';
+export { useKeyValueData } from './useKeyValueData';
+export type { UseKeyValueDataParams } from './useKeyValueData';
