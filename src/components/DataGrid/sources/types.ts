@@ -1,8 +1,84 @@
-import type { GridCell } from '@glideapps/glide-data-grid';
+import type { GridCell, Item } from '@glideapps/glide-data-grid';
 import type { GridColumnV2, GridRowModel } from '../types';
 import type { CrudCommand } from '@/types/crud';
 import type { GridEditCommitEvent } from '../types';
 import type { RedisType } from '@/adapters/types/redis';
+
+// ============================================================================
+// Hook-Based Data Provider Types (Preferred Pattern)
+// ============================================================================
+
+/**
+ * Base result type for all data hooks
+ * Returns data compatible with EditableDataGrid props
+ */
+export interface BaseDataHookResult {
+  // EditableDataGrid-compatible props
+  rows: GridRowModel[];
+  columns: GridColumnV2[];
+  getCellContent: (cell: Item) => GridCell;
+
+  // Loading state
+  isLoading: boolean;
+  error: Error | null;
+
+  // Pagination
+  hasMore: boolean;
+  fetchNextPage: () => Promise<void>;
+  refetch: () => Promise<void>;
+
+  // CRUD helpers
+  createEditCommand: (event: GridEditCommitEvent) => CrudCommand | null;
+  createInsertCommand: (values: Record<string, unknown>) => CrudCommand;
+  createDeleteCommand: (row: GridRowModel) => CrudCommand;
+}
+
+/**
+ * SQL data hook result
+ */
+export interface SqlDataHookResult extends BaseDataHookResult {
+  paradigm: 'sql';
+  estimatedTotal?: number;
+  isEstimatedCount?: boolean;
+}
+
+/**
+ * Document data hook result (MongoDB)
+ * Includes drill-down navigation for nested documents
+ */
+export interface DocumentDataHookResult extends BaseDataHookResult {
+  paradigm: 'document';
+
+  // Path navigation for drill-down
+  currentPath: PathSegment[];
+  canStepInto: (row: number, col: number) => boolean;
+  stepInto: (row: number, col: number) => void;
+  stepOut: () => void;
+  navigateToPath: (pathIndex: number) => void;
+  getCurrentDocumentId: () => string | null;
+
+  // Total count
+  totalCount?: number;
+}
+
+/**
+ * KeyValue data hook result (Redis)
+ * Includes key selection and type-aware display
+ */
+export interface KeyValueDataHookResult extends BaseDataHookResult {
+  paradigm: 'keyvalue';
+
+  // Current key info
+  currentKey: KeyMetadata | null;
+  selectKey: (key: string) => Promise<void>;
+  clearSelection: () => void;
+  setKeyTTL: (seconds: number) => Promise<void>;
+  deleteCurrentKey: () => Promise<void>;
+}
+
+// ============================================================================
+// Shared Types
+// ============================================================================
 
 /**
  * Identifier for different data source types
