@@ -4,20 +4,13 @@ import type { GridColumnV2 } from "../types";
 import { computeArrayStringsFromRaw } from "../utils/arrayFormat";
 import { coerceToHstoreString } from "../renderers/HStoreCell/hstoreFormat";
 import { base64ToBytes, parseHstoreFromBytes, formatHstore, isValidBase64 } from "../renderers/ByteaCell/utils";
-
-// ============================================================================
-// Cache Configuration
-// ============================================================================
-
-// Cache for memoizing cell creation (keyed by CellValue object identity)
-const cellCache = new WeakMap<CellValue, Map<string, GridCell>>();
-
-// Development-mode cache statistics
-let cacheHits = 0;
-let cacheMisses = 0;
-
-// Pre-compiled UUID regex for validation (avoids regex compilation on every call)
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+import {
+  cacheAndReturn as sharedCacheAndReturn,
+  tryGetCachedCell,
+  UUID_REGEX,
+  getCellFactoryStats,
+  resetCellFactoryStats,
+} from "./cellFactoryShared";
 
 // ============================================================================
 // Type Detection
@@ -157,6 +150,7 @@ type CellBuilder = (
 
 /**
  * Helper to cache cell results and apply read-only flags
+ * Delegates to shared cache infrastructure
  */
 function cacheAndReturn(
   value: CellValue | null | undefined,
@@ -164,26 +158,8 @@ function cacheAndReturn(
   readOnly: boolean,
   result: GridCell,
 ): GridCell {
-  const finalized =
-    readOnly && (result.allowOverlay || (result as any).readonly !== true)
-      ? { ...result, allowOverlay: false, readonly: true } as GridCell
-      : result;
-
-  if (value && typeof value === "object") {
-    const cacheKey = readOnly ? `${columnId}:ro` : `${columnId}:rw`;
-    let cache = cellCache.get(value);
-    if (!cache) {
-      cache = new Map<string, GridCell>();
-      cellCache.set(value, cache);
-    }
-    cache.set(cacheKey, finalized);
-  }
-
-  if (process.env.NODE_ENV === "development") {
-    cacheMisses++;
-  }
-
-  return finalized;
+  const cacheKey = readOnly ? `${columnId}:ro` : `${columnId}:rw`;
+  return sharedCacheAndReturn(value, cacheKey, readOnly, result);
 }
 
 // ============================================================================
@@ -817,15 +793,9 @@ export function buildGridCellV2(opts: {
   const cacheKey = effectiveReadOnly ? `${column.id}:ro${embeddedSuffix}` : `${column.id}:rw${embeddedSuffix}`;
 
   // Try to get from cache first (fast path)
-  if (value && typeof value === "object") {
-    const columnCache = cellCache.get(value);
-    const cached = columnCache?.get(cacheKey);
-    if (cached) {
-      if (process.env.NODE_ENV === "development") {
-        cacheHits++;
-      }
-      return cached;
-    }
+  const cached = tryGetCachedCell(value, cacheKey);
+  if (cached) {
+    return cached;
   }
 
   const rawValue = value?.value;
@@ -963,28 +933,7 @@ export function buildGridCellV2(opts: {
 }
 
 // ============================================================================
-// Development Utilities
+// Development Utilities (re-exported from shared)
 // ============================================================================
 
-/**
- * Get cache statistics (development only)
- */
-export function getCellFactoryStats(): { hits: number; misses: number; hitRate: string } {
-  const total = cacheHits + cacheMisses;
-  const hitRate = total > 0 ? ((cacheHits / total) * 100).toFixed(1) : "0";
-  return { hits: cacheHits, misses: cacheMisses, hitRate: `${hitRate}%` };
-}
-
-/**
- * Reset cache statistics (development only)
- */
-export function resetCellFactoryStats(): void {
-  cacheHits = 0;
-  cacheMisses = 0;
-}
-
-// Development helper
-if (typeof window !== "undefined" && process.env.NODE_ENV === "development") {
-  (window as any).__cellFactoryStats = getCellFactoryStats;
-  (window as any).__resetCellFactoryStats = resetCellFactoryStats;
-}
+export { getCellFactoryStats, resetCellFactoryStats };

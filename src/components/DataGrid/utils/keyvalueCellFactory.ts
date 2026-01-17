@@ -281,10 +281,14 @@ function mapUnknownToRows(data: unknown): GridRowModel[] {
  * Build a GridCell for a Redis value
  */
 export function buildKeyValueCell(opts: KeyValueCellOptions): GridCell {
-  const { value, column, readOnly = false } = opts;
+  const { value, column, readOnly = false, keyType } = opts;
 
   const cellValue = value as CellValue | null | undefined;
   const rawValue = cellValue?.value;
+  const isPrimaryKey = column.meta?.is_pk ?? false;
+  const isTypeReadOnly = keyType === 'list' || keyType === 'set' || keyType === 'stream';
+  const isZsetReadOnly = keyType === 'zset' && column.field !== 'score';
+  const isReadOnly = readOnly || isPrimaryKey || isTypeReadOnly || isZsetReadOnly;
 
   // Handle null/undefined
   if (rawValue === null || rawValue === undefined) {
@@ -292,8 +296,8 @@ export function buildKeyValueCell(opts: KeyValueCellOptions): GridCell {
       kind: GridCellKind.Text,
       data: '',
       displayData: '',
-      allowOverlay: !readOnly,
-      readonly: readOnly,
+      allowOverlay: !isReadOnly,
+      readonly: isReadOnly,
     };
   }
 
@@ -311,8 +315,8 @@ export function buildKeyValueCell(opts: KeyValueCellOptions): GridCell {
         isPrimaryKey: false,
       },
       copyData: numStr,
-      allowOverlay: !readOnly,
-      readonly: readOnly,
+      allowOverlay: !isReadOnly,
+      readonly: isReadOnly,
       contentAlign: 'right',
     };
   }
@@ -352,8 +356,8 @@ export function buildKeyValueCell(opts: KeyValueCellOptions): GridCell {
         dbType: 'json',
       },
       copyData: jsonStr,
-      allowOverlay: !readOnly,
-      readonly: readOnly,
+      allowOverlay: !isReadOnly,
+      readonly: isReadOnly,
     };
   }
 
@@ -394,8 +398,8 @@ export function buildKeyValueCell(opts: KeyValueCellOptions): GridCell {
       dbType: 'text',
     },
     copyData: strValue,
-    allowOverlay: !readOnly,
-    readonly: readOnly,
+    allowOverlay: !isReadOnly,
+    readonly: isReadOnly,
   };
 }
 

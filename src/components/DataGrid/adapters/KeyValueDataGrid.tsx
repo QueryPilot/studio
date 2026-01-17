@@ -15,7 +15,8 @@ import { DataGridEmptyState, DataGridErrorState } from '../components/DataGridSt
 import { useKeyValueData } from '../hooks/useKeyValueData';
 import { useCrudStore } from '@/stores/crudStore';
 import { useDataGridRenderers } from '../renderers';
-import type { GridRowInsertEvent, GridRowDeleteEvent } from '../types';
+import type { GridRowInsertEvent, GridRowDeleteEvent, GridRowModel } from '../types';
+import type { CellValue } from '@/types';
 import { cn } from '@/lib/utils';
 import { logger } from '@/lib/logger';
 
@@ -78,22 +79,45 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
     [data, stageCommand]
   );
 
+  const extractRowValues = useCallback((row: GridRowModel): Record<string, unknown> => {
+    const values: Record<string, unknown> = {};
+    for (const [key, cell] of Object.entries(row)) {
+      if (key.startsWith('__')) {
+        continue;
+      }
+      if (cell && typeof cell === 'object' && 'value' in cell) {
+        values[key] = (cell as CellValue).value;
+      } else {
+        values[key] = cell;
+      }
+    }
+    return values;
+  }, []);
+
   // Handle row insert
   const handleRowInsert = useCallback(
     (event: GridRowInsertEvent) => {
+      if (data.currentKey?.type === 'stream') {
+        logger.warn('keyvalue-grid', 'Insert ignored for stream keys');
+        return undefined;
+      }
       for (const row of event.rows) {
-        const cmd = data.createInsertCommand(row as Record<string, unknown>);
+        const cmd = data.createInsertCommand(extractRowValues(row));
         stageCommand(cmd);
       }
       logger.info('keyvalue-grid', `Staged ${event.rows.length} insert commands`);
       return undefined;
     },
-    [data, stageCommand]
+    [data, stageCommand, extractRowValues]
   );
 
   // Handle row delete
   const handleRowDelete = useCallback(
     (event: GridRowDeleteEvent) => {
+      if (data.currentKey?.type === 'list' || data.currentKey?.type === 'zset' || data.currentKey?.type === 'stream') {
+        logger.warn('keyvalue-grid', 'Row delete ignored for unsupported key type');
+        return undefined;
+      }
       for (const row of event.rows) {
         const cmd = data.createDeleteCommand(row);
         stageCommand(cmd);
