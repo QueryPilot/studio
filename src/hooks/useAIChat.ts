@@ -5,18 +5,20 @@ import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { useEffect } from "react";
 import { DefaultChatTransport } from "ai";
+import { useWorkspaceContext } from "./useWorkspaceContext";
 
 export interface UseAIChatOptions {
   onError?: (error: Error) => void;
 }
 
 /**
- * Custom hook that wraps AI SDK's useChat with connection context and provider/model injection.
- * Automatically injects connection context headers from the workspace store.
+ * Custom hook that wraps AI SDK's useChat with workspace context and provider/model injection.
+ * Automatically injects workspace context (connection, active table, etc.) into the request body.
  */
 export function useAIChat(options?: UseAIChatOptions) {
   const { connectionId, database, schema } = useWorkspaceSelectionStore();
   const { selectedProvider, selectedModel, loadProviders } = useAIChatStore();
+  const workspaceContext = useWorkspaceContext(connectionId);
 
   // Load providers on mount to ensure fresh data
   useEffect(() => {
@@ -35,6 +37,7 @@ export function useAIChat(options?: UseAIChatOptions) {
     chatId,
     provider: selectedProvider,
     model: selectedModel,
+    context: workspaceContext,
   });
 
   const chatResult = useChat({
@@ -44,11 +47,16 @@ export function useAIChat(options?: UseAIChatOptions) {
       body: {
         provider: selectedProvider,
         model: selectedModel,
+        context: {
+          ...workspaceContext,
+          // Ensure database and schema from selection store
+          database: database || workspaceContext.database,
+          schema: schema || workspaceContext.schema,
+        },
       },
       headers: {
+        // Keep connection ID in header for backward compatibility and rate limiting
         "X-Connection-Id": connectionId || "",
-        "X-Connection-Database": database || "",
-        "X-Connection-Schema": schema || "",
       },
     }),
     onError: (error) => {
