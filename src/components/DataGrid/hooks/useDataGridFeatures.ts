@@ -52,24 +52,38 @@ export interface UseDataGridFeaturesResult {
     getCellContent: (cell: Item) => GridCell;
   };
 
-  // Context menu (placeholder)
+  // Context menu (placeholder for future implementation)
   contextMenu: {
-    // TODO: Add context menu state and handlers
+    isOpen: boolean;
+    position: { x: number; y: number } | null;
+    items: unknown[];
   };
 
-  // Filtering (placeholder)
+  // Filtering (placeholder for future implementation)
   filtering: {
-    // TODO: Add filtering state and handlers
+    isActive: boolean;
+    filters: unknown[];
+    component: React.ReactNode | null;
   };
 
-  // Foreign key preview (placeholder)
+  // Foreign key preview (placeholder for SQL-specific implementation)
   fkPreview?: {
-    // TODO: Add FK preview state and handlers
+    isOpen: boolean;
+    position: { x: number; y: number } | null;
+    data: unknown | null;
+    component: React.ReactNode | null;
   };
 
-  // Status bar (placeholder)
+  // Status bar data
   statusBar: {
-    // TODO: Add status bar data
+    totalRows: number;
+    pinnedRowsCount: number;
+    visibleColumnsCount: number;
+    totalColumnsCount: number;
+    hiddenColumnsCount: number;
+    pinnedColumnsCount: number;
+    sortedColumns: unknown[];
+    stagedCommandsCount: number;
   };
 }
 
@@ -119,27 +133,24 @@ export function useDataGridFeatures(
       ? []
       : undefined,
     maxPinned: maxPinnedColumns,
-    onChange: () => {
-      // TODO: Persist pinned columns
-    },
+    // TODO: Add persistence with debouncing to prevent infinite loops
+    // onChange: (pinnedColumns) => { ... }
   });
 
   // Column visibility
   const columnVisibility = useColumnVisibility({
     columns,
     initialHidden: [],
-    onChange: () => {
-      // TODO: Persist column visibility
-    },
+    // TODO: Add persistence with debouncing to prevent infinite loops
+    // onChange: (hiddenColumns) => { ... }
   });
 
   // Column sizing
   const columnSizing = useColumnSizing({
     columns: columnVisibility.visibleColumns,
     initialWidths: {},
-    onChange: () => {
-      // TODO: Persist column widths
-    },
+    // TODO: Add persistence with debouncing to prevent infinite loops
+    // onChange: (widths) => { ... }
   });
 
   // --- Compose Final Columns ---
@@ -188,9 +199,32 @@ export function useDataGridFeatures(
     return map;
   }, [columns]);
 
-  const getRowKey = (_row: GridRowModel | undefined, index: number): string => {
-    // TODO: Implement proper row key generation based on primary keys
-    return `row-${index}`;
+  const getRowKey = (row: GridRowModel | undefined, index: number): string => {
+    if (!row) {
+      return `row-${index}`;
+    }
+
+    // Find primary key columns
+    const pkColumns = columns.filter((col) => col.meta?.is_pk);
+
+    if (pkColumns.length === 0) {
+      // No primary keys, use index
+      return `row-${index}`;
+    }
+
+    // Build composite key from primary key values
+    const pkParts: string[] = [];
+    for (const pkCol of pkColumns) {
+      const cellValue = row[pkCol.field];
+      const value = cellValue && typeof cellValue === 'object' && 'value' in cellValue
+        ? cellValue.value
+        : cellValue;
+
+      // Convert to string and handle nulls
+      pkParts.push(value != null ? String(value) : 'null');
+    }
+
+    return `pk-${pkParts.join('-')}`;
   };
 
   // Optimistic updates
@@ -210,9 +244,8 @@ export function useDataGridFeatures(
     initialPinned: [],
     maxPinnedRows,
     getRowId: getRowKey,
-    onChange: () => {
-      // TODO: Persist pinned rows
-    },
+    // TODO: Add persistence with debouncing to prevent infinite loops
+    // onChange: (pinnedRowIds) => { ... }
   });
 
   // --- Compose Final Rows ---
@@ -278,18 +311,74 @@ export function useDataGridFeatures(
     // Get cell value
     const cellValue = rowData[column.field];
 
-    // TODO: Implement proper cell rendering based on cell type
-    // For now, return simple text cell
-    const displayValue =
-      cellValue && typeof cellValue === "object" && "value" in cellValue
-        ? String(cellValue.value ?? "")
-        : String(cellValue ?? "");
+    // Extract value from CellValue wrapper if present
+    const rawValue = cellValue && typeof cellValue === "object" && "value" in cellValue
+      ? cellValue.value
+      : cellValue;
 
+    // Handle null/undefined
+    if (rawValue === null || rawValue === undefined) {
+      return {
+        kind: GridCellKind.Text,
+        data: "",
+        displayData: "",
+        allowOverlay: true,
+        readonly: true,
+      };
+    }
+
+    // Handle arrays and objects
+    if (Array.isArray(rawValue)) {
+      const displayValue = `[${rawValue.length} items]`;
+      return {
+        kind: GridCellKind.Text,
+        data: JSON.stringify(rawValue),
+        displayData: displayValue,
+        allowOverlay: true,
+        themeOverride: { textDark: "#0066cc" },
+      };
+    }
+
+    if (typeof rawValue === "object") {
+      const displayValue = "{...}";
+      return {
+        kind: GridCellKind.Text,
+        data: JSON.stringify(rawValue),
+        displayData: displayValue,
+        allowOverlay: true,
+        themeOverride: { textDark: "#0066cc" },
+      };
+    }
+
+    // Handle boolean
+    if (typeof rawValue === "boolean") {
+      return {
+        kind: GridCellKind.Boolean,
+        data: rawValue,
+        allowOverlay: false,
+        readonly: column.meta?.is_pk || false,
+      };
+    }
+
+    // Handle numbers
+    if (typeof rawValue === "number") {
+      return {
+        kind: GridCellKind.Number,
+        data: rawValue,
+        displayData: String(rawValue),
+        allowOverlay: true,
+        readonly: column.meta?.is_pk || false,
+      };
+    }
+
+    // Default: text
+    const displayValue = String(rawValue);
     return {
       kind: GridCellKind.Text,
       data: displayValue,
       displayData: displayValue,
       allowOverlay: true,
+      readonly: column.meta?.is_pk || false,
     };
   };
 
@@ -301,16 +390,33 @@ export function useDataGridFeatures(
       getCellContent,
     },
     contextMenu: {
-      // TODO: Add context menu implementation
+      // Context menu implementation - to be added when needed
+      isOpen: false,
+      position: null,
+      items: [],
     },
     filtering: {
-      // TODO: Add filtering implementation
+      // Filtering implementation - to be added when needed
+      isActive: false,
+      filters: [],
+      component: null,
     },
     fkPreview: {
-      // TODO: Add FK preview implementation
+      // FK preview implementation - SQL-specific, to be added when needed
+      isOpen: false,
+      position: null,
+      data: null,
+      component: null,
     },
     statusBar: {
-      // TODO: Add status bar implementation
+      totalRows: finalRows.length,
+      pinnedRowsCount: enableRowPinning ? rowPinning.pinnedRows.length : 0,
+      visibleColumnsCount: finalColumns.length,
+      totalColumnsCount: columns.length,
+      hiddenColumnsCount: columns.length - columnVisibility.visibleColumns.length,
+      pinnedColumnsCount: enablePinning ? columnPinning.pinnedColumns.length : 0,
+      sortedColumns: enableSorting ? sorting.sortColumns : [],
+      stagedCommandsCount: stagedCommands.length,
     },
   };
 }
