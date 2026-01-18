@@ -5,7 +5,6 @@ import React, {
   memo,
   useCallback,
   Suspense,
-  useMemo,
   useEffect,
 } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -29,7 +28,7 @@ import { ObjectDefinition } from "@/components/ObjectDefinition";
 import { QueryPanel } from "@/components/QueryPanel";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
-import { isMySQLCompatible } from "@/types/connection";
+import { isMySQLCompatible, DbType } from "@/types/connection";
 import { Skeleton } from "../ui/skeleton";
 import { type TabMetadata } from "@/types/workbench";
 import { ERDPanel } from "@/components/Erd";
@@ -142,19 +141,6 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
         updateTabMetadata(panelId, tabId, { viewType: activeView });
       }
     }, [activeView, metadata, panelId, tabId, updateTabMetadata]);
-
-    // Compute tableGridId unconditionally (before any early returns)
-    // Key by connection:schema:table so preferences persist across tabs/sessions
-    const tableGridId = useMemo(() => {
-      if (!metadata || metadata.type !== "table") return undefined;
-      const connection: string =
-        typeof metadata.connectionId === "string" && metadata.connectionId
-          ? metadata.connectionId
-          : activeConnectionId || "unknown";
-      const schemaName: string = metadata.schema || "public";
-      const tableName: string = metadata.table || "";
-      return `table:${connection}:${schemaName}:${tableName}`;
-    }, [activeConnectionId, metadata]);
 
     if (type === "query") {
       return (
@@ -364,14 +350,13 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 {activeView === "data" && (
                   <FeatureErrorBoundary featureName="Data Grid">
                     <SqlDataGrid
-                      gridId={tableGridId ?? `table:${tabId}`}
                       connectionId={
                         activeConnectionId || metadata.connectionId || ""
                       }
                       database={metadata.database || ""}
                       schema={metadata.schema}
                       table={metadata.table || ""}
-                      isView={isView}
+                      dbType={dbType ?? DbType.PostgreSQL}
                       kind={metadata.kind}
                       className="h-full"
                       onActionsChange={handleViewActionsChange}
