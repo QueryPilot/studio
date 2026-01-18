@@ -97,12 +97,12 @@ export class RedisAdapter implements BaseAdapter, RichKeyValueOperable {
   }
 
   async setKeyTTL(key: string, seconds: number): Promise<boolean> {
-    const result = await this.execute({ type: 'set_ttl', key, seconds });
+    const result = await this.execute({ type: 'setTtl', key, seconds });
     return result.type === 'bool' ? result.data : false;
   }
 
   async executeRaw(command: string, args: string[]): Promise<RedisValue> {
-    const result = await this.execute({ type: 'execute_raw', command, args });
+    const result = await this.execute({ type: 'executeRaw', command, args });
     if (result.type === 'value' && result.data) {
       return result.data;
     }
@@ -110,17 +110,17 @@ export class RedisAdapter implements BaseAdapter, RichKeyValueOperable {
   }
 
   async getDatabaseSize(): Promise<number> {
-    const result = await this.execute({ type: 'db_size' });
+    const result = await this.execute({ type: 'dbSize' });
     return result.type === 'count' ? result.data : 0;
   }
 
   async selectDatabase(index: number): Promise<void> {
-    await this.execute({ type: 'select_db', index });
+    await this.execute({ type: 'selectDb', index });
     this._currentDb = index;
   }
 
   async getServerInfo(section?: string): Promise<Record<string, string>> {
-    const result = await this.execute({ type: 'server_info', section });
+    const result = await this.execute({ type: 'serverInfo', section });
     return result.type === 'server_info' ? result.data : {};
   }
 
@@ -129,67 +129,67 @@ export class RedisAdapter implements BaseAdapter, RichKeyValueOperable {
   }
 
   async hashGetAll(key: string): Promise<Record<string, string>> {
-    const result = await this.execute({ type: 'hash_get_all', key });
+    const result = await this.execute({ type: 'hashGetAll', key });
     return result.type === 'hash' ? result.data : {};
   }
 
   async hashSet(key: string, fields: Record<string, string>): Promise<number> {
-    const result = await this.execute({ type: 'hash_set', key, fields });
+    const result = await this.execute({ type: 'hashSet', key, fields });
     return result.type === 'count' ? result.data : 0;
   }
 
   async hashDelete(key: string, fields: string[]): Promise<number> {
-    const result = await this.execute({ type: 'hash_delete', key, fields });
+    const result = await this.execute({ type: 'hashDelete', key, fields });
     return result.type === 'count' ? result.data : 0;
   }
 
   async listRange(key: string, start: number, stop: number): Promise<string[]> {
-    const result = await this.execute({ type: 'list_range', key, start, stop });
+    const result = await this.execute({ type: 'listRange', key, start, stop });
     return result.type === 'list' ? result.data : [];
   }
 
   async listPush(key: string, values: string[], side: 'left' | 'right'): Promise<number> {
-    const result = await this.execute({ type: 'list_push', key, values, side });
+    const result = await this.execute({ type: 'listPush', key, values, side });
     return result.type === 'count' ? result.data : 0;
   }
 
   async listLen(key: string): Promise<number> {
-    const result = await this.execute({ type: 'list_len', key });
+    const result = await this.execute({ type: 'listLen', key });
     return result.type === 'count' ? result.data : 0;
   }
 
   async setMembers(key: string): Promise<string[]> {
-    const result = await this.execute({ type: 'set_members', key });
+    const result = await this.execute({ type: 'setMembers', key });
     return result.type === 'set' ? result.data : [];
   }
 
   async setAdd(key: string, members: string[]): Promise<number> {
-    const result = await this.execute({ type: 'set_add', key, members });
+    const result = await this.execute({ type: 'setAdd', key, members });
     return result.type === 'count' ? result.data : 0;
   }
 
   async setRemove(key: string, members: string[]): Promise<number> {
-    const result = await this.execute({ type: 'set_remove', key, members });
+    const result = await this.execute({ type: 'setRemove', key, members });
     return result.type === 'count' ? result.data : 0;
   }
 
   async zsetRange(key: string, start: number, stop: number, withScores?: boolean): Promise<ZSetMember[]> {
-    const result = await this.execute({ type: 'zset_range', key, start, stop, with_scores: withScores ?? false });
+    const result = await this.execute({ type: 'zSetRange', key, start, stop, with_scores: withScores ?? false });
     return result.type === 'zset' ? result.data : [];
   }
 
   async zsetAdd(key: string, members: ZSetMember[]): Promise<number> {
-    const result = await this.execute({ type: 'zset_add', key, members });
+    const result = await this.execute({ type: 'zSetAdd', key, members });
     return result.type === 'count' ? result.data : 0;
   }
 
   async streamRange(key: string, start: string, end: string, count?: number): Promise<StreamEntry[]> {
-    const result = await this.execute({ type: 'stream_range', key, start, end, count });
+    const result = await this.execute({ type: 'streamRange', key, start, end, count });
     return result.type === 'stream' ? result.data : [];
   }
 
   async streamLen(key: string): Promise<number> {
-    const result = await this.execute({ type: 'stream_len', key });
+    const result = await this.execute({ type: 'streamLen', key });
     return result.type === 'count' ? result.data : 0;
   }
 }

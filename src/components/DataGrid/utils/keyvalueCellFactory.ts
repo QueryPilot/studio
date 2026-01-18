@@ -9,6 +9,7 @@ import { GridCellKind, type GridCell } from '@glideapps/glide-data-grid';
 import type { GridColumnV2, GridRowModel } from '../types';
 import type { RedisType } from '@/adapters/types/redis';
 import type { CellValue } from '@/types';
+import { logger } from '@/lib/logger';
 
 // ============================================================================
 // Types
@@ -63,6 +64,7 @@ export function getColumnsForRedisType(type: RedisType): GridColumnV2[] {
           title: 'Value',
           name: 'Value',
           width: 500,
+          type: 'text',
           meta: createRedisMeta('value', 'text', false, false, 0),
         },
       ];
@@ -75,6 +77,7 @@ export function getColumnsForRedisType(type: RedisType): GridColumnV2[] {
           title: 'Field',
           name: 'Field',
           width: 200,
+          type: 'text',
           meta: createRedisMeta('field', 'text', false, true, 0),
         },
         {
@@ -83,6 +86,7 @@ export function getColumnsForRedisType(type: RedisType): GridColumnV2[] {
           title: 'Value',
           name: 'Value',
           width: 400,
+          type: 'text',
           meta: createRedisMeta('value', 'text', false, false, 1),
         },
       ];
@@ -95,6 +99,7 @@ export function getColumnsForRedisType(type: RedisType): GridColumnV2[] {
           title: 'Index',
           name: 'Index',
           width: 80,
+          type: 'integer',
           meta: createRedisMeta('index', 'integer', false, true, 0),
         },
         {
@@ -103,6 +108,7 @@ export function getColumnsForRedisType(type: RedisType): GridColumnV2[] {
           title: 'Value',
           name: 'Value',
           width: 400,
+          type: 'text',
           meta: createRedisMeta('value', 'text', false, false, 1),
         },
       ];
@@ -115,6 +121,7 @@ export function getColumnsForRedisType(type: RedisType): GridColumnV2[] {
           title: 'Member',
           name: 'Member',
           width: 400,
+          type: 'text',
           meta: createRedisMeta('member', 'text', false, true, 0),
         },
       ];
@@ -127,6 +134,7 @@ export function getColumnsForRedisType(type: RedisType): GridColumnV2[] {
           title: 'Score',
           name: 'Score',
           width: 120,
+          type: 'double',
           meta: createRedisMeta('score', 'double', false, false, 0),
         },
         {
@@ -135,6 +143,7 @@ export function getColumnsForRedisType(type: RedisType): GridColumnV2[] {
           title: 'Member',
           name: 'Member',
           width: 400,
+          type: 'text',
           meta: createRedisMeta('member', 'text', false, true, 1),
         },
       ];
@@ -147,6 +156,7 @@ export function getColumnsForRedisType(type: RedisType): GridColumnV2[] {
           title: 'ID',
           name: 'ID',
           width: 180,
+          type: 'text',
           meta: createRedisMeta('id', 'text', false, true, 0),
         },
         {
@@ -155,6 +165,7 @@ export function getColumnsForRedisType(type: RedisType): GridColumnV2[] {
           title: 'Fields',
           name: 'Fields',
           width: 400,
+          type: 'json',
           meta: createRedisMeta('fields', 'json', false, false, 1),
         },
       ];
@@ -168,6 +179,7 @@ export function getColumnsForRedisType(type: RedisType): GridColumnV2[] {
           title: 'Value',
           name: 'Value',
           width: 500,
+          type: 'text',
           meta: createRedisMeta('value', 'text', true, false, 0),
         },
       ];
@@ -289,6 +301,18 @@ export function buildKeyValueCell(opts: KeyValueCellOptions): GridCell {
   const isTypeReadOnly = keyType === 'list' || keyType === 'set' || keyType === 'stream';
   const isZsetReadOnly = keyType === 'zset' && column.field !== 'score';
   const isReadOnly = readOnly || isPrimaryKey || isTypeReadOnly || isZsetReadOnly;
+
+  // Debug logging for cell editability
+  logger.debug('keyvalue-cell', 'buildKeyValueCell', {
+    columnField: column.field,
+    keyType,
+    readOnly,
+    isPrimaryKey,
+    isTypeReadOnly,
+    isZsetReadOnly,
+    isReadOnly,
+    willBeEditable: !isReadOnly,
+  });
 
   // Handle null/undefined
   if (rawValue === null || rawValue === undefined) {

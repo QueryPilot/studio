@@ -35,24 +35,24 @@ export type KeyValueOperation =
   | { type: 'scan'; pattern: string; cursor: number; count: number }
   | { type: 'type'; key: string }
   | { type: 'ttl'; key: string }
-  | { type: 'set_ttl'; key: string; seconds: number }
-  | { type: 'execute_raw'; command: string; args: string[] }
-  | { type: 'db_size' }
-  | { type: 'select_db'; index: number }
-  | { type: 'server_info'; section?: string }
-  | { type: 'hash_get_all'; key: string }
-  | { type: 'hash_set'; key: string; fields: Record<string, string> }
-  | { type: 'hash_delete'; key: string; fields: string[] }
-  | { type: 'list_range'; key: string; start: number; stop: number }
-  | { type: 'list_push'; key: string; values: string[]; side: 'left' | 'right' }
-  | { type: 'list_len'; key: string }
-  | { type: 'set_members'; key: string }
-  | { type: 'set_add'; key: string; members: string[] }
-  | { type: 'set_remove'; key: string; members: string[] }
-  | { type: 'zset_range'; key: string; start: number; stop: number; with_scores: boolean }
-  | { type: 'zset_add'; key: string; members: ZSetMember[] }
-  | { type: 'stream_range'; key: string; start: string; end: string; count?: number }
-  | { type: 'stream_len'; key: string };
+  | { type: 'setTtl'; key: string; seconds: number }
+  | { type: 'executeRaw'; command: string; args: string[] }
+  | { type: 'dbSize' }
+  | { type: 'selectDb'; index: number }
+  | { type: 'serverInfo'; section?: string }
+  | { type: 'hashGetAll'; key: string }
+  | { type: 'hashSet'; key: string; fields: Record<string, string> }
+  | { type: 'hashDelete'; key: string; fields: string[] }
+  | { type: 'listRange'; key: string; start: number; stop: number }
+  | { type: 'listPush'; key: string; values: string[]; side: 'left' | 'right' }
+  | { type: 'listLen'; key: string }
+  | { type: 'setMembers'; key: string }
+  | { type: 'setAdd'; key: string; members: string[] }
+  | { type: 'setRemove'; key: string; members: string[] }
+  | { type: 'zSetRange'; key: string; start: number; stop: number; with_scores: boolean }
+  | { type: 'zSetAdd'; key: string; members: ZSetMember[] }
+  | { type: 'streamRange'; key: string; start: string; end: string; count?: number }
+  | { type: 'streamLen'; key: string };
 
 export type KeyValueResult =
   | { type: 'value'; data: RedisValue | null }

@@ -16,7 +16,6 @@ import { BreadcrumbNav } from '../components/BreadcrumbNav';
 import { useDocumentData } from '../hooks/useDocumentData';
 import { useCrudStore } from '@/stores/crudStore';
 import type { GridEditCommitEvent, GridRowInsertEvent, GridRowDeleteEvent, GridRowModel } from '../types';
-import type { CellValue } from '@/types';
 import { cn } from '@/lib/utils';
 import { logger } from '@/lib/logger';
 
@@ -185,7 +184,6 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       enableSorting={false}
       enableExport={true}
       enableRowPinning={false}
-      enableFKPreview={false}
       readOnly={readOnly}
       className={cn('document-datagrid', className)}
     />

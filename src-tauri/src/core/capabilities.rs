@@ -291,7 +291,7 @@ pub struct IndexInfo {
 // ============ Redis-specific types ============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "value")]
+#[serde(tag = "type", content = "value", rename_all = "lowercase")]
 pub enum RedisValue {
     Nil,
     String(String),
