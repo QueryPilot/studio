@@ -14,8 +14,7 @@ import { BaseDataGrid } from '../base/BaseDataGrid';
 import { KeyHeader } from '../components/KeyHeader';
 import { useKeyValueData } from '../hooks/useKeyValueData';
 import { useCrudStore } from '@/stores/crudStore';
-import type { GridEditCommitEvent, GridRowInsertEvent, GridRowDeleteEvent, GridRowModel } from '../types';
-import type { CellValue } from '@/types';
+import type { GridEditCommitEvent } from '../types';
 import { cn } from '@/lib/utils';
 import { logger } from '@/lib/logger';
 import { Input } from '@/components/ui/input';
@@ -219,54 +218,8 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
     [data, stageCommand]
   );
 
-  const extractRowValues = useCallback((row: GridRowModel): Record<string, unknown> => {
-    const values: Record<string, unknown> = {};
-    for (const [key, cell] of Object.entries(row)) {
-      if (key.startsWith('__')) {
-        continue;
-      }
-      if (cell && typeof cell === 'object' && 'value' in cell) {
-        values[key] = (cell as CellValue).value;
-      } else {
-        values[key] = cell;
-      }
-    }
-    return values;
-  }, []);
-
-  // Handle row insert
-  const handleRowInsert = useCallback(
-    (event: GridRowInsertEvent) => {
-      if (data.currentKey?.type === 'stream') {
-        logger.warn('keyvalue-grid', 'Insert ignored for stream keys');
-        return undefined;
-      }
-      for (const row of event.rows) {
-        const cmd = data.createInsertCommand(extractRowValues(row));
-        stageCommand(cmd);
-      }
-      logger.info('keyvalue-grid', `Staged ${event.rows.length} insert commands`);
-      return undefined;
-    },
-    [data, stageCommand, extractRowValues]
-  );
-
-  // Handle row delete
-  const handleRowDelete = useCallback(
-    (event: GridRowDeleteEvent) => {
-      if (data.currentKey?.type === 'list' || data.currentKey?.type === 'zset' || data.currentKey?.type === 'stream') {
-        logger.warn('keyvalue-grid', 'Row delete ignored for unsupported key type');
-        return undefined;
-      }
-      for (const row of event.rows) {
-        const cmd = data.createDeleteCommand(row);
-        stageCommand(cmd);
-      }
-      logger.info('keyvalue-grid', `Staged ${event.rows.length} delete commands`);
-      return undefined;
-    },
-    [data, stageCommand]
-  );
+  // Note: Row insert/delete now handled by BaseDataGrid via commandFactory
+  // TODO: Implement CrudCommandFactory for keyvalue paradigm
 
   // Handle refresh
   const handleRefresh = useCallback(() => {
@@ -316,8 +269,6 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
       estimatedTotal={data.rows.length}
       isEstimatedCount={false}
       onCellEditCommit={isBrowserMode ? undefined : handleCellEditCommit}
-      onRowInsert={isBrowserMode ? undefined : handleRowInsert}
-      onRowDelete={isBrowserMode ? undefined : handleRowDelete}
       topToolbar={topToolbar}
       connectionId={connectionId}
       database={String(database)}
@@ -328,6 +279,7 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
       enableExport={true}
       enableRowPinning={false}
       readOnly={readOnly}
+      onRefetch={data.refetch}
       className={cn('keyvalue-datagrid', className)}
     />
   );

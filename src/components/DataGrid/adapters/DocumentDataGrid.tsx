@@ -15,7 +15,7 @@ import { BaseDataGrid } from '../base/BaseDataGrid';
 import { BreadcrumbNav } from '../components/BreadcrumbNav';
 import { useDocumentData } from '../hooks/useDocumentData';
 import { useCrudStore } from '@/stores/crudStore';
-import type { GridEditCommitEvent, GridRowInsertEvent, GridRowDeleteEvent, GridRowModel } from '../types';
+import type { GridEditCommitEvent } from '../types';
 import { cn } from '@/lib/utils';
 import { logger } from '@/lib/logger';
 
@@ -90,54 +90,8 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
     [data, stageCommand]
   );
 
-  const extractRowValues = useCallback((row: GridRowModel): Record<string, unknown> => {
-    const values: Record<string, unknown> = {};
-    for (const [key, cell] of Object.entries(row)) {
-      if (key.startsWith('__')) {
-        continue;
-      }
-      if (cell && typeof cell === 'object' && 'value' in cell) {
-        values[key] = (cell).value;
-      } else {
-        values[key] = cell;
-      }
-    }
-    return values;
-  }, []);
-
-  // Handle row insert
-  const handleRowInsert = useCallback(
-    (event: GridRowInsertEvent) => {
-      if (data.currentPath.length > 0) {
-        logger.warn('document-grid', 'Insert ignored for nested paths');
-        return undefined;
-      }
-      for (const row of event.rows) {
-        const cmd = data.createInsertCommand(extractRowValues(row));
-        stageCommand(cmd);
-      }
-      logger.info('document-grid', `Staged ${event.rows.length} insert commands`);
-      return undefined;
-    },
-    [data, stageCommand, extractRowValues]
-  );
-
-  // Handle row delete
-  const handleRowDelete = useCallback(
-    (event: GridRowDeleteEvent) => {
-      if (data.currentPath.length > 0) {
-        logger.warn('document-grid', 'Delete ignored for nested paths');
-        return undefined;
-      }
-      for (const row of event.rows) {
-        const cmd = data.createDeleteCommand(row);
-        stageCommand(cmd);
-      }
-      logger.info('document-grid', `Staged ${event.rows.length} delete commands`);
-      return undefined;
-    },
-    [data, stageCommand]
-  );
+  // Note: Row insert/delete now handled by BaseDataGrid via commandFactory
+  // TODO: Implement CrudCommandFactory for document paradigm
 
   // Breadcrumb navigation toolbar
   const topToolbar = useMemo(
@@ -173,8 +127,6 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       isEstimatedCount={false}
       onCellActivated={handleCellActivated}
       onCellEditCommit={handleCellEditCommit}
-      onRowInsert={handleRowInsert}
-      onRowDelete={handleRowDelete}
       topToolbar={topToolbar}
       connectionId={connectionId}
       database={database}
@@ -185,6 +137,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       enableExport={true}
       enableRowPinning={false}
       readOnly={readOnly}
+      onRefetch={data.refetch}
       className={cn('document-datagrid', className)}
     />
   );

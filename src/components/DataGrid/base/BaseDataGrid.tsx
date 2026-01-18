@@ -7,12 +7,12 @@ import {
   type Rectangle,
   type GridMouseEventArgs,
 } from '@glideapps/glide-data-grid';
+import { toast } from 'sonner';
 import type {
   GridRowModel,
   GridColumnV2,
   GridEditCommitEvent,
-  GridRowInsertEvent,
-  GridRowDeleteEvent,
+  CrudCommandFactory,
 } from '../types';
 import type { ContextMenuTarget } from '../components/UnifiedContextMenu';
 import type { QuickFilterRef } from '../components/QuickFilter';
@@ -26,7 +26,6 @@ import { FKPreviewPopover } from '../components/FKPreviewPopover';
 import { buildGridCellV2 } from '../utils/cellFactory';
 import { cn } from '@/lib/utils';
 import { useCommand } from '@/hooks/useCommand';
-import { toast } from 'sonner';
 import { openTableObject } from '@/utils/workbench/openers';
 
 // Hooks
@@ -40,12 +39,13 @@ import { useClipboardBridge } from '../hooks/useClipboardBridge';
 import { useFillOperations } from '../hooks/useFillOperations';
 import { useStagedChangesIndicator, hasStagedCellChange } from '../hooks/useStagedChangesIndicator';
 import { useCellHoverIcons } from '../hooks/useCellHoverIcons';
+import { useOptimisticRows } from '../hooks/useOptimisticRows';
 import { useGridPreferencesStore, upsertGridColumnsState } from '../stores';
 import { useCrudStore } from '@/stores/crudStore';
+import { useDataInvalidationStore } from '@/stores/dataInvalidationStore';
 
 // Utils
 import { createDrawHeader } from '../utils/headerUtils';
-import { exportToCSV } from '../utils/exportUtils';
 
 export interface BaseDataGridProps {
   // Core data (from data hooks)
@@ -64,10 +64,17 @@ export interface BaseDataGridProps {
   estimatedTotal?: number;
   isEstimatedCount?: boolean;
 
-  // CRUD operations (from data hooks)
+  /**
+   * Command factory for CRUD operations.
+   * BaseDataGrid owns all CRUD UI and uses this to create paradigm-specific commands.
+   * If not provided, CRUD operations are disabled.
+   */
+  commandFactory?: CrudCommandFactory;
+
+  /**
+   * Callback after a cell edit command is staged (for paradigm-specific post-processing)
+   */
   onCellEditCommit?: (event: GridEditCommitEvent) => void;
-  onRowInsert?: (event: GridRowInsertEvent) => void;
-  onRowDelete?: (event: GridRowDeleteEvent) => void;
 
   // Optional capabilities (paradigm-specific)
   onCellActivated?: (cell: Item) => boolean; // MongoDB drill-down
@@ -89,6 +96,12 @@ export interface BaseDataGridProps {
   tableName?: string;
   paradigm: 'sql' | 'document' | 'keyvalue';
 
+  // Entity type for views/materialized views
+  entityType?: 'table' | 'view' | 'materialized_view';
+  readOnlyReason?: string;
+  onRefreshMaterializedView?: () => void;
+  isRefreshingMatView?: boolean;
+
   // Feature toggles
   enableFiltering?: boolean;
   enableSorting?: boolean;
@@ -105,6 +118,16 @@ export interface BaseDataGridProps {
 
   // Dialect for SQL filtering
   dialect?: string;
+
+  // FK data (for context menu embed feature)
+  referencedTableColumns?: Record<string, Array<{ name: string; db_type: string }>>;
+  databaseType?: string;
+
+  /**
+   * Callback to refetch data after invalidation (provided by adapter)
+   * Used by data invalidation subscription to refresh data after CRUD commits
+   */
+  onRefetch?: () => void;
 }
 
 export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps) {
@@ -120,16 +143,22 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     dialect,
     enableFiltering = true,
     enableSorting = true,
-    enableExport = true,
+    enableExport: _enableExport = true,
     enableRowPinning = true,
     enableColumnManagement = true,
     enableClipboard = true,
     enableFillOperations = true,
     enableStagedChanges = true,
     readOnly = false,
-    onCellEditCommit,
-    onRowInsert,
-    onRowDelete,
+    // Command factory for CRUD
+    commandFactory,
+    onCellEditCommit: onCellEditCommitCallback,
+    // Entity type
+    entityType: _entityType,
+    readOnlyReason,
+    onRefreshMaterializedView,
+    isRefreshingMatView,
+    // Paradigm-specific
     onCellActivated,
     topToolbar,
     bottomToolbar,
@@ -137,7 +166,54 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     hoverIconsDrawCell,
     customGetCellContent,
     className,
+    // FK data
+    referencedTableColumns,
+    databaseType,
+    // Data invalidation
+    onRefetch,
   } = props;
+
+  // --- CRUD Store Integration ---
+  const { stageCommand, getTableKey, stagedCommands } = useCrudStore();
+  const tableKey = commandFactory
+    ? getTableKey({
+        connectionId: commandFactory.connectionId,
+        database: commandFactory.database ?? '',
+        schema: commandFactory.schema,
+        table: commandFactory.table,
+      })
+    : '';
+  const pendingChanges = stagedCommands.get(tableKey) ?? [];
+
+  // --- Data Invalidation Subscription ---
+  // When data is invalidated (e.g., after CRUD commit), refetch data and clear committed changes
+  useEffect(() => {
+    if (!commandFactory) return;
+
+    const unsubscribe = useDataInvalidationStore
+      .getState()
+      .subscribe(
+        commandFactory.connectionId,
+        commandFactory.database ?? '',
+        commandFactory.schema,
+        commandFactory.table,
+        async () => {
+          // Refetch data from the adapter
+          onRefetch?.();
+          // Clear committed changes since data is now fresh
+          const { clearCommittedChanges, getTableKey: getKey } = useCrudStore.getState();
+          const key = getKey({
+            connectionId: commandFactory.connectionId,
+            database: commandFactory.database ?? '',
+            schema: commandFactory.schema,
+            table: commandFactory.table,
+          });
+          clearCommittedChanges(key);
+        },
+      );
+
+    return unsubscribe;
+  }, [commandFactory, onRefetch]);
 
   // --- Refs ---
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -148,20 +224,22 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   const loadingMoreRef = useRef(false); // Ref-based guard to prevent duplicate fetches
 
   // Store refs for callbacks
-  const onCellEditCommitRef = useRef(onCellEditCommit);
-  const onRowInsertRef = useRef(onRowInsert);
-  const onRowDeleteRef = useRef(onRowDelete);
+  const onCellEditCommitRef = useRef(onCellEditCommitCallback);
+  const commandFactoryRef = useRef(commandFactory);
 
   useEffect(() => {
-    onCellEditCommitRef.current = onCellEditCommit;
-    onRowInsertRef.current = onRowInsert;
-    onRowDeleteRef.current = onRowDelete;
+    onCellEditCommitRef.current = onCellEditCommitCallback;
+    commandFactoryRef.current = commandFactory;
   });
 
   // --- State ---
   const [isGridFocused, setIsGridFocused] = useState(false);
   const [isEditingCell, setIsEditingCell] = useState(false);
+  const [showDetailsSheet, setShowDetailsSheet] = useState(false);
+
+  // Grid selection - managed internally
   const [gridSelection, setGridSelection] = useState<GridSelection | undefined>(undefined);
+
   const gridSelectionRef = useRef<GridSelection | undefined>(undefined);
   const contextMenuTargetRef = useRef<ContextMenuTarget | null>(null);
 
@@ -171,22 +249,32 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   const columnState = preferences?.columns ?? { order: [], widths: {}, visibility: {}, pinned: [] };
 
   // --- Filter Columns ---
+  // Convert GridColumnV2 to FilterColumnInfo for filter hooks
   const filterColumns = useMemo(() => {
-    return columns.filter(
-      (col) =>
-        !['_rowIndex', '_rowSelection'].includes(col.id) &&
-        col.meta?.db_type !== 'BYTEA' &&
-        col.meta?.db_type !== 'bytea' &&
-        col.meta?.db_type !== 'BLOB' &&
-        col.meta?.db_type !== 'blob'
-    );
+    return columns
+      .filter(
+        (col) =>
+          !['_rowIndex', '_rowSelection'].includes(col.id) &&
+          col.meta?.db_type !== 'BYTEA' &&
+          col.meta?.db_type !== 'bytea' &&
+          col.meta?.db_type !== 'BLOB' &&
+          col.meta?.db_type !== 'blob'
+      )
+      .map((col) => ({
+        name: col.name,
+        dataType: col.meta?.db_type ?? col.type ?? 'text',
+        nullable: col.meta?.nullable,
+        enumValues: col.meta?.enum_values,
+        isPrimaryKey: col.meta?.is_pk,
+        isForeignKey: col.meta?.is_fk,
+      }));
   }, [columns]);
 
   // --- Quick Filter with AI Support ---
   const { generateFilter: generateAIFilter, isLoading: isAIFilterLoading } = useAIFilter(
     filterColumns,
     tableName ?? '',
-    dialect ?? '',
+    (dialect ?? 'postgresql') as 'postgresql' | 'mysql' | 'sqlite' | 'mssql',
     {
       connectionId,
       schema,
@@ -199,11 +287,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     mode: quickFilterMode,
     error: quickFilterError,
     aiExplanation,
-    activeFilter,
+    activeFilter: _activeFilter,
     setValue: setQuickFilterValue,
     setMode: setQuickFilterMode,
     submit: handleFilterSubmit,
-    clear: handleFilterClear,
+    clear: _handleFilterClear,
   } = useQuickFilter({
     columns: filterColumns,
     initialFilter: undefined,
@@ -290,31 +378,17 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   );
 
   // Memoized persistence callbacks to prevent infinite loops
-  const handleColumnWidthsChange = useCallback(
-    (widths: Record<string, number>) => {
+  const handleColumnVisibilityChange = useCallback(
+    (visibility: Record<string, boolean>) => {
       if (!hydrated || !enableColumnManagement) return;
       upsertGridColumnsState(gridId, (draft) => {
-        draft.widths = widths;
+        draft.visibility = visibility;
       });
     },
     [gridId, hydrated, enableColumnManagement]
   );
 
-  const handleColumnVisibilityChange = useCallback(
-    (hiddenColumns: string[]) => {
-      if (!hydrated || !enableColumnManagement) return;
-      const visibilityMap: Record<string, boolean> = {};
-      for (const col of reorderedColumns) {
-        visibilityMap[col.id] = !hiddenColumns.includes(col.id);
-      }
-      upsertGridColumnsState(gridId, (draft) => {
-        draft.visibility = visibilityMap;
-      });
-    },
-    [gridId, hydrated, enableColumnManagement, reorderedColumns]
-  );
-
-  const { sizedColumns, columnWidths, handleColumnResize, handleColumnResizeEnd, isDragging: isResizingColumns } = useColumnSizing({
+  const { sizedColumns: _sizedColumns, columnWidths, handleColumnResize, handleColumnResizeEnd, isDragging: _isResizingColumns } = useColumnSizing({
     columns: reorderedColumns,
     initialWidths: columnState.widths,
     // Don't persist during resize - only on resize end for better performance
@@ -351,7 +425,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     [gridId, hydrated, enableColumnManagement]
   );
 
-  const { visibleColumns, hideColumn, showColumn } = useColumnVisibility({
+  const { visibleColumns } = useColumnVisibility({
     columns: reorderedColumns,
     initialHidden: Object.entries(columnState.visibility)
       .filter(([, visible]) => !visible)
@@ -419,9 +493,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   }, [enableColumnManagement, columns, stableComputedColumns, columnWidths]);
 
   const finalColumnsRef = useRef(finalColumns);
-  useEffect(() => {
-    finalColumnsRef.current = finalColumns;
-  }, [finalColumns]);
+  // Update synchronously during render (not in useEffect) to avoid delay
+  finalColumnsRef.current = finalColumns;
 
   // --- Row Pinning ---
   const getRowKey = useCallback(
@@ -464,11 +537,24 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     return [...pinnedRows, ...unpinnedRows];
   }, [enableRowPinning, rows, pinnedRows, unpinnedRows]);
 
-  const deferredDisplayRows = useDeferredValue(displayRows);
+  // --- Optimistic Updates ---
+  // Apply staged changes to display rows for immediate visual feedback
+  const displayRowsWithOptimistic = useOptimisticRows({
+    displayRows,
+    stagedCommands: pendingChanges,
+    primaryKeyColumns: commandFactory?.primaryKeyColumns ?? [],
+    columnNameToFieldMap: commandFactory?.columnNameToFieldMap ?? new Map(),
+    columnByFieldMap: commandFactory?.columnByFieldMap ?? new Map(),
+    columns,
+    getRowKey: commandFactory?.getRowKey ?? getRowKey,
+  });
+
+  const deferredDisplayRows = useDeferredValue(
+    enableStagedChanges && commandFactory ? displayRowsWithOptimistic : displayRows
+  );
   const rowsRef = useRef(deferredDisplayRows);
-  useEffect(() => {
-    rowsRef.current = deferredDisplayRows;
-  }, [deferredDisplayRows]);
+  // Update synchronously during render (not in useEffect) to avoid delay
+  rowsRef.current = deferredDisplayRows;
 
   // --- Infinite Loading ---
   // Update ref when isLoadingMore changes
@@ -522,7 +608,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   const stagedChanges = enableStagedChanges
     ? useStagedChangesIndicator({
         connectionId,
-        database,
+        database: database ?? '',
         schema: schema ?? '',
         table: tableName ?? '',
         rows: deferredDisplayRows,
@@ -531,9 +617,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     : { rowChanges: new Map<number, Set<string>>(), insertedRows: new Set<number>(), deletedRows: new Set<number>() };
 
   const stagedChangesRef = useRef(stagedChanges);
-  useEffect(() => {
-    stagedChangesRef.current = stagedChanges;
-  }, [stagedChanges]);
+  // Update synchronously during render (not in useEffect) to avoid delay
+  stagedChangesRef.current = stagedChanges;
 
   // --- Cell Hover Icons (Copy button, FK preview) ---
   // Only use internal hook if no external hoverIconsDrawCell is provided
@@ -553,7 +638,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   });
 
   // Use external drawCell if provided, otherwise use internal
-  const effectiveDrawCell = hoverIconsDrawCell ?? internalDrawCellWithHoverIcons;
+  // Note: Type assertion needed because external hoverIconsDrawCell may have different signature
+  const effectiveDrawCell = (hoverIconsDrawCell ?? internalDrawCellWithHoverIcons) as typeof internalDrawCellWithHoverIcons;
 
   // Combined item hover handler - merges hover icons with context menu target tracking
   const handleItemHovered = useCallback(
@@ -768,7 +854,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     'dataGrid.action.copyAsJson',
     enableClipboard
       ? async () => {
-          await copySelection(gridSelectionRef.current, 'json');
+          if (gridSelectionRef.current) {
+            await copySelection(gridSelectionRef.current, 'json');
+          }
         }
       : async () => {},
     {
@@ -877,7 +965,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
 
       return baseCell;
     },
-    [internalGetCellContent, enableStagedChanges]
+    // Include deferredDisplayRows in deps to invalidate Glide's cell cache when data changes
+    // Include stagedChanges to refresh cells when staged changes update
+    // The actual data access uses refs for performance, but the dependency array change
+    // forces Glide Data Grid to re-query getCellContent for all cells
+    [internalGetCellContent, enableStagedChanges, deferredDisplayRows, stagedChanges]
   );
 
   // --- getRowThemeOverride ---
@@ -912,26 +1004,144 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     [enableStagedChanges, enableRowPinning, pinnedRows.length]
   );
 
-  // --- CRUD Handlers ---
+  // --- CRUD Handlers (using commandFactory) ---
   const handleCellEditCommit = useCallback((event: GridEditCommitEvent) => {
-    onCellEditCommitRef.current?.(event);
+    if (readOnly) return undefined;
+
+    const factory = commandFactoryRef.current;
+
+    // If commandFactory exists (SQL paradigm), use it to create and stage commands
+    if (factory) {
+      const command = factory.createEditCommand(event);
+      if (command) {
+        stageCommand(command);
+      }
+      // Call optional callback for paradigm-specific post-processing
+      onCellEditCommitRef.current?.(event);
+    } else {
+      // No commandFactory - let the paradigm adapter handle staging directly
+      // (Document and KeyValue paradigms provide their own onCellEditCommit)
+      onCellEditCommitRef.current?.(event);
+    }
+
     return undefined;
+  }, [stageCommand, readOnly]);
+
+  const handleAddRow = useCallback(() => {
+    const factory = commandFactoryRef.current;
+    if (!factory || readOnly) return;
+
+    const command = factory.createInsertCommand();
+    stageCommand(command);
+    toast.success('New row staged');
+  }, [stageCommand, readOnly]);
+
+  const handleInsertRowBelow = useCallback(() => {
+    const factory = commandFactoryRef.current;
+    if (!factory || readOnly || !gridSelection?.current?.cell) return;
+
+    const [, rowIndex] = gridSelection.current.cell;
+    const selectedRow = rowsRef.current[rowIndex];
+    const rowKey = selectedRow
+      ? factory.getRowKey(selectedRow, rowIndex)
+      : undefined;
+
+    const command = factory.createInsertCommand();
+    // Add metadata for position if we have a selected row
+    if (rowKey) {
+      (command.metadata as any).insertAfterRowKey = rowKey;
+    }
+    stageCommand(command);
+    toast.success('New row staged');
+  }, [stageCommand, readOnly, gridSelection]);
+
+  const handleDeleteRows = useCallback(() => {
+    const factory = commandFactoryRef.current;
+    if (!factory || readOnly) return;
+
+    const selectedIndices = gridSelection?.rows?.toArray() ?? [];
+    if (selectedIndices.length === 0) {
+      // Single cell selection - delete that row
+      if (gridSelection?.current?.cell) {
+        const [, rowIndex] = gridSelection.current.cell;
+        const row = rowsRef.current[rowIndex];
+        if (row) {
+          const rowKey = factory.getRowKey(row, rowIndex);
+          const command = factory.createDeleteCommand(row, rowKey);
+          stageCommand(command);
+          toast.success('Row deletion staged');
+        }
+      }
+      return;
+    }
+
+    // Multiple rows selected
+    for (const rowIndex of selectedIndices) {
+      const row = rowsRef.current[rowIndex];
+      if (row) {
+        const rowKey = factory.getRowKey(row, rowIndex);
+        const command = factory.createDeleteCommand(row, rowKey);
+        stageCommand(command);
+      }
+    }
+    toast.success(`${selectedIndices.length} row deletion(s) staged`);
+  }, [stageCommand, readOnly, gridSelection]);
+
+  const handleBatchEdit = useCallback(
+    (edits: Array<{ cell: Item; value: unknown }>, _rows: GridRowModel[]) => {
+      const factory = commandFactoryRef.current;
+      if (!factory || readOnly) return;
+
+      for (const edit of edits) {
+        const [colIndex, rowIndex] = edit.cell;
+        const column = finalColumnsRef.current[colIndex];
+        const row = rowsRef.current[rowIndex];
+        if (!column || !row) continue;
+
+        const event: GridEditCommitEvent = {
+          cell: edit.cell,
+          rowIndex,
+          columnIndex: colIndex,
+          column,
+          row,
+          newValue: {
+            kind: GridCellKind.Text,
+            data: String(edit.value ?? ''),
+            displayData: String(edit.value ?? ''),
+            allowOverlay: true,
+          },
+          previousValue: null,
+        };
+
+        const command = factory.createEditCommand(event);
+        if (command) {
+          stageCommand(command);
+        }
+      }
+    },
+    [stageCommand, readOnly]
+  );
+
+  // --- Cell Edit State Tracking ---
+  const handleCellEditStart = useCallback(() => {
+    setIsEditingCell(true);
   }, []);
 
-  const handleRowInsert = useCallback((event: GridRowInsertEvent) => {
-    onRowInsertRef.current?.(event);
-    return undefined;
+  const handleCellEditCancel = useCallback(() => {
+    setIsEditingCell(false);
   }, []);
 
-  const handleRowDelete = useCallback((event: GridRowDeleteEvent) => {
-    onRowDeleteRef.current?.(event);
-    return undefined;
-  }, []);
+  const handleCellEditCommitWrapper = useCallback((event: GridEditCommitEvent) => {
+    setIsEditingCell(false);
+    return handleCellEditCommit(event);
+  }, [handleCellEditCommit]);
 
   // --- Fill Operations ---
   const { fillDown, fillRight } = useFillOperations({
     getCellContent,
-    onBatchEdit: enableFillOperations ? undefined : undefined, // TODO: Implement batch edit
+    onBatchEdit: enableFillOperations && commandFactory && !readOnly
+      ? (edits) => handleBatchEdit(edits, deferredDisplayRows)
+      : undefined,
     columnCount: finalColumns.length,
     rowCount: deferredDisplayRows.length,
   });
@@ -1135,8 +1345,19 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
           pinnedRowKeys={pinnedRowIds}
           tableName={tableName}
           schema={schema}
+          databaseType={databaseType as any}
           onPinRows={handlePinRowsFromMenu}
           onUnpinRows={handleUnpinRowsFromMenu}
+          // CRUD operations (internally managed)
+          onAddRow={commandFactory && !readOnly ? handleAddRow : undefined}
+          onInsertRowAbove={undefined} // Not implemented yet
+          onInsertRowBelow={commandFactory && !readOnly ? handleInsertRowBelow : undefined}
+          onDeleteRows={commandFactory && !readOnly ? handleDeleteRows : undefined}
+          // Details sheet
+          showDetailsSheet={showDetailsSheet}
+          onShowDetailsSheetChange={setShowDetailsSheet}
+          // Column operations
+          allColumnsForVisibility={finalColumns}
           pinnedColumns={columnState.pinned}
           columnVisibility={columnState.visibility}
           getSortDirection={getSortDirection}
@@ -1149,7 +1370,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
           onShowAllColumns={handleShowAllColumns}
           contextMenuTargetRef={contextMenuTargetRef}
           connectionId={connectionId}
-          referencedTableColumns={{}}
+          referencedTableColumns={referencedTableColumns ?? {}}
         >
           <EditableDataGrid
             ref={gridRef}
@@ -1164,9 +1385,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
             gridSelection={gridSelection}
             onSelectionChange={handleGridSelectionChange}
             onCellActivated={onCellActivated}
-            onCellEditCommit={onCellEditCommit ? handleCellEditCommit : undefined}
-            onRowInsert={onRowInsert ? handleRowInsert : undefined}
-            onRowDelete={onRowDelete ? handleRowDelete : undefined}
+            onCellEditStart={handleCellEditStart}
+            onCellEditCancel={handleCellEditCancel}
+            onCellEditCommit={(commandFactory || onCellEditCommitCallback) && !readOnly ? handleCellEditCommitWrapper : undefined}
             onColumnResize={enableColumnManagement ? handleColumnResize : undefined}
             onColumnResizeEnd={enableColumnManagement ? ((column, size) => {
               handleColumnResizeEnd(column, size);
@@ -1177,8 +1398,6 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
             onItemHovered={handleItemHovered}
             onVisibleRegionChanged={handleVisibleRegionChanged}
             maxColumnWidth={1000}
-            onCellEdited={useCallback(() => setIsEditingCell(true), [])}
-            onFinishedEditing={useCallback(() => setIsEditingCell(false), [])}
           />
         </UnifiedContextMenu>
       </div>
@@ -1197,7 +1416,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
           fkReference={fkPreviewState.fkReference}
           fkValue={fkPreviewState.fkValue}
           connectionId={connectionId}
-          database={database}
+          database={database ?? ''}
           cellBounds={fkPreviewState.cellBounds}
           sourceColumnName={finalColumns[fkPreviewState.col]?.name}
           sourceTable={tableName ?? ''}
@@ -1224,7 +1443,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
                 kind: 'Table',
               },
               connectionId,
-              database,
+              database: database ?? '',
               viewType: 'data',
               initialFilter: filterValue,
             });
@@ -1249,6 +1468,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         allRows={deferredDisplayRows}
         columns={finalColumns}
         gridSelection={gridSelection as any}
+        readOnlyReason={readOnlyReason}
+        onRefreshMaterializedView={onRefreshMaterializedView}
+        isRefreshingMatView={isRefreshingMatView}
       />
     </div>
   );
