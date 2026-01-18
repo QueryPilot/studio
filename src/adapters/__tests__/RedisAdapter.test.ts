@@ -163,7 +163,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'set_ttl', key: 'mykey', seconds: 7200 },
+        operation: { type: 'setTtl', key: 'mykey', seconds: 7200 },
       });
       expect(result).toBe(true);
     });
@@ -178,7 +178,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'execute_raw', command: 'PING', args: [] },
+        operation: { type: 'executeRaw', command: 'PING', args: [] },
       });
       expect(result).toEqual({ type: 'string', value: 'PONG' });
     });
@@ -190,7 +190,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'db_size' },
+        operation: { type: 'dbSize' },
       });
       expect(result).toBe(1500);
     });
@@ -202,7 +202,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'select_db', index: 5 },
+        operation: { type: 'selectDb', index: 5 },
       });
     });
 
@@ -216,7 +216,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'server_info', section: 'server' },
+        operation: { type: 'serverInfo', section: 'server' },
       });
       expect(result).toEqual({ redis_version: '7.0.0', connected_clients: '5' });
     });
@@ -233,7 +233,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'hash_get_all', key: 'myhash' },
+        operation: { type: 'hashGetAll', key: 'myhash' },
       });
       expect(result).toEqual({ field1: 'value1', field2: 'value2' });
     });
@@ -245,7 +245,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'hash_set', key: 'myhash', fields: { field1: 'value1', field2: 'value2' } },
+        operation: { type: 'hashSet', key: 'myhash', fields: { field1: 'value1', field2: 'value2' } },
       });
       expect(result).toBe(2);
     });
@@ -257,7 +257,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'hash_delete', key: 'myhash', fields: ['field1'] },
+        operation: { type: 'hashDelete', key: 'myhash', fields: ['field1'] },
       });
       expect(result).toBe(1);
     });
@@ -274,7 +274,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'list_range', key: 'mylist', start: 0, stop: -1 },
+        operation: { type: 'listRange', key: 'mylist', start: 0, stop: -1 },
       });
       expect(result).toEqual(['item1', 'item2', 'item3']);
     });
@@ -286,7 +286,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'list_push', key: 'mylist', values: ['newitem'], side: 'right' },
+        operation: { type: 'listPush', key: 'mylist', values: ['newitem'], side: 'right' },
       });
       expect(result).toBe(5);
     });
@@ -298,7 +298,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'list_len', key: 'mylist' },
+        operation: { type: 'listLen', key: 'mylist' },
       });
       expect(result).toBe(10);
     });
@@ -315,7 +315,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'set_members', key: 'myset' },
+        operation: { type: 'setMembers', key: 'myset' },
       });
       expect(result).toEqual(['member1', 'member2']);
     });
@@ -327,7 +327,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'set_add', key: 'myset', members: ['member3', 'member4'] },
+        operation: { type: 'setAdd', key: 'myset', members: ['member3', 'member4'] },
       });
       expect(result).toBe(2);
     });
@@ -339,7 +339,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'set_remove', key: 'myset', members: ['member1'] },
+        operation: { type: 'setRemove', key: 'myset', members: ['member1'] },
       });
       expect(result).toBe(1);
     });
@@ -356,7 +356,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'zset_range', key: 'myzset', start: 0, stop: -1, with_scores: true },
+        operation: { type: 'zSetRange', key: 'myzset', start: 0, stop: -1, with_scores: true },
       });
       expect(result).toEqual([{ member: 'a', score: 1.0 }, { member: 'b', score: 2.0 }]);
     });
@@ -369,7 +369,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'zset_add', key: 'myzset', members },
+        operation: { type: 'zSetAdd', key: 'myzset', members },
       });
       expect(result).toBe(2);
     });
@@ -386,7 +386,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'stream_range', key: 'mystream', start: '-', end: '+', count: 100 },
+        operation: { type: 'streamRange', key: 'mystream', start: '-', end: '+', count: 100 },
       });
       expect(result).toEqual([{ id: '1-0', fields: { field1: 'value1' } }]);
     });
@@ -398,7 +398,7 @@ describe('RedisAdapter', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('keyvalue_execute', {
         connId: 'test-conn-id',
-        operation: { type: 'stream_len', key: 'mystream' },
+        operation: { type: 'streamLen', key: 'mystream' },
       });
       expect(result).toBe(50);
     });

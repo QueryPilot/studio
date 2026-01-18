@@ -74,6 +74,14 @@ export interface KeyValueDataHookResult extends BaseDataHookResult {
   clearSelection: () => void;
   setKeyTTL: (seconds: number) => Promise<void>;
   deleteCurrentKey: () => Promise<void>;
+
+  // Browser mode (showing list of keys instead of key contents)
+  isBrowserMode?: boolean;
+
+  // Pattern filtering (browser mode)
+  pattern: string;
+  setPattern: (pattern: string) => void;
+  totalKeyCount?: number;
 }
 
 // ============================================================================

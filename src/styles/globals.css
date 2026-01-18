@@ -517,3 +517,8 @@
   align-items: center;
   justify-content: center;
 }
+
+/* Allow text selection in backdrop for vite dev server */
+div.backdrop[part="backdrop"] {
+  @apply select-text;
+}

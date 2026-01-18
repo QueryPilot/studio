@@ -59,7 +59,7 @@ export interface StreamEntityPageResult {
   executionTimeMs?: number;
 }
 
-const DEFAULT_PAGE_SIZE = 1000;
+const DEFAULT_PAGE_SIZE = 100;
 
 export async function streamEntityPage(
   params: StreamEntityPageParams,
