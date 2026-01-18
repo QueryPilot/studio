@@ -1,10 +1,11 @@
 import React, { memo, useCallback, useRef, useState, useMemo, useEffect, useDeferredValue } from 'react';
-import type {
-  GridSelection,
-  Item,
-  GridCell,
+import {
   GridCellKind,
-  Rectangle,
+  type GridSelection,
+  type Item,
+  type GridCell,
+  type Rectangle,
+  type GridMouseEventArgs,
 } from '@glideapps/glide-data-grid';
 import type {
   GridRowModel,
@@ -21,10 +22,12 @@ import { EditableDataGrid } from './EditableDataGrid';
 import { DataGridStatusBar } from '../components/DataGridStatusBar';
 import { QuickFilter } from '../components/QuickFilter';
 import { UnifiedContextMenu } from '../components/UnifiedContextMenu';
+import { FKPreviewPopover } from '../components/FKPreviewPopover';
 import { buildGridCellV2 } from '../utils/cellFactory';
 import { cn } from '@/lib/utils';
 import { useCommand } from '@/hooks/useCommand';
 import { toast } from 'sonner';
+import { openTableObject } from '@/utils/workbench/openers';
 
 // Hooks
 import { useQuickFilter } from '../hooks/useQuickFilter';
@@ -35,8 +38,9 @@ import { useRowPinning } from '../hooks/useRowPinning';
 import { useColumnSorting } from '../hooks/useColumnSorting';
 import { useClipboardBridge } from '../hooks/useClipboardBridge';
 import { useFillOperations } from '../hooks/useFillOperations';
-import { useStagedChangesIndicator } from '../hooks/useStagedChangesIndicator';
-import { useGridPreferencesStore } from '../stores/gridPreferencesStore';
+import { useStagedChangesIndicator, hasStagedCellChange } from '../hooks/useStagedChangesIndicator';
+import { useCellHoverIcons } from '../hooks/useCellHoverIcons';
+import { useGridPreferencesStore, upsertGridColumnsState } from '../stores';
 import { useCrudStore } from '@/stores/crudStore';
 
 // Utils
@@ -76,6 +80,7 @@ export interface BaseDataGridProps {
   fkPreviewComponent?: React.ReactNode; // SQL only
   hoverIconsDrawCell?: (cell: Item, ctx: CanvasRenderingContext2D, rect: Rectangle) => void;
   customGetCellContent?: (cell: Item, baseCell: GridCell) => GridCell; // For paradigm-specific overrides
+  getCellContent?: (cell: Item) => GridCell; // Complete override of cell content (Document/KeyValue paradigms)
 
   // Metadata (for context menu, filtering, etc.)
   connectionId: string;
@@ -139,6 +144,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   const containerRef = useRef<HTMLDivElement | null>(null);
   const gridRef = useRef<EditableDataGridRef>(null);
   const quickFilterRef = useRef<QuickFilterRef>(null);
+  const scrollDebounceRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  const loadingMoreRef = useRef(false); // Ref-based guard to prevent duplicate fetches
 
   // Store refs for callbacks
   const onCellEditCommitRef = useRef(onCellEditCommit);
@@ -190,7 +197,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   const {
     value: quickFilterValue,
     mode: quickFilterMode,
+    error: quickFilterError,
+    aiExplanation,
     activeFilter,
+    setValue: setQuickFilterValue,
+    setMode: setQuickFilterMode,
     submit: handleFilterSubmit,
     clear: handleFilterClear,
   } = useQuickFilter({
@@ -254,6 +265,25 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   );
 
   const baseColumns = useMemo(() => columns, [columns]);
+
+  // Initialize column order and visibility on first load
+  useEffect(() => {
+    if (!hydrated || !enableColumnManagement || baseColumns.length === 0) return;
+
+    const expectedOrder = baseColumns.map((column) => column.id);
+    const isInitialLoad = columnState.order.length === 0;
+
+    if (isInitialLoad) {
+      upsertGridColumnsState(gridId, (draft) => {
+        draft.order = expectedOrder;
+        expectedOrder.forEach((id) => {
+          if (!id) return;
+          draft.visibility[id] = true;
+        });
+      });
+    }
+  }, [baseColumns, columnState.order.length, gridId, hydrated, enableColumnManagement]);
+
   const reorderedColumns = useMemo(
     () => reorderColumns(baseColumns, columnState.order),
     [baseColumns, columnState.order, reorderColumns]
@@ -263,7 +293,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   const handleColumnWidthsChange = useCallback(
     (widths: Record<string, number>) => {
       if (!hydrated || !enableColumnManagement) return;
-      useGridPreferencesStore.getState().updateColumnWidths(gridId, () => widths);
+      upsertGridColumnsState(gridId, (draft) => {
+        draft.widths = widths;
+      });
     },
     [gridId, hydrated, enableColumnManagement]
   );
@@ -275,16 +307,49 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       for (const col of reorderedColumns) {
         visibilityMap[col.id] = !hiddenColumns.includes(col.id);
       }
-      useGridPreferencesStore.getState().updateColumnVisibility(gridId, () => visibilityMap);
+      upsertGridColumnsState(gridId, (draft) => {
+        draft.visibility = visibilityMap;
+      });
     },
     [gridId, hydrated, enableColumnManagement, reorderedColumns]
   );
 
-  const { sizedColumns, columnWidths, handleColumnResize } = useColumnSizing({
+  const { sizedColumns, columnWidths, handleColumnResize, handleColumnResizeEnd, isDragging: isResizingColumns } = useColumnSizing({
     columns: reorderedColumns,
     initialWidths: columnState.widths,
-    onChange: enableColumnManagement ? handleColumnWidthsChange : undefined,
+    // Don't persist during resize - only on resize end for better performance
+    onChange: undefined,
   });
+
+  // Batch width persistence - only persist on resize end, not during drag
+  const flushWidths = useCallback(
+    (widths: Record<string, number>) => {
+      if (!hydrated || !enableColumnManagement) return;
+      const state = useGridPreferencesStore.getState();
+      const current = state.preferences[gridId]?.columns?.widths ?? {};
+      const changed = Object.keys(widths).some(
+        (key) => current[key] !== widths[key],
+      );
+      if (changed) {
+        // Use requestIdleCallback to defer persistence until browser is idle
+        if (typeof requestIdleCallback !== 'undefined') {
+          requestIdleCallback(() => {
+            upsertGridColumnsState(gridId, (draft) => {
+              draft.widths = widths;
+            });
+          });
+        } else {
+          // Fallback for browsers without requestIdleCallback
+          setTimeout(() => {
+            upsertGridColumnsState(gridId, (draft) => {
+              draft.widths = widths;
+            });
+          }, 0);
+        }
+      }
+    },
+    [gridId, hydrated, enableColumnManagement]
+  );
 
   const { visibleColumns, hideColumn, showColumn } = useColumnVisibility({
     columns: reorderedColumns,
@@ -322,10 +387,36 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     return applyPinnedOrdering(filtered, columnState.pinned);
   }, [columnState.pinned, columnState.visibility, visibleColumns, filterVisibleColumns, applyPinnedOrdering]);
 
+  // Keep stable columns during transitions to prevent flashing
+  const columnsRef = useRef(computedColumns);
+  if (computedColumns.length > 0) {
+    columnsRef.current = computedColumns;
+  }
+  const stableComputedColumns = computedColumns.length > 0 ? computedColumns : columnsRef.current;
+
+  // Apply widths at the END - cache column objects to avoid recreating unchanged ones
+  const finalColumnsCache = useRef<Map<string, GridColumnV2>>(new Map());
+
   const finalColumns = useMemo(() => {
     if (!enableColumnManagement) return columns;
-    return computedColumns;
-  }, [enableColumnManagement, columns, computedColumns]);
+
+    const cache = finalColumnsCache.current;
+    const result = stableComputedColumns.map((column) => {
+      const width = columnWidths[column.id] ?? column.width;
+      const cached = cache.get(column.id);
+
+      // Reuse cached if width unchanged - this prevents object churn
+      if (cached && cached.width === width && cached.id === column.id) {
+        return cached;
+      }
+
+      const withWidth = width !== column.width ? { ...column, width } : column;
+      cache.set(column.id, withWidth);
+      return withWidth;
+    });
+
+    return result;
+  }, [enableColumnManagement, columns, stableComputedColumns, columnWidths]);
 
   const finalColumnsRef = useRef(finalColumns);
   useEffect(() => {
@@ -379,6 +470,54 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     rowsRef.current = deferredDisplayRows;
   }, [deferredDisplayRows]);
 
+  // --- Infinite Loading ---
+  // Update ref when isLoadingMore changes
+  useEffect(() => {
+    loadingMoreRef.current = props.isLoadingMore ?? false;
+  }, [props.isLoadingMore]);
+
+  const handleVisibleRegionChanged = useCallback(
+    (region: Rectangle) => {
+      if (scrollDebounceRef.current) {
+        clearTimeout(scrollDebounceRef.current);
+      }
+      scrollDebounceRef.current = setTimeout(() => {
+        // Scroll position persistence could be added here if needed
+      }, 150);
+
+      // Trigger loading when within 20 rows of the end (or immediately if fewer rows)
+      const threshold = Math.max(0, rowsRef.current.length - 20);
+      const nearEnd = region.y + region.height >= threshold;
+      const hasFirstPage = rowsRef.current.length >= 100; // DEFAULT_PAGE_SIZE equivalent
+
+      // Use both state and ref guards to prevent duplicate fetches
+      if (
+        nearEnd &&
+        hasFirstPage && // avoid prefetching before the first page finishes streaming
+        props.hasMore &&
+        !props.isLoadingMore &&
+        !loadingMoreRef.current &&
+        props.onLoadMore
+      ) {
+        loadingMoreRef.current = true; // Set immediately to prevent duplicates
+
+        void Promise.resolve(props.onLoadMore()).finally(() => {
+          loadingMoreRef.current = false;
+        });
+      }
+    },
+    [props.hasMore, props.isLoadingMore, props.onLoadMore]
+  );
+
+  // Cleanup scroll debounce on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollDebounceRef.current) {
+        clearTimeout(scrollDebounceRef.current);
+      }
+    };
+  }, []);
+
   // --- Staged Changes Highlighting ---
   const stagedChanges = enableStagedChanges
     ? useStagedChangesIndicator({
@@ -389,12 +528,63 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         rows: deferredDisplayRows,
         columns: finalColumns,
       })
-    : { rowChanges: new Map(), cellChanges: new Map(), allChanges: [] };
+    : { rowChanges: new Map<number, Set<string>>(), insertedRows: new Set<number>(), deletedRows: new Set<number>() };
 
   const stagedChangesRef = useRef(stagedChanges);
   useEffect(() => {
     stagedChangesRef.current = stagedChanges;
   }, [stagedChanges]);
+
+  // --- Cell Hover Icons (Copy button, FK preview) ---
+  // Only use internal hook if no external hoverIconsDrawCell is provided
+  const isLargeDataset = deferredDisplayRows.length > 5000;
+  const {
+    onItemHovered: handleCellHovered,
+    drawCell: internalDrawCellWithHoverIcons,
+    fkPreviewState,
+    clearFkPreview,
+  } = useCellHoverIcons({
+    columns: finalColumns,
+    rows: deferredDisplayRows,
+    enabled: !hoverIconsDrawCell && !isLargeDataset, // Only enabled if no external drawCell
+    containerRef: containerRef,
+    enableFKPreview: paradigm === 'sql',
+    gridRef: gridRef,
+  });
+
+  // Use external drawCell if provided, otherwise use internal
+  const effectiveDrawCell = hoverIconsDrawCell ?? internalDrawCellWithHoverIcons;
+
+  // Combined item hover handler - merges hover icons with context menu target tracking
+  const handleItemHovered = useCallback(
+    (args: GridMouseEventArgs) => {
+      // Call hover icons handler
+      handleCellHovered(args);
+
+      // Update context menu target based on what's being hovered
+      if (args.kind === 'header') {
+        const [colIndex] = args.location;
+        const column = finalColumnsRef.current[colIndex];
+        if (column) {
+          contextMenuTargetRef.current = {
+            type: 'header',
+            columnIndex: colIndex,
+            column,
+          };
+        }
+      } else if (args.kind === 'cell') {
+        const [colIndex, rowIndex] = args.location;
+        contextMenuTargetRef.current = {
+          type: 'cell',
+          columnIndex: colIndex,
+          rowIndex,
+        };
+      } else if (args.kind === 'out-of-bounds') {
+        contextMenuTargetRef.current = { type: 'out-of-bounds' };
+      }
+    },
+    [handleCellHovered]
+  );
 
   // --- Column Sorting ---
   const { sortColumns, getSortIndex, getSortDirection, toggleSort } = useColumnSorting({
@@ -415,54 +605,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     [enableSorting, getSortDirection, getSortIndex, finalColumns, sortColumns.length]
   );
 
-  // --- Context Menu Handlers ---
-  const handleHeaderContextMenu = useCallback(
-    (colIndex: number, event: React.MouseEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const column = finalColumnsRef.current[colIndex];
-      if (!column) return;
-
-      const target: ContextMenuTarget = {
-        type: 'header',
-        columnIndex: colIndex,
-        columnId: column.id,
-        columnName: column.name,
-        x: event.clientX,
-        y: event.clientY,
-      };
-
-      contextMenuTargetRef.current = target;
-    },
-    []
-  );
-
-  const handleCellContextMenu = useCallback(
-    (cell: Item, event: React.MouseEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      const [colIndex, rowIndex] = cell;
-      const column = finalColumnsRef.current[colIndex];
-      const row = rowsRef.current[rowIndex];
-      if (!column || !row) return;
-
-      const target: ContextMenuTarget = {
-        type: 'cell',
-        cell,
-        columnIndex: colIndex,
-        rowIndex,
-        columnId: column.id,
-        columnName: column.name,
-        x: event.clientX,
-        y: event.clientY,
-      };
-
-      contextMenuTargetRef.current = target;
-    },
-    []
-  );
-
+  // --- Header Click Handler (for sorting) ---
   const handleHeaderClicked = useCallback(
     (colIndex: number, event: { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean }) => {
       if (enableSorting) {
@@ -478,70 +621,148 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   // --- Clipboard Operations ---
   const toTextCallback = useCallback(
     (selection: GridSelection) => {
-      if (!selection || !('columns' in selection) || !selection.columns) return '';
-      const { rows: selectedRows, columns: selectedCols } = selection;
-      const lines: string[] = [];
-
-      for (const rowRange of selectedRows) {
-        for (let rowIndex = rowRange[0]; rowIndex <= rowRange[1]; rowIndex++) {
-          const row = rowsRef.current[rowIndex];
-          if (!row) continue;
-          const cells: string[] = [];
-          for (const colRange of selectedCols) {
-            for (let colIndex = colRange[0]; colIndex <= colRange[1]; colIndex++) {
-              const column = finalColumnsRef.current[colIndex];
-              if (!column) continue;
-              const cellValue = row[column.field];
-              const rawValue =
-                cellValue && typeof cellValue === 'object' && 'value' in cellValue
-                  ? cellValue.value
-                  : cellValue;
-              cells.push(rawValue != null ? String(rawValue) : '');
-            }
-          }
-          lines.push(cells.join('\t'));
-        }
+      // Handle full row selections
+      if (selection.rows.length > 0) {
+        const selected = selection.rows
+          .toArray()
+          .map((idx) => rowsRef.current[idx])
+          .filter(Boolean);
+        if (selected.length === 0) return '';
+        const body = selected.map((row) =>
+          finalColumnsRef.current
+            .map((col) => {
+              const value = row?.[col.field];
+              if (!value || typeof value !== 'object') return '';
+              return String((value as any).value ?? '');
+            })
+            .join('\t'),
+        );
+        return body.join('\n');
       }
-      return lines.join('\n');
+
+      // Handle cell-level selections (rectangular ranges)
+      if (selection.current?.range) {
+        const { range } = selection.current;
+        const { x: startCol, y: startRow, width, height } = range;
+
+        const selectedCols = finalColumnsRef.current.slice(startCol, startCol + width);
+
+        // Build data rows (no headers)
+        const body: string[] = [];
+        for (let rowIdx = startRow; rowIdx < startRow + height; rowIdx++) {
+          const row = rowsRef.current[rowIdx];
+          if (!row) continue;
+
+          const rowData = selectedCols
+            .map((col) => {
+              const value = row[col.field];
+              if (!value || typeof value !== 'object') return '';
+              return String((value as any).value ?? '');
+            })
+            .join('\t');
+          body.push(rowData);
+        }
+
+        return body.join('\n');
+      }
+
+      return '';
     },
     []
   );
 
   const toJsonCallback = useCallback(
     (selection: GridSelection) => {
-      if (!selection || !('columns' in selection) || !selection.columns) return '';
-      const { rows: selectedRows, columns: selectedCols } = selection;
-      const results: Record<string, unknown>[] = [];
-
-      for (const rowRange of selectedRows) {
-        for (let rowIndex = rowRange[0]; rowIndex <= rowRange[1]; rowIndex++) {
-          const row = rowsRef.current[rowIndex];
-          if (!row) continue;
-          const obj: Record<string, unknown> = {};
-          for (const colRange of selectedCols) {
-            for (let colIndex = colRange[0]; colIndex <= colRange[1]; colIndex++) {
-              const column = finalColumnsRef.current[colIndex];
-              if (!column) continue;
-              const cellValue = row[column.field];
-              const rawValue =
-                cellValue && typeof cellValue === 'object' && 'value' in cellValue
-                  ? cellValue.value
-                  : cellValue;
-              obj[column.name] = rawValue;
-            }
-          }
-          results.push(obj);
-        }
+      // Handle full row selections
+      if (selection.rows.length > 0) {
+        return selection.rows
+          .toArray()
+          .map((idx) => rowsRef.current[idx])
+          .filter(Boolean)
+          .map((row) => {
+            const jsonRow: Record<string, unknown> = {};
+            finalColumnsRef.current.forEach((col) => {
+              const value = row?.[col.field];
+              if (value && typeof value === 'object' && 'value' in value) {
+                const cellValue = (value as any).value;
+                // Use column name for JSON key, not internal field identifier
+                jsonRow[col.name] =
+                  typeof cellValue === 'bigint'
+                    ? cellValue.toString()
+                    : cellValue;
+              }
+            });
+            return jsonRow;
+          });
       }
-      return JSON.stringify(results, null, 2);
+
+      // Handle cell-level selections (rectangular ranges)
+      if (selection.current?.range) {
+        const { range } = selection.current;
+        const { x: startCol, y: startRow, width, height } = range;
+
+        const selectedCols = finalColumnsRef.current.slice(startCol, startCol + width);
+        const result: Record<string, unknown>[] = [];
+
+        for (let rowIdx = startRow; rowIdx < startRow + height; rowIdx++) {
+          const row = rowsRef.current[rowIdx];
+          if (!row) continue;
+
+          const jsonRow: Record<string, unknown> = {};
+          selectedCols.forEach((col) => {
+            const value = row[col.field];
+            if (value && typeof value === 'object' && 'value' in value) {
+              const cellValue = (value as any).value;
+              // Use column name for JSON key, not internal field identifier
+              jsonRow[col.name] =
+                typeof cellValue === 'bigint'
+                  ? cellValue.toString()
+                  : cellValue;
+            }
+          });
+          result.push(jsonRow);
+        }
+
+        return result;
+      }
+
+      return [];
     },
     []
   );
 
-  const { copySelection } = useClipboardBridge({
-    toText: enableClipboard ? toTextCallback : undefined,
-    toJson: enableClipboard ? toJsonCallback : undefined,
+  const { copySelection, handleKeyboardCopy } = useClipboardBridge({
+    toText: toTextCallback,
+    toJson: toJsonCallback,
+    onCopySuccess: () => {},
+    onCopyError: () => {},
   });
+
+  // --- Keyboard Copy Handler (Cmd+C, Cmd+Shift+C) ---
+  useEffect(() => {
+    if (!enableClipboard) return;
+
+    const handleCopyKeyDown = async (e: KeyboardEvent) => {
+      // Only handle copy shortcuts
+      if (!((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c')) return;
+
+      // Check if our grid is focused
+      if (!wrapperRef.current?.contains(document.activeElement)) return;
+
+      // Don't intercept if editing a cell
+      if (isEditingCell) return;
+
+      // Get current selection
+      const selection = gridSelectionRef.current;
+      if (!selection) return;
+
+      // Handle the copy
+      await handleKeyboardCopy(e, selection);
+    };
+
+    window.addEventListener('keydown', handleCopyKeyDown);
+    return () => window.removeEventListener('keydown', handleCopyKeyDown);
+  }, [enableClipboard, isEditingCell, handleKeyboardCopy]);
 
   useCommand(
     'dataGrid.action.copyAsJson',
@@ -549,7 +770,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       ? async () => {
           await copySelection(gridSelectionRef.current, 'json');
         }
-      : undefined
+      : async () => {},
+    {
+      label: 'Copy as JSON',
+      category: 'DataGrid',
+    }
   );
 
   // --- Export to CSV ---
@@ -567,7 +792,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   // }, [enableExport, deferredDisplayRows, finalColumns, tableName, isGridFocused]);
 
   // --- getCellContent ---
-  const getCellContent = useCallback(
+  // Internal cell content builder (used when props.getCellContent is not provided)
+  const internalGetCellContent = useCallback(
     (cell: Item): GridCell => {
       const [colIndex, rowIndex] = cell;
       const column = finalColumnsRef.current[colIndex];
@@ -598,24 +824,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       });
 
       // Apply custom getCellContent from paradigm-specific adapter
-      const finalCell = customGetCellContent ? customGetCellContent(cell, gridCell) : gridCell;
-
-      // Apply staged changes highlighting
-      if (enableStagedChanges) {
-        const changes = stagedChangesRef.current;
-        const cellKey = `${rowIndex}:${column.name}`;
-        if (changes.cellChanges.has(cellKey)) {
-          return {
-            ...finalCell,
-            themeOverride: {
-              ...finalCell.themeOverride,
-              bgCell: 'rgba(251, 146, 60, 0.15)', // Orange for staged cell changes
-            },
-          };
-        }
-      }
-
-      return finalCell;
+      return customGetCellContent ? customGetCellContent(cell, gridCell) : gridCell;
     },
     [
       readOnly,
@@ -624,41 +833,83 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       schema,
       tableName,
       customGetCellContent,
-      enableStagedChanges,
     ]
+  );
+
+  // Use prop getCellContent if provided, otherwise use internal
+  const propGetCellContentRef = React.useRef(props.getCellContent);
+  React.useEffect(() => {
+    propGetCellContentRef.current = props.getCellContent;
+  });
+
+  const getCellContent = useCallback(
+    (cell: Item): GridCell => {
+      // Use prop getCellContent if provided (Document/KeyValue paradigms)
+      const baseCell = propGetCellContentRef.current
+        ? propGetCellContentRef.current(cell)
+        : internalGetCellContent(cell);
+
+      // Apply staged changes highlighting
+      // Use column.name for checking staged changes (not column.field)
+      // because CRUD commands store changes by actual column name
+      if (enableStagedChanges) {
+        const [colIndex, rowIndex] = cell;
+        const column = finalColumnsRef.current[colIndex];
+        if (column) {
+          const hasPendingChange = hasStagedCellChange(
+            stagedChangesRef.current,
+            rowIndex,
+            column.name
+          );
+          if (hasPendingChange) {
+            return {
+              ...baseCell,
+              themeOverride: {
+                ...baseCell.themeOverride,
+                bgCell: 'rgba(251, 146, 60, 0.15)', // Orange for staged cell changes
+                accentColor: '#fb923c',
+                accentLight: 'rgba(251, 146, 60, 0.2)',
+              },
+            };
+          }
+        }
+      }
+
+      return baseCell;
+    },
+    [internalGetCellContent, enableStagedChanges]
   );
 
   // --- getRowThemeOverride ---
   const getRowThemeOverride = useCallback(
     (rowIndex: number) => {
-      if (!enableStagedChanges) return undefined;
-
-      const changes = stagedChangesRef.current;
-      const { pendingDeletions, pendingInsertions } = useCrudStore.getState().getConnectionCrud(connectionId, database, schema ?? '', tableName ?? '');
-
-      // Deletion pending
-      if (pendingDeletions.has(rowIndex)) {
-        return { bgCell: 'rgba(239, 68, 68, 0.06)' }; // Red
-      }
-
-      // Insertion pending
-      if (pendingInsertions.has(rowIndex)) {
-        return { bgCell: 'rgba(34, 197, 94, 0.06)' }; // Green
-      }
-
-      // Pinned row
+      // Pinned row (check first, higher priority)
       if (enableRowPinning && rowIndex < pinnedRows.length) {
         return { bgCell: 'rgba(59, 130, 246, 0.08)' }; // Blue
       }
 
-      // Staged changes
+      if (!enableStagedChanges) return undefined;
+
+      const changes = stagedChangesRef.current;
+
+      // Deletion pending
+      if (changes.deletedRows.has(rowIndex)) {
+        return { bgCell: 'rgba(239, 68, 68, 0.06)' }; // Red
+      }
+
+      // Insertion pending
+      if (changes.insertedRows.has(rowIndex)) {
+        return { bgCell: 'rgba(34, 197, 94, 0.06)' }; // Green
+      }
+
+      // Staged changes (cell updates)
       if (changes.rowChanges.has(rowIndex)) {
         return { bgCell: 'rgba(212, 165, 43, 0.04)' }; // Golden
       }
 
       return undefined;
     },
-    [connectionId, database, schema, tableName, enableStagedChanges, enableRowPinning, pinnedRows.length]
+    [enableStagedChanges, enableRowPinning, pinnedRows.length]
   );
 
   // --- CRUD Handlers ---
@@ -708,6 +959,26 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     gridSelectionRef.current = newSelection;
   }, []);
 
+  // Compute selected rows from gridSelection
+  const selectedRowsSet = useMemo(() => {
+    if (!gridSelection?.rows) return new Set<number>();
+    return new Set(gridSelection.rows.toArray());
+  }, [gridSelection?.rows]);
+
+  const selectedRowCount = selectedRowsSet.size;
+
+  const selectedRowsData = useMemo(() => {
+    return Array.from(selectedRowsSet)
+      .map((idx) => rowsRef.current[idx])
+      .filter((row): row is GridRowModel => Boolean(row));
+  }, [selectedRowsSet]);
+
+  const selectedRowKeys = useMemo(() => {
+    return Array.from(selectedRowsSet)
+      .map((idx) => getRowKey(rowsRef.current[idx], idx))
+      .filter((key): key is string => Boolean(key));
+  }, [selectedRowsSet, getRowKey]);
+
   // --- Column Reordering ---
   const handleColumnMoved = useCallback(
     (startIndex: number, endIndex: number) => {
@@ -715,7 +986,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       const newOrder = [...finalColumns.map((c) => c.id)];
       const [movedId] = newOrder.splice(startIndex, 1);
       newOrder.splice(endIndex, 0, movedId!);
-      useGridPreferencesStore.getState().updateColumnOrder(gridId, () => newOrder);
+      upsertGridColumnsState(gridId, (draft) => {
+        draft.order = newOrder;
+      });
     },
     [gridId, finalColumns, hydrated, enableColumnManagement]
   );
@@ -734,8 +1007,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   const handleColumnHide = useCallback(
     (columnId: string) => {
       if (!hydrated || !enableColumnManagement) return;
-      useGridPreferencesStore.getState().updateColumnVisibility(gridId, (draft: any) => {
-        draft[columnId] = false;
+      upsertGridColumnsState(gridId, (draft) => {
+        draft.visibility[columnId] = false;
       });
       contextMenuTargetRef.current = null;
     },
@@ -743,23 +1016,82 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   );
 
   const handlePinRowsFromMenu = useCallback(
-    (rowIndices: number[]) => {
+    (rowKeys: string[]) => {
       if (!enableRowPinning) return;
-      for (const idx of rowIndices) {
-        const row = rowsRef.current[idx];
-        if (row) {
-          const key = getRowKey(row, idx);
-          if (pinnedRowIds.includes(key)) {
-            unpinRow(key);
-          } else {
-            pinRow(key);
-          }
-        }
+      for (const key of rowKeys) {
+        pinRow(key);
       }
       contextMenuTargetRef.current = null;
     },
-    [enableRowPinning, getRowKey, pinnedRowIds, pinRow, unpinRow]
+    [enableRowPinning, pinRow]
   );
+
+  const handleUnpinRowsFromMenu = useCallback(
+    (rowKeys: string[]) => {
+      if (!enableRowPinning) return;
+      for (const key of rowKeys) {
+        unpinRow(key);
+      }
+      contextMenuTargetRef.current = null;
+    },
+    [enableRowPinning, unpinRow]
+  );
+
+  const handleClearSort = useCallback(
+    (columnId: string) => {
+      if (!enableSorting) return;
+      // Toggle sort clears if already sorted, so we toggle twice to clear
+      toggleSort(columnId, false);
+      toggleSort(columnId, false);
+      contextMenuTargetRef.current = null;
+    },
+    [enableSorting, toggleSort]
+  );
+
+  const handlePinColumn = useCallback(
+    (columnId: string) => {
+      if (!hydrated || !enableColumnManagement) return;
+      upsertGridColumnsState(gridId, (draft) => {
+        if (!draft.pinned.includes(columnId)) {
+          draft.pinned.push(columnId);
+        }
+      });
+      contextMenuTargetRef.current = null;
+    },
+    [gridId, hydrated, enableColumnManagement]
+  );
+
+  const handleUnpinColumn = useCallback(
+    (columnId: string) => {
+      if (!hydrated || !enableColumnManagement) return;
+      upsertGridColumnsState(gridId, (draft) => {
+        draft.pinned = draft.pinned.filter((id: string) => id !== columnId);
+      });
+      contextMenuTargetRef.current = null;
+    },
+    [gridId, hydrated, enableColumnManagement]
+  );
+
+  const handleToggleColumnVisibility = useCallback(
+    (columnId: string) => {
+      if (!hydrated || !enableColumnManagement) return;
+      upsertGridColumnsState(gridId, (draft) => {
+        const currentVisible = draft.visibility[columnId] !== false;
+        draft.visibility[columnId] = !currentVisible;
+      });
+      contextMenuTargetRef.current = null;
+    },
+    [gridId, hydrated, enableColumnManagement]
+  );
+
+  const handleShowAllColumns = useCallback(() => {
+    if (!hydrated || !enableColumnManagement) return;
+    upsertGridColumnsState(gridId, (draft) => {
+      // Clear all visibility settings (everything visible by default)
+      draft.visibility = {};
+    });
+    contextMenuTargetRef.current = null;
+  }, [gridId, hydrated, enableColumnManagement]);
 
   // --- Render ---
   return (
@@ -775,15 +1107,16 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       {enableFiltering && filterColumns.length > 0 && (
         <QuickFilter
           ref={quickFilterRef}
-          table={tableName ?? ''}
+          columns={filterColumns}
           value={quickFilterValue}
           mode={quickFilterMode}
+          onValueChange={setQuickFilterValue}
+          onModeChange={setQuickFilterMode}
           onSubmit={handleFilterSubmit}
-          onClear={handleFilterClear}
-          isAILoading={isAIFilterLoading}
-          dialect={dialect}
-          enableSQL={paradigm === 'sql'}
-          enableAI={true}
+          isLoading={isAIFilterLoading}
+          error={quickFilterError}
+          explanation={aiExplanation}
+          clientSideFiltering={false}
         />
       )}
 
@@ -795,13 +1128,28 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         onBlurCapture={handleBlurCapture}
       >
         <UnifiedContextMenu
-          selectedRows={[]} // TODO: implement selected rows tracking
+          selectedRows={selectedRowsData}
+          selectedRowKeys={selectedRowKeys}
+          allRows={deferredDisplayRows}
           columns={finalColumns}
+          pinnedRowKeys={pinnedRowIds}
+          tableName={tableName}
+          schema={schema}
           onPinRows={handlePinRowsFromMenu}
+          onUnpinRows={handleUnpinRowsFromMenu}
+          pinnedColumns={columnState.pinned}
+          columnVisibility={columnState.visibility}
+          getSortDirection={getSortDirection}
           onSort={handleColumnSort}
+          onClearSort={handleClearSort}
           onHideColumn={handleColumnHide}
+          onPinColumn={handlePinColumn}
+          onUnpinColumn={handleUnpinColumn}
+          onToggleColumnVisibility={handleToggleColumnVisibility}
+          onShowAllColumns={handleShowAllColumns}
           contextMenuTargetRef={contextMenuTargetRef}
-          referencedTableColumns={new Map()} // Paradigm-specific, provided by SQL adapter
+          connectionId={connectionId}
+          referencedTableColumns={{}}
         >
           <EditableDataGrid
             ref={gridRef}
@@ -810,27 +1158,80 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
             columns={finalColumns}
             getCellContent={getCellContent}
             drawHeader={drawHeader}
-            drawCell={hoverIconsDrawCell}
+            drawCell={effectiveDrawCell}
             getRowThemeOverride={getRowThemeOverride}
             freezeColumns={enableColumnManagement ? freezeColumns : 0}
+            gridSelection={gridSelection}
+            onSelectionChange={handleGridSelectionChange}
             onCellActivated={onCellActivated}
             onCellEditCommit={onCellEditCommit ? handleCellEditCommit : undefined}
             onRowInsert={onRowInsert ? handleRowInsert : undefined}
             onRowDelete={onRowDelete ? handleRowDelete : undefined}
             onColumnResize={enableColumnManagement ? handleColumnResize : undefined}
+            onColumnResizeEnd={enableColumnManagement ? ((column, size) => {
+              handleColumnResizeEnd(column, size);
+              flushWidths(columnWidths);
+            }) : undefined}
             onColumnMoved={enableColumnManagement ? handleColumnMoved : undefined}
             onHeaderClicked={handleHeaderClicked}
-            onHeaderContextMenu={handleHeaderContextMenu}
-            onCellContextMenu={handleCellContextMenu}
-            onGridSelectionChange={handleGridSelectionChange}
+            onItemHovered={handleItemHovered}
+            onVisibleRegionChanged={handleVisibleRegionChanged}
+            maxColumnWidth={1000}
             onCellEdited={useCallback(() => setIsEditingCell(true), [])}
             onFinishedEditing={useCallback(() => setIsEditingCell(false), [])}
           />
         </UnifiedContextMenu>
       </div>
 
-      {/* Paradigm-specific components (e.g., FK preview for SQL) */}
+      {/* FK Preview - either external or internal */}
       {fkPreviewComponent}
+      {/* Internal FK preview when no external is provided and we have a preview state */}
+      {!fkPreviewComponent && paradigm === 'sql' && fkPreviewState && !isEditingCell && (
+        <FKPreviewPopover
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) {
+              clearFkPreview();
+            }
+          }}
+          fkReference={fkPreviewState.fkReference}
+          fkValue={fkPreviewState.fkValue}
+          connectionId={connectionId}
+          database={database}
+          cellBounds={fkPreviewState.cellBounds}
+          sourceColumnName={finalColumns[fkPreviewState.col]?.name}
+          sourceTable={tableName ?? ''}
+          sourceSchema={schema ?? 'public'}
+          onOpenReference={() => {
+            const { fkReference, fkValue } = fkPreviewState;
+            let filterValue: string;
+            if (fkValue === null) {
+              filterValue = `"${fkReference.referenced_column}" IS NULL`;
+            } else if (typeof fkValue === 'string') {
+              const escaped = String(fkValue).replace(/'/g, "''");
+              filterValue = `"${fkReference.referenced_column}" = '${escaped}'`;
+            } else if (typeof fkValue === 'number' || typeof fkValue === 'boolean') {
+              filterValue = `"${fkReference.referenced_column}" = ${fkValue}`;
+            } else {
+              const escaped = String(fkValue).replace(/'/g, "''");
+              filterValue = `"${fkReference.referenced_column}" = '${escaped}'`;
+            }
+
+            openTableObject({
+              table: {
+                name: fkReference.referenced_table,
+                schema: fkReference.referenced_schema,
+                kind: 'Table',
+              },
+              connectionId,
+              database,
+              viewType: 'data',
+              initialFilter: filterValue,
+            });
+            clearFkPreview();
+          }}
+        />
+      )}
 
       {/* Bottom slot - paradigm-specific */}
       {bottomToolbar}
@@ -841,14 +1242,13 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         estimatedTotal={props.estimatedTotal}
         isEstimatedCount={props.isEstimatedCount}
         hasMore={props.hasMore}
-        totalRows={deferredDisplayRows.length}
-        pinnedRowsCount={enableRowPinning ? pinnedRows.length : 0}
-        visibleColumnsCount={finalColumns.length}
-        totalColumnsCount={columns.length}
-        hiddenColumnsCount={columns.length - finalColumns.length}
-        pinnedColumnsCount={enableColumnManagement ? freezeColumns : 0}
-        sortedColumns={enableSorting ? sortColumns : []}
-        stagedCommandsCount={0} // TODO: expose from useCrudStore
+        isStreaming={props.isLoadingMore}
+        selectedRows={selectedRowCount}
+        selectedRowsData={selectedRowsData}
+        selectedRowIndices={selectedRowsSet}
+        allRows={deferredDisplayRows}
+        columns={finalColumns}
+        gridSelection={gridSelection as any}
       />
     </div>
   );

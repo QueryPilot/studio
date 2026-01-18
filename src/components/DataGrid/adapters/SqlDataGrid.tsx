@@ -2,13 +2,10 @@
  * SqlDataGrid - SQL table browser with FK-specific features
  *
  * This is a thin wrapper around BaseDataGrid that adds SQL-specific features:
- * - FK preview hover icons and popover
- * - Embedded FK values
- * - FK-related context menu items (referenced table columns)
- * - SQL filter mode in QuickFilter
+ * - Embedded FK values (customGetCellContent)
  *
- * All general features (QuickFilter, clipboard, fill, column management, etc.)
- * are handled by BaseDataGrid.
+ * All general features (QuickFilter, clipboard, fill, column management,
+ * hover icons, FK preview) are handled by BaseDataGrid.
  */
 
 import { logger } from '@/lib/logger';
@@ -27,13 +24,9 @@ import {
 } from '../components/DataGridStates';
 import { DataGridSkeleton } from '../components/DataGridSkeleton';
 import { StagingActionsToolbar } from '../components/StagingActionsToolbar';
-import { FKPreviewPopover } from '../components/FKPreviewPopover';
-import { openTableObject } from '@/utils/workbench/openers';
 import { DbType } from '@/types';
-import { useCellHoverIcons } from '../hooks';
 import { useEmbeddedFKPreferencesStore } from '../stores/embeddedFKPreferencesStore';
 import type { EmbeddedFKConfig } from '@/adapters/types';
-import type { EditableDataGridRef } from '../base';
 
 export interface SqlDataGridProps {
   connectionId: string;
@@ -49,8 +42,6 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   const { connectionId, database, schema, table, dbType, readOnly = false, onRefresh } = props;
 
   const gridId = `${connectionId}:${database}:${schema}:${table}`;
-  const gridRef = useRef<EditableDataGridRef>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
 
   // --- Data Fetching ---
   const tableDataQuery = useTableDataQuery({
@@ -176,45 +167,16 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   const stagedFKEmbeddedValuesRef = useRef<Map<string, string | null>>(new Map());
 
   // --- Referenced Table Columns (for context menu) ---
-  const referencedTableColumns = useReferencedTableColumns({
+  // NOTE: This is currently unused but kept for future FK embed menu feature
+  const _referencedTableColumns = useReferencedTableColumns({
     connectionId,
     database: database ?? '',
     fkReferences: fkReferenceByColumn,
     enabled: fkReferenceByColumn.size > 0,
   });
 
-  // --- FK Hover Icons & Preview ---
-  const {
-    onItemHovered: handleCellHovered,
-    drawCell: drawCellWithHoverIcons,
-    fkPreviewState,
-    clearFkPreview,
-  } = useCellHoverIcons({
-    columns,
-    rows,
-    enabled: true,
-    enableFKPreview: true,
-    gridRef,
-    containerRef,
-    onOpenReference: undefined, // Not used for SQL (we use context menu instead)
-  });
-
-  const handleFKPreviewClick = useCallback(() => {
-    if (!fkPreviewState) return;
-    const { fkReference, fkValue } = fkPreviewState;
-
-    openTableObject({
-      connectionId,
-      database: database ?? '',
-      dbType,
-      schema: fkReference.referenced_schema,
-      table: fkReference.referenced_table,
-      viewType: 'data',
-      filterColumnName: fkReference.referenced_column,
-      filterValue: fkValue,
-    });
-    clearFkPreview();
-  }, [fkPreviewState, connectionId, database, dbType, clearFkPreview]);
+  // NOTE: FK Hover Icons & Preview are now handled by BaseDataGrid internally
+  // SqlDataGrid only needs to provide customGetCellContent for embedded FK display
 
   // --- Custom getCellContent for Embedded FK ---
   const customGetCellContent = useCallback(
@@ -346,20 +308,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
         onCellEditCommit={handleCellEditCommit}
         onRowInsert={handleRowInsert}
         onRowDelete={handleRowDelete}
-        // FK-specific features
-        fkPreviewComponent={
-          fkPreviewState ? (
-            <FKPreviewPopover
-              isOpen={true}
-              position={{ x: fkPreviewState.cellBounds.x, y: fkPreviewState.cellBounds.y }}
-              data={null} // TODO: Fetch preview data
-              column={columns[fkPreviewState.col]}
-              onClick={handleFKPreviewClick}
-              onClose={clearFkPreview}
-            />
-          ) : undefined
-        }
-        hoverIconsDrawCell={drawCellWithHoverIcons}
+        // FK embedded value display (BaseDataGrid handles hover icons and FK preview internally)
         customGetCellContent={customGetCellContent}
         className="flex-1"
       />

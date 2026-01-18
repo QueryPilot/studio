@@ -16,6 +16,7 @@ import { nanoid } from 'nanoid';
 import type { GridColumnV2, GridRowModel, GridEditCommitEvent } from '../types';
 import type { KeyValueDataHookResult, KeyMetadata } from '../sources/types';
 import type { CrudCommand, DataUpdatePayload, DataInsertPayload, DataDeletePayload, JsonValue } from '@/types/crud';
+import type { CellValue } from '@/types';
 import { RedisAdapter } from '@/adapters/redis/RedisAdapter';
 import {
   getColumnsForRedisType,
@@ -33,7 +34,27 @@ export interface UseKeyValueDataParams {
   connectionId: string;
   database: number; // Redis DB index
   initialKey?: string;
+  pattern?: string; // Pattern for browser mode (e.g., "prefix:*")
   enabled?: boolean;
+}
+
+// Browser mode columns (when viewing list of keys): Key, Value, TTL
+const BROWSER_COLUMNS: GridColumnV2[] = [
+  { id: 'key', field: 'col_0', title: 'Key', name: 'key', width: 350, type: 'string' },
+  { id: 'value', field: 'col_1', title: 'Value', name: 'value', width: 400, type: 'string' },
+  { id: 'ttl', field: 'col_2', title: 'TTL', name: 'ttl', width: 120, type: 'string' },
+];
+
+// Helper to create CellValue for browser mode
+function createBrowserCellValue(value: unknown, dbType: string, redisType?: string): CellValue {
+  const isJson = ['hash', 'list', 'set', 'zset', 'stream'].includes(redisType || '');
+  return {
+    value,
+    db_type: dbType,
+    value_type: isJson ? 'Json' : 'Text',
+    is_truncated: false,
+    metadata: redisType ? { attributes: { redisType } } : undefined,
+  };
 }
 
 // ============================================================================
@@ -45,6 +66,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     connectionId,
     database,
     initialKey,
+    pattern: initialPattern = '*',
     enabled = true,
   } = params;
 
@@ -53,6 +75,16 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
   // State
   const [currentKey, setCurrentKey] = useState<KeyMetadata | null>(null);
   const [selectedKeyName, setSelectedKeyName] = useState<string | undefined>(initialKey);
+  const [pattern, setPatternState] = useState<string>(initialPattern);
+  const [totalKeyCount, setTotalKeyCount] = useState<number | undefined>(undefined);
+
+  // Browser mode: when no initialKey, show list of keys
+  const isBrowserMode = !initialKey && !selectedKeyName;
+
+  // Pattern setter with refetch
+  const setPattern = useCallback((newPattern: string) => {
+    setPatternState(newPattern || '*');
+  }, []);
 
   // Get or create adapter
   const getAdapter = useCallback(() => {
@@ -69,6 +101,163 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     }
     return adapter;
   }, [getAdapter, database]);
+
+  // Browser mode: fetch list of keys
+  const browserQueryKey = useMemo(
+    () => ['redis-keys-browser', connectionId, database, pattern],
+    [connectionId, database, pattern]
+  );
+
+  const {
+    data: browserKeys,
+    isLoading: isLoadingBrowser,
+    error: browserError,
+    refetch: refetchBrowser,
+  } = useQuery({
+    queryKey: browserQueryKey,
+    queryFn: async (): Promise<Array<{ key: string; type: string; ttl: number; value: string }>> => {
+      // Ensure database is selected before scanning
+      const adapter = await getAdapterWithDb();
+
+      // Get total key count for this database
+      const dbSize = await adapter.getDatabaseSize();
+      setTotalKeyCount(dbSize);
+
+      // Scan keys with pattern (fetch more for better UX)
+      const result = await adapter.scanKeys(pattern, '0', 500);
+
+      if (!result.keys || result.keys.length === 0) {
+        return [];
+      }
+
+      logger.info('redis-browser', `Scanned ${result.keys.length} keys, fetching values...`);
+
+      // Fetch values for each key with proper error handling
+      const keysWithValues = await Promise.all(
+        result.keys.map(async (keyInfo) => {
+          let fullValue = '';
+          let displayValue = '';
+
+          try {
+            const keyType = keyInfo.keyType || 'unknown';
+
+            switch (keyType) {
+              case 'string': {
+                const val = await adapter.getKey(keyInfo.key);
+
+                if (!val || val.type === 'nil') {
+                  fullValue = '(nil)';
+                  displayValue = '(nil)';
+                } else if (val.type === 'string') {
+                  const str = val.value;
+                  fullValue = str; // Store FULL value for copy
+                  displayValue = str.length > 50 ? str.substring(0, 50) + '...' : str;
+                } else if (val.type === 'integer' || val.type === 'float') {
+                  fullValue = String(val.value);
+                  displayValue = String(val.value);
+                } else if (val.type === 'boolean') {
+                  fullValue = String(val.value);
+                  displayValue = String(val.value);
+                } else if (val.type === 'bytes') {
+                  fullValue = `(binary ${val.value.length} bytes)`;
+                  displayValue = `(binary ${val.value.length} bytes)`;
+                } else if (val.type === 'array') {
+                  fullValue = JSON.stringify(val.value);
+                  displayValue = `[${val.value.length} items]`;
+                } else if (val.type === 'map') {
+                  fullValue = JSON.stringify(val.value);
+                  const fieldCount = Object.keys(val.value).length;
+                  displayValue = `{${fieldCount} fields}`;
+                } else {
+                  fullValue = '(unknown type)';
+                  displayValue = '(unknown type)';
+                }
+                break;
+              }
+
+              case 'hash': {
+                const hash = await adapter.hashGetAll(keyInfo.key);
+                fullValue = JSON.stringify(hash); // Store full hash as JSON
+                // Show full JSON, truncate if too long
+                displayValue = fullValue.length > 80
+                  ? fullValue.substring(0, 80) + '...'
+                  : fullValue;
+                break;
+              }
+
+              case 'list': {
+                const len = await adapter.listLen(keyInfo.key);
+                if (len > 0) {
+                  const items = await adapter.listRange(keyInfo.key, 0, Math.min(len, 100)); // Fetch up to 100 items for copy
+                  fullValue = JSON.stringify(items);
+                  // Show full JSON, truncate if too long
+                  displayValue = fullValue.length > 80
+                    ? fullValue.substring(0, 80) + '...'
+                    : fullValue;
+                } else {
+                  fullValue = '[]';
+                  displayValue = '[]';
+                }
+                break;
+              }
+
+              case 'set': {
+                const members = await adapter.setMembers(keyInfo.key);
+                fullValue = JSON.stringify(members); // Store full set as JSON array
+                // Show full JSON, truncate if too long
+                displayValue = fullValue.length > 80
+                  ? fullValue.substring(0, 80) + '...'
+                  : fullValue;
+                break;
+              }
+
+              case 'zset': {
+                const members = await adapter.zsetRange(keyInfo.key, 0, -1, true); // Fetch all members
+                fullValue = JSON.stringify(members); // Store full zset as JSON
+                // Show full JSON, truncate if too long
+                displayValue = fullValue.length > 80
+                  ? fullValue.substring(0, 80) + '...'
+                  : fullValue;
+                break;
+              }
+
+              case 'stream': {
+                const len = await adapter.streamLen(keyInfo.key);
+                const entries = await adapter.streamRange(keyInfo.key, '-', '+', Math.min(len, 100)); // Fetch up to 100 entries
+                fullValue = JSON.stringify(entries);
+                // Show full JSON, truncate if too long
+                displayValue = fullValue.length > 80
+                  ? fullValue.substring(0, 80) + '...'
+                  : fullValue;
+                break;
+              }
+
+              default:
+                fullValue = `(${keyType})`;
+                displayValue = `(${keyType})`;
+            }
+          } catch (err) {
+            logger.error('redis-browser', `Failed to fetch value for ${keyInfo.key}:`, err);
+            fullValue = '(error)';
+            displayValue = '(error)';
+          }
+
+          return {
+            key: keyInfo.key,
+            type: keyInfo.keyType || 'unknown',
+            ttl: keyInfo.ttl ?? -1,
+            value: fullValue, // Full value for copy
+            displayValue, // Truncated value for display
+          };
+        })
+      );
+
+      logger.info('redis-browser', `Fetched values for ${keysWithValues.length} keys`);
+      return keysWithValues;
+    },
+    enabled: enabled && !!connectionId && isBrowserMode,
+    staleTime: 10000, // 10 seconds
+  });
 
   // Query key for key metadata
   const metadataQueryKey = useMemo(
@@ -186,21 +375,36 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     staleTime: 10000, // 10 seconds
   });
 
-  // Get columns based on current key type
+  // Get columns based on current key type or browser mode
   const columns = useMemo<GridColumnV2[]>(() => {
+    if (isBrowserMode) {
+      return BROWSER_COLUMNS;
+    }
     if (!currentKey) {
       return [];
     }
     return getColumnsForRedisType(currentKey.type);
-  }, [currentKey]);
+  }, [currentKey, isBrowserMode]);
 
   // Transform data to rows
   const rows = useMemo<GridRowModel[]>(() => {
+    // Browser mode: show list of keys (Key, Value, TTL)
+    if (isBrowserMode && browserKeys) {
+      return browserKeys.map((keyInfo) => ({
+        col_0: createBrowserCellValue(keyInfo.key, 'text'),
+        col_1: createBrowserCellValue(keyInfo.value, 'json', keyInfo.type),
+        col_2: createBrowserCellValue(
+          keyInfo.ttl === -1 ? 'No TTL' : keyInfo.ttl === -2 ? 'N/A' : `${keyInfo.ttl}s`,
+          'text'
+        ),
+      }));
+    }
+
     if (!currentKey || rawData === null || rawData === undefined) {
       return [];
     }
     return mapRedisDataToRows(rawData, currentKey.type);
-  }, [currentKey, rawData]);
+  }, [currentKey, rawData, isBrowserMode, browserKeys]);
 
   // Get cell content for grid
   const getCellContent = useCallback(
@@ -221,6 +425,106 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
 
       const cellValue = row[column.field];
 
+      // Browser mode: use custom cells with proper renderers
+      if (isBrowserMode) {
+        const rawValue = cellValue && typeof cellValue === 'object' && 'value' in cellValue
+          ? (cellValue as { value: unknown }).value
+          : cellValue;
+        const strValue = rawValue === null || rawValue === undefined ? '' : String(rawValue);
+
+        // Key column (col_0): text-single-cell
+        if (column.field === 'col_0') {
+          return {
+            kind: GridCellKind.Custom,
+            data: {
+              kind: 'text-single-cell',
+              value: strValue,
+              nullable: false,
+              columnName: 'Key',
+              dbType: 'text',
+            },
+            copyData: strValue,
+            allowOverlay: true,
+            readonly: true,
+          };
+        }
+
+        // Value column (col_1): json-cell for complex types, text for string
+        if (column.field === 'col_1') {
+          // Get redis type from metadata.attributes
+          const cellMetadata = cellValue && typeof cellValue === 'object' && 'metadata' in cellValue
+            ? (cellValue as { metadata?: { attributes?: { redisType?: string } } }).metadata
+            : undefined;
+          const redisType = cellMetadata?.attributes?.redisType || 'string';
+
+          // Use json-cell for hash, list, set, zset, stream
+          if (['hash', 'list', 'set', 'zset', 'stream'].includes(redisType)) {
+            return {
+              kind: GridCellKind.Custom,
+              data: {
+                kind: 'json-cell',
+                value: strValue,
+                nullable: false,
+                isValid: true,
+                columnName: 'Value',
+                dbType: 'json',
+              },
+              copyData: strValue,
+              allowOverlay: true,
+              readonly: true,
+            };
+          }
+
+          // Use text-multi-cell for long strings, text-single-cell for short
+          const isLongText = strValue.length > 100 || strValue.includes('\n');
+          return {
+            kind: GridCellKind.Custom,
+            data: {
+              kind: isLongText ? 'text-multi-cell' : 'text-single-cell',
+              value: strValue,
+              nullable: false,
+              columnName: 'Value',
+              dbType: 'text',
+            },
+            copyData: strValue,
+            allowOverlay: true,
+            readonly: true,
+          };
+        }
+
+        // TTL column (col_2): text-single-cell
+        if (column.field === 'col_2') {
+          return {
+            kind: GridCellKind.Custom,
+            data: {
+              kind: 'text-single-cell',
+              value: strValue,
+              nullable: false,
+              columnName: 'TTL',
+              dbType: 'text',
+            },
+            copyData: strValue,
+            allowOverlay: true,
+            readonly: true,
+          };
+        }
+
+        // Fallback to text cell
+        return {
+          kind: GridCellKind.Custom,
+          data: {
+            kind: 'text-single-cell',
+            value: strValue,
+            nullable: false,
+            columnName: column.title || column.id,
+            dbType: 'text',
+          },
+          copyData: strValue,
+          allowOverlay: true,
+          readonly: true,
+        };
+      }
+
       return buildKeyValueCell({
         value: cellValue,
         column,
@@ -228,7 +532,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
         keyType: currentKey?.type,
       });
     },
-    [columns, rows, currentKey]
+    [columns, rows, currentKey, isBrowserMode]
   );
 
   // Key selection
@@ -288,27 +592,46 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
   }, []);
 
   const refetch = useCallback(async (): Promise<void> => {
-    await Promise.all([refetchMetadata(), refetchData()]);
-  }, [refetchMetadata, refetchData]);
+    if (isBrowserMode) {
+      await refetchBrowser();
+    } else {
+      await Promise.all([refetchMetadata(), refetchData()]);
+    }
+  }, [refetchMetadata, refetchData, refetchBrowser, isBrowserMode]);
 
   // CRUD helpers
   const createEditCommand = useCallback(
     (event: GridEditCommitEvent): CrudCommand | null => {
+      logger.info('keyvalue-data', 'createEditCommand called', {
+        hasCurrentKey: !!currentKey,
+        currentKeyType: currentKey?.type,
+        selectedKeyName,
+        columnField: event.column?.field,
+        hasRowData: !!event.row,
+      });
+
       if (!currentKey || !selectedKeyName) {
+        logger.warn('keyvalue-data', 'createEditCommand: missing currentKey or selectedKeyName', {
+          currentKey,
+          selectedKeyName,
+        });
         return null;
       }
 
       const { column, row: rowData, newValue } = event;
 
       if (!rowData) {
+        logger.warn('keyvalue-data', 'createEditCommand: missing rowData');
         return null;
       }
 
       if (currentKey.type === 'list' || currentKey.type === 'set' || currentKey.type === 'stream') {
+        logger.info('keyvalue-data', 'createEditCommand: type not editable', { type: currentKey.type });
         return null;
       }
 
       if (currentKey.type === 'zset' && column.field !== 'score') {
+        logger.info('keyvalue-data', 'createEditCommand: zset only score editable');
         return null;
       }
 
@@ -349,7 +672,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
         newValue: newValueJson,
       };
 
-      return {
+      const command: CrudCommand = {
         id: nanoid(),
         type: 'data.update',
         target: {
@@ -364,6 +687,16 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
         },
         state: 'staged',
       };
+
+      logger.info('keyvalue-data', 'createEditCommand: created command', {
+        id: command.id,
+        type: command.type,
+        column: payload.column,
+        oldValue: payload.oldValue,
+        newValue: payload.newValue,
+      });
+
+      return command;
     },
     [currentKey, selectedKeyName, connectionId, database]
   );
@@ -453,13 +786,21 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     [connectionId, database, selectedKeyName, currentKey]
   );
 
+  // Compute loading and error states based on mode
+  const isLoading = isBrowserMode
+    ? isLoadingBrowser
+    : isLoadingMetadata || isLoadingData;
+  const error = isBrowserMode
+    ? (browserError as Error | null)
+    : ((metadataError || dataError) as Error | null);
+
   return {
     paradigm: 'keyvalue',
     rows,
     columns,
     getCellContent,
-    isLoading: isLoadingMetadata || isLoadingData,
-    error: (metadataError || dataError) as Error | null,
+    isLoading,
+    error,
     hasMore,
     fetchNextPage,
     refetch,
@@ -471,5 +812,9 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     createEditCommand,
     createInsertCommand,
     createDeleteCommand,
+    isBrowserMode,
+    pattern,
+    setPattern,
+    totalKeyCount,
   };
 }
