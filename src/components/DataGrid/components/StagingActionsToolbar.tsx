@@ -11,7 +11,7 @@ import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 
 interface StagingActionsToolbarProps {
   connectionId: string;
-  database: string;
+  database?: string;
   schema?: string;
   table: string;
   onCommitSuccess?: () => void;
