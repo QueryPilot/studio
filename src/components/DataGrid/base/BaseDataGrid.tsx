@@ -259,16 +259,39 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     [baseColumns, columnState.order, reorderColumns]
   );
 
+  // Memoized persistence callbacks to prevent infinite loops
+  const handleColumnWidthsChange = useCallback(
+    (widths: Record<string, number>) => {
+      if (!hydrated || !enableColumnManagement) return;
+      useGridPreferencesStore.getState().updateColumnWidths(gridId, () => widths);
+    },
+    [gridId, hydrated, enableColumnManagement]
+  );
+
+  const handleColumnVisibilityChange = useCallback(
+    (hiddenColumns: string[]) => {
+      if (!hydrated || !enableColumnManagement) return;
+      const visibilityMap: Record<string, boolean> = {};
+      for (const col of reorderedColumns) {
+        visibilityMap[col.id] = !hiddenColumns.includes(col.id);
+      }
+      useGridPreferencesStore.getState().updateColumnVisibility(gridId, () => visibilityMap);
+    },
+    [gridId, hydrated, enableColumnManagement, reorderedColumns]
+  );
+
   const { sizedColumns, columnWidths, handleColumnResize } = useColumnSizing({
     columns: reorderedColumns,
     initialWidths: columnState.widths,
+    onChange: enableColumnManagement ? handleColumnWidthsChange : undefined,
   });
 
-  const { visibleColumns } = useColumnVisibility({
+  const { visibleColumns, hideColumn, showColumn } = useColumnVisibility({
     columns: reorderedColumns,
     initialHidden: Object.entries(columnState.visibility)
       .filter(([, visible]) => !visible)
       .map(([id]) => id),
+    onChange: enableColumnManagement ? handleColumnVisibilityChange : undefined,
   });
 
   const filterVisibleColumns = useCallback(
@@ -329,17 +352,20 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     [columns]
   );
 
+  const handlePinnedRowsChange = useCallback(
+    (ids: string[]) => {
+      if (!hydrated || !enableRowPinning) return;
+      useGridPreferencesStore.getState().updatePinnedRows(gridId, () => ids);
+    },
+    [gridId, hydrated, enableRowPinning]
+  );
+
   const { pinnedRows, unpinnedRows, pinnedRowIds, pinRow, unpinRow } = useRowPinning({
     rows,
     initialPinned: enableRowPinning ? (preferences?.pinnedRows ?? []) : [],
     maxPinnedRows: 5,
     getRowId: getRowKey,
-    onChange: enableRowPinning
-      ? (ids) => {
-          if (!hydrated) return;
-          useGridPreferencesStore.getState().updatePinnedRows(gridId, () => ids);
-        }
-      : undefined,
+    onChange: enableRowPinning ? handlePinnedRowsChange : undefined,
   });
 
   const displayRows = useMemo(() => {
