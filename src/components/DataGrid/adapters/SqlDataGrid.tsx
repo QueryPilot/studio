@@ -107,10 +107,11 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   );
 
   // --- FK Metadata ---
+  // Map: FK column name -> { schema, table, column } of referenced table
   const fkReferenceByColumn = useMemo(() => {
     const map = new Map<
       string,
-      { referenced_schema: string; referenced_table: string; referenced_column: string }
+      { schema: string; table: string; column: string }
     >();
     if (tableStructure?.foreignKeys) {
       for (const fk of tableStructure.foreignKeys) {
@@ -119,9 +120,9 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
           const refCol = fk.referenced_columns[i];
           if (colName && refCol) {
             map.set(colName, {
-              referenced_schema: fk.referenced_schema,
-              referenced_table: fk.referenced_table,
-              referenced_column: refCol,
+              schema: fk.referenced_schema,
+              table: fk.referenced_table,
+              column: refCol,
             });
           }
         }
@@ -175,11 +176,12 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   const stagedFKEmbeddedValuesRef = useRef<Map<string, string | null>>(new Map());
 
   // --- Referenced Table Columns (for context menu) ---
-  const referencedTableColumns = useReferencedTableColumns(
+  const referencedTableColumns = useReferencedTableColumns({
     connectionId,
-    database,
-    fkReferenceByColumn
-  );
+    database: database ?? '',
+    fkReferences: fkReferenceByColumn,
+    enabled: fkReferenceByColumn.size > 0,
+  });
 
   // --- FK Hover Icons & Preview ---
   const {
