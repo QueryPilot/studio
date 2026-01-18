@@ -131,10 +131,11 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   }, [tableStructure?.foreignKeys]);
 
   // --- Embedded FK Configuration ---
-  const embeddedFKPrefs = useEmbeddedFKPreferencesStore((s) => s.preferences.get(gridId));
+  // Store structure: preferences[gridId].embeddedColumns[fkColumn] = string[]
+  const embeddedFKPrefs = useEmbeddedFKPreferencesStore((s) => s.preferences[gridId]);
 
   const embeddedFKs = useMemo<EmbeddedFKConfig[]>(() => {
-    if (!embeddedFKPrefs || !tableStructure?.foreignKeys) return [];
+    if (!embeddedFKPrefs?.embeddedColumns || !tableStructure?.foreignKeys) return [];
 
     const configs: EmbeddedFKConfig[] = [];
     for (const fk of tableStructure.foreignKeys) {
@@ -143,15 +144,15 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
         const refCol = fk.referenced_columns[i];
         if (!colName || !refCol) continue;
 
-        const prefKey = `${fk.referenced_schema}.${fk.referenced_table}.${refCol}`;
-        const pref = embeddedFKPrefs.get(prefKey);
-        if (pref?.displayColumns && pref.displayColumns.length > 0) {
+        // Check if we have embedded columns configured for this FK column
+        const refDisplayColumns = embeddedFKPrefs.embeddedColumns[colName];
+        if (refDisplayColumns && refDisplayColumns.length > 0) {
           configs.push({
             fkColumn: colName,
             refSchema: fk.referenced_schema,
             refTable: fk.referenced_table,
             refPkColumn: refCol,
-            refDisplayColumns: pref.displayColumns,
+            refDisplayColumns,
           });
         }
       }
