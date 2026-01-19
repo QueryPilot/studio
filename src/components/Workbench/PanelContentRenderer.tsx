@@ -26,6 +26,8 @@ import { TableTriggers } from "@/components/TableTriggers";
 import { TablePartitions } from "@/components/TablePartitions";
 import { ObjectDefinition } from "@/components/ObjectDefinition";
 import { QueryPanel } from "@/components/QueryPanel";
+import { MongoQueryPanel } from "@/components/MongoQueryPanel";
+import { RedisCliPanel } from "@/components/RedisCliPanel";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { isMySQLCompatible, DbType } from "@/types/connection";
@@ -67,7 +69,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     // Get dbType from connection profile
     const connectionId = metadata?.connectionId || activeConnectionId || "";
     const connection = getConnection(connectionId);
-    const dbType = connection?.profile?.db_type;
+    const dbType = connection?.profile.db_type;
     const isPanelFocused = focusedPanelId === panelId;
     const type = metadata?.type || "table";
     const [activeView, setActiveView] = useState(metadata?.viewType || "data");
@@ -159,7 +161,34 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       );
     }
 
-    // MongoDB Collection Browser (using unified DataGrid)
+    if (type === "mongo-query") {
+      return (
+        <FeatureErrorBoundary featureName="MongoDB Shell">
+          <MongoQueryPanel
+            panelId={panelId}
+            tabId={tabId}
+            connectionId={metadata?.connectionId || activeConnectionId || ""}
+            database={metadata?.database || ""}
+            className="h-full"
+          />
+        </FeatureErrorBoundary>
+      );
+    }
+
+    if (type === "redis-cli") {
+      return (
+        <FeatureErrorBoundary featureName="Redis CLI">
+          <RedisCliPanel
+            panelId={panelId}
+            tabId={tabId}
+            connectionId={metadata?.connectionId || activeConnectionId || ""}
+            database={parseInt(metadata?.database || "0", 10)}
+            className="h-full"
+          />
+        </FeatureErrorBoundary>
+      );
+    }
+
     if (type === "mongo-collection" && metadata) {
       const mongoGridId = `document:${metadata.connectionId || activeConnectionId}:${metadata.database}:${metadata.table}`;
       return (

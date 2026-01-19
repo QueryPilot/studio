@@ -153,6 +153,7 @@ export function useStagedChangesIndicator(
 /**
  * Create a stable string key from a row's primary key values (optimized version)
  * Uses pre-filtered PK columns to avoid filtering on every call
+ * IMPORTANT: Sorts columns by name to match createPrimaryKeyStringFromRecord
  */
 function createPrimaryKeyStringFast(
   row: GridRowModel,
@@ -172,8 +173,11 @@ function createPrimaryKeyStringFast(
     return null;
   }
 
+  // Sort columns by name to match createPrimaryKeyStringFromRecord's alphabetical sorting
+  const sortedPkColumns = [...pkColumns].sort((a, b) => a.name.localeCompare(b.name));
+
   // Build composite PK string from all PK columns
-  const pkValues = pkColumns.map((col) => {
+  const pkValues = sortedPkColumns.map((col) => {
     const cellValue = row[col.field];
     if (
       cellValue &&
