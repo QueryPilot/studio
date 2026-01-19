@@ -149,6 +149,16 @@ export interface BaseDataGridProps {
    * Number of fetch batches for streaming queries
    */
   fetchCount?: number;
+
+  /**
+   * Cursor setup time in milliseconds (streaming queries)
+   */
+  cursorSetupMs?: number;
+
+  /**
+   * Total streaming time in milliseconds
+   */
+  totalStreamingMs?: number;
 }
 
 export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps) {
@@ -1653,6 +1663,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         networkMs={props.networkMs}
         conversionMs={props.conversionMs}
         fetchCount={props.fetchCount}
+        cursorSetupMs={props.cursorSetupMs}
+        totalStreamingMs={props.totalStreamingMs}
       />
     </div>
   );
