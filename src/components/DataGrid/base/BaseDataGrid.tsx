@@ -1225,6 +1225,15 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     [stageCommand, readOnly]
   );
 
+  const handleBatchClear = useCallback(
+    (cells: Item[]) => {
+      if (readOnly || cells.length === 0 || !commandFactory) return;
+      const edits = cells.map((cell) => ({ cell, value: null }));
+      handleBatchEdit(edits, rowsRef.current);
+    },
+    [readOnly, commandFactory, handleBatchEdit]
+  );
+
   // --- Cell Edit State Tracking ---
   const handleCellEditStart = useCallback(() => {
     setIsEditingCell(true);
@@ -1265,6 +1274,49 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     window.addEventListener('keydown', handleFillKeyDown);
     return () => { window.removeEventListener('keydown', handleFillKeyDown); };
   }, [enableFillOperations, isGridFocused, isEditingCell, fillDown, fillRight, gridSelection]);
+
+  // Delete key handler for batch clear
+  useEffect(() => {
+    if (readOnly || !commandFactory) return;
+
+    const handleDeleteKeyDown = (e: KeyboardEvent) => {
+      // Only Delete or Backspace key
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+
+      // Check if our grid is focused
+      if (!wrapperRef.current?.contains(document.activeElement)) return;
+
+      // Don't intercept if editing a cell
+      if (isEditingCell) return;
+
+      // Get current selection and build cell list
+      const selection = gridSelectionRef.current;
+      if (!selection?.current?.range) return;
+
+      e.preventDefault();
+
+      const { range } = selection.current;
+      const { x: startCol, y: startRow, width, height } = range;
+
+      const cells: Item[] = [];
+      for (let row = startRow; row < startRow + height; row++) {
+        for (let col = startCol; col < startCol + width; col++) {
+          // Skip read-only columns (e.g., PK columns)
+          const column = finalColumnsRef.current[col];
+          if (column?.meta?.is_pk) continue;
+          cells.push([col, row]);
+        }
+      }
+
+      if (cells.length > 0) {
+        handleBatchClear(cells);
+        toast.success(`${cells.length} cell(s) cleared`);
+      }
+    };
+
+    window.addEventListener('keydown', handleDeleteKeyDown);
+    return () => { window.removeEventListener('keydown', handleDeleteKeyDown); };
+  }, [readOnly, commandFactory, isEditingCell, handleBatchClear]);
 
   // --- Filter by Column (from context menu) ---
   const handleFilterByColumn = useCallback(
