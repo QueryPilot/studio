@@ -24,6 +24,7 @@ import {
   getCreateDatabaseTemplate,
   getCreateSchemaTemplate,
 } from "@/utils/workbench/openers";
+import { getParadigm } from "@/types/connection";
 
 const commandPaletteStore = useCommandPaletteStore.getState();
 const dialogStore = useDialogStore.getState();
@@ -265,7 +266,6 @@ export const defaultCommands: Command[] = [
           // Show a promise-based toast that waits for user confirmation
           const confirmed = await new Promise<boolean>((resolve) => {
             let resolved = false;
-            let toastId: string | number;
 
             const handleConfirm = () => {
               resolved = true;
@@ -279,7 +279,7 @@ export const defaultCommands: Command[] = [
               resolve(false);
             };
 
-            toastId = toast(
+            const toastId = toast(
               React.createElement(ConfirmationToast, {
                 title: "Unsaved changes will be lost",
                 description: `You have ${description}. This action cannot be undone.`,
@@ -483,7 +483,6 @@ export const defaultCommands: Command[] = [
           : `${Date.now().toString(36)}-${Math.random()
               .toString(36)
               .slice(2, 8)}`;
-      const tabId = `query-${uuid}`;
 
       const connectionStore = useConnectionStore.getState();
       const workspaceSelection = useWorkspaceSelectionStore.getState();
@@ -494,25 +493,49 @@ export const defaultCommands: Command[] = [
         ? connectionStore.getConnection(activeConnectionId)
         : null;
 
+      const dbType = connection?.profile.db_type;
+      const paradigm = dbType ? getParadigm(dbType) : "sql";
+
+      const tabTypePrefix = paradigm === "document" 
+        ? "mongo-query" 
+        : paradigm === "keyvalue" 
+        ? "redis-cli" 
+        : "query";
+
+      const tabId = `${tabTypePrefix}-${uuid}`;
+
+      const matchingTabTypes = [tabTypePrefix];
+
       const totalQueryCount = Array.from(panels.values()).reduce(
         (count, panelContent) => {
           return (
             count +
             panelContent.tabIds.filter((id: string) => {
               const metadata = panelContent.metadata?.[id];
-              return metadata?.type === "query" || id.startsWith("query-");
+              return matchingTabTypes.some(
+                (t) => metadata?.type === t || id.startsWith(`${t}-`)
+              );
             }).length
           );
         },
         0,
       );
 
-      const title =
-        totalQueryCount > 0 ? `Query ${totalQueryCount + 1}` : "New Query";
+      const getTitle = () => {
+        const num = totalQueryCount > 0 ? ` ${totalQueryCount + 1}` : "";
+        switch (paradigm) {
+          case "document":
+            return `Mongo Shell${num}`;
+          case "keyvalue":
+            return `Redis CLI${num}`;
+          default:
+            return totalQueryCount > 0 ? `Query ${totalQueryCount + 1}` : "New Query";
+        }
+      };
 
       workbench.addTab(focusedPanelId, tabId, {
-        type: "query",
-        title,
+        type: tabTypePrefix,
+        title: getTitle(),
         connectionId: activeConnectionId,
         database: connection?.profile.database || "",
         schema: selectedSchema || "",

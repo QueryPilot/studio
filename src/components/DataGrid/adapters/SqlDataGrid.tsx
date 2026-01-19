@@ -26,7 +26,6 @@ import {
   DataGridErrorState,
 } from '../components/DataGridStates';
 import { DataGridSkeleton } from '../components/DataGridSkeleton';
-import { StagingActionsToolbar } from '../components/StagingActionsToolbar';
 import { QuickFilter } from '../components/QuickFilter';
 import { useQuickFilter } from '../hooks/useQuickFilter';
 import { useAIFilter } from '../hooks/useAIFilter';
@@ -233,6 +232,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   });
 
   const {
+    data: queryData,
     rows,
     columns: columnMeta,
     estimatedTotal,
@@ -243,6 +243,11 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
     fetchNextPage,
     refetch,
   } = tableDataQuery;
+
+  // Extract execution time from the last page (or first if last is undefined)
+  const executionTime =
+    queryData?.pages.at(-1)?.executionTimeMs ??
+    queryData?.pages[0]?.executionTimeMs;
 
   const isLoading = status === 'loading';
   const isError = status === 'error';
@@ -309,17 +314,26 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
           }
         : meta;
 
+      // Calculate width - increase for FK columns with embedded values
+      let width = computeBaseWidth(meta.name, meta.db_type);
+      const embeddedCols = embeddedFKPrefs?.embeddedColumns?.[meta.name];
+      const hasEmbeddedFK = embeddedCols && embeddedCols.length > 0;
+      if (hasEmbeddedFK) {
+        // Wider column to fit "550e…0000 → [embedded_value]" format
+        width = Math.max(width, 280);
+      }
+
       return {
         id: meta.name,
         field: uniqueField,
         title: meta.name,
         name: meta.name,
-        width: computeBaseWidth(meta.name, meta.db_type),
+        width,
         type: meta.db_type,
         meta: mergedMeta,
       } as GridColumnV2;
     });
-  }, [columnMeta, fkReferenceByColumn]);
+  }, [columnMeta, fkReferenceByColumn, embeddedFKPrefs]);
 
   // Build column name to field mapping
   const columnNameToFieldMap = useMemo(() => {
@@ -593,28 +607,22 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   // --- Render ---
   return (
     <div className="flex h-full flex-col">
-      {/* Top Toolbar (Staging Actions) */}
-      <StagingActionsToolbar
-        connectionId={connectionId}
-        database={database}
-        schema={schema ?? ''}
-        table={table}
-      />
-
       {/* Quick Filter - managed here, not in BaseDataGrid */}
       {filterColumns.length > 0 && (
-        <QuickFilter
-          columns={filterColumns}
-          value={quickFilterValue}
-          mode={quickFilterMode}
-          onValueChange={setQuickFilterValue}
-          onModeChange={setQuickFilterMode}
-          onSubmit={handleFilterSubmit}
-          isLoading={isAIFilterLoading}
-          error={quickFilterError}
-          explanation={aiExplanation}
-          clientSideFiltering={false}
-        />
+        <div className="py-1.5">
+          <QuickFilter
+            columns={filterColumns}
+            value={quickFilterValue}
+            mode={quickFilterMode}
+            onValueChange={setQuickFilterValue}
+            onModeChange={setQuickFilterMode}
+            onSubmit={handleFilterSubmit}
+            isLoading={isAIFilterLoading}
+            error={quickFilterError}
+              explanation={aiExplanation}
+              clientSideFiltering={false}
+            />
+        </div>
       )}
 
       {/* BaseDataGrid handles all CRUD operations internally */}
@@ -654,6 +662,8 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
         getCellContent={getCellContent}
         // Data invalidation refetch
         onRefetch={refetch}
+        // Query performance metrics
+        executionTime={executionTime}
         className={cn("flex-1", className)}
       />
     </div>

@@ -1,5 +1,5 @@
 import type { GridCell, Item } from '@glideapps/glide-data-grid';
-import type { GridColumnV2, GridRowModel } from '../types';
+import type { GridColumnV2, GridRowModel, CrudCommandFactory } from '../types';
 import type { CrudCommand, JsonValue } from '@/types/crud';
 import type { GridEditCommitEvent } from '../types';
 import type { RedisType } from '@/adapters/types/redis';
@@ -27,10 +27,19 @@ export interface BaseDataHookResult {
   fetchNextPage: () => Promise<void>;
   refetch: () => Promise<void>;
 
-  // CRUD helpers
+  // Query performance metrics
+  executionTime?: number;
+
+  // CRUD helpers (legacy - use commandFactory instead)
   createEditCommand: (event: GridEditCommitEvent) => CrudCommand | null;
   createInsertCommand: (values: Record<string, unknown>) => CrudCommand;
   createDeleteCommand: (row: GridRowModel) => CrudCommand;
+
+  /**
+   * Command factory for BaseDataGrid CRUD operations.
+   * When provided, enables insert/delete row buttons in context menu.
+   */
+  commandFactory?: CrudCommandFactory;
 }
 
 /**

@@ -76,13 +76,13 @@ describe('SqlAdapter', () => {
       expect(sql).toBe('SELECT * FROM "public"."users"');
     });
 
-    it('should support limit and offset', () => {
+    it('should support limit and offset (without default ORDER BY when columns unknown)', () => {
       const sql = adapter.select(
         { schema: 'public', table: 'users' },
         { limit: 100, offset: 50 }
       );
       expect(sql).toBe(
-        'SELECT * FROM "public"."users" ORDER BY "id" ASC LIMIT 100 OFFSET 50'
+        'SELECT * FROM "public"."users" LIMIT 100 OFFSET 50'
       );
     });
 
@@ -101,6 +101,16 @@ describe('SqlAdapter', () => {
       );
       expect(sql).toBe('SELECT * FROM "public"."users" WHERE status = 1 AND age > 18');
     });
+
+    it('should add default ORDER BY when columns are specified with limit', () => {
+      const sql = adapter.select(
+        { schema: 'public', table: 'users' },
+        { columns: ['id', 'name', 'email'], limit: 100 }
+      );
+      expect(sql).toBe(
+        'SELECT "id", "name", "email" FROM "public"."users" ORDER BY "id" ASC LIMIT 100'
+      );
+    });
   });
 
   describe('selectWithEmbeddedFK()', () => {
@@ -110,7 +120,7 @@ describe('SqlAdapter', () => {
 
       const sql = adapter.selectWithEmbeddedFK(target, options);
       expect(sql).toBe(
-        'SELECT * FROM "public"."todos" ORDER BY "id" ASC LIMIT 100'
+        'SELECT * FROM "public"."todos" LIMIT 100'
       );
     });
 
@@ -120,7 +130,7 @@ describe('SqlAdapter', () => {
 
       const sql = adapter.selectWithEmbeddedFK(target, options);
       expect(sql).toBe(
-        'SELECT * FROM "public"."todos" ORDER BY "id" ASC LIMIT 100'
+        'SELECT * FROM "public"."todos" LIMIT 100'
       );
     });
 
@@ -141,7 +151,7 @@ describe('SqlAdapter', () => {
       expect(sql).toContain('SELECT "public"."todos".*');
       expect(sql).toContain('"t1"."email" AS "__qp_fk__user_id__email"');
       expect(sql).toContain('FROM "public"."todos"');
-      expect(sql).toContain('ORDER BY "public"."todos"."id" ASC');
+      expect(sql).not.toContain('ORDER BY');
       expect(sql).toContain('LEFT JOIN "public"."users" AS "t1" ON "public"."todos"."user_id" = "t1"."id"');
       expect(sql).toContain('LIMIT 300');
     });
