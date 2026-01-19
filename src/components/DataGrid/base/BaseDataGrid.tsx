@@ -20,6 +20,7 @@ import type { EditableDataGridRef } from './EditableDataGrid';
 
 import { EditableDataGrid } from './EditableDataGrid';
 import { DataGridStatusBar } from '../components/DataGridStatusBar';
+import { DataGridErrorState } from '../components/DataGridStates';
 import { QuickFilter } from '../components/QuickFilter';
 import { UnifiedContextMenu } from '../components/UnifiedContextMenu';
 import { FKPreviewPopover } from '../components/FKPreviewPopover';
@@ -135,6 +136,12 @@ export interface BaseDataGridProps {
    */
   onRefetch?: () => void;
 
+  /**
+   * Callback to attempt reconnection after connection error
+   * If provided, shows a Reconnect button in error state
+   */
+  onReconnect?: () => Promise<void>;
+
   // --- Query Performance Metrics ---
   /**
    * Total query execution time in milliseconds
@@ -209,6 +216,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     databaseType,
     // Data invalidation
     onRefetch,
+    // Error handling
+    error,
+    onReconnect,
   } = props;
 
   // --- CRUD Store Integration ---
@@ -1531,14 +1541,24 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         </div>
       )}
 
-      {/* Main grid with context menu */}
-      <div
-        ref={containerRef}
-        className="flex-1 min-h-0"
-        onFocusCapture={handleFocusCapture}
-        onBlurCapture={handleBlurCapture}
-      >
-        <UnifiedContextMenu
+      {/* Error State */}
+      {error ? (
+        <div className="flex-1 min-h-0">
+          <DataGridErrorState
+            error={error}
+            onReload={onRefetch}
+            onReconnect={onReconnect}
+          />
+        </div>
+      ) : (
+        /* Main grid with context menu */
+        <div
+          ref={containerRef}
+          className="flex-1 min-h-0"
+          onFocusCapture={handleFocusCapture}
+          onBlurCapture={handleBlurCapture}
+        >
+          <UnifiedContextMenu
           selectedRows={selectedRowsData}
           selectedRowKeys={selectedRowKeys}
           allRows={deferredDisplayRows}
@@ -1603,7 +1623,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
             maxColumnWidth={1000}
           />
         </UnifiedContextMenu>
-      </div>
+        </div>
+      )}
 
       {/* FK Preview - either external or internal */}
       {fkPreviewComponent}

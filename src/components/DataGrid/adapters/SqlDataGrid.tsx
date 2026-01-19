@@ -21,10 +21,8 @@ import { useTableFullStructure } from '@/hooks/useTableFullStructure';
 import { useReferencedTableColumns } from '@/hooks/useReferencedTableColumns';
 import { buildGridCellV2 } from '../utils/cellFactory';
 import { computeBaseWidth } from './columnUtils';
-import {
-  DataGridEmptyState,
-  DataGridErrorState,
-} from '../components/DataGridStates';
+import { DataGridEmptyState } from '../components/DataGridStates';
+import { databaseService } from '@/services/databaseService';
 import { DataGridSkeleton } from '../components/DataGridSkeleton';
 import { QuickFilter } from '../components/QuickFilter';
 import { useQuickFilter } from '../hooks/useQuickFilter';
@@ -584,18 +582,19 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
     []
   );
 
+  // --- Reconnect Handler ---
+  const handleReconnect = useCallback(async () => {
+    try {
+      await databaseService.getConnectionHealth(connectionId);
+      refetch();
+    } catch {
+      refetch(); // Still try to refetch even if health check fails
+    }
+  }, [connectionId, refetch]);
+
   // --- Loading States ---
   if (isLoading) {
     return <DataGridSkeleton />;
-  }
-
-  if (isError) {
-    return (
-      <DataGridErrorState
-        error={error instanceof Error ? error.message : 'Failed to load table data'}
-        onRetry={refetch}
-      />
-    );
   }
 
   // Allow empty state for tables (user may want to add rows)
@@ -662,6 +661,9 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
         getCellContent={getCellContent}
         // Data invalidation refetch
         onRefetch={refetch}
+        // Error handling and reconnection
+        error={isError ? (error instanceof Error ? error.message : 'Failed to load table data') : undefined}
+        onReconnect={handleReconnect}
         // Query performance metrics
         executionTime={executionTime}
         className={cn("flex-1", className)}
