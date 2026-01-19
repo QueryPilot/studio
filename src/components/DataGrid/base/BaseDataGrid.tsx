@@ -83,6 +83,12 @@ export interface BaseDataGridProps {
   topToolbar?: React.ReactNode; // BreadcrumbNav | KeyHeader | null
   bottomToolbar?: React.ReactNode; // Custom pagination/actions
 
+  /**
+   * Actions to render in the toolbar area (e.g., Add Row, Export buttons)
+   * Rendered in the top-right of the filter toolbar area
+   */
+  toolbarActions?: React.ReactNode;
+
   // Paradigm-specific components (rendered by BaseDataGrid)
   fkPreviewComponent?: React.ReactNode; // SQL only
   hoverIconsDrawCell?: (cell: Item, ctx: CanvasRenderingContext2D, rect: Rectangle) => void;
@@ -193,6 +199,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     onCellActivated,
     topToolbar,
     bottomToolbar,
+    toolbarActions,
     fkPreviewComponent,
     hoverIconsDrawCell,
     customGetCellContent,
@@ -1496,22 +1503,31 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       {/* Top slot - paradigm-specific toolbar */}
       {topToolbar}
 
-      {/* Quick Filter */}
-      {enableFiltering && filterColumns.length > 0 && (
-        <div className="py-1.5">
-          <QuickFilter
-            ref={quickFilterRef}
-            columns={filterColumns}
-            value={quickFilterValue}
-            mode={quickFilterMode}
-            onValueChange={setQuickFilterValue}
-            onModeChange={setQuickFilterMode}
-            onSubmit={handleFilterSubmit}
-            isLoading={isAIFilterLoading}
-            error={quickFilterError}
-            explanation={aiExplanation}
-            clientSideFiltering={false}
-          />
+      {/* Quick Filter + Toolbar Actions */}
+      {((enableFiltering && filterColumns.length > 0) || toolbarActions) && (
+        <div className="flex items-center gap-2 py-1.5">
+          {enableFiltering && filterColumns.length > 0 && (
+            <div className="flex-1 min-w-0">
+              <QuickFilter
+                ref={quickFilterRef}
+                columns={filterColumns}
+                value={quickFilterValue}
+                mode={quickFilterMode}
+                onValueChange={setQuickFilterValue}
+                onModeChange={setQuickFilterMode}
+                onSubmit={handleFilterSubmit}
+                isLoading={isAIFilterLoading}
+                error={quickFilterError}
+                explanation={aiExplanation}
+                clientSideFiltering={false}
+              />
+            </div>
+          )}
+          {toolbarActions && (
+            <div className="flex-shrink-0 flex items-center gap-1.5">
+              {toolbarActions}
+            </div>
+          )}
         </div>
       )}
 
