@@ -48,6 +48,8 @@ import { useDataInvalidationStore } from '@/stores/dataInvalidationStore';
 
 // Utils
 import { createDrawHeader } from '../utils/headerUtils';
+import { coerceToColumnType, type ColumnTypeHint } from '../utils/pasteUtils';
+import { parseClipboardText } from '../hooks/usePasteHandler';
 
 export interface BaseDataGridProps {
   // Core data (from data hooks)
@@ -1278,8 +1280,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       const text = await navigator.clipboard.readText();
       if (!text) return;
 
-      // Parse tab-separated values
-      const lines = text.split('\n').filter(line => line.trim());
+      // Parse clipboard text using shared utility (handles trailing empty lines correctly)
+      const lines = parseClipboardText(text);
       if (lines.length === 0) return;
 
       const selection = gridSelectionRef.current;
@@ -1291,8 +1293,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       const [startCol, startRow] = selection.current.cell;
       const edits: Array<{ cell: Item; value: unknown }> = [];
 
-      lines.forEach((line, lineIndex) => {
-        const values = line.split('\t');
+      lines.forEach((values, lineIndex) => {
         values.forEach((value, colIndex) => {
           const targetCol = startCol + colIndex;
           const targetRow = startRow + lineIndex;
@@ -1305,9 +1306,16 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
           const column = finalColumnsRef.current[targetCol];
           if (column?.meta?.is_pk) return;
 
+          // Coerce value to appropriate type based on column metadata
+          const columnTypeHint: ColumnTypeHint = {
+            dbType: column?.meta?.db_type ?? column?.type ?? 'text',
+            nullable: column?.meta?.nullable ?? true,
+          };
+          const coercedValue = coerceToColumnType(value.trim(), columnTypeHint);
+
           edits.push({
             cell: [targetCol, targetRow],
-            value: value.trim(),
+            value: coercedValue,
           });
         });
       });
@@ -1318,7 +1326,12 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       }
     } catch (err) {
       console.error('Paste failed:', err);
-      toast.error('Failed to paste from clipboard');
+      // Differentiate clipboard permission errors
+      if (err instanceof DOMException && err.name === 'NotAllowedError') {
+        toast.error('Clipboard access denied. Please grant clipboard permission in your browser settings.');
+      } else {
+        toast.error('Failed to paste from clipboard');
+      }
     }
   }, [readOnly, commandFactory, handleBatchEdit]);
 
