@@ -6,6 +6,7 @@
  * - Type-aware column mapping for all Redis types
  * - Pattern filtering for key browser mode
  * - Key metadata header when viewing specific key
+ * - Client-side filtering in key view mode (search, pattern, score range for ZSet)
  * - CRUD operations via the staging pipeline
  */
 
@@ -20,6 +21,10 @@ import { logger } from '@/lib/logger';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { IconSearch, IconX, IconRefresh, IconDatabase } from '@tabler/icons-react';
+import {
+  type KeyValueFilter,
+  parseKeyValueFilter,
+} from '@/utils/keyvalueFilterParser';
 
 // ============================================================================
 // Types
@@ -186,13 +191,54 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
 }: KeyValueDataGridProps) {
   const stageCommand = useCrudStore((s) => s.stageCommand);
 
-  // Get key-value data
+  // Filter state for key view mode
+  const [kvFilter, setKvFilter] = useState<KeyValueFilter | undefined>(undefined);
+  const [filterValue, setFilterValue] = useState('');
+  const [filterError, setFilterError] = useState<string | null>(null);
+  const filterInputRef = useRef<HTMLInputElement>(null);
+
+  // Get key-value data with filter
   const data = useKeyValueData({
     connectionId,
     database,
     initialKey,
     enabled: true,
+    filter: kvFilter,
   });
+
+  // Handle filter submission for key view mode
+  const handleFilterSubmit = useCallback(() => {
+    const value = filterValue.trim();
+
+    if (!value) {
+      setKvFilter(undefined);
+      setFilterError(null);
+      return;
+    }
+
+    const result = parseKeyValueFilter(value);
+
+    if (result.success && result.filter) {
+      setKvFilter(result.filter);
+      setFilterError(null);
+      logger.info('keyvalue-grid', 'Filter applied', {
+        mode: result.filter.mode,
+        description: result.filter.description,
+      });
+    } else if (result.success && !result.filter) {
+      setKvFilter(undefined);
+      setFilterError(null);
+    } else {
+      setFilterError(result.error || 'Invalid filter');
+    }
+  }, [filterValue]);
+
+  // Clear filter when key changes
+  useEffect(() => {
+    setKvFilter(undefined);
+    setFilterValue('');
+    setFilterError(null);
+  }, [data.currentKey?.key]);
 
   // Handle cell edit commit
   const handleCellEditCommit = useCallback(
@@ -218,9 +264,6 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
     [data, stageCommand]
   );
 
-  // Note: Row insert/delete now handled by BaseDataGrid via commandFactory
-  // TODO: Implement CrudCommandFactory for keyvalue paradigm
-
   // Handle refresh
   const handleRefresh = useCallback(() => {
     data.refetch();
@@ -229,6 +272,23 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
 
   // Browser mode shows all keys, individual key mode shows key contents
   const isBrowserMode = data.isBrowserMode;
+
+  // Get placeholder text based on key type
+  const filterPlaceholder = useMemo(() => {
+    const keyType = data.currentKey?.type;
+    switch (keyType) {
+      case 'hash':
+        return 'Search fields/values, or use wildcards: field*';
+      case 'zset':
+        return 'Search members/scores, or use wildcards: member*';
+      case 'list':
+        return 'Search values...';
+      case 'set':
+        return 'Search members, or use wildcards: mem*';
+      default:
+        return 'Search...';
+    }
+  }, [data.currentKey?.type]);
 
   // Top toolbar based on mode
   const topToolbar = useMemo(() => {
@@ -245,9 +305,59 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
         />
       );
     }
-    // Key view mode: show key metadata header
-    return data.currentKey && <KeyHeader metadata={data.currentKey} onRefresh={handleRefresh} />;
-  }, [isBrowserMode, data.currentKey, data.pattern, data.setPattern, data.totalKeyCount, data.rows.length, data.isLoading, handleRefresh]);
+    // Key view mode: show key metadata header with optional filter
+    return (
+      <div className="flex flex-col">
+        {data.currentKey && <KeyHeader metadata={data.currentKey} onRefresh={handleRefresh} />}
+        {/* Show filter for types that have multiple rows */}
+        {data.currentKey && ['hash', 'list', 'set', 'zset'].includes(data.currentKey.type) && (
+          <div className="flex items-center gap-2 px-2 py-1 border-t bg-background">
+            <div className="relative flex-1 max-w-md">
+              <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                ref={filterInputRef}
+                value={filterValue}
+                onChange={(e) => setFilterValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleFilterSubmit();
+                  } else if (e.key === 'Escape') {
+                    setFilterValue('');
+                    setKvFilter(undefined);
+                    setFilterError(null);
+                  }
+                }}
+                placeholder={filterPlaceholder}
+                className={cn('h-7 pl-7 pr-7 text-xs', filterError && 'border-destructive')}
+              />
+              {filterValue && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5"
+                  onClick={() => {
+                    setFilterValue('');
+                    setKvFilter(undefined);
+                    setFilterError(null);
+                  }}
+                >
+                  <IconX className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
+            {filterError && (
+              <span className="text-xs text-destructive">{filterError}</span>
+            )}
+            {kvFilter && !filterError && (
+              <span className="text-xs text-muted-foreground">
+                {data.rows.length} results
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }, [isBrowserMode, data.currentKey, data.pattern, data.setPattern, data.totalKeyCount, data.rows.length, data.isLoading, handleRefresh, filterValue, filterPlaceholder, filterError, kvFilter, handleFilterSubmit]);
 
   // Determine read-only state (streams are read-only, browser mode is always read-only)
   const readOnly = isBrowserMode || data.currentKey?.type === 'stream';
@@ -268,7 +378,11 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
       onLoadMore={data.fetchNextPage}
       estimatedTotal={data.rows.length}
       isEstimatedCount={false}
+      executionTime={data.executionTime}
       onCellEditCommit={isBrowserMode ? undefined : handleCellEditCommit}
+      // Command factory for CRUD operations (add/delete rows in hash, list, set, zset)
+      // Returns undefined in browser mode or for unsupported types (string, stream)
+      commandFactory={data.commandFactory}
       topToolbar={topToolbar}
       connectionId={connectionId}
       database={String(database)}

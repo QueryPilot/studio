@@ -13,7 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { GridCell, Item } from '@glideapps/glide-data-grid';
 import { GridCellKind } from '@glideapps/glide-data-grid';
 import { nanoid } from 'nanoid';
-import type { GridColumnV2, GridRowModel, GridEditCommitEvent } from '../types';
+import type { GridColumnV2, GridRowModel, GridEditCommitEvent, CrudCommandFactory } from '../types';
 import type { KeyValueDataHookResult, KeyMetadata } from '../sources/types';
 import type { CrudCommand, DataUpdatePayload, DataInsertPayload, DataDeletePayload, JsonValue } from '@/types/crud';
 import type { CellValue } from '@/types';
@@ -24,6 +24,11 @@ import {
   buildKeyValueCell,
   getRedisRowKey,
 } from '../utils/keyvalueCellFactory';
+import {
+  type KeyValueFilter,
+  applyKeyValueSearch,
+  applyKeyValuePattern,
+} from '@/utils/keyvalueFilterParser';
 import { logger } from '@/lib/logger';
 
 // ============================================================================
@@ -36,6 +41,8 @@ export interface UseKeyValueDataParams {
   initialKey?: string;
   pattern?: string; // Pattern for browser mode (e.g., "prefix:*")
   enabled?: boolean;
+  /** Filter for client-side filtering in key view mode */
+  filter?: KeyValueFilter;
 }
 
 // Browser mode columns (when viewing list of keys): Key, Value, TTL
@@ -68,6 +75,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     initialKey,
     pattern: initialPattern = '*',
     enabled = true,
+    filter,
   } = params;
 
   const adapterRef = useRef<RedisAdapter | null>(null);
@@ -77,6 +85,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
   const [selectedKeyName, setSelectedKeyName] = useState<string | undefined>(initialKey);
   const [pattern, setPatternState] = useState<string>(initialPattern);
   const [totalKeyCount, setTotalKeyCount] = useState<number | undefined>(undefined);
+  const [executionTime, setExecutionTime] = useState<number | undefined>(undefined);
 
   // Browser mode: when no initialKey, show list of keys
   const isBrowserMode = !initialKey && !selectedKeyName;
@@ -116,144 +125,150 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
   } = useQuery({
     queryKey: browserQueryKey,
     queryFn: async (): Promise<Array<{ key: string; type: string; ttl: number; value: string }>> => {
-      // Ensure database is selected before scanning
-      const adapter = await getAdapterWithDb();
+      const startTime = performance.now();
+      try {
+        // Ensure database is selected before scanning
+        const adapter = await getAdapterWithDb();
 
-      // Get total key count for this database
-      const dbSize = await adapter.getDatabaseSize();
-      setTotalKeyCount(dbSize);
+        // Get total key count for this database
+        const dbSize = await adapter.getDatabaseSize();
+        setTotalKeyCount(dbSize);
 
-      // Scan keys with pattern (fetch more for better UX)
-      const result = await adapter.scanKeys(pattern, '0', 500);
+        // Scan keys with pattern (fetch more for better UX)
+        const result = await adapter.scanKeys(pattern, '0', 500);
 
-      if (!result.keys || result.keys.length === 0) {
-        return [];
-      }
+        if (!result.keys || result.keys.length === 0) {
+          return [];
+        }
 
-      logger.info('redis-browser', `Scanned ${result.keys.length} keys, fetching values...`);
+        logger.info('redis-browser', `Scanned ${result.keys.length} keys, fetching values...`);
 
-      // Fetch values for each key with proper error handling
-      const keysWithValues = await Promise.all(
-        result.keys.map(async (keyInfo) => {
-          let fullValue = '';
-          let displayValue = '';
+        // Fetch values for each key with proper error handling
+        const keysWithValues = await Promise.all(
+          result.keys.map(async (keyInfo) => {
+            let fullValue = '';
+            let displayValue = '';
 
-          try {
-            const keyType = keyInfo.keyType || 'unknown';
+            try {
+              const keyType = keyInfo.keyType || 'unknown';
 
-            switch (keyType) {
-              case 'string': {
-                const val = await adapter.getKey(keyInfo.key);
+              switch (keyType) {
+                case 'string': {
+                  const val = await adapter.getKey(keyInfo.key);
 
-                if (!val || val.type === 'nil') {
-                  fullValue = '(nil)';
-                  displayValue = '(nil)';
-                } else if (val.type === 'string') {
-                  const str = val.value;
-                  fullValue = str; // Store FULL value for copy
-                  displayValue = str.length > 50 ? str.substring(0, 50) + '...' : str;
-                } else if (val.type === 'integer' || val.type === 'float') {
-                  fullValue = String(val.value);
-                  displayValue = String(val.value);
-                } else if (val.type === 'boolean') {
-                  fullValue = String(val.value);
-                  displayValue = String(val.value);
-                } else if (val.type === 'bytes') {
-                  fullValue = `(binary ${val.value.length} bytes)`;
-                  displayValue = `(binary ${val.value.length} bytes)`;
-                } else if (val.type === 'array') {
-                  fullValue = JSON.stringify(val.value);
-                  displayValue = `[${val.value.length} items]`;
-                } else if (val.type === 'map') {
-                  fullValue = JSON.stringify(val.value);
-                  const fieldCount = Object.keys(val.value).length;
-                  displayValue = `{${fieldCount} fields}`;
-                } else {
-                  fullValue = '(unknown type)';
-                  displayValue = '(unknown type)';
+                  if (!val || val.type === 'nil') {
+                    fullValue = '(nil)';
+                    displayValue = '(nil)';
+                  } else if (val.type === 'string') {
+                    const str = val.value;
+                    fullValue = str; // Store FULL value for copy
+                    displayValue = str.length > 50 ? str.substring(0, 50) + '...' : str;
+                  } else if (val.type === 'integer' || val.type === 'float') {
+                    fullValue = String(val.value);
+                    displayValue = String(val.value);
+                  } else if (val.type === 'boolean') {
+                    fullValue = String(val.value);
+                    displayValue = String(val.value);
+                  } else if (val.type === 'bytes') {
+                    fullValue = `(binary ${val.value.length} bytes)`;
+                    displayValue = `(binary ${val.value.length} bytes)`;
+                  } else if (val.type === 'array') {
+                    fullValue = JSON.stringify(val.value);
+                    displayValue = `[${val.value.length} items]`;
+                  } else if (val.type === 'map') {
+                    fullValue = JSON.stringify(val.value);
+                    const fieldCount = Object.keys(val.value).length;
+                    displayValue = `{${fieldCount} fields}`;
+                  } else {
+                    fullValue = '(unknown type)';
+                    displayValue = '(unknown type)';
+                  }
+                  break;
                 }
-                break;
-              }
 
-              case 'hash': {
-                const hash = await adapter.hashGetAll(keyInfo.key);
-                fullValue = JSON.stringify(hash); // Store full hash as JSON
-                // Show full JSON, truncate if too long
-                displayValue = fullValue.length > 80
-                  ? fullValue.substring(0, 80) + '...'
-                  : fullValue;
-                break;
-              }
-
-              case 'list': {
-                const len = await adapter.listLen(keyInfo.key);
-                if (len > 0) {
-                  const items = await adapter.listRange(keyInfo.key, 0, Math.min(len, 100)); // Fetch up to 100 items for copy
-                  fullValue = JSON.stringify(items);
+                case 'hash': {
+                  const hash = await adapter.hashGetAll(keyInfo.key);
+                  fullValue = JSON.stringify(hash); // Store full hash as JSON
                   // Show full JSON, truncate if too long
                   displayValue = fullValue.length > 80
                     ? fullValue.substring(0, 80) + '...'
                     : fullValue;
-                } else {
-                  fullValue = '[]';
-                  displayValue = '[]';
+                  break;
                 }
-                break;
-              }
 
-              case 'set': {
-                const members = await adapter.setMembers(keyInfo.key);
-                fullValue = JSON.stringify(members); // Store full set as JSON array
-                // Show full JSON, truncate if too long
-                displayValue = fullValue.length > 80
-                  ? fullValue.substring(0, 80) + '...'
-                  : fullValue;
-                break;
-              }
+                case 'list': {
+                  const len = await adapter.listLen(keyInfo.key);
+                  if (len > 0) {
+                    const items = await adapter.listRange(keyInfo.key, 0, Math.min(len, 100)); // Fetch up to 100 items for copy
+                    fullValue = JSON.stringify(items);
+                    // Show full JSON, truncate if too long
+                    displayValue = fullValue.length > 80
+                      ? fullValue.substring(0, 80) + '...'
+                      : fullValue;
+                  } else {
+                    fullValue = '[]';
+                    displayValue = '[]';
+                  }
+                  break;
+                }
 
-              case 'zset': {
-                const members = await adapter.zsetRange(keyInfo.key, 0, -1, true); // Fetch all members
-                fullValue = JSON.stringify(members); // Store full zset as JSON
-                // Show full JSON, truncate if too long
-                displayValue = fullValue.length > 80
-                  ? fullValue.substring(0, 80) + '...'
-                  : fullValue;
-                break;
-              }
+                case 'set': {
+                  const members = await adapter.setMembers(keyInfo.key);
+                  fullValue = JSON.stringify(members); // Store full set as JSON array
+                  // Show full JSON, truncate if too long
+                  displayValue = fullValue.length > 80
+                    ? fullValue.substring(0, 80) + '...'
+                    : fullValue;
+                  break;
+                }
 
-              case 'stream': {
-                const len = await adapter.streamLen(keyInfo.key);
-                const entries = await adapter.streamRange(keyInfo.key, '-', '+', Math.min(len, 100)); // Fetch up to 100 entries
-                fullValue = JSON.stringify(entries);
-                // Show full JSON, truncate if too long
-                displayValue = fullValue.length > 80
-                  ? fullValue.substring(0, 80) + '...'
-                  : fullValue;
-                break;
-              }
+                case 'zset': {
+                  const members = await adapter.zsetRange(keyInfo.key, 0, -1, true); // Fetch all members
+                  fullValue = JSON.stringify(members); // Store full zset as JSON
+                  // Show full JSON, truncate if too long
+                  displayValue = fullValue.length > 80
+                    ? fullValue.substring(0, 80) + '...'
+                    : fullValue;
+                  break;
+                }
 
-              default:
-                fullValue = `(${keyType})`;
-                displayValue = `(${keyType})`;
+                case 'stream': {
+                  const len = await adapter.streamLen(keyInfo.key);
+                  const entries = await adapter.streamRange(keyInfo.key, '-', '+', Math.min(len, 100)); // Fetch up to 100 entries
+                  fullValue = JSON.stringify(entries);
+                  // Show full JSON, truncate if too long
+                  displayValue = fullValue.length > 80
+                    ? fullValue.substring(0, 80) + '...'
+                    : fullValue;
+                  break;
+                }
+
+                default:
+                  fullValue = `(${keyType})`;
+                  displayValue = `(${keyType})`;
+              }
+            } catch (err) {
+              logger.error('redis-browser', `Failed to fetch value for ${keyInfo.key}:`, err);
+              fullValue = '(error)';
+              displayValue = '(error)';
             }
-          } catch (err) {
-            logger.error('redis-browser', `Failed to fetch value for ${keyInfo.key}:`, err);
-            fullValue = '(error)';
-            displayValue = '(error)';
-          }
 
-          return {
-            key: keyInfo.key,
-            type: keyInfo.keyType || 'unknown',
-            ttl: keyInfo.ttl ?? -1,
-            value: fullValue, // Full value for copy
-            displayValue, // Truncated value for display
-          };
-        })
-      );
+            return {
+              key: keyInfo.key,
+              type: keyInfo.keyType || 'unknown',
+              ttl: keyInfo.ttl ?? -1,
+              value: fullValue, // Full value for copy
+              displayValue, // Truncated value for display
+            };
+          })
+        );
 
-      logger.info('redis-browser', `Fetched values for ${keysWithValues.length} keys`);
-      return keysWithValues;
+        logger.info('redis-browser', `Fetched values for ${keysWithValues.length} keys`);
+        return keysWithValues;
+      } finally {
+        const endTime = performance.now();
+        setExecutionTime(Math.round(endTime - startTime));
+      }
     },
     enabled: enabled && !!connectionId && isBrowserMode,
     staleTime: 10000, // 10 seconds
@@ -337,38 +352,44 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
         return null;
       }
 
-      const adapter = await getAdapterWithDb();
-      const type = currentKey.type;
+      const startTime = performance.now();
+      try {
+        const adapter = await getAdapterWithDb();
+        const type = currentKey.type;
 
-      switch (type) {
-        case 'string': {
-          const value = await adapter.getKey(selectedKeyName);
-          if (value && typeof value === 'object' && 'type' in value && value.type === 'string') {
-            return value.value as string;
+        switch (type) {
+          case 'string': {
+            const value = await adapter.getKey(selectedKeyName);
+            if (value && typeof value === 'object' && 'type' in value && value.type === 'string') {
+              return value.value as string;
+            }
+            return null;
           }
-          return null;
+
+          case 'hash':
+            return adapter.hashGetAll(selectedKeyName);
+
+          case 'list':
+            // Fetch all list items (could paginate for large lists)
+            return adapter.listRange(selectedKeyName, 0, -1);
+
+          case 'set':
+            return adapter.setMembers(selectedKeyName);
+
+          case 'zset':
+            // Fetch all zset members with scores
+            return adapter.zsetRange(selectedKeyName, 0, -1, true);
+
+          case 'stream':
+            // Fetch stream entries
+            return adapter.streamRange(selectedKeyName, '-', '+', 100);
+
+          default:
+            return null;
         }
-
-        case 'hash':
-          return adapter.hashGetAll(selectedKeyName);
-
-        case 'list':
-          // Fetch all list items (could paginate for large lists)
-          return adapter.listRange(selectedKeyName, 0, -1);
-
-        case 'set':
-          return adapter.setMembers(selectedKeyName);
-
-        case 'zset':
-          // Fetch all zset members with scores
-          return adapter.zsetRange(selectedKeyName, 0, -1, true);
-
-        case 'stream':
-          // Fetch stream entries
-          return adapter.streamRange(selectedKeyName, '-', '+', 100);
-
-        default:
-          return null;
+      } finally {
+        const endTime = performance.now();
+        setExecutionTime(Math.round(endTime - startTime));
       }
     },
     enabled: enabled && !!connectionId && !!selectedKeyName && !!currentKey?.type,
@@ -386,11 +407,13 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     return getColumnsForRedisType(currentKey.type);
   }, [currentKey, isBrowserMode]);
 
-  // Transform data to rows
+  // Transform data to rows (with optional client-side filtering)
   const rows = useMemo<GridRowModel[]>(() => {
+    let result: GridRowModel[];
+
     // Browser mode: show list of keys (Key, Value, TTL)
     if (isBrowserMode && browserKeys) {
-      return browserKeys.map((keyInfo) => ({
+      result = browserKeys.map((keyInfo) => ({
         col_0: createBrowserCellValue(keyInfo.key, 'text'),
         col_1: createBrowserCellValue(keyInfo.value, 'json', keyInfo.type),
         col_2: createBrowserCellValue(
@@ -398,13 +421,31 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
           'text'
         ),
       }));
+    } else if (!currentKey || rawData === null || rawData === undefined) {
+      return [];
+    } else {
+      result = mapRedisDataToRows(rawData, currentKey.type);
     }
 
-    if (!currentKey || rawData === null || rawData === undefined) {
-      return [];
+    // Apply client-side filtering if filter is set (only in key view mode)
+    if (filter && !isBrowserMode) {
+      switch (filter.mode) {
+        case 'search':
+          if (filter.searchText) {
+            result = applyKeyValueSearch(result, filter.searchText);
+          }
+          break;
+        case 'pattern':
+          if (filter.pattern) {
+            // For pattern mode, filter by the first column (field/member name)
+            result = applyKeyValuePattern(result, filter.pattern, 'col_0');
+          }
+          break;
+      }
     }
-    return mapRedisDataToRows(rawData, currentKey.type);
-  }, [currentKey, rawData, isBrowserMode, browserKeys]);
+
+    return result;
+  }, [currentKey, rawData, isBrowserMode, browserKeys, filter]);
 
   // Get cell content for grid
   const getCellContent = useCallback(
@@ -786,6 +827,111 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     [connectionId, database, selectedKeyName, currentKey]
   );
 
+  // Build column maps for CrudCommandFactory
+  const columnNameToFieldMap = useMemo(() => {
+    const map = new Map<string, string>();
+    columns.forEach((col) => {
+      map.set(col.name, col.field);
+    });
+    return map;
+  }, [columns]);
+
+  const columnByFieldMap = useMemo(() => {
+    const map = new Map<string, GridColumnV2>();
+    columns.forEach((col) => {
+      map.set(col.field, col);
+    });
+    return map;
+  }, [columns]);
+
+  // Get row key for Redis data
+  const getRowKeyForFactory = useCallback(
+    (row: GridRowModel | undefined, index: number): string => {
+      if (!row || !currentKey) return `row-${index}`;
+      const rowKeyObj = getRedisRowKey(row, currentKey.type);
+
+      // For hash: use field name
+      if (currentKey.type === 'hash' && 'field' in rowKeyObj) {
+        return `${selectedKeyName}:field:${rowKeyObj.field}`;
+      }
+      // For list: use index
+      if (currentKey.type === 'list' && 'index' in rowKeyObj) {
+        return `${selectedKeyName}:index:${rowKeyObj.index}`;
+      }
+      // For set: use member value
+      if (currentKey.type === 'set' && 'member' in rowKeyObj) {
+        return `${selectedKeyName}:member:${rowKeyObj.member}`;
+      }
+      // For zset: use member value
+      if (currentKey.type === 'zset' && 'member' in rowKeyObj) {
+        return `${selectedKeyName}:member:${rowKeyObj.member}`;
+      }
+      return `${selectedKeyName}:row-${index}`;
+    },
+    [currentKey, selectedKeyName]
+  );
+
+  // CrudCommandFactory for BaseDataGrid integration
+  // Only available when viewing a key's contents (not browser mode)
+  // and the key type supports row-level operations (hash, list, set, zset)
+  const commandFactory = useMemo<CrudCommandFactory | undefined>(() => {
+    // Disable in browser mode
+    if (isBrowserMode) return undefined;
+    // Disable if no key selected
+    if (!currentKey || !selectedKeyName) return undefined;
+    // Only support types that have row-level data
+    // Streams are read-only, strings are single-value
+    if (currentKey.type === 'string' || currentKey.type === 'stream' || currentKey.type === 'unknown') {
+      return undefined;
+    }
+
+    // Determine primary key columns based on Redis type
+    const primaryKeyColumns: string[] = [];
+    if (currentKey.type === 'hash') {
+      primaryKeyColumns.push('field');
+    } else if (currentKey.type === 'list') {
+      primaryKeyColumns.push('index');
+    } else if (currentKey.type === 'set' || currentKey.type === 'zset') {
+      primaryKeyColumns.push('member');
+    }
+
+    return {
+      connectionId,
+      database: String(database),
+      schema: undefined, // Redis doesn't use schemas
+      table: selectedKeyName,
+      primaryKeyColumns,
+      columnNameToFieldMap,
+      columnByFieldMap,
+      getRowKey: getRowKeyForFactory,
+
+      createEditCommand: (event: GridEditCommitEvent) => {
+        return createEditCommand(event);
+      },
+
+      createInsertCommand: (_data?: Record<string, unknown>) => {
+        // Create empty row - user will fill in values
+        return createInsertCommand({});
+      },
+
+      createDeleteCommand: (row: GridRowModel, _rowKey: string) => {
+        return createDeleteCommand(row);
+      },
+    };
+  }, [
+    isBrowserMode,
+    currentKey,
+    selectedKeyName,
+    connectionId,
+    database,
+    columnNameToFieldMap,
+    columnByFieldMap,
+    getRowKeyForFactory,
+    createEditCommand,
+    createInsertCommand,
+    createDeleteCommand,
+  ]);
+
   // Compute loading and error states based on mode
   const isLoading = isBrowserMode
     ? isLoadingBrowser
@@ -804,6 +950,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     hasMore,
     fetchNextPage,
     refetch,
+    executionTime,
     currentKey,
     selectKey,
     clearSelection,
@@ -812,6 +959,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     createEditCommand,
     createInsertCommand,
     createDeleteCommand,
+    commandFactory,
     isBrowserMode,
     pattern,
     setPattern,
