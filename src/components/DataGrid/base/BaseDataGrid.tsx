@@ -27,6 +27,7 @@ import { FKPreviewPopover } from '../components/FKPreviewPopover';
 import { buildGridCellV2 } from '../utils/cellFactory';
 import { cn } from '@/lib/utils';
 import { useCommand } from '@/hooks/useCommand';
+import { useContextKey, useScopedKeybindings } from '@/hooks/useContextKey';
 import { openTableObject } from '@/utils/workbench/openers';
 
 // Hooks
@@ -283,6 +284,14 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   // --- State ---
   const [isGridFocused, setIsGridFocused] = useState(false);
   const [isEditingCell, setIsEditingCell] = useState(false);
+
+  // Scoped keybindings for this grid instance
+  const scopeId = useScopedKeybindings(gridId);
+
+  // Track focus state for context keys
+  useContextKey('dataGridFocus', isGridFocused, { scopeId, resetOnUnmount: true });
+  useContextKey('dataGridEditable', !readOnly, { scopeId, resetOnUnmount: true });
+  useContextKey('editingCell', isEditingCell, { scopeId, resetOnUnmount: true });
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
 
   // Grid selection - managed internally
