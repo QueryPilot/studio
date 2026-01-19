@@ -1270,6 +1270,58 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     [readOnly, commandFactory, handleBatchEdit]
   );
 
+  // Paste handler for clipboard data
+  const handlePaste = useCallback(async () => {
+    if (readOnly || !commandFactory) return;
+
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+
+      // Parse tab-separated values
+      const lines = text.split('\n').filter(line => line.trim());
+      if (lines.length === 0) return;
+
+      const selection = gridSelectionRef.current;
+      if (!selection?.current?.cell) {
+        toast.error('Select a cell to paste into');
+        return;
+      }
+
+      const [startCol, startRow] = selection.current.cell;
+      const edits: Array<{ cell: Item; value: unknown }> = [];
+
+      lines.forEach((line, lineIndex) => {
+        const values = line.split('\t');
+        values.forEach((value, colIndex) => {
+          const targetCol = startCol + colIndex;
+          const targetRow = startRow + lineIndex;
+
+          // Skip if out of bounds
+          if (targetCol >= finalColumnsRef.current.length) return;
+          if (targetRow >= rowsRef.current.length) return;
+
+          // Skip PK columns
+          const column = finalColumnsRef.current[targetCol];
+          if (column?.meta?.is_pk) return;
+
+          edits.push({
+            cell: [targetCol, targetRow],
+            value: value.trim(),
+          });
+        });
+      });
+
+      if (edits.length > 0) {
+        handleBatchEdit(edits, rowsRef.current);
+        toast.success(`Pasted ${edits.length} cell(s)`);
+      }
+    } catch (err) {
+      console.error('Paste failed:', err);
+      toast.error('Failed to paste from clipboard');
+    }
+  }, [readOnly, commandFactory, handleBatchEdit]);
+
   // --- Cell Edit State Tracking ---
   const handleCellEditStart = useCallback(() => {
     setIsEditingCell(true);
@@ -1583,6 +1635,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
           onInsertRowAbove={commandFactory && !readOnly ? handleInsertRowAbove : undefined}
           onInsertRowBelow={commandFactory && !readOnly ? handleInsertRowBelow : undefined}
           onDeleteRows={commandFactory && !readOnly ? handleDeleteRows : undefined}
+          onPaste={commandFactory && !readOnly ? handlePaste : undefined}
           // Filter by column
           onFilterByColumn={enableFiltering ? handleFilterByColumn : undefined}
           // Details sheet
