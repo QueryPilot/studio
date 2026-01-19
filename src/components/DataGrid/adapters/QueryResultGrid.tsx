@@ -137,7 +137,7 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
     cache.sourceRows = rawRows;
 
     return cache.transformed;
-  }, [data?.rows, data?.rowCount, data?.columnMeta, data?.columns]);
+  }, [data?.rows, data?.columnMeta, data?.columns]);
 
   // Build columns from metadata
   const columns = useMemo<GridColumnV2[]>(() => {
