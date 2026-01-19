@@ -1310,7 +1310,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
 
       if (cells.length > 0) {
         handleBatchClear(cells);
-        toast.success(`${cells.length} cell(s) cleared`);
+        toast.success(`${cells.length} cell(s) staged for clearing`);
+      } else {
+        toast.info('Cannot clear read-only columns');
       }
     };
 
