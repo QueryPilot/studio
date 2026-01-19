@@ -7,9 +7,10 @@
  * - Dynamic column generation from document keys
  * - Breadcrumb navigation in topToolbar
  * - CRUD operations via the staging pipeline
+ * - Server-side (query) and client-side (search) filtering
  */
 
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo, useState, useRef } from 'react';
 import type { Item } from '@glideapps/glide-data-grid';
 import { BaseDataGrid } from '../base/BaseDataGrid';
 import { BreadcrumbNav } from '../components/BreadcrumbNav';
@@ -18,6 +19,14 @@ import { useCrudStore } from '@/stores/crudStore';
 import type { GridEditCommitEvent } from '../types';
 import { cn } from '@/lib/utils';
 import { logger } from '@/lib/logger';
+import {
+  type DocumentFilter,
+  parseDocumentFilter,
+} from '@/utils/documentFilterParser';
+import { useQuickFilter } from '../hooks/useQuickFilter';
+import type { FilterColumnInfo } from '@/utils/filterParser';
+import { QuickFilter, type QuickFilterRef } from '../components/QuickFilter';
+import type { FilterMode } from '@/utils/filterParser';
 
 // ============================================================================
 // Types
@@ -51,15 +60,71 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   className,
 }: DocumentDataGridProps) {
   const stageCommand = useCrudStore((s) => s.stageCommand);
+  const quickFilterRef = useRef<QuickFilterRef>(null);
 
-  // Get document data
+  // Filter state
+  const [documentFilter, setDocumentFilter] = useState<DocumentFilter | undefined>(undefined);
+  const [filterError, setFilterError] = useState<string | null>(null);
+
+  // Get document data with filter
   const data = useDocumentData({
     connectionId,
     database,
     collection,
     pageSize,
     enabled: true,
+    filter: documentFilter,
   });
+
+  // Build filter columns from data columns
+  const filterColumns = useMemo<FilterColumnInfo[]>(() => {
+    return data.columns.map(col => ({
+      name: col.field,
+      dataType: col.type || 'string',
+    }));
+  }, [data.columns]);
+
+  // Quick filter hook for managing filter input state
+  const quickFilter = useQuickFilter({
+    columns: filterColumns,
+    clientSideFiltering: false, // We handle both server and client filtering ourselves
+  });
+
+  // Handle filter submission
+  const handleFilterSubmit = useCallback(async () => {
+    const value = quickFilter.value.trim();
+
+    if (!value) {
+      setDocumentFilter(undefined);
+      setFilterError(null);
+      return;
+    }
+
+    const result = parseDocumentFilter(value);
+
+    if (result.success && result.filter) {
+      setDocumentFilter(result.filter);
+      setFilterError(null);
+      logger.info('document-grid', 'Filter applied', {
+        mode: result.filter.mode,
+        description: result.filter.description,
+      });
+    } else if (result.success && !result.filter) {
+      // Empty filter
+      setDocumentFilter(undefined);
+      setFilterError(null);
+    } else {
+      setFilterError(result.error || 'Invalid filter');
+    }
+  }, [quickFilter.value]);
+
+  // Handle mode change - convert between document filter modes and standard modes
+  const handleModeChange = useCallback((mode: FilterMode) => {
+    quickFilter.setMode(mode);
+    // Clear filter when mode changes
+    setDocumentFilter(undefined);
+    setFilterError(null);
+  }, [quickFilter]);
 
   // Handle cell activation for drill-down
   const handleCellActivated = useCallback(
@@ -90,20 +155,35 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
     [data, stageCommand]
   );
 
-  // Note: Row insert/delete now handled by BaseDataGrid via commandFactory
-  // TODO: Implement CrudCommandFactory for document paradigm
-
-  // Breadcrumb navigation toolbar
+  // Breadcrumb navigation toolbar with optional filter
   const topToolbar = useMemo(
     () => (
-      <BreadcrumbNav
-        path={data.currentPath}
-        collectionName={collection}
-        onNavigate={data.navigateToPath}
-        onNavigateToRoot={() => { data.navigateToPath(-1); }}
-      />
+      <div className="flex flex-col">
+        <BreadcrumbNav
+          path={data.currentPath}
+          collectionName={collection}
+          onNavigate={data.navigateToPath}
+          onNavigateToRoot={() => { data.navigateToPath(-1); }}
+        />
+        {/* Show filter at root level only */}
+        {data.currentPath.length === 0 && filterColumns.length > 0 && (
+          <div className="px-2 py-1 border-t">
+            <QuickFilter
+              ref={quickFilterRef}
+              columns={filterColumns}
+              value={quickFilter.value}
+              mode={quickFilter.mode}
+              onValueChange={quickFilter.setValue}
+              onModeChange={handleModeChange}
+              onSubmit={handleFilterSubmit}
+              error={filterError}
+              searchModeOnly={false}
+            />
+          </div>
+        )}
+      </div>
     ),
-    [data, collection]
+    [data.currentPath, collection, data.navigateToPath, filterColumns, quickFilter.value, quickFilter.mode, quickFilter.setValue, handleModeChange, handleFilterSubmit, filterError]
   );
 
   // Determine read-only state (nested paths are read-only)
@@ -125,8 +205,12 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       onLoadMore={data.fetchNextPage}
       estimatedTotal={data.totalCount}
       isEstimatedCount={false}
+      executionTime={data.executionTime}
       onCellActivated={handleCellActivated}
       onCellEditCommit={handleCellEditCommit}
+      // Command factory for CRUD operations (insert/delete documents)
+      // Returns undefined when in nested path (read-only mode)
+      commandFactory={data.commandFactory}
       topToolbar={topToolbar}
       connectionId={connectionId}
       database={database}

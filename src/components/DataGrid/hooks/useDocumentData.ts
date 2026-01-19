@@ -13,7 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { GridCell, Item } from '@glideapps/glide-data-grid';
 import { GridCellKind } from '@glideapps/glide-data-grid';
 import { nanoid } from 'nanoid';
-import type { GridColumnV2, GridRowModel, GridEditCommitEvent } from '../types';
+import type { GridColumnV2, GridRowModel, GridEditCommitEvent, CrudCommandFactory } from '../types';
 import type { DocumentDataHookResult, PathSegment } from '../sources/types';
 import type { CrudCommand, DataUpdatePayload, DataInsertPayload, DataDeletePayload, JsonValue } from '@/types/crud';
 import type { GridCellValueType } from '@/types/cellValue';
@@ -24,6 +24,10 @@ import {
   generateColumnsForArrayItems,
   detectDocumentValueType,
 } from '../utils/documentCellFactory';
+import {
+  type DocumentFilter,
+  applyDocumentColumnSearch,
+} from '@/utils/documentFilterParser';
 import { logger } from '@/lib/logger';
 
 // ============================================================================
@@ -36,6 +40,8 @@ export interface UseDocumentDataParams {
   collection: string;
   pageSize?: number;
   enabled?: boolean;
+  /** Filter for server-side (query mode) or client-side (search mode) filtering */
+  filter?: DocumentFilter;
 }
 
 interface DocumentWithId extends Record<string, unknown> {
@@ -57,7 +63,16 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     collection,
     pageSize = DEFAULT_PAGE_SIZE,
     enabled = true,
+    filter,
   } = params;
+
+  // Compute the MongoDB query for server-side filtering
+  const serverQuery = useMemo(() => {
+    if (!filter || filter.mode !== 'query' || !filter.mongoQuery) {
+      return {};
+    }
+    return filter.mongoQuery;
+  }, [filter]);
 
   const adapterRef = useRef<MongoDBAdapter | null>(null);
 
@@ -66,6 +81,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
   const [currentDocumentId, setCurrentDocumentId] = useState<DocumentId | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [pagedDocuments, setPagedDocuments] = useState<DocumentWithId[]>([]);
+  const [executionTime, setExecutionTime] = useState<number | undefined>(undefined);
 
   // Get or create adapter
   const getAdapter = useCallback(() => {
@@ -75,10 +91,10 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     return adapterRef.current;
   }, [connectionId]);
 
-  // Query key for document fetching
+  // Query key for document fetching (includes filter for server-side queries)
   const queryKey = useMemo(
-    () => ['document-data', connectionId, database, collection, currentPath, currentDocumentId, currentPage],
-    [connectionId, database, collection, currentPath, currentDocumentId, currentPage]
+    () => ['document-data', connectionId, database, collection, currentPath, currentDocumentId, currentPage, serverQuery],
+    [connectionId, database, collection, currentPath, currentDocumentId, currentPage, serverQuery]
   );
 
   // Fetch documents
@@ -90,72 +106,78 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
   } = useQuery({
     queryKey,
     queryFn: async () => {
+      const startTime = performance.now();
       const adapter = getAdapter();
 
-      // If we're at root level, fetch collection documents
-      if (currentPath.length === 0) {
-        const docs = await adapter.findDocuments(collection, {}, {
-          skip: currentPage * pageSize,
-          limit: pageSize,
-        });
-        return docs as DocumentWithId[];
-      }
+      try {
+        // If we're at root level, fetch collection documents (with optional server-side filter)
+        if (currentPath.length === 0) {
+          const docs = await adapter.findDocuments(collection, serverQuery, {
+            skip: currentPage * pageSize,
+            limit: pageSize,
+          });
+          return docs as DocumentWithId[];
+        }
 
-      // If we're drilled into a document, we need to get the nested data
-      // First, fetch the document
-      const docId = currentDocumentId;
-      if (!docId) {
-        return [];
-      }
-
-      const docs = await adapter.findDocuments(collection, { _id: docId }, { limit: 1 });
-      if (docs.length === 0) {
-        return [];
-      }
-
-      // Navigate the path to get the nested data
-      let current: unknown = docs[0];
-      for (const segment of currentPath) {
-        if (current === null || current === undefined) {
+        // If we're drilled into a document, we need to get the nested data
+        // First, fetch the document
+        const docId = currentDocumentId;
+        if (!docId) {
           return [];
         }
+
+        const docs = await adapter.findDocuments(collection, { _id: docId }, { limit: 1 });
+        if (docs.length === 0) {
+          return [];
+        }
+
+        // Navigate the path to get the nested data
+        let current: unknown = docs[0];
+        for (const segment of currentPath) {
+          if (current === null || current === undefined) {
+            return [];
+          }
+          if (Array.isArray(current)) {
+            current = current[segment.key as number];
+          } else if (typeof current === 'object') {
+            current = (current as Record<string, unknown>)[segment.key as string];
+          } else {
+            return [];
+          }
+        }
+
+        // Return the nested data as array for grid display
         if (Array.isArray(current)) {
-          current = current[segment.key as number];
-        } else if (typeof current === 'object') {
-          current = (current as Record<string, unknown>)[segment.key as string];
-        } else {
-          return [];
+          // For arrays, wrap each item with index
+          return current.map((item, index) => ({ __index: index, __value: item }));
+        } else if (typeof current === 'object' && current !== null) {
+          // For objects at nested level, return as single-item array
+          return [current as DocumentWithId];
         }
-      }
 
-      // Return the nested data as array for grid display
-      if (Array.isArray(current)) {
-        // For arrays, wrap each item with index
-        return current.map((item, index) => ({ __index: index, __value: item }));
-      } else if (typeof current === 'object' && current !== null) {
-        // For objects at nested level, return as single-item array
-        return [current as DocumentWithId];
+        return [];
+      } finally {
+        const endTime = performance.now();
+        setExecutionTime(Math.round(endTime - startTime));
       }
-
-      return [];
     },
     enabled: enabled && !!connectionId && !!collection,
     staleTime: 30000, // 30 seconds
   });
 
-  // Query key for total count
+  // Query key for total count (includes filter for accurate counts)
   const countQueryKey = useMemo(
-    () => ['document-count', connectionId, database, collection],
-    [connectionId, database, collection]
+    () => ['document-count', connectionId, database, collection, serverQuery],
+    [connectionId, database, collection, serverQuery]
   );
 
-  // Fetch total document count (only at root level)
+  // Fetch total document count (only at root level, respects server-side filter)
   const { data: totalCount } = useQuery({
     queryKey: countQueryKey,
     queryFn: async () => {
       const adapter = getAdapter();
       try {
-        const count = await adapter.countDocuments(collection, {});
+        const count = await adapter.countDocuments(collection, serverQuery);
         return count;
       } catch {
         // Count is optional, return undefined on error
@@ -233,9 +255,18 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     }
   };
 
-  // Transform documents to GridRowModel
+  // Transform documents to GridRowModel (with optional client-side search filtering)
   const rows = useMemo<GridRowModel[]>(() => {
-    return documents.map((doc) => {
+    // Apply client-side search filter if in search mode
+    let filteredDocs = documents;
+    if (filter?.mode === 'search' && filter.searchText) {
+      filteredDocs = applyDocumentColumnSearch(
+        documents as Record<string, unknown>[],
+        filter.searchText
+      ) as typeof documents;
+    }
+
+    return filteredDocs.map((doc) => {
       const row: GridRowModel = {};
       for (const col of columns) {
         const value = (doc as Record<string, unknown>)[col.field];
@@ -250,7 +281,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       }
       return row;
     });
-  }, [documents, columns]);
+  }, [documents, columns, filter]);
 
   // Get cell content for grid
   const getCellContent = useCallback(
@@ -560,6 +591,78 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     [connectionId, database, collection]
   );
 
+  // Build column maps for CrudCommandFactory
+  const columnNameToFieldMap = useMemo(() => {
+    const map = new Map<string, string>();
+    columns.forEach((col) => {
+      map.set(col.name, col.field);
+    });
+    return map;
+  }, [columns]);
+
+  const columnByFieldMap = useMemo(() => {
+    const map = new Map<string, GridColumnV2>();
+    columns.forEach((col) => {
+      map.set(col.field, col);
+    });
+    return map;
+  }, [columns]);
+
+  // Get row key for a document (using _id)
+  const getRowKey = useCallback(
+    (row: GridRowModel | undefined, index: number): string => {
+      if (!row) return `row-${index}`;
+      const idValue = row._id?.value;
+      if (idValue !== undefined && idValue !== null) {
+        return `${collection}:${String(idValue)}`;
+      }
+      return `${collection}:row-${index}`;
+    },
+    [collection]
+  );
+
+  // CrudCommandFactory for BaseDataGrid integration
+  // Only available at root level (not when drilled into nested objects)
+  const commandFactory = useMemo<CrudCommandFactory | undefined>(() => {
+    // Disable CRUD when drilled into nested paths (can't insert/delete nested items directly)
+    if (currentPath.length > 0) return undefined;
+
+    return {
+      connectionId,
+      database,
+      schema: undefined, // MongoDB doesn't use schemas
+      table: collection,
+      primaryKeyColumns: ['_id'],
+      columnNameToFieldMap,
+      columnByFieldMap,
+      getRowKey,
+
+      createEditCommand: (event: GridEditCommitEvent) => {
+        return createEditCommand(event);
+      },
+
+      createInsertCommand: (_data?: Record<string, unknown>) => {
+        // Create empty document - user will fill in values
+        return createInsertCommand({});
+      },
+
+      createDeleteCommand: (row: GridRowModel, _rowKey: string) => {
+        return createDeleteCommand(row);
+      },
+    };
+  }, [
+    currentPath.length,
+    connectionId,
+    database,
+    collection,
+    columnNameToFieldMap,
+    columnByFieldMap,
+    getRowKey,
+    createEditCommand,
+    createInsertCommand,
+    createDeleteCommand,
+  ]);
+
   return {
     paradigm: 'document',
     rows,
@@ -570,6 +673,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     hasMore,
     fetchNextPage,
     refetch,
+    executionTime,
     currentPath,
     canStepInto,
     stepInto,
@@ -580,5 +684,6 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     createEditCommand,
     createInsertCommand,
     createDeleteCommand,
+    commandFactory,
   };
 }
