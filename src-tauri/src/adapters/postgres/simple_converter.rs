@@ -227,6 +227,14 @@ impl SimpleConverter {
             // Arrays - convert to JSON array of strings
             _ if pg_type.name().starts_with('_') => Self::convert_array_fallback(row, idx),
 
+            // Enum types - read as raw bytes and decode as UTF-8
+            // PostgreSQL enum values are stored as text internally
+            _ if matches!(pg_type.kind(), postgres_types::Kind::Enum(_)) => {
+                // For enum types, we need to read the raw column value
+                // tokio-postgres stores enum values as the variant name string
+                Self::convert_enum_value(row, idx)
+            }
+
             // All other types - try as string first, then fallback
             _ => row
                 .try_get::<_, Option<String>>(idx)
@@ -258,6 +266,37 @@ impl SimpleConverter {
 
         // Fallback
         JsonValue::Null
+    }
+
+    /// Convert PostgreSQL enum value to JSON string.
+    /// Enum values are stored as the variant name string internally.
+    fn convert_enum_value(row: &Row, idx: usize) -> JsonValue {
+        use tokio_postgres::types::FromSql;
+
+        // Create a wrapper type that implements FromSql for any enum
+        // PostgreSQL enum values are transmitted as UTF-8 text
+        struct EnumValue(String);
+
+        impl<'a> FromSql<'a> for EnumValue {
+            fn from_sql(
+                _ty: &postgres_types::Type,
+                raw: &'a [u8],
+            ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+                // Enum values are sent as UTF-8 text
+                let s = std::str::from_utf8(raw)?;
+                Ok(EnumValue(s.to_string()))
+            }
+
+            fn accepts(_ty: &postgres_types::Type) -> bool {
+                // Accept any type - we only call this for known enum types
+                true
+            }
+        }
+
+        row.try_get::<_, Option<EnumValue>>(idx)
+            .ok()
+            .flatten()
+            .map_or(JsonValue::Null, |v| JsonValue::String(v.0))
     }
 }
 

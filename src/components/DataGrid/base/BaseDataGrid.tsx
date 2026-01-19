@@ -128,6 +128,27 @@ export interface BaseDataGridProps {
    * Used by data invalidation subscription to refresh data after CRUD commits
    */
   onRefetch?: () => void;
+
+  // --- Query Performance Metrics ---
+  /**
+   * Total query execution time in milliseconds
+   */
+  executionTime?: number;
+
+  /**
+   * Network/database round-trip time in milliseconds
+   */
+  networkMs?: number;
+
+  /**
+   * Data conversion/serialization time in milliseconds
+   */
+  conversionMs?: number;
+
+  /**
+   * Number of fetch batches for streaming queries
+   */
+  fetchCount?: number;
 }
 
 export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps) {
@@ -335,7 +356,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => { window.removeEventListener('keydown', handleKeyDown); };
   }, []);
 
   // --- Column Management ---
@@ -884,7 +905,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     };
 
     window.addEventListener('keydown', handleCopyKeyDown);
-    return () => window.removeEventListener('keydown', handleCopyKeyDown);
+    return () => { window.removeEventListener('keydown', handleCopyKeyDown); };
   }, [enableClipboard, isEditingCell, handleKeyboardCopy]);
 
   useCommand(
@@ -995,21 +1016,17 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
             let updatedCell = baseCell;
 
             // Override display value if we have a staged value
+            // Convert to Text cell to ensure the staged value is displayed correctly
+            // regardless of the original cell type (Number, Boolean, Custom, etc.)
             if (stagedValue !== undefined) {
               const displayValue = stagedValue === null ? 'NULL' : String(stagedValue);
-              if (baseCell.kind === GridCellKind.Text) {
-                updatedCell = {
-                  ...baseCell,
-                  data: displayValue,
-                  displayData: displayValue,
-                };
-              } else {
-                // For other cell kinds, try to update displayData
-                updatedCell = {
-                  ...baseCell,
-                  displayData: displayValue,
-                } as GridCell;
-              }
+              updatedCell = {
+                kind: GridCellKind.Text,
+                data: displayValue,
+                displayData: displayValue,
+                allowOverlay: baseCell.allowOverlay,
+                readonly: 'readonly' in baseCell ? baseCell.readonly : false,
+              };
             }
 
             // Apply orange highlighting
@@ -1118,6 +1135,29 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     toast.success('New row staged');
   }, [stageCommand, readOnly, gridSelection]);
 
+  const handleInsertRowAbove = useCallback(() => {
+    const factory = commandFactoryRef.current;
+    if (!factory || readOnly || !gridSelection?.current?.cell) return;
+
+    const [, rowIndex] = gridSelection.current.cell;
+    const command = factory.createInsertCommand();
+
+    if (rowIndex === 0) {
+      // Insert at top - mark with special metadata
+      (command.metadata as any).insertAtTop = true;
+    } else {
+      // Insert after the row ABOVE the selected row (effectively inserting before)
+      const prevRow = rowsRef.current[rowIndex - 1];
+      if (prevRow) {
+        const rowKey = factory.getRowKey(prevRow, rowIndex - 1);
+        (command.metadata as any).insertAfterRowKey = rowKey;
+      }
+    }
+
+    stageCommand(command);
+    toast.success('New row staged');
+  }, [stageCommand, readOnly, gridSelection]);
+
   const handleDeleteRows = useCallback(() => {
     const factory = commandFactoryRef.current;
     if (!factory || readOnly) return;
@@ -1196,14 +1236,14 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
 
   const handleCellEditCommitWrapper = useCallback((event: GridEditCommitEvent) => {
     setIsEditingCell(false);
-    return handleCellEditCommit(event);
+    handleCellEditCommit(event);
   }, [handleCellEditCommit]);
 
   // --- Fill Operations ---
   const { fillDown, fillRight } = useFillOperations({
     getCellContent,
     onBatchEdit: enableFillOperations && commandFactory && !readOnly
-      ? (edits) => handleBatchEdit(edits, deferredDisplayRows)
+      ? (edits) => { handleBatchEdit(edits, deferredDisplayRows); }
       : undefined,
     columnCount: finalColumns.length,
     rowCount: deferredDisplayRows.length,
@@ -1223,8 +1263,24 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       }
     };
     window.addEventListener('keydown', handleFillKeyDown);
-    return () => window.removeEventListener('keydown', handleFillKeyDown);
+    return () => { window.removeEventListener('keydown', handleFillKeyDown); };
   }, [enableFillOperations, isGridFocused, isEditingCell, fillDown, fillRight, gridSelection]);
+
+  // --- Filter by Column (from context menu) ---
+  const handleFilterByColumn = useCallback(
+    (columnId: string) => {
+      if (!enableFiltering) return;
+
+      const column = finalColumnsRef.current.find((c) => c.id === columnId);
+      if (!column) return;
+
+      // Focus QuickFilter and set initial filter expression
+      quickFilterRef.current?.focus();
+      const columnName = column.name ?? column.id;
+      setQuickFilterValue(`"${columnName}" IS NOT NULL`);
+    },
+    [enableFiltering, setQuickFilterValue]
+  );
 
   // --- Selection Management ---
   const handleGridSelectionChange = useCallback((newSelection: GridSelection) => {
@@ -1378,19 +1434,21 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
 
       {/* Quick Filter */}
       {enableFiltering && filterColumns.length > 0 && (
-        <QuickFilter
-          ref={quickFilterRef}
-          columns={filterColumns}
-          value={quickFilterValue}
-          mode={quickFilterMode}
-          onValueChange={setQuickFilterValue}
-          onModeChange={setQuickFilterMode}
-          onSubmit={handleFilterSubmit}
-          isLoading={isAIFilterLoading}
-          error={quickFilterError}
-          explanation={aiExplanation}
-          clientSideFiltering={false}
-        />
+        <div className="py-1.5">
+          <QuickFilter
+            ref={quickFilterRef}
+            columns={filterColumns}
+            value={quickFilterValue}
+            mode={quickFilterMode}
+            onValueChange={setQuickFilterValue}
+            onModeChange={setQuickFilterMode}
+            onSubmit={handleFilterSubmit}
+            isLoading={isAIFilterLoading}
+            error={quickFilterError}
+            explanation={aiExplanation}
+            clientSideFiltering={false}
+          />
+        </div>
       )}
 
       {/* Main grid with context menu */}
@@ -1413,9 +1471,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
           onUnpinRows={handleUnpinRowsFromMenu}
           // CRUD operations (internally managed)
           onAddRow={commandFactory && !readOnly ? handleAddRow : undefined}
-          onInsertRowAbove={undefined} // Not implemented yet
+          onInsertRowAbove={commandFactory && !readOnly ? handleInsertRowAbove : undefined}
           onInsertRowBelow={commandFactory && !readOnly ? handleInsertRowBelow : undefined}
           onDeleteRows={commandFactory && !readOnly ? handleDeleteRows : undefined}
+          // Filter by column
+          onFilterByColumn={enableFiltering ? handleFilterByColumn : undefined}
           // Details sheet
           showDetailsSheet={showDetailsSheet}
           onShowDetailsSheetChange={setShowDetailsSheet}
@@ -1534,6 +1594,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         readOnlyReason={readOnlyReason}
         onRefreshMaterializedView={onRefreshMaterializedView}
         isRefreshingMatView={isRefreshingMatView}
+        // Query performance metrics
+        executionTime={props.executionTime}
+        networkMs={props.networkMs}
+        conversionMs={props.conversionMs}
+        fetchCount={props.fetchCount}
       />
     </div>
   );

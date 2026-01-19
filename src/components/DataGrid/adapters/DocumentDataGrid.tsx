@@ -167,7 +167,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
         />
         {/* Show filter at root level only */}
         {data.currentPath.length === 0 && filterColumns.length > 0 && (
-          <div className="px-2 py-1 border-t">
+          <div className="py-1.5">
             <QuickFilter
               ref={quickFilterRef}
               columns={filterColumns}
@@ -183,7 +183,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
         )}
       </div>
     ),
-    [data.currentPath, collection, data.navigateToPath, filterColumns, quickFilter.value, quickFilter.mode, quickFilter.setValue, handleModeChange, handleFilterSubmit, filterError]
+    [data, collection, filterColumns, quickFilter.value, quickFilter.mode, quickFilter.setValue, handleModeChange, handleFilterSubmit, filterError]
   );
 
   // Determine read-only state (nested paths are read-only)

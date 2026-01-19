@@ -33,6 +33,7 @@ import { handleMutationCache, isMutationQuery, isSelectQuery } from "@/lib/cache
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { parseMutationTables } from "@/utils/sqlParser";
 import { eventBus } from "@/services/eventBus";
+import { schemaCache } from "@/services/schemaCache";
 
 interface QueryPanelProps {
   panelId: string;
@@ -586,7 +587,23 @@ export const QueryPanel = memo(function QueryPanel({
             // NEW: Broadcast invalidation to all components displaying affected tables
             const affectedTables = parseMutationTables(sql);
             if (affectedTables.length > 0) {
-              const { invalidateTable } = useDataInvalidationStore.getState();
+              const { invalidateTable, invalidateSchema } = useDataInvalidationStore.getState();
+              
+              if (isDDL) {
+                affectedTables.forEach(({ schema: tableSchema }) => {
+                  const targetSchema = tableSchema ?? schema;
+                  logger.info(
+                    `[QueryPanel] DDL detected - invalidating schema: ${targetSchema}`,
+                  );
+                  schemaCache.invalidateSchema(effectiveConnectionId, targetSchema);
+                  invalidateSchema(
+                    effectiveConnectionId,
+                    database,
+                    targetSchema,
+                  );
+                });
+              }
+              
               affectedTables.forEach(({ schema, table }) => {
                 logger.info(
                   `[QueryPanel] Invalidating table: ${schema ?? "public"}.${table}`,

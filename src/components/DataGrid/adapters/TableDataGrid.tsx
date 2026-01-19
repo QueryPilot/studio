@@ -27,7 +27,6 @@ import {
 } from "../components/DataGridStates";
 import { DataGridSkeleton } from "../components/DataGridSkeleton";
 import { DataGridStatusBar } from "../components/DataGridStatusBar";
-import { StagingActionsToolbar } from "../components/StagingActionsToolbar";
 import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
 import { FKPreviewPopover } from "../components/FKPreviewPopover";
 import { useAIFilter } from "../hooks/useAIFilter";
@@ -2025,22 +2024,6 @@ export const TableDataGrid = memo(function TableDataGrid(
           </Button>
         )}
 
-        {/* Staging Actions - Only when there are changes */}
-        {pendingChanges.length > 0 && (
-          <>
-            <div className="h-4 w-px bg-border" />
-            <StagingActionsToolbar
-              connectionId={connectionId}
-              database={database}
-              schema={schema}
-              table={table}
-              onCommitSuccess={async () => {
-                await tableDataQueryRef.current.refetch();
-              }}
-              onBeforeCommitPreview={commitActiveEdit}
-            />
-          </>
-        )}
       </div>,
     );
   }, [
