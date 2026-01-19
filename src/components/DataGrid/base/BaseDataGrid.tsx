@@ -620,6 +620,43 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   // Update synchronously during render (not in useEffect) to avoid delay
   stagedChangesRef.current = stagedChanges;
 
+  // --- Staged Values Map (for Document/KeyValue paradigms) ---
+  // Build a map of staged new values to override cell display
+  // This is needed because Document/KeyValue grids provide their own getCellContent
+  // and don't use useOptimisticRows to transform row data
+  const stagedValuesMap = useMemo(() => {
+    const map = new Map<string, unknown>();
+    if (!enableStagedChanges || pendingChanges.length === 0) {
+      return map;
+    }
+
+    // For each update command, find the row index via stagedChanges.rowChanges
+    // and store the newValue keyed by `rowIndex:columnField`
+    for (const command of pendingChanges) {
+      if (command.type !== 'data.update') continue;
+
+      const payload = command.payload as {
+        column?: string;
+        newValue?: unknown;
+      };
+      if (!payload.column) continue;
+
+      // Find the row index that has this column staged
+      // We iterate rowChanges to find the matching row
+      for (const [rowIndex, columnSet] of stagedChanges.rowChanges) {
+        if (columnSet.has(payload.column)) {
+          const key = `${rowIndex}:${payload.column}`;
+          map.set(key, payload.newValue);
+        }
+      }
+    }
+
+    return map;
+  }, [enableStagedChanges, pendingChanges, stagedChanges.rowChanges]);
+
+  const stagedValuesMapRef = useRef(stagedValuesMap);
+  stagedValuesMapRef.current = stagedValuesMap;
+
   // --- Cell Hover Icons (Copy button, FK preview) ---
   // Only use internal hook if no external hoverIconsDrawCell is provided
   const isLargeDataset = deferredDisplayRows.length > 5000;
@@ -937,7 +974,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         ? propGetCellContentRef.current(cell)
         : internalGetCellContent(cell);
 
-      // Apply staged changes highlighting
+      // Apply staged changes highlighting and value override
       // Use column.name for checking staged changes (not column.field)
       // because CRUD commands store changes by actual column name
       if (enableStagedChanges) {
@@ -950,10 +987,36 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
             column.name
           );
           if (hasPendingChange) {
+            // Check if we have a staged value to display (for Document/KeyValue paradigms)
+            const stagedValueKey = `${rowIndex}:${column.name}`;
+            const stagedValue = stagedValuesMapRef.current.get(stagedValueKey);
+
+            // Build the cell with staged value override and highlighting
+            let updatedCell = baseCell;
+
+            // Override display value if we have a staged value
+            if (stagedValue !== undefined) {
+              const displayValue = stagedValue === null ? 'NULL' : String(stagedValue);
+              if (baseCell.kind === GridCellKind.Text) {
+                updatedCell = {
+                  ...baseCell,
+                  data: displayValue,
+                  displayData: displayValue,
+                };
+              } else {
+                // For other cell kinds, try to update displayData
+                updatedCell = {
+                  ...baseCell,
+                  displayData: displayValue,
+                } as GridCell;
+              }
+            }
+
+            // Apply orange highlighting
             return {
-              ...baseCell,
+              ...updatedCell,
               themeOverride: {
-                ...baseCell.themeOverride,
+                ...updatedCell.themeOverride,
                 bgCell: 'rgba(251, 146, 60, 0.15)', // Orange for staged cell changes
                 accentColor: '#fb923c',
                 accentLight: 'rgba(251, 146, 60, 0.2)',
@@ -966,10 +1029,10 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       return baseCell;
     },
     // Include deferredDisplayRows in deps to invalidate Glide's cell cache when data changes
-    // Include stagedChanges to refresh cells when staged changes update
+    // Include stagedChanges and stagedValuesMap to refresh cells when staged changes update
     // The actual data access uses refs for performance, but the dependency array change
     // forces Glide Data Grid to re-query getCellContent for all cells
-    [internalGetCellContent, enableStagedChanges, deferredDisplayRows, stagedChanges]
+    [internalGetCellContent, enableStagedChanges, deferredDisplayRows, stagedChanges, stagedValuesMap]
   );
 
   // --- getRowThemeOverride ---
