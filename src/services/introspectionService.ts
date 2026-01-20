@@ -5,6 +5,7 @@
  * Uses adapters for SQL generation and BackendAPI.query() for execution.
  */
 
+import { logger } from "@/lib/logger";
 import {
   BackendAPI,
   type Database,
@@ -259,12 +260,16 @@ export const IntrospectionService = {
   },
 
   async getTables(connectionId: string, schema: string): Promise<Table[]> {
+    logger.info(`[IntrospectionService] getTables called for ${connectionId}, schema: ${schema}`);
     const adapter = await getSqlAdapterForConnection(connectionId);
     if (!adapter) {
+      logger.warn(`[IntrospectionService] No adapter found for ${connectionId}`);
       return [];
     }
     const sql = adapter.getTablesQuery(schema);
+    logger.info(`[IntrospectionService] Executing tables query for ${connectionId}`);
     const result = await BackendAPI.query(connectionId, sql);
+    logger.info(`[IntrospectionService] Tables query returned ${result.rows.length} rows for ${connectionId}`);
 
     return result.rows.map((row) => ({
       schema: getString(row[0]),
@@ -278,12 +283,16 @@ export const IntrospectionService = {
   },
 
   async getViews(connectionId: string, schema: string): Promise<View[]> {
+    logger.info(`[IntrospectionService] getViews called for ${connectionId}, schema: ${schema}`);
     const adapter = await getSqlAdapterForConnection(connectionId);
     if (!adapter) {
+      logger.warn(`[IntrospectionService] No adapter found for ${connectionId}`);
       return [];
     }
     const sql = adapter.getViewsQuery(schema);
+    logger.info(`[IntrospectionService] Executing views query for ${connectionId}`);
     const result = await BackendAPI.query(connectionId, sql);
+    logger.info(`[IntrospectionService] Views query returned ${result.rows.length} rows for ${connectionId}`);
 
     return result.rows.map((row) => ({
       schema: getString(row[0]),

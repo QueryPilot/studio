@@ -37,6 +37,8 @@ import {
   createDeleteCommand,
   createCrudTarget,
 } from '../utils/crudHelpers';
+import { useOptimisticRows } from '../hooks/useOptimisticRows';
+import { useCrudStore } from '@/stores/crudStore';
 
 export interface SqlDataGridProps {
   connectionId: string;
@@ -463,6 +465,32 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
     getRowKey,
   ]);
 
+  // --- Optimistic Updates for getCellContent ---
+  // SqlDataGrid provides its own getCellContent (for FK embedded values), so it needs
+  // to apply useOptimisticRows itself to display staged values correctly.
+  // BaseDataGrid also applies useOptimisticRows, but its result is only used when
+  // no getCellContent prop is provided.
+  const { getTableKey, stagedCommands: allStagedCommands } = useCrudStore();
+  const tableKey = commandFactory
+    ? getTableKey({
+        connectionId: commandFactory.connectionId,
+        database: commandFactory.database ?? '',
+        schema: commandFactory.schema,
+        table: commandFactory.table,
+      })
+    : '';
+  const pendingChanges = allStagedCommands.get(tableKey) ?? [];
+
+  const optimisticRows = useOptimisticRows({
+    displayRows: rows,
+    stagedCommands: pendingChanges,
+    primaryKeyColumns,
+    columnNameToFieldMap,
+    columnByFieldMap,
+    columns,
+    getRowKey,
+  });
+
   // Build embedded FK field map from columnMeta
   // The backend returns embedded FK values as columns named __qp_fk__{fkColumn}__{refColumn}
   // Map: fkColumn -> col_N (the field to access the embedded value)
@@ -497,8 +525,9 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   // --- Stable refs for getCellContent ---
   const columnsRef = useRef(columns);
   columnsRef.current = columns;
-  const rowsRef = useRef(rows);
-  rowsRef.current = rows;
+  // Use optimisticRows (not raw rows) so getCellContent shows staged values
+  const rowsRef = useRef(optimisticRows);
+  rowsRef.current = optimisticRows;
 
   // --- getCellContent (follows TableDataGrid pattern exactly) ---
   // This is used instead of customGetCellContent because embedded FK values
@@ -561,8 +590,8 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
 
       return gridCell;
     },
-    // Include rows in deps to invalidate Glide's cell cache when data changes
-    [isReadOnly, connectionId, database, schema, table, rows]
+    // Include optimisticRows in deps to invalidate Glide's cell cache when data or staged changes update
+    [isReadOnly, connectionId, database, schema, table, optimisticRows]
   );
 
   // --- Cell Edit Callback (for FK embedded value extraction) ---
