@@ -10,23 +10,23 @@
  * - Server-side (query) and client-side (search) filtering
  */
 
-import { memo, useCallback, useMemo, useState, useRef } from 'react';
-import type { Item } from '@glideapps/glide-data-grid';
-import { BaseDataGrid } from '../base/BaseDataGrid';
-import { BreadcrumbNav } from '../components/BreadcrumbNav';
-import { useDocumentData } from '../hooks/useDocumentData';
-import { useCrudStore } from '@/stores/crudStore';
-import type { GridEditCommitEvent } from '../types';
-import { cn } from '@/lib/utils';
-import { logger } from '@/lib/logger';
+import { memo, useCallback, useMemo, useState, useRef } from "react";
+import type { Item } from "@glideapps/glide-data-grid";
+import { BaseDataGrid } from "../base/BaseDataGrid";
+import { BreadcrumbNav } from "../components/BreadcrumbNav";
+import { useDocumentData } from "../hooks/useDocumentData";
+import { useCrudStore } from "@/stores/crudStore";
+import type { GridEditCommitEvent } from "../types";
+import { cn } from "@/lib/utils";
+import { logger } from "@/lib/logger";
 import {
   type DocumentFilter,
   parseDocumentFilter,
-} from '@/utils/documentFilterParser';
-import { useQuickFilter } from '../hooks/useQuickFilter';
-import type { FilterColumnInfo } from '@/utils/filterParser';
-import { QuickFilter, type QuickFilterRef } from '../components/QuickFilter';
-import type { FilterMode } from '@/utils/filterParser';
+} from "@/utils/documentFilterParser";
+import { useQuickFilter } from "../hooks/useQuickFilter";
+import type { FilterColumnInfo } from "@/utils/filterParser";
+import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
+import type { FilterMode } from "@/utils/filterParser";
 
 // ============================================================================
 // Types
@@ -63,7 +63,9 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   const quickFilterRef = useRef<QuickFilterRef>(null);
 
   // Filter state
-  const [documentFilter, setDocumentFilter] = useState<DocumentFilter | undefined>(undefined);
+  const [documentFilter, setDocumentFilter] = useState<
+    DocumentFilter | undefined
+  >(undefined);
   const [filterError, setFilterError] = useState<string | null>(null);
 
   // Get document data with filter
@@ -78,9 +80,9 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
 
   // Build filter columns from data columns
   const filterColumns = useMemo<FilterColumnInfo[]>(() => {
-    return data.columns.map(col => ({
+    return data.columns.map((col) => ({
       name: col.field,
-      dataType: col.type || 'string',
+      dataType: col.type || "string",
     }));
   }, [data.columns]);
 
@@ -105,7 +107,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
     if (result.success && result.filter) {
       setDocumentFilter(result.filter);
       setFilterError(null);
-      logger.info('document-grid', 'Filter applied', {
+      logger.info("document-grid", "Filter applied", {
         mode: result.filter.mode,
         description: result.filter.description,
       });
@@ -114,17 +116,20 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       setDocumentFilter(undefined);
       setFilterError(null);
     } else {
-      setFilterError(result.error || 'Invalid filter');
+      setFilterError(result.error || "Invalid filter");
     }
   }, [quickFilter.value]);
 
   // Handle mode change - convert between document filter modes and standard modes
-  const handleModeChange = useCallback((mode: FilterMode) => {
-    quickFilter.setMode(mode);
-    // Clear filter when mode changes
-    setDocumentFilter(undefined);
-    setFilterError(null);
-  }, [quickFilter]);
+  const handleModeChange = useCallback(
+    (mode: FilterMode) => {
+      quickFilter.setMode(mode);
+      // Clear filter when mode changes
+      setDocumentFilter(undefined);
+      setFilterError(null);
+    },
+    [quickFilter],
+  );
 
   // Handle cell activation for drill-down
   const handleCellActivated = useCallback(
@@ -132,14 +137,14 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       const [col, row] = cell;
       if (data.canStepInto(row, col)) {
         data.stepInto(row, col);
-        logger.info('document-grid', `Drilled into cell [${row}, ${col}]`, {
+        logger.info("document-grid", `Drilled into cell [${row}, ${col}]`, {
           path: data.currentPath,
         });
         return true;
       }
       return false;
     },
-    [data]
+    [data],
   );
 
   // Handle cell edit commit
@@ -148,42 +153,52 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       const cmd = data.createEditCommand(event);
       if (cmd) {
         stageCommand(cmd);
-        logger.info('document-grid', 'Staged edit command');
+        logger.info("document-grid", "Staged edit command");
       }
       return undefined;
     },
-    [data, stageCommand]
+    [data, stageCommand],
   );
 
   // Breadcrumb navigation toolbar with optional filter
   const topToolbar = useMemo(
     () => (
-      <div className="flex flex-col">
+      <div className="flex flex-col gap-1.5 mb-1.5 p-1">
         <BreadcrumbNav
           path={data.currentPath}
           collectionName={collection}
           onNavigate={data.navigateToPath}
-          onNavigateToRoot={() => { data.navigateToPath(-1); }}
+          onNavigateToRoot={() => {
+            data.navigateToPath(-1);
+          }}
         />
         {/* Show filter at root level only */}
         {data.currentPath.length === 0 && filterColumns.length > 0 && (
-          <div className="py-1.5">
-            <QuickFilter
-              ref={quickFilterRef}
-              columns={filterColumns}
-              value={quickFilter.value}
-              mode={quickFilter.mode}
-              onValueChange={quickFilter.setValue}
-              onModeChange={handleModeChange}
-              onSubmit={handleFilterSubmit}
-              error={filterError}
-              searchModeOnly={false}
-            />
-          </div>
+          <QuickFilter
+            ref={quickFilterRef}
+            columns={filterColumns}
+            value={quickFilter.value}
+            mode={quickFilter.mode}
+            onValueChange={quickFilter.setValue}
+            onModeChange={handleModeChange}
+            onSubmit={handleFilterSubmit}
+            error={filterError}
+            searchModeOnly={false}
+          />
         )}
       </div>
     ),
-    [data, collection, filterColumns, quickFilter.value, quickFilter.mode, quickFilter.setValue, handleModeChange, handleFilterSubmit, filterError]
+    [
+      data,
+      collection,
+      filterColumns,
+      quickFilter.value,
+      quickFilter.mode,
+      quickFilter.setValue,
+      handleModeChange,
+      handleFilterSubmit,
+      filterError,
+    ],
   );
 
   // Determine read-only state (nested paths are read-only)
@@ -222,7 +237,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       enableRowPinning={false}
       readOnly={readOnly}
       onRefetch={data.refetch}
-      className={cn('document-datagrid', className)}
+      className={cn("document-datagrid", className)}
     />
   );
 });

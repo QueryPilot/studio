@@ -1,7 +1,12 @@
-import { memo, useCallback } from 'react';
-import { IconChevronRight, IconHome, IconBrackets, IconList } from '@tabler/icons-react';
-import { cn } from '@/lib/utils';
-import type { PathSegment } from '../sources/types';
+import { memo, useCallback } from "react";
+import {
+  IconChevronRight,
+  IconHome,
+  IconBrackets,
+  IconList,
+} from "@tabler/icons-react";
+import { cn } from "@/lib/utils";
+import type { PathSegment } from "../sources/types";
 
 interface BreadcrumbNavProps {
   path: PathSegment[];
@@ -11,11 +16,15 @@ interface BreadcrumbNavProps {
   className?: string;
 }
 
-const SegmentIcon = memo(function SegmentIcon({ type }: { type: PathSegment['type'] }) {
+const SegmentIcon = memo(function SegmentIcon({
+  type,
+}: {
+  type: PathSegment["type"];
+}) {
   switch (type) {
-    case 'array':
+    case "array":
       return <IconList className="h-3 w-3" />;
-    case 'object':
+    case "object":
       return <IconBrackets className="h-3 w-3" />;
     default:
       return null;
@@ -37,15 +46,14 @@ export const BreadcrumbNav = memo(function BreadcrumbNav({
     (index: number) => {
       onNavigate(index);
     },
-    [onNavigate]
+    [onNavigate],
   );
 
   return (
     <nav
       className={cn(
-        'flex items-center gap-1 text-sm font-mono overflow-x-auto py-1.5 px-2',
-        'border-b border-border bg-muted/30',
-        className
+        "flex items-center gap-1 text-xs font-mono overflow-x-auto",
+        className,
       )}
       aria-label="Document path"
     >
@@ -53,12 +61,12 @@ export const BreadcrumbNav = memo(function BreadcrumbNav({
         type="button"
         onClick={handleRootClick}
         className={cn(
-          'flex items-center gap-1.5 px-2 py-1 rounded-md',
-          'hover:bg-accent transition-colors',
-          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1',
+          "flex items-center gap-1.5 px-2 py-1 rounded-md",
+          "hover:bg-accent transition-colors",
+          "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1",
           path.length === 0
-            ? 'text-foreground font-medium bg-accent/50'
-            : 'text-muted-foreground hover:text-foreground'
+            ? "text-foreground font-medium bg-accent/50"
+            : "text-muted-foreground hover:text-foreground",
         )}
       >
         <IconHome className="h-3.5 w-3.5" />
@@ -68,18 +76,23 @@ export const BreadcrumbNav = memo(function BreadcrumbNav({
       </button>
 
       {path.map((segment, index) => (
-        <div key={`${segment.key}-${index}`} className="flex items-center gap-1">
-          <IconChevronRight className="h-3.5 w-3.5 text-muted-foreground/60 flex-shrink-0" />
+        <div
+          key={`${segment.key}-${index}`}
+          className="flex items-center gap-1"
+        >
+          <IconChevronRight className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
           <button
             type="button"
-            onClick={() => handleSegmentClick(index)}
+            onClick={() => {
+              handleSegmentClick(index);
+            }}
             className={cn(
-              'flex items-center gap-1.5 px-2 py-1 rounded-md',
-              'hover:bg-accent transition-colors',
-              'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1',
+              "flex items-center gap-1.5 px-2 py-1 rounded-md",
+              "hover:bg-accent transition-colors",
+              "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1",
               index === path.length - 1
-                ? 'text-foreground font-medium bg-accent/50'
-                : 'text-muted-foreground hover:text-foreground'
+                ? "text-foreground font-medium bg-accent/50"
+                : "text-muted-foreground hover:text-foreground",
             )}
             title={segment.label}
           >
@@ -90,7 +103,7 @@ export const BreadcrumbNav = memo(function BreadcrumbNav({
       ))}
 
       {path.length > 0 && (
-        <div className="ml-auto text-xs text-muted-foreground/70 flex-shrink-0">
+        <div className="ml-auto text-xs text-muted-foreground/70 shrink-0">
           Depth: {path.length}
         </div>
       )}
