@@ -689,29 +689,65 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       return map;
     }
 
-    // For each update command, find the row index via stagedChanges.rowChanges
-    // and store the newValue keyed by `rowIndex:columnField`
+    // Build PK to row index map (same logic as useStagedChangesIndicator)
+    const pkColumns = finalColumns.filter((col) => col.meta?.is_pk);
+    // Fallback for document/keyvalue paradigms
+    let effectivePkColumns = pkColumns;
+    if (pkColumns.length === 0 && finalColumns.length > 0) {
+      const idColumn = finalColumns.find((col) => col.field === '_id' || col.name === '_id');
+      if (idColumn) effectivePkColumns = [idColumn];
+      const keyColumn = finalColumns.find((col) => col.field === 'key' || col.name === 'key');
+      if (keyColumn && effectivePkColumns.length === 0) effectivePkColumns = [keyColumn];
+    }
+
+    // Build PK string for each row
+    const rowPkToIndex = new Map<string, number>();
+    deferredDisplayRows.forEach((row, index) => {
+      const sortedPkColumns = [...effectivePkColumns].sort((a, b) => a.name.localeCompare(b.name));
+      const pkValues = sortedPkColumns.map((col) => {
+        const cellValue = row[col.field];
+        if (cellValue && typeof cellValue === 'object' && 'value' in cellValue) {
+          const value = (cellValue as { value: unknown }).value;
+          if (value === null || value === undefined) return 'null';
+          if (typeof value === 'object') return JSON.stringify(value);
+          return String(value);
+        }
+        return 'null';
+      });
+      const pkKey = pkValues.join('|');
+      rowPkToIndex.set(pkKey, index);
+    });
+
+    // For each update command, find the row index via PK matching
     for (const command of pendingChanges) {
       if (command.type !== 'data.update') continue;
 
       const payload = command.payload as {
         column?: string;
         newValue?: unknown;
+        primaryKeys?: Record<string, unknown>;
       };
-      if (!payload.column) continue;
+      if (!payload.column || !payload.primaryKeys) continue;
 
-      // Find the row index that has this column staged
-      // We iterate rowChanges to find the matching row
-      for (const [rowIndex, columnSet] of stagedChanges.rowChanges) {
-        if (columnSet.has(payload.column)) {
-          const key = `${rowIndex}:${payload.column}`;
-          map.set(key, payload.newValue);
-        }
+      // Build PK string from command payload (same logic as createPrimaryKeyStringFromRecord)
+      const pkKey = Object.entries(payload.primaryKeys)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([_key, value]) => {
+          if (value === null || value === undefined) return 'null';
+          if (typeof value === 'object') return JSON.stringify(value);
+          return String(value);
+        })
+        .join('|');
+
+      const rowIndex = rowPkToIndex.get(pkKey);
+      if (rowIndex !== undefined) {
+        const key = `${rowIndex}:${payload.column}`;
+        map.set(key, payload.newValue);
       }
     }
 
     return map;
-  }, [enableStagedChanges, pendingChanges, stagedChanges.rowChanges]);
+  }, [enableStagedChanges, pendingChanges, finalColumns, deferredDisplayRows]);
 
   const stagedValuesMapRef = useRef(stagedValuesMap);
   stagedValuesMapRef.current = stagedValuesMap;
@@ -1050,11 +1086,10 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
             let updatedCell = baseCell;
 
             // Override display value if we have a staged value
-            // ONLY for Document/KeyValue paradigms which provide their own getCellContent
-            // and don't use useOptimisticRows to transform row data.
-            // SQL paradigm (with commandFactory) uses useOptimisticRows, so the row data
-            // is already updated and buildGridCellV2 builds the correct cell type.
-            if (!commandFactory && propGetCellContentRef.current) {
+            // ONLY for Document/KeyValue paradigms that don't use useOptimisticRows to transform row data.
+            // SQL paradigm uses useOptimisticRows, so row data is already updated and
+            // buildGridCellV2 builds the correct cell type (boolean dropdown, number, etc.).
+            if (paradigm === 'document' || paradigm === 'keyvalue') {
               const stagedValueKey = `${rowIndex}:${column.name}`;
               const stagedValue = stagedValuesMapRef.current.get(stagedValueKey);
               if (stagedValue !== undefined) {
@@ -1065,6 +1100,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
                   displayData: displayValue,
                   allowOverlay: baseCell.allowOverlay,
                   readonly: 'readonly' in baseCell ? baseCell.readonly : false,
+                  themeOverride: baseCell.themeOverride, // Preserve font styling from base cell
+                  contentAlign: 'contentAlign' in baseCell ? baseCell.contentAlign : undefined,
                 };
               }
             }
