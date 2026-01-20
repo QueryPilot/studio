@@ -1529,6 +1529,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     (event: GridEditCommitEvent) => {
       setIsEditingCell(false);
       handleCellEditCommit(event);
+      return undefined;
     },
     [handleCellEditCommit],
   );
@@ -1645,10 +1646,27 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   );
 
   // Compute selected rows from gridSelection
+  // Includes both explicit row selections (clicking row headers) AND
+  // implicit row selections from cell ranges (dragging over cells)
   const selectedRowsSet = useMemo(() => {
-    if (!gridSelection?.rows) return new Set<number>();
-    return new Set(gridSelection.rows.toArray());
-  }, [gridSelection?.rows]);
+    const rowsSel = gridSelection?.rows?.toArray() ?? [];
+    const set = new Set<number>(rowsSel);
+
+    if (gridSelection?.current) {
+      // Include rows from cell range selections
+      const addRect = (r: Rectangle | undefined) => {
+        if (!r) return;
+        const start = Math.max(0, r.y);
+        const end = Math.max(start, r.y + r.height);
+        for (let i = start; i < end; i += 1) set.add(i);
+      };
+      addRect(gridSelection.current.range);
+      const stack = gridSelection.current.rangeStack as Rectangle[] | undefined;
+      (stack ?? []).forEach(addRect);
+    }
+
+    return set;
+  }, [gridSelection]);
 
   const selectedRowCount = selectedRowsSet.size;
 
