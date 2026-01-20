@@ -1046,25 +1046,27 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
             column.name
           );
           if (hasPendingChange) {
-            // Check if we have a staged value to display (for Document/KeyValue paradigms)
-            const stagedValueKey = `${rowIndex}:${column.name}`;
-            const stagedValue = stagedValuesMapRef.current.get(stagedValueKey);
-
             // Build the cell with staged value override and highlighting
             let updatedCell = baseCell;
 
             // Override display value if we have a staged value
-            // Convert to Text cell to ensure the staged value is displayed correctly
-            // regardless of the original cell type (Number, Boolean, Custom, etc.)
-            if (stagedValue !== undefined) {
-              const displayValue = stagedValue === null ? 'NULL' : String(stagedValue);
-              updatedCell = {
-                kind: GridCellKind.Text,
-                data: displayValue,
-                displayData: displayValue,
-                allowOverlay: baseCell.allowOverlay,
-                readonly: 'readonly' in baseCell ? baseCell.readonly : false,
-              };
+            // ONLY for Document/KeyValue paradigms which provide their own getCellContent
+            // and don't use useOptimisticRows to transform row data.
+            // SQL paradigm (with commandFactory) uses useOptimisticRows, so the row data
+            // is already updated and buildGridCellV2 builds the correct cell type.
+            if (!commandFactory && propGetCellContentRef.current) {
+              const stagedValueKey = `${rowIndex}:${column.name}`;
+              const stagedValue = stagedValuesMapRef.current.get(stagedValueKey);
+              if (stagedValue !== undefined) {
+                const displayValue = stagedValue === null ? 'NULL' : String(stagedValue);
+                updatedCell = {
+                  kind: GridCellKind.Text,
+                  data: displayValue,
+                  displayData: displayValue,
+                  allowOverlay: baseCell.allowOverlay,
+                  readonly: 'readonly' in baseCell ? baseCell.readonly : false,
+                };
+              }
             }
 
             // Apply orange highlighting
