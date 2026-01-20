@@ -10,35 +10,40 @@
  * are handled by BaseDataGrid.
  */
 
-import { memo, useCallback, useMemo, useRef, useDeferredValue } from 'react';
-import type { Item, GridCell } from '@glideapps/glide-data-grid';
-import { GridCellKind } from '@glideapps/glide-data-grid';
-import { cn } from '@/lib/utils';
-import { BaseDataGrid } from '../base/BaseDataGrid';
-import type { GridColumnV2, GridRowModel, GridEditCommitEvent, CrudCommandFactory } from '../types';
-import { useTableDataQuery } from '@/hooks/useTableDataQuery';
-import { useTableFullStructure } from '@/hooks/useTableFullStructure';
-import { useReferencedTableColumns } from '@/hooks/useReferencedTableColumns';
-import { buildGridCellV2 } from '../utils/cellFactory';
-import { computeBaseWidth } from './columnUtils';
-import { DataGridEmptyState } from '../components/DataGridStates';
-import { databaseService } from '@/services/databaseService';
-import { DataGridSkeleton } from '../components/DataGridSkeleton';
-import { QuickFilter } from '../components/QuickFilter';
-import { useQuickFilter } from '../hooks/useQuickFilter';
-import { useAIFilter } from '../hooks/useAIFilter';
-import { DbType, type GridCellValue } from '@/types';
-import type { FilterColumnInfo } from '@/utils/filterParser';
-import { useEmbeddedFKPreferencesStore } from '../stores/embeddedFKPreferencesStore';
-import type { EmbeddedFKConfig } from '@/adapters/types';
+import { memo, useCallback, useMemo, useRef, useDeferredValue } from "react";
+import type { Item, GridCell } from "@glideapps/glide-data-grid";
+import { GridCellKind } from "@glideapps/glide-data-grid";
+import { cn } from "@/lib/utils";
+import { BaseDataGrid } from "../base/BaseDataGrid";
+import type {
+  GridColumnV2,
+  GridRowModel,
+  GridEditCommitEvent,
+  CrudCommandFactory,
+} from "../types";
+import { useTableDataQuery } from "@/hooks/useTableDataQuery";
+import { useTableFullStructure } from "@/hooks/useTableFullStructure";
+import { useReferencedTableColumns } from "@/hooks/useReferencedTableColumns";
+import { buildGridCellV2 } from "../utils/cellFactory";
+import { computeBaseWidth } from "./columnUtils";
+import { DataGridEmptyState } from "../components/DataGridStates";
+import { databaseService } from "@/services/databaseService";
+import { DataGridSkeleton } from "../components/DataGridSkeleton";
+import { QuickFilter } from "../components/QuickFilter";
+import { useQuickFilter } from "../hooks/useQuickFilter";
+import { useAIFilter } from "../hooks/useAIFilter";
+import { DbType, type GridCellValue } from "@/types";
+import type { FilterColumnInfo } from "@/utils/filterParser";
+import { useEmbeddedFKPreferencesStore } from "../stores/embeddedFKPreferencesStore";
+import type { EmbeddedFKConfig } from "@/adapters/types";
 import {
   createInsertCommand,
   createUpdateCommand,
   createDeleteCommand,
   createCrudTarget,
-} from '../utils/crudHelpers';
-import { useOptimisticRows } from '../hooks/useOptimisticRows';
-import { useCrudStore } from '@/stores/crudStore';
+} from "../utils/crudHelpers";
+import { useOptimisticRows } from "../hooks/useOptimisticRows";
+import { useCrudStore } from "@/stores/crudStore";
 
 export interface SqlDataGridProps {
   connectionId: string;
@@ -48,7 +53,7 @@ export interface SqlDataGridProps {
   dbType: DbType;
   readOnly?: boolean;
   /** Entity kind: Table, View, or MaterializedView */
-  kind?: 'Table' | 'View' | 'MaterializedView';
+  kind?: "Table" | "View" | "MaterializedView";
   onRefresh?: () => void;
   /** CSS class name for styling */
   className?: string;
@@ -68,7 +73,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
     table,
     dbType,
     readOnly = false,
-    kind = 'Table',
+    kind = "Table",
     className,
   } = props;
 
@@ -76,40 +81,45 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   const tableName = table;
 
   // Determine entity type and read-only status based on kind
-  const entityType: 'table' | 'view' | 'materialized_view' = kind === 'MaterializedView'
-    ? 'materialized_view'
-    : kind === 'View'
-      ? 'view'
-      : 'table';
+  const entityType: "table" | "view" | "materialized_view" =
+    kind === "MaterializedView"
+      ? "materialized_view"
+      : kind === "View"
+        ? "view"
+        : "table";
 
-  const isViewOrMatView = kind === 'View' || kind === 'MaterializedView';
+  const isViewOrMatView = kind === "View" || kind === "MaterializedView";
   const isReadOnly = readOnly || isViewOrMatView;
-  const readOnlyReason = kind === 'View'
-    ? 'Read-only: View'
-    : kind === 'MaterializedView'
-      ? 'Read-only: Materialized View'
-      : undefined;
+  const readOnlyReason =
+    kind === "View"
+      ? "Read-only: View"
+      : kind === "MaterializedView"
+        ? "Read-only: Materialized View"
+        : undefined;
 
   // --- Table Structure (needed for FK metadata before data query) ---
   const { structure: tableStructure } = useTableFullStructure({
     connectionId,
-    database: database ?? '',
-    schema: schema ?? '',
+    database: database ?? "",
+    schema: schema ?? "",
     table,
     options: {
-      includeConstraints: true,  // Required for FK data (FKs are extracted from constraints)
-      includeForeignKeys: true,  // Required for FK preview and embed features
+      includeConstraints: true, // Required for FK data (FKs are extracted from constraints)
+      includeForeignKeys: true, // Required for FK preview and embed features
     },
   });
 
   // --- Embedded FK Configuration (needed before data query) ---
   // Build storage key for embedded FK preferences: {connectionId}:{schema}.{table}
   // Must match the key format used in FKEmbedSubmenu
-  const embeddedFKKey = `${connectionId}:${schema ?? 'public'}.${table}`;
-  const embeddedFKPrefs = useEmbeddedFKPreferencesStore((s) => s.preferences[embeddedFKKey]);
+  const embeddedFKKey = `${connectionId}:${schema ?? "public"}.${table}`;
+  const embeddedFKPrefs = useEmbeddedFKPreferencesStore(
+    (s) => s.preferences[embeddedFKKey],
+  );
 
   const embeddedFKs = useMemo<EmbeddedFKConfig[]>(() => {
-    if (!embeddedFKPrefs?.embeddedColumns || !tableStructure?.foreignKeys) return [];
+    if (!embeddedFKPrefs?.embeddedColumns || !tableStructure?.foreignKeys)
+      return [];
 
     const configs: EmbeddedFKConfig[] = [];
     for (const fk of tableStructure.foreignKeys) {
@@ -122,7 +132,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
         if (refDisplayColumns && refDisplayColumns.length > 0) {
           configs.push({
             fkColumn: colName,
-            refSchema: fk.foreignSchema ?? 'public',
+            refSchema: fk.foreignSchema ?? "public",
             refTable: fk.foreignTable,
             refPkColumn: refCol,
             refDisplayColumns,
@@ -174,33 +184,29 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   }, [tableStructure?.columns, tableStructure?.foreignKeys]);
 
   // Map DbType to dialect for AI filter
-  const dialect = useMemo((): 'postgresql' | 'mysql' | 'sqlite' | 'mssql' => {
+  const dialect = useMemo((): "postgresql" | "mysql" | "sqlite" | "mssql" => {
     switch (dbType) {
       case DbType.PostgreSQL:
-        return 'postgresql';
+        return "postgresql";
       case DbType.MySQL:
       case DbType.MariaDB:
-        return 'mysql';
+        return "mysql";
       case DbType.SQLite:
-        return 'sqlite';
+        return "sqlite";
       case DbType.SQLServer:
-        return 'mssql';
+        return "mssql";
       default:
-        return 'postgresql';
+        return "postgresql";
     }
   }, [dbType]);
 
   // AI filter hook
-  const { generateFilter: generateAIFilter, isLoading: isAIFilterLoading } = useAIFilter(
-    filterColumns,
-    table,
-    dialect,
-    {
+  const { generateFilter: generateAIFilter, isLoading: isAIFilterLoading } =
+    useAIFilter(filterColumns, table, dialect, {
       connectionId,
       schema,
       enableCrossTable: true,
-    }
-  );
+    });
 
   // Quick filter hook - manages filter state, parsing, and submission
   const {
@@ -222,12 +228,13 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   // --- Data Fetching ---
   const tableDataQuery = useTableDataQuery({
     connectionId,
-    database: database ?? '',
+    database: database ?? "",
     schema,
     entityName: table,
     entityType,
     enabled: true,
-    embeddedFKs: deferredEmbeddedFKs.length > 0 ? deferredEmbeddedFKs : undefined,
+    embeddedFKs:
+      deferredEmbeddedFKs.length > 0 ? deferredEmbeddedFKs : undefined,
     filters: activeFilter,
   });
 
@@ -249,8 +256,8 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
     queryData?.pages.at(-1)?.executionTimeMs ??
     queryData?.pages[0]?.executionTimeMs;
 
-  const isLoading = status === 'loading';
-  const isError = status === 'error';
+  const isLoading = status === "loading";
+  const isError = status === "error";
 
   // --- FK Metadata ---
   // Build FK reference map from table structure (needed before columns)
@@ -272,7 +279,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
             const refCol = fk.foreignColumns[i];
             if (colName && refCol) {
               map.set(colName, {
-                referenced_schema: fk.foreignSchema ?? 'public',
+                referenced_schema: fk.foreignSchema ?? "public",
                 referenced_table: fk.foreignTable,
                 referenced_column: refCol,
               });
@@ -286,7 +293,10 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
 
   // Build FK references map for useReferencedTableColumns hook (different structure)
   const fkReferencesForHook = useMemo(() => {
-    const map = new Map<string, { schema: string; table: string; column: string }>();
+    const map = new Map<
+      string,
+      { schema: string; table: string; column: string }
+    >();
     for (const [colName, ref] of fkReferenceByColumn) {
       map.set(colName, {
         schema: ref.referenced_schema,
@@ -299,7 +309,9 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
 
   // Convert ColumnMeta[] to GridColumnV2[] with FK metadata
   const columns = useMemo<GridColumnV2[]>(() => {
-    const visibleColumns = columnMeta.filter((meta) => !meta.name.startsWith('__qp_fk__'));
+    const visibleColumns = columnMeta.filter(
+      (meta) => !meta.name.startsWith("__qp_fk__"),
+    );
     return visibleColumns.map((meta) => {
       const originalIndex = columnMeta.findIndex((c) => c.name === meta.name);
       const uniqueField = `col_${originalIndex}`;
@@ -367,28 +379,35 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   const getRowKey = useCallback(
     (row: GridRowModel | undefined, index: number): string => {
       if (!row) {
-        return `${schema ?? 'public'}.${table}:row-${index}`;
+        return `${schema ?? "public"}.${table}:row-${index}`;
       }
       const cached = rowKeyMapRef.current.get(row);
       if (cached) return cached;
 
       const parts = primaryKeyColumns.map((columnName) => {
-        const field = columnNameToFieldMapRef.current.get(columnName) ?? columnName;
+        const field =
+          columnNameToFieldMapRef.current.get(columnName) ?? columnName;
         const cell = row[field];
-        const value = cell && typeof cell === 'object' && 'value' in cell ? cell.value : cell;
-        if (value === null || value === undefined) return '__null__';
-        if (typeof value !== 'object') return String(value);
+        const value =
+          cell && typeof cell === "object" && "value" in cell
+            ? cell.value
+            : cell;
+        if (value === null || value === undefined) return "__null__";
+        if (typeof value !== "object") return String(value);
         return String(value);
       });
 
-      let computed = `${schema ?? 'public'}.${table}:row-${draftRowCounterRef.current++}`;
-      if (primaryKeyColumns.length > 0 && parts.some((part) => part !== '__null__')) {
-        computed = `${schema ?? 'public'}.${table}:pk:${parts.join('|')}`;
+      let computed = `${schema ?? "public"}.${table}:row-${draftRowCounterRef.current++}`;
+      if (
+        primaryKeyColumns.length > 0 &&
+        parts.some((part) => part !== "__null__")
+      ) {
+        computed = `${schema ?? "public"}.${table}:pk:${parts.join("|")}`;
       }
       rowKeyMapRef.current.set(row, computed);
       return computed;
     },
-    [primaryKeyColumns, schema, table]
+    [primaryKeyColumns, schema, table],
   );
 
   // --- Command Factory ---
@@ -396,7 +415,12 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   const commandFactory = useMemo<CrudCommandFactory | undefined>(() => {
     if (isReadOnly) return undefined;
 
-    const target = createCrudTarget(connectionId, database ?? '', schema, table);
+    const target = createCrudTarget(
+      connectionId,
+      database ?? "",
+      schema,
+      table,
+    );
 
     return {
       connectionId,
@@ -412,7 +436,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
         try {
           return createUpdateCommand(event, target, columns);
         } catch (err) {
-          console.error('Failed to create update command:', err);
+          console.error("Failed to create update command:", err);
           return null;
         }
       },
@@ -425,22 +449,27 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
           if (providedValue !== undefined) {
             newRow[col.field] = {
               value: providedValue,
-              value_type: typeof providedValue === 'number' ? 'Integer' : 'Text',
-              db_type: col.meta?.db_type ?? col.type ?? 'text',
+              value_type:
+                typeof providedValue === "number" ? "Integer" : "Text",
+              db_type: col.meta?.db_type ?? col.type ?? "text",
               is_truncated: false,
             } as GridCellValue;
-          } else if (col.meta?.default || col.meta?.nullable || col.meta?.is_pk) {
+          } else if (
+            col.meta?.default ||
+            col.meta?.nullable ||
+            col.meta?.is_pk
+          ) {
             newRow[col.field] = {
               value: null,
-              value_type: 'Null',
-              db_type: col.meta?.db_type ?? col.type ?? 'text',
+              value_type: "Null",
+              db_type: col.meta?.db_type ?? col.type ?? "text",
               is_truncated: false,
             } as GridCellValue;
           } else {
             newRow[col.field] = {
-              value: '',
-              value_type: 'Text',
-              db_type: col.meta?.db_type ?? col.type ?? 'text',
+              value: "",
+              value_type: "Text",
+              db_type: col.meta?.db_type ?? col.type ?? "text",
               is_truncated: false,
             } as GridCellValue;
           }
@@ -474,11 +503,11 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   const tableKey = commandFactory
     ? getTableKey({
         connectionId: commandFactory.connectionId,
-        database: commandFactory.database ?? '',
+        database: commandFactory.database ?? "",
         schema: commandFactory.schema,
         table: commandFactory.table,
       })
-    : '';
+    : "";
   const pendingChanges = allStagedCommands.get(tableKey) ?? [];
 
   const optimisticRows = useOptimisticRows({
@@ -498,7 +527,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
     const map = new Map<string, string>();
     columnMeta.forEach((col, index) => {
       // Parse __qp_fk__{fkColumn}__{refColumn}
-      if (col.name.startsWith('__qp_fk__')) {
+      if (col.name.startsWith("__qp_fk__")) {
         const match = col.name.match(/^__qp_fk__(.+?)__(.+)$/);
         if (match && match[1]) {
           map.set(match[1], `col_${index}`);
@@ -512,12 +541,14 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   embeddedFKFieldMapRef.current = embeddedFKFieldMap;
 
   // Staged FK embedded values for updates
-  const stagedFKEmbeddedValuesRef = useRef<Map<string, string | null>>(new Map());
+  const stagedFKEmbeddedValuesRef = useRef<Map<string, string | null>>(
+    new Map(),
+  );
 
   // --- Referenced Table Columns (for context menu) ---
   const referencedTableColumns = useReferencedTableColumns({
     connectionId,
-    database: database ?? '',
+    database: database ?? "",
     fkReferences: fkReferencesForHook,
     enabled: fkReferencesForHook.size > 0,
   });
@@ -541,8 +572,8 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
       if (!column || !row) {
         return {
           kind: GridCellKind.Text,
-          data: '',
-          displayData: '',
+          data: "",
+          displayData: "",
           allowOverlay: false,
           readonly: true,
         } as const;
@@ -565,7 +596,10 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
           // Fall back to embedded FK field from row data
           const embeddedField = embeddedFKFieldMapRef.current.get(columnName);
           if (embeddedField) {
-            const embeddedCell = row[embeddedField] as GridCellValue | null | undefined;
+            const embeddedCell = row[embeddedField] as
+              | GridCellValue
+              | null
+              | undefined;
             if (embeddedCell?.value != null) {
               embeddedValue = String(embeddedCell.value);
             }
@@ -583,7 +617,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
         connectionContext: {
           connectionId,
           database,
-          schema: schema ?? 'public',
+          schema: schema ?? "public",
           table,
         },
       });
@@ -591,25 +625,31 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
       return gridCell;
     },
     // Include optimisticRows in deps to invalidate Glide's cell cache when data or staged changes update
-    [isReadOnly, connectionId, database, schema, table, optimisticRows]
+    [isReadOnly, connectionId, database, schema, table, optimisticRows],
   );
 
   // --- Cell Edit Callback (for FK embedded value extraction) ---
-  const handleCellEditCommit = useCallback(
-    (event: GridEditCommitEvent) => {
-      // For FK columns, extract and store the embeddedValue from the committed cell
-      if (event.column.meta?.is_fk && event.newValue && 'data' in event.newValue) {
-        const data = event.newValue.data;
-        if (typeof data === 'object' && data !== null && 'embeddedValue' in data) {
-          const columnName = event.column.name ?? event.column.field;
-          const key = `${event.rowIndex}:${columnName}`;
-          const embeddedValue = (data as { embeddedValue?: string | null }).embeddedValue;
-          stagedFKEmbeddedValuesRef.current.set(key, embeddedValue ?? null);
-        }
+  const handleCellEditCommit = useCallback((event: GridEditCommitEvent) => {
+    // For FK columns, extract and store the embeddedValue from the committed cell
+    if (
+      event.column.meta?.is_fk &&
+      event.newValue &&
+      "data" in event.newValue
+    ) {
+      const data = event.newValue.data;
+      if (
+        typeof data === "object" &&
+        data !== null &&
+        "embeddedValue" in data
+      ) {
+        const columnName = event.column.name ?? event.column.field;
+        const key = `${event.rowIndex}:${columnName}`;
+        const embeddedValue = (data as { embeddedValue?: string | null })
+          .embeddedValue;
+        stagedFKEmbeddedValuesRef.current.set(key, embeddedValue ?? null);
       }
-    },
-    []
-  );
+    }
+  }, []);
 
   // --- Reconnect Handler ---
   const handleReconnect = useCallback(async () => {
@@ -629,7 +669,12 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   // Allow empty state for tables (user may want to add rows)
   // Views/MatViews show empty state since they can't be edited
   if (rows.length === 0 && isViewOrMatView) {
-    return <DataGridEmptyState title="No data" description="No rows found in this view." />;
+    return (
+      <DataGridEmptyState
+        title="No data"
+        description="No rows found in this view."
+      />
+    );
   }
 
   // --- Render ---
@@ -637,7 +682,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
     <div className="flex h-full flex-col">
       {/* Quick Filter - managed here, not in BaseDataGrid */}
       {filterColumns.length > 0 && (
-        <div className="py-1.5">
+        <div className="py-1.5 px-1">
           <QuickFilter
             columns={filterColumns}
             value={quickFilterValue}
@@ -647,9 +692,9 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
             onSubmit={handleFilterSubmit}
             isLoading={isAIFilterLoading}
             error={quickFilterError}
-              explanation={aiExplanation}
-              clientSideFiltering={false}
-            />
+            explanation={aiExplanation}
+            clientSideFiltering={false}
+          />
         </div>
       )}
 
@@ -671,7 +716,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
         readOnly={isReadOnly}
         readOnlyReason={readOnlyReason}
         entityType={entityType}
-        enableFiltering={false}  // Filter managed by SqlDataGrid, not BaseDataGrid
+        enableFiltering={false} // Filter managed by SqlDataGrid, not BaseDataGrid
         enableSorting={true}
         enableExport={true}
         enableRowPinning={true}
@@ -691,7 +736,13 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
         // Data invalidation refetch
         onRefetch={refetch}
         // Error handling and reconnection
-        error={isError ? (error instanceof Error ? error.message : 'Failed to load table data') : undefined}
+        error={
+          isError
+            ? error instanceof Error
+              ? error.message
+              : "Failed to load table data"
+            : undefined
+        }
         onReconnect={handleReconnect}
         // Query performance metrics
         executionTime={executionTime}
