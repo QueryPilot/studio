@@ -177,6 +177,7 @@ function createPrimaryKeyStringFast(
   const sortedPkColumns = [...pkColumns].sort((a, b) => a.name.localeCompare(b.name));
 
   // Build composite PK string from all PK columns
+  // IMPORTANT: Must match createPrimaryKeyStringFromRecord's serialization format
   const pkValues = sortedPkColumns.map((col) => {
     const cellValue = row[col.field];
     if (
@@ -184,7 +185,11 @@ function createPrimaryKeyStringFast(
       typeof cellValue === "object" &&
       "value" in cellValue
     ) {
-      return String(cellValue.value ?? "null");
+      const value = cellValue.value;
+      if (value === null || value === undefined) return "null";
+      // Use JSON.stringify for objects (e.g., MongoDB ObjectId) to match createPrimaryKeyStringFromRecord
+      if (typeof value === 'object') return JSON.stringify(value);
+      return String(value);
     }
     return "null";
   });
