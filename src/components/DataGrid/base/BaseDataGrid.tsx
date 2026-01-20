@@ -1,4 +1,12 @@
-import React, { memo, useCallback, useRef, useState, useMemo, useEffect, useDeferredValue } from 'react';
+import React, {
+  memo,
+  useCallback,
+  useRef,
+  useState,
+  useMemo,
+  useEffect,
+  useDeferredValue,
+} from "react";
 import {
   GridCellKind,
   type GridSelection,
@@ -6,50 +14,53 @@ import {
   type GridCell,
   type Rectangle,
   type GridMouseEventArgs,
-} from '@glideapps/glide-data-grid';
-import { toast } from 'sonner';
+} from "@glideapps/glide-data-grid";
+import { toast } from "sonner";
 import type {
   GridRowModel,
   GridColumnV2,
   GridEditCommitEvent,
   CrudCommandFactory,
-} from '../types';
-import type { ContextMenuTarget } from '../components/UnifiedContextMenu';
-import type { QuickFilterRef } from '../components/QuickFilter';
-import type { EditableDataGridRef } from './EditableDataGrid';
+} from "../types";
+import type { ContextMenuTarget } from "../components/UnifiedContextMenu";
+import type { QuickFilterRef } from "../components/QuickFilter";
+import type { EditableDataGridRef } from "./EditableDataGrid";
 
-import { EditableDataGrid } from './EditableDataGrid';
-import { DataGridStatusBar } from '../components/DataGridStatusBar';
-import { DataGridErrorState } from '../components/DataGridStates';
-import { QuickFilter } from '../components/QuickFilter';
-import { UnifiedContextMenu } from '../components/UnifiedContextMenu';
-import { FKPreviewPopover } from '../components/FKPreviewPopover';
-import { buildGridCellV2 } from '../utils/cellFactory';
-import { cn } from '@/lib/utils';
-import { useCommand } from '@/hooks/useCommand';
-import { useContextKey, useScopedKeybindings } from '@/hooks/useContextKey';
-import { openTableObject } from '@/utils/workbench/openers';
+import { EditableDataGrid } from "./EditableDataGrid";
+import { DataGridStatusBar } from "../components/DataGridStatusBar";
+import { DataGridErrorState } from "../components/DataGridStates";
+import { QuickFilter } from "../components/QuickFilter";
+import { UnifiedContextMenu } from "../components/UnifiedContextMenu";
+import { FKPreviewPopover } from "../components/FKPreviewPopover";
+import { buildGridCellV2 } from "../utils/cellFactory";
+import { cn } from "@/lib/utils";
+import { useCommand } from "@/hooks/useCommand";
+import { useContextKey, useScopedKeybindings } from "@/hooks/useContextKey";
+import { openTableObject } from "@/utils/workbench/openers";
 
 // Hooks
-import { useQuickFilter } from '../hooks/useQuickFilter';
-import { useAIFilter } from '../hooks/useAIFilter';
-import { useColumnSizing } from '../hooks/useColumnSizing';
-import { useColumnVisibility } from '../hooks/useColumnVisibility';
-import { useRowPinning } from '../hooks/useRowPinning';
-import { useColumnSorting } from '../hooks/useColumnSorting';
-import { useClipboardBridge } from '../hooks/useClipboardBridge';
-import { useFillOperations } from '../hooks/useFillOperations';
-import { useStagedChangesIndicator, hasStagedCellChange } from '../hooks/useStagedChangesIndicator';
-import { useCellHoverIcons } from '../hooks/useCellHoverIcons';
-import { useOptimisticRows } from '../hooks/useOptimisticRows';
-import { useGridPreferencesStore, upsertGridColumnsState } from '../stores';
-import { useCrudStore } from '@/stores/crudStore';
-import { useDataInvalidationStore } from '@/stores/dataInvalidationStore';
+import { useQuickFilter } from "../hooks/useQuickFilter";
+import { useAIFilter } from "../hooks/useAIFilter";
+import { useColumnSizing } from "../hooks/useColumnSizing";
+import { useColumnVisibility } from "../hooks/useColumnVisibility";
+import { useRowPinning } from "../hooks/useRowPinning";
+import { useColumnSorting } from "../hooks/useColumnSorting";
+import { useClipboardBridge } from "../hooks/useClipboardBridge";
+import { useFillOperations } from "../hooks/useFillOperations";
+import {
+  useStagedChangesIndicator,
+  hasStagedCellChange,
+} from "../hooks/useStagedChangesIndicator";
+import { useCellHoverIcons } from "../hooks/useCellHoverIcons";
+import { useOptimisticRows } from "../hooks/useOptimisticRows";
+import { useGridPreferencesStore, upsertGridColumnsState } from "../stores";
+import { useCrudStore } from "@/stores/crudStore";
+import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 
 // Utils
-import { createDrawHeader } from '../utils/headerUtils';
-import { coerceToColumnType, type ColumnTypeHint } from '../utils/pasteUtils';
-import { parseClipboardText } from '../hooks/usePasteHandler';
+import { createDrawHeader } from "../utils/headerUtils";
+import { coerceToColumnType, type ColumnTypeHint } from "../utils/pasteUtils";
+import { parseClipboardText } from "../hooks/usePasteHandler";
 
 export interface BaseDataGridProps {
   // Core data (from data hooks)
@@ -95,7 +106,11 @@ export interface BaseDataGridProps {
 
   // Paradigm-specific components (rendered by BaseDataGrid)
   fkPreviewComponent?: React.ReactNode; // SQL only
-  hoverIconsDrawCell?: (cell: Item, ctx: CanvasRenderingContext2D, rect: Rectangle) => void;
+  hoverIconsDrawCell?: (
+    cell: Item,
+    ctx: CanvasRenderingContext2D,
+    rect: Rectangle,
+  ) => void;
   customGetCellContent?: (cell: Item, baseCell: GridCell) => GridCell; // For paradigm-specific overrides
   getCellContent?: (cell: Item) => GridCell; // Complete override of cell content (Document/KeyValue paradigms)
 
@@ -104,10 +119,10 @@ export interface BaseDataGridProps {
   database?: string;
   schema?: string;
   tableName?: string;
-  paradigm: 'sql' | 'document' | 'keyvalue';
+  paradigm: "sql" | "document" | "keyvalue";
 
   // Entity type for views/materialized views
-  entityType?: 'table' | 'view' | 'materialized_view';
+  entityType?: "table" | "view" | "materialized_view";
   readOnlyReason?: string;
   onRefreshMaterializedView?: () => void;
   isRefreshingMatView?: boolean;
@@ -130,7 +145,10 @@ export interface BaseDataGridProps {
   dialect?: string;
 
   // FK data (for context menu embed feature)
-  referencedTableColumns?: Record<string, Array<{ name: string; db_type: string }>>;
+  referencedTableColumns?: Record<
+    string,
+    Array<{ name: string; db_type: string }>
+  >;
   databaseType?: string;
 
   /**
@@ -177,7 +195,9 @@ export interface BaseDataGridProps {
   totalStreamingMs?: number;
 }
 
-export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps) {
+export const BaseDataGrid = memo(function BaseDataGrid(
+  props: BaseDataGridProps,
+) {
   const {
     gridId,
     rows,
@@ -229,11 +249,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   const tableKey = commandFactory
     ? getTableKey({
         connectionId: commandFactory.connectionId,
-        database: commandFactory.database ?? '',
+        database: commandFactory.database ?? "",
         schema: commandFactory.schema,
         table: commandFactory.table,
       })
-    : '';
+    : "";
   const pendingChanges = stagedCommands.get(tableKey) ?? [];
 
   // --- Data Invalidation Subscription ---
@@ -245,17 +265,18 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       .getState()
       .subscribe(
         commandFactory.connectionId,
-        commandFactory.database ?? '',
+        commandFactory.database ?? "",
         commandFactory.schema,
         commandFactory.table,
         async () => {
           // Refetch data from the adapter
           onRefetch?.();
           // Clear committed changes since data is now fresh
-          const { clearCommittedChanges, getTableKey: getKey } = useCrudStore.getState();
+          const { clearCommittedChanges, getTableKey: getKey } =
+            useCrudStore.getState();
           const key = getKey({
             connectionId: commandFactory.connectionId,
-            database: commandFactory.database ?? '',
+            database: commandFactory.database ?? "",
             schema: commandFactory.schema,
             table: commandFactory.table,
           });
@@ -291,21 +312,39 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   const scopeId = useScopedKeybindings(gridId);
 
   // Track focus state for context keys
-  useContextKey('dataGridFocus', isGridFocused, { scopeId, resetOnUnmount: true });
-  useContextKey('dataGridEditable', !readOnly, { scopeId, resetOnUnmount: true });
-  useContextKey('editingCell', isEditingCell, { scopeId, resetOnUnmount: true });
+  useContextKey("dataGridFocus", isGridFocused, {
+    scopeId,
+    resetOnUnmount: true,
+  });
+  useContextKey("dataGridEditable", !readOnly, {
+    scopeId,
+    resetOnUnmount: true,
+  });
+  useContextKey("editingCell", isEditingCell, {
+    scopeId,
+    resetOnUnmount: true,
+  });
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
 
   // Grid selection - managed internally
-  const [gridSelection, setGridSelection] = useState<GridSelection | undefined>(undefined);
+  const [gridSelection, setGridSelection] = useState<GridSelection | undefined>(
+    undefined,
+  );
 
   const gridSelectionRef = useRef<GridSelection | undefined>(undefined);
   const contextMenuTargetRef = useRef<ContextMenuTarget | null>(null);
 
   // --- Column State from Store ---
-  const preferences = useGridPreferencesStore((s: any) => s.getPreferences?.(gridId));
+  const preferences = useGridPreferencesStore((s: any) =>
+    s.getPreferences?.(gridId),
+  );
   const hydrated = useGridPreferencesStore((s: any) => s.hydrated);
-  const columnState = preferences?.columns ?? { order: [], widths: {}, visibility: {}, pinned: [] };
+  const columnState = preferences?.columns ?? {
+    order: [],
+    widths: {},
+    visibility: {},
+    pinned: [],
+  };
 
   // --- Filter Columns ---
   // Convert GridColumnV2 to FilterColumnInfo for filter hooks
@@ -313,15 +352,15 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     return columns
       .filter(
         (col) =>
-          !['_rowIndex', '_rowSelection'].includes(col.id) &&
-          col.meta?.db_type !== 'BYTEA' &&
-          col.meta?.db_type !== 'bytea' &&
-          col.meta?.db_type !== 'BLOB' &&
-          col.meta?.db_type !== 'blob'
+          !["_rowIndex", "_rowSelection"].includes(col.id) &&
+          col.meta?.db_type !== "BYTEA" &&
+          col.meta?.db_type !== "bytea" &&
+          col.meta?.db_type !== "BLOB" &&
+          col.meta?.db_type !== "blob",
       )
       .map((col) => ({
         name: col.name,
-        dataType: col.meta?.db_type ?? col.type ?? 'text',
+        dataType: col.meta?.db_type ?? col.type ?? "text",
         nullable: col.meta?.nullable,
         enumValues: col.meta?.enum_values,
         isPrimaryKey: col.meta?.is_pk,
@@ -330,16 +369,17 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   }, [columns]);
 
   // --- Quick Filter with AI Support ---
-  const { generateFilter: generateAIFilter, isLoading: isAIFilterLoading } = useAIFilter(
-    filterColumns,
-    tableName ?? '',
-    (dialect ?? 'postgresql') as 'postgresql' | 'mysql' | 'sqlite' | 'mssql',
-    {
-      connectionId,
-      schema,
-      enableCrossTable: paradigm === 'sql',
-    }
-  );
+  const { generateFilter: generateAIFilter, isLoading: isAIFilterLoading } =
+    useAIFilter(
+      filterColumns,
+      tableName ?? "",
+      (dialect ?? "postgresql") as "postgresql" | "mysql" | "sqlite" | "mssql",
+      {
+        connectionId,
+        schema,
+        enableCrossTable: paradigm === "sql",
+      },
+    );
 
   const {
     value: quickFilterValue,
@@ -376,25 +416,27 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   // --- Keyboard Shortcuts for Quick Filter ---
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
         e.preventDefault();
         quickFilterRef.current?.focus();
         return;
       }
 
       if (
-        e.key === '/' &&
-        document.activeElement?.tagName !== 'INPUT' &&
-        document.activeElement?.tagName !== 'TEXTAREA' &&
-        !document.activeElement?.hasAttribute('contenteditable')
+        e.key === "/" &&
+        document.activeElement?.tagName !== "INPUT" &&
+        document.activeElement?.tagName !== "TEXTAREA" &&
+        !document.activeElement?.hasAttribute("contenteditable")
       ) {
         e.preventDefault();
         quickFilterRef.current?.focus();
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => { window.removeEventListener('keydown', handleKeyDown); };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, []);
 
   // --- Column Management ---
@@ -408,14 +450,15 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         return aIdx - bIdx;
       });
     },
-    []
+    [],
   );
 
   const baseColumns = useMemo(() => columns, [columns]);
 
   // Initialize column order and visibility on first load
   useEffect(() => {
-    if (!hydrated || !enableColumnManagement || baseColumns.length === 0) return;
+    if (!hydrated || !enableColumnManagement || baseColumns.length === 0)
+      return;
 
     const expectedOrder = baseColumns.map((column) => column.id);
     const isInitialLoad = columnState.order.length === 0;
@@ -429,11 +472,17 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         });
       });
     }
-  }, [baseColumns, columnState.order.length, gridId, hydrated, enableColumnManagement]);
+  }, [
+    baseColumns,
+    columnState.order.length,
+    gridId,
+    hydrated,
+    enableColumnManagement,
+  ]);
 
   const reorderedColumns = useMemo(
     () => reorderColumns(baseColumns, columnState.order),
-    [baseColumns, columnState.order, reorderColumns]
+    [baseColumns, columnState.order, reorderColumns],
   );
 
   // Memoized persistence callbacks to prevent infinite loops
@@ -444,10 +493,16 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         draft.visibility = visibility;
       });
     },
-    [gridId, hydrated, enableColumnManagement]
+    [gridId, hydrated, enableColumnManagement],
   );
 
-  const { sizedColumns: _sizedColumns, columnWidths, handleColumnResize, handleColumnResizeEnd, isDragging: _isResizingColumns } = useColumnSizing({
+  const {
+    sizedColumns: _sizedColumns,
+    columnWidths,
+    handleColumnResize,
+    handleColumnResizeEnd,
+    isDragging: _isResizingColumns,
+  } = useColumnSizing({
     columns: reorderedColumns,
     initialWidths: columnState.widths,
     // Don't persist during resize - only on resize end for better performance
@@ -465,7 +520,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       );
       if (changed) {
         // Use requestIdleCallback to defer persistence until browser is idle
-        if (typeof requestIdleCallback !== 'undefined') {
+        if (typeof requestIdleCallback !== "undefined") {
           requestIdleCallback(() => {
             upsertGridColumnsState(gridId, (draft) => {
               draft.widths = widths;
@@ -481,7 +536,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         }
       }
     },
-    [gridId, hydrated, enableColumnManagement]
+    [gridId, hydrated, enableColumnManagement],
   );
 
   const { visibleColumns } = useColumnVisibility({
@@ -493,16 +548,19 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   });
 
   const filterVisibleColumns = useCallback(
-    (cols: GridColumnV2[], visibilityMap: Record<string, boolean>): GridColumnV2[] => {
+    (
+      cols: GridColumnV2[],
+      visibilityMap: Record<string, boolean>,
+    ): GridColumnV2[] => {
       return cols.filter((col) => visibilityMap[col.id] !== false);
     },
-    []
+    [],
   );
 
   const applyPinnedOrdering = useCallback(
     (
       cols: GridColumnV2[],
-      pinnedIds: string[]
+      pinnedIds: string[],
     ): { columns: GridColumnV2[]; freezeColumns: number } => {
       if (!pinnedIds || pinnedIds.length === 0) {
         return { columns: cols, freezeColumns: 0 };
@@ -510,22 +568,35 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       const pinnedSet = new Set(pinnedIds);
       const pinned = cols.filter((col) => pinnedSet.has(col.id));
       const unpinned = cols.filter((col) => !pinnedSet.has(col.id));
-      return { columns: [...pinned, ...unpinned], freezeColumns: pinned.length };
+      return {
+        columns: [...pinned, ...unpinned],
+        freezeColumns: pinned.length,
+      };
     },
-    []
+    [],
   );
 
   const { columns: computedColumns, freezeColumns } = useMemo(() => {
-    const filtered = filterVisibleColumns(visibleColumns, columnState.visibility);
+    const filtered = filterVisibleColumns(
+      visibleColumns,
+      columnState.visibility,
+    );
     return applyPinnedOrdering(filtered, columnState.pinned);
-  }, [columnState.pinned, columnState.visibility, visibleColumns, filterVisibleColumns, applyPinnedOrdering]);
+  }, [
+    columnState.pinned,
+    columnState.visibility,
+    visibleColumns,
+    filterVisibleColumns,
+    applyPinnedOrdering,
+  ]);
 
   // Keep stable columns during transitions to prevent flashing
   const columnsRef = useRef(computedColumns);
   if (computedColumns.length > 0) {
     columnsRef.current = computedColumns;
   }
-  const stableComputedColumns = computedColumns.length > 0 ? computedColumns : columnsRef.current;
+  const stableComputedColumns =
+    computedColumns.length > 0 ? computedColumns : columnsRef.current;
 
   // Apply widths at the END - cache column objects to avoid recreating unchanged ones
   const finalColumnsCache = useRef<Map<string, GridColumnV2>>(new Map());
@@ -565,14 +636,14 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       for (const pkCol of pkColumns) {
         const cellValue = row[pkCol.field];
         const value =
-          cellValue && typeof cellValue === 'object' && 'value' in cellValue
+          cellValue && typeof cellValue === "object" && "value" in cellValue
             ? cellValue.value
             : cellValue;
-        pkParts.push(value != null ? String(value) : 'null');
+        pkParts.push(value != null ? String(value) : "null");
       }
-      return `pk-${pkParts.join('-')}`;
+      return `pk-${pkParts.join("-")}`;
     },
-    [columns]
+    [columns],
   );
 
   const handlePinnedRowsChange = useCallback(
@@ -580,16 +651,17 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       if (!hydrated || !enableRowPinning) return;
       useGridPreferencesStore.getState().updatePinnedRows(gridId, () => ids);
     },
-    [gridId, hydrated, enableRowPinning]
+    [gridId, hydrated, enableRowPinning],
   );
 
-  const { pinnedRows, unpinnedRows, pinnedRowIds, pinRow, unpinRow } = useRowPinning({
-    rows,
-    initialPinned: enableRowPinning ? (preferences?.pinnedRows ?? []) : [],
-    maxPinnedRows: 5,
-    getRowId: getRowKey,
-    onChange: enableRowPinning ? handlePinnedRowsChange : undefined,
-  });
+  const { pinnedRows, unpinnedRows, pinnedRowIds, pinRow, unpinRow } =
+    useRowPinning({
+      rows,
+      initialPinned: enableRowPinning ? (preferences?.pinnedRows ?? []) : [],
+      maxPinnedRows: 5,
+      getRowId: getRowKey,
+      onChange: enableRowPinning ? handlePinnedRowsChange : undefined,
+    });
 
   const displayRows = useMemo(() => {
     if (!enableRowPinning) return rows;
@@ -609,7 +681,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   });
 
   const deferredDisplayRows = useDeferredValue(
-    enableStagedChanges && commandFactory ? displayRowsWithOptimistic : displayRows
+    enableStagedChanges && commandFactory
+      ? displayRowsWithOptimistic
+      : displayRows,
   );
   const rowsRef = useRef(deferredDisplayRows);
   // Update synchronously during render (not in useEffect) to avoid delay
@@ -651,7 +725,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         });
       }
     },
-    [props.hasMore, props.isLoadingMore, props.onLoadMore]
+    [props.hasMore, props.isLoadingMore, props.onLoadMore],
   );
 
   // Cleanup scroll debounce on unmount
@@ -667,13 +741,17 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   const stagedChanges = enableStagedChanges
     ? useStagedChangesIndicator({
         connectionId,
-        database: database ?? '',
-        schema: schema ?? '',
-        table: tableName ?? '',
+        database: database ?? "",
+        schema: schema ?? "",
+        table: tableName ?? "",
         rows: deferredDisplayRows,
         columns: finalColumns,
       })
-    : { rowChanges: new Map<number, Set<string>>(), insertedRows: new Set<number>(), deletedRows: new Set<number>() };
+    : {
+        rowChanges: new Map<number, Set<string>>(),
+        insertedRows: new Set<number>(),
+        deletedRows: new Set<number>(),
+      };
 
   const stagedChangesRef = useRef(stagedChanges);
   // Update synchronously during render (not in useEffect) to avoid delay
@@ -694,33 +772,44 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     // Fallback for document/keyvalue paradigms
     let effectivePkColumns = pkColumns;
     if (pkColumns.length === 0 && finalColumns.length > 0) {
-      const idColumn = finalColumns.find((col) => col.field === '_id' || col.name === '_id');
+      const idColumn = finalColumns.find(
+        (col) => col.field === "_id" || col.name === "_id",
+      );
       if (idColumn) effectivePkColumns = [idColumn];
-      const keyColumn = finalColumns.find((col) => col.field === 'key' || col.name === 'key');
-      if (keyColumn && effectivePkColumns.length === 0) effectivePkColumns = [keyColumn];
+      const keyColumn = finalColumns.find(
+        (col) => col.field === "key" || col.name === "key",
+      );
+      if (keyColumn && effectivePkColumns.length === 0)
+        effectivePkColumns = [keyColumn];
     }
 
     // Build PK string for each row
     const rowPkToIndex = new Map<string, number>();
     deferredDisplayRows.forEach((row, index) => {
-      const sortedPkColumns = [...effectivePkColumns].sort((a, b) => a.name.localeCompare(b.name));
+      const sortedPkColumns = [...effectivePkColumns].sort((a, b) =>
+        a.name.localeCompare(b.name),
+      );
       const pkValues = sortedPkColumns.map((col) => {
         const cellValue = row[col.field];
-        if (cellValue && typeof cellValue === 'object' && 'value' in cellValue) {
+        if (
+          cellValue &&
+          typeof cellValue === "object" &&
+          "value" in cellValue
+        ) {
           const value = (cellValue as { value: unknown }).value;
-          if (value === null || value === undefined) return 'null';
-          if (typeof value === 'object') return JSON.stringify(value);
+          if (value === null || value === undefined) return "null";
+          if (typeof value === "object") return JSON.stringify(value);
           return String(value);
         }
-        return 'null';
+        return "null";
       });
-      const pkKey = pkValues.join('|');
+      const pkKey = pkValues.join("|");
       rowPkToIndex.set(pkKey, index);
     });
 
     // For each update command, find the row index via PK matching
     for (const command of pendingChanges) {
-      if (command.type !== 'data.update') continue;
+      if (command.type !== "data.update") continue;
 
       const payload = command.payload as {
         column?: string;
@@ -733,11 +822,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       const pkKey = Object.entries(payload.primaryKeys)
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([_key, value]) => {
-          if (value === null || value === undefined) return 'null';
-          if (typeof value === 'object') return JSON.stringify(value);
+          if (value === null || value === undefined) return "null";
+          if (typeof value === "object") return JSON.stringify(value);
           return String(value);
         })
-        .join('|');
+        .join("|");
 
       const rowIndex = rowPkToIndex.get(pkKey);
       if (rowIndex !== undefined) {
@@ -765,13 +854,14 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     rows: deferredDisplayRows,
     enabled: !hoverIconsDrawCell && !isLargeDataset, // Only enabled if no external drawCell
     containerRef: containerRef,
-    enableFKPreview: paradigm === 'sql',
+    enableFKPreview: paradigm === "sql",
     gridRef: gridRef,
   });
 
   // Use external drawCell if provided, otherwise use internal
   // Note: Type assertion needed because external hoverIconsDrawCell may have different signature
-  const effectiveDrawCell = (hoverIconsDrawCell ?? internalDrawCellWithHoverIcons) as typeof internalDrawCellWithHoverIcons;
+  const effectiveDrawCell = (hoverIconsDrawCell ??
+    internalDrawCellWithHoverIcons) as typeof internalDrawCellWithHoverIcons;
 
   // Combined item hover handler - merges hover icons with context menu target tracking
   const handleItemHovered = useCallback(
@@ -780,35 +870,36 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       handleCellHovered(args);
 
       // Update context menu target based on what's being hovered
-      if (args.kind === 'header') {
+      if (args.kind === "header") {
         const [colIndex] = args.location;
         const column = finalColumnsRef.current[colIndex];
         if (column) {
           contextMenuTargetRef.current = {
-            type: 'header',
+            type: "header",
             columnIndex: colIndex,
             column,
           };
         }
-      } else if (args.kind === 'cell') {
+      } else if (args.kind === "cell") {
         const [colIndex, rowIndex] = args.location;
         contextMenuTargetRef.current = {
-          type: 'cell',
+          type: "cell",
           columnIndex: colIndex,
           rowIndex,
         };
-      } else if (args.kind === 'out-of-bounds') {
-        contextMenuTargetRef.current = { type: 'out-of-bounds' };
+      } else if (args.kind === "out-of-bounds") {
+        contextMenuTargetRef.current = { type: "out-of-bounds" };
       }
     },
-    [handleCellHovered]
+    [handleCellHovered],
   );
 
   // --- Column Sorting ---
-  const { sortColumns, getSortIndex, getSortDirection, toggleSort } = useColumnSorting({
-    gridId,
-    columns: finalColumns,
-  });
+  const { sortColumns, getSortIndex, getSortDirection, toggleSort } =
+    useColumnSorting({
+      gridId,
+      columns: finalColumns,
+    });
 
   const drawHeader = useMemo(
     () =>
@@ -820,12 +911,21 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
             sortedColumnCount: sortColumns.length,
           })
         : undefined,
-    [enableSorting, getSortDirection, getSortIndex, finalColumns, sortColumns.length]
+    [
+      enableSorting,
+      getSortDirection,
+      getSortIndex,
+      finalColumns,
+      sortColumns.length,
+    ],
   );
 
   // --- Header Click Handler (for sorting) ---
   const handleHeaderClicked = useCallback(
-    (colIndex: number, event: { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean }) => {
+    (
+      colIndex: number,
+      event: { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean },
+    ) => {
       if (enableSorting) {
         const column = finalColumnsRef.current[colIndex];
         if (column) {
@@ -833,121 +933,119 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         }
       }
     },
-    [enableSorting, toggleSort]
+    [enableSorting, toggleSort],
   );
 
   // --- Clipboard Operations ---
-  const toTextCallback = useCallback(
-    (selection: GridSelection) => {
-      // Handle full row selections
-      if (selection.rows.length > 0) {
-        const selected = selection.rows
-          .toArray()
-          .map((idx) => rowsRef.current[idx])
-          .filter(Boolean);
-        if (selected.length === 0) return '';
-        const body = selected.map((row) =>
-          finalColumnsRef.current
-            .map((col) => {
-              const value = row?.[col.field];
-              if (!value || typeof value !== 'object') return '';
-              return String((value as any).value ?? '');
-            })
-            .join('\t'),
-        );
-        return body.join('\n');
-      }
+  const toTextCallback = useCallback((selection: GridSelection) => {
+    // Handle full row selections
+    if (selection.rows.length > 0) {
+      const selected = selection.rows
+        .toArray()
+        .map((idx) => rowsRef.current[idx])
+        .filter(Boolean);
+      if (selected.length === 0) return "";
+      const body = selected.map((row) =>
+        finalColumnsRef.current
+          .map((col) => {
+            const value = row?.[col.field];
+            if (!value || typeof value !== "object") return "";
+            return String((value as any).value ?? "");
+          })
+          .join("\t"),
+      );
+      return body.join("\n");
+    }
 
-      // Handle cell-level selections (rectangular ranges)
-      if (selection.current?.range) {
-        const { range } = selection.current;
-        const { x: startCol, y: startRow, width, height } = range;
+    // Handle cell-level selections (rectangular ranges)
+    if (selection.current?.range) {
+      const { range } = selection.current;
+      const { x: startCol, y: startRow, width, height } = range;
 
-        const selectedCols = finalColumnsRef.current.slice(startCol, startCol + width);
+      const selectedCols = finalColumnsRef.current.slice(
+        startCol,
+        startCol + width,
+      );
 
-        // Build data rows (no headers)
-        const body: string[] = [];
-        for (let rowIdx = startRow; rowIdx < startRow + height; rowIdx++) {
-          const row = rowsRef.current[rowIdx];
-          if (!row) continue;
+      // Build data rows (no headers)
+      const body: string[] = [];
+      for (let rowIdx = startRow; rowIdx < startRow + height; rowIdx++) {
+        const row = rowsRef.current[rowIdx];
+        if (!row) continue;
 
-          const rowData = selectedCols
-            .map((col) => {
-              const value = row[col.field];
-              if (!value || typeof value !== 'object') return '';
-              return String((value as any).value ?? '');
-            })
-            .join('\t');
-          body.push(rowData);
-        }
-
-        return body.join('\n');
-      }
-
-      return '';
-    },
-    []
-  );
-
-  const toJsonCallback = useCallback(
-    (selection: GridSelection) => {
-      // Handle full row selections
-      if (selection.rows.length > 0) {
-        return selection.rows
-          .toArray()
-          .map((idx) => rowsRef.current[idx])
-          .filter(Boolean)
-          .map((row) => {
-            const jsonRow: Record<string, unknown> = {};
-            finalColumnsRef.current.forEach((col) => {
-              const value = row?.[col.field];
-              if (value && typeof value === 'object' && 'value' in value) {
-                const cellValue = (value as any).value;
-                // Use column name for JSON key, not internal field identifier
-                jsonRow[col.name] =
-                  typeof cellValue === 'bigint'
-                    ? cellValue.toString()
-                    : cellValue;
-              }
-            });
-            return jsonRow;
-          });
-      }
-
-      // Handle cell-level selections (rectangular ranges)
-      if (selection.current?.range) {
-        const { range } = selection.current;
-        const { x: startCol, y: startRow, width, height } = range;
-
-        const selectedCols = finalColumnsRef.current.slice(startCol, startCol + width);
-        const result: Record<string, unknown>[] = [];
-
-        for (let rowIdx = startRow; rowIdx < startRow + height; rowIdx++) {
-          const row = rowsRef.current[rowIdx];
-          if (!row) continue;
-
-          const jsonRow: Record<string, unknown> = {};
-          selectedCols.forEach((col) => {
+        const rowData = selectedCols
+          .map((col) => {
             const value = row[col.field];
-            if (value && typeof value === 'object' && 'value' in value) {
+            if (!value || typeof value !== "object") return "";
+            return String((value as any).value ?? "");
+          })
+          .join("\t");
+        body.push(rowData);
+      }
+
+      return body.join("\n");
+    }
+
+    return "";
+  }, []);
+
+  const toJsonCallback = useCallback((selection: GridSelection) => {
+    // Handle full row selections
+    if (selection.rows.length > 0) {
+      return selection.rows
+        .toArray()
+        .map((idx) => rowsRef.current[idx])
+        .filter(Boolean)
+        .map((row) => {
+          const jsonRow: Record<string, unknown> = {};
+          finalColumnsRef.current.forEach((col) => {
+            const value = row?.[col.field];
+            if (value && typeof value === "object" && "value" in value) {
               const cellValue = (value as any).value;
               // Use column name for JSON key, not internal field identifier
               jsonRow[col.name] =
-                typeof cellValue === 'bigint'
+                typeof cellValue === "bigint"
                   ? cellValue.toString()
                   : cellValue;
             }
           });
-          result.push(jsonRow);
-        }
+          return jsonRow;
+        });
+    }
 
-        return result;
+    // Handle cell-level selections (rectangular ranges)
+    if (selection.current?.range) {
+      const { range } = selection.current;
+      const { x: startCol, y: startRow, width, height } = range;
+
+      const selectedCols = finalColumnsRef.current.slice(
+        startCol,
+        startCol + width,
+      );
+      const result: Record<string, unknown>[] = [];
+
+      for (let rowIdx = startRow; rowIdx < startRow + height; rowIdx++) {
+        const row = rowsRef.current[rowIdx];
+        if (!row) continue;
+
+        const jsonRow: Record<string, unknown> = {};
+        selectedCols.forEach((col) => {
+          const value = row[col.field];
+          if (value && typeof value === "object" && "value" in value) {
+            const cellValue = (value as any).value;
+            // Use column name for JSON key, not internal field identifier
+            jsonRow[col.name] =
+              typeof cellValue === "bigint" ? cellValue.toString() : cellValue;
+          }
+        });
+        result.push(jsonRow);
       }
 
-      return [];
-    },
-    []
-  );
+      return result;
+    }
+
+    return [];
+  }, []);
 
   const { copySelection, handleKeyboardCopy } = useClipboardBridge({
     toText: toTextCallback,
@@ -962,7 +1060,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
 
     const handleCopyKeyDown = async (e: KeyboardEvent) => {
       // Only handle copy shortcuts
-      if (!((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c')) return;
+      if (!((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c")) return;
 
       // Check if our grid is focused
       if (!wrapperRef.current?.contains(document.activeElement)) return;
@@ -978,23 +1076,25 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       await handleKeyboardCopy(e, selection);
     };
 
-    window.addEventListener('keydown', handleCopyKeyDown);
-    return () => { window.removeEventListener('keydown', handleCopyKeyDown); };
+    window.addEventListener("keydown", handleCopyKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleCopyKeyDown);
+    };
   }, [enableClipboard, isEditingCell, handleKeyboardCopy]);
 
   useCommand(
-    'dataGrid.action.copyAsJson',
+    "dataGrid.action.copyAsJson",
     enableClipboard
       ? async () => {
           if (gridSelectionRef.current) {
-            await copySelection(gridSelectionRef.current, 'json');
+            await copySelection(gridSelectionRef.current, "json");
           }
         }
       : async () => {},
     {
-      label: 'Copy as JSON',
-      category: 'DataGrid',
-    }
+      label: "Copy as JSON",
+      category: "DataGrid",
+    },
   );
 
   // --- Export to CSV ---
@@ -1022,8 +1122,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       if (!column || !row) {
         return {
           kind: GridCellKind.Text,
-          data: '',
-          displayData: '',
+          data: "",
+          displayData: "",
           allowOverlay: false,
         };
       }
@@ -1038,22 +1138,17 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         connectionContext: {
           connectionId,
           database,
-          schema: schema ?? '',
-          table: tableName ?? '',
+          schema: schema ?? "",
+          table: tableName ?? "",
         },
       });
 
       // Apply custom getCellContent from paradigm-specific adapter
-      return customGetCellContent ? customGetCellContent(cell, gridCell) : gridCell;
+      return customGetCellContent
+        ? customGetCellContent(cell, gridCell)
+        : gridCell;
     },
-    [
-      readOnly,
-      connectionId,
-      database,
-      schema,
-      tableName,
-      customGetCellContent,
-    ]
+    [readOnly, connectionId, database, schema, tableName, customGetCellContent],
   );
 
   // Use prop getCellContent if provided, otherwise use internal
@@ -1079,7 +1174,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
           const hasPendingChange = hasStagedCellChange(
             stagedChangesRef.current,
             rowIndex,
-            column.name
+            column.name,
           );
           if (hasPendingChange) {
             // Build the cell with staged value override and highlighting
@@ -1089,20 +1184,36 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
             // ONLY for Document/KeyValue paradigms that don't use useOptimisticRows to transform row data.
             // SQL paradigm uses useOptimisticRows, so row data is already updated and
             // buildGridCellV2 builds the correct cell type (boolean dropdown, number, etc.).
-            if (paradigm === 'document' || paradigm === 'keyvalue') {
+            if (paradigm === "document" || paradigm === "keyvalue") {
               const stagedValueKey = `${rowIndex}:${column.name}`;
-              const stagedValue = stagedValuesMapRef.current.get(stagedValueKey);
+              const stagedValue =
+                stagedValuesMapRef.current.get(stagedValueKey);
               if (stagedValue !== undefined) {
-                const displayValue = stagedValue === null ? 'NULL' : String(stagedValue);
-                updatedCell = {
-                  kind: GridCellKind.Text,
-                  data: displayValue,
-                  displayData: displayValue,
-                  allowOverlay: baseCell.allowOverlay,
-                  readonly: 'readonly' in baseCell ? baseCell.readonly : false,
-                  themeOverride: baseCell.themeOverride, // Preserve font styling from base cell
-                  contentAlign: 'contentAlign' in baseCell ? baseCell.contentAlign : undefined,
-                };
+                const isCustomCellWithKind =
+                  baseCell.kind === GridCellKind.Custom &&
+                  typeof baseCell.data === "object" &&
+                  baseCell.data !== null &&
+                  "kind" in baseCell.data;
+
+                if (isCustomCellWithKind) {
+                  updatedCell = {
+                    ...baseCell,
+                    data: {
+                      ...(baseCell.data as Record<string, unknown>),
+                      value: stagedValue,
+                    },
+                    copyData:
+                      stagedValue === null ? "NULL" : String(stagedValue),
+                  };
+                } else if (baseCell.kind === GridCellKind.Text) {
+                  const displayValue =
+                    stagedValue === null ? "NULL" : String(stagedValue);
+                  updatedCell = {
+                    ...baseCell,
+                    data: displayValue,
+                    displayData: displayValue,
+                  };
+                }
               }
             }
 
@@ -1111,9 +1222,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
               ...updatedCell,
               themeOverride: {
                 ...updatedCell.themeOverride,
-                bgCell: 'rgba(251, 146, 60, 0.15)', // Orange for staged cell changes
-                accentColor: '#fb923c',
-                accentLight: 'rgba(251, 146, 60, 0.2)',
+                bgCell: "rgba(251, 146, 60, 0.15)", // Orange for staged cell changes
+                accentColor: "#fb923c",
+                accentLight: "rgba(251, 146, 60, 0.2)",
               },
             };
           }
@@ -1126,7 +1237,13 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     // Include stagedChanges and stagedValuesMap to refresh cells when staged changes update
     // The actual data access uses refs for performance, but the dependency array change
     // forces Glide Data Grid to re-query getCellContent for all cells
-    [internalGetCellContent, enableStagedChanges, deferredDisplayRows, stagedChanges, stagedValuesMap]
+    [
+      internalGetCellContent,
+      enableStagedChanges,
+      deferredDisplayRows,
+      stagedChanges,
+      stagedValuesMap,
+    ],
   );
 
   // --- getRowThemeOverride ---
@@ -1134,7 +1251,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     (rowIndex: number) => {
       // Pinned row (check first, higher priority)
       if (enableRowPinning && rowIndex < pinnedRows.length) {
-        return { bgCell: 'rgba(59, 130, 246, 0.08)' }; // Blue
+        return { bgCell: "rgba(59, 130, 246, 0.08)" }; // Blue
       }
 
       if (!enableStagedChanges) return undefined;
@@ -1143,46 +1260,49 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
 
       // Deletion pending
       if (changes.deletedRows.has(rowIndex)) {
-        return { bgCell: 'rgba(239, 68, 68, 0.06)' }; // Red
+        return { bgCell: "rgba(239, 68, 68, 0.06)" }; // Red
       }
 
       // Insertion pending
       if (changes.insertedRows.has(rowIndex)) {
-        return { bgCell: 'rgba(34, 197, 94, 0.06)' }; // Green
+        return { bgCell: "rgba(34, 197, 94, 0.06)" }; // Green
       }
 
       // Staged changes (cell updates)
       if (changes.rowChanges.has(rowIndex)) {
-        return { bgCell: 'rgba(212, 165, 43, 0.04)' }; // Golden
+        return { bgCell: "rgba(212, 165, 43, 0.04)" }; // Golden
       }
 
       return undefined;
     },
-    [enableStagedChanges, enableRowPinning, pinnedRows.length]
+    [enableStagedChanges, enableRowPinning, pinnedRows.length],
   );
 
   // --- CRUD Handlers (using commandFactory) ---
-  const handleCellEditCommit = useCallback((event: GridEditCommitEvent) => {
-    if (readOnly) return undefined;
+  const handleCellEditCommit = useCallback(
+    (event: GridEditCommitEvent) => {
+      if (readOnly) return undefined;
 
-    const factory = commandFactoryRef.current;
+      const factory = commandFactoryRef.current;
 
-    // If commandFactory exists (SQL paradigm), use it to create and stage commands
-    if (factory) {
-      const command = factory.createEditCommand(event);
-      if (command) {
-        stageCommand(command);
+      // If commandFactory exists (SQL paradigm), use it to create and stage commands
+      if (factory) {
+        const command = factory.createEditCommand(event);
+        if (command) {
+          stageCommand(command);
+        }
+        // Call optional callback for paradigm-specific post-processing
+        onCellEditCommitRef.current?.(event);
+      } else {
+        // No commandFactory - let the paradigm adapter handle staging directly
+        // (Document and KeyValue paradigms provide their own onCellEditCommit)
+        onCellEditCommitRef.current?.(event);
       }
-      // Call optional callback for paradigm-specific post-processing
-      onCellEditCommitRef.current?.(event);
-    } else {
-      // No commandFactory - let the paradigm adapter handle staging directly
-      // (Document and KeyValue paradigms provide their own onCellEditCommit)
-      onCellEditCommitRef.current?.(event);
-    }
 
-    return undefined;
-  }, [stageCommand, readOnly]);
+      return undefined;
+    },
+    [stageCommand, readOnly],
+  );
 
   const handleAddRow = useCallback(() => {
     const factory = commandFactoryRef.current;
@@ -1190,7 +1310,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
 
     const command = factory.createInsertCommand();
     stageCommand(command);
-    toast.success('New row staged');
+    toast.success("New row staged");
   }, [stageCommand, readOnly]);
 
   const handleInsertRowBelow = useCallback(() => {
@@ -1209,7 +1329,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       (command.metadata as any).insertAfterRowKey = rowKey;
     }
     stageCommand(command);
-    toast.success('New row staged');
+    toast.success("New row staged");
   }, [stageCommand, readOnly, gridSelection]);
 
   const handleInsertRowAbove = useCallback(() => {
@@ -1232,7 +1352,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     }
 
     stageCommand(command);
-    toast.success('New row staged');
+    toast.success("New row staged");
   }, [stageCommand, readOnly, gridSelection]);
 
   const handleDeleteRows = useCallback(() => {
@@ -1249,7 +1369,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
           const rowKey = factory.getRowKey(row, rowIndex);
           const command = factory.createDeleteCommand(row, rowKey);
           stageCommand(command);
-          toast.success('Row deletion staged');
+          toast.success("Row deletion staged");
         }
       }
       return;
@@ -1286,8 +1406,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
           row,
           newValue: {
             kind: GridCellKind.Text,
-            data: String(edit.value ?? ''),
-            displayData: String(edit.value ?? ''),
+            data: String(edit.value ?? ""),
+            displayData: String(edit.value ?? ""),
             allowOverlay: true,
           },
           previousValue: null,
@@ -1299,7 +1419,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         }
       }
     },
-    [stageCommand, readOnly]
+    [stageCommand, readOnly],
   );
 
   const handleBatchClear = useCallback(
@@ -1308,7 +1428,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       const edits = cells.map((cell) => ({ cell, value: null }));
       handleBatchEdit(edits, rowsRef.current);
     },
-    [readOnly, commandFactory, handleBatchEdit]
+    [readOnly, commandFactory, handleBatchEdit],
   );
 
   // Paste handler for clipboard data (called from context menu)
@@ -1321,12 +1441,12 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       if (gridRef.current) {
         gridRef.current.focus();
         // Small delay to allow focus to settle
-        await new Promise(resolve => setTimeout(resolve, 10));
+        await new Promise((resolve) => setTimeout(resolve, 10));
       }
 
       const text = await navigator.clipboard.readText();
       if (!text) {
-        toast.info('Clipboard is empty');
+        toast.info("Clipboard is empty");
         return;
       }
 
@@ -1341,12 +1461,12 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
 
       if (selection?.current?.cell) {
         [startCol, startRow] = selection.current.cell;
-      } else if (contextMenuTargetRef.current?.type === 'cell') {
+      } else if (contextMenuTargetRef.current?.type === "cell") {
         // Use the cell that was right-clicked
         startCol = contextMenuTargetRef.current.columnIndex;
         startRow = contextMenuTargetRef.current.rowIndex;
       } else {
-        toast.error('Select a cell to paste into');
+        toast.error("Select a cell to paste into");
         return;
       }
 
@@ -1367,7 +1487,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
 
           // Coerce value to appropriate type based on column metadata
           const columnTypeHint: ColumnTypeHint = {
-            dbType: column?.meta?.db_type ?? column?.type ?? 'text',
+            dbType: column?.meta?.db_type ?? column?.type ?? "text",
             nullable: column?.meta?.nullable ?? true,
           };
           const coercedValue = coerceToColumnType(value.trim(), columnTypeHint);
@@ -1384,12 +1504,14 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         toast.success(`Pasted ${edits.length} cell(s)`);
       }
     } catch (err) {
-      console.error('Paste failed:', err);
+      console.error("Paste failed:", err);
       // Differentiate clipboard permission errors
-      if (err instanceof DOMException && err.name === 'NotAllowedError') {
-        toast.error('Clipboard access denied. Please grant clipboard permission in your browser settings.');
+      if (err instanceof DOMException && err.name === "NotAllowedError") {
+        toast.error(
+          "Clipboard access denied. Please grant clipboard permission in your browser settings.",
+        );
       } else {
-        toast.error('Failed to paste from clipboard');
+        toast.error("Failed to paste from clipboard");
       }
     }
   }, [readOnly, commandFactory, handleBatchEdit]);
@@ -1403,17 +1525,23 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     setIsEditingCell(false);
   }, []);
 
-  const handleCellEditCommitWrapper = useCallback((event: GridEditCommitEvent) => {
-    setIsEditingCell(false);
-    handleCellEditCommit(event);
-  }, [handleCellEditCommit]);
+  const handleCellEditCommitWrapper = useCallback(
+    (event: GridEditCommitEvent) => {
+      setIsEditingCell(false);
+      handleCellEditCommit(event);
+    },
+    [handleCellEditCommit],
+  );
 
   // --- Fill Operations ---
   const { fillDown, fillRight } = useFillOperations({
     getCellContent,
-    onBatchEdit: enableFillOperations && commandFactory && !readOnly
-      ? (edits) => { handleBatchEdit(edits, deferredDisplayRows); }
-      : undefined,
+    onBatchEdit:
+      enableFillOperations && commandFactory && !readOnly
+        ? (edits) => {
+            handleBatchEdit(edits, deferredDisplayRows);
+          }
+        : undefined,
     columnCount: finalColumns.length,
     rowCount: deferredDisplayRows.length,
   });
@@ -1422,18 +1550,27 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     if (!enableFillOperations) return;
     const handleFillKeyDown = (e: KeyboardEvent) => {
       if (!isGridFocused || isEditingCell) return;
-      if (e.ctrlKey && !e.metaKey && e.key === 'd') {
+      if (e.ctrlKey && !e.metaKey && e.key === "d") {
         e.preventDefault();
         fillDown(gridSelection);
       }
-      if (e.ctrlKey && !e.metaKey && e.key === 'r') {
+      if (e.ctrlKey && !e.metaKey && e.key === "r") {
         e.preventDefault();
         fillRight(gridSelection);
       }
     };
-    window.addEventListener('keydown', handleFillKeyDown);
-    return () => { window.removeEventListener('keydown', handleFillKeyDown); };
-  }, [enableFillOperations, isGridFocused, isEditingCell, fillDown, fillRight, gridSelection]);
+    window.addEventListener("keydown", handleFillKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleFillKeyDown);
+    };
+  }, [
+    enableFillOperations,
+    isGridFocused,
+    isEditingCell,
+    fillDown,
+    fillRight,
+    gridSelection,
+  ]);
 
   // Delete key handler for batch clear
   useEffect(() => {
@@ -1441,7 +1578,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
 
     const handleDeleteKeyDown = (e: KeyboardEvent) => {
       // Only Delete or Backspace key
-      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
 
       // Check if our grid is focused
       if (!wrapperRef.current?.contains(document.activeElement)) return;
@@ -1472,12 +1609,14 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         handleBatchClear(cells);
         toast.success(`${cells.length} cell(s) staged for clearing`);
       } else {
-        toast.info('Cannot clear read-only columns');
+        toast.info("Cannot clear read-only columns");
       }
     };
 
-    window.addEventListener('keydown', handleDeleteKeyDown);
-    return () => { window.removeEventListener('keydown', handleDeleteKeyDown); };
+    window.addEventListener("keydown", handleDeleteKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleDeleteKeyDown);
+    };
   }, [readOnly, commandFactory, isEditingCell, handleBatchClear]);
 
   // --- Filter by Column (from context menu) ---
@@ -1493,14 +1632,17 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       const columnName = column.name ?? column.id;
       setQuickFilterValue(`"${columnName}" IS NOT NULL`);
     },
-    [enableFiltering, setQuickFilterValue]
+    [enableFiltering, setQuickFilterValue],
   );
 
   // --- Selection Management ---
-  const handleGridSelectionChange = useCallback((newSelection: GridSelection) => {
-    setGridSelection(newSelection);
-    gridSelectionRef.current = newSelection;
-  }, []);
+  const handleGridSelectionChange = useCallback(
+    (newSelection: GridSelection) => {
+      setGridSelection(newSelection);
+      gridSelectionRef.current = newSelection;
+    },
+    [],
+  );
 
   // Compute selected rows from gridSelection
   const selectedRowsSet = useMemo(() => {
@@ -1533,7 +1675,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         draft.order = newOrder;
       });
     },
-    [gridId, finalColumns, hydrated, enableColumnManagement]
+    [gridId, finalColumns, hydrated, enableColumnManagement],
   );
 
   // --- Context Menu Actions ---
@@ -1544,7 +1686,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       }
       contextMenuTargetRef.current = null;
     },
-    [enableSorting, toggleSort]
+    [enableSorting, toggleSort],
   );
 
   const handleColumnHide = useCallback(
@@ -1555,7 +1697,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       });
       contextMenuTargetRef.current = null;
     },
-    [gridId, hydrated, enableColumnManagement]
+    [gridId, hydrated, enableColumnManagement],
   );
 
   const handlePinRowsFromMenu = useCallback(
@@ -1566,7 +1708,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       }
       contextMenuTargetRef.current = null;
     },
-    [enableRowPinning, pinRow]
+    [enableRowPinning, pinRow],
   );
 
   const handleUnpinRowsFromMenu = useCallback(
@@ -1577,7 +1719,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       }
       contextMenuTargetRef.current = null;
     },
-    [enableRowPinning, unpinRow]
+    [enableRowPinning, unpinRow],
   );
 
   const handleClearSort = useCallback(
@@ -1588,7 +1730,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       toggleSort(columnId, false);
       contextMenuTargetRef.current = null;
     },
-    [enableSorting, toggleSort]
+    [enableSorting, toggleSort],
   );
 
   const handlePinColumn = useCallback(
@@ -1601,7 +1743,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       });
       contextMenuTargetRef.current = null;
     },
-    [gridId, hydrated, enableColumnManagement]
+    [gridId, hydrated, enableColumnManagement],
   );
 
   const handleUnpinColumn = useCallback(
@@ -1612,7 +1754,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       });
       contextMenuTargetRef.current = null;
     },
-    [gridId, hydrated, enableColumnManagement]
+    [gridId, hydrated, enableColumnManagement],
   );
 
   const handleToggleColumnVisibility = useCallback(
@@ -1624,7 +1766,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
       });
       contextMenuTargetRef.current = null;
     },
-    [gridId, hydrated, enableColumnManagement]
+    [gridId, hydrated, enableColumnManagement],
   );
 
   const handleShowAllColumns = useCallback(() => {
@@ -1640,7 +1782,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
   return (
     <div
       ref={wrapperRef}
-      className={cn('flex flex-col h-full outline-none', className)}
+      className={cn("flex flex-col h-full outline-none", className)}
       data-testid="base-datagrid"
     >
       {/* Top slot - paradigm-specific toolbar */}
@@ -1667,7 +1809,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
             </div>
           )}
           {toolbarActions && (
-            <div className="flex-shrink-0 flex items-center gap-1.5">
+            <div className="shrink-0 flex items-center gap-1.5">
               {toolbarActions}
             </div>
           )}
@@ -1687,128 +1829,154 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
         /* Main grid with context menu */
         <div
           ref={containerRef}
-          className="flex-1 min-h-0"
+          className="flex-1 px-1 min-h-0"
           onFocusCapture={handleFocusCapture}
           onBlurCapture={handleBlurCapture}
         >
           <UnifiedContextMenu
-          selectedRows={selectedRowsData}
-          selectedRowKeys={selectedRowKeys}
-          allRows={deferredDisplayRows}
-          columns={finalColumns}
-          pinnedRowKeys={pinnedRowIds}
-          tableName={tableName}
-          schema={schema}
-          databaseType={databaseType as any}
-          onPinRows={handlePinRowsFromMenu}
-          onUnpinRows={handleUnpinRowsFromMenu}
-          // CRUD operations (internally managed)
-          onAddRow={commandFactory && !readOnly ? handleAddRow : undefined}
-          onInsertRowAbove={commandFactory && !readOnly ? handleInsertRowAbove : undefined}
-          onInsertRowBelow={commandFactory && !readOnly ? handleInsertRowBelow : undefined}
-          onDeleteRows={commandFactory && !readOnly ? handleDeleteRows : undefined}
-          onPaste={commandFactory && !readOnly ? handlePaste : undefined}
-          // Filter by column
-          onFilterByColumn={enableFiltering ? handleFilterByColumn : undefined}
-          // Details sheet
-          showDetailsSheet={showDetailsSheet}
-          onShowDetailsSheetChange={setShowDetailsSheet}
-          // Column operations
-          allColumnsForVisibility={finalColumns}
-          pinnedColumns={columnState.pinned}
-          columnVisibility={columnState.visibility}
-          getSortDirection={getSortDirection}
-          onSort={handleColumnSort}
-          onClearSort={handleClearSort}
-          onHideColumn={handleColumnHide}
-          onPinColumn={handlePinColumn}
-          onUnpinColumn={handleUnpinColumn}
-          onToggleColumnVisibility={handleToggleColumnVisibility}
-          onShowAllColumns={handleShowAllColumns}
-          contextMenuTargetRef={contextMenuTargetRef}
-          connectionId={connectionId}
-          referencedTableColumns={referencedTableColumns ?? {}}
-        >
-          <EditableDataGrid
-            ref={gridRef}
-            tableKey={gridId}
-            rows={deferredDisplayRows}
+            selectedRows={selectedRowsData}
+            selectedRowKeys={selectedRowKeys}
+            allRows={deferredDisplayRows}
             columns={finalColumns}
-            getCellContent={getCellContent}
-            drawHeader={drawHeader}
-            drawCell={effectiveDrawCell}
-            getRowThemeOverride={getRowThemeOverride}
-            freezeColumns={enableColumnManagement ? freezeColumns : 0}
-            gridSelection={gridSelection}
-            onSelectionChange={handleGridSelectionChange}
-            onCellActivated={onCellActivated}
-            onCellEditStart={handleCellEditStart}
-            onCellEditCancel={handleCellEditCancel}
-            onCellEditCommit={(commandFactory || onCellEditCommitCallback) && !readOnly ? handleCellEditCommitWrapper : undefined}
-            onColumnResize={enableColumnManagement ? handleColumnResize : undefined}
-            onColumnResizeEnd={enableColumnManagement ? ((column, size) => {
-              handleColumnResizeEnd(column, size);
-              flushWidths(columnWidths);
-            }) : undefined}
-            onColumnMoved={enableColumnManagement ? handleColumnMoved : undefined}
-            onHeaderClicked={handleHeaderClicked}
-            onItemHovered={handleItemHovered}
-            onVisibleRegionChanged={handleVisibleRegionChanged}
-            maxColumnWidth={1000}
-          />
-        </UnifiedContextMenu>
+            pinnedRowKeys={pinnedRowIds}
+            tableName={tableName}
+            schema={schema}
+            databaseType={databaseType as any}
+            onPinRows={handlePinRowsFromMenu}
+            onUnpinRows={handleUnpinRowsFromMenu}
+            // CRUD operations (internally managed)
+            onAddRow={commandFactory && !readOnly ? handleAddRow : undefined}
+            onInsertRowAbove={
+              commandFactory && !readOnly ? handleInsertRowAbove : undefined
+            }
+            onInsertRowBelow={
+              commandFactory && !readOnly ? handleInsertRowBelow : undefined
+            }
+            onDeleteRows={
+              commandFactory && !readOnly ? handleDeleteRows : undefined
+            }
+            onPaste={commandFactory && !readOnly ? handlePaste : undefined}
+            // Filter by column
+            onFilterByColumn={
+              enableFiltering ? handleFilterByColumn : undefined
+            }
+            // Details sheet
+            showDetailsSheet={showDetailsSheet}
+            onShowDetailsSheetChange={setShowDetailsSheet}
+            // Column operations
+            allColumnsForVisibility={finalColumns}
+            pinnedColumns={columnState.pinned}
+            columnVisibility={columnState.visibility}
+            getSortDirection={getSortDirection}
+            onSort={handleColumnSort}
+            onClearSort={handleClearSort}
+            onHideColumn={handleColumnHide}
+            onPinColumn={handlePinColumn}
+            onUnpinColumn={handleUnpinColumn}
+            onToggleColumnVisibility={handleToggleColumnVisibility}
+            onShowAllColumns={handleShowAllColumns}
+            contextMenuTargetRef={contextMenuTargetRef}
+            connectionId={connectionId}
+            referencedTableColumns={referencedTableColumns ?? {}}
+          >
+            <EditableDataGrid
+              ref={gridRef}
+              tableKey={gridId}
+              rows={deferredDisplayRows}
+              columns={finalColumns}
+              getCellContent={getCellContent}
+              drawHeader={drawHeader}
+              drawCell={effectiveDrawCell}
+              getRowThemeOverride={getRowThemeOverride}
+              freezeColumns={enableColumnManagement ? freezeColumns : 0}
+              gridSelection={gridSelection}
+              onSelectionChange={handleGridSelectionChange}
+              onCellActivated={onCellActivated}
+              onCellEditStart={handleCellEditStart}
+              onCellEditCancel={handleCellEditCancel}
+              onCellEditCommit={
+                (commandFactory || onCellEditCommitCallback) && !readOnly
+                  ? handleCellEditCommitWrapper
+                  : undefined
+              }
+              onColumnResize={
+                enableColumnManagement ? handleColumnResize : undefined
+              }
+              onColumnResizeEnd={
+                enableColumnManagement
+                  ? (column, size) => {
+                      handleColumnResizeEnd(column, size);
+                      flushWidths(columnWidths);
+                    }
+                  : undefined
+              }
+              onColumnMoved={
+                enableColumnManagement ? handleColumnMoved : undefined
+              }
+              onHeaderClicked={handleHeaderClicked}
+              onItemHovered={handleItemHovered}
+              onVisibleRegionChanged={handleVisibleRegionChanged}
+              maxColumnWidth={1000}
+            />
+          </UnifiedContextMenu>
         </div>
       )}
 
       {/* FK Preview - either external or internal */}
       {fkPreviewComponent}
       {/* Internal FK preview when no external is provided and we have a preview state */}
-      {!fkPreviewComponent && paradigm === 'sql' && fkPreviewState && !isEditingCell && (
-        <FKPreviewPopover
-          open={true}
-          onOpenChange={(open) => {
-            if (!open) {
-              clearFkPreview();
-            }
-          }}
-          fkReference={fkPreviewState.fkReference}
-          fkValue={fkPreviewState.fkValue}
-          connectionId={connectionId}
-          database={database ?? ''}
-          cellBounds={fkPreviewState.cellBounds}
-          sourceColumnName={finalColumns[fkPreviewState.col]?.name}
-          sourceTable={tableName ?? ''}
-          sourceSchema={schema ?? 'public'}
-          onOpenReference={() => {
-            const { fkReference, fkValue } = fkPreviewState;
-            let filterValue: string;
-            if (fkValue === null) {
-              filterValue = `"${fkReference.referenced_column}" IS NULL`;
-            } else if (typeof fkValue === 'string') {
-              const escaped = String(fkValue).replace(/'/g, "''");
-              filterValue = `"${fkReference.referenced_column}" = '${escaped}'`;
-            } else if (typeof fkValue === 'number' || typeof fkValue === 'boolean') {
-              filterValue = `"${fkReference.referenced_column}" = ${fkValue}`;
-            } else {
-              const escaped = String(fkValue).replace(/'/g, "''");
-              filterValue = `"${fkReference.referenced_column}" = '${escaped}'`;
-            }
+      {!fkPreviewComponent &&
+        paradigm === "sql" &&
+        fkPreviewState &&
+        !isEditingCell && (
+          <FKPreviewPopover
+            open={true}
+            onOpenChange={(open) => {
+              if (!open) {
+                clearFkPreview();
+              }
+            }}
+            fkReference={fkPreviewState.fkReference}
+            fkValue={fkPreviewState.fkValue}
+            connectionId={connectionId}
+            database={database ?? ""}
+            cellBounds={fkPreviewState.cellBounds}
+            sourceColumnName={finalColumns[fkPreviewState.col]?.name}
+            sourceTable={tableName ?? ""}
+            sourceSchema={schema ?? "public"}
+            onOpenReference={() => {
+              const { fkReference, fkValue } = fkPreviewState;
+              let filterValue: string;
+              if (fkValue === null) {
+                filterValue = `"${fkReference.referenced_column}" IS NULL`;
+              } else if (typeof fkValue === "string") {
+                const escaped = String(fkValue).replace(/'/g, "''");
+                filterValue = `"${fkReference.referenced_column}" = '${escaped}'`;
+              } else if (
+                typeof fkValue === "number" ||
+                typeof fkValue === "boolean"
+              ) {
+                filterValue = `"${fkReference.referenced_column}" = ${fkValue}`;
+              } else {
+                const escaped = String(fkValue).replace(/'/g, "''");
+                filterValue = `"${fkReference.referenced_column}" = '${escaped}'`;
+              }
 
-            openTableObject({
-              table: {
-                name: fkReference.referenced_table,
-                schema: fkReference.referenced_schema,
-                kind: 'Table',
-              },
-              connectionId,
-              database: database ?? '',
-              viewType: 'data',
-              initialFilter: filterValue,
-            });
-            clearFkPreview();
-          }}
-        />
-      )}
+              openTableObject({
+                table: {
+                  name: fkReference.referenced_table,
+                  schema: fkReference.referenced_schema,
+                  kind: "Table",
+                },
+                connectionId,
+                database: database ?? "",
+                viewType: "data",
+                initialFilter: filterValue,
+              });
+              clearFkPreview();
+            }}
+          />
+        )}
 
       {/* Bottom slot - paradigm-specific */}
       {bottomToolbar}

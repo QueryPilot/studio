@@ -96,7 +96,8 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
     if (tabType === "function") {
       // Procedures return 'void', functions have a return type
       const isProcedure =
-        objectType === "procedure" || (objectType == null && returnType === "void");
+        objectType === "procedure" ||
+        (objectType == null && returnType === "void");
       if (isProcedure) {
         return cn(
           "h-3.5 w-3.5",
@@ -125,7 +126,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
               isActive && isFocused,
             "bg-background/60 z-10 sticky left-0 right-0":
               isActive && !isFocused,
-            "bg-muted": !isActive,
+            "bg-secondary": !isActive,
             "hover:bg-background/80": !isActive && !isFocused,
             "opacity-50": isDragging,
           },
