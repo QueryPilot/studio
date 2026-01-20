@@ -342,7 +342,9 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
 
       // Connect (pass database override if provided)
       try {
+        logger.info(`[WorkspaceBundleStore] Calling databaseService.connectById for ${connectionId}`);
         await databaseService.connectById(connectionId, options?.database);
+        logger.info(`[WorkspaceBundleStore] databaseService.connectById returned successfully for ${connectionId}`);
         set((s) => {
           if (!s.activeWorkspace) return s;
           const newConnections = new Map(s.activeWorkspace.connections);
@@ -350,6 +352,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
           if (conn) {
             newConnections.set(connectionId, { ...conn, status: "connected" });
           }
+          logger.info(`[WorkspaceBundleStore] Updated connection status to "connected" for ${connectionId}`);
           return {
             activeWorkspace: {
               ...s.activeWorkspace,

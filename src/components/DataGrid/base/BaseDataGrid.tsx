@@ -1311,25 +1311,45 @@ export const BaseDataGrid = memo(function BaseDataGrid(props: BaseDataGridProps)
     [readOnly, commandFactory, handleBatchEdit]
   );
 
-  // Paste handler for clipboard data
+  // Paste handler for clipboard data (called from context menu)
   const handlePaste = useCallback(async () => {
     if (readOnly || !commandFactory) return;
 
     try {
+      // Focus the grid first to ensure clipboard permission works
+      // Context menu clicks steal focus, so we need to restore it
+      if (gridRef.current) {
+        gridRef.current.focus();
+        // Small delay to allow focus to settle
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+
       const text = await navigator.clipboard.readText();
-      if (!text) return;
+      if (!text) {
+        toast.info('Clipboard is empty');
+        return;
+      }
 
       // Parse clipboard text using shared utility (handles trailing empty lines correctly)
       const lines = parseClipboardText(text);
       if (lines.length === 0) return;
 
+      // Use the hovered cell from context menu target if no explicit selection
       const selection = gridSelectionRef.current;
-      if (!selection?.current?.cell) {
+      let startCol: number;
+      let startRow: number;
+
+      if (selection?.current?.cell) {
+        [startCol, startRow] = selection.current.cell;
+      } else if (contextMenuTargetRef.current?.type === 'cell') {
+        // Use the cell that was right-clicked
+        startCol = contextMenuTargetRef.current.columnIndex;
+        startRow = contextMenuTargetRef.current.rowIndex;
+      } else {
         toast.error('Select a cell to paste into');
         return;
       }
 
-      const [startCol, startRow] = selection.current.cell;
       const edits: Array<{ cell: Item; value: unknown }> = [];
 
       lines.forEach((values, lineIndex) => {

@@ -1,4 +1,4 @@
-import { useState, useCallback, type ReactNode, type MutableRefObject } from "react";
+import { useState, useCallback, useMemo, type ReactNode, type MutableRefObject } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -108,9 +108,43 @@ export function UnifiedContextMenu({
     setShowDetailsSheet(true);
   };
 
+  // Derive effective selection: if no explicit selection but right-clicking on a cell,
+  // use that row as the contextual selection for the menu
+  // Note: We read from contextMenuTargetRef.current as fallback because menuTarget state
+  // may not have updated yet when context menu first renders
+  const effectiveSelectedRows = useMemo(() => {
+    if (selectedRows.length > 0) {
+      return selectedRows;
+    }
+    // No explicit selection - check if we're clicking on a cell
+    // Use menuTarget (state) or fallback to ref for immediate access
+    const target = menuTarget ?? contextMenuTargetRef.current;
+    if (target?.type === 'cell' && target.rowIndex >= 0) {
+      const hoveredRow = _allRows[target.rowIndex];
+      if (hoveredRow) {
+        return [hoveredRow];
+      }
+    }
+    return [];
+  }, [selectedRows, menuTarget, _allRows, contextMenuTargetRef]);
+
+  // Derive effective row keys to match
+  const effectiveSelectedRowKeys = useMemo(() => {
+    if (selectedRowKeys.length > 0) {
+      return selectedRowKeys;
+    }
+    // Generate a key for the contextual row if we have one
+    const target = menuTarget ?? contextMenuTargetRef.current;
+    if (effectiveSelectedRows.length > 0 && target?.type === 'cell') {
+      // Use row index as fallback key
+      return [`__contextual_row_${target.rowIndex}`];
+    }
+    return [];
+  }, [selectedRowKeys, effectiveSelectedRows, menuTarget, contextMenuTargetRef]);
+
   // Calculate row menu props
-  const selectedPinnedKeys = selectedRowKeys.filter((key) => pinnedRowKeys.includes(key));
-  const selectedUnpinnedKeys = selectedRowKeys.filter((key) => !pinnedRowKeys.includes(key));
+  const selectedPinnedKeys = effectiveSelectedRowKeys.filter((key) => pinnedRowKeys.includes(key));
+  const selectedUnpinnedKeys = effectiveSelectedRowKeys.filter((key) => !pinnedRowKeys.includes(key));
   const canPinMore = pinnedRowKeys.length < maxPinnedRows;
 
   const handleOpenChange = useCallback((open: boolean) => {
@@ -162,8 +196,8 @@ export function UnifiedContextMenu({
             />
           ) : (
             <GridContextMenuItems
-              selectedRows={selectedRows}
-              selectedRowKeys={selectedRowKeys}
+              selectedRows={effectiveSelectedRows}
+              selectedRowKeys={effectiveSelectedRowKeys}
               columns={columns}
               selectedColumns={selectedColumns}
               pinnedRowKeys={pinnedRowKeys}
@@ -189,7 +223,7 @@ export function UnifiedContextMenu({
       <RowDetailsSheet
         open={showDetailsSheet}
         onOpenChange={setShowDetailsSheet}
-        rows={selectedRows}
+        rows={effectiveSelectedRows}
         columns={columns}
       />
     </>

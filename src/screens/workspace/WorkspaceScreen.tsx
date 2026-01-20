@@ -400,9 +400,14 @@ export function WorkspaceScreen() {
             if (confirmed) {
               // User confirmed, disconnect with timeout and destroy window
               logger.info(`[WorkspaceScreen] Closing window with unsaved changes - disconnecting ${connectionId}`);
-              
-              // Use timeout to prevent freeze on dead connections
-              await databaseService.disconnectWithTimeout(connectionId, 3000);
+
+              // Only try to disconnect if connection is actually active
+              if (databaseService.isConnectionActive(connectionId)) {
+                // Use timeout to prevent freeze on dead connections
+                await databaseService.disconnectWithTimeout(connectionId, 3000);
+              } else {
+                logger.info(`[WorkspaceScreen] Connection not active, skipping disconnect`);
+              }
 
               // Destroy the window
               await currentWindow.destroy();
@@ -413,8 +418,14 @@ export function WorkspaceScreen() {
 
             logger.info(`[WorkspaceScreen] Closing window - disconnecting ${connectionId}`);
 
-            // Use timeout to prevent freeze on dead connections
-            await databaseService.disconnectWithTimeout(connectionId, 3000);
+            // Only try to disconnect if connection is actually active
+            // This prevents hanging when window is closed during "Connecting" state
+            if (databaseService.isConnectionActive(connectionId)) {
+              // Use timeout to prevent freeze on dead connections
+              await databaseService.disconnectWithTimeout(connectionId, 3000);
+            } else {
+              logger.info(`[WorkspaceScreen] Connection not active, skipping disconnect`);
+            }
 
             // Destroy the window
             await currentWindow.destroy();

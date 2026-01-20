@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ConnectionProfile } from "@/types/connection";
+import { logger } from "@/lib/logger";
 
 // Database Types
 export enum DbType {
@@ -482,11 +483,14 @@ export class BackendAPI {
     sql: string,
     timeoutSecs?: number,
   ): Promise<RawQueryResult> {
-    return invoke<RawQueryResult>("query", {
+    logger.info(`[BackendAPI] query called for ${connectionId}, sql length: ${sql.length}`);
+    const result = await invoke<RawQueryResult>("query", {
       connId: connectionId,
       sql,
       timeoutSecs,
     });
+    logger.info(`[BackendAPI] query returned ${result.rows.length} rows for ${connectionId}`);
+    return result;
   }
 }
 

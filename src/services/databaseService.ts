@@ -173,21 +173,28 @@ class DatabaseService {
         };
 
         // Ensure any stale backend connection with same id is cleanly closed before reconnect
+        logger.info(`[DatabaseService] Cleaning up stale connection for ${connectionId}`);
         try {
           await BackendAPI.disconnect(connectionId);
+          logger.info(`[DatabaseService] Stale connection cleanup completed for ${connectionId}`);
         } catch {
           // Ignore if not connected
+          logger.info(`[DatabaseService] No stale connection to cleanup for ${connectionId}`);
         }
 
         // Ask backend to connect using the complete profile (id is authoritative)
+        logger.info(`[DatabaseService] Calling BackendAPI.connect for ${connectionId}`);
         const backendInfo = await BackendAPI.connect(profile);
+        logger.info(`[DatabaseService] BackendAPI.connect returned for ${connectionId}:`, backendInfo);
 
         const response: ConnectResponse = {
           connection_id: backendInfo.id,
           server_version: backendInfo.version || null,
         };
 
+        logger.info(`[DatabaseService] Setting activeConnections for ${connectionId}`);
         this.activeConnections.set(connectionId, response);
+        logger.info(`[DatabaseService] Starting health monitoring for ${connectionId}`);
         this.startHealthMonitoring(connectionId);
 
         // Emit successful connection health
@@ -196,8 +203,10 @@ class DatabaseService {
           status: "ready",
           healthy: true,
         };
+        logger.info(`[DatabaseService] Emitting ready health status for ${connectionId}`);
         this.notifyHealthListeners(connectionId, health);
 
+        logger.info(`[DatabaseService] Connection complete, returning response for ${connectionId}`);
         return response;
       } catch (error) {
         logger.error("Failed to connect to database:", error);
@@ -458,7 +467,9 @@ class DatabaseService {
    */
   async getConnectionHealth(connectionId: string): Promise<ConnectionHealth> {
     try {
+      logger.info(`[DatabaseService] Getting health for ${connectionId}`);
       const health = await BackendAPI.getConnectionHealth(connectionId);
+      logger.info(`[DatabaseService] Health response for ${connectionId}:`, health);
       return {
         connectionId: health.connection_id,
         status: health.status as "ready" | "degraded" | "error",
@@ -467,6 +478,7 @@ class DatabaseService {
         error: health.error,
       };
     } catch (error) {
+      logger.error(`[DatabaseService] Health check failed for ${connectionId}:`, error);
       return {
         connectionId,
         status: "error",
@@ -555,10 +567,18 @@ class DatabaseService {
     schema: string,
   ): Promise<TableMeta[]> {
     try {
+      logger.info(`[DatabaseService] listTables called for ${connectionId}, schema: ${schema}`);
       const [tables, views] = await Promise.all([
-        IntrospectionService.getTables(connectionId, schema),
-        IntrospectionService.getViews(connectionId, schema),
+        IntrospectionService.getTables(connectionId, schema).then(t => {
+          logger.info(`[DatabaseService] getTables returned ${t.length} tables`);
+          return t;
+        }),
+        IntrospectionService.getViews(connectionId, schema).then(v => {
+          logger.info(`[DatabaseService] getViews returned ${v.length} views`);
+          return v;
+        }),
       ]);
+      logger.info(`[DatabaseService] listTables completed: ${tables.length} tables, ${views.length} views`);
 
       const tableMetas: TableMeta[] = [
         ...tables.map((t) => ({
