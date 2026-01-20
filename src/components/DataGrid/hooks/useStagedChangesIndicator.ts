@@ -54,8 +54,26 @@ export function useStagedChangesIndicator(
   const commands = stagedCommands.get(tableKey) ?? [];
 
   // Memoize PK column list to avoid recomputation
+  // For document paradigm (MongoDB), _id is always the PK
+  // For keyvalue paradigm (Redis), key is always the PK
   const pkColumns = useMemo(() => {
-    return columns.filter((col) => col.meta?.is_pk);
+    let pks = columns.filter((col) => col.meta?.is_pk);
+
+    // Fallback: If no PK columns found, check for common paradigm-specific keys
+    if (pks.length === 0 && columns.length > 0) {
+      // MongoDB: _id is always the primary key
+      const idColumn = columns.find((col) => col.field === '_id' || col.name === '_id');
+      if (idColumn) {
+        pks = [idColumn];
+      }
+      // Redis: key is always the primary key
+      const keyColumn = columns.find((col) => col.field === 'key' || col.name === 'key');
+      if (keyColumn && pks.length === 0) {
+        pks = [keyColumn];
+      }
+    }
+
+    return pks;
   }, [columns]);
 
   // Memoize PK map separately to avoid rebuilding on every render
