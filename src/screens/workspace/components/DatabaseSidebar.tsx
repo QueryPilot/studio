@@ -25,7 +25,7 @@ import {
 } from "@/services/databaseService";
 import { tableStreamingService } from "@/services/tableStreamingService";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
-import { isMySQLCompatible, DbType } from "@/types/connection";
+import { isMySQLCompatible, DbType, getParadigm } from "@/types/connection";
 import { useEventsQuery } from "@/hooks/useEventsQuery";
 
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,7 @@ import {
   ActionButton,
 } from "./DatabaseSidebarItem";
 import { DatabaseSidebarContextMenu } from "./DatabaseSidebarContextMenu";
+import { PartitionSubTree } from "./PartitionSubTree";
 import { TruncateTableDialog } from "@/components/shared/TruncateTableDialog";
 import { DeleteTableDialog } from "@/components/shared/DeleteTableDialog";
 import { DuplicateTableDialog } from "@/components/shared/DuplicateTableDialog";
@@ -60,6 +61,7 @@ import {
 } from "@/utils/crudHelpers/tableOperations";
 import { createViewDropCommand } from "@/utils/crudHelpers/viewOperations";
 import { type ObjectDefinitionType } from "@/adapters/types";
+import { writeClipboardText } from "@/lib/clipboard";
 
 interface DatabaseSidebarProps {
   connectionId: string;
@@ -101,6 +103,21 @@ export function DatabaseSidebar({
     open: boolean;
     table: { schema: string; name: string };
   } | null>(null);
+
+  // Track expanded partitioned tables for showing partition sub-tree
+  const [expandedPartitionedTables, setExpandedPartitionedTables] = useState<Set<string>>(new Set());
+
+  const togglePartitionedTable = (tableKey: string) => {
+    setExpandedPartitionedTables((prev) => {
+      const next = new Set(prev);
+      if (next.has(tableKey)) {
+        next.delete(tableKey);
+      } else {
+        next.add(tableKey);
+      }
+      return next;
+    });
+  };
 
   // Use shared schema data hook
   const {
@@ -648,7 +665,7 @@ export function DatabaseSidebar({
         return parts[parts.length - 1] || "";
       })
       .filter(Boolean);
-    void navigator.clipboard.writeText(names.join("\n"));
+    void writeClipboardText(names.join("\n"));
   };
 
   const handleCopyDefinition = async () => {
@@ -694,7 +711,7 @@ export function DatabaseSidebar({
       }
 
       if (definitions.length > 0) {
-        await navigator.clipboard.writeText(definitions.join("\n\n"));
+        await writeClipboardText(definitions.join("\n\n"));
         toast.success(
           `Copied ${definitions.length} definition${
             definitions.length > 1 ? "s" : ""
@@ -1509,69 +1526,97 @@ export function DatabaseSidebar({
             >
               {filterItems(tables, "table").map((table) => {
                 const itemKey = getItemKey("table", table.name, table.schema);
+                const tableKey = `${table.schema}.${table.name}`;
+                const isPartitioned = table.isPartitioned === true;
+                const isPartitionExpanded = expandedPartitionedTables.has(tableKey);
                 return (
-                  <SidebarItem
-                    key={`${table.schema}.${table.name}`}
-                    icon={
-                      <IconTable className="h-3.5 w-4 min-w-4 text-primary flex-shrink-0" />
-                    }
-                    name={table.name}
-                    isActive={isTableActive(table.name, table.schema)}
-                    onClick={(e) => {
-                      handleItemSelection(itemKey, e, () => {
-                        handleTableClick(table, "data");
-                      });
-                    }}
-                    onMouseDown={(e) => {
-                      handleItemMouseDown(itemKey, e);
-                    }}
-                    onMouseEnter={() => {
-                      handleItemMouseEnter(itemKey);
-                    }}
-                    onContextMenu={(e) => {
-                      handleContextMenu(itemKey, e);
-                    }}
-                    isSelected={selectedItems.has(itemKey)}
-                    rowCount={table.row_estimate}
-                    isStarred={starredSet.has(
-                      `table:${table.schema}.${table.name}`,
+                  <div key={tableKey}>
+                    <SidebarItem
+                      icon={
+                        <IconTable className="h-3.5 w-4 min-w-4 text-primary flex-shrink-0" />
+                      }
+                      name={table.name}
+                      isActive={isTableActive(table.name, table.schema)}
+                      onClick={(e) => {
+                        handleItemSelection(itemKey, e, () => {
+                          handleTableClick(table, "data");
+                        });
+                      }}
+                      onMouseDown={(e) => {
+                        handleItemMouseDown(itemKey, e);
+                      }}
+                      onMouseEnter={() => {
+                        handleItemMouseEnter(itemKey);
+                      }}
+                      onContextMenu={(e) => {
+                        handleContextMenu(itemKey, e);
+                      }}
+                      isSelected={selectedItems.has(itemKey)}
+                      rowCount={table.row_estimate}
+                      isStarred={starredSet.has(
+                        `table:${table.schema}.${table.name}`,
+                      )}
+                      onToggleStar={handleToggleStar(
+                        "table",
+                        table.name,
+                        table.schema,
+                      )}
+                      hasPendingChanges={pendingChangesSet.has(
+                        `${table.schema}.${table.name}`,
+                      )}
+                      isBeingDuplicated={duplicatingTablesSet.has(
+                        `${table.schema}.${table.name}`,
+                      )}
+                      isExpandable={isPartitioned}
+                      isExpanded={isPartitionExpanded}
+                      onToggleExpand={() => togglePartitionedTable(tableKey)}
+                      actions={
+                        <>
+                          <ActionButton
+                            icon={
+                              <IconAssembly className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleTableClick(table, "structure");
+                            }}
+                            title="View Structure"
+                          />
+                          <ActionButton
+                            icon={
+                              <IconBookmark className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleTableClick(table, "indexes");
+                            }}
+                            title="View Indexes"
+                          />
+                        </>
+                      }
+                    />
+                    {/* Render partition sub-tree when expanded */}
+                    {isPartitioned && isPartitionExpanded && (
+                      <PartitionSubTree
+                        connectionId={connectionId}
+                        schema={table.schema}
+                        tableName={table.name}
+                        dbType={dbType}
+                        onPartitionClick={(partitionName, partitionSchema) => {
+                          // Open the partition as a table (partitions are queryable tables)
+                          const partitionTable: TableMeta = {
+                            schema: partitionSchema,
+                            name: partitionName,
+                            kind: "Table",
+                          };
+                          handleTableClick(partitionTable, "data");
+                        }}
+                        isPartitionActive={(partitionName, partitionSchema) =>
+                          isTableActive(partitionName, partitionSchema)
+                        }
+                      />
                     )}
-                    onToggleStar={handleToggleStar(
-                      "table",
-                      table.name,
-                      table.schema,
-                    )}
-                    hasPendingChanges={pendingChangesSet.has(
-                      `${table.schema}.${table.name}`,
-                    )}
-                    isBeingDuplicated={duplicatingTablesSet.has(
-                      `${table.schema}.${table.name}`,
-                    )}
-                    actions={
-                      <>
-                        <ActionButton
-                          icon={
-                            <IconAssembly className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                          }
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleTableClick(table, "structure");
-                          }}
-                          title="View Structure"
-                        />
-                        <ActionButton
-                          icon={
-                            <IconBookmark className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                          }
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleTableClick(table, "indexes");
-                          }}
-                          title="View Indexes"
-                        />
-                      </>
-                    }
-                  />
+                  </div>
                 );
               })}
             </SidebarSection>
@@ -1775,10 +1820,51 @@ export function DatabaseSidebar({
             tables.length === 0 &&
             views.length === 0 &&
             functions.length === 0 && (
-              <div className="text-center py-4">
-                <p className="text-xs text-muted-foreground">
+              <div className="text-center py-6 px-4">
+                <p className="text-xs text-muted-foreground mb-4">
                   {selectedSchema ? "No objects found" : "Select a schema"}
                 </p>
+                {selectedSchema && getParadigm(dbType) === "sql" && (
+                  <div className="flex flex-col gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-xs h-7"
+                      onClick={handleCreateTable}
+                    >
+                      <IconTable className="h-3 w-3 mr-1.5" />
+                      Create Table
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-xs h-7"
+                      onClick={handleCreateView}
+                    >
+                      <IconEye className="h-3 w-3 mr-1.5" />
+                      Create View
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-xs h-7"
+                      onClick={handleCreateFunction}
+                    >
+                      <IconMathFunction className="h-3 w-3 mr-1.5" />
+                      Create Function
+                    </Button>
+                  </div>
+                )}
+                {selectedSchema && getParadigm(dbType) === "document" && (
+                  <p className="text-xs text-muted-foreground">
+                    Create a collection by inserting a document
+                  </p>
+                )}
+                {selectedSchema && getParadigm(dbType) === "keyvalue" && (
+                  <p className="text-xs text-muted-foreground">
+                    Add keys using the query panel
+                  </p>
+                )}
               </div>
             )}
         </div>

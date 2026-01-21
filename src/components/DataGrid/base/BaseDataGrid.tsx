@@ -20,6 +20,7 @@ import type {
   GridRowModel,
   GridColumnV2,
   GridEditCommitEvent,
+  GridRowInsertEvent,
   CrudCommandFactory,
 } from "../types";
 import type { ContextMenuTarget } from "../components/UnifiedContextMenu";
@@ -59,8 +60,13 @@ import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 
 // Utils
 import { createDrawHeader } from "../utils/headerUtils";
-import { coerceToColumnType, type ColumnTypeHint } from "../utils/pasteUtils";
-import { parseClipboardText } from "../hooks/usePasteHandler";
+import {
+  coerceToColumnType,
+  detectHeaderRow,
+  parsePasteData,
+  type ColumnTypeHint,
+} from "../utils/pasteUtils";
+import { readClipboardText } from "@/lib/clipboard";
 
 export interface BaseDataGridProps {
   // Core data (from data hooks)
@@ -1063,7 +1069,10 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       if (!((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c")) return;
 
       // Check if our grid is focused
-      if (!wrapperRef.current?.contains(document.activeElement)) return;
+      // We check both isGridFocused (managed by focus/blur capture) and activeElement containment
+      // because Glide Data Grid's canvas doesn't always receive traditional browser focus
+      const hasActiveElementInGrid = wrapperRef.current?.contains(document.activeElement);
+      if (!isGridFocused && !hasActiveElementInGrid) return;
 
       // Don't intercept if editing a cell
       if (isEditingCell) return;
@@ -1080,7 +1089,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     return () => {
       window.removeEventListener("keydown", handleCopyKeyDown);
     };
-  }, [enableClipboard, isEditingCell, handleKeyboardCopy]);
+  }, [enableClipboard, isEditingCell, isGridFocused, handleKeyboardCopy]);
 
   useCommand(
     "dataGrid.action.copyAsJson",
@@ -1444,17 +1453,24 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
 
-      const text = await navigator.clipboard.readText();
+      const text = await readClipboardText();
       if (!text) {
         toast.info("Clipboard is empty");
         return;
       }
 
-      // Parse clipboard text using shared utility (handles trailing empty lines correctly)
-      const lines = parseClipboardText(text);
-      if (lines.length === 0) return;
+      // Parse clipboard text using smart format detection (TSV, CSV, JSON)
+      const parseResult = parsePasteData(text);
+      if (parseResult.error) {
+        toast.error(`Parse error: ${parseResult.error}`);
+        return;
+      }
+
+      let rows = parseResult.rows;
+      if (rows.length === 0) return;
 
       // Use the hovered cell from context menu target if no explicit selection
+      // If no selection at all, default to first non-PK column and append as new rows
       const selection = gridSelectionRef.current;
       let startCol: number;
       let startRow: number;
@@ -1466,42 +1482,103 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         startCol = contextMenuTargetRef.current.columnIndex;
         startRow = contextMenuTargetRef.current.rowIndex;
       } else {
-        toast.error("Select a cell to paste into");
-        return;
+        // No cell selected - paste as new rows starting at first non-PK column
+        const columns = finalColumnsRef.current;
+        const firstNonPkIndex = columns.findIndex((col) => !col.meta?.is_pk);
+        startCol = firstNonPkIndex >= 0 ? firstNonPkIndex : 0;
+        startRow = rowsRef.current.length; // Append at end
+      }
+
+      // Detect and skip header row if present
+      const columnNames = finalColumnsRef.current.map((c) => c.id);
+      const firstRow = rows[0];
+      if (firstRow && detectHeaderRow(firstRow, columnNames, startCol)) {
+        rows = rows.slice(1);
+        if (rows.length === 0) {
+          toast.info("Clipboard only contained headers");
+          return;
+        }
       }
 
       const edits: Array<{ cell: Item; value: unknown }> = [];
+      let newRowsCreated = 0;
+      const columns = finalColumnsRef.current;
 
-      lines.forEach((values, lineIndex) => {
-        values.forEach((value, colIndex) => {
-          const targetCol = startCol + colIndex;
-          const targetRow = startRow + lineIndex;
+      // Process each row of pasted data
+      rows.forEach((values, lineIndex) => {
+        const targetRow = startRow + lineIndex;
+        const isNewRow = targetRow >= rowsRef.current.length;
 
-          // Skip if out of bounds
-          if (targetCol >= finalColumnsRef.current.length) return;
-          if (targetRow >= rowsRef.current.length) return;
+        if (isNewRow) {
+          // Create a new row with the pasted data directly
+          const factory = commandFactoryRef.current;
+          if (!factory) return;
 
-          // Skip PK columns
-          const column = finalColumnsRef.current[targetCol];
-          if (column?.meta?.is_pk) return;
+          // Build data object for the new row
+          const rowData: Record<string, unknown> = {};
+          values.forEach((value, colIndex) => {
+            const targetCol = startCol + colIndex;
+            if (targetCol >= columns.length) return;
 
-          // Coerce value to appropriate type based on column metadata
-          const columnTypeHint: ColumnTypeHint = {
-            dbType: column?.meta?.db_type ?? column?.type ?? "text",
-            nullable: column?.meta?.nullable ?? true,
-          };
-          const coercedValue = coerceToColumnType(value.trim(), columnTypeHint);
+            const column = columns[targetCol];
+            if (!column || column.meta?.is_pk) return;
 
-          edits.push({
-            cell: [targetCol, targetRow],
-            value: coercedValue,
+            // Coerce value to appropriate type
+            const columnTypeHint: ColumnTypeHint = {
+              dbType: column.meta?.db_type ?? column.type ?? "text",
+              nullable: column.meta?.nullable ?? true,
+            };
+            const coercedValue = coerceToColumnType(
+              typeof value === "string" ? value.trim() : value,
+              columnTypeHint
+            );
+
+            // Use column.name as the key - this matches what createInsertCommand expects
+            rowData[column.name] = coercedValue;
           });
-        });
+
+          // Create insert command with the data
+          const command = factory.createInsertCommand(rowData);
+          stageCommand(command);
+          newRowsCreated++;
+        } else {
+          // Edit existing row
+          values.forEach((value, colIndex) => {
+            const targetCol = startCol + colIndex;
+
+            // Skip if out of column bounds
+            if (targetCol >= columns.length) return;
+
+            // Skip PK columns
+            const column = columns[targetCol];
+            if (column?.meta?.is_pk) return;
+
+            // Coerce value to appropriate type based on column metadata
+            const columnTypeHint: ColumnTypeHint = {
+              dbType: column?.meta?.db_type ?? column?.type ?? "text",
+              nullable: column?.meta?.nullable ?? true,
+            };
+            const coercedValue = coerceToColumnType(
+              typeof value === "string" ? value.trim() : value,
+              columnTypeHint
+            );
+
+            edits.push({
+              cell: [targetCol, targetRow],
+              value: coercedValue,
+            });
+          });
+        }
       });
 
+      // Apply edits to existing rows
       if (edits.length > 0) {
         handleBatchEdit(edits, rowsRef.current);
-        toast.success(`Pasted ${edits.length} cell(s)`);
+      }
+
+      const totalRowsPasted = (edits.length > 0 ? new Set(edits.map(e => e.cell[1])).size : 0) + newRowsCreated;
+      if (totalRowsPasted > 0) {
+        toast.success(`Pasted ${totalRowsPasted} row(s)`);
       }
     } catch (err) {
       console.error("Paste failed:", err);
@@ -1514,7 +1591,63 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         toast.error("Failed to paste from clipboard");
       }
     }
-  }, [readOnly, commandFactory, handleBatchEdit]);
+  }, [readOnly, commandFactory, handleBatchEdit, stageCommand]);
+
+  // --- Native Paste Handler (fallback when Glide doesn't handle it) ---
+  // Glide Data Grid only handles paste when a cell is selected AND focused.
+  // This handler catches Cmd+V/Ctrl+V as a fallback.
+  const handleNativePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      // Don't handle if we're in an input/textarea
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.hasAttribute("contenteditable")
+      ) {
+        return;
+      }
+
+      // Always handle paste ourselves - Glide's internal paste may not fire
+      // for external clipboard data (e.g., from Excel)
+      e.preventDefault();
+      handlePaste();
+    },
+    [handlePaste]
+  );
+
+  // Handle row insert from paste operations (Ctrl+V creating new rows)
+  const handleRowInsert = useCallback(
+    (event: GridRowInsertEvent) => {
+      const factory = commandFactoryRef.current;
+      if (!factory || readOnly) return undefined;
+
+      const columns = finalColumnsRef.current;
+
+      // For each row being inserted, create an insert command with the row data
+      for (const row of event.rows) {
+        // Build data object from the row model
+        const rowData: Record<string, unknown> = {};
+        for (const column of columns) {
+          const cellValue = row[column.field];
+          if (cellValue && typeof cellValue === "object" && "value" in cellValue) {
+            // Skip PK columns and null values
+            if (column.meta?.is_pk) continue;
+            if (cellValue.value === null || cellValue.value === undefined) continue;
+            rowData[column.name] = cellValue.value;
+          }
+        }
+
+        // Create and stage the insert command
+        const command = factory.createInsertCommand(rowData);
+        stageCommand(command);
+      }
+
+      toast.success(`${event.rows.length} row(s) staged for insert`);
+      return undefined;
+    },
+    [readOnly, stageCommand]
+  );
 
   // --- Cell Edit State Tracking ---
   const handleCellEditStart = useCallback(() => {
@@ -1582,7 +1715,10 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       if (e.key !== "Delete" && e.key !== "Backspace") return;
 
       // Check if our grid is focused
-      if (!wrapperRef.current?.contains(document.activeElement)) return;
+      // We check both isGridFocused (managed by focus/blur capture) and activeElement containment
+      // because Glide Data Grid's canvas doesn't always receive traditional browser focus
+      const hasActiveElementInGrid = wrapperRef.current?.contains(document.activeElement);
+      if (!isGridFocused && !hasActiveElementInGrid) return;
 
       // Don't intercept if editing a cell
       if (isEditingCell) return;
@@ -1618,7 +1754,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     return () => {
       window.removeEventListener("keydown", handleDeleteKeyDown);
     };
-  }, [readOnly, commandFactory, isEditingCell, handleBatchClear]);
+  }, [readOnly, commandFactory, isEditingCell, isGridFocused, handleBatchClear]);
 
   // --- Filter by Column (from context menu) ---
   const handleFilterByColumn = useCallback(
@@ -1847,9 +1983,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         /* Main grid with context menu */
         <div
           ref={containerRef}
-          className="flex-1 px-1 min-h-0"
+          className="flex-1 px-1 min-h-0 outline-none"
+          tabIndex={-1}
           onFocusCapture={handleFocusCapture}
           onBlurCapture={handleBlurCapture}
+          onPaste={handleNativePaste}
         >
           <UnifiedContextMenu
             selectedRows={selectedRowsData}
@@ -1916,6 +2054,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
                 (commandFactory || onCellEditCommitCallback) && !readOnly
                   ? handleCellEditCommitWrapper
                   : undefined
+              }
+              onRowInsert={
+                commandFactory && !readOnly ? handleRowInsert : undefined
               }
               onColumnResize={
                 enableColumnManagement ? handleColumnResize : undefined

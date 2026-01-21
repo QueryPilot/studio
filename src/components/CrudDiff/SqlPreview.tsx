@@ -2,6 +2,7 @@ import { logger } from "@/lib/logger";
 import { useCallback, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { writeClipboardText } from "@/lib/clipboard";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { SqlDiffStatement } from "@/types/crud";
 import { cn } from "@/lib/cn";
@@ -45,7 +46,7 @@ function SqlStatementPanel({ statement }: SqlStatementPanelProps) {
 
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(statement.statement);
+      await writeClipboardText(statement.statement);
       setCopied(true);
       setTimeout(() => {
         setCopied(false);

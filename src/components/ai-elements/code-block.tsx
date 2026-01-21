@@ -13,6 +13,7 @@ import {
   useState,
 } from "react";
 import { type BundledLanguage, codeToHtml, type ShikiTransformer } from "shiki";
+import { writeClipboardText } from "@/lib/clipboard";
 
 type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
   code: string;
@@ -153,7 +154,7 @@ export const CodeBlockCopyButton = ({
     }
 
     try {
-      await navigator.clipboard.writeText(code);
+      await writeClipboardText(code);
       setIsCopied(true);
       onCopy?.();
       setTimeout(() => {

@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/resizable";
 import { useWorkspaceContext } from "@/hooks/useWorkspaceContext";
 import { AI_SIDECAR_URL } from "@/config/constants";
+import { writeClipboardText } from "@/lib/clipboard";
 
 import {
   MessageAction,
@@ -612,7 +613,7 @@ export function AIAssistantSidebar() {
                                 </MessageAction>
                                 <MessageAction
                                   onClick={() =>
-                                    navigator.clipboard.writeText(part.text)
+                                    void writeClipboardText(part.text)
                                   }
                                   label="Copy"
                                 >
