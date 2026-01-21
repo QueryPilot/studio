@@ -355,16 +355,25 @@ export class MySQLAdapter extends SqlAdapter {
   getTablesQuery(schema: string): string {
     return `
 SELECT
-    TABLE_SCHEMA as schema_name,
-    TABLE_NAME as table_name,
-    TABLE_TYPE as kind,
-    ENGINE as engine,
-    TABLE_ROWS as row_count,
-    TABLE_COMMENT as comment
-FROM information_schema.TABLES
-WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
-    AND TABLE_TYPE = 'BASE TABLE'
-ORDER BY TABLE_NAME`;
+    t.TABLE_SCHEMA as schema_name,
+    t.TABLE_NAME as table_name,
+    CASE
+        WHEN p.partition_count > 0 THEN 'partitioned'
+        ELSE 'regular'
+    END as kind,
+    t.ENGINE as engine,
+    t.TABLE_ROWS as row_count,
+    t.TABLE_COMMENT as comment
+FROM information_schema.TABLES t
+LEFT JOIN (
+    SELECT TABLE_SCHEMA, TABLE_NAME, COUNT(DISTINCT PARTITION_NAME) as partition_count
+    FROM information_schema.PARTITIONS
+    WHERE PARTITION_NAME IS NOT NULL
+    GROUP BY TABLE_SCHEMA, TABLE_NAME
+) p ON t.TABLE_SCHEMA = p.TABLE_SCHEMA AND t.TABLE_NAME = p.TABLE_NAME
+WHERE t.TABLE_SCHEMA = '${this.escapeString(schema)}'
+    AND t.TABLE_TYPE = 'BASE TABLE'
+ORDER BY t.TABLE_NAME`;
   }
 
   getViewsQuery(schema: string): string {
