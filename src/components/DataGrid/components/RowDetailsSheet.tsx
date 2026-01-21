@@ -9,6 +9,7 @@ import { IconSearch, IconCopy, IconCheck } from '@tabler/icons-react';
 import type { GridColumnV2, GridRowModel } from "../types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { writeClipboardText } from "@/lib/clipboard";
 
 export interface RowDetailsSheetProps {
   open: boolean;
@@ -186,8 +187,7 @@ export function RowDetailsSheet({
   // IconCopy handler
   const handleCopy = useCallback(
     (columnId: string, value: string) => {
-      navigator.clipboard
-        .writeText(value)
+      writeClipboardText(value)
         .then(() => {
           setCopiedColumn(columnId);
           toast("Copied to clipboard");

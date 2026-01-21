@@ -9,6 +9,7 @@ import type { DatabaseType } from "@/types";
 import { RowDetailsSheet } from "./RowDetailsSheet";
 import { GridContextMenuItems } from "./GridContextMenuItems";
 import { ColumnHeaderContextMenuItems } from "./ColumnHeaderContextMenuItems";
+import { writeClipboardText } from "@/lib/clipboard";
 
 export type ContextMenuTarget =
   | { type: "header"; columnIndex: number; column: GridColumnV2 }
@@ -184,7 +185,7 @@ export function UnifiedContextMenu({
               onPin={() => { onPinColumn(headerColumnId); }}
               onUnpin={() => { onUnpinColumn(headerColumnId); }}
               onCopyColumnName={() => {
-                navigator.clipboard.writeText(currentHeaderColumn.name ?? currentHeaderColumn.field ?? headerColumnId);
+                void writeClipboardText(currentHeaderColumn.name ?? currentHeaderColumn.field ?? headerColumnId);
               }}
               onToggleColumnVisibility={onToggleColumnVisibility}
               onShowAllColumns={onShowAllColumns}

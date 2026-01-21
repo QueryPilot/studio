@@ -9,31 +9,10 @@ import type {
 import type { GridColumnV2, GridRowModel } from "../../types";
 import type { CellValue } from "@/types";
 import { toast } from "sonner";
+import { writeClipboardText } from "@/lib/clipboard";
 
-// Copy to clipboard with fallback
-async function copyToClipboard(text: string): Promise<void> {
-  // Try browser API first (works in all windows)
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  // Fallback for older browsers
-  const textArea = document.createElement("textarea");
-  textArea.value = text;
-  textArea.style.position = "fixed";
-  textArea.style.left = "-999999px";
-  textArea.style.top = "-999999px";
-  document.body.appendChild(textArea);
-  textArea.focus();
-  textArea.select();
-
-  try {
-    document.execCommand("copy");
-  } finally {
-    textArea.remove();
-  }
-}
+// Copy to clipboard using Tauri's native clipboard plugin
+const copyToClipboard = writeClipboardText;
 
 export interface CellHoverAction {
   id: string;

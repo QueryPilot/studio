@@ -20,7 +20,7 @@ import type {
   GridRowModel,
 } from "../types";
 import { usePasteHandler } from "../hooks/usePasteHandler";
-import type { ColumnTypeHint, PasteValidationError } from "../utils/pasteUtils";
+import { detectHeaderRow, type ColumnTypeHint, type PasteValidationError } from "../utils/pasteUtils";
 import type { UseGridHistoryResult } from "../hooks/useGridHistory";
 import type { CellValue } from "@/types";
 import { useDataGridRenderers } from "../renderers";
@@ -62,11 +62,17 @@ const applyValuesToRow = (
   baseRow: GridRowModel,
   columns: GridColumnV2[],
   values: (string | number | boolean | null)[],
+  startColumnIndex: number = 0,
 ): GridRowModel => {
   const nextRow: GridRowModel = { ...baseRow };
-  columns.forEach((column, index) => {
+  // Apply values starting from the specified column offset
+  values.forEach((value, valueIndex) => {
+    const columnIndex = startColumnIndex + valueIndex;
+    const column = columns[columnIndex];
+    if (!column) return;
+
     const current = nextRow[column.field];
-    const coerced = values[index] ?? null;
+    const coerced = value ?? null;
     if (current) {
       nextRow[column.field] = {
         ...current,
@@ -582,13 +588,26 @@ export const EditableDataGrid = forwardRef<
       logger.info('[EditableDataGrid] Applying paste to cells...');
       const [colStart, rowStart] = event.target;
 
+      // Detect and skip header row if present
+      let pasteValues = event.values;
+      const columnNames = columns.map((c) => c.id);
+      const firstRow = pasteValues[0];
+      if (firstRow && detectHeaderRow(firstRow, columnNames, colStart)) {
+        logger.info('[EditableDataGrid] Header row detected, skipping first row');
+        pasteValues = pasteValues.slice(1);
+        if (pasteValues.length === 0) {
+          logger.info('[EditableDataGrid] Only header row in clipboard, nothing to paste');
+          return false;
+        }
+      }
+
       // Use startPasteTransition for non-blocking paste on large selections
       startPasteTransition(() => {
-        for (let rowOffset = 0; rowOffset < event.values.length; rowOffset++) {
+        for (let rowOffset = 0; rowOffset < pasteValues.length; rowOffset++) {
           const rowIndex = rowStart + rowOffset;
           if (rowIndex >= rows.length) break; // Don't paste beyond existing rows
 
-          const rowValues = event.values[rowOffset];
+          const rowValues = pasteValues[rowOffset];
           if (!rowValues) continue;
 
           for (let colOffset = 0; colOffset < rowValues.length; colOffset++) {
@@ -629,8 +648,18 @@ export const EditableDataGrid = forwardRef<
         processResult(result);
       }
       if (!onRowInsert) return;
-      const [, rowStart] = event.target;
-      const requiredRowCount = rowStart + event.values.length;
+      const [colStart, rowStart] = event.target;
+
+      // Detect and skip header row if present (must match onPaste logic)
+      let pasteValues = event.values as (string | number | boolean | null)[][];
+      const columnNames = columns.map((c) => c.id);
+      const firstRow = pasteValues[0];
+      if (firstRow && detectHeaderRow(firstRow, columnNames, colStart)) {
+        pasteValues = pasteValues.slice(1);
+        if (pasteValues.length === 0) return;
+      }
+
+      const requiredRowCount = rowStart + pasteValues.length;
       if (requiredRowCount <= rows.length) return;
       const missing = requiredRowCount - rows.length;
       const newRows: GridRowModel[] = [];
@@ -638,8 +667,9 @@ export const EditableDataGrid = forwardRef<
         const baseRow =
           createDraftRow?.(rows.length + i) ?? createDefaultDraftRow(columns);
         const sourceRowValues =
-          event.values[event.values.length - missing + i] ?? [];
-        newRows.push(applyValuesToRow(baseRow, columns, sourceRowValues));
+          pasteValues[pasteValues.length - missing + i] ?? [];
+        // Pass column offset so values are applied to the correct columns
+        newRows.push(applyValuesToRow(baseRow, columns, sourceRowValues, colStart));
       }
       const insertEvent: GridRowInsertEvent = {
         index: rows.length,

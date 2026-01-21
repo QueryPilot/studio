@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { captureException } from "@/utils/sentry";
+import { writeClipboardText } from "@/lib/clipboard";
 
 interface Props {
   children: ReactNode;
@@ -66,7 +67,7 @@ export class ErrorBoundary extends Component<Props, State> {
     }`;
 
     try {
-      await navigator.clipboard.writeText(errorText);
+      await writeClipboardText(errorText);
       this.setState({ copied: true });
       toast.success("Error details copied to clipboard");
       setTimeout(() => {

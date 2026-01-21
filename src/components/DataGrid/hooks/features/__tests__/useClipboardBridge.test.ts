@@ -190,19 +190,15 @@ describe("writeTextToClipboard", () => {
     vi.mocked(navigator.clipboard.writeText).mockResolvedValue(undefined);
   });
 
-  it("should write text using navigator.clipboard", async () => {
+  it("should write text using clipboard utility", async () => {
     await writeTextToClipboard("test text");
+    // In test environment (non-Tauri), the clipboard utility falls back to browser API
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("test text");
   });
 
-  it("should use fallback when clipboard API fails", async () => {
+  it("should propagate errors when clipboard API fails", async () => {
     vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error("Permission denied"));
 
-    // Mock document.execCommand
-    document.execCommand = vi.fn().mockReturnValue(true);
-
-    await writeTextToClipboard("test text");
-
-    expect(document.execCommand).toHaveBeenCalledWith("copy");
+    await expect(writeTextToClipboard("test text")).rejects.toThrow("Permission denied");
   });
 });

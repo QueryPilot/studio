@@ -338,7 +338,8 @@ export function WorkspaceTitleBar({
           });
 
           // Complete progress to 100%
-          if (commitProgressRef.current) clearInterval(commitProgressRef.current);
+          if (commitProgressRef.current)
+            clearInterval(commitProgressRef.current);
           setCommitProgress(100);
 
           toast.success("All changes committed", {
@@ -351,7 +352,8 @@ export function WorkspaceTitleBar({
           await new Promise((resolve) => setTimeout(resolve, 200));
         } catch (error) {
           // Stop progress on error
-          if (commitProgressRef.current) clearInterval(commitProgressRef.current);
+          if (commitProgressRef.current)
+            clearInterval(commitProgressRef.current);
           setCommitProgress(0);
 
           toast.error("Commit failed", {
@@ -411,7 +413,6 @@ export function WorkspaceTitleBar({
     () => {
       if (canUndo) {
         undo();
-        toast.success("Changes undone");
       }
     },
     {
@@ -426,7 +427,6 @@ export function WorkspaceTitleBar({
     () => {
       if (canRedo) {
         redo();
-        toast.success("Changes redone");
       }
     },
     {
@@ -479,7 +479,13 @@ export function WorkspaceTitleBar({
     return () => {
       document.title = "Query Pilot";
     };
-  }, [totalChanges, selectedDatabase, connection?.database, activeWorkspace, getWindowTitle]);
+  }, [
+    totalChanges,
+    selectedDatabase,
+    connection?.database,
+    activeWorkspace,
+    getWindowTitle,
+  ]);
 
   // Load connections if not already loaded
   useEffect(() => {
@@ -513,7 +519,7 @@ export function WorkspaceTitleBar({
   // Subscribe to connection health updates
   useEffect(() => {
     let previousHealth: ConnectionHealth | null = null;
-    
+
     // Track if we've shown CRUD warning to avoid spam
     let crudWarningShown = false;
 
@@ -522,46 +528,47 @@ export function WorkspaceTitleBar({
       (health) => {
         setConnectionHealth(health);
 
-         // Show toast on error status change
-         if (health.status === "error" && previousHealth?.status !== "error") {
-           toast.error("Connection Failed", {
-             description:
-               health.error ||
-               "Unable to connect to the database. Please check your connection settings.",
-           });
+        // Show toast on error status change
+        if (health.status === "error" && previousHealth?.status !== "error") {
+          toast.error("Connection Failed", {
+            description:
+              health.error ||
+              "Unable to connect to the database. Please check your connection settings.",
+          });
 
-           // Show warning if there are pending CRUD changes
-           const { stagedCommands } = useCrudStore.getState();
-           const hasPendingChanges = Array.from(stagedCommands.entries()).some(
-             ([tableKey, commands]) =>
-               tableKey.startsWith(`${connectionId}:`) && commands.length > 0
-           );
-           
-           if (hasPendingChanges && !crudWarningShown) {
-             toast.warning("Unsaved Changes at Risk", {
-               description: "You have unsaved CRUD changes and connection is offline. Consider saving your work.",
-               duration: 8000,
-             });
-             crudWarningShown = true;
-           }
-         } else if (
-           health.status === "ready" &&
-           previousHealth?.status === "error"
-         ) {
-           toast.success("Connection Restored", {
-             description: "Successfully reconnected to the database.",
-           });
-           crudWarningShown = false; // Reset warning flag on successful reconnect
-         }
- 
-         previousHealth = health;
-       },
-     );
- 
-     return () => {
-       unsubscribe();
-     };
-   }, [connectionId]);
+          // Show warning if there are pending CRUD changes
+          const { stagedCommands } = useCrudStore.getState();
+          const hasPendingChanges = Array.from(stagedCommands.entries()).some(
+            ([tableKey, commands]) =>
+              tableKey.startsWith(`${connectionId}:`) && commands.length > 0,
+          );
+
+          if (hasPendingChanges && !crudWarningShown) {
+            toast.warning("Unsaved Changes at Risk", {
+              description:
+                "You have unsaved CRUD changes and connection is offline. Consider saving your work.",
+              duration: 8000,
+            });
+            crudWarningShown = true;
+          }
+        } else if (
+          health.status === "ready" &&
+          previousHealth?.status === "error"
+        ) {
+          toast.success("Connection Restored", {
+            description: "Successfully reconnected to the database.",
+          });
+          crudWarningShown = false; // Reset warning flag on successful reconnect
+        }
+
+        previousHealth = health;
+      },
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [connectionId]);
 
   const handleReconnect = async () => {
     setIsReconnecting(true);
@@ -666,12 +673,7 @@ export function WorkspaceTitleBar({
     }
 
     return (
-      <IconCircle
-        className={cn(
-          "h-2 w-2 fill-current",
-          getStatusColor(),
-        )}
-      />
+      <IconCircle className={cn("h-2 w-2 fill-current", getStatusColor())} />
     );
   };
 
@@ -887,16 +889,16 @@ export function WorkspaceTitleBar({
         <div className="absolute bottom-0 left-0 right-0 h-0.5 z-50">
           {/* Layer 1: Background track */}
           <div className="absolute inset-0 bg-primary/20" />
-          
+
           {/* Layer 2: Main progress bar (solid) */}
           <div
             className="absolute inset-y-0 left-0 bg-primary transition-all duration-150 ease-out"
             style={{ width: `${commitProgress}%` }}
           />
-          
+
           {/* Layer 3: Shimmer overlay (only when waiting at 98%+) */}
           {commitProgress >= 98 && (
-            <div 
+            <div
               className="absolute inset-y-0 left-0 overflow-hidden"
               style={{ width: `${commitProgress}%` }}
             >
@@ -926,11 +928,7 @@ export function WorkspaceTitleBar({
           <IconRefresh className="!size-4" />
         </Button>
 
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          title="Connection security"
-        >
+        <Button variant="ghost" size="icon-sm" title="Connection security">
           <IconLock className="!size-4" />
         </Button>
 
@@ -1077,7 +1075,10 @@ export function WorkspaceTitleBar({
                                       </button>
                                     }
                                   />
-                                  <TooltipContent side="top" className="text-xs">
+                                  <TooltipContent
+                                    side="top"
+                                    className="text-xs"
+                                  >
                                     Add to Workspace
                                   </TooltipContent>
                                 </Tooltip>
@@ -1183,7 +1184,10 @@ export function WorkspaceTitleBar({
                                       </button>
                                     }
                                   />
-                                  <TooltipContent side="top" className="text-xs">
+                                  <TooltipContent
+                                    side="top"
+                                    className="text-xs"
+                                  >
                                     Add to Workspace
                                   </TooltipContent>
                                 </Tooltip>
@@ -1392,11 +1396,7 @@ export function WorkspaceTitleBar({
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                title="Settings"
-              >
+              <Button variant="ghost" size="icon-sm" title="Settings">
                 <IconSettings className="!size-4" />
               </Button>
             }
