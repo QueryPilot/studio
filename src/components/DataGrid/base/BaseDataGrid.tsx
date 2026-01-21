@@ -301,6 +301,10 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const scrollDebounceRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const loadingMoreRef = useRef(false); // Ref-based guard to prevent duplicate fetches
 
+  // Ref-based focus tracking for synchronous checks in keyboard handlers
+  // This is critical for multi-panel scenarios where state updates are async
+  const isGridFocusedRef = useRef(false);
+
   // Store refs for callbacks
   const onCellEditCommitRef = useRef(onCellEditCommitCallback);
   const commandFactoryRef = useRef(commandFactory);
@@ -313,6 +317,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   // --- State ---
   const [isGridFocused, setIsGridFocused] = useState(false);
   const [isEditingCell, setIsEditingCell] = useState(false);
+  const isEditingCellRef = useRef(false);
 
   // Scoped keybindings for this grid instance
   const scopeId = useScopedKeybindings(gridId);
@@ -405,18 +410,33 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   });
 
   // --- Focus/Blur Handlers ---
+  // Use capture phase to track focus state synchronously via ref
+  // This ensures keyboard handlers always have accurate focus state
   const handleFocusCapture = useCallback(() => {
+    isGridFocusedRef.current = true;
     setIsGridFocused(true);
   }, []);
 
   const handleBlurCapture = useCallback((e: React.FocusEvent) => {
     const currentTarget = e.currentTarget as HTMLElement;
-    setTimeout(() => {
-      if (!currentTarget.contains(document.activeElement)) {
-        setIsGridFocused(false);
-        setIsEditingCell(false);
-      }
-    }, 0);
+    // Check synchronously first using relatedTarget (the element receiving focus)
+    const relatedTarget = e.relatedTarget as HTMLElement | null;
+
+    // If focus is moving to another element within this grid, don't blur
+    if (relatedTarget && currentTarget.contains(relatedTarget)) {
+      return;
+    }
+
+    // Also check wrapperRef since containerRef is nested inside it
+    if (relatedTarget && wrapperRef.current?.contains(relatedTarget)) {
+      return;
+    }
+
+    // Focus is leaving the grid - update synchronously
+    isGridFocusedRef.current = false;
+    setIsGridFocused(false);
+    setIsEditingCell(false);
+    isEditingCellRef.current = false;
   }, []);
 
   // --- Keyboard Shortcuts for Quick Filter ---
@@ -1068,14 +1088,13 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       // Only handle copy shortcuts
       if (!((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c")) return;
 
-      // Check if our grid is focused
-      // We check both isGridFocused (managed by focus/blur capture) and activeElement containment
-      // because Glide Data Grid's canvas doesn't always receive traditional browser focus
+      // Check if our grid is focused using REFS for synchronous, accurate state
+      // This is critical for multi-panel scenarios where state updates are async
       const hasActiveElementInGrid = wrapperRef.current?.contains(document.activeElement);
-      if (!isGridFocused && !hasActiveElementInGrid) return;
+      if (!isGridFocusedRef.current && !hasActiveElementInGrid) return;
 
-      // Don't intercept if editing a cell
-      if (isEditingCell) return;
+      // Don't intercept if editing a cell (use ref for synchronous check)
+      if (isEditingCellRef.current) return;
 
       // Get current selection
       const selection = gridSelectionRef.current;
@@ -1089,7 +1108,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     return () => {
       window.removeEventListener("keydown", handleCopyKeyDown);
     };
-  }, [enableClipboard, isEditingCell, isGridFocused, handleKeyboardCopy]);
+  }, [enableClipboard, handleKeyboardCopy]);
 
   useCommand(
     "dataGrid.action.copyAsJson",
@@ -1651,15 +1670,18 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
   // --- Cell Edit State Tracking ---
   const handleCellEditStart = useCallback(() => {
+    isEditingCellRef.current = true;
     setIsEditingCell(true);
   }, []);
 
   const handleCellEditCancel = useCallback(() => {
+    isEditingCellRef.current = false;
     setIsEditingCell(false);
   }, []);
 
   const handleCellEditCommitWrapper = useCallback(
     (event: GridEditCommitEvent) => {
+      isEditingCellRef.current = false;
       setIsEditingCell(false);
       handleCellEditCommit(event);
       return undefined;
@@ -1683,7 +1705,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   useEffect(() => {
     if (!enableFillOperations) return;
     const handleFillKeyDown = (e: KeyboardEvent) => {
-      if (!isGridFocused || isEditingCell) return;
+      // Use refs for synchronous, accurate focus state
+      if (!isGridFocusedRef.current || isEditingCellRef.current) return;
       if (e.ctrlKey && !e.metaKey && e.key === "d") {
         e.preventDefault();
         fillDown(gridSelection);
@@ -1699,8 +1722,6 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     };
   }, [
     enableFillOperations,
-    isGridFocused,
-    isEditingCell,
     fillDown,
     fillRight,
     gridSelection,
@@ -1714,14 +1735,13 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       // Only Delete or Backspace key
       if (e.key !== "Delete" && e.key !== "Backspace") return;
 
-      // Check if our grid is focused
-      // We check both isGridFocused (managed by focus/blur capture) and activeElement containment
-      // because Glide Data Grid's canvas doesn't always receive traditional browser focus
+      // Check if our grid is focused using REFS for synchronous, accurate state
+      // This is critical for multi-panel scenarios where state updates are async
       const hasActiveElementInGrid = wrapperRef.current?.contains(document.activeElement);
-      if (!isGridFocused && !hasActiveElementInGrid) return;
+      if (!isGridFocusedRef.current && !hasActiveElementInGrid) return;
 
-      // Don't intercept if editing a cell
-      if (isEditingCell) return;
+      // Don't intercept if editing a cell (use ref for synchronous check)
+      if (isEditingCellRef.current) return;
 
       // Get current selection and build cell list
       const selection = gridSelectionRef.current;
@@ -1754,7 +1774,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     return () => {
       window.removeEventListener("keydown", handleDeleteKeyDown);
     };
-  }, [readOnly, commandFactory, isEditingCell, isGridFocused, handleBatchClear]);
+  }, [readOnly, commandFactory, handleBatchClear]);
 
   // --- Filter by Column (from context menu) ---
   const handleFilterByColumn = useCallback(
@@ -1988,6 +2008,12 @@ export const BaseDataGrid = memo(function BaseDataGrid(
           onFocusCapture={handleFocusCapture}
           onBlurCapture={handleBlurCapture}
           onPaste={handleNativePaste}
+          onMouseDown={() => {
+            // Ensure focus state is set on any mouse interaction
+            // This handles cases where focusin events don't fire (e.g., clicking canvas)
+            isGridFocusedRef.current = true;
+            setIsGridFocused(true);
+          }}
         >
           <UnifiedContextMenu
             selectedRows={selectedRowsData}
