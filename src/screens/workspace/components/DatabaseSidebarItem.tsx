@@ -96,6 +96,12 @@ interface SidebarItemProps {
   onMouseEnter?: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
   isBeingDuplicated?: boolean; // New: indicates this table is the source of a duplicate operation
+  // Expandable item props
+  isExpandable?: boolean;
+  isExpanded?: boolean;
+  onToggleExpand?: (e: React.MouseEvent) => void;
+  level?: number; // Nesting level (0 = top-level)
+  badge?: string; // Badge text (e.g., partition type)
 }
 
 export function SidebarItem({
@@ -114,7 +120,14 @@ export function SidebarItem({
   onMouseEnter,
   onContextMenu,
   isBeingDuplicated = false,
+  isExpandable = false,
+  isExpanded = false,
+  onToggleExpand,
+  level = 0,
+  badge,
 }: SidebarItemProps) {
+  const paddingLeft = level > 0 ? `${level * 12}px` : undefined;
+
   return (
     <div
       className={cn(
@@ -128,6 +141,7 @@ export function SidebarItem({
           : "rounded border-l-transparent",
         className,
       )}
+      style={{ paddingLeft }}
       onClick={onClick}
       onMouseDown={onMouseDown}
       onMouseEnter={onMouseEnter}
@@ -149,6 +163,28 @@ export function SidebarItem({
       <span className="text-xs truncate flex-1 min-w-0 text-foreground/80 dark:text-foreground/70">
         {name}
       </span>
+      {badge && (
+        <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground flex-shrink-0">
+          {badge}
+        </span>
+      )}
+      {/* Expand/collapse chevron on the right for expandable items */}
+      {isExpandable && onToggleExpand && (
+        <button
+          className="p-0.5 hover:bg-muted rounded flex-shrink-0"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleExpand(e);
+          }}
+          title={isExpanded ? "Collapse partitions" : "Show partitions"}
+        >
+          {isExpanded ? (
+            <IconChevronDown className="h-3 w-3 text-muted-foreground" />
+          ) : (
+            <IconChevronRight className="h-3 w-3 text-muted-foreground" />
+          )}
+        </button>
+      )}
       {rowCount != null && rowCount > 0 && (
         <span className="text-xs text-muted-foreground flex-shrink-0 transition-all duration-200 ease-out">
           ~{rowCount.toLocaleString()}

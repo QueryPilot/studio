@@ -39,6 +39,7 @@ import {
 import { toast } from "sonner";
 import ReactDiffViewer from "react-diff-viewer-continued";
 import { useTheme } from "next-themes";
+import { writeClipboardText } from "@/lib/clipboard";
 
 // Map DbType to SqlDialect for CodeEditor (SQL databases only)
 const dbTypeToDialect: Record<DbType, SqlDialect> = {
@@ -298,7 +299,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   // Copy SQL to clipboard
   const handleCopySQL = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(generatedSQL);
+      await writeClipboardText(generatedSQL);
       setCopiedSql(true);
       toast.success("SQL copied to clipboard");
       setTimeout(() => {

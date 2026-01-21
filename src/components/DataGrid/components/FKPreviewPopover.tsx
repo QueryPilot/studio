@@ -14,6 +14,7 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { useEmbeddedFKPreferencesStore } from "../stores";
 import { useShallow } from "zustand/shallow";
+import { writeClipboardText } from "@/lib/clipboard";
 
 interface FKPreviewPopoverProps {
   open: boolean;
@@ -130,8 +131,7 @@ export function FKPreviewPopover({
   });
 
   const handleCopy = (columnName: string, value: string) => {
-    navigator.clipboard
-      .writeText(value)
+    writeClipboardText(value)
       .then(() => {
         setCopiedColumn(columnName);
         toast("Copied to clipboard");

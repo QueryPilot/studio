@@ -1,6 +1,7 @@
 /**
  * Markdown table export utilities
  */
+import { writeClipboardText } from "@/lib/clipboard";
 
 export interface MarkdownExportOptions {
   alignNumeric?: "left" | "center" | "right";
@@ -126,7 +127,7 @@ export async function copyMarkdownToClipboard(
 
     const markdown = generateMarkdownTable(rows, columns, options);
 
-    await navigator.clipboard.writeText(markdown);
+    await writeClipboardText(markdown);
 
     return { success: true, rowCount: rows.length };
   } catch (error) {

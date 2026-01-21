@@ -19,6 +19,7 @@ import {
 } from '@tabler/icons-react';
 import useWorkbenchStore from '@/stores/workbenchStore';
 import { toast } from 'sonner';
+import { writeClipboardText } from '@/lib/clipboard';
 
 export class MongoSidebarAdapter implements SidebarAdapter {
   async loadRootNodes(connectionId: string): Promise<TreeNode[]> {
@@ -158,7 +159,7 @@ export class MongoSidebarAdapter implements SidebarAdapter {
           icon: IconCopy,
           onClick: async () => {
             try {
-              await navigator.clipboard.writeText(firstNode.label);
+              await writeClipboardText(firstNode.label);
               toast.success('Copied to clipboard', {
                 description: `Collection name: ${firstNode.label}`,
               });
@@ -184,7 +185,7 @@ export class MongoSidebarAdapter implements SidebarAdapter {
           icon: IconCopy,
           onClick: async () => {
             try {
-              await navigator.clipboard.writeText(firstNode.label);
+              await writeClipboardText(firstNode.label);
               toast.success('Copied to clipboard', {
                 description: `Database name: ${firstNode.label}`,
               });

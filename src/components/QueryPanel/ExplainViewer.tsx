@@ -29,6 +29,7 @@ import {
 } from "@tabler/icons-react";
 import { useTabStateStore } from "@/stores/tabStateStore";
 import { PlanDiff } from "./PlanDiff";
+import { writeClipboardText } from "@/lib/clipboard";
 
 // ============================================================================
 // TYPES
@@ -3070,8 +3071,7 @@ export const ExplainViewer = memo(function ExplainViewer({
                 size="icon"
                 className="h-6 w-6"
                 onClick={() => {
-                  navigator.clipboard
-                    .writeText(parsed.raw)
+                  writeClipboardText(parsed.raw)
                     .then(() => toast.success("Copied to clipboard"))
                     .catch(() => toast.error("Failed to copy"));
                 }}

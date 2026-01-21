@@ -37,6 +37,7 @@ import { ERDPanel } from "@/components/Erd";
 import { TableDesigner } from "@/components/TableDesigner";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { FeatureErrorBoundary } from "@/components/FeatureErrorBoundary";
+import { writeClipboardText } from "@/lib/clipboard";
 
 interface PanelContentRendererProps {
   panelId: string;
@@ -94,7 +95,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     const handleCopy = async () => {
       if (activeView === "definition" && definitionRef.current) {
         try {
-          await navigator.clipboard.writeText(definitionRef.current);
+          await writeClipboardText(definitionRef.current);
           setCopied(true);
           if (copyTimeoutRef.current) {
             clearTimeout(copyTimeoutRef.current);

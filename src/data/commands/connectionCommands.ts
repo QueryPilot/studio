@@ -5,6 +5,7 @@ import { databaseService } from "@/services/databaseService";
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauri } from "@/utils/tauri";
+import { writeClipboardText } from "@/lib/clipboard";
 
 export const connectionCommands: Command[] = [
   {
@@ -149,7 +150,7 @@ export const connectionCommands: Command[] = [
       const connString = `${scheme}://${profile.username}@${profile.host}:${profile.port}/${profile.database}`;
 
       try {
-        await navigator.clipboard.writeText(connString);
+        await writeClipboardText(connString);
         toast.success("Connection string copied to clipboard");
       } catch {
         toast.error("Failed to copy to clipboard");

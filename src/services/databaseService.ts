@@ -17,7 +17,7 @@ import type {
   ForeignKeyInfo,
   TableStatistics,
 } from "@/types/tableStructure";
-import { ConstraintType } from "@/services/backend";
+import { ConstraintType, TableKind } from "@/services/backend";
 import { IntrospectionService } from "./introspectionService";
 
 // Types from API spec
@@ -44,6 +44,7 @@ export interface TableMeta {
   kind: "Table" | "View" | "MaterializedView";
   row_estimate?: number;
   size_bytes?: number;
+  isPartitioned?: boolean;
 }
 
 export interface FunctionMeta {
@@ -587,6 +588,7 @@ class DatabaseService {
           kind: "Table" as const,
           row_estimate: t.row_count,
           size_bytes: undefined,
+          isPartitioned: t.kind === TableKind.Partitioned,
         })),
         ...views.map((v) => ({
           schema: v.schema,

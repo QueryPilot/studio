@@ -5,6 +5,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import type { GridSelection } from "@glideapps/glide-data-grid";
+import { writeClipboardText, isClipboardAvailable } from "@/lib/clipboard";
 
 export type CopyMode = "text" | "json";
 
@@ -26,42 +27,13 @@ export interface UseClipboardBridgeResult {
   lastCopyMode: CopyMode | null;
 }
 
-export const hasNavigatorClipboard =
-  typeof navigator !== "undefined" &&
-  typeof navigator.clipboard.writeText === "function";
+export const hasNavigatorClipboard = isClipboardAvailable();
 
-const fallbackCopy = (text: string) => {
-  if (typeof document === "undefined") {
-    throw new Error("Clipboard is not available in this environment");
-  }
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "absolute";
-  textarea.style.left = "-9999px";
-  document.body.appendChild(textarea);
-  textarea.select();
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- Fallback for browsers without Clipboard API
-    document.execCommand("copy");
-  } finally {
-    document.body.removeChild(textarea);
-  }
-};
-
-export const writeTextToClipboard = async (text: string) => {
-  if (hasNavigatorClipboard) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return;
-    } catch {
-      // Fallback if the browser rejects clipboard access (e.g., missing permission)
-      fallbackCopy(text);
-      return;
-    }
-  }
-  fallbackCopy(text);
-};
+/**
+ * Write text to clipboard using Tauri's native clipboard plugin.
+ * Falls back to browser API in non-Tauri environments.
+ */
+export const writeTextToClipboard = writeClipboardText;
 
 export function useClipboardBridge(
   options: UseClipboardBridgeOptions,

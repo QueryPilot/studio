@@ -25,6 +25,7 @@ import {
   DropdownMenuGroup,
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
+import { writeClipboardText } from "@/lib/clipboard";
 
 interface QueryResult {
   columns: string[];
@@ -358,8 +359,7 @@ export const ResultViewer = memo(function ResultViewer({
 
   if (result.error) {
     const handleCopyError = () => {
-      navigator.clipboard
-        .writeText(result.error || "")
+      writeClipboardText(result.error || "")
         .then(() => {
           toast.success("Error message copied to clipboard");
         })
