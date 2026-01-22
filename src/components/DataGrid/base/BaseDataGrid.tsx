@@ -275,7 +275,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   } = props;
 
   // --- CRUD Store Integration ---
-  const { stageCommand, getTableKey, stagedCommands } = useCrudStore();
+  const { stageCommand, stageBatchWithSingleHistoryEntry, getTableKey, stagedCommands } = useCrudStore();
   const tableKey = commandFactory
     ? getTableKey({
         connectionId: commandFactory.connectionId,
@@ -1487,22 +1487,29 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       return;
     }
 
-    // Multiple rows selected
+    // Multiple rows selected - batch stage for single undo
+    const commands: import("@/types/crud").CrudCommand[] = [];
     for (const rowIndex of selectedIndices) {
       const row = rowsRef.current[rowIndex];
       if (row) {
         const rowKey = factory.getRowKey(row, rowIndex);
         const command = factory.createDeleteCommand(row, rowKey);
-        stageCommand(command);
+        commands.push(command);
       }
     }
+    if (commands.length > 0) {
+      stageBatchWithSingleHistoryEntry(commands);
+    }
     toast.success(`${selectedIndices.length} row deletion(s) staged`);
-  }, [stageCommand, readOnly, gridSelection]);
+  }, [stageCommand, stageBatchWithSingleHistoryEntry, readOnly, gridSelection]);
 
   const handleBatchEdit = useCallback(
     (edits: Array<{ cell: Item; value: unknown }>, _rows: GridRowModel[]) => {
       const factory = commandFactoryRef.current;
       if (!factory || readOnly) return;
+
+      // Collect all commands for batch staging (single undo)
+      const commands: import("@/types/crud").CrudCommand[] = [];
 
       for (const edit of edits) {
         const [colIndex, rowIndex] = edit.cell;
@@ -1527,11 +1534,16 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
         const command = factory.createEditCommand(event);
         if (command) {
-          stageCommand(command);
+          commands.push(command);
         }
       }
+
+      // Stage all commands with a single history entry for atomic undo
+      if (commands.length > 0) {
+        stageBatchWithSingleHistoryEntry(commands);
+      }
     },
-    [stageCommand, readOnly],
+    [stageBatchWithSingleHistoryEntry, readOnly],
   );
 
   const handleBatchClear = useCallback(
@@ -1604,7 +1616,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       }
 
       const edits: Array<{ cell: Item; value: unknown }> = [];
-      let newRowsCreated = 0;
+      const insertCommands: import("@/types/crud").CrudCommand[] = [];
       const columns = finalColumnsRef.current;
 
       // Process each row of pasted data
@@ -1640,10 +1652,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
             rowData[column.name] = coercedValue;
           });
 
-          // Create insert command with the data
+          // Create insert command and add to batch
           const command = factory.createInsertCommand(rowData);
-          stageCommand(command);
-          newRowsCreated++;
+          insertCommands.push(command);
         } else {
           // Edit existing row
           values.forEach((value, colIndex) => {
@@ -1679,7 +1690,12 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         handleBatchEdit(edits, rowsRef.current);
       }
 
-      const totalRowsPasted = (edits.length > 0 ? new Set(edits.map(e => e.cell[1])).size : 0) + newRowsCreated;
+      // Stage all insert commands with a single history entry
+      if (insertCommands.length > 0) {
+        stageBatchWithSingleHistoryEntry(insertCommands);
+      }
+
+      const totalRowsPasted = (edits.length > 0 ? new Set(edits.map(e => e.cell[1])).size : 0) + insertCommands.length;
       if (totalRowsPasted > 0) {
         toast.success(`Pasted ${totalRowsPasted} row(s)`);
       }
@@ -1694,7 +1710,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         toast.error("Failed to paste from clipboard");
       }
     }
-  }, [readOnly, commandFactory, handleBatchEdit, stageCommand]);
+  }, [readOnly, commandFactory, handleBatchEdit, stageBatchWithSingleHistoryEntry]);
 
   // --- Native Paste Handler (fallback when Glide doesn't handle it) ---
   // Glide Data Grid only handles paste when a cell is selected AND focused.
