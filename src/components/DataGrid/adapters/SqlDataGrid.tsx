@@ -29,7 +29,7 @@ import { computeBaseWidth } from "./columnUtils";
 import { DataGridEmptyState } from "../components/DataGridStates";
 import { databaseService } from "@/services/databaseService";
 import { DataGridSkeleton } from "../components/DataGridSkeleton";
-import { QuickFilter } from "../components/QuickFilter";
+import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
 import { useQuickFilter } from "../hooks/useQuickFilter";
 import { useAIFilter } from "../hooks/useAIFilter";
 import { DbType, type GridCellValue } from "@/types";
@@ -82,6 +82,9 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
 
   const gridId = `${connectionId}:${database}:${schema}:${table}`;
   const tableName = table;
+
+  // Ref for QuickFilter - passed to BaseDataGrid for Cmd+F handling
+  const quickFilterRef = useRef<QuickFilterRef>(null);
 
   // Determine entity type and read-only status based on kind
   const entityType: "table" | "view" | "materialized_view" =
@@ -687,6 +690,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
       {filterColumns.length > 0 && (
         <div className="py-1.5 px-1">
           <QuickFilter
+            ref={quickFilterRef}
             columns={filterColumns}
             value={quickFilterValue}
             mode={quickFilterMode}
@@ -751,6 +755,8 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
         executionTime={executionTime}
         // Focus management
         focused={focused}
+        // Pass QuickFilter ref for Cmd+F handling (since we manage our own QuickFilter)
+        externalQuickFilterRef={quickFilterRef}
         className={cn("flex-1", className)}
       />
     </div>

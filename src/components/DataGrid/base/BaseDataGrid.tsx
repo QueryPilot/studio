@@ -211,6 +211,13 @@ export interface BaseDataGridProps {
    * Defaults to true.
    */
   autoFocus?: boolean;
+
+  /**
+   * External QuickFilter ref for Cmd+F handling.
+   * Use this when the parent component renders its own QuickFilter
+   * (e.g., SqlDataGrid with enableFiltering={false}).
+   */
+  externalQuickFilterRef?: React.RefObject<QuickFilterRef | null>;
 }
 
 export const BaseDataGrid = memo(function BaseDataGrid(
@@ -263,6 +270,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     // Focus management
     focused,
     autoFocus = true,
+    // External QuickFilter ref (for parent-managed QuickFilter)
+    externalQuickFilterRef,
   } = props;
 
   // --- CRUD Store Integration ---
@@ -333,13 +342,19 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   // This handles the case where a tab is opened from CommandPalette
   // and the grid should receive focus to enable keyboard navigation
   useEffect(() => {
-    if (focused && autoFocus && gridRef.current) {
-      // Small delay to ensure the grid is fully mounted and visible
-      const timeoutId = setTimeout(() => {
-        gridRef.current?.focus();
-      }, 50);
-      return () => clearTimeout(timeoutId);
-    }
+    if (!focused || !autoFocus) return;
+
+    // Delay to ensure the grid is fully mounted and visible
+    // The ref might not be ready during initial mount, so check inside timeout
+    const timeoutId = setTimeout(() => {
+      if (gridRef.current) {
+        gridRef.current.focus();
+        // Also update our focus tracking state
+        isGridFocusedRef.current = true;
+        setIsGridFocused(true);
+      }
+    }, 100);
+    return () => clearTimeout(timeoutId);
   }, [focused, autoFocus]);
 
   // --- State ---
@@ -469,6 +484,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
   // --- Keyboard Shortcuts for Quick Filter ---
   // Only respond if THIS grid instance is focused (critical for multi-panel)
+  // Use external ref if provided (parent-managed QuickFilter), otherwise use internal ref
+  const effectiveQuickFilterRef = externalQuickFilterRef ?? quickFilterRef;
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Check if THIS grid is focused using refs for synchronous, accurate state
@@ -478,7 +496,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
       if ((e.metaKey || e.ctrlKey) && e.key === "f") {
         e.preventDefault();
-        quickFilterRef.current?.focus();
+        effectiveQuickFilterRef.current?.focus();
         return;
       }
 
@@ -489,7 +507,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         !document.activeElement?.hasAttribute("contenteditable")
       ) {
         e.preventDefault();
-        quickFilterRef.current?.focus();
+        effectiveQuickFilterRef.current?.focus();
       }
     };
 
@@ -497,7 +515,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, []);
+  }, [effectiveQuickFilterRef]);
 
   // --- Column Management ---
   const reorderColumns = useCallback(
