@@ -41,6 +41,8 @@ export interface KeyValueDataGridProps {
   initialKey?: string;
   /** CSS class name */
   className?: string;
+  /** Whether this grid's panel is focused (for auto-focus) */
+  focused?: boolean;
 }
 
 // ============================================================================
@@ -188,6 +190,7 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
   database,
   initialKey,
   className,
+  focused,
 }: KeyValueDataGridProps) {
   const stageCommand = useCrudStore((s) => s.stageCommand);
 
@@ -394,6 +397,7 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
       enableRowPinning={false}
       readOnly={readOnly}
       onRefetch={data.refetch}
+      focused={focused}
       className={cn('keyvalue-datagrid', className)}
     />
   );

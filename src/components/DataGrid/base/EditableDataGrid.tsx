@@ -303,13 +303,14 @@ export const EditableDataGrid = forwardRef<
     [columns, rows, getCellContent, onCellEditCommit, processResult],
   );
 
-  // Keyboard navigation hook
+  // Keyboard navigation hook - DISABLED
+  // Glide Data Grid handles keyboard navigation natively. Our custom hook
+  // uses a global store that causes conflicts when multiple grids are present.
+  // The global navigationStore was shared between all grid instances, so when
+  // Grid A clicked a cell, it updated global state, then Grid B would click and
+  // overwrite it. Disabling this lets Glide handle focus and navigation properly.
   const {
-    handleKeyDown: navHandleKeyDown,
     handleCellClick: navHandleCellClick,
-    handleCellDoubleClick: navHandleCellDoubleClick,
-    mode: navMode,
-    selectedCell: navSelectedCell,
   } = useKeyboardNavigation({
     tableKey,
     gridRef,
@@ -317,12 +318,8 @@ export const EditableDataGrid = forwardRef<
     columns: columns.map((c) => ({ field: c.field })),
     onClearCell: handleClearCell,
     onGridSelectionChange,
-    enabled: true,
+    enabled: false, // Disabled - let Glide handle natively
   });
-
-  // Suppress unused variable warnings - these are reserved for future use
-  void navMode;
-  void navSelectedCell;
 
   // Document-level listener for cmd+delete row deletion
   // Uses gridSelection prop directly to avoid stale navigation store state
@@ -383,14 +380,11 @@ export const EditableDataGrid = forwardRef<
         column: coords.column.field,
       });
 
-      // Update navigation state - cell is now being edited
-      navHandleCellDoubleClick(cell);
-
       editingCellRef.current = cell;
       onCellEditStart?.(coords);
       onActiveCellChange?.(cell);
     },
-    [getCoordinates, onActiveCellChange, onCellActivatedProp, onCellEditStart, navHandleCellDoubleClick],
+    [getCoordinates, onActiveCellChange, onCellActivatedProp, onCellEditStart],
   );
 
   const handleCellEdited = useCallback(
@@ -704,32 +698,32 @@ export const EditableDataGrid = forwardRef<
     [onSelectionChange, onGridSelectionChange],
   );
 
-  // Handle cell click - update navigation state and focus wrapper for keyboard events
+  // Handle cell click - ensure Glide's canvas has focus for keyboard navigation
   const handleCellClickInternal = useCallback<NonNullable<DataEditorProps['onCellClicked']>>(
     (cell, event) => {
+      // Note: navHandleCellClick is from disabled hook, but still updates store
+      // for cmd+delete handler compatibility. The store update is harmless since
+      // we're not using it for keyboard navigation anymore.
       navHandleCellClick(cell);
       onCellClicked?.(cell, event);
-      // Focus wrapper div so keyboard events (Delete/Backspace) work
-      wrapperRef.current?.focus();
+      // Focus Glide's canvas (not wrapper) to enable native keyboard navigation
+      // This is critical for arrow keys, Tab, Delete, etc. to work
+      gridRef.current?.focus();
     },
     [navHandleCellClick, onCellClicked],
   );
 
-  // Handle keyboard events at container level
-  const handleContainerKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      // Let the navigation handler process the event first
-      navHandleKeyDown(e);
-    },
-    [navHandleKeyDown],
-  );
+  // Keyboard events are now handled by Glide Data Grid natively
+  // The custom keyboard handler was disabled because it used a global store
+  // that caused conflicts when multiple grids were present.
 
   return (
+    // Wrapper div for layout and focus containment check (used by cmd+delete handler)
+    // NO tabIndex - Glide manages focus on its internal canvas element
+    // NO onKeyDown - Glide handles keyboard navigation natively
     <div
       ref={wrapperRef}
       className="h-full w-full outline-none"
-      tabIndex={0}
-      onKeyDown={handleContainerKeyDown}
     >
       <DataGridBase
         {...rest}
