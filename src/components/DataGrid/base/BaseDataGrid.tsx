@@ -452,6 +452,21 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     clientSideFiltering: false,
   });
 
+  // --- Helper: Check if a cell editor is currently active ---
+  // This checks the DOM directly since blur events may not fire correctly with portals
+  const isCellEditorActive = useCallback(() => {
+    // Check if focus is inside a cell editor overlay
+    const activeElement = document.activeElement;
+    if (activeElement) {
+      const editorShell = activeElement.closest('.gdg-editor-shell, .click-outside-ignore');
+      if (editorShell) return true;
+    }
+    // Also check if any cell editor overlay exists in the DOM
+    const editorOverlay = document.querySelector('.gdg-editor-shell');
+    if (editorOverlay) return true;
+    return false;
+  }, []);
+
   // --- Focus/Blur Handlers ---
   // Use capture phase to track focus state synchronously via ref
   // This ensures keyboard handlers always have accurate focus state
@@ -1150,6 +1165,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       // Only handle copy shortcuts
       if (!((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c")) return;
 
+      // Don't intercept if a cell editor is active (check DOM directly for reliability)
+      if (isCellEditorActive()) return;
+
       // Check if our grid is focused using REFS for synchronous, accurate state
       // This is critical for multi-panel scenarios where state updates are async
       const hasActiveElementInGrid = wrapperRef.current?.contains(document.activeElement);
@@ -1170,7 +1188,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     return () => {
       window.removeEventListener("keydown", handleCopyKeyDown);
     };
-  }, [enableClipboard, handleKeyboardCopy]);
+  }, [enableClipboard, handleKeyboardCopy, isCellEditorActive]);
 
   useCommand(
     "dataGrid.action.copyAsJson",
@@ -1767,6 +1785,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   useEffect(() => {
     if (!enableFillOperations) return;
     const handleFillKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept if a cell editor is active (check DOM directly for reliability)
+      if (isCellEditorActive()) return;
       // Use refs for synchronous, accurate focus state
       if (!isGridFocusedRef.current || isEditingCellRef.current) return;
       if (e.ctrlKey && !e.metaKey && e.key === "d") {
@@ -1787,6 +1807,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     fillDown,
     fillRight,
     gridSelection,
+    isCellEditorActive,
   ]);
 
   // Delete key handler for batch clear
@@ -1796,6 +1817,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     const handleDeleteKeyDown = (e: KeyboardEvent) => {
       // Only Delete or Backspace key
       if (e.key !== "Delete" && e.key !== "Backspace") return;
+
+      // Don't intercept if a cell editor is active (check DOM directly for reliability)
+      if (isCellEditorActive()) return;
 
       // Check if our grid is focused using REFS for synchronous, accurate state
       // This is critical for multi-panel scenarios where state updates are async
@@ -1836,7 +1860,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     return () => {
       window.removeEventListener("keydown", handleDeleteKeyDown);
     };
-  }, [readOnly, commandFactory, handleBatchClear]);
+  }, [readOnly, commandFactory, handleBatchClear, isCellEditorActive]);
 
   // --- Filter by Column (from context menu) ---
   const handleFilterByColumn = useCallback(
