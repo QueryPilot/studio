@@ -8,7 +8,6 @@ import {
   IconBrandTabler,
 } from "@tabler/icons-react";
 import { useDraggable } from "@dnd-kit/core";
-import { CSS } from "@dnd-kit/utilities";
 
 interface DraggableTabProps {
   tabId: string;
@@ -44,15 +43,16 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
   onClose,
 }) => {
   const draggableId = `tab-${panelId}-${tabId}`;
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
+  const { attributes, listeners, setNodeRef, isDragging } =
     useDraggable({
       id: draggableId,
-      data: { tabId, panelId },
+      data: { tabId, panelId, displayName, tabType, isView, kind },
     });
 
+  // Don't apply transform here - DragOverlay handles the visual feedback
+  // Only reduce opacity to indicate the element is being dragged
   const style = {
-    transform: CSS.Translate.toString(transform),
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0.4 : 1,
   };
 
   const Icon = useMemo(() => {
