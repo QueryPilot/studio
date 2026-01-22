@@ -4,6 +4,7 @@
  * Partitions are supported in:
  * - MySQL/MariaDB: via information_schema.PARTITIONS
  * - PostgreSQL: via pg_inherits and pg_partitioned_table (PG 10+)
+ * - SQL Server: via sys.partition_schemes and sys.partition_functions
  *
  * Returns empty array for other database types or non-partitioned tables.
  */
@@ -33,7 +34,7 @@ interface UsePartitionsQueryResult {
  * Check if the database type supports partition introspection
  */
 function supportsPartitions(dbType: DbType): boolean {
-  return isMySQLCompatible(dbType) || dbType === DbType.PostgreSQL;
+  return isMySQLCompatible(dbType) || dbType === DbType.PostgreSQL || dbType === DbType.SQLServer;
 }
 
 export function usePartitionsQuery({
