@@ -45,6 +45,8 @@ export interface DocumentDataGridProps {
   pageSize?: number;
   /** CSS class name */
   className?: string;
+  /** Whether this grid's panel is focused (for auto-focus) */
+  focused?: boolean;
 }
 
 // ============================================================================
@@ -58,6 +60,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   collection,
   pageSize = 50,
   className,
+  focused,
 }: DocumentDataGridProps) {
   const stageCommand = useCrudStore((s) => s.stageCommand);
   const quickFilterRef = useRef<QuickFilterRef>(null);
@@ -237,6 +240,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       enableRowPinning={false}
       readOnly={readOnly}
       onRefetch={data.refetch}
+      focused={focused}
       className={cn("document-datagrid", className)}
     />
   );

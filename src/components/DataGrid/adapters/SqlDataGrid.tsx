@@ -63,6 +63,8 @@ export interface SqlDataGridProps {
   initialFilter?: string;
   /** Panel ID for FK reference navigation */
   panelId?: string;
+  /** Whether this grid's panel is focused (for auto-focus) */
+  focused?: boolean;
 }
 
 export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
@@ -75,6 +77,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
     readOnly = false,
     kind = "Table",
     className,
+    focused,
   } = props;
 
   const gridId = `${connectionId}:${database}:${schema}:${table}`;
@@ -746,6 +749,8 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
         onReconnect={handleReconnect}
         // Query performance metrics
         executionTime={executionTime}
+        // Focus management
+        focused={focused}
         className={cn("flex-1", className)}
       />
     </div>

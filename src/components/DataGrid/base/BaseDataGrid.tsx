@@ -199,6 +199,18 @@ export interface BaseDataGridProps {
    * Total streaming time in milliseconds
    */
   totalStreamingMs?: number;
+
+  /**
+   * Whether this grid's panel is focused.
+   * When true and autoFocus is enabled, the grid will focus itself.
+   */
+  focused?: boolean;
+
+  /**
+   * Auto-focus the grid when it mounts or when `focused` becomes true.
+   * Defaults to true.
+   */
+  autoFocus?: boolean;
 }
 
 export const BaseDataGrid = memo(function BaseDataGrid(
@@ -248,6 +260,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     // Error handling
     error,
     onReconnect,
+    // Focus management
+    focused,
+    autoFocus = true,
   } = props;
 
   // --- CRUD Store Integration ---
@@ -313,6 +328,19 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     onCellEditCommitRef.current = onCellEditCommitCallback;
     commandFactoryRef.current = commandFactory;
   });
+
+  // --- Auto-focus when panel becomes focused ---
+  // This handles the case where a tab is opened from CommandPalette
+  // and the grid should receive focus to enable keyboard navigation
+  useEffect(() => {
+    if (focused && autoFocus && gridRef.current) {
+      // Small delay to ensure the grid is fully mounted and visible
+      const timeoutId = setTimeout(() => {
+        gridRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [focused, autoFocus]);
 
   // --- State ---
   const [isGridFocused, setIsGridFocused] = useState(false);
@@ -440,8 +468,14 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   }, []);
 
   // --- Keyboard Shortcuts for Quick Filter ---
+  // Only respond if THIS grid instance is focused (critical for multi-panel)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if THIS grid is focused using refs for synchronous, accurate state
+      // This is critical for multi-panel scenarios
+      const hasActiveElementInGrid = wrapperRef.current?.contains(document.activeElement);
+      if (!isGridFocusedRef.current && !hasActiveElementInGrid) return;
+
       if ((e.metaKey || e.ctrlKey) && e.key === "f") {
         e.preventDefault();
         quickFilterRef.current?.focus();

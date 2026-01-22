@@ -200,6 +200,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
             database={metadata.database || ""}
             collection={metadata.table || ""}
             className="h-full"
+            focused={isPanelFocused}
           />
         </FeatureErrorBoundary>
       );
@@ -216,6 +217,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
             database={parseInt(metadata.database || "0", 10)}
             initialKey={metadata.table}
             className="h-full"
+            focused={isPanelFocused}
           />
         </FeatureErrorBoundary>
       );
@@ -392,6 +394,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                       onActionsChange={handleViewActionsChange}
                       initialFilter={metadata.initialFilter as string | undefined}
                       panelId={panelId}
+                      focused={isPanelFocused}
                     />
                   </FeatureErrorBoundary>
                 )}
