@@ -461,9 +461,13 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       const editorShell = activeElement.closest('.gdg-editor-shell, .click-outside-ignore');
       if (editorShell) return true;
     }
-    // Also check if any cell editor overlay exists in the DOM
-    const editorOverlay = document.querySelector('.gdg-editor-shell');
-    if (editorOverlay) return true;
+    // Also check if the active element is an input/textarea inside the grid context
+    // This catches cases where the editor is open but focus tracking didn't update
+    if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
+      // Check if this input is part of a data grid editor (not QuickFilter or other UI)
+      const isInGridEditor = activeElement.closest('.gdg-style, [data-slot="grid-editor"]');
+      if (isInGridEditor) return true;
+    }
     return false;
   }, []);
 
