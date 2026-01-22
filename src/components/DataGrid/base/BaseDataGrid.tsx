@@ -475,6 +475,16 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       return;
     }
 
+    // Check if focus is moving to a cell editor overlay (renders in a portal outside the grid)
+    // Cell editors have the class 'gdg-editor-shell' or 'click-outside-ignore'
+    if (relatedTarget) {
+      const editorShell = relatedTarget.closest('.gdg-editor-shell, .click-outside-ignore');
+      if (editorShell) {
+        // Focus is moving to cell editor - keep editing state
+        return;
+      }
+    }
+
     // Focus is leaving the grid - update synchronously
     isGridFocusedRef.current = false;
     setIsGridFocused(false);
