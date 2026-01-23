@@ -8,6 +8,15 @@ import {
   IconBrandTabler,
 } from "@tabler/icons-react";
 import { useDraggable } from "@dnd-kit/core";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  getConnectionColor,
+  shouldShowConnectionColors,
+} from "@/utils/connectionColors";
 
 interface DraggableTabProps {
   tabId: string;
@@ -22,6 +31,12 @@ interface DraggableTabProps {
   returnType?: string;
   objectType?: "function" | "procedure";
   isNextActive?: boolean;
+  /** Connection ID this tab belongs to */
+  connectionId?: string;
+  /** All connection IDs in the workspace (for color assignment) */
+  workspaceConnectionIds?: string[];
+  /** Database name for tooltip display */
+  databaseName?: string;
   onActivate: () => void;
   onClose: () => void;
 }
@@ -39,6 +54,9 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
   returnType,
   objectType,
   isNextActive = false,
+  connectionId,
+  workspaceConnectionIds = [],
+  databaseName,
   onActivate,
   onClose,
 }) => {
@@ -112,6 +130,16 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
     return "h-3.5 w-3.5";
   };
 
+  // Connection color indicator - only shown when 2+ connections in workspace
+  const showConnectionColor =
+    connectionId &&
+    workspaceConnectionIds.length > 0 &&
+    shouldShowConnectionColors(workspaceConnectionIds.length);
+
+  const connectionColorClass = showConnectionColor
+    ? getConnectionColor(connectionId, workspaceConnectionIds)
+    : null;
+
   return (
     <>
       <div
@@ -136,6 +164,22 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
           onActivate();
         }}
       >
+        {/* Connection color indicator */}
+        {connectionColorClass && (
+          <Tooltip>
+            <TooltipTrigger className="flex items-center">
+              <span
+                className={cn(
+                  "w-2 h-2 rounded-full shrink-0",
+                  connectionColorClass,
+                )}
+              />
+            </TooltipTrigger>
+            <TooltipContent side="bottom" sideOffset={8}>
+              {databaseName || "Unknown database"}
+            </TooltipContent>
+          </Tooltip>
+        )}
         <div className="h-5 w-5 flex items-center justify-center shrink-0">
           <button
             className="hidden group-hover:flex group-focus-within:flex items-center justify-center hover:bg-destructive/10 rounded transition-colors h-5 w-5"
