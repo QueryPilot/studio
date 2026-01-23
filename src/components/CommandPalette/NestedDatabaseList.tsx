@@ -4,7 +4,6 @@ import {
   IconCircleFilled,
   IconDatabase,
   IconLoader2,
-  IconPlus,
   IconExternalLink,
 } from "@tabler/icons-react";
 import Fuse, { type IFuseOptions } from "fuse.js";
@@ -46,7 +45,8 @@ const DATABASE_FUSE_OPTIONS: IFuseOptions<DatabaseItem> = {
 interface NestedDatabaseListProps {
   listRef?: React.RefObject<HTMLDivElement | null>;
   query: string;
-  onSelect: (database: string) => void;
+  /** Called when a database is successfully selected (after add-to-workspace completes) */
+  onSelect?: (database: string) => void;
   onClose?: () => void;
 }
 
@@ -68,10 +68,9 @@ export function NestedDatabaseList({
   const addConnectionToWorkspace = useWorkspaceBundleStore(
     (s) => s.addConnectionToWorkspace,
   );
-
-  // Check if we're in a multi-connection workspace context
-  const isMultiConnectionWorkspace =
-    activeWorkspace && !activeWorkspace.isTemporary;
+  const setFocusedConnection = useWorkspaceBundleStore(
+    (s) => s.setFocusedConnection,
+  );
 
   // Query for databases list
   const {
@@ -192,9 +191,11 @@ export function NestedDatabaseList({
   );
 
   /**
-   * Add database connection to current workspace
+   * Handle database selection - uses add-to-workspace flow
+   * If connection exists in workspace, just focus it.
+   * If not, create/find connection and add to workspace.
    */
-  const handleAddToWorkspace = useCallback(
+  const handleDatabaseSelect = useCallback(
     async (dbName: string, hasProfile: boolean) => {
       if (!activeWorkspace) {
         toast.error("No active workspace");
@@ -211,20 +212,25 @@ export function NestedDatabaseList({
           return;
         }
 
+        // Check if connection already exists in workspace
         if (activeWorkspace.connections.has(targetConnectionId)) {
-          toast.info("Connection already in workspace");
-          return;
+          // Just focus the existing connection
+          setFocusedConnection(targetConnectionId);
+          logger.info(`[NestedDatabaseList] Focused existing connection: ${targetConnectionId}`);
+        } else {
+          // Add to workspace (this also sets focus to the new connection)
+          await addConnectionToWorkspace(targetConnectionId);
+          logger.info(`[NestedDatabaseList] Added and focused connection: ${targetConnectionId}`);
         }
 
-        await addConnectionToWorkspace(targetConnectionId);
-        toast.success(`Added ${dbName} to workspace`);
+        onSelect?.(dbName);
         onClose?.();
       } catch (error) {
-        logger.error("Failed to add database to workspace:", error);
-        toast.error("Failed to add to workspace");
+        logger.error("Failed to select database:", error);
+        toast.error("Failed to switch database");
       }
     },
-    [activeWorkspace, getOrCreateConnectionForDatabase, addConnectionToWorkspace, onClose],
+    [activeWorkspace, getOrCreateConnectionForDatabase, addConnectionToWorkspace, setFocusedConnection, onSelect, onClose],
   );
 
   if (isLoading) {
@@ -258,7 +264,7 @@ export function NestedDatabaseList({
             key={dbItem.name}
             value={dbItem.name}
             onSelect={() => {
-              onSelect(dbItem.name);
+              void handleDatabaseSelect(dbItem.name, dbItem.hasProfile);
             }}
             className="group/db-item"
           >
@@ -283,29 +289,8 @@ export function NestedDatabaseList({
                   <IconCircleFilled className="h-1.5 w-1.5 text-primary shrink-0" />
                 )}
               </div>
-              {/* Action buttons - visible on hover */}
+              {/* Open in New Window button - visible on hover */}
               <div className="flex items-center gap-1 opacity-0 group-hover/db-item:opacity-100 group-data-[selected=true]/command-item:opacity-100 transition-opacity shrink-0">
-                {isMultiConnectionWorkspace && (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void handleAddToWorkspace(dbItem.name, dbItem.hasProfile);
-                          }}
-                          className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-foreground"
-                        >
-                          <IconPlus className="!h-3.5 !w-3.5" />
-                        </button>
-                      }
-                    />
-                    <TooltipContent side="top" className="text-xs">
-                      Add to Workspace
-                    </TooltipContent>
-                  </Tooltip>
-                )}
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -322,7 +307,7 @@ export function NestedDatabaseList({
                     }
                   />
                   <TooltipContent side="top" className="text-xs">
-                    Open New Window
+                    Open in New Window
                   </TooltipContent>
                 </Tooltip>
               </div>

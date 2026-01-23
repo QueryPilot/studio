@@ -153,9 +153,6 @@ export function CommandPalette(): React.ReactElement {
   const selectedDatabase = useWorkspaceSelectionStore(
     (state) => state.database,
   );
-  const setSelectedDatabase = useWorkspaceSelectionStore(
-    (state) => state.setSelectedDatabase,
-  );
   const currentSchema = useWorkspaceSelectionStore((state) => state.schema);
   const setSchema = useWorkspaceSelectionStore((state) => state.setSchema);
 
@@ -455,19 +452,13 @@ export function CommandPalette(): React.ReactElement {
     ],
   );
 
+  // Database selection is now handled by NestedDatabaseList using add-to-workspace flow.
+  // This callback is called after successful selection to close the palette.
   const handleDatabaseSelect = useCallback(
-    async (database: string) => {
-      if (!activeConnectionId) return;
-      try {
-        await databaseService.switchDatabase(activeConnectionId, database);
-        setSelectedDatabase(database);
-        closePalette();
-      } catch (err) {
-        console.error("Failed to switch database:", err);
-        toast.error("Failed to switch database");
-      }
+    (_database: string) => {
+      closePalette();
     },
-    [activeConnectionId, setSelectedDatabase, closePalette],
+    [closePalette],
   );
 
   const handleSchemaSelect = useCallback(
