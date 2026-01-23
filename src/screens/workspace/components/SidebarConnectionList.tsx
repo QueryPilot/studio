@@ -6,7 +6,7 @@
  * search filtering across all connections.
  */
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -80,15 +80,29 @@ export function SidebarConnectionList({
     }
   );
 
-  // When focused connection changes, auto-expand it
-  const prevFocusedIdRef = useState<string | null>(focusedConnectionId)[0];
-  if (focusedConnectionId && focusedConnectionId !== prevFocusedIdRef) {
-    setExpandedConnections((prev) => {
-      const next = new Set(prev);
-      next.add(focusedConnectionId);
-      return next;
-    });
-  }
+  // Track previous focused connection to detect changes
+  const prevFocusedIdRef = useRef<string | null>(null);
+
+  // Track connection section DOM elements for scrolling
+  const connectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // When focused connection changes, auto-expand it and scroll to it
+  useEffect(() => {
+    if (focusedConnectionId && focusedConnectionId !== prevFocusedIdRef.current) {
+      setExpandedConnections((prev) => {
+        const next = new Set(prev);
+        next.add(focusedConnectionId);
+        return next;
+      });
+
+      // Scroll to the connection section after a short delay (to allow expand animation)
+      setTimeout(() => {
+        const element = connectionRefs.current.get(focusedConnectionId);
+        element?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 100);
+    }
+    prevFocusedIdRef.current = focusedConnectionId;
+  }, [focusedConnectionId]);
 
   const toggleConnection = useCallback((connectionId: string) => {
     setExpandedConnections((prev) => {
@@ -229,6 +243,13 @@ export function SidebarConnectionList({
           filteredConnections.map((connection) => (
             <ConnectionSection
               key={connection.id}
+              ref={(el) => {
+                if (el) {
+                  connectionRefs.current.set(connection.id, el);
+                } else {
+                  connectionRefs.current.delete(connection.id);
+                }
+              }}
               connection={connection}
               isExpanded={expandedConnections.has(connection.id)}
               onToggle={() => toggleConnection(connection.id)}
