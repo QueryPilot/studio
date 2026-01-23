@@ -13,10 +13,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  getConnectionColor,
-  shouldShowConnectionColors,
-} from "@/utils/connectionColors";
+import { shouldShowConnectionColors } from "@/utils/connectionColors";
+import { getDatabaseLogo } from "@/utils/databaseLogos";
+import type { DbType } from "@/types/connection";
 
 interface DraggableTabProps {
   tabId: string;
@@ -37,6 +36,8 @@ interface DraggableTabProps {
   workspaceConnectionIds?: string[];
   /** Database name for tooltip display */
   databaseName?: string;
+  /** Database type for showing database logo */
+  dbType?: DbType;
   onActivate: () => void;
   onClose: () => void;
 }
@@ -57,6 +58,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
   connectionId,
   workspaceConnectionIds = [],
   databaseName,
+  dbType,
   onActivate,
   onClose,
 }) => {
@@ -130,15 +132,15 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
     return "h-3.5 w-3.5";
   };
 
-  // Connection color indicator - only shown when 2+ connections in workspace
-  const showConnectionColor =
+  // Connection indicator - only shown when 2+ connections in workspace
+  const showConnectionIndicator =
     connectionId &&
     workspaceConnectionIds.length > 0 &&
     shouldShowConnectionColors(workspaceConnectionIds.length);
 
-  const connectionColorClass = showConnectionColor
-    ? getConnectionColor(connectionId, workspaceConnectionIds)
-    : null;
+  // Get database logo path if dbType is provided
+  const databaseLogoPath =
+    showConnectionIndicator && dbType ? getDatabaseLogo(dbType) : null;
 
   return (
     <>
@@ -164,15 +166,14 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
           onActivate();
         }}
       >
-        {/* Connection color indicator */}
-        {connectionColorClass && (
+        {/* Database logo indicator */}
+        {databaseLogoPath && (
           <Tooltip>
             <TooltipTrigger className="flex items-center">
-              <span
-                className={cn(
-                  "w-2 h-2 rounded-full shrink-0",
-                  connectionColorClass,
-                )}
+              <img
+                src={databaseLogoPath}
+                alt={dbType || "Database"}
+                className="h-3.5 w-3.5 shrink-0"
               />
             </TooltipTrigger>
             <TooltipContent side="bottom" sideOffset={8}>
