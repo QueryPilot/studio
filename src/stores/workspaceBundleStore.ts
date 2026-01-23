@@ -604,15 +604,8 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       if (!activeWorkspace.connections.has(connectionId)) return;
       if (activeWorkspace.focusedConnectionId === connectionId) return;
 
-      const previousConnectionId = activeWorkspace.focusedConnectionId;
-      const workbenchStore = useWorkbenchStore.getState();
-
-      // Save current connection's tab layout to localStorage before switching
-      if (previousConnectionId) {
-        workbenchStore.saveConnectionLayout(previousConnectionId);
-      }
-
-      // Switch focused connection
+      // Simply update the focused connection ID - tabs from ALL connections remain visible
+      // We no longer swap per-connection layouts; there's one global tab list
       set((s) => {
         if (!s.activeWorkspace) return s;
         return {
@@ -623,15 +616,9 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         };
       });
 
-      // Restore target connection's tab layout from localStorage
-      const restored = workbenchStore.restoreConnectionLayout(connectionId);
-      if (!restored) {
-        // No saved layout - initialize fresh workbench for this connection
-        workbenchStore.initializeLayout();
-        logger.info(
-          `[WorkspaceBundleStore] Initialized fresh layout for connection: ${connectionId}`,
-        );
-      }
+      logger.info(
+        `[WorkspaceBundleStore] Focused connection changed to: ${connectionId}`,
+      );
     },
 
     updateConnectionState: (connectionId, database, schema) => {
