@@ -58,8 +58,17 @@ export const QueryPanel = memo(function QueryPanel({
 }: QueryPanelProps) {
   // Use global tab state store to persist across panel moves
   const setQueryState = useTabStateStore((state) => state.setQueryState);
+  const loadTabStateAsync = useTabStateStore((state) => state.loadTabStateAsync);
   const globalState = useTabStateStore((state) => state.queryStates.get(tabId));
   const focusedPanelId = useWorkbenchStore((state) => state.focusedPanelId);
+
+  // Load persisted tab state from IndexedDB on mount
+  useEffect(() => {
+    void loadTabStateAsync(tabId);
+  }, [tabId, loadTabStateAsync]);
+
+  // Track if we've synced from persistence
+  const hasLoadedFromPersistence = useRef(false);
   const isPanelFocused = focusedPanelId === panelId;
 
   const [query, setQueryInternal] = useState<string>(
@@ -100,6 +109,25 @@ export const QueryPanel = memo(function QueryPanel({
 
   // Get transaction state from persisted store
   const inTransaction = globalState?.inTransaction || false;
+
+  // Sync persisted state to local state when loaded from IndexedDB
+  // This runs once when globalState first becomes available
+  useEffect(() => {
+    if (globalState && !hasLoadedFromPersistence.current) {
+      hasLoadedFromPersistence.current = true;
+      // Only sync persisted fields (query, viewMode, selectedDialect)
+      // Don't override if local state already has content from initialSql
+      if (globalState.query && !query) {
+        setQueryInternal(globalState.query);
+      }
+      if (globalState.viewMode) {
+        setViewModeInternal(globalState.viewMode);
+      }
+      if (globalState.selectedDialect) {
+        setSelectedDialect(globalState.selectedDialect);
+      }
+    }
+  }, [globalState, query]);
 
   // Editor ref for focusing
   const editorRef = useRef<SqlEditorRef>(null);
