@@ -20,7 +20,6 @@ import {
   IconArrowBackUp,
   IconArrowForwardUp,
   IconGitCommit,
-  IconPlus,
   IconExternalLink,
 } from "@tabler/icons-react";
 import {
@@ -458,10 +457,9 @@ export function WorkspaceTitleBar({
   const addConnectionToWorkspace = useWorkspaceBundleStore(
     (s) => s.addConnectionToWorkspace,
   );
-
-  // Check if we're in a multi-connection workspace context (can add connections)
-  const isMultiConnectionWorkspace =
-    activeWorkspace && !activeWorkspace.isTemporary;
+  const setFocusedConnection = useWorkspaceBundleStore(
+    (s) => s.setFocusedConnection,
+  );
 
   // Update document title with unsaved changes indicator and workspace name
   useEffect(() => {
@@ -812,14 +810,22 @@ export function WorkspaceTitleBar({
   };
 
   /**
-   * Add database connection to current workspace
+   * Handle database selection - uses add-to-workspace flow.
+   * If connection exists in workspace, just focus it.
+   * If not, create/find connection and add to workspace.
    */
-  const handleAddDatabaseToWorkspace = async (
+  const handleDatabaseSelect = async (
     dbName: string,
     hasProfile: boolean,
   ) => {
     if (!activeWorkspace) {
       toast.error("No active workspace");
+      return;
+    }
+
+    // If clicking on current database, just close
+    if (dbName === selectedDatabase) {
+      setOpen(false);
       return;
     }
 
@@ -832,23 +838,23 @@ export function WorkspaceTitleBar({
       );
       if (!targetConnectionId) return;
 
-      // Check if already in workspace
+      // Check if connection already exists in workspace
       if (activeWorkspace.connections.has(targetConnectionId)) {
-        toast.info("Connection already in workspace");
-        return;
+        // Just focus the existing connection
+        setFocusedConnection(targetConnectionId);
+        logger.info(`[WorkspaceTitleBar] Focused existing connection: ${targetConnectionId}`);
+      } else {
+        // Add to workspace (this also sets focus to the new connection)
+        await addConnectionToWorkspace(targetConnectionId);
+        logger.info(`[WorkspaceTitleBar] Added and focused connection: ${targetConnectionId}`);
       }
-
-      await addConnectionToWorkspace(targetConnectionId);
-      toast.success(`Added ${dbName} to workspace`);
     } catch (error) {
-      logger.error("Failed to add database to workspace:", error);
-      toast.error("Failed to add to workspace", {
+      logger.error("Failed to switch database:", error);
+      toast.error("Failed to switch database", {
         description: error instanceof Error ? error.message : String(error),
       });
     }
   };
-
-  // Legacy handler removed - use handleOpenDatabaseNewWindow directly
 
   const handleOpenErd = () => {
     const { focusedPanelId, panelContents, addTab, focusPanel } =
@@ -1016,7 +1022,7 @@ export function WorkspaceTitleBar({
                           key={dbItem.name}
                           value={dbItem.name}
                           onSelect={() => {
-                            void handleOpenDatabaseNewWindow(
+                            void handleDatabaseSelect(
                               dbItem.name,
                               dbItem.hasProfile,
                             );
@@ -1054,35 +1060,8 @@ export function WorkspaceTitleBar({
                                 <IconCircle className="!h-2 !w-2 fill-primary text-primary shrink-0" />
                               )}
                             </div>
-                            {/* Action buttons - visible on hover */}
+                            {/* Open in New Window button - visible on hover */}
                             <div className="flex items-center gap-1 opacity-0 group-hover/db-item:opacity-100 group-data-[selected=true]/command-item:opacity-100 transition-opacity shrink-0">
-                              {isMultiConnectionWorkspace && (
-                                <Tooltip>
-                                  <TooltipTrigger
-                                    render={
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          void handleAddDatabaseToWorkspace(
-                                            dbItem.name,
-                                            dbItem.hasProfile,
-                                          );
-                                        }}
-                                        className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-foreground"
-                                      >
-                                        <IconPlus className="!h-3.5 !w-3.5" />
-                                      </button>
-                                    }
-                                  />
-                                  <TooltipContent
-                                    side="top"
-                                    className="text-xs"
-                                  >
-                                    Add to Workspace
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
                               <Tooltip>
                                 <TooltipTrigger
                                   render={
@@ -1102,7 +1081,7 @@ export function WorkspaceTitleBar({
                                   }
                                 />
                                 <TooltipContent side="top" className="text-xs">
-                                  Open New Window
+                                  Open in New Window
                                 </TooltipContent>
                               </Tooltip>
                             </div>
@@ -1120,7 +1099,8 @@ export function WorkspaceTitleBar({
                     className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
                   >
                     {groupedDatabases.otherProfiles.map((profile) => {
-                      const handleOpenProfile = () => {
+                      // Open in new window action
+                      const handleOpenProfileNewWindow = () => {
                         void windowManager.openWorkspace(
                           profile.id,
                           profile.name,
@@ -1132,21 +1112,34 @@ export function WorkspaceTitleBar({
                         setOpen(false);
                       };
 
-                      const handleAddProfile = () => {
-                        if (!activeWorkspace?.connections.has(profile.id)) {
-                          void addConnectionToWorkspace(profile.id);
-                          toast.success(`Added ${profile.name} to workspace`);
-                        } else {
-                          toast.info("Connection already in workspace");
+                      // Add-to-workspace action (default click)
+                      const handleSelectProfile = async () => {
+                        if (!activeWorkspace) {
+                          toast.error("No active workspace");
+                          return;
                         }
+
                         setOpen(false);
+
+                        // Check if connection already exists in workspace
+                        if (activeWorkspace.connections.has(profile.id)) {
+                          // Just focus the existing connection
+                          setFocusedConnection(profile.id);
+                          logger.info(`[WorkspaceTitleBar] Focused existing profile: ${profile.id}`);
+                        } else {
+                          // Add to workspace (this also sets focus to the new connection)
+                          await addConnectionToWorkspace(profile.id);
+                          logger.info(`[WorkspaceTitleBar] Added and focused profile: ${profile.id}`);
+                        }
                       };
 
                       return (
                         <CommandItem
                           key={profile.id}
                           value={profile.id}
-                          onSelect={handleOpenProfile}
+                          onSelect={() => {
+                            void handleSelectProfile();
+                          }}
                           className="cursor-pointer py-1.5 px-2 group/profile-item"
                         >
                           <div className="flex items-center justify-between w-full gap-2">
@@ -1166,32 +1159,8 @@ export function WorkspaceTitleBar({
                                 {profile.database && ` / ${profile.database}`}
                               </span>
                             </div>
-                            {/* Action buttons - visible on hover */}
+                            {/* Open in New Window button - visible on hover */}
                             <div className="flex items-center gap-1 opacity-0 group-hover/profile-item:opacity-100 group-data-[selected=true]/command-item:opacity-100 transition-opacity shrink-0">
-                              {isMultiConnectionWorkspace && (
-                                <Tooltip>
-                                  <TooltipTrigger
-                                    render={
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleAddProfile();
-                                        }}
-                                        className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-foreground"
-                                      >
-                                        <IconPlus className="!h-3.5 !w-3.5" />
-                                      </button>
-                                    }
-                                  />
-                                  <TooltipContent
-                                    side="top"
-                                    className="text-xs"
-                                  >
-                                    Add to Workspace
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
                               <Tooltip>
                                 <TooltipTrigger
                                   render={
@@ -1199,7 +1168,7 @@ export function WorkspaceTitleBar({
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        handleOpenProfile();
+                                        handleOpenProfileNewWindow();
                                       }}
                                       className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-foreground"
                                     >
@@ -1208,7 +1177,7 @@ export function WorkspaceTitleBar({
                                   }
                                 />
                                 <TooltipContent side="top" className="text-xs">
-                                  Open New Window
+                                  Open in New Window
                                 </TooltipContent>
                               </Tooltip>
                             </div>
