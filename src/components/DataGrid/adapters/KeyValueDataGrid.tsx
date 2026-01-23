@@ -25,6 +25,7 @@ import {
   type KeyValueFilter,
   parseKeyValueFilter,
 } from '@/utils/keyvalueFilterParser';
+import { RedisAdapter } from '@/adapters/redis/RedisAdapter';
 
 // ============================================================================
 // Types
@@ -369,6 +370,19 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
   const isLoading = data.isLoading && data.rows.length === 0;
   const errorMessage = data.error ? data.error.message : null;
 
+  // Reconnection handler
+  const handleReconnect = useCallback(async () => {
+    try {
+      // Test connection by pinging Redis
+      const adapter = new RedisAdapter(connectionId);
+      await adapter.selectDatabase(database);
+      data.refetch();
+    } catch (err) {
+      console.error('Reconnection failed:', err);
+      data.refetch(); // Still try to refetch
+    }
+  }, [connectionId, database, data]);
+
   return (
     <BaseDataGrid
       gridId={gridId}
@@ -391,12 +405,16 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
       database={String(database)}
       tableName={isBrowserMode ? `db${database}:keys` : (data.currentKey?.key || 'redis')}
       paradigm="keyvalue"
-      enableFiltering={false} // We have our own pattern filter
-      enableSorting={isBrowserMode}
+      enableFiltering={false} // Keep false - has custom pattern filter
+      enableSorting={true} // ✅ ENABLE - Hash fields, zset scores, list indices can all be sorted
       enableExport={true}
-      enableRowPinning={false}
+      enableRowPinning={true} // ✅ ENABLE - Keep important hash fields or zset members visible
+      enableColumnManagement={true} // ✅ ENABLE - Useful for hash/zset 2-column views
+      enableClipboard={true} // ✅ ENABLE - Copy Redis data for external use
+      enableFillOperations={!readOnly} // ✅ ENABLE - Bulk updates (disabled for streams/browser mode)
       readOnly={readOnly}
       onRefetch={data.refetch}
+      onReconnect={handleReconnect}
       focused={focused}
       className={cn('keyvalue-datagrid', className)}
     />

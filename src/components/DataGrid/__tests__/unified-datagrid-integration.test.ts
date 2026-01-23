@@ -184,12 +184,13 @@ describe('Unified DataGrid Architecture - Integration Tests', () => {
   });
 
   describe('Phase 4: Integration', () => {
-    it('should export all three DataGrid variants from main index', async () => {
+    it('should export all DataGrid variants from main index', async () => {
       const dataGridExports = await import('../index');
 
-      expect(dataGridExports.TableDataGrid).toBeDefined();
+      expect(dataGridExports.SqlDataGrid).toBeDefined();
       expect(dataGridExports.DocumentDataGrid).toBeDefined();
       expect(dataGridExports.KeyValueDataGrid).toBeDefined();
+      expect(dataGridExports.QueryResultGrid).toBeDefined();
     });
 
     it('should have proper type exports for all paradigms', async () => {
@@ -250,14 +251,17 @@ describe('Unified DataGrid Architecture - Integration Tests', () => {
       const adaptersExports = await import('../adapters');
       const hooksExports = await import('../hooks');
 
-      // Verify main exports
-      expect(mainExports.TableDataGrid).toBeDefined();
+      // Verify main exports (new unified architecture)
+      expect(mainExports.SqlDataGrid).toBeDefined();
       expect(mainExports.DocumentDataGrid).toBeDefined();
       expect(mainExports.KeyValueDataGrid).toBeDefined();
+      expect(mainExports.QueryResultGrid).toBeDefined();
 
       // Verify adapter exports
+      expect(adaptersExports.SqlDataGrid).toBeDefined();
       expect(adaptersExports.DocumentDataGrid).toBeDefined();
       expect(adaptersExports.KeyValueDataGrid).toBeDefined();
+      expect(adaptersExports.QueryResultGrid).toBeDefined();
 
       // Verify hook exports
       expect(hooksExports.useDocumentData).toBeDefined();

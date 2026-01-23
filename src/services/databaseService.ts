@@ -468,9 +468,17 @@ class DatabaseService {
    */
   async getConnectionHealth(connectionId: string): Promise<ConnectionHealth> {
     try {
-      logger.info(`[DatabaseService] Getting health for ${connectionId}`);
+      // Use debug level for routine health checks (run every 5s)
+      logger.debug(`[DatabaseService] Getting health for ${connectionId}`);
       const health = await BackendAPI.getConnectionHealth(connectionId);
-      logger.info(`[DatabaseService] Health response for ${connectionId}:`, health);
+      
+      // Only log if unhealthy or at debug level
+      if (!health.healthy) {
+        logger.warn(`[DatabaseService] Unhealthy connection ${connectionId}:`, health);
+      } else {
+        logger.debug(`[DatabaseService] Health response for ${connectionId}:`, health);
+      }
+      
       return {
         connectionId: health.connection_id,
         status: health.status as "ready" | "degraded" | "error",
