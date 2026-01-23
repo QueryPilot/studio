@@ -2,6 +2,107 @@ import { create } from "zustand";
 import type { ColumnMeta } from "@/types/database";
 import type { SqlDialect } from "@/components/CodeEditor/types";
 
+// Lightweight state for localStorage persistence
+// Only includes fields that should survive app restarts
+export interface PersistedTabState {
+  tabId: string;
+  query: string;
+  lastExecutedQuery: string;
+  viewMode: "table" | "json" | "explain" | "raw" | "stats";
+  selectedDialect?: SqlDialect | "auto";
+}
+
+// Storage key pattern for localStorage
+const TAB_STATE_STORAGE_KEY_PREFIX = "tab-state-";
+
+// Debounce timers for persistence
+const persistenceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const PERSISTENCE_DEBOUNCE_MS = 500;
+
+/**
+ * Get the localStorage key for a tab
+ */
+function getStorageKey(tabId: string): string {
+  return `${TAB_STATE_STORAGE_KEY_PREFIX}${tabId}`;
+}
+
+/**
+ * Persist lightweight tab state to localStorage
+ */
+export function persistTabState(tabId: string, state: Partial<PersistedTabState>): void {
+  try {
+    const key = getStorageKey(tabId);
+    const existing = loadTabState(tabId);
+    const toSave: PersistedTabState = {
+      tabId,
+      query: state.query ?? existing?.query ?? "",
+      lastExecutedQuery: state.lastExecutedQuery ?? existing?.lastExecutedQuery ?? "",
+      viewMode: state.viewMode ?? existing?.viewMode ?? "table",
+      selectedDialect: state.selectedDialect ?? existing?.selectedDialect ?? "auto",
+    };
+    localStorage.setItem(key, JSON.stringify(toSave));
+  } catch (error) {
+    // Silently fail if localStorage is unavailable or quota exceeded
+    console.warn("Failed to persist tab state:", error);
+  }
+}
+
+/**
+ * Load tab state from localStorage
+ */
+export function loadTabState(tabId: string): PersistedTabState | null {
+  try {
+    const key = getStorageKey(tabId);
+    const stored = localStorage.getItem(key);
+    if (!stored) {
+      return null;
+    }
+    return JSON.parse(stored) as PersistedTabState;
+  } catch (error) {
+    // Silently fail if localStorage is unavailable or data is corrupted
+    console.warn("Failed to load tab state:", error);
+    return null;
+  }
+}
+
+/**
+ * Remove tab state from localStorage
+ */
+export function removePersistedTabState(tabId: string): void {
+  try {
+    const key = getStorageKey(tabId);
+    localStorage.removeItem(key);
+    // Clear any pending persistence timer
+    const timer = persistenceTimers.get(tabId);
+    if (timer) {
+      clearTimeout(timer);
+      persistenceTimers.delete(tabId);
+    }
+  } catch (error) {
+    // Silently fail if localStorage is unavailable
+    console.warn("Failed to remove persisted tab state:", error);
+  }
+}
+
+/**
+ * Schedule debounced persistence for a tab
+ */
+function schedulePersistence(tabId: string, state: Partial<PersistedTabState>): void {
+  // Clear existing timer if any
+  const existingTimer = persistenceTimers.get(tabId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  // Schedule new persistence
+  const timer = setTimeout(() => {
+    persistTabState(tabId, state);
+    persistenceTimers.delete(tabId);
+  }, PERSISTENCE_DEBOUNCE_MS);
+
+  persistenceTimers.set(tabId, timer);
+}
+
 // Store for preserving tab state across panel moves
 export interface QueryResult {
   columns: string[];
@@ -129,7 +230,42 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
     // Cache the result to avoid infinite loop warning from useSyncExternalStore
     // Map.get() returns the same object reference, so this is safe
     const state = get();
-    return state.queryStates.get(tabId);
+    const existing = state.queryStates.get(tabId);
+
+    // If state exists in memory, return it
+    if (existing) {
+      return existing;
+    }
+
+    // Try to load from localStorage and initialize state
+    const persisted = loadTabState(tabId);
+    if (persisted) {
+      // Initialize state from persisted data without triggering re-render
+      // This is done lazily when first accessing the tab
+      const newState: QueryState = {
+        query: persisted.query,
+        result: null,
+        isExecuting: false,
+        isStreaming: false,
+        viewMode: persisted.viewMode,
+        appliedLimit: null,
+        hasUnsavedChanges: false,
+        lastExecutedQuery: persisted.lastExecutedQuery,
+        lastSelectQuery: null,
+        inTransaction: false,
+        selectedDialect: persisted.selectedDialect,
+      };
+
+      // Update the store with the loaded state
+      const newStates = new Map(state.queryStates);
+      newStates.set(tabId, newState);
+      // Use setState to update without triggering re-render in this call
+      useTabStateStore.setState({ queryStates: newStates });
+
+      return newState;
+    }
+
+    return undefined;
   },
 
   setQueryState: (tabId: string, state: Partial<QueryState>) => {
@@ -148,12 +284,38 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         inTransaction: false,
         selectedDialect: "auto" as const,
       };
-      newStates.set(tabId, { ...existing, ...state });
+      const newState = { ...existing, ...state };
+      newStates.set(tabId, newState);
+
+      // Schedule debounced persistence for lightweight fields
+      // Only persist if any persistable field changed
+      const persistableFields: (keyof PersistedTabState)[] = [
+        "query",
+        "lastExecutedQuery",
+        "viewMode",
+        "selectedDialect",
+      ];
+      const shouldPersist = persistableFields.some(
+        (field) => field in state && state[field as keyof QueryState] !== undefined
+      );
+
+      if (shouldPersist) {
+        schedulePersistence(tabId, {
+          query: newState.query,
+          lastExecutedQuery: newState.lastExecutedQuery,
+          viewMode: newState.viewMode,
+          selectedDialect: newState.selectedDialect,
+        });
+      }
+
       return { queryStates: newStates };
     });
   },
 
   clearQueryState: (tabId: string) => {
+    // Remove from localStorage
+    removePersistedTabState(tabId);
+
     set((store) => {
       const newStates = new Map(store.queryStates);
       newStates.delete(tabId);
