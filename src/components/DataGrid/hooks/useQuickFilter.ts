@@ -8,6 +8,7 @@ import {
   type FilterColumnInfo,
 } from "@/utils/filterParser";
 import type { FilterConfig } from "@/types";
+import { useGridPreferencesStore } from "../stores/gridPreferencesStore";
 
 export interface UseQuickFilterOptions {
   /** Columns available for filtering (can be empty initially, will update reactively) */
@@ -23,6 +24,8 @@ export interface UseQuickFilterOptions {
   ) => Promise<
     { clause: string; explanation?: string; usedSubquery?: boolean } | { error: string }
   >;
+  /** Grid ID for persistence (optional - if provided, will persist to IndexedDB) */
+  gridId?: string;
 }
 
 export interface UseQuickFilterResult {
@@ -50,14 +53,31 @@ export function useQuickFilter({
   initialFilter,
   generateAIFilter,
   clientSideFiltering = false,
+  gridId,
 }: UseQuickFilterOptions): UseQuickFilterResult {
-  // Filter input state
-  const [value, setValue] = useState(() =>
-    initialFilter ? `?${initialFilter}` : ""
-  );
-  const [mode, setMode] = useState<FilterMode>(() =>
-    initialFilter ? "where" : "search"
-  );
+  // Filter input state - load from persisted preferences if available
+  const [value, setValue] = useState(() => {
+    // First check store for persisted value
+    if (gridId) {
+      const persisted = useGridPreferencesStore.getState().preferences[gridId]?.quickFilter;
+      if (persisted) {
+        return persisted.value;
+      }
+    }
+    // Fall back to initialFilter or empty
+    return initialFilter ? `?${initialFilter}` : "";
+  });
+  const [mode, setMode] = useState<FilterMode>(() => {
+    // First check store for persisted value
+    if (gridId) {
+      const persisted = useGridPreferencesStore.getState().preferences[gridId]?.quickFilter;
+      if (persisted) {
+        return persisted.mode;
+      }
+    }
+    // Fall back to initialFilter detection or search
+    return initialFilter ? "where" : "search";
+  });
   const [error, setError] = useState<string | null>(null);
   const [aiExplanation, setAiExplanation] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterConfig | undefined>(
@@ -69,6 +89,9 @@ export function useQuickFilter({
 
   // Track the last applied initial filter to detect changes
   const lastAppliedFilterRef = useRef<string | undefined>(undefined);
+
+  // Track whether we've already restored the persisted filter
+  const hasRestoredPersistedFilterRef = useRef(false);
 
   // Track previous value to avoid unnecessary state updates
   const prevValueRef = useRef(value);
@@ -110,6 +133,9 @@ export function useQuickFilter({
       return;
     }
 
+    let finalValue = value;
+    let finalMode = mode;
+
     switch (mode) {
       case "search": {
         const filter = parseSimpleSearch(sanitized, columns);
@@ -123,6 +149,7 @@ export function useQuickFilter({
           setActiveFilter(result.filter);
         } else {
           setError(result.error || "Invalid WHERE clause");
+          return; // Don't persist on error
         }
         break;
       }
@@ -136,6 +163,7 @@ export function useQuickFilter({
         const result = await generateAIFilter(sanitized, { outputType });
         if ("error" in result) {
           setError(result.error);
+          return; // Don't persist on error
         } else {
           if (clientSideFiltering) {
             // In client-side mode, the clause is a search pattern
@@ -151,8 +179,10 @@ export function useQuickFilter({
             }
 
             // Update input (no prefix for search mode)
-            setValue(result.clause);
-            setMode("search");
+            finalValue = result.clause;
+            finalMode = "search";
+            setValue(finalValue);
+            setMode(finalMode);
           } else {
             // Use raw WHERE clause directly
             const filter: FilterConfig = {
@@ -172,14 +202,24 @@ export function useQuickFilter({
             }
 
             // Update input to show generated clause with ? prefix
-            setValue(`?${result.clause}`);
-            setMode("where");
+            finalValue = `?${result.clause}`;
+            finalMode = "where";
+            setValue(finalValue);
+            setMode(finalMode);
           }
         }
         break;
       }
     }
-  }, [value, mode, columns, generateAIFilter, clientSideFiltering]);
+
+    // Persist to grid preferences store
+    if (gridId) {
+      useGridPreferencesStore.getState().setQuickFilter(gridId, {
+        value: finalValue,
+        mode: finalMode,
+      });
+    }
+  }, [value, mode, columns, generateAIFilter, clientSideFiltering, gridId]);
 
   // Clear filter
   const clear = useCallback(() => {
@@ -188,7 +228,12 @@ export function useQuickFilter({
     setError(null);
     setAiExplanation(null);
     setActiveFilter(undefined);
-  }, []);
+
+    // Clear from grid preferences store
+    if (gridId) {
+      useGridPreferencesStore.getState().setQuickFilter(gridId, undefined);
+    }
+  }, [gridId]);
 
   // Focus the input
   const focus = useCallback(() => {
@@ -214,6 +259,45 @@ export function useQuickFilter({
       }
     }
   }, [initialFilter, columns]);
+
+  // Restore persisted filter when columns become available
+  // This runs once after columns load if we have a persisted filter
+  useEffect(() => {
+    // Skip if no gridId, no columns, or already restored
+    if (!gridId || columns.length === 0 || hasRestoredPersistedFilterRef.current) {
+      return;
+    }
+
+    // Skip if there's an initialFilter (it takes priority)
+    if (initialFilter) {
+      hasRestoredPersistedFilterRef.current = true;
+      return;
+    }
+
+    const persisted = useGridPreferencesStore.getState().preferences[gridId]?.quickFilter;
+    if (!persisted || !persisted.value) {
+      hasRestoredPersistedFilterRef.current = true;
+      return;
+    }
+
+    hasRestoredPersistedFilterRef.current = true;
+
+    // Parse and apply the persisted filter
+    const sanitized = sanitizeInput(persisted.value, persisted.mode);
+    if (!sanitized) return;
+
+    if (persisted.mode === "search") {
+      const filter = parseSimpleSearch(sanitized, columns);
+      const newFilter = filter.root.conditions.length > 0 ? filter : undefined;
+      setActiveFilter(newFilter);
+    } else if (persisted.mode === "where") {
+      const result = parseWhereClause(sanitized, columns);
+      if (result.success) {
+        setActiveFilter(result.filter);
+      }
+    }
+    // Note: AI mode is not auto-applied since it requires user interaction
+  }, [gridId, columns, initialFilter]);
 
   return {
     value,
