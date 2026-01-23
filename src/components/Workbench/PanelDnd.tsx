@@ -33,6 +33,7 @@ import { PanelContentRenderer } from "./PanelContentRenderer";
 import { useDroppable } from "@dnd-kit/core";
 import { DraggableTab } from "./DraggableTab";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 
 import { normalizeKeybindingLabel } from "@/lib/keyboardDispatch";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
@@ -230,6 +231,11 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
 
   const isFocused = focusedPanelId === content.id;
 
+  // Get workspace connection IDs for tab color grouping
+  const workspaceConnectionIds = useWorkspaceBundleStore(
+    (state) => state.activeWorkspace?.config.connectionIds ?? [],
+  );
+
   // Track recently accessed tabs - keeps last N tabs mounted for instant switching
   // isPending is true while a non-cached tab is loading (React 19 transition)
   const { mountedTabs, isPending } = useRecentTabs(
@@ -378,6 +384,9 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                     metadata?.objectType as "function" | "procedure" | undefined
                   }
                   isNextActive={isNextActive}
+                  connectionId={metadata?.connectionId}
+                  workspaceConnectionIds={workspaceConnectionIds}
+                  databaseName={metadata?.database}
                   onActivate={() => {
                     setActiveTab(content.id, tabId);
                     focusPanel(content.id);
