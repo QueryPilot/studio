@@ -1,6 +1,7 @@
 import { logger } from "@/lib/logger";
 import { queryClient } from "./react-query-client";
-import { useTabStateStore, removePersistedTabState } from "@/stores/tabStateStore";
+import { useTabStateStore } from "@/stores/tabStateStore";
+import { removePersistedTabState } from "@/lib/db/tabState";
 
 /**
  * Detects if a SQL query is a mutation (INSERT/UPDATE/DELETE/TRUNCATE/DROP/ALTER/CREATE)
@@ -62,11 +63,11 @@ export async function clearAllCaches(): Promise<void> {
  * Clear cache for a specific tab
  */
 export function clearTabCache(tabId: string, connectionId?: string): void {
-  // Clear Zustand state for this tab (also removes from localStorage)
+  // Clear Zustand state for this tab (also removes from IndexedDB)
   useTabStateStore.getState().clearQueryState(tabId);
 
   // Explicitly remove persisted state as well (belt and suspenders)
-  removePersistedTabState(tabId);
+  void removePersistedTabState(tabId);
 
   // Disconnect tab-specific database connection for transaction isolation
   if (connectionId) {
