@@ -38,6 +38,10 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
+import {
+  getConnectionRingColor,
+  shouldShowConnectionColors,
+} from "@/utils/connectionColors";
 
 /** Get status indicator styles */
 function getStatusStyles(status: OpenConnection["status"]): {
@@ -59,6 +63,7 @@ function getStatusStyles(status: OpenConnection["status"]): {
 interface ConnectionItemProps {
   connection: OpenConnection;
   isActive: boolean;
+  connectionRingColor: string | null;
   onFocus: () => void;
   onReconnect: () => void;
   onRemove: () => void;
@@ -67,6 +72,7 @@ interface ConnectionItemProps {
 function ConnectionItem({
   connection,
   isActive,
+  connectionRingColor,
   onFocus,
   onReconnect,
   onRemove,
@@ -85,6 +91,9 @@ function ConnectionItem({
               "w-8 h-8 mx-auto rounded-lg p-1.5",
               "hover:bg-primary/60",
               isActive ? "bg-primary/30" : "bg-transparent",
+              // Connection color ring - only shown when 2+ connections
+              connectionRingColor && "ring-2 ring-offset-1 ring-offset-secondary",
+              connectionRingColor,
             )}
           >
             <img
@@ -165,6 +174,9 @@ export function ConnectionActivityBar() {
   if (!activeWorkspace) return null;
 
   const connections = Array.from(activeWorkspace.connections.values());
+  // Get ordered connection IDs for color assignment
+  const connectionIds = activeWorkspace.config.connectionIds;
+  const showColors = shouldShowConnectionColors(connections.length);
 
   return (
     <div className="w-12 shrink-0 flex flex-col items-center py-2 bg-secondary">
@@ -175,6 +187,9 @@ export function ConnectionActivityBar() {
             key={conn.id}
             connection={conn}
             isActive={conn.id === focusedConnectionId}
+            connectionRingColor={
+              showColors ? getConnectionRingColor(conn.id, connectionIds) : null
+            }
             onFocus={() => {
               setFocusedConnection(conn.id);
             }}
