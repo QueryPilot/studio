@@ -367,6 +367,12 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                 ? content.activeTabId === nextTabId
                 : false;
 
+              // Look up the connection to get dbType
+              const connection = metadata?.connectionId
+                ? useConnectionStore.getState().getConnection(metadata.connectionId)
+                : null;
+              const dbType = connection?.profile.db_type;
+
               return (
                 <DraggableTab
                   key={tabId}
@@ -387,6 +393,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                   connectionId={metadata?.connectionId}
                   workspaceConnectionIds={workspaceConnectionIds}
                   databaseName={metadata?.database}
+                  dbType={dbType}
                   onActivate={() => {
                     setActiveTab(content.id, tabId);
                     focusPanel(content.id);
