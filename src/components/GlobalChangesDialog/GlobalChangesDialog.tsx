@@ -75,17 +75,18 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     onOpenChange,
     onCommitSuccess,
   } = props;
-  const {
-    stagedCommands,
-    commitAll,
-    discardAll,
-    getTableKey,
-    commitChanges,
-    discardChanges,
-    unstageCommand,
-    clearCommittedChanges,
-    isCommittingAll,
-  } = useCrudStore();
+  
+  // Use selective zustand subscriptions to avoid unnecessary re-renders
+  // Only subscribe to the parts of the store we actually need
+  const stagedCommands = useCrudStore((state) => state.stagedCommands);
+  const commitAll = useCrudStore((state) => state.commitAll);
+  const discardAll = useCrudStore((state) => state.discardAll);
+  const getTableKey = useCrudStore((state) => state.getTableKey);
+  const commitChanges = useCrudStore((state) => state.commitChanges);
+  const discardChanges = useCrudStore((state) => state.discardChanges);
+  const unstageCommand = useCrudStore((state) => state.unstageCommand);
+  const clearCommittedChanges = useCrudStore((state) => state.clearCommittedChanges);
+  const isCommittingAll = useCrudStore((state) => state.isCommittingAll);
 
   // Local committing state for dialog-initiated commits
   const [isCommittingLocal, setIsCommittingLocal] = useState(false);
@@ -108,7 +109,12 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   const isTableSpecific = database !== undefined && table !== undefined;
 
   // Filter commands based on scope - memoize to prevent unnecessary recalculations
+  // Skip computation if dialog is not open for better performance
   const connectionCommands = useMemo(() => {
+    if (!open) {
+      return [];
+    }
+    
     return Array.from(stagedCommands.entries()).filter(([tableKey]) => {
       if (isTableSpecific) {
         const specificTableKey = getTableKey({
@@ -127,6 +133,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
       return true;
     });
   }, [
+    open,
     stagedCommands,
     isTableSpecific,
     connectionId,
@@ -283,18 +290,22 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     generatePreview();
   }, [connectionCommands, connectionId, dbType]);
 
-  // Debug: Log grouped data
-  logger.info("[GlobalChangesDialog] Render state:", {
-    connectionId,
-    database,
-    schema,
-    table,
-    isTableSpecific,
-    connectionCommandsLength: connectionCommands.length,
-    groupedByRowLength: groupedByRow.length,
-    totalChanges,
-    viewMode,
-  });
+  // Debug: Log when dialog state changes (not on every render)
+  useEffect(() => {
+    if (open) {
+      logger.debug("[GlobalChangesDialog] Dialog opened with state:", {
+        connectionId,
+        database,
+        schema,
+        table,
+        isTableSpecific,
+        connectionCommandsLength: connectionCommands.length,
+        groupedByRowLength: groupedByRow.length,
+        totalChanges,
+        viewMode,
+      });
+    }
+  }, [open, connectionId, database, schema, table, isTableSpecific, connectionCommands.length, groupedByRow.length, totalChanges, viewMode]);
 
   // Copy SQL to clipboard
   const handleCopySQL = useCallback(async () => {

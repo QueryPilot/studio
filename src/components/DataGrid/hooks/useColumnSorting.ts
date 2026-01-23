@@ -48,8 +48,16 @@ export function useColumnSorting({
           if (!column) continue;
 
           const field = column.field;
-          const aVal = a[field];
-          const bVal = b[field];
+          const aCell = a[field];
+          const bCell = b[field];
+
+          // Extract actual values from GridCellValue objects
+          const aVal = aCell && typeof aCell === 'object' && 'value' in aCell
+            ? aCell.value
+            : aCell;
+          const bVal = bCell && typeof bCell === 'object' && 'value' in bCell
+            ? bCell.value
+            : bCell;
 
           let comparison = 0;
 

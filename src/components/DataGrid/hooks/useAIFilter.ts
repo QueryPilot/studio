@@ -49,7 +49,7 @@ function shouldEnableCrossTable(prompt: string, columns: FilterColumnInfo[]): bo
 export function useAIFilter(
   columns: FilterColumnInfo[],
   tableName: string,
-  dialect: "postgresql" | "mysql" | "sqlite" | "mssql",
+  dialect: "postgresql" | "mysql" | "sqlite" | "mssql" | "mongodb",
   options: UseAIFilterOptions = {}
 ): UseAIFilterResult {
   const [isLoading, setIsLoading] = useState(false);
@@ -91,6 +91,31 @@ Syntax: 'term', 'column:value', 'val1|val2', '/regex/', '-term' (NOT).
 Examples: 'john', 'status:active', 'age:^2', 'error|fail'.
 Do NOT generate SQL. Do NOT use =, >, <, LIKE. 
 Return ONLY the search pattern string.
+User Request: ${prompt}
+`.trim();
+        }
+
+        // For MongoDB, generate a MongoDB query object instead of SQL
+        if (dialect === "mongodb") {
+          effectivePrompt = `
+Generate a MongoDB query object (JSON format) for: "${prompt}"
+
+Collection: ${tableName}
+Available fields: ${columns.map(c => c.name).join(', ')}
+
+Requirements:
+- Return ONLY valid MongoDB query JSON, no explanation
+- Use MongoDB query operators: $eq, $gt, $gte, $lt, $lte, $ne, $in, $regex, $and, $or, etc.
+- For text searches, use $regex with case-insensitive option: { field: { $regex: "pattern", $options: "i" } }
+- For numeric comparisons: { age: { $gt: 30 } }
+- For exact matches: { status: "active" }
+- For multiple conditions, use $and or $or
+
+Examples:
+- "find users older than 30": { "age": { "$gt": 30 } }
+- "find active users": { "status": "active" }
+- "find users named john": { "name": { "$regex": "john", "$options": "i" } }
+
 User Request: ${prompt}
 `.trim();
         }

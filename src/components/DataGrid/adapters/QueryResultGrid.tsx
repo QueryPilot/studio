@@ -8,20 +8,14 @@
  * - Client-side filtering only
  */
 
-import { memo, useMemo, useCallback, useRef } from 'react';
-import type { Item, GridCell } from '@glideapps/glide-data-grid';
-import { GridCellKind } from '@glideapps/glide-data-grid';
+import { memo, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { BaseDataGrid } from '../base/BaseDataGrid';
 import type { GridColumnV2, GridRowModel } from '../types';
-import { buildGridCellV2 } from '../utils/cellFactory';
 import { computeBaseWidth } from './columnUtils';
-import {
-  DataGridEmptyState,
-  DataGridErrorState,
-} from '../components/DataGridStates';
+import { DataGridErrorState } from '../components/DataGridStates';
 import { DataGridSkeleton } from '../components/DataGridSkeleton';
-import type { ColumnMeta, GridCellValue } from '@/types';
+import type { ColumnMeta } from '@/types';
 import {
   deriveValueType,
   normalizeBackendValue,
@@ -37,6 +31,8 @@ export interface QueryResultGridProps {
     rows: unknown[][];
     rowCount?: number;
   };
+  /** Database paradigm (defaults to 'sql' for backward compatibility) */
+  paradigm?: 'sql' | 'document' | 'keyvalue';
   isLoading?: boolean;
   isStreaming?: boolean;
   error?: string | null;
@@ -56,6 +52,7 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
   const {
     gridId,
     data,
+    paradigm = 'sql', // Default to SQL for backward compatibility
     isLoading = false,
     isStreaming = false,
     error,
@@ -166,39 +163,6 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
     }));
   }, [data?.columnMeta, data?.columns]);
 
-  // Stable refs for getCellContent
-  const columnsRef = useRef(columns);
-  columnsRef.current = columns;
-  const rowsRef = useRef(rows);
-  rowsRef.current = rows;
-
-  const getCellContent = useCallback(
-    (cell: Item): GridCell => {
-      const [colIndex, rowIndex] = cell;
-      const column = columnsRef.current[colIndex];
-      const row = rowsRef.current[rowIndex];
-
-      if (!column || !row) {
-        return {
-          kind: GridCellKind.Text,
-          data: '',
-          displayData: '',
-          allowOverlay: false,
-          readonly: true,
-        };
-      }
-
-      const cellValue = row[column.field] as GridCellValue | null | undefined;
-
-      return buildGridCellV2({
-        value: cellValue,
-        column,
-        readOnly: true,
-      });
-    },
-    [rows] // Include rows to invalidate cache when data changes
-  );
-
   // Loading state
   if (isLoading && rows.length === 0) {
     return <DataGridSkeleton />;
@@ -209,18 +173,16 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
     return <DataGridErrorState error={error} />;
   }
 
-  // Empty state
-  if (!isLoading && !isStreaming && rows.length === 0) {
-    return <DataGridEmptyState title="No results" description="Query returned no rows." />;
-  }
+  // Don't hide grid when empty - keep structure visible with overlay message
 
   return (
-    <BaseDataGrid
+    <div className="relative h-full w-full">
+      <BaseDataGrid
       gridId={gridId}
       rows={rows}
       columns={columns}
       connectionId=""
-      paradigm="sql"
+      paradigm={paradigm}
       readOnly={true}
       enableFiltering={true}
       enableSorting={true}
@@ -232,7 +194,6 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
       enableStagedChanges={false}
       isLoadingMore={isStreaming}
       estimatedTotal={data?.rowCount}
-      getCellContent={getCellContent}
       toolbarActions={toolbarActions}
       // Performance metrics
       executionTime={executionTime}
@@ -243,5 +204,20 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
       conversionMs={conversionMs}
       className={cn('flex-1', className)}
     />
+
+    {/* Empty state overlay - shown when no rows but grid/filters remain visible */}
+    {!isLoading && !isStreaming && rows.length === 0 && (
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="text-center space-y-2 p-8">
+          <div className="text-muted-foreground text-sm font-medium">
+            No results
+          </div>
+          <div className="text-muted-foreground/70 text-xs">
+            Query returned no rows
+          </div>
+        </div>
+      </div>
+    )}
+    </div>
   );
 });

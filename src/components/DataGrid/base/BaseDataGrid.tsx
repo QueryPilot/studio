@@ -54,7 +54,7 @@ import {
 } from "../hooks/useStagedChangesIndicator";
 import { useCellHoverIcons } from "../hooks/useCellHoverIcons";
 import { useOptimisticRows } from "../hooks/useOptimisticRows";
-import { useGridPreferencesStore, upsertGridColumnsState } from "../stores";
+import { useGridPreferencesStore, useGridPreferencesHydrated, upsertGridColumnsState } from "../stores";
 import { useCrudStore } from "@/stores/crudStore";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 
@@ -354,7 +354,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         setIsGridFocused(true);
       }
     }, 100);
-    return () => clearTimeout(timeoutId);
+    return () => { clearTimeout(timeoutId); };
   }, [focused, autoFocus]);
 
   // --- State ---
@@ -389,10 +389,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const contextMenuTargetRef = useRef<ContextMenuTarget | null>(null);
 
   // --- Column State from Store ---
-  const preferences = useGridPreferencesStore((s: any) =>
-    s.getPreferences?.(gridId),
-  );
-  const hydrated = useGridPreferencesStore((s: any) => s.hydrated);
+  const preferences = useGridPreferencesStore((s) => s.preferences[gridId]);
+  const hydrated = useGridPreferencesHydrated();
+  
   const columnState = preferences?.columns ?? {
     order: [],
     widths: {},
@@ -733,6 +732,31 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   // Update synchronously during render (not in useEffect) to avoid delay
   finalColumnsRef.current = finalColumns;
 
+  // --- Column Index Mapping for Custom getCellContent ---
+  // Maps visual column index (after reordering) to original column index (in props.columns)
+  // This is needed because custom getCellContent from adapters uses their local columns array
+  // which is in the original order, but Glide Data Grid calls with the visual index
+  const visualToOriginalColIndexRef = useRef<Map<number, number>>(new Map());
+  useMemo(() => {
+    const map = new Map<number, number>();
+    if (enableColumnManagement && columns.length > 0 && finalColumns.length > 0) {
+      // Build a lookup from column.id to original index
+      const idToOriginalIndex = new Map<string, number>();
+      columns.forEach((col, idx) => {
+        idToOriginalIndex.set(col.id, idx);
+      });
+      // Map each visual index to its original index
+      finalColumns.forEach((col, visualIdx) => {
+        const originalIdx = idToOriginalIndex.get(col.id);
+        if (originalIdx !== undefined) {
+          map.set(visualIdx, originalIdx);
+        }
+      });
+    }
+    visualToOriginalColIndexRef.current = map;
+    return map;
+  }, [enableColumnManagement, columns, finalColumns]);
+
   // --- Row Pinning ---
   const getRowKey = useCallback(
     (row: GridRowModel | undefined, index: number): string => {
@@ -753,6 +777,19 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     [columns],
   );
 
+  // --- Column Sorting (must be before sortedRows) ---
+  const { sortColumns, getSortIndex, getSortDirection, toggleSort, sortedData } =
+    useColumnSorting({
+      gridId,
+      columns: finalColumns,
+    });
+
+  // Apply sorting to rows BEFORE pinning (so unpinned rows are sorted)
+  const sortedRows = useMemo(() => {
+    if (!enableSorting || sortColumns.length === 0) return rows;
+    return sortedData(rows);
+  }, [enableSorting, sortColumns.length, rows, sortedData]);
+
   const handlePinnedRowsChange = useCallback(
     (ids: string[]) => {
       if (!hydrated || !enableRowPinning) return;
@@ -763,7 +800,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
   const { pinnedRows, unpinnedRows, pinnedRowIds, pinRow, unpinRow } =
     useRowPinning({
-      rows,
+      rows: sortedRows, // Use sorted rows as input
       initialPinned: enableRowPinning ? (preferences?.pinnedRows ?? []) : [],
       maxPinnedRows: 5,
       getRowId: getRowKey,
@@ -771,9 +808,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     });
 
   const displayRows = useMemo(() => {
-    if (!enableRowPinning) return rows;
+    if (!enableRowPinning) return sortedRows;
     return [...pinnedRows, ...unpinnedRows];
-  }, [enableRowPinning, rows, pinnedRows, unpinnedRows]);
+  }, [enableRowPinning, sortedRows, pinnedRows, unpinnedRows]);
 
   // --- Optimistic Updates ---
   // Apply staged changes to display rows for immediate visual feedback
@@ -1001,12 +1038,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     [handleCellHovered],
   );
 
-  // --- Column Sorting ---
-  const { sortColumns, getSortIndex, getSortDirection, toggleSort } =
-    useColumnSorting({
-      gridId,
-      columns: finalColumns,
-    });
+  // --- Column Sorting (already defined earlier) ---
 
   const drawHeader = useMemo(
     () =>
@@ -1260,7 +1292,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         ? customGetCellContent(cell, gridCell)
         : gridCell;
     },
-    [readOnly, connectionId, database, schema, tableName, customGetCellContent],
+    [readOnly, connectionId, database, schema, tableName, customGetCellContent, finalColumns],
   );
 
   // Use prop getCellContent if provided, otherwise use internal
@@ -1272,9 +1304,20 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const getCellContent = useCallback(
     (cell: Item): GridCell => {
       // Use prop getCellContent if provided (Document/KeyValue paradigms)
-      const baseCell = propGetCellContentRef.current
-        ? propGetCellContentRef.current(cell)
-        : internalGetCellContent(cell);
+      // IMPORTANT: When column reordering is enabled, we need to map the visual column index
+      // back to the original column index that the adapter's getCellContent expects
+      let baseCell: GridCell;
+      if (propGetCellContentRef.current) {
+        const [visualColIdx, rowIdx] = cell;
+        const originalColIdx = visualToOriginalColIndexRef.current.get(visualColIdx);
+        // If we have a mapping, use the original index; otherwise fall back to visual index
+        const mappedCell: Item = originalColIdx !== undefined
+          ? [originalColIdx, rowIdx]
+          : cell;
+        baseCell = propGetCellContentRef.current(mappedCell);
+      } else {
+        baseCell = internalGetCellContent(cell);
+      }
 
       // Apply staged changes highlighting and value override
       // Use column.name for checking staged changes (not column.field)
@@ -1948,9 +1991,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const handleColumnMoved = useCallback(
     (startIndex: number, endIndex: number) => {
       if (!hydrated || !enableColumnManagement) return;
+      
       const newOrder = [...finalColumns.map((c) => c.id)];
       const [movedId] = newOrder.splice(startIndex, 1);
       newOrder.splice(endIndex, 0, movedId!);
+      
       upsertGridColumnsState(gridId, (draft) => {
         draft.order = newOrder;
       });
