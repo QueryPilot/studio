@@ -9,6 +9,7 @@ import type {
   GridViewState,
   SortColumn,
 } from "../types";
+import type { FilterMode } from "@/utils/filterParser";
 import { createIndexedDbStorage } from "./indexedDbStorage";
 
 export interface GridPreferences {
@@ -21,6 +22,10 @@ export interface GridPreferences {
     redoStack: GridHistoryEntry[];
   };
   draftRows: Record<string, GridRowModel | undefined>;
+  quickFilter?: {
+    value: string;
+    mode: FilterMode;
+  };
   createdAt: number;
   updatedAt: number;
 }
@@ -44,6 +49,10 @@ export interface GridPreferencesState {
     gridId: string,
     key: string,
     row: GridRowModel | undefined,
+  ) => void;
+  setQuickFilter: (
+    gridId: string,
+    filter: { value: string; mode: FilterMode } | undefined,
   ) => void;
   reset: (gridId: string) => void;
   resetAll: () => void;
@@ -208,6 +217,17 @@ export const useGridPreferencesStore = create<GridPreferencesState>()(
             }
             prefs.updatedAt = Date.now();
           }, false, `gridPreferences/setDraftRow:${gridId}`);
+        },
+        setQuickFilter: (gridId, filter) => {
+          set((state) => {
+            const prefs =
+              state.preferences[gridId] ?? createDefaultPreferences();
+            if (!state.preferences[gridId]) {
+              state.preferences[gridId] = prefs as any;
+            }
+            prefs.quickFilter = filter;
+            prefs.updatedAt = Date.now();
+          }, false, `gridPreferences/setQuickFilter:${gridId}`);
         },
         reset: (gridId) => {
           set((state) => {
