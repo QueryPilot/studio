@@ -174,6 +174,9 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
                 src={databaseLogoPath}
                 alt={dbType || "Database"}
                 className="h-3.5 w-3.5 shrink-0"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
               />
             </TooltipTrigger>
             <TooltipContent side="bottom" sideOffset={8}>
