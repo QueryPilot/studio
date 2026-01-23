@@ -159,11 +159,11 @@ Query Pilot uses a **capability-based trait system** for multi-paradigm database
 - Type-safe paradigm dispatch in command handlers
 
 **Supported Paradigms:**
-| Paradigm | Databases | Frontend Adapter |
-|----------|-----------|------------------|
-| SQL | PostgreSQL, MySQL, SQLite, SQL Server | `DatabaseAdapter` |
-| Document | MongoDB | `MongoDBAdapter` |
-| Key-Value | Redis | `RedisAdapter` |
+| Paradigm | Databases | Frontend DataGrid | Frontend Adapter |
+|----------|-----------|-------------------|------------------|
+| SQL | PostgreSQL, MySQL, SQLite, SQL Server | `SqlDataGrid` | `src/adapters/dialects/` |
+| Document | MongoDB | `DocumentDataGrid` | `src/adapters/mongodb/` |
+| Key-Value | Redis | `KeyValueDataGrid` | `src/adapters/redis/` |
 
 ### Database Connection Management
 
@@ -202,7 +202,7 @@ Query Pilot uses **two distinct execution paths** optimized for different use ca
 - HTTP API endpoint? → Use `BackendAPI.query()`
 - Unknown result size but could be large? → Use `queryStreamClient.stream()`
 
-See [docs/query-execution-architecture.md](docs/query-execution-architecture.md) for detailed architecture documentation.
+See [docs/architecture/query-execution.md](docs/architecture/query-execution.md) for detailed architecture documentation.
 
 ### Security & Storage
 
@@ -313,6 +313,35 @@ src-tauri/src/
   - `metadataProvider.ts` - Schema metadata integration
 - Separate DBML language support in `languages/dbml/` for ERD editing
 
+### DataGrid Architecture
+
+Query Pilot uses a **unified DataGrid architecture** with paradigm-specific adapters:
+
+**Two Categories:**
+- **QueryResultGrid**: Read-only display of ad-hoc query results (static data)
+- **Paradigm-specific grids**: Live data browsers with CRUD (`SqlDataGrid`, `DocumentDataGrid`, `KeyValueDataGrid`)
+
+**Layer Structure:**
+```
+Frontend Adapters (src/components/DataGrid/adapters/)
+    ↓
+BaseDataGrid (shared features: sorting, filtering, column management)
+    ↓
+Data Hooks (useTableDataQuery, useDocumentData, useKeyValueData)
+    ↓
+Backend Adapters (src/adapters/{dialects,mongodb,redis}/)
+    ↓
+Rust Commands (sql.rs, document.rs, keyvalue.rs)
+```
+
+**Key Files:**
+- `src/components/DataGrid/base/BaseDataGrid.tsx` - Unified grid foundation (~1800 lines)
+- `src/components/DataGrid/adapters/` - Paradigm-specific wrappers
+- `src/components/DataGrid/hooks/` - Data fetching and CRUD hooks
+- `src/adapters/` - Frontend database operation adapters
+
+See [docs/guides/datagrid-adapter-architecture.md](docs/guides/datagrid-adapter-architecture.md) for complete documentation.
+
 ## Key Patterns
 
 1. **MessagePack Serialization**: Used for large data transfers (row batches) to eliminate JSON overhead
@@ -324,6 +353,7 @@ src-tauri/src/
 7. **Debounced Writes**: Vault storage with 250ms debounce to batch edits
 8. **BroadcastChannel for Multi-Window**: Cross-window coordination without Tauri events
 9. **Web Worker Isolation**: CPU-intensive validation runs in workers to prevent UI freezing
+10. **Column Index Mapping**: When adapters provide custom `getCellContent`, `BaseDataGrid` maps visual column indices back to original indices for correct data display after column reordering
 
 ## Testing Strategy
 
