@@ -7,7 +7,7 @@
  * - Tables/Views/Functions sections
  */
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 import {
   IconChevronDown,
@@ -77,14 +77,11 @@ interface ConnectionSectionProps {
   onFunctionClick?: (connectionId: string, func: FunctionMeta) => void;
 }
 
-export function ConnectionSection({
-  connection,
-  isExpanded,
-  onToggle,
-  searchQuery,
-  onTableClick,
-  onFunctionClick,
-}: ConnectionSectionProps) {
+export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionProps>(
+  function ConnectionSection(
+    { connection, isExpanded, onToggle, searchQuery, onTableClick, onFunctionClick },
+    ref
+  ) {
   const { id: connectionId, profile, status, database, schema, error } = connection;
   const dbType = profile.db_type;
   const isSqlDb = getParadigm(dbType) === "sql";
@@ -409,7 +406,7 @@ export function ConnectionSection({
     isExpanded && status === "connecting" && tables.length === 0;
 
   return (
-    <div className="border-b border-border last:border-b-0">
+    <div ref={ref} className="border-b border-border last:border-b-0">
       {/* Connection Header */}
       <ContextMenu>
         <ContextMenuTrigger
@@ -865,4 +862,4 @@ export function ConnectionSection({
       )}
     </div>
   );
-}
+});
