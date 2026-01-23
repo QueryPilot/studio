@@ -118,6 +118,7 @@ interface QueryState {
   lastSelectQuery: string | null; // Store last SELECT query for auto-refresh after mutations
   inTransaction: boolean; // Track if this tab has an active transaction
   selectedDialect?: SqlDialect | "auto"; // Selected SQL dialect (auto = auto-detect)
+  tableViewType?: string; // For table tabs: "data" | "structure" | "indexes" | etc.
 
   // Multi-query execution support
   multiResults?: MultiQueryResult[]; // Results from multi-statement execution
@@ -231,6 +232,7 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         lastSelectQuery: null,
         inTransaction: false,
         selectedDialect: persisted.selectedDialect,
+        tableViewType: persisted.tableViewType,
       };
 
       set((s) => {
@@ -259,6 +261,7 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         lastSelectQuery: null,
         inTransaction: false,
         selectedDialect: "auto" as const,
+        tableViewType: undefined,
       };
       const newState = { ...existing, ...state };
       newStates.set(tabId, newState);
@@ -270,6 +273,7 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         "lastExecutedQuery",
         "viewMode",
         "selectedDialect",
+        "tableViewType",
       ];
       const shouldPersist = persistableFields.some(
         (field) => field in state && state[field as keyof QueryState] !== undefined
@@ -281,6 +285,7 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
           lastExecutedQuery: newState.lastExecutedQuery,
           viewMode: newState.viewMode,
           selectedDialect: newState.selectedDialect,
+          tableViewType: newState.tableViewType,
         });
       }
 
