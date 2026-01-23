@@ -2,7 +2,7 @@ import { logger } from "@/lib/logger";
 import { memo, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { IconAlertCircle, IconCircleX, IconClipboard, IconCircleCheck, IconDownload, IconCopy, IconCheck } from '@tabler/icons-react';
-import { TableDataGrid } from "@/components/DataGrid";
+import { QueryResultGrid } from "@/components/DataGrid";
 import { DataGridSkeleton } from "@/components/DataGrid/components/DataGridSkeleton";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,7 @@ import { exportToJSON, type JsonExportOptions, type JsonFormat } from "@/utils/j
 import { copyInsertToClipboard, type InsertExportOptions } from "@/utils/sqlInsertExport";
 import { copyMarkdownToClipboard } from "@/utils/markdownExport";
 import { ExplainViewer } from "./ExplainViewer";
+import { DbType, getParadigm, type DatabaseParadigm } from "@/types/connection";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -302,6 +303,30 @@ export const ResultViewer = memo(function ResultViewer({
   conversionMs,
   ipcSendMs,
 }: ResultViewerProps) {
+  // Determine paradigm from database type
+  const paradigm: DatabaseParadigm = useMemo(() => {
+    if (!databaseType) return 'sql';
+    
+    // Try to map string dbType to DbType enum
+    const dbTypeMap: Record<string, DbType> = {
+      'postgresql': DbType.PostgreSQL,
+      'postgres': DbType.PostgreSQL,
+      'mysql': DbType.MySQL,
+      'mariadb': DbType.MariaDB,
+      'sqlite': DbType.SQLite,
+      'mssql': DbType.SQLServer,
+      'sqlserver': DbType.SQLServer,
+      'mongodb': DbType.MongoDB,
+      'mongo': DbType.MongoDB,
+      'redis': DbType.Redis,
+    };
+    
+    const normalizedType = databaseType.toLowerCase();
+    const dbType = dbTypeMap[normalizedType];
+    
+    return dbType ? getParadigm(dbType) : 'sql';
+  }, [databaseType]);
+  
   const jsonContent = useMemo(() => {
     // Skip expensive JSON computation when in table mode
     if (viewMode !== "json") {
@@ -493,9 +518,9 @@ export const ResultViewer = memo(function ResultViewer({
 
       {viewMode === "table" && (
         <div className="h-full px-1 pt-1">
-          <TableDataGrid
-            mode="query"
+          <QueryResultGrid
             gridId={gridId}
+            paradigm={paradigm}
             data={
               !result.error
                 ? {
@@ -512,7 +537,6 @@ export const ResultViewer = memo(function ResultViewer({
             fetchCount={fetchCount}
             networkMs={networkMs}
             conversionMs={conversionMs}
-            ipcSendMs={ipcSendMs}
             isStreaming={isStreaming}
             className="h-full"
             error={result.error ?? null}

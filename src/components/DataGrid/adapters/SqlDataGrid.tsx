@@ -26,7 +26,6 @@ import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { useReferencedTableColumns } from "@/hooks/useReferencedTableColumns";
 import { buildGridCellV2 } from "../utils/cellFactory";
 import { computeBaseWidth } from "./columnUtils";
-import { DataGridEmptyState } from "../components/DataGridStates";
 import { databaseService } from "@/services/databaseService";
 import { DataGridSkeleton } from "../components/DataGridSkeleton";
 import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
@@ -44,6 +43,12 @@ import {
 } from "../utils/crudHelpers";
 import { useOptimisticRows } from "../hooks/useOptimisticRows";
 import { useCrudStore } from "@/stores/crudStore";
+import { useGridPreferencesStore } from "../stores/gridPreferencesStore";
+import type { SortConfig } from "@/types/filter";
+import type { SortColumn } from "../types";
+
+// Stable empty array to prevent infinite re-renders when sortColumns is undefined
+const EMPTY_SORT_COLUMNS: SortColumn[] = [];
 
 export interface SqlDataGridProps {
   connectionId: string;
@@ -231,6 +236,21 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
     clientSideFiltering: false,
   });
 
+  // --- Sort Configuration ---
+  // Get sort state from grid preferences and convert to SortConfig format
+  const sortColumns = useGridPreferencesStore(
+    (state) => state.preferences[gridId]?.sortColumns ?? EMPTY_SORT_COLUMNS
+  );
+
+  const sorts = useMemo<SortConfig[]>(() => {
+    if (sortColumns.length === 0) return [];
+    
+    return sortColumns.map(({ columnId, direction }) => ({
+      column: columnId,
+      direction,
+    }));
+  }, [sortColumns]);
+
   // --- Data Fetching ---
   const tableDataQuery = useTableDataQuery({
     connectionId,
@@ -242,6 +262,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
     embeddedFKs:
       deferredEmbeddedFKs.length > 0 ? deferredEmbeddedFKs : undefined,
     filters: activeFilter,
+    sorts, // ← PASS SORT CONFIGURATION
   });
 
   const {
@@ -672,20 +693,12 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
     return <DataGridSkeleton />;
   }
 
-  // Allow empty state for tables (user may want to add rows)
-  // Views/MatViews show empty state since they can't be edited
-  if (rows.length === 0 && isViewOrMatView) {
-    return (
-      <DataGridEmptyState
-        title="No data"
-        description="No rows found in this view."
-      />
-    );
-  }
+  // Don't hide the grid when empty - keep headers/filters visible
+  // Show overlay message inside the grid instead
 
   // --- Render ---
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col relative">
       {/* Quick Filter - managed here, not in BaseDataGrid */}
       {filterColumns.length > 0 && (
         <div className="py-1.5 px-1">
@@ -759,6 +772,22 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
         externalQuickFilterRef={quickFilterRef}
         className={cn("flex-1", className)}
       />
+
+      {/* Empty state overlay - shown when no rows but grid/filters remain visible */}
+      {!isLoading && rows.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="text-center space-y-2 p-8">
+            <div className="text-muted-foreground text-sm font-medium">
+              {isViewOrMatView ? "No rows in this view" : "No data"}
+            </div>
+            <div className="text-muted-foreground/70 text-xs">
+              {isViewOrMatView 
+                ? "This view contains no data" 
+                : "No rows found" + (quickFilterValue ? " matching your filter" : "")}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 });

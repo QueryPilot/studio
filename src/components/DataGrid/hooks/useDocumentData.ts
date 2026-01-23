@@ -13,7 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { GridCell, Item } from '@glideapps/glide-data-grid';
 import { GridCellKind } from '@glideapps/glide-data-grid';
 import { nanoid } from 'nanoid';
-import type { GridColumnV2, GridRowModel, GridEditCommitEvent, CrudCommandFactory } from '../types';
+import type { GridColumnV2, GridRowModel, GridEditCommitEvent, CrudCommandFactory, SortColumn } from '../types';
 import type { DocumentDataHookResult, PathSegment } from '../sources/types';
 import type { CrudCommand, DataUpdatePayload, DataInsertPayload, DataDeletePayload, JsonValue } from '@/types/crud';
 import type { GridCellValueType } from '@/types/cellValue';
@@ -29,12 +29,21 @@ import {
   applyDocumentColumnSearch,
 } from '@/utils/documentFilterParser';
 import { logger } from '@/lib/logger';
+import { useGridPreferencesStore } from '../stores/gridPreferencesStore';
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+// Stable empty array to prevent infinite re-renders when sortColumns is undefined
+const EMPTY_SORT_COLUMNS: SortColumn[] = [];
 
 // ============================================================================
 // Types
 // ============================================================================
 
 export interface UseDocumentDataParams {
+  gridId: string;
   connectionId: string;
   database: string;
   collection: string;
@@ -58,6 +67,7 @@ const DEFAULT_PAGE_SIZE = 50;
 
 export function useDocumentData(params: UseDocumentDataParams): DocumentDataHookResult {
   const {
+    gridId,
     connectionId,
     database,
     collection,
@@ -65,6 +75,24 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     enabled = true,
     filter,
   } = params;
+
+  // Get sort state from grid preferences
+  const sortColumns = useGridPreferencesStore(
+    (state) => state.preferences[gridId]?.sortColumns ?? EMPTY_SORT_COLUMNS
+  );
+
+  // Convert sort columns to MongoDB sort format: { field: 1 | -1 }
+  const mongoSort = useMemo(() => {
+    if (sortColumns.length === 0) return undefined;
+    
+    const sort: Record<string, 1 | -1> = {};
+    for (const { columnId, direction } of sortColumns) {
+      // MongoDB uses field name (like "name", "age") not column IDs
+      // Column ID format is typically the field name for document grids
+      sort[columnId] = direction === 'asc' ? 1 : -1;
+    }
+    return sort;
+  }, [sortColumns]);
 
   // Compute the MongoDB query for server-side filtering
   const serverQuery = useMemo(() => {
@@ -91,10 +119,10 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     return adapterRef.current;
   }, [connectionId]);
 
-  // Query key for document fetching (includes filter for server-side queries)
+  // Query key for document fetching (includes filter and sort for server-side queries)
   const queryKey = useMemo(
-    () => ['document-data', connectionId, database, collection, currentPath, currentDocumentId, currentPage, serverQuery],
-    [connectionId, database, collection, currentPath, currentDocumentId, currentPage, serverQuery]
+    () => ['document-data', connectionId, database, collection, currentPath, currentDocumentId, currentPage, serverQuery, mongoSort],
+    [connectionId, database, collection, currentPath, currentDocumentId, currentPage, serverQuery, mongoSort]
   );
 
   // Fetch documents
@@ -110,11 +138,12 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       const adapter = getAdapter();
 
       try {
-        // If we're at root level, fetch collection documents (with optional server-side filter)
+        // If we're at root level, fetch collection documents (with optional server-side filter and sort)
         if (currentPath.length === 0) {
           const docs = await adapter.findDocuments(collection, serverQuery, {
             skip: currentPage * pageSize,
             limit: pageSize,
+            sort: mongoSort,
           });
           return docs as DocumentWithId[];
         }
@@ -425,14 +454,20 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
   }, [currentDocumentId]);
 
   // Pagination
-  const hasMore = currentPath.length === 0 && (rawDocuments?.length ?? 0) >= pageSize;
+  // hasMore is true when the last fetch returned a FULL page (pageSize documents)
+  // If it returned less, we've reached the end
+  const hasMore = currentPath.length === 0 && (rawDocuments?.length ?? 0) === pageSize;
 
   const fetchNextPage = useCallback(async (): Promise<void> => {
     if (currentPath.length > 0) {
       return;
     }
+    if ((rawDocuments?.length ?? 0) < pageSize) {
+      // Don't fetch next page if the last one was incomplete
+      return;
+    }
     setCurrentPage((prev) => prev + 1);
-  }, [currentPath.length]);
+  }, [currentPath.length, rawDocuments?.length, pageSize]);
 
   const refetch = useCallback(async (): Promise<void> => {
     if (currentPage !== 0) {

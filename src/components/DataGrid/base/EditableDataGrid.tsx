@@ -138,6 +138,7 @@ export interface EditableDataGridProps
   drawHeader?: DataEditorProps["drawHeader"];
   onHeaderContextMenu?: DataEditorProps["onHeaderContextMenu"];
   onItemHovered?: DataEditorProps["onItemHovered"];
+  onColumnMoved?: DataEditorProps["onColumnMoved"]; // NEW: Support column reordering
   drawCell?: DataEditorProps["drawCell"];
   onCellClicked?: DataEditorProps["onCellClicked"];
   /** Callback when paste has validation errors */
@@ -183,6 +184,7 @@ export const EditableDataGrid = forwardRef<
     drawHeader,
     onHeaderContextMenu,
     onItemHovered,
+    onColumnMoved, // NEW: Destructure column moved handler
     drawCell,
     onCellClicked,
     onPasteValidationErrors,
@@ -748,6 +750,7 @@ export const EditableDataGrid = forwardRef<
         drawHeader={drawHeader}
         onHeaderContextMenu={onHeaderContextMenu}
         onItemHovered={onItemHovered}
+        onColumnMoved={onColumnMoved} // NEW: Forward column moved event
         drawCell={drawCell}
         onCellClicked={handleCellClickInternal}
         drawFocusRing

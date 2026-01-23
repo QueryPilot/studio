@@ -27,6 +27,8 @@ import { useQuickFilter } from "../hooks/useQuickFilter";
 import type { FilterColumnInfo } from "@/utils/filterParser";
 import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
 import type { FilterMode } from "@/utils/filterParser";
+import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
+import { useAIFilter } from "../hooks/useAIFilter";
 
 // ============================================================================
 // Types
@@ -73,6 +75,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
 
   // Get document data with filter
   const data = useDocumentData({
+    gridId,
     connectionId,
     database,
     collection,
@@ -89,14 +92,22 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
     }));
   }, [data.columns]);
 
+  // AI filter hook for MongoDB query generation
+  const { generateFilter: generateAIFilter, isLoading: isAIFilterLoading } =
+    useAIFilter(filterColumns, collection, "mongodb", {
+      connectionId,
+      enableCrossTable: false,
+    });
+
   // Quick filter hook for managing filter input state
   const quickFilter = useQuickFilter({
     columns: filterColumns,
     clientSideFiltering: false, // We handle both server and client filtering ourselves
+    generateAIFilter, // Pass AI filter generator
   });
 
   // Handle filter submission
-  const handleFilterSubmit = useCallback(async () => {
+  const handleFilterSubmit = useCallback(() => {
     const value = quickFilter.value.trim();
 
     if (!value) {
@@ -186,7 +197,10 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
             onModeChange={handleModeChange}
             onSubmit={handleFilterSubmit}
             error={filterError}
+            explanation={quickFilter.aiExplanation}
+            isLoading={isAIFilterLoading}
             searchModeOnly={false}
+            clientSideFiltering={false}
           />
         )}
       </div>
@@ -198,9 +212,11 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       quickFilter.value,
       quickFilter.mode,
       quickFilter.setValue,
+      quickFilter.aiExplanation,
       handleModeChange,
       handleFilterSubmit,
       filterError,
+      isAIFilterLoading,
     ],
   );
 
@@ -210,6 +226,19 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   // Loading and error states
   const isLoading = data.isLoading && data.rows.length === 0;
   const errorMessage = data.error ? data.error.message : null;
+
+  // Reconnection handler
+  const handleReconnect = useCallback(async () => {
+    try {
+      // Test connection by fetching a single document
+      const adapter = new MongoDBAdapter(connectionId);
+      await adapter.findDocuments(collection, {}, { limit: 1 });
+      await data.refetch();
+    } catch (err) {
+      console.error('Reconnection failed:', err);
+      await data.refetch(); // Still try to refetch
+    }
+  }, [connectionId, collection, data]);
 
   return (
     <BaseDataGrid
@@ -234,12 +263,16 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       database={database}
       tableName={collection}
       paradigm="document"
-      enableFiltering={false}
-      enableSorting={false}
+      enableFiltering={false} // Keep false - has custom QuickFilter
+      enableSorting={true} // ✅ ENABLE - Collections can be sorted by any field
       enableExport={true}
-      enableRowPinning={false}
+      enableRowPinning={true} // ✅ ENABLE - Keep reference documents visible
+      enableColumnManagement={true} // ✅ ENABLE - Hide/show/reorder columns for wide documents
+      enableClipboard={true} // ✅ ENABLE - Copy/paste document data
+      enableFillOperations={!readOnly} // ✅ ENABLE - Bulk cell updates (disabled in nested paths)
       readOnly={readOnly}
       onRefetch={data.refetch}
+      onReconnect={handleReconnect}
       focused={focused}
       className={cn("document-datagrid", className)}
     />
