@@ -2,12 +2,9 @@ import { logger } from "@/lib/logger";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useEffect, useState, useCallback } from "react";
 import { WorkspaceTitleBar } from "./components/WorkspaceTitleBar";
-import { DatabaseSidebar } from "./components/DatabaseSidebar";
-import { DatabaseSchemaSelector } from "./components/DatabaseSchemaSelector";
-import { DbType } from "@/types/connection";
+import { SidebarConnectionList } from "./components/SidebarConnectionList";
 import { UnifiedSidebar } from "@/components/Sidebar/UnifiedSidebar";
 import { createSidebarAdapter, shouldUseUnifiedSidebar } from "@/adapters/sidebar/AdapterFactory";
-import { ConnectionActivityBar } from "./components/ConnectionActivityBar";
 import { WorkbenchLayout } from "@/components/Workbench";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { useShallow } from "zustand/react/shallow";
@@ -469,11 +466,8 @@ export function WorkspaceScreen() {
       {/* Title Bar */}
       <WorkspaceTitleBar connectionId={connectionId} isConnecting={isLoading} />
 
-      {/* Main Content Area with optional Activity Bar */}
+      {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Connection Activity Bar (shown in multi-connection mode) */}
-        {isMultiConnectionMode && <ConnectionActivityBar />}
-
         {/* Resizable Panels */}
         <ResizablePanelGroup
           direction="horizontal"
@@ -494,43 +488,36 @@ export function WorkspaceScreen() {
                 const stored = connections.find((c) => c.profile.id === connectionId);
                 const dbType = stored?.profile.db_type;
 
-                // Use unified sidebar for MongoDB and Redis
-                if (dbType && shouldUseUnifiedSidebar(dbType)) {
-                  const adapter = createSidebarAdapter(dbType);
-                  if (adapter) {
-                    return (
-                      <div className="flex-1 overflow-hidden">
-                        <UnifiedSidebar
-                          connectionId={connectionId}
-                          adapter={adapter}
-                          isLoading={isLoading}
-                        />
-                      </div>
-                    );
-                  }
+                // Multi-connection workspaces: use the unified SidebarConnectionList
+                // Also use it for single SQL connections
+                if (isMultiConnectionMode || !dbType || !shouldUseUnifiedSidebar(dbType)) {
+                  return (
+                    <div className="flex-1 overflow-hidden">
+                      <SidebarConnectionList />
+                    </div>
+                  );
                 }
 
-                // Default: SQL databases
-                return (
-                  <>
-                    {/* Schema Selector aligned with tabs */}
-                    <div className="flex items-center overflow-hidden">
-                      <DatabaseSchemaSelector
-                        connectionId={connectionId}
-                        selectedSchema={selectedSchema ?? ""}
-                        onSchemaChange={setSelectedSchema}
-                      />
-                    </div>
-                    {/* Database Sidebar */}
+                // Single connection mode for MongoDB/Redis: use UnifiedSidebar
+                // (These have specialized sidebar adapters that don't work with SidebarConnectionList yet)
+                const adapter = createSidebarAdapter(dbType);
+                if (adapter) {
+                  return (
                     <div className="flex-1 overflow-hidden">
-                      <DatabaseSidebar
+                      <UnifiedSidebar
                         connectionId={connectionId}
+                        adapter={adapter}
                         isLoading={isLoading}
-                        selectedDatabase={selectedDatabase ?? ""}
-                        selectedSchema={selectedSchema ?? ""}
                       />
                     </div>
-                  </>
+                  );
+                }
+
+                // Fallback: use SidebarConnectionList
+                return (
+                  <div className="flex-1 overflow-hidden">
+                    <SidebarConnectionList />
+                  </div>
                 );
               })()}
             </ResizablePanel>

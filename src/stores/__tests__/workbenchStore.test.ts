@@ -54,43 +54,56 @@ describe("workbenchStore", () => {
       expect(state.historyIndex).toBe(0);
     });
 
-    it("should initialize with connection-scoped key", () => {
+    it("should set connection ID without initializing layout", () => {
       const store = useWorkbenchStore.getState();
 
       store.setConnectionId("conn-1");
 
       const state = useWorkbenchStore.getState();
       expect(state.activeConnectionId).toBe("conn-1");
-      expect(state.layoutTree).toBeTruthy();
+      // Layout should NOT be auto-initialized by setConnectionId
+      expect(state.layoutTree).toBeNull();
     });
 
-    it("should clear layout when switching connections", () => {
+    it("should preserve layout when switching connections", () => {
       const store = useWorkbenchStore.getState();
 
+      // Initialize layout first
+      store.initializeLayout();
       store.setConnectionId("conn-1");
       const firstPanelId = useWorkbenchStore.getState().focusedPanelId;
 
+      // Add a tab to verify it persists
+      store.addTab(firstPanelId!, "test-tab");
+
+      // Switch connections - layout should be preserved
       store.setConnectionId("conn-2");
       const secondPanelId = useWorkbenchStore.getState().focusedPanelId;
 
-      expect(firstPanelId).not.toBe(secondPanelId);
+      // Panel ID should be the SAME (layout preserved)
+      expect(firstPanelId).toBe(secondPanelId);
+      // Tab should still exist
+      const contents = useWorkbenchStore.getState().panelContents.get(firstPanelId!);
+      expect(contents?.tabIds).toContain("test-tab");
     });
 
-    it("should save layout when switching to same connection", () => {
+    it("should skip update when setting same connection ID", () => {
       const store = useWorkbenchStore.getState();
 
+      store.initializeLayout();
       store.setConnectionId("conn-1");
       const firstPanelId = useWorkbenchStore.getState().focusedPanelId;
 
       // Add a tab to verify state is preserved
       store.addTab(firstPanelId!, "test-tab");
 
-      store.setConnectionId("conn-1");
+      store.setConnectionId("conn-1"); // Same connection
 
-      // Should still have the layout (re-initialized, but behavior is same)
+      // Should still have the layout unchanged
       const state = useWorkbenchStore.getState();
       expect(state.layoutTree).toBeTruthy();
       expect(state.activeConnectionId).toBe("conn-1");
+      expect(state.panelContents.get(firstPanelId!)?.tabIds).toContain("test-tab");
     });
   });
 
@@ -643,6 +656,7 @@ describe("workbenchStore", () => {
     it("should save layout to localStorage", () => {
       const store = useWorkbenchStore.getState();
       store.setConnectionId("conn-1");
+      store.initializeLayout(); // Must initialize before saving
 
       store.saveLayout();
 
@@ -653,6 +667,7 @@ describe("workbenchStore", () => {
     it("should restore layout from localStorage", () => {
       const store = useWorkbenchStore.getState();
       store.setConnectionId("conn-1");
+      store.initializeLayout(); // Must initialize before saving
 
       // Save current layout
       store.saveLayout();
