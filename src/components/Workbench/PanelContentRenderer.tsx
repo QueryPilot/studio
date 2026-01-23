@@ -36,6 +36,7 @@ import { type TabMetadata } from "@/types/workbench";
 import { ERDPanel } from "@/components/Erd";
 import { TableDesigner } from "@/components/TableDesigner";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { useTabStateStore } from "@/stores/tabStateStore";
 import { FeatureErrorBoundary } from "@/components/FeatureErrorBoundary";
 import { writeClipboardText } from "@/lib/clipboard";
 
@@ -73,7 +74,29 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     const dbType = connection?.profile.db_type;
     const isPanelFocused = focusedPanelId === panelId;
     const type = metadata?.type || "table";
-    const [activeView, setActiveView] = useState(metadata?.viewType || "data");
+
+    // For table tabs, load/persist viewType to tabStateStore
+    const loadTabStateAsync = useTabStateStore((state) => state.loadTabStateAsync);
+    const setQueryState = useTabStateStore((state) => state.setQueryState);
+    const persistedTableViewType = useTabStateStore(
+      (state) => state.queryStates.get(tabId)?.tableViewType,
+      (a, b) => a === b
+    );
+
+    // Load persisted state on mount (for table tabs)
+    useEffect(() => {
+      if (type === "table") {
+        void loadTabStateAsync(tabId);
+      }
+    }, [tabId, type, loadTabStateAsync]);
+
+    const [activeView, setActiveView] = useState(() => {
+      // First check for persisted table view type
+      if (type === "table" && persistedTableViewType) {
+        return persistedTableViewType;
+      }
+      return metadata?.viewType || "data";
+    });
     const definitionRef = useRef<string>("");
     const [viewActions, setViewActions] = useState<React.ReactNode>(null);
     const [copied, setCopied] = useState(false);
@@ -127,12 +150,23 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [metadata?.viewType]);
 
+    // Sync from persisted state when it loads (for table tabs)
+    // Note: activeView is intentionally excluded from deps - we only want to sync
+    // when persistedTableViewType first loads, not when user changes activeView
+    useEffect(() => {
+      if (type === "table" && persistedTableViewType && persistedTableViewType !== activeView) {
+        isExternalUpdate.current = true;
+        setActiveView(persistedTableViewType);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [persistedTableViewType, type]);
+
     // Clear viewActions when switching tabs to prevent wrong buttons showing
     useEffect(() => {
       setViewActions(null);
     }, [activeView]);
 
-    // Persist activeView changes back to metadata so other components can react
+    // Persist activeView changes back to metadata and tabStateStore
     useEffect(() => {
       if (!metadata) return;
       // Skip if this was an external update (from metadata -> activeView sync)
@@ -143,7 +177,11 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       if (metadata.viewType !== activeView) {
         updateTabMetadata(panelId, tabId, { viewType: activeView });
       }
-    }, [activeView, metadata, panelId, tabId, updateTabMetadata]);
+      // Persist to tabStateStore for table tabs
+      if (type === "table") {
+        setQueryState(tabId, { tableViewType: activeView });
+      }
+    }, [activeView, metadata, panelId, tabId, updateTabMetadata, type, setQueryState]);
 
     if (type === "query") {
       return (

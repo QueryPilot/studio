@@ -19,6 +19,7 @@ export interface PersistedTabState {
   lastExecutedQuery: string;
   viewMode: "table" | "json" | "explain" | "raw" | "stats";
   selectedDialect?: SqlDialect | "auto";
+  tableViewType?: string; // "data" | "structure" | "indexes" | "triggers" | "partitions" | "definition"
 }
 
 class TabStateDatabase extends Dexie {
@@ -66,6 +67,7 @@ export async function persistTabState(
       lastExecutedQuery: state.lastExecutedQuery ?? existing?.lastExecutedQuery ?? "",
       viewMode: state.viewMode ?? existing?.viewMode ?? "table",
       selectedDialect: state.selectedDialect ?? existing?.selectedDialect ?? "auto",
+      tableViewType: state.tableViewType ?? existing?.tableViewType,
     };
     memoryStore.set(tabId, toSave);
     return;
@@ -79,6 +81,7 @@ export async function persistTabState(
       lastExecutedQuery: state.lastExecutedQuery ?? existing?.lastExecutedQuery ?? "",
       viewMode: state.viewMode ?? existing?.viewMode ?? "table",
       selectedDialect: state.selectedDialect ?? existing?.selectedDialect ?? "auto",
+      tableViewType: state.tableViewType ?? existing?.tableViewType,
     };
     await database.tabStates.put(toSave);
   } catch (error) {
@@ -91,6 +94,7 @@ export async function persistTabState(
       lastExecutedQuery: state.lastExecutedQuery ?? existing?.lastExecutedQuery ?? "",
       viewMode: state.viewMode ?? existing?.viewMode ?? "table",
       selectedDialect: state.selectedDialect ?? existing?.selectedDialect ?? "auto",
+      tableViewType: state.tableViewType ?? existing?.tableViewType,
     };
     memoryStore.set(tabId, toSave);
   }
