@@ -34,6 +34,7 @@ import { useDroppable } from "@dnd-kit/core";
 import { DraggableTab } from "./DraggableTab";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
+import type { DbType } from "@/types/connection";
 
 import { normalizeKeybindingLabel } from "@/lib/keyboardDispatch";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
@@ -243,6 +244,21 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
     content.tabIds,
   );
 
+  // Memoize dbType lookups to avoid O(n*m) connection searches during render
+  const dbTypeByConnectionId = useMemo(() => {
+    const map = new Map<string, DbType>();
+    content.tabIds.forEach((tabId) => {
+      const connectionId = content.metadata?.[tabId]?.connectionId;
+      if (connectionId && !map.has(connectionId)) {
+        const conn = useConnectionStore.getState().getConnection(connectionId);
+        if (conn) {
+          map.set(connectionId, conn.profile.db_type);
+        }
+      }
+    });
+    return map;
+  }, [content.tabIds, content.metadata]);
+
   // Focus the panel itself when it becomes logically focused
   // Note: We intentionally don't focus the inner grid content to avoid
   // triggering auto-selection of the first cell. The user should click
@@ -367,11 +383,10 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                 ? content.activeTabId === nextTabId
                 : false;
 
-              // Look up the connection to get dbType
-              const connection = metadata?.connectionId
-                ? useConnectionStore.getState().getConnection(metadata.connectionId)
-                : null;
-              const dbType = connection?.profile.db_type;
+              // Use memoized dbType lookup
+              const dbType = metadata?.connectionId
+                ? dbTypeByConnectionId.get(metadata.connectionId)
+                : undefined;
 
               return (
                 <DraggableTab
