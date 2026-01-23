@@ -237,6 +237,14 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
     (state) => state.activeWorkspace?.config.connectionIds ?? [],
   );
 
+  // Get focused connection management for tab-sidebar sync
+  const focusedConnectionId = useWorkspaceBundleStore(
+    (state) => state.activeWorkspace?.focusedConnectionId,
+  );
+  const setFocusedConnection = useWorkspaceBundleStore(
+    (state) => state.setFocusedConnection,
+  );
+
   // Track recently accessed tabs - keeps last N tabs mounted for instant switching
   // isPending is true while a non-cached tab is loading (React 19 transition)
   const { mountedTabs, isPending } = useRecentTabs(
@@ -412,6 +420,12 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                   onActivate={() => {
                     setActiveTab(content.id, tabId);
                     focusPanel(content.id);
+
+                    // If this tab belongs to a different connection, update focused connection
+                    const tabConnectionId = metadata?.connectionId;
+                    if (tabConnectionId && tabConnectionId !== focusedConnectionId) {
+                      setFocusedConnection(tabConnectionId);
+                    }
                   }}
                   onClose={() => {
                     removeTab(content.id, tabId);
