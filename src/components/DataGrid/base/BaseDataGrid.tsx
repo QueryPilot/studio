@@ -449,6 +449,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     initialFilter: undefined,
     generateAIFilter,
     clientSideFiltering: false,
+    gridId,
   });
 
   // --- Helper: Check if a cell editor is currently active ---
