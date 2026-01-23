@@ -96,24 +96,16 @@ const useWorkbenchStore = create<WorkbenchStore>()(
     setConnectionId: (connectionId) => {
       const oldConnectionId = get().activeConnectionId;
 
-      // If switching connections, clear old layout
-      if (oldConnectionId && oldConnectionId !== connectionId) {
-        logger.info(
-          `[WorkbenchStore] Switching from ${oldConnectionId} to ${connectionId}`,
-        );
-        // Save current layout before switching
-        get().saveLayout();
-      }
+      // Skip if no change
+      if (oldConnectionId === connectionId) return;
 
+      // Simply update the active connection ID - no layout swapping
+      // Tabs from ALL connections remain visible; this just tracks focus
       set({ activeConnectionId: connectionId });
 
-      // Initialize layout for new connection
-      if (connectionId) {
-        logger.info(
-          `[WorkbenchStore] Initializing layout for connection: ${connectionId}`,
-        );
-        get().initializeLayout();
-      }
+      logger.info(
+        `[WorkbenchStore] Active connection changed: ${oldConnectionId ?? "none"} -> ${connectionId ?? "none"}`,
+      );
     },
 
     initializeLayout: () => {
