@@ -746,7 +746,7 @@ export const ConnectionSection = forwardRef<
         : true);
 
   return (
-    <div ref={ref} className="border-b border-border last:border-b-0">
+    <div ref={ref}>
       {/* Connection Header */}
       <ContextMenu>
         <ContextMenuTrigger
