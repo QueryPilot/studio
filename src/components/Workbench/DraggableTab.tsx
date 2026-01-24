@@ -247,6 +247,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
             Close
           </ContextMenuItem>
           <ContextMenuItem onClick={onCloseOthers} disabled={isOnlyTab}>
+            <span className="h-4 w-4 mr-2" />
             Close Others
           </ContextMenuItem>
           <ContextMenuItem onClick={onCloseToRight} disabled={!hasTabsToRight}>
@@ -254,6 +255,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
             Close to the Right
           </ContextMenuItem>
           <ContextMenuItem onClick={onCloseAll}>
+            <span className="h-4 w-4 mr-2" />
             Close All
           </ContextMenuItem>
           <ContextMenuSeparator />
