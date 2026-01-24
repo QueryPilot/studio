@@ -1256,13 +1256,26 @@ export function WorkspaceTitleBar({
       </div>
 
       {/* Center Section - Absolute positioning for true center, shrinks when space is limited */}
-      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-1.5 text-xs max-w-[40%] min-w-0 select-none">
+      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-1.5 text-xs max-w-[50%] min-w-0 select-none">
+        {/* Workspace Name (if named workspace) */}
+        {activeWorkspace && !activeWorkspace.isTemporary && (
+          <>
+            <span className="font-medium text-xs truncate" data-tauri-drag-region>
+              {activeWorkspace.config.name}
+            </span>
+            <div className="h-3 w-px bg-border flex-shrink-0" data-tauri-drag-region />
+          </>
+        )}
+
         {/* IconDatabase Name with Type */}
         <div
           className="flex items-center gap-1 min-w-0 flex-shrink"
           data-tauri-drag-region
         >
-          <span className="font-medium text-xs truncate" data-tauri-drag-region>
+          <span className={cn(
+            "text-xs truncate",
+            activeWorkspace?.isTemporary ? "font-medium" : "text-muted-foreground"
+          )} data-tauri-drag-region>
             {selectedDatabase || connection?.database || "Loading..."}
           </span>
           <span

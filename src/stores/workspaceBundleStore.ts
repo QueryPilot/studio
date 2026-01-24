@@ -15,6 +15,7 @@ import type {
   OpenConnection,
   ActiveWorkspace,
 } from "@/types/workspace";
+import { getDefaultSchema } from "@/types/connection";
 import useWorkbenchStore from "@/stores/workbenchStore";
 
 interface WorkspaceBundleStore {
@@ -188,7 +189,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         const profile = stored.profile;
         const state = config.connectionStates[connectionId] || {
           database: profile.database,
-          schema: profile.default_schema || "public",
+          schema: profile.default_schema || getDefaultSchema(profile.db_type, profile.database) || "",
         };
 
         // Add connection with connecting status
@@ -303,7 +304,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
 
       // Use override options if provided, otherwise fall back to profile defaults
       const database = options?.database || profile.database;
-      const schema = options?.schema || profile.default_schema || "public";
+      const schema = options?.schema || profile.default_schema || getDefaultSchema(profile.db_type, database) || "";
 
       // Create temporary workspace config
       const config: WorkspaceConfig = {
@@ -439,7 +440,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         profile,
         status: "connecting",
         database: profile.database,
-        schema: profile.default_schema || "public",
+        schema: profile.default_schema || getDefaultSchema(profile.db_type, profile.database) || "",
       };
 
       set((s) => {
@@ -456,7 +457,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
             ...s.activeWorkspace.config.connectionStates,
             [connectionId]: {
               database: profile.database,
-              schema: profile.default_schema || "public",
+              schema: profile.default_schema || getDefaultSchema(profile.db_type, profile.database) || "",
             },
           },
         };
