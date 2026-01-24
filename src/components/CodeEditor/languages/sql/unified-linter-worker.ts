@@ -11,7 +11,7 @@ export interface LintDiagnostic {
   to: number;
   severity: 'error' | 'warning' | 'info';
   message: string;
-  source: 'syntax' | 'semantic' | 'version';
+  source: 'syntax' | 'semantic' | 'version' | 'validation';
 }
 
 export interface LintResponse {
