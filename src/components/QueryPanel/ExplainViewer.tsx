@@ -91,8 +91,18 @@ interface ExplainNode {
   sortSpaceUsed?: number;
   sortSpaceType?: string;
   // Incremental Sort
-  fullSortGroups?: { count: number; memoryUsed: number; memoryType: string; peakMemory?: number };
-  preSortedGroups?: { count: number; memoryUsed: number; memoryType: string; peakMemory?: number };
+  fullSortGroups?: {
+    count: number;
+    memoryUsed: number;
+    memoryType: string;
+    peakMemory?: number;
+  };
+  preSortedGroups?: {
+    count: number;
+    memoryUsed: number;
+    memoryType: string;
+    peakMemory?: number;
+  };
   // Hash details
   hashBuckets?: number;
   hashBatches?: number;
@@ -188,7 +198,12 @@ interface ParsedExplain {
   jit?: JitInfo;
   // Planning phase buffers (separate from execution buffers)
   planningBuffers?: {
-    shared?: { hit?: number; read?: number; dirtied?: number; written?: number };
+    shared?: {
+      hit?: number;
+      read?: number;
+      dirtied?: number;
+      written?: number;
+    };
   };
 }
 
@@ -560,7 +575,9 @@ function parseNodeAttributes(node: ExplainNode, content: string): void {
       count: countMatch ? parseInt(countMatch[1] || "0", 10) : 0,
       memoryUsed: avgMemMatch ? parseInt(avgMemMatch[1] || "0", 10) : 0,
       memoryType: methodMatch ? methodMatch[1] || "unknown" : "unknown",
-      peakMemory: peakMemMatch ? parseInt(peakMemMatch[1] || "0", 10) : undefined,
+      peakMemory: peakMemMatch
+        ? parseInt(peakMemMatch[1] || "0", 10)
+        : undefined,
     };
     return;
   }
@@ -575,7 +592,9 @@ function parseNodeAttributes(node: ExplainNode, content: string): void {
       count: countMatch ? parseInt(countMatch[1] || "0", 10) : 0,
       memoryUsed: avgMemMatch ? parseInt(avgMemMatch[1] || "0", 10) : 0,
       memoryType: methodMatch ? methodMatch[1] || "unknown" : "unknown",
-      peakMemory: peakMemMatch ? parseInt(peakMemMatch[1] || "0", 10) : undefined,
+      peakMemory: peakMemMatch
+        ? parseInt(peakMemMatch[1] || "0", 10)
+        : undefined,
     };
     return;
   }
@@ -884,7 +903,9 @@ function parseNodeLine(content: string): ExplainNode {
     node.cteName = cteMatch[1];
   }
   // Match SubPlan 1 or SubPlan 1 (returns $0) or InitPlan 1
-  const subplanMatch = content.match(/^(SubPlan|InitPlan)\s+(\d+)(?:\s*\(returns\s+(\$\d+)\))?/i);
+  const subplanMatch = content.match(
+    /^(SubPlan|InitPlan)\s+(\d+)(?:\s*\(returns\s+(\$\d+)\))?/i,
+  );
   if (subplanMatch) {
     node.subplanName = subplanMatch[3]
       ? `${subplanMatch[1]} ${subplanMatch[2]} (returns ${subplanMatch[3]})`
@@ -1048,8 +1069,12 @@ function parsePostgresExplain(rows: unknown[][]): ParsedExplain {
           shared: {
             hit: sharedHit ? parseInt(sharedHit[1] || "0", 10) : undefined,
             read: sharedRead ? parseInt(sharedRead[1] || "0", 10) : undefined,
-            dirtied: sharedDirtied ? parseInt(sharedDirtied[1] || "0", 10) : undefined,
-            written: sharedWritten ? parseInt(sharedWritten[1] || "0", 10) : undefined,
+            dirtied: sharedDirtied
+              ? parseInt(sharedDirtied[1] || "0", 10)
+              : undefined,
+            written: sharedWritten
+              ? parseInt(sharedWritten[1] || "0", 10)
+              : undefined,
           },
         };
       }
@@ -1667,8 +1692,8 @@ const TreeNode = memo(function TreeNode({
     totalActualTime && totalActualTime > 0 && node.actualTime
       ? (nodeExclusiveTime / totalActualTime) * 100
       : totalCost > 0
-      ? ((node.cost?.total || 0) / totalCost) * 100
-      : 0;
+        ? ((node.cost?.total || 0) / totalCost) * 100
+        : 0;
   const color = getNodeColor(node.type);
 
   return (
@@ -1681,7 +1706,7 @@ const TreeNode = memo(function TreeNode({
         onClick={() => hasChildren && setExpanded(!expanded)}
       >
         {/* Expand/Collapse - aligned with first line */}
-        <div className="w-4 h-5 flex items-center justify-center flex-shrink-0">
+        <div className="w-4 h-5 flex items-center justify-center shrink-0">
           {hasChildren ? (
             expanded ? (
               <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
@@ -1695,7 +1720,7 @@ const TreeNode = memo(function TreeNode({
 
         {/* Icon - aligned with first line */}
         <div
-          className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0 mt-px"
+          className="w-5 h-5 rounded flex items-center justify-center shrink-0 mt-px"
           style={{ backgroundColor: `${color}20` }}
         >
           <Icon className="h-3 w-3" style={{ color }} />
@@ -1776,10 +1801,10 @@ const TreeNode = memo(function TreeNode({
                       costPct > 90
                         ? "#dc2626"
                         : costPct > 50
-                        ? "#ea580c"
-                        : costPct > 10
-                        ? "#ca8a04"
-                        : "#16a34a",
+                          ? "#ea580c"
+                          : costPct > 10
+                            ? "#ca8a04"
+                            : "#16a34a",
                   }}
                 >
                   ({costPct.toFixed(1)}%)
@@ -1805,7 +1830,8 @@ const TreeNode = memo(function TreeNode({
                 </span>
                 {node.loops !== undefined && node.loops > 1 && (
                   <span className="text-muted-foreground">
-                    {" "}× {node.loops} ={" "}
+                    {" "}
+                    × {node.loops} ={" "}
                     <span className="font-mono text-foreground">
                       {(node.actualTime.total * node.loops).toFixed(3)}ms
                     </span>
@@ -1821,44 +1847,59 @@ const TreeNode = memo(function TreeNode({
                 </span>
                 {node.loops !== undefined && node.loops > 1 && (
                   <span className="text-muted-foreground">
-                    {" "}× {node.loops} ={" "}
+                    {" "}
+                    × {node.loops} ={" "}
                     <span className="font-mono text-foreground">
                       {(node.actualRows * node.loops).toLocaleString()}
                     </span>
                   </span>
                 )}
                 {/* Row estimate mismatch indicator */}
-                {node.rows !== undefined && node.rows > 0 && (() => {
-                  const ratio = node.actualRows / node.rows;
-                  if (ratio >= 10) {
-                    return (
-                      <span className="ml-1 text-red-500 dark:text-red-400" title={`Actual ${ratio.toFixed(1)}× higher than estimated`}>
-                        ↑{ratio >= 100 ? "100+" : ratio.toFixed(0)}×
-                      </span>
-                    );
-                  } else if (ratio <= 0.1 && node.actualRows > 0) {
-                    const invRatio = node.rows / node.actualRows;
-                    return (
-                      <span className="ml-1 text-amber-500 dark:text-amber-400" title={`Actual ${invRatio.toFixed(1)}× lower than estimated`}>
-                        ↓{invRatio >= 100 ? "100+" : invRatio.toFixed(0)}×
-                      </span>
-                    );
-                  } else if (ratio >= 2) {
-                    return (
-                      <span className="ml-1 text-orange-500 dark:text-orange-400" title={`Actual ${ratio.toFixed(1)}× higher than estimated`}>
-                        ↑{ratio.toFixed(1)}×
-                      </span>
-                    );
-                  } else if (ratio <= 0.5 && node.actualRows > 0) {
-                    const invRatio = node.rows / node.actualRows;
-                    return (
-                      <span className="ml-1 text-yellow-600 dark:text-yellow-400" title={`Actual ${invRatio.toFixed(1)}× lower than estimated`}>
-                        ↓{invRatio.toFixed(1)}×
-                      </span>
-                    );
-                  }
-                  return null;
-                })()}
+                {node.rows !== undefined &&
+                  node.rows > 0 &&
+                  (() => {
+                    const ratio = node.actualRows / node.rows;
+                    if (ratio >= 10) {
+                      return (
+                        <span
+                          className="ml-1 text-red-500 dark:text-red-400"
+                          title={`Actual ${ratio.toFixed(1)}× higher than estimated`}
+                        >
+                          ↑{ratio >= 100 ? "100+" : ratio.toFixed(0)}×
+                        </span>
+                      );
+                    } else if (ratio <= 0.1 && node.actualRows > 0) {
+                      const invRatio = node.rows / node.actualRows;
+                      return (
+                        <span
+                          className="ml-1 text-amber-500 dark:text-amber-400"
+                          title={`Actual ${invRatio.toFixed(1)}× lower than estimated`}
+                        >
+                          ↓{invRatio >= 100 ? "100+" : invRatio.toFixed(0)}×
+                        </span>
+                      );
+                    } else if (ratio >= 2) {
+                      return (
+                        <span
+                          className="ml-1 text-orange-500 dark:text-orange-400"
+                          title={`Actual ${ratio.toFixed(1)}× higher than estimated`}
+                        >
+                          ↑{ratio.toFixed(1)}×
+                        </span>
+                      );
+                    } else if (ratio <= 0.5 && node.actualRows > 0) {
+                      const invRatio = node.rows / node.actualRows;
+                      return (
+                        <span
+                          className="ml-1 text-yellow-600 dark:text-yellow-400"
+                          title={`Actual ${invRatio.toFixed(1)}× lower than estimated`}
+                        >
+                          ↓{invRatio.toFixed(1)}×
+                        </span>
+                      );
+                    }
+                    return null;
+                  })()}
               </span>
             )}
             {node.loops !== undefined && node.loops > 1 && (
@@ -2010,13 +2051,19 @@ const TreeNode = memo(function TreeNode({
             node.lossyHeapBlocks !== undefined) && (
             <div className="text-xs mt-1 text-amber-600 dark:text-amber-400">
               Heap Blocks:
-              {node.exactHeapBlocks !== undefined && ` exact=${node.exactHeapBlocks}`}
+              {node.exactHeapBlocks !== undefined &&
+                ` exact=${node.exactHeapBlocks}`}
               {node.lossyHeapBlocks !== undefined && (
-                <span className="text-orange-500"> lossy={node.lossyHeapBlocks}</span>
+                <span className="text-orange-500">
+                  {" "}
+                  lossy={node.lossyHeapBlocks}
+                </span>
               )}
             </div>
           )}
-          {(node.buffers?.shared || node.buffers?.local || node.buffers?.temp) && (
+          {(node.buffers?.shared ||
+            node.buffers?.local ||
+            node.buffers?.temp) && (
             <div className="text-xs mt-1 text-slate-600 dark:text-slate-400">
               Buffers:
               {node.buffers?.shared && (
@@ -2075,7 +2122,8 @@ const TreeNode = memo(function TreeNode({
             node.memoryUsage !== undefined) && (
             <div className="text-xs mt-1 text-purple-600 dark:text-purple-400">
               {node.hashBuckets !== undefined && `Buckets: ${node.hashBuckets}`}
-              {node.hashBatches !== undefined && `  Batches: ${node.hashBatches}`}
+              {node.hashBatches !== undefined &&
+                `  Batches: ${node.hashBatches}`}
               {node.originalHashBatches !== undefined &&
                 node.originalHashBatches !== node.hashBatches &&
                 ` (originally ${node.originalHashBatches})`}
@@ -2084,7 +2132,10 @@ const TreeNode = memo(function TreeNode({
               {node.peakMemoryUsage !== undefined &&
                 `  Peak Memory Usage: ${node.peakMemoryUsage}kB`}
               {node.diskUsage !== undefined && (
-                <span className="text-red-500">  Disk Usage: {node.diskUsage}kB</span>
+                <span className="text-red-500">
+                  {" "}
+                  Disk Usage: {node.diskUsage}kB
+                </span>
               )}
             </div>
           )}
@@ -2092,7 +2143,11 @@ const TreeNode = memo(function TreeNode({
           {/* Memoize cache key/mode */}
           {(node.cacheKey || node.cacheMode) && (
             <div className="text-xs mt-1 text-violet-600 dark:text-violet-400">
-              {node.cacheKey && <>Cache Key: <code className="font-mono">{node.cacheKey}</code></>}
+              {node.cacheKey && (
+                <>
+                  Cache Key: <code className="font-mono">{node.cacheKey}</code>
+                </>
+              )}
               {node.cacheMode && <> Mode: {node.cacheMode}</>}
             </div>
           )}
@@ -2118,15 +2173,26 @@ const TreeNode = memo(function TreeNode({
           {/* Function Scan details */}
           {(node.functionName || node.functionCall) && (
             <div className="text-xs mt-1 text-emerald-600 dark:text-emerald-400">
-              {node.functionName && <>Function: <code className="font-mono">{node.functionName}</code></>}
-              {node.functionCall && <> Call: <code className="font-mono">{node.functionCall}</code></>}
+              {node.functionName && (
+                <>
+                  Function:{" "}
+                  <code className="font-mono">{node.functionName}</code>
+                </>
+              )}
+              {node.functionCall && (
+                <>
+                  {" "}
+                  Call: <code className="font-mono">{node.functionCall}</code>
+                </>
+              )}
             </div>
           )}
 
           {/* Foreign Scan remote SQL */}
           {node.remoteSql && (
             <div className="text-xs mt-1 text-sky-600 dark:text-sky-400">
-              Remote SQL: <code className="font-mono text-[10px]">{node.remoteSql}</code>
+              Remote SQL:{" "}
+              <code className="font-mono text-[10px]">{node.remoteSql}</code>
             </div>
           )}
 
@@ -2140,14 +2206,18 @@ const TreeNode = memo(function TreeNode({
           {/* Incremental Sort groups */}
           {node.fullSortGroups && (
             <div className="text-xs mt-1 text-blue-600 dark:text-blue-400">
-              Full-sort Groups: {node.fullSortGroups.count}  Sort Method: {node.fullSortGroups.memoryType}  Average Memory: {node.fullSortGroups.memoryUsed}kB
+              Full-sort Groups: {node.fullSortGroups.count} Sort Method:{" "}
+              {node.fullSortGroups.memoryType} Average Memory:{" "}
+              {node.fullSortGroups.memoryUsed}kB
               {node.fullSortGroups.peakMemory !== undefined &&
                 `  Peak Memory: ${node.fullSortGroups.peakMemory}kB`}
             </div>
           )}
           {node.preSortedGroups && (
             <div className="text-xs mt-1 text-blue-600 dark:text-blue-400">
-              Pre-sorted Groups: {node.preSortedGroups.count}  Sort Method: {node.preSortedGroups.memoryType}  Average Memory: {node.preSortedGroups.memoryUsed}kB
+              Pre-sorted Groups: {node.preSortedGroups.count} Sort Method:{" "}
+              {node.preSortedGroups.memoryType} Average Memory:{" "}
+              {node.preSortedGroups.memoryUsed}kB
               {node.preSortedGroups.peakMemory !== undefined &&
                 `  Peak Memory: ${node.preSortedGroups.peakMemory}kB`}
             </div>
@@ -2173,8 +2243,10 @@ const TreeNode = memo(function TreeNode({
           {node.ioTiming && (
             <div className="text-xs mt-1 text-slate-600 dark:text-slate-400">
               I/O Timings:
-              {node.ioTiming.read !== undefined && ` read=${node.ioTiming.read.toFixed(3)}`}
-              {node.ioTiming.write !== undefined && ` write=${node.ioTiming.write.toFixed(3)}`}
+              {node.ioTiming.read !== undefined &&
+                ` read=${node.ioTiming.read.toFixed(3)}`}
+              {node.ioTiming.write !== undefined &&
+                ` write=${node.ioTiming.write.toFixed(3)}`}
             </div>
           )}
 
@@ -2188,16 +2260,20 @@ const TreeNode = memo(function TreeNode({
           {/* Run Condition (PG15+ WindowAgg optimization) */}
           {node.runCondition && (
             <div className="text-xs mt-1 text-cyan-600 dark:text-cyan-400">
-              Run Condition: <code className="font-mono">{node.runCondition}</code>
+              Run Condition:{" "}
+              <code className="font-mono">{node.runCondition}</code>
             </div>
           )}
 
           {/* Partition pruning info */}
-          {(node.partitionsRemoved !== undefined || node.plannedPartitions !== undefined) && (
+          {(node.partitionsRemoved !== undefined ||
+            node.plannedPartitions !== undefined) && (
             <div className="text-xs mt-1 text-indigo-600 dark:text-indigo-400">
               Partitions:
-              {node.plannedPartitions !== undefined && ` ${node.plannedPartitions} planned`}
-              {node.partitionsRemoved !== undefined && ` (${node.partitionsRemoved} removed)`}
+              {node.plannedPartitions !== undefined &&
+                ` ${node.plannedPartitions} planned`}
+              {node.partitionsRemoved !== undefined &&
+                ` (${node.partitionsRemoved} removed)`}
             </div>
           )}
 
@@ -2218,7 +2294,8 @@ const TreeNode = memo(function TreeNode({
           {/* Grouping Sets */}
           {node.groupingSets && node.groupingSets.length > 0 && (
             <div className="text-xs mt-1 text-fuchsia-600 dark:text-fuchsia-400">
-              Grouping Sets: <code className="font-mono">{node.groupingSets.join(", ")}</code>
+              Grouping Sets:{" "}
+              <code className="font-mono">{node.groupingSets.join(", ")}</code>
             </div>
           )}
 
@@ -2257,7 +2334,7 @@ const TreeNode = memo(function TreeNode({
         </div>
 
         {/* Cost Bar */}
-        <div className="w-16 flex-shrink-0 mt-1">
+        <div className="w-16 shrink-0 mt-1">
           <div className="h-1.5 bg-muted rounded-full overflow-hidden">
             <div
               className="h-full rounded-full transition-all"
@@ -2632,7 +2709,9 @@ export const ExplainViewer = memo(function ExplainViewer({
   const [selectedPlan2, setSelectedPlan2] = useState<string>("");
 
   const saveExplainPlan = useTabStateStore((state) => state.saveExplainPlan);
-  const getSavedExplainPlans = useTabStateStore((state) => state.getSavedExplainPlans);
+  const getSavedExplainPlans = useTabStateStore(
+    (state) => state.getSavedExplainPlans,
+  );
 
   const savedPlans = tabId ? getSavedExplainPlans(tabId) : [];
 
@@ -2665,8 +2744,8 @@ export const ExplainViewer = memo(function ExplainViewer({
     setShowCompare(true);
   };
 
-  const plan1 = savedPlans.find(p => p.id === selectedPlan1);
-  const plan2 = savedPlans.find(p => p.id === selectedPlan2);
+  const plan1 = savedPlans.find((p) => p.id === selectedPlan1);
+  const plan2 = savedPlans.find((p) => p.id === selectedPlan2);
 
   if (showCompare && plan1 && plan2) {
     return (
@@ -2719,7 +2798,9 @@ export const ExplainViewer = memo(function ExplainViewer({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => { setShowSaveDialog(true); }}
+                onClick={() => {
+                  setShowSaveDialog(true);
+                }}
                 className="h-7 text-xs"
               >
                 <IconBookmark className="h-3.5 w-3.5 mr-1.5" />
@@ -2729,7 +2810,9 @@ export const ExplainViewer = memo(function ExplainViewer({
               <div className="flex items-center gap-2">
                 <Input
                   value={saveLabel}
-                  onChange={(e) => { setSaveLabel(e.target.value); }}
+                  onChange={(e) => {
+                    setSaveLabel(e.target.value);
+                  }}
                   placeholder="Label (optional)"
                   className="h-7 text-xs w-40"
                   onKeyDown={(e) => {
@@ -2768,27 +2851,47 @@ export const ExplainViewer = memo(function ExplainViewer({
               <>
                 <div className="h-4 w-px bg-border" />
                 <div className="flex items-center gap-2">
-                  <Select value={selectedPlan1 || null} onValueChange={(val) => { setSelectedPlan1(val || ""); }}>
+                  <Select
+                    value={selectedPlan1 || null}
+                    onValueChange={(val) => {
+                      setSelectedPlan1(val || "");
+                    }}
+                  >
                     <SelectTrigger className="h-7 w-32 text-xs">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {savedPlans.map((plan) => (
-                        <SelectItem key={plan.id} value={plan.id} className="text-xs">
-                          {plan.label || new Date(plan.timestamp).toLocaleTimeString()}
+                        <SelectItem
+                          key={plan.id}
+                          value={plan.id}
+                          className="text-xs"
+                        >
+                          {plan.label ||
+                            new Date(plan.timestamp).toLocaleTimeString()}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                   <span className="text-xs text-muted-foreground">vs</span>
-                  <Select value={selectedPlan2 || null} onValueChange={(val) => { setSelectedPlan2(val || ""); }}>
+                  <Select
+                    value={selectedPlan2 || null}
+                    onValueChange={(val) => {
+                      setSelectedPlan2(val || "");
+                    }}
+                  >
                     <SelectTrigger className="h-7 w-32 text-xs">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {savedPlans.map((plan) => (
-                        <SelectItem key={plan.id} value={plan.id} className="text-xs">
-                          {plan.label || new Date(plan.timestamp).toLocaleTimeString()}
+                        <SelectItem
+                          key={plan.id}
+                          value={plan.id}
+                          className="text-xs"
+                        >
+                          {plan.label ||
+                            new Date(plan.timestamp).toLocaleTimeString()}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -2797,7 +2900,11 @@ export const ExplainViewer = memo(function ExplainViewer({
                     variant="outline"
                     size="sm"
                     onClick={handleComparePlans}
-                    disabled={!selectedPlan1 || !selectedPlan2 || selectedPlan1 === selectedPlan2}
+                    disabled={
+                      !selectedPlan1 ||
+                      !selectedPlan2 ||
+                      selectedPlan1 === selectedPlan2
+                    }
                     className="h-7 text-xs"
                   >
                     <IconGitCompare className="h-3.5 w-3.5 mr-1.5" />
@@ -2812,7 +2919,8 @@ export const ExplainViewer = memo(function ExplainViewer({
               <>
                 <div className="flex-1" />
                 <span className="text-xs text-muted-foreground">
-                  {savedPlans.length} saved plan{savedPlans.length !== 1 ? 's' : ''}
+                  {savedPlans.length} saved plan
+                  {savedPlans.length !== 1 ? "s" : ""}
                 </span>
               </>
             )}
@@ -2881,10 +2989,16 @@ export const ExplainViewer = memo(function ExplainViewer({
                         </span>
                         <span className="text-xs font-mono text-slate-600 dark:text-slate-400">
                           shared
-                          {parsed.planningBuffers.shared.hit !== undefined && ` hit=${parsed.planningBuffers.shared.hit}`}
-                          {parsed.planningBuffers.shared.read !== undefined && ` read=${parsed.planningBuffers.shared.read}`}
-                          {parsed.planningBuffers.shared.dirtied !== undefined && ` dirtied=${parsed.planningBuffers.shared.dirtied}`}
-                          {parsed.planningBuffers.shared.written !== undefined && ` written=${parsed.planningBuffers.shared.written}`}
+                          {parsed.planningBuffers.shared.hit !== undefined &&
+                            ` hit=${parsed.planningBuffers.shared.hit}`}
+                          {parsed.planningBuffers.shared.read !== undefined &&
+                            ` read=${parsed.planningBuffers.shared.read}`}
+                          {parsed.planningBuffers.shared.dirtied !==
+                            undefined &&
+                            ` dirtied=${parsed.planningBuffers.shared.dirtied}`}
+                          {parsed.planningBuffers.shared.written !==
+                            undefined &&
+                            ` written=${parsed.planningBuffers.shared.written}`}
                         </span>
                       </div>
                     )}

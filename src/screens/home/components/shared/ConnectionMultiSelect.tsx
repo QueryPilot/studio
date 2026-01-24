@@ -1,7 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { IconSearch, IconChevronDown, IconX, IconCheck } from "@tabler/icons-react";
+import {
+  IconSearch,
+  IconChevronDown,
+  IconX,
+  IconCheck,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import {
   Popover,
@@ -71,7 +76,7 @@ const ConnectionMultiSelect = ({
                 "bg-input/20 dark:bg-input/30 text-xs",
                 "focus:border-ring focus:ring-[2px] focus:ring-ring/30 outline-none",
                 "transition-colors",
-                disabled && "opacity-50 cursor-not-allowed"
+                disabled && "opacity-50 cursor-not-allowed",
               )}
             >
               <div className="flex items-center gap-2 text-muted-foreground">
@@ -84,7 +89,10 @@ const ConnectionMultiSelect = ({
         />
         <PopoverContent className="w-[400px] p-0" align="start">
           <Command>
-            <CommandInput placeholder="Search connections..." className="h-8 text-xs" />
+            <CommandInput
+              placeholder="Search connections..."
+              className="h-8 text-xs"
+            />
             <CommandList className="max-h-[250px]">
               <CommandEmpty className="py-6 text-center text-xs text-muted-foreground">
                 No connections found.
@@ -106,19 +114,20 @@ const ConnectionMultiSelect = ({
                           "flex items-center justify-center w-4 h-4 rounded border transition-colors",
                           isSelected
                             ? "bg-primary border-primary text-primary-foreground"
-                            : "border-input"
+                            : "border-input",
                         )}
                       >
                         {isSelected && <IconCheck className="h-3 w-3" />}
                       </div>
-                      <img src={logo} alt="" className="w-5 h-5 flex-shrink-0" />
+                      <img src={logo} alt="" className="w-5 h-5 shrink-0" />
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-medium truncate">
                           {connection.profile.name}
                         </div>
                         <div className="text-[10px] text-muted-foreground truncate">
                           {connection.profile.host}:{connection.profile.port}
-                          {connection.profile.database && ` / ${connection.profile.database}`}
+                          {connection.profile.database &&
+                            ` / ${connection.profile.database}`}
                         </div>
                       </div>
                     </CommandItem>
@@ -140,14 +149,15 @@ const ConnectionMultiSelect = ({
                 key={connection.profile.id}
                 className="flex items-center gap-3 p-2 rounded-md bg-accent/30 hover:bg-accent/50 transition-colors group"
               >
-                <img src={logo} alt="" className="w-5 h-5 flex-shrink-0" />
+                <img src={logo} alt="" className="w-5 h-5 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-medium truncate">
                     {connection.profile.name}
                   </div>
                   <div className="text-[10px] text-muted-foreground truncate">
                     {connection.profile.host}:{connection.profile.port}
-                    {connection.profile.database && ` / ${connection.profile.database}`}
+                    {connection.profile.database &&
+                      ` / ${connection.profile.database}`}
                   </div>
                 </div>
                 {!disabled && (

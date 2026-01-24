@@ -4,11 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  IconLoader2,
-  IconArrowLeft,
-  IconCheck,
-} from "@tabler/icons-react";
+import { IconLoader2, IconArrowLeft, IconCheck } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
@@ -18,9 +14,30 @@ import { getDatabaseLogo } from "@/utils/databaseLogos";
 
 // Common emojis for workspaces
 const WORKSPACE_EMOJIS = [
-  "🚀", "💼", "🏢", "🔧", "⚡", "🌟", "🎯", "📊",
-  "🔥", "💻", "🌈", "🎨", "🔬", "🏗️", "📱", "🌐",
-  "⚙️", "🎭", "🎪", "🎬", "🎮", "🎲", "🎯", "🎪",
+  "🚀",
+  "💼",
+  "🏢",
+  "🔧",
+  "⚡",
+  "🌟",
+  "🎯",
+  "📊",
+  "🔥",
+  "💻",
+  "🌈",
+  "🎨",
+  "🔬",
+  "🏗️",
+  "📱",
+  "🌐",
+  "⚙️",
+  "🎭",
+  "🎪",
+  "🎬",
+  "🎮",
+  "🎲",
+  "🎯",
+  "🎪",
 ];
 
 export function WorkspaceForm() {
@@ -38,7 +55,9 @@ export function WorkspaceForm() {
 
   const [name, setName] = useState("");
   const [icon, setIcon] = useState(WORKSPACE_EMOJIS[0]);
-  const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>([]);
+  const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>(
+    [],
+  );
   const [isSaving, setIsSaving] = useState(false);
 
   const isEditMode = workspaceFormMode === "edit";
@@ -81,7 +100,9 @@ export function WorkspaceForm() {
     }
 
     if (selectedConnectionIds.length === 0) {
-      toast.error("Error", { description: "Please select at least one connection" });
+      toast.error("Error", {
+        description: "Please select at least one connection",
+      });
       return;
     }
 
@@ -97,7 +118,10 @@ export function WorkspaceForm() {
           description: "Workspace updated successfully",
         });
       } else {
-        const workspaceId = await createWorkspace(name.trim(), selectedConnectionIds);
+        const workspaceId = await createWorkspace(
+          name.trim(),
+          selectedConnectionIds,
+        );
         // Update the workspace config with the icon
         await updateWorkspace(workspaceId, { icon });
         toast.success("Success", {
@@ -167,7 +191,7 @@ export function WorkspaceForm() {
                     onClick={() => setIcon(emoji)}
                     className={cn(
                       "text-2xl w-10 h-10 rounded-md hover:bg-accent transition-colors",
-                      icon === emoji && "bg-accent ring-2 ring-primary"
+                      icon === emoji && "bg-accent ring-2 ring-primary",
                     )}
                   >
                     {emoji}
@@ -194,7 +218,7 @@ export function WorkspaceForm() {
               <div className="space-y-1 border border-border/40 rounded-lg p-3 max-h-[400px] overflow-y-auto">
                 {connections.map((connection) => {
                   const isSelected = selectedConnectionIds.includes(
-                    connection.profile.id
+                    connection.profile.id,
                   );
                   const logo = getDatabaseLogo(connection.profile.db_type);
 
@@ -203,7 +227,7 @@ export function WorkspaceForm() {
                       key={connection.profile.id}
                       className={cn(
                         "flex items-center gap-3 p-3 rounded-md hover:bg-accent/50 transition-colors cursor-pointer",
-                        isSelected && "bg-accent"
+                        isSelected && "bg-accent",
                       )}
                       onClick={() =>
                         handleConnectionToggle(connection.profile.id)
@@ -216,7 +240,7 @@ export function WorkspaceForm() {
                         }
                         onClick={(e) => e.stopPropagation()}
                       />
-                      <div className="w-6 h-6 flex-shrink-0">{logo}</div>
+                      <div className="w-6 h-6 shrink-0">{logo}</div>
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium truncate">
                           {connection.profile.name}
@@ -227,7 +251,7 @@ export function WorkspaceForm() {
                         </div>
                       </div>
                       {isSelected && (
-                        <IconCheck className="h-4 w-4 text-primary flex-shrink-0" />
+                        <IconCheck className="h-4 w-4 text-primary shrink-0" />
                       )}
                     </div>
                   );

@@ -88,7 +88,7 @@ export class ErrorBoundary extends Component<Props, State> {
         <div className="flex items-center justify-center min-h-screen bg-background p-4">
           <div className="max-w-2xl w-full space-y-6">
             <div className="flex items-start space-x-4">
-              <div className="flex-shrink-0">
+              <div className="shrink-0">
                 <IconAlertCircle className="h-10 w-10 text-destructive" />
               </div>
               <div className="flex-1 space-y-3">

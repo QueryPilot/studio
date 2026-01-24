@@ -26,7 +26,7 @@ export function ActionCard({
         )}
         onClick={onClick}
       >
-        <div className="p-2 rounded-md bg-amber-500/10 flex-shrink-0">
+        <div className="p-2 rounded-md bg-amber-500/10 shrink-0">
           <Icon className="h-3.5 w-3.5 text-amber-500" />
         </div>
         <div className="min-w-0">
@@ -50,7 +50,7 @@ export function ActionCard({
       onClick={onClick}
     >
       <div className="flex items-start gap-3">
-        <div className="p-2.5 rounded-lg bg-amber-500/10 flex-shrink-0">
+        <div className="p-2.5 rounded-lg bg-amber-500/10 shrink-0">
           <Icon className="h-4 w-4 text-amber-500" />
         </div>
         <div className="min-w-0 pt-0.5">

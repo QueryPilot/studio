@@ -133,7 +133,11 @@ interface DiffSummary {
   removedNodes: Array<{ type: string; path: string }>;
 }
 
-function calculateNodePath(node: ExplainNode, index: number, parentPath = ""): string {
+function calculateNodePath(
+  node: ExplainNode,
+  index: number,
+  parentPath = "",
+): string {
   const path = parentPath ? `${parentPath} > ${node.type}` : node.type;
   if (node.relation) {
     return `${path} (${node.relation})`;
@@ -141,7 +145,10 @@ function calculateNodePath(node: ExplainNode, index: number, parentPath = ""): s
   return `${path} #${index}`;
 }
 
-function flattenNodes(nodes: ExplainNode[], parentPath = ""): Array<ExplainNode & { path: string }> {
+function flattenNodes(
+  nodes: ExplainNode[],
+  parentPath = "",
+): Array<ExplainNode & { path: string }> {
   const result: Array<ExplainNode & { path: string }> = [];
 
   nodes.forEach((node, index) => {
@@ -156,26 +163,32 @@ function flattenNodes(nodes: ExplainNode[], parentPath = ""): Array<ExplainNode 
   return result;
 }
 
-function calculateDiff(parsed1: ParsedExplain, parsed2: ParsedExplain): DiffSummary {
+function calculateDiff(
+  parsed1: ParsedExplain,
+  parsed2: ParsedExplain,
+): DiffSummary {
   const costChange = parsed2.totalCost - parsed1.totalCost;
-  const costChangePercent = parsed1.totalCost > 0
-    ? (costChange / parsed1.totalCost) * 100
-    : 0;
+  const costChangePercent =
+    parsed1.totalCost > 0 ? (costChange / parsed1.totalCost) * 100 : 0;
 
-  const rowsChange = parsed2.nodes[0]?.rows && parsed1.nodes[0]?.rows
-    ? (parsed2.nodes[0].rows - parsed1.nodes[0].rows)
-    : undefined;
-  const rowsChangePercent = rowsChange && parsed1.nodes[0]?.rows
-    ? (rowsChange / parsed1.nodes[0].rows) * 100
-    : undefined;
+  const rowsChange =
+    parsed2.nodes[0]?.rows && parsed1.nodes[0]?.rows
+      ? parsed2.nodes[0].rows - parsed1.nodes[0].rows
+      : undefined;
+  const rowsChangePercent =
+    rowsChange && parsed1.nodes[0]?.rows
+      ? (rowsChange / parsed1.nodes[0].rows) * 100
+      : undefined;
 
-  const planningTimeChange = parsed2.planningTime && parsed1.planningTime
-    ? parsed2.planningTime - parsed1.planningTime
-    : undefined;
+  const planningTimeChange =
+    parsed2.planningTime && parsed1.planningTime
+      ? parsed2.planningTime - parsed1.planningTime
+      : undefined;
 
-  const executionTimeChange = parsed2.executionTime && parsed1.executionTime
-    ? parsed2.executionTime - parsed1.executionTime
-    : undefined;
+  const executionTimeChange =
+    parsed2.executionTime && parsed1.executionTime
+      ? parsed2.executionTime - parsed1.executionTime
+      : undefined;
 
   const flat1 = flattenNodes(parsed1.nodes);
   const flat2 = flattenNodes(parsed2.nodes);
@@ -184,19 +197,23 @@ function calculateDiff(parsed1: ParsedExplain, parsed2: ParsedExplain): DiffSumm
   const newNodes: DiffSummary["newNodes"] = [];
   const removedNodes: DiffSummary["removedNodes"] = [];
 
-  const map1 = new Map(flat1.map(n => [n.path, n]));
-  const map2 = new Map(flat2.map(n => [n.path, n]));
+  const map1 = new Map(flat1.map((n) => [n.path, n]));
+  const map2 = new Map(flat2.map((n) => [n.path, n]));
 
-  flat1.forEach(node1 => {
+  flat1.forEach((node1) => {
     const node2 = map2.get(node1.path);
     if (!node2) {
       removedNodes.push({ type: node1.type, path: node1.path });
     } else if (node1.type !== node2.type) {
-      nodeTypeChanges.push({ from: node1.type, to: node2.type, path: node1.path });
+      nodeTypeChanges.push({
+        from: node1.type,
+        to: node2.type,
+        path: node1.path,
+      });
     }
   });
 
-  flat2.forEach(node2 => {
+  flat2.forEach((node2) => {
     if (!map1.has(node2.path)) {
       newNodes.push({ type: node2.type, path: node2.path });
     }
@@ -220,7 +237,7 @@ function formatTime(ms: number): string {
 }
 
 function formatPercent(value: number): string {
-  return `${value > 0 ? '+' : ''}${value.toFixed(1)}%`;
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
 function formatCost(cost: number): string {
@@ -233,66 +250,85 @@ interface NodeDiffProps {
   depth: number;
 }
 
-const NodeDiff = memo(function NodeDiff({ node1, node2, depth }: NodeDiffProps) {
+const NodeDiff = memo(function NodeDiff({
+  node1,
+  node2,
+  depth,
+}: NodeDiffProps) {
   const isNew = !node1 && node2;
   const isRemoved = node1 && !node2;
   const isChanged = node1 && node2 && node1.type !== node2.type;
 
-  const costChange = node1?.cost && node2?.cost
-    ? node2.cost.total - node1.cost.total
-    : undefined;
+  const costChange =
+    node1?.cost && node2?.cost
+      ? node2.cost.total - node1.cost.total
+      : undefined;
 
-  const rowsChange = node1?.rows && node2?.rows
-    ? node2.rows - node1.rows
-    : undefined;
+  const rowsChange =
+    node1?.rows && node2?.rows ? node2.rows - node1.rows : undefined;
 
   const bgClass = isNew
     ? "bg-green-50 dark:bg-green-950/20"
     : isRemoved
-    ? "bg-red-50 dark:bg-red-950/20"
-    : isChanged
-    ? "bg-amber-50 dark:bg-amber-950/20"
-    : "";
+      ? "bg-red-50 dark:bg-red-950/20"
+      : isChanged
+        ? "bg-amber-50 dark:bg-amber-950/20"
+        : "";
 
   return (
     <div
-      className={cn(
-        "border-b py-2 px-3 text-xs font-mono",
-        bgClass
-      )}
+      className={cn("border-b py-2 px-3 text-xs font-mono", bgClass)}
       style={{ paddingLeft: `${depth * 16 + 12}px` }}
     >
       <div className="flex items-center gap-3">
         <div className="flex-1 min-w-0">
           {isNew && (
             <div className="flex items-center gap-2">
-              <span className="text-green-600 dark:text-green-400 font-semibold">NEW:</span>
+              <span className="text-green-600 dark:text-green-400 font-semibold">
+                NEW:
+              </span>
               <span className="text-foreground">{node2?.type}</span>
               {node2?.relation && (
-                <span className="text-muted-foreground">on {node2.relation}</span>
+                <span className="text-muted-foreground">
+                  on {node2.relation}
+                </span>
               )}
             </div>
           )}
           {isRemoved && (
             <div className="flex items-center gap-2">
-              <span className="text-red-600 dark:text-red-400 font-semibold">REMOVED:</span>
-              <span className="text-foreground line-through">{node1?.type}</span>
+              <span className="text-red-600 dark:text-red-400 font-semibold">
+                REMOVED:
+              </span>
+              <span className="text-foreground line-through">
+                {node1?.type}
+              </span>
               {node1?.relation && (
-                <span className="text-muted-foreground line-through">on {node1.relation}</span>
+                <span className="text-muted-foreground line-through">
+                  on {node1.relation}
+                </span>
               )}
             </div>
           )}
           {isChanged && (
             <div className="flex items-center gap-2">
-              <span className="text-amber-600 dark:text-amber-400 font-semibold">CHANGED:</span>
-              <span className="text-red-600 dark:text-red-400 line-through">{node1?.type}</span>
+              <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                CHANGED:
+              </span>
+              <span className="text-red-600 dark:text-red-400 line-through">
+                {node1?.type}
+              </span>
               <span className="text-muted-foreground">→</span>
-              <span className="text-green-600 dark:text-green-400">{node2?.type}</span>
+              <span className="text-green-600 dark:text-green-400">
+                {node2?.type}
+              </span>
             </div>
           )}
           {!isNew && !isRemoved && !isChanged && (
             <div className="flex items-center gap-2">
-              <span className="text-foreground">{node1?.type || node2?.type}</span>
+              <span className="text-foreground">
+                {node1?.type || node2?.type}
+              </span>
               {(node1?.relation || node2?.relation) && (
                 <span className="text-muted-foreground">
                   on {node1?.relation || node2?.relation}
@@ -302,7 +338,7 @@ const NodeDiff = memo(function NodeDiff({ node1, node2, depth }: NodeDiffProps) 
           )}
         </div>
 
-        <div className="flex items-center gap-4 flex-shrink-0">
+        <div className="flex items-center gap-4 shrink-0">
           {costChange !== undefined && Math.abs(costChange) > 0.01 && (
             <div className="flex items-center gap-1">
               {costChange > 0 ? (
@@ -310,22 +346,32 @@ const NodeDiff = memo(function NodeDiff({ node1, node2, depth }: NodeDiffProps) 
               ) : (
                 <IconTrendingDown className="h-3 w-3 text-green-500" />
               )}
-              <span className={cn(
-                "font-semibold",
-                costChange > 0 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"
-              )}>
-                {costChange > 0 ? '+' : ''}{formatCost(costChange)}
+              <span
+                className={cn(
+                  "font-semibold",
+                  costChange > 0
+                    ? "text-red-600 dark:text-red-400"
+                    : "text-green-600 dark:text-green-400",
+                )}
+              >
+                {costChange > 0 ? "+" : ""}
+                {formatCost(costChange)}
               </span>
             </div>
           )}
           {rowsChange !== undefined && rowsChange !== 0 && (
             <div className="flex items-center gap-1">
               <span className="text-muted-foreground text-[10px]">rows:</span>
-              <span className={cn(
-                "font-semibold",
-                rowsChange > 0 ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"
-              )}>
-                {rowsChange > 0 ? '+' : ''}{rowsChange}
+              <span
+                className={cn(
+                  "font-semibold",
+                  rowsChange > 0
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-blue-600 dark:text-blue-400",
+                )}
+              >
+                {rowsChange > 0 ? "+" : ""}
+                {rowsChange}
               </span>
             </div>
           )}
@@ -345,25 +391,34 @@ export const PlanDiff = memo(function PlanDiff({
   onBack,
   parseExplain,
 }: PlanDiffProps) {
-  const parsed1 = useMemo(() => parseExplain(plan1.rows), [plan1.rows, parseExplain]);
-  const parsed2 = useMemo(() => parseExplain(plan2.rows), [plan2.rows, parseExplain]);
-  const diff = useMemo(() => calculateDiff(parsed1, parsed2), [parsed1, parsed2]);
+  const parsed1 = useMemo(
+    () => parseExplain(plan1.rows),
+    [plan1.rows, parseExplain],
+  );
+  const parsed2 = useMemo(
+    () => parseExplain(plan2.rows),
+    [plan2.rows, parseExplain],
+  );
+  const diff = useMemo(
+    () => calculateDiff(parsed1, parsed2),
+    [parsed1, parsed2],
+  );
 
   const allPaths = useMemo(() => {
     const flat1 = flattenNodes(parsed1.nodes);
     const flat2 = flattenNodes(parsed2.nodes);
     const paths = new Set<string>();
-    flat1.forEach(n => paths.add(n.path));
-    flat2.forEach(n => paths.add(n.path));
+    flat1.forEach((n) => paths.add(n.path));
+    flat2.forEach((n) => paths.add(n.path));
     return Array.from(paths).sort();
   }, [parsed1.nodes, parsed2.nodes]);
 
   const nodeMap1 = useMemo(() => {
-    return new Map(flattenNodes(parsed1.nodes).map(n => [n.path, n]));
+    return new Map(flattenNodes(parsed1.nodes).map((n) => [n.path, n]));
   }, [parsed1.nodes]);
 
   const nodeMap2 = useMemo(() => {
-    return new Map(flattenNodes(parsed2.nodes).map(n => [n.path, n]));
+    return new Map(flattenNodes(parsed2.nodes).map((n) => [n.path, n]));
   }, [parsed2.nodes]);
 
   const hasSignificantChanges =
@@ -427,9 +482,13 @@ export const PlanDiff = memo(function PlanDiff({
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Total Cost:</span>
                 <div className="flex items-center gap-2">
-                  <span className="font-mono">{formatCost(parsed1.totalCost)}</span>
+                  <span className="font-mono">
+                    {formatCost(parsed1.totalCost)}
+                  </span>
                   <span className="text-muted-foreground">→</span>
-                  <span className="font-mono">{formatCost(parsed2.totalCost)}</span>
+                  <span className="font-mono">
+                    {formatCost(parsed2.totalCost)}
+                  </span>
                 </div>
               </div>
               <div className="flex items-center justify-between">
@@ -442,14 +501,16 @@ export const PlanDiff = memo(function PlanDiff({
                   ) : (
                     <IconEqual className="h-3 w-3 text-muted-foreground" />
                   )}
-                  <span className={cn(
-                    "font-mono font-semibold",
-                    diff.costChange > 0
-                      ? "text-red-600 dark:text-red-400"
-                      : diff.costChange < 0
-                      ? "text-green-600 dark:text-green-400"
-                      : "text-muted-foreground"
-                  )}>
+                  <span
+                    className={cn(
+                      "font-mono font-semibold",
+                      diff.costChange > 0
+                        ? "text-red-600 dark:text-red-400"
+                        : diff.costChange < 0
+                          ? "text-green-600 dark:text-green-400"
+                          : "text-muted-foreground",
+                    )}
+                  >
                     {formatPercent(diff.costChangePercent)}
                   </span>
                 </div>
@@ -460,22 +521,31 @@ export const PlanDiff = memo(function PlanDiff({
               {diff.executionTimeChange !== undefined && (
                 <>
                   <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Execution Time:</span>
+                    <span className="text-muted-foreground">
+                      Execution Time:
+                    </span>
                     <div className="flex items-center gap-2">
-                      <span className="font-mono">{formatTime(parsed1.executionTime || 0)}</span>
+                      <span className="font-mono">
+                        {formatTime(parsed1.executionTime || 0)}
+                      </span>
                       <span className="text-muted-foreground">→</span>
-                      <span className="font-mono">{formatTime(parsed2.executionTime || 0)}</span>
+                      <span className="font-mono">
+                        {formatTime(parsed2.executionTime || 0)}
+                      </span>
                     </div>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Change:</span>
-                    <span className={cn(
-                      "font-mono font-semibold",
-                      diff.executionTimeChange > 0
-                        ? "text-red-600 dark:text-red-400"
-                        : "text-green-600 dark:text-green-400"
-                    )}>
-                      {diff.executionTimeChange > 0 ? '+' : ''}{formatTime(diff.executionTimeChange)}
+                    <span
+                      className={cn(
+                        "font-mono font-semibold",
+                        diff.executionTimeChange > 0
+                          ? "text-red-600 dark:text-red-400"
+                          : "text-green-600 dark:text-green-400",
+                      )}
+                    >
+                      {diff.executionTimeChange > 0 ? "+" : ""}
+                      {formatTime(diff.executionTimeChange)}
                     </span>
                   </div>
                 </>
@@ -483,21 +553,26 @@ export const PlanDiff = memo(function PlanDiff({
             </div>
           </div>
 
-          {(diff.nodeTypeChanges.length > 0 || diff.newNodes.length > 0 || diff.removedNodes.length > 0) && (
+          {(diff.nodeTypeChanges.length > 0 ||
+            diff.newNodes.length > 0 ||
+            diff.removedNodes.length > 0) && (
             <div className="pt-2 mt-2 border-t space-y-1 text-xs">
               {diff.nodeTypeChanges.length > 0 && (
                 <div className="text-amber-600 dark:text-amber-400">
-                  {diff.nodeTypeChanges.length} node type change{diff.nodeTypeChanges.length !== 1 ? 's' : ''}
+                  {diff.nodeTypeChanges.length} node type change
+                  {diff.nodeTypeChanges.length !== 1 ? "s" : ""}
                 </div>
               )}
               {diff.newNodes.length > 0 && (
                 <div className="text-green-600 dark:text-green-400">
-                  {diff.newNodes.length} new node{diff.newNodes.length !== 1 ? 's' : ''}
+                  {diff.newNodes.length} new node
+                  {diff.newNodes.length !== 1 ? "s" : ""}
                 </div>
               )}
               {diff.removedNodes.length > 0 && (
                 <div className="text-red-600 dark:text-red-400">
-                  {diff.removedNodes.length} removed node{diff.removedNodes.length !== 1 ? 's' : ''}
+                  {diff.removedNodes.length} removed node
+                  {diff.removedNodes.length !== 1 ? "s" : ""}
                 </div>
               )}
             </div>
@@ -511,15 +586,10 @@ export const PlanDiff = memo(function PlanDiff({
           {allPaths.map((path) => {
             const node1 = nodeMap1.get(path);
             const node2 = nodeMap2.get(path);
-            const depth = path.split('>').length - 1;
+            const depth = path.split(">").length - 1;
 
             return (
-              <NodeDiff
-                key={path}
-                node1={node1}
-                node2={node2}
-                depth={depth}
-              />
+              <NodeDiff key={path} node1={node1} node2={node2} depth={depth} />
             );
           })}
         </div>
