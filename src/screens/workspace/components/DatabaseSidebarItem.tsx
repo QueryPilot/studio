@@ -135,10 +135,10 @@ export function SidebarItem({
         isActive
           ? "bg-primary/10 border-l-primary"
           : isSelected
-          ? "bg-primary/20 border-l-primary/70"
-          : isBeingDuplicated
-          ? "bg-blue-500/10 border-l-blue-500"
-          : "border-l-transparent",
+            ? "bg-primary/20 border-l-primary/70"
+            : isBeingDuplicated
+              ? "bg-blue-500/10 border-l-blue-500"
+              : "border-l-transparent",
         className,
       )}
       style={{ paddingLeft }}
@@ -148,12 +148,12 @@ export function SidebarItem({
       onContextMenu={onContextMenu}
     >
       {hasPendingChanges ? (
-        <span className="relative flex h-2 w-2 flex-shrink-0 ml-1">
+        <span className="relative flex h-2 w-2 shrink-0 ml-1">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
           <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
         </span>
       ) : isBeingDuplicated ? (
-        <span className="relative flex h-2 w-2 flex-shrink-0 ml-1">
+        <span className="relative flex h-2 w-2 shrink-0 ml-1">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
           <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
         </span>
@@ -164,14 +164,14 @@ export function SidebarItem({
         {name}
       </span>
       {badge && (
-        <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground flex-shrink-0">
+        <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
           {badge}
         </span>
       )}
       {/* Expand/collapse chevron on the right for expandable items */}
       {isExpandable && onToggleExpand && (
         <button
-          className="p-0.5 hover:bg-muted rounded flex-shrink-0"
+          className="p-0.5 hover:bg-muted rounded shrink-0"
           onClick={(e) => {
             e.stopPropagation();
             onToggleExpand(e);
@@ -186,11 +186,11 @@ export function SidebarItem({
         </button>
       )}
       {rowCount != null && rowCount > 0 && (
-        <span className="text-xs text-muted-foreground flex-shrink-0 transition-all duration-200 ease-out">
+        <span className="text-xs text-muted-foreground shrink-0 transition-all duration-200 ease-out">
           ~{rowCount.toLocaleString()}
         </span>
       )}
-      <div className="flex items-center gap-0.5 flex-shrink-0 transition-all delay-150 duration-200 ease-out -mr-14 opacity-0 group-hover:opacity-100 group-hover:mr-1">
+      <div className="flex items-center gap-0.5 shrink-0 transition-all delay-150 duration-200 ease-out -mr-14 opacity-0 group-hover:opacity-100 group-hover:mr-1">
         {onToggleStar && (
           <button
             className="p-0.5 hover:bg-muted rounded"

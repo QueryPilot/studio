@@ -749,15 +749,16 @@ const buildNullCell: CellBuilder = (_rawValue, value, column, meta, readOnly) =>
   });
 };
 
-const buildDefaultTextCell: CellBuilder = (rawValue, value, column, _meta, readOnly) => {
-  const text = String(rawValue);
-  return cacheAndReturn(value, column.id, readOnly, {
-    kind: GridCellKind.Text,
-    data: text,
-    displayData: text,
-    allowOverlay: true,
-    readonly: false,
-  });
+const buildDefaultTextCell: CellBuilder = (rawValue, value, column, meta, readOnly) => {
+  const textValue = String(rawValue);
+  const textLength = textValue.length;
+
+  // Use text-single-cell for short text, text-multi-cell for longer text
+  // This ensures proper ellipsis/truncation via our custom renderers
+  if (textLength < 200) {
+    return buildTextSingleLineCell(rawValue, value, column, meta, readOnly);
+  }
+  return buildTextMultiLineCell(rawValue, value, column, meta, readOnly);
 };
 
 // ============================================================================

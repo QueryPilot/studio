@@ -245,7 +245,10 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
           schemaName,
         );
 
-        const baseTables = tableMetas.filter((table) => table.kind === "Table");
+        // Filter to only regular tables, excluding partitioned tables and views
+        const baseTables = tableMetas.filter(
+          (table) => table.kind === "Table" && !table.isPartitioned
+        );
 
         if (baseTables.length === 0) {
           const emptySchema: DBMLSchema = {

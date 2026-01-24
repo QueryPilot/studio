@@ -9,7 +9,6 @@ import {
   IconCheck,
   IconDatabase,
   IconCircle,
-  IconSitemap,
   IconSun,
   IconMoon,
   IconDeviceDesktop,
@@ -64,7 +63,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAppStore } from "@/stores/appStore";
 import { toast } from "sonner";
-import useWorkbenchStore from "@/stores/workbenchStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
@@ -814,10 +812,7 @@ export function WorkspaceTitleBar({
    * If connection exists in workspace, just focus it.
    * If not, create/find connection and add to workspace.
    */
-  const handleDatabaseSelect = async (
-    dbName: string,
-    hasProfile: boolean,
-  ) => {
+  const handleDatabaseSelect = async (dbName: string, hasProfile: boolean) => {
     if (!activeWorkspace) {
       toast.error("No active workspace");
       return;
@@ -842,46 +837,21 @@ export function WorkspaceTitleBar({
       if (activeWorkspace.connections.has(targetConnectionId)) {
         // Just focus the existing connection
         setFocusedConnection(targetConnectionId);
-        logger.info(`[WorkspaceTitleBar] Focused existing connection: ${targetConnectionId}`);
+        logger.info(
+          `[WorkspaceTitleBar] Focused existing connection: ${targetConnectionId}`,
+        );
       } else {
         // Add to workspace (this also sets focus to the new connection)
         await addConnectionToWorkspace(targetConnectionId);
-        logger.info(`[WorkspaceTitleBar] Added and focused connection: ${targetConnectionId}`);
+        logger.info(
+          `[WorkspaceTitleBar] Added and focused connection: ${targetConnectionId}`,
+        );
       }
     } catch (error) {
       logger.error("Failed to switch database:", error);
       toast.error("Failed to switch database", {
         description: error instanceof Error ? error.message : String(error),
       });
-    }
-  };
-
-  const handleOpenErd = () => {
-    const { focusedPanelId, panelContents, addTab, focusPanel } =
-      useWorkbenchStore.getState();
-
-    const erdTabId = `erd-${connectionId}`;
-    const erdMetadata = {
-      type: "erd" as const,
-      title: "ERD",
-      connectionId,
-      database: connection?.database,
-      schema: "public",
-    };
-
-    let targetPanelId = focusedPanelId;
-
-    if (!targetPanelId) {
-      const firstPanel = Array.from(panelContents.entries())[0];
-      if (firstPanel) {
-        targetPanelId = firstPanel[0];
-        focusPanel(firstPanel[0]);
-      }
-    }
-
-    if (targetPanelId) {
-      addTab(targetPanelId, erdTabId, erdMetadata);
-      return;
     }
   };
 
@@ -1125,11 +1095,15 @@ export function WorkspaceTitleBar({
                         if (activeWorkspace.connections.has(profile.id)) {
                           // Just focus the existing connection
                           setFocusedConnection(profile.id);
-                          logger.info(`[WorkspaceTitleBar] Focused existing profile: ${profile.id}`);
+                          logger.info(
+                            `[WorkspaceTitleBar] Focused existing profile: ${profile.id}`,
+                          );
                         } else {
                           // Add to workspace (this also sets focus to the new connection)
                           await addConnectionToWorkspace(profile.id);
-                          logger.info(`[WorkspaceTitleBar] Added and focused profile: ${profile.id}`);
+                          logger.info(
+                            `[WorkspaceTitleBar] Added and focused profile: ${profile.id}`,
+                          );
                         }
                       };
 
@@ -1196,7 +1170,7 @@ export function WorkspaceTitleBar({
         {totalChanges > 0 && (
           <>
             <div
-              className="h-3 w-px bg-border flex-shrink-0"
+              className="h-3 w-px bg-border shrink-0"
               data-tauri-drag-region
             />
             {/* Undo/Redo buttons */}
@@ -1260,10 +1234,16 @@ export function WorkspaceTitleBar({
         {/* Workspace Name (if named workspace) */}
         {activeWorkspace && !activeWorkspace.isTemporary && (
           <>
-            <span className="font-medium text-xs truncate" data-tauri-drag-region>
+            <span
+              className="font-medium text-xs truncate"
+              data-tauri-drag-region
+            >
               {activeWorkspace.config.name}
             </span>
-            <div className="h-3 w-px bg-border flex-shrink-0" data-tauri-drag-region />
+            <div
+              className="h-3 w-px bg-border shrink-0"
+              data-tauri-drag-region
+            />
           </>
         )}
 
@@ -1272,10 +1252,15 @@ export function WorkspaceTitleBar({
           className="flex items-center gap-1 min-w-0 flex-shrink"
           data-tauri-drag-region
         >
-          <span className={cn(
-            "text-xs truncate",
-            activeWorkspace?.isTemporary ? "font-medium" : "text-muted-foreground"
-          )} data-tauri-drag-region>
+          <span
+            className={cn(
+              "text-xs truncate",
+              activeWorkspace?.isTemporary
+                ? "font-medium"
+                : "text-muted-foreground",
+            )}
+            data-tauri-drag-region
+          >
             {selectedDatabase || connection?.database || "Loading..."}
           </span>
           <span
@@ -1290,7 +1275,7 @@ export function WorkspaceTitleBar({
         {/* Connection Details - Hidden on smaller screens */}
         {connection?.host && (
           <>
-            <div className="h-3 w-px bg-border flex-shrink-0 hidden xl:block" />
+            <div className="h-3 w-px bg-border shrink-0 hidden xl:block" />
             <span
               className="text-muted-foreground truncate min-w-0 hidden xl:inline text-[10px]"
               data-tauri-drag-region
@@ -1301,13 +1286,10 @@ export function WorkspaceTitleBar({
         )}
 
         {/* Connection Status Badge */}
-        <div
-          className="h-3 w-px bg-border flex-shrink-0"
-          data-tauri-drag-region
-        />
+        <div className="h-3 w-px bg-border shrink-0" data-tauri-drag-region />
         <div
           className={cn(
-            "flex items-center gap-1 px-1.5 py-0.5 rounded-full transition-all whitespace-nowrap flex-shrink-0",
+            "flex items-center gap-1 px-1.5 py-0.5 rounded-full transition-all whitespace-nowrap shrink-0",
             connectionHealth?.status === "ready" && "bg-green-500/10",
             connectionHealth?.status === "degraded" && "bg-yellow-500/10",
             connectionHealth?.status === "error" &&
@@ -1333,7 +1315,7 @@ export function WorkspaceTitleBar({
               variant="ghost"
               size="sm"
               onClick={handleReconnect}
-              className="h-5 px-1.5 text-xs gap-1 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/20 flex-shrink-0"
+              className="h-5 px-1.5 text-xs gap-1 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/20 shrink-0"
             >
               <IconRotate className="h-2.5 w-2.5" />
               <span className="hidden sm:inline">Reconnect</span>
@@ -1343,15 +1325,6 @@ export function WorkspaceTitleBar({
 
       {/* Right Section */}
       <div className="flex items-center gap-2.5 pr-3">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={handleOpenErd}
-          title="Open ERD"
-        >
-          <IconSitemap className="!size-4" />
-        </Button>
-
         <Button
           variant="ghost"
           size="icon-sm"

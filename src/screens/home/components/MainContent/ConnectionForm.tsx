@@ -58,7 +58,12 @@ import {
   type DatabaseType,
 } from "@/utils/connectionParser";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
-import { type ConnectionProfile, DbType, SslMode, type GroupTag } from "@/types/connection";
+import {
+  type ConnectionProfile,
+  DbType,
+  SslMode,
+  type GroupTag,
+} from "@/types/connection";
 import { vaultStorage } from "@/services/vaultStorage";
 
 const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
@@ -201,9 +206,12 @@ export function ConnectionForm() {
 
   // Load group tags from vault
   useEffect(() => {
-    vaultStorage.listGroupTags().then(setGroupTags).catch((err) => {
-      logger.error("Failed to load group tags", err);
-    });
+    vaultStorage
+      .listGroupTags()
+      .then(setGroupTags)
+      .catch((err) => {
+        logger.error("Failed to load group tags", err);
+      });
   }, []);
 
   // Workspace assignment state
@@ -226,7 +234,8 @@ export function ConnectionForm() {
           (ws) => ws.id,
         );
       }
-      const preselectedId = useHomeScreenStore.getState().formPreselectedWorkspaceId;
+      const preselectedId =
+        useHomeScreenStore.getState().formPreselectedWorkspaceId;
       if (preselectedId) {
         return [preselectedId];
       }
@@ -523,16 +532,16 @@ export function ConnectionForm() {
         dbType === "postgresql"
           ? DbType.PostgreSQL
           : dbType === "mysql"
-          ? DbType.MySQL
-          : dbType === "mariadb"
-          ? DbType.MariaDB
-          : dbType === "sqlite"
-          ? DbType.SQLite
-          : dbType === "mongodb"
-          ? DbType.MongoDB
-          : dbType === "redis"
-          ? DbType.Redis
-          : DbType.SQLServer,
+            ? DbType.MySQL
+            : dbType === "mariadb"
+              ? DbType.MariaDB
+              : dbType === "sqlite"
+                ? DbType.SQLite
+                : dbType === "mongodb"
+                  ? DbType.MongoDB
+                  : dbType === "redis"
+                    ? DbType.Redis
+                    : DbType.SQLServer,
       host: dbType !== "sqlite" ? host : "localhost",
       port:
         dbType !== "sqlite"
@@ -560,13 +569,13 @@ export function ConnectionForm() {
       const auth = useSSHAgent
         ? { Agent: true as const }
         : useSSHKey
-        ? {
-            KeyFile: {
-              path: sshKeyPath,
-              passphrase: sshKeyPassphrase || undefined,
-            },
-          }
-        : { Password: sshPassword };
+          ? {
+              KeyFile: {
+                path: sshKeyPath,
+                passphrase: sshKeyPassphrase || undefined,
+              },
+            }
+          : { Password: sshPassword };
 
       profile.ssh_tunnel = {
         host: sshHost,
@@ -752,8 +761,8 @@ export function ConnectionForm() {
             {isEditMode
               ? "Edit Connection"
               : formMode === "import"
-              ? "Import Connection"
-              : "New Connection"}
+                ? "Import Connection"
+                : "New Connection"}
           </span>
         </div>
 
@@ -973,7 +982,7 @@ export function ConnectionForm() {
                               >
                                 <div
                                   className={cn(
-                                    "w-2 h-2 rounded-full flex-shrink-0",
+                                    "w-2 h-2 rounded-full shrink-0",
                                     tagColor.bg,
                                   )}
                                 />
@@ -1326,8 +1335,8 @@ export function ConnectionForm() {
                   dbType === "mysql" || dbType === "mariadb"
                     ? "charset=utf8mb4\ntimezone=UTC"
                     : dbType === "mssql"
-                    ? "application_name=QueryPilot"
-                    : "application_name=QueryPilot"
+                      ? "application_name=QueryPilot"
+                      : "application_name=QueryPilot"
                 }
                 disabled={isTesting}
               />

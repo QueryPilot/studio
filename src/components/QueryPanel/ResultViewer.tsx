@@ -1,7 +1,15 @@
 import { logger } from "@/lib/logger";
 import { memo, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { IconAlertCircle, IconCircleX, IconClipboard, IconCircleCheck, IconDownload, IconCopy, IconCheck } from '@tabler/icons-react';
+import {
+  IconAlertCircle,
+  IconCircleX,
+  IconClipboard,
+  IconCircleCheck,
+  IconDownload,
+  IconCopy,
+  IconCheck,
+} from "@tabler/icons-react";
 import { QueryResultGrid } from "@/components/DataGrid";
 import { DataGridSkeleton } from "@/components/DataGrid/components/DataGridSkeleton";
 import { toast } from "sonner";
@@ -11,8 +19,15 @@ import { type ColumnMeta } from "@/types/database";
 import type { CellValue as BackendCellValue } from "@/services/backend";
 import { normalizeBackendValue } from "@/services/tableDataTransform";
 import { exportToCSV, type ExportOptions } from "@/utils/csvExport";
-import { exportToJSON, type JsonExportOptions, type JsonFormat } from "@/utils/jsonExport";
-import { copyInsertToClipboard, type InsertExportOptions } from "@/utils/sqlInsertExport";
+import {
+  exportToJSON,
+  type JsonExportOptions,
+  type JsonFormat,
+} from "@/utils/jsonExport";
+import {
+  copyInsertToClipboard,
+  type InsertExportOptions,
+} from "@/utils/sqlInsertExport";
 import { copyMarkdownToClipboard } from "@/utils/markdownExport";
 import { ExplainViewer } from "./ExplainViewer";
 import { DbType, getParadigm, type DatabaseParadigm } from "@/types/connection";
@@ -66,7 +81,12 @@ interface ExportMenuProps {
   databaseType?: string;
 }
 
-const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseType }: ExportMenuProps) {
+const ExportMenu = memo(function ExportMenu({
+  columns,
+  rows,
+  schema,
+  databaseType,
+}: ExportMenuProps) {
   type ExportFormat = "csv" | "json" | "insert" | "markdown";
   const [exportFormat, setExportFormat] = useState<ExportFormat>("csv");
 
@@ -82,7 +102,9 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
   const [batchMode, setBatchMode] = useState(true);
 
   // Markdown options
-  const [alignNumeric, setAlignNumeric] = useState<"left" | "center" | "right">("right");
+  const [alignNumeric, setAlignNumeric] = useState<"left" | "center" | "right">(
+    "right",
+  );
 
   const handleExportCSV = async () => {
     const options: ExportOptions = {
@@ -90,7 +112,10 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
       includeHeaders,
       encoding: "utf-8",
     };
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/[:.]/g, "-")
+      .slice(0, -5);
     const filename = `query-export-${timestamp}.csv`;
     const result = await exportToCSV(rows, columns, options, filename);
     if (result.success) {
@@ -98,13 +123,18 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
         description: `${result.rowCount.toLocaleString()} rows exported`,
       });
     } else if (result.error !== "Export cancelled") {
-      toast.error("Export failed", { description: result.error || "Unknown error" });
+      toast.error("Export failed", {
+        description: result.error || "Unknown error",
+      });
     }
   };
 
   const handleExportJSON = async () => {
     const options: JsonExportOptions = { format: jsonFormat };
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/[:.]/g, "-")
+      .slice(0, -5);
     const filename = `query-export-${timestamp}.json`;
     const result = await exportToJSON(rows, columns, options, filename);
     if (result.success) {
@@ -112,15 +142,18 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
         description: `${result.rowCount.toLocaleString()} rows exported as ${jsonFormat}`,
       });
     } else if (result.error !== "Export cancelled") {
-      toast.error("Export failed", { description: result.error || "Unknown error" });
+      toast.error("Export failed", {
+        description: result.error || "Unknown error",
+      });
     }
   };
 
   const handleCopyInsert = async () => {
     const validTypes = ["postgresql", "mysql", "mariadb", "mssql", "sqlite"];
-    const dbTypeToUse = databaseType && validTypes.includes(databaseType)
-      ? (databaseType as InsertExportOptions["databaseType"])
-      : "postgresql";
+    const dbTypeToUse =
+      databaseType && validTypes.includes(databaseType)
+        ? (databaseType as InsertExportOptions["databaseType"])
+        : "postgresql";
     const options: InsertExportOptions = {
       tableName,
       schema,
@@ -133,18 +166,24 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
         description: `${result.rowCount.toLocaleString()} rows copied to clipboard`,
       });
     } else {
-      toast.error("Copy failed", { description: result.error || "Unknown error" });
+      toast.error("Copy failed", {
+        description: result.error || "Unknown error",
+      });
     }
   };
 
   const handleCopyMarkdown = async () => {
-    const result = await copyMarkdownToClipboard(rows, columns, { alignNumeric });
+    const result = await copyMarkdownToClipboard(rows, columns, {
+      alignNumeric,
+    });
     if (result.success) {
       toast.success("Copied as Markdown table", {
         description: `${result.rowCount.toLocaleString()} rows copied to clipboard`,
       });
     } else {
-      toast.error("Copy failed", { description: result.error || "Unknown error" });
+      toast.error("Copy failed", {
+        description: result.error || "Unknown error",
+      });
     }
   };
 
@@ -157,23 +196,47 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Export Format</DropdownMenuLabel>
-          <DropdownMenuItem onClick={() => { setExportFormat("csv"); }}>
-            {exportFormat === "csv" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+          <DropdownMenuItem
+            onClick={() => {
+              setExportFormat("csv");
+            }}
+          >
+            {exportFormat === "csv" && (
+              <IconCheck className="h-3.5 w-3.5 mr-2" />
+            )}
             {exportFormat !== "csv" && <span className="w-3.5 mr-2" />}
             CSV (Comma Separated)
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => { setExportFormat("json"); }}>
-            {exportFormat === "json" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+          <DropdownMenuItem
+            onClick={() => {
+              setExportFormat("json");
+            }}
+          >
+            {exportFormat === "json" && (
+              <IconCheck className="h-3.5 w-3.5 mr-2" />
+            )}
             {exportFormat !== "json" && <span className="w-3.5 mr-2" />}
             JSON (JavaScript Object)
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => { setExportFormat("insert"); }}>
-            {exportFormat === "insert" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+          <DropdownMenuItem
+            onClick={() => {
+              setExportFormat("insert");
+            }}
+          >
+            {exportFormat === "insert" && (
+              <IconCheck className="h-3.5 w-3.5 mr-2" />
+            )}
             {exportFormat !== "insert" && <span className="w-3.5 mr-2" />}
             SQL INSERT Statements
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => { setExportFormat("markdown"); }}>
-            {exportFormat === "markdown" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+          <DropdownMenuItem
+            onClick={() => {
+              setExportFormat("markdown");
+            }}
+          >
+            {exportFormat === "markdown" && (
+              <IconCheck className="h-3.5 w-3.5 mr-2" />
+            )}
             {exportFormat !== "markdown" && <span className="w-3.5 mr-2" />}
             Markdown Table
           </DropdownMenuItem>
@@ -184,26 +247,58 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
         {exportFormat === "csv" && (
           <>
             <DropdownMenuGroup>
-              <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">CSV Options</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => { setDelimiter(","); }}>
-                {delimiter === "," ? <IconCheck className="h-3.5 w-3.5 mr-2" /> : <span className="w-3.5 mr-2" />}
+              <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
+                CSV Options
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => {
+                  setDelimiter(",");
+                }}
+              >
+                {delimiter === "," ? (
+                  <IconCheck className="h-3.5 w-3.5 mr-2" />
+                ) : (
+                  <span className="w-3.5 mr-2" />
+                )}
                 Comma (,)
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => { setDelimiter(";"); }}>
-                {delimiter === ";" ? <IconCheck className="h-3.5 w-3.5 mr-2" /> : <span className="w-3.5 mr-2" />}
+              <DropdownMenuItem
+                onClick={() => {
+                  setDelimiter(";");
+                }}
+              >
+                {delimiter === ";" ? (
+                  <IconCheck className="h-3.5 w-3.5 mr-2" />
+                ) : (
+                  <span className="w-3.5 mr-2" />
+                )}
                 Semicolon (;)
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => { setDelimiter("\t"); }}>
-                {delimiter === "\t" ? <IconCheck className="h-3.5 w-3.5 mr-2" /> : <span className="w-3.5 mr-2" />}
+              <DropdownMenuItem
+                onClick={() => {
+                  setDelimiter("\t");
+                }}
+              >
+                {delimiter === "\t" ? (
+                  <IconCheck className="h-3.5 w-3.5 mr-2" />
+                ) : (
+                  <span className="w-3.5 mr-2" />
+                )}
                 Tab
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuCheckboxItem checked={includeHeaders} onCheckedChange={setIncludeHeaders}>
+            <DropdownMenuCheckboxItem
+              checked={includeHeaders}
+              onCheckedChange={setIncludeHeaders}
+            >
               Include Headers
             </DropdownMenuCheckboxItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleExportCSV} className="bg-primary/10 text-primary font-medium">
+            <DropdownMenuItem
+              onClick={handleExportCSV}
+              className="bg-primary/10 text-primary font-medium"
+            >
               <IconDownload className="h-3.5 w-3.5 mr-2" />
               Download CSV
             </DropdownMenuItem>
@@ -213,18 +308,39 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
         {exportFormat === "json" && (
           <>
             <DropdownMenuGroup>
-              <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">JSON Options</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => { setJsonFormat("pretty"); }}>
-                {jsonFormat === "pretty" ? <IconCheck className="h-3.5 w-3.5 mr-2" /> : <span className="w-3.5 mr-2" />}
+              <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
+                JSON Options
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => {
+                  setJsonFormat("pretty");
+                }}
+              >
+                {jsonFormat === "pretty" ? (
+                  <IconCheck className="h-3.5 w-3.5 mr-2" />
+                ) : (
+                  <span className="w-3.5 mr-2" />
+                )}
                 Pretty (Indented)
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => { setJsonFormat("compact"); }}>
-                {jsonFormat === "compact" ? <IconCheck className="h-3.5 w-3.5 mr-2" /> : <span className="w-3.5 mr-2" />}
+              <DropdownMenuItem
+                onClick={() => {
+                  setJsonFormat("compact");
+                }}
+              >
+                {jsonFormat === "compact" ? (
+                  <IconCheck className="h-3.5 w-3.5 mr-2" />
+                ) : (
+                  <span className="w-3.5 mr-2" />
+                )}
                 Compact (Minified)
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleExportJSON} className="bg-primary/10 text-primary font-medium">
+            <DropdownMenuItem
+              onClick={handleExportJSON}
+              className="bg-primary/10 text-primary font-medium"
+            >
               <IconDownload className="h-3.5 w-3.5 mr-2" />
               Download JSON
             </DropdownMenuItem>
@@ -234,24 +350,36 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
         {exportFormat === "insert" && (
           <>
             <DropdownMenuGroup>
-              <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">INSERT Options</DropdownMenuLabel>
+              <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
+                INSERT Options
+              </DropdownMenuLabel>
             </DropdownMenuGroup>
             <div className="px-3 py-2">
-              <label className="text-xs text-muted-foreground mb-1 block">Table Name</label>
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Table Name
+              </label>
               <input
                 type="text"
                 value={tableName}
-                onChange={(e) => { setTableName(e.target.value); }}
+                onChange={(e) => {
+                  setTableName(e.target.value);
+                }}
                 className="w-full px-2 py-1 text-xs border rounded focus:outline-none focus:ring-1 focus:ring-primary"
                 placeholder="table_name"
               />
             </div>
             <DropdownMenuSeparator />
-            <DropdownMenuCheckboxItem checked={batchMode} onCheckedChange={setBatchMode}>
+            <DropdownMenuCheckboxItem
+              checked={batchMode}
+              onCheckedChange={setBatchMode}
+            >
               Batch Mode (Single INSERT)
             </DropdownMenuCheckboxItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleCopyInsert} className="bg-primary/10 text-primary font-medium">
+            <DropdownMenuItem
+              onClick={handleCopyInsert}
+              className="bg-primary/10 text-primary font-medium"
+            >
               <IconCopy className="h-3.5 w-3.5 mr-2" />
               Copy INSERT
             </DropdownMenuItem>
@@ -261,22 +389,51 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
         {exportFormat === "markdown" && (
           <>
             <DropdownMenuGroup>
-              <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">Markdown Options</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => { setAlignNumeric("right"); }}>
-                {alignNumeric === "right" ? <IconCheck className="h-3.5 w-3.5 mr-2" /> : <span className="w-3.5 mr-2" />}
+              <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
+                Markdown Options
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => {
+                  setAlignNumeric("right");
+                }}
+              >
+                {alignNumeric === "right" ? (
+                  <IconCheck className="h-3.5 w-3.5 mr-2" />
+                ) : (
+                  <span className="w-3.5 mr-2" />
+                )}
                 Align Numbers Right
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => { setAlignNumeric("left"); }}>
-                {alignNumeric === "left" ? <IconCheck className="h-3.5 w-3.5 mr-2" /> : <span className="w-3.5 mr-2" />}
+              <DropdownMenuItem
+                onClick={() => {
+                  setAlignNumeric("left");
+                }}
+              >
+                {alignNumeric === "left" ? (
+                  <IconCheck className="h-3.5 w-3.5 mr-2" />
+                ) : (
+                  <span className="w-3.5 mr-2" />
+                )}
                 Align Numbers Left
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => { setAlignNumeric("center"); }}>
-                {alignNumeric === "center" ? <IconCheck className="h-3.5 w-3.5 mr-2" /> : <span className="w-3.5 mr-2" />}
+              <DropdownMenuItem
+                onClick={() => {
+                  setAlignNumeric("center");
+                }}
+              >
+                {alignNumeric === "center" ? (
+                  <IconCheck className="h-3.5 w-3.5 mr-2" />
+                ) : (
+                  <span className="w-3.5 mr-2" />
+                )}
                 Align Numbers Center
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleCopyMarkdown} className="bg-primary/10 text-primary font-medium">
+            <DropdownMenuItem
+              onClick={handleCopyMarkdown}
+              className="bg-primary/10 text-primary font-medium"
+            >
               <IconCopy className="h-3.5 w-3.5 mr-2" />
               Copy Markdown
             </DropdownMenuItem>
@@ -305,28 +462,28 @@ export const ResultViewer = memo(function ResultViewer({
 }: ResultViewerProps) {
   // Determine paradigm from database type
   const paradigm: DatabaseParadigm = useMemo(() => {
-    if (!databaseType) return 'sql';
-    
+    if (!databaseType) return "sql";
+
     // Try to map string dbType to DbType enum
     const dbTypeMap: Record<string, DbType> = {
-      'postgresql': DbType.PostgreSQL,
-      'postgres': DbType.PostgreSQL,
-      'mysql': DbType.MySQL,
-      'mariadb': DbType.MariaDB,
-      'sqlite': DbType.SQLite,
-      'mssql': DbType.SQLServer,
-      'sqlserver': DbType.SQLServer,
-      'mongodb': DbType.MongoDB,
-      'mongo': DbType.MongoDB,
-      'redis': DbType.Redis,
+      postgresql: DbType.PostgreSQL,
+      postgres: DbType.PostgreSQL,
+      mysql: DbType.MySQL,
+      mariadb: DbType.MariaDB,
+      sqlite: DbType.SQLite,
+      mssql: DbType.SQLServer,
+      sqlserver: DbType.SQLServer,
+      mongodb: DbType.MongoDB,
+      mongo: DbType.MongoDB,
+      redis: DbType.Redis,
     };
-    
+
     const normalizedType = databaseType.toLowerCase();
     const dbType = dbTypeMap[normalizedType];
-    
-    return dbType ? getParadigm(dbType) : 'sql';
+
+    return dbType ? getParadigm(dbType) : "sql";
   }, [databaseType]);
-  
+
   const jsonContent = useMemo(() => {
     // Skip expensive JSON computation when in table mode
     if (viewMode !== "json") {
@@ -493,21 +650,24 @@ export const ResultViewer = memo(function ResultViewer({
   }
 
   // For RETURNING clause queries: show banner with affected rows count above the data
-  const hasReturningData = result.affectedRows !== undefined && result.rows.length > 0;
+  const hasReturningData =
+    result.affectedRows !== undefined && result.rows.length > 0;
 
   return (
     <div className={cn("overflow-hidden h-full flex flex-col", className)}>
       {/* Banner for RETURNING clause queries */}
       {hasReturningData && (
         <div className="px-2 py-1.5 bg-green-500/10 border-b border-green-500/20 flex items-center gap-2">
-          <IconCircleCheck className="h-4 w-4 text-green-600 dark:text-green-500 flex-shrink-0" />
+          <IconCircleCheck className="h-4 w-4 text-green-600 dark:text-green-500 shrink-0" />
           <span className="text-sm font-medium text-green-700 dark:text-green-400">
             {result.message || `${result.affectedRows} row(s) affected`}
           </span>
         </div>
       )}
 
-      {(viewMode === "explain" || viewMode === "raw" || viewMode === "stats") && (
+      {(viewMode === "explain" ||
+        viewMode === "raw" ||
+        viewMode === "stats") && (
         <div className="h-full">
           <ExplainViewer
             result={{ columns: result.columns, rows: result.rows }}

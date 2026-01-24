@@ -25,6 +25,7 @@ import {
   IconExternalLink,
   IconLayout2,
   IconKey,
+  IconSitemap,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useQuery } from "@tanstack/react-query";
@@ -461,6 +462,35 @@ export const ConnectionSection = forwardRef<
     updateConnectionState(connectionId, database, newSchema);
   };
 
+  // Handle open ERD
+  const handleOpenErd = () => {
+    setFocusedConnection(connectionId);
+    const { focusedPanelId, addTab, panelContents, focusPanel } =
+      useWorkbenchStore.getState();
+
+    const erdTabId = `erd-${connectionId}`;
+    const erdMetadata = {
+      type: "erd" as const,
+      title: "ERD",
+      connectionId,
+      database,
+      schema: schema || "public",
+    };
+
+    let targetPanelId = focusedPanelId;
+    if (!targetPanelId && panelContents.size > 0) {
+      const firstPanelId = Array.from(panelContents.keys())[0];
+      if (firstPanelId) {
+        targetPanelId = firstPanelId;
+        focusPanel(firstPanelId);
+      }
+    }
+
+    if (targetPanelId) {
+      addTab(targetPanelId, erdTabId, erdMetadata);
+    }
+  };
+
   // Context menu handlers
   const handleContextMenu = (itemKey: string, event: React.MouseEvent) => {
     event.preventDefault();
@@ -475,13 +505,21 @@ export const ConnectionSection = forwardRef<
   };
 
   const getSelectedTypesBreakdown = () => {
-    const breakdown = { tables: 0, views: 0, materializedViews: 0, functions: 0 };
+    const breakdown = {
+      tables: 0,
+      views: 0,
+      materializedViews: 0,
+      functions: 0,
+    };
     selectedItems.forEach((key) => {
       const [type] = key.split(":");
       if (type === "table") breakdown.tables++;
       else if (type === "view") {
-        const viewItem = views.find((v) => `view:${v.schema}.${v.name}` === key);
-        if (viewItem?.kind === "MaterializedView") breakdown.materializedViews++;
+        const viewItem = views.find(
+          (v) => `view:${v.schema}.${v.name}` === key,
+        );
+        if (viewItem?.kind === "MaterializedView")
+          breakdown.materializedViews++;
         else breakdown.views++;
       } else if (type === "function") breakdown.functions++;
     });
@@ -489,7 +527,12 @@ export const ConnectionSection = forwardRef<
   };
 
   const getSelectedItems = () => {
-    const items: Array<{ type: string; schema: string; name: string; kind?: string }> = [];
+    const items: Array<{
+      type: string;
+      schema: string;
+      name: string;
+      kind?: string;
+    }> = [];
     selectedItems.forEach((key) => {
       const colonIndex = key.indexOf(":");
       if (colonIndex === -1) return;
@@ -500,7 +543,9 @@ export const ConnectionSection = forwardRef<
       const itemSchema = rest.slice(0, dotIndex);
       const name = rest.slice(dotIndex + 1);
       if (type === "view") {
-        const viewItem = views.find((v) => v.schema === itemSchema && v.name === name);
+        const viewItem = views.find(
+          (v) => v.schema === itemSchema && v.name === name,
+        );
         items.push({ type, schema: itemSchema, name, kind: viewItem?.kind });
       } else {
         items.push({ type, schema: itemSchema, name });
@@ -554,9 +599,14 @@ export const ConnectionSection = forwardRef<
     const items = getSelectedItems();
     items.forEach((item) => {
       if (item.type === "table" || item.type === "view") {
-        const meta = item.type === "table"
-          ? tables.find((t) => t.schema === item.schema && t.name === item.name)
-          : views.find((v) => v.schema === item.schema && v.name === item.name);
+        const meta =
+          item.type === "table"
+            ? tables.find(
+                (t) => t.schema === item.schema && t.name === item.name,
+              )
+            : views.find(
+                (v) => v.schema === item.schema && v.name === item.name,
+              );
         if (meta) handleTableClick(meta, "data");
       }
     });
@@ -567,9 +617,14 @@ export const ConnectionSection = forwardRef<
     const items = getSelectedItems();
     items.forEach((item) => {
       if (item.type === "table" || item.type === "view") {
-        const meta = item.type === "table"
-          ? tables.find((t) => t.schema === item.schema && t.name === item.name)
-          : views.find((v) => v.schema === item.schema && v.name === item.name);
+        const meta =
+          item.type === "table"
+            ? tables.find(
+                (t) => t.schema === item.schema && t.name === item.name,
+              )
+            : views.find(
+                (v) => v.schema === item.schema && v.name === item.name,
+              );
         if (meta) handleTableClick(meta, "structure");
       }
     });
@@ -580,9 +635,14 @@ export const ConnectionSection = forwardRef<
     const items = getSelectedItems();
     items.forEach((item) => {
       if (item.type === "table" || item.type === "view") {
-        const meta = item.type === "table"
-          ? tables.find((t) => t.schema === item.schema && t.name === item.name)
-          : views.find((v) => v.schema === item.schema && v.name === item.name);
+        const meta =
+          item.type === "table"
+            ? tables.find(
+                (t) => t.schema === item.schema && t.name === item.name,
+              )
+            : views.find(
+                (v) => v.schema === item.schema && v.name === item.name,
+              );
         if (meta) handleTableClick(meta, "indexes");
       }
     });
@@ -593,7 +653,9 @@ export const ConnectionSection = forwardRef<
     const items = getSelectedItems();
     items.forEach((item) => {
       if (item.type === "table") {
-        const meta = tables.find((t) => t.schema === item.schema && t.name === item.name);
+        const meta = tables.find(
+          (t) => t.schema === item.schema && t.name === item.name,
+        );
         if (meta) handleTableClick(meta, "triggers");
       }
     });
@@ -604,12 +666,19 @@ export const ConnectionSection = forwardRef<
     const items = getSelectedItems();
     items.forEach((item) => {
       if (item.type === "table" || item.type === "view") {
-        const meta = item.type === "table"
-          ? tables.find((t) => t.schema === item.schema && t.name === item.name)
-          : views.find((v) => v.schema === item.schema && v.name === item.name);
+        const meta =
+          item.type === "table"
+            ? tables.find(
+                (t) => t.schema === item.schema && t.name === item.name,
+              )
+            : views.find(
+                (v) => v.schema === item.schema && v.name === item.name,
+              );
         if (meta) handleTableClick(meta, "definition");
       } else if (item.type === "function") {
-        const meta = functions.find((f) => f.schema === item.schema && f.name === item.name);
+        const meta = functions.find(
+          (f) => f.schema === item.schema && f.name === item.name,
+        );
         if (meta) handleFunctionClick(meta);
       }
     });
@@ -649,16 +718,16 @@ export const ConnectionSection = forwardRef<
         >
           {/* Expand/Collapse chevron */}
           {isExpanded ? (
-            <IconChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <IconChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           ) : (
-            <IconChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <IconChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           )}
 
           {/* Database icon */}
           <img
             src={getDatabaseLogo(dbType)}
             alt={dbType}
-            className="h-4 w-4 shrink-0"
+            className="h-3.5 w-3.5 shrink-0"
           />
 
           {/* Connection name */}
@@ -672,7 +741,7 @@ export const ConnectionSection = forwardRef<
               onClick={(e) => {
                 e.stopPropagation();
               }}
-              className="shrink-0"
+              className="shrink-0 -mt-1"
             >
               <SchemaDropdown
                 connectionId={connectionId}
@@ -707,6 +776,15 @@ export const ConnectionSection = forwardRef<
             <IconExternalLink className="h-4 w-4 mr-2" />
             Open in New Window
           </ContextMenuItem>
+          {isSqlDb && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem onClick={handleOpenErd}>
+                <IconSitemap className="h-4 w-4 mr-2" />
+                View ERD
+              </ContextMenuItem>
+            </>
+          )}
           <ContextMenuSeparator />
           <ContextMenuItem
             onClick={() => {
@@ -897,8 +975,15 @@ export const ConnectionSection = forwardRef<
                           onToggleExpand={() => {
                             togglePartitionedTable(tableKey);
                           }}
-                          isSelected={selectedItems.has(`table:${table.schema}.${table.name}`)}
-                          onContextMenu={(e) => handleContextMenu(`table:${table.schema}.${table.name}`, e)}
+                          isSelected={selectedItems.has(
+                            `table:${table.schema}.${table.name}`,
+                          )}
+                          onContextMenu={(e) => {
+                            handleContextMenu(
+                              `table:${table.schema}.${table.name}`,
+                              e,
+                            );
+                          }}
                           actions={
                             <>
                               <ActionButton
@@ -995,8 +1080,15 @@ export const ConnectionSection = forwardRef<
                       hasPendingChanges={pendingChangesSet.has(
                         `${view.schema}.${view.name}`,
                       )}
-                      isSelected={selectedItems.has(`view:${view.schema}.${view.name}`)}
-                      onContextMenu={(e) => handleContextMenu(`view:${view.schema}.${view.name}`, e)}
+                      isSelected={selectedItems.has(
+                        `view:${view.schema}.${view.name}`,
+                      )}
+                      onContextMenu={(e) => {
+                        handleContextMenu(
+                          `view:${view.schema}.${view.name}`,
+                          e,
+                        );
+                      }}
                       actions={
                         <>
                           {view.kind === "MaterializedView" && (
@@ -1077,8 +1169,15 @@ export const ConnectionSection = forwardRef<
                         func.name,
                         func.schema,
                       )}
-                      isSelected={selectedItems.has(`function:${func.schema}.${func.name}`)}
-                      onContextMenu={(e) => handleContextMenu(`function:${func.schema}.${func.name}`, e)}
+                      isSelected={selectedItems.has(
+                        `function:${func.schema}.${func.name}`,
+                      )}
+                      onContextMenu={(e) => {
+                        handleContextMenu(
+                          `function:${func.schema}.${func.name}`,
+                          e,
+                        );
+                      }}
                     />
                   ))}
                 </SidebarSection>

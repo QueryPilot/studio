@@ -220,8 +220,8 @@ export const TableDataGrid = memo(function TableDataGrid(
     ? kind === "MaterializedView"
       ? "materialized_view"
       : kind === "View" || isView
-      ? "view"
-      : "table"
+        ? "view"
+        : "table"
     : "table";
 
   useContextKey("dataGridEditable", isTableMode, {
@@ -276,13 +276,19 @@ export const TableDataGrid = memo(function TableDataGrid(
     for (const fk of tableStructure.foreignKeys) {
       // Each FK can have multiple columns, but for embedded preview we use single-column FKs
       const fkSourceCol = fk.columns[0];
-      if (fk.columns.length === 1 && fk.foreignColumns.length === 1 && fkSourceCol) {
+      if (
+        fk.columns.length === 1 &&
+        fk.foreignColumns.length === 1 &&
+        fkSourceCol
+      ) {
         fkMap.set(fkSourceCol, fk);
       }
     }
 
     // Build config for each embedded column preference
-    for (const [fkColumn, refDisplayColumns] of Object.entries(embeddedColumns)) {
+    for (const [fkColumn, refDisplayColumns] of Object.entries(
+      embeddedColumns,
+    )) {
       const fk = fkMap.get(fkColumn);
       const refPkColumn = fk?.foreignColumns[0];
       if (fk && refPkColumn && refDisplayColumns.length > 0) {
@@ -485,7 +491,8 @@ export const TableDataGrid = memo(function TableDataGrid(
     pageSize: TABLE_PAGE_SIZE,
     sorts: userSorts ?? defaultSorts,
     filters: activeFilter,
-    embeddedFKs: deferredEmbeddedFKs.length > 0 ? deferredEmbeddedFKs : undefined,
+    embeddedFKs:
+      deferredEmbeddedFKs.length > 0 ? deferredEmbeddedFKs : undefined,
   });
 
   // IconKeyboard shortcuts for focusing quick filter (Cmd+F or /)
@@ -587,7 +594,11 @@ export const TableDataGrid = memo(function TableDataGrid(
   const transformedQueryRows = useMemo((): GridRowModel[] => {
     if (!queryData?.rows) {
       // Reset cache when no data
-      transformedRowsCacheRef.current = { sourceRows: null, transformed: [], transformedCount: 0 };
+      transformedRowsCacheRef.current = {
+        sourceRows: null,
+        transformed: [],
+        transformedCount: 0,
+      };
       return [];
     }
 
@@ -609,11 +620,13 @@ export const TableDataGrid = memo(function TableDataGrid(
 
     // Check if source changed completely (new query) - reset cache
     // We detect this by checking if row count decreased or first row changed
-    const sourceChanged = cache.sourceRows !== rows && (
-      rows.length < cache.transformedCount ||
-      cache.transformedCount === 0 ||
-      (rows.length > 0 && cache.transformed.length > 0 && rows[0] !== cache.sourceRows?.[0])
-    );
+    const sourceChanged =
+      cache.sourceRows !== rows &&
+      (rows.length < cache.transformedCount ||
+        cache.transformedCount === 0 ||
+        (rows.length > 0 &&
+          cache.transformed.length > 0 &&
+          rows[0] !== cache.sourceRows?.[0]));
 
     if (sourceChanged) {
       cache.sourceRows = rows;
@@ -657,7 +670,12 @@ export const TableDataGrid = memo(function TableDataGrid(
     cache.sourceRows = rows;
 
     return cache.transformed;
-  }, [queryData?.rows, queryData?.rowCount, queryData?.columnMeta, queryData?.columns]);
+  }, [
+    queryData?.rows,
+    queryData?.rowCount,
+    queryData?.columnMeta,
+    queryData?.columns,
+  ]);
 
   const {
     isLoading,
@@ -688,8 +706,8 @@ export const TableDataGrid = memo(function TableDataGrid(
           tableDataQuery.error instanceof Error
             ? tableDataQuery.error.message
             : typeof tableDataQuery.error === "string"
-            ? tableDataQuery.error
-            : null,
+              ? tableDataQuery.error
+              : null,
         columns: tableDataQuery.columns,
         rows: tableDataQuery.rows,
         estimatedTotal:
@@ -787,7 +805,10 @@ export const TableDataGrid = memo(function TableDataGrid(
 
   // Build FK references map for useReferencedTableColumns hook
   const fkReferencesForHook = useMemo(() => {
-    const map = new Map<string, { schema: string; table: string; column: string }>();
+    const map = new Map<
+      string,
+      { schema: string; table: string; column: string }
+    >();
     for (const [colName, ref] of fkReferenceByColumn) {
       map.set(colName, {
         schema: ref.referenced_schema,
@@ -940,7 +961,9 @@ export const TableDataGrid = memo(function TableDataGrid(
   const tableKey = isTableMode
     ? getTableKey({ connectionId, database, schema, table })
     : "";
-  const pendingChanges = isTableMode ? stagedCommands.get(tableKey) ?? [] : [];
+  const pendingChanges = isTableMode
+    ? (stagedCommands.get(tableKey) ?? [])
+    : [];
 
   const handlePinRowsFromMenu = useCallback(
     (rowKeys: string[]) => {
@@ -986,7 +1009,9 @@ export const TableDataGrid = memo(function TableDataGrid(
         .filter((meta) => !meta.name.startsWith("__qp_fk__"))
         .map((meta) => {
           // Find original index in columnMeta for field mapping
-          const originalIndex = columnMeta.findIndex((c) => c.name === meta.name);
+          const originalIndex = columnMeta.findIndex(
+            (c) => c.name === meta.name,
+          );
           // Use index-based field for data access (handles duplicate column names in JOINs)
           const uniqueField = `col_${originalIndex}`;
           // Use column name as ID for table mode (stable for preferences persistence)
@@ -1002,13 +1027,20 @@ export const TableDataGrid = memo(function TableDataGrid(
                 // Add FK reference and is_fk flag if available
                 fk_reference: fkRef ?? undefined,
                 is_fk: !!fkRef,
-              } as typeof meta & { fk_reference?: typeof fkRef; is_fk?: boolean })
-            : fkRef
-            ? ({ ...meta, fk_reference: fkRef, is_fk: true } as typeof meta & {
+              } as typeof meta & {
                 fk_reference?: typeof fkRef;
                 is_fk?: boolean;
               })
-            : meta;
+            : fkRef
+              ? ({
+                  ...meta,
+                  fk_reference: fkRef,
+                  is_fk: true,
+                } as typeof meta & {
+                  fk_reference?: typeof fkRef;
+                  is_fk?: boolean;
+                })
+              : meta;
           return {
             id: columnId,
             field: uniqueField,
@@ -1248,12 +1280,21 @@ export const TableDataGrid = memo(function TableDataGrid(
   const handleCellEditCommitWithEmbedded = useCallback(
     (event: GridEditCommitEvent): undefined => {
       // For FK columns, extract and store the embeddedValue from the committed cell
-      if (event.column.meta?.is_fk && event.newValue && "data" in event.newValue) {
+      if (
+        event.column.meta?.is_fk &&
+        event.newValue &&
+        "data" in event.newValue
+      ) {
         const data = event.newValue.data;
-        if (typeof data === "object" && data !== null && "embeddedValue" in data) {
+        if (
+          typeof data === "object" &&
+          data !== null &&
+          "embeddedValue" in data
+        ) {
           const columnName = event.column.name ?? event.column.field;
           const key = `${event.rowIndex}:${columnName}`;
-          const embeddedValue = (data as { embeddedValue?: string | null }).embeddedValue;
+          const embeddedValue = (data as { embeddedValue?: string | null })
+            .embeddedValue;
           stagedFKEmbeddedValuesRef.current.set(key, embeddedValue ?? null);
         }
       }
@@ -1439,12 +1480,17 @@ export const TableDataGrid = memo(function TableDataGrid(
 
   // Track staged FK embedded values (display text) for showing in cells before commit
   // Key: `${rowIndex}:${columnName}`, Value: embeddedValue string
-  const stagedFKEmbeddedValuesRef = useRef<Map<string, string | null>>(new Map());
+  const stagedFKEmbeddedValuesRef = useRef<Map<string, string | null>>(
+    new Map(),
+  );
 
   // Cleanup staged FK embedded values when staged changes are cleared (after commit/revert)
   useEffect(() => {
     // Clear all staged embedded values when there are no more staged row changes
-    if (stagedChanges.rowChanges.size === 0 && stagedFKEmbeddedValuesRef.current.size > 0) {
+    if (
+      stagedChanges.rowChanges.size === 0 &&
+      stagedFKEmbeddedValuesRef.current.size > 0
+    ) {
       stagedFKEmbeddedValuesRef.current.clear();
     }
   }, [stagedChanges.rowChanges.size]);
@@ -1476,7 +1522,11 @@ export const TableDataGrid = memo(function TableDataGrid(
         isGridFocused;
 
       if (hasFocus) {
-        void exportToCSV(deferredDisplayRows, finalColumns, `${table || "query_result"}_export.csv`);
+        void exportToCSV(
+          deferredDisplayRows,
+          finalColumns,
+          `${table || "query_result"}_export.csv`,
+        );
         toast.success("Export started");
       }
     };
@@ -2023,7 +2073,6 @@ export const TableDataGrid = memo(function TableDataGrid(
             <IconPlus className="h-3 w-3" />
           </Button>
         )}
-
       </div>,
     );
   }, [
@@ -2132,7 +2181,10 @@ export const TableDataGrid = memo(function TableDataGrid(
           // Fall back to embedded FK field from row data
           const embeddedField = embeddedFKFieldMapRef.current.get(columnName);
           if (embeddedField) {
-            const embeddedCell = row[embeddedField] as GridCellValue | null | undefined;
+            const embeddedCell = row[embeddedField] as
+              | GridCellValue
+              | null
+              | undefined;
             if (embeddedCell?.value != null) {
               embeddedValue = String(embeddedCell.value);
             }
@@ -2149,12 +2201,14 @@ export const TableDataGrid = memo(function TableDataGrid(
         column,
         readOnly: isReadOnly,
         embeddedValue,
-        connectionContext: isTableMode ? {
-          connectionId,
-          database,
-          schema: schema ?? "public",
-          table,
-        } : undefined,
+        connectionContext: isTableMode
+          ? {
+              connectionId,
+              database,
+              schema: schema ?? "public",
+              table,
+            }
+          : undefined,
       });
 
       // Apply cell-level styling for staged changes
@@ -2374,7 +2428,7 @@ export const TableDataGrid = memo(function TableDataGrid(
                 </div>
               )}
               {toolbarActions && (
-                <div className="flex-shrink-0 flex items-center gap-1.5">
+                <div className="shrink-0 flex items-center gap-1.5">
                   {toolbarActions}
                 </div>
               )}
@@ -2518,7 +2572,9 @@ export const TableDataGrid = memo(function TableDataGrid(
             onOpen={handleContextMenuOpen}
             contextMenuTargetRef={contextMenuTargetRef}
             connectionId={isTableMode ? connectionId : undefined}
-            referencedTableColumns={isTableMode ? referencedTableColumns : undefined}
+            referencedTableColumns={
+              isTableMode ? referencedTableColumns : undefined
+            }
           >
             <EditableDataGrid
               ref={gridRef}
@@ -2661,8 +2717,8 @@ export const TableDataGrid = memo(function TableDataGrid(
           entityType === "materialized_view"
             ? "Read-only: Materialized View"
             : entityType === "view"
-            ? "Read-only: View"
-            : undefined
+              ? "Read-only: View"
+              : undefined
         }
         onRefreshMaterializedView={
           entityType === "materialized_view"

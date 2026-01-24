@@ -137,7 +137,7 @@ export const IndexTypeCellEditor: React.FC<IndexTypeCellEditorProps> = ({
         tabIndex={0}
       >
         <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800/50">
-          <IconAlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-500 flex-shrink-0" />
+          <IconAlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-500 shrink-0" />
           <span className="text-xs font-medium text-amber-800 dark:text-amber-200">
             Recreate Required
           </span>
