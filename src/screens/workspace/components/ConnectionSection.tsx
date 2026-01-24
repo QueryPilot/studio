@@ -64,7 +64,9 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { SchemaDropdown } from "./SchemaDropdown";
+import { DatabaseSidebarContextMenu } from "./DatabaseSidebarContextMenu";
 import { toast } from "sonner";
+import { writeClipboardText } from "@/lib/clipboard";
 
 interface ConnectionSectionProps {
   connection: OpenConnection;
@@ -121,6 +123,14 @@ export const ConnectionSection = forwardRef<
   const [expandedPartitionedTables, setExpandedPartitionedTables] = useState<
     Set<string>
   >(new Set());
+
+  // Context menu state
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    visible: boolean;
+  } | null>(null);
 
   // Get schema data for SQL databases
   const {
@@ -451,6 +461,161 @@ export const ConnectionSection = forwardRef<
     updateConnectionState(connectionId, database, newSchema);
   };
 
+  // Context menu handlers
+  const handleContextMenu = (itemKey: string, event: React.MouseEvent) => {
+    event.preventDefault();
+    if (!selectedItems.has(itemKey)) {
+      setSelectedItems(new Set([itemKey]));
+    }
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      visible: true,
+    });
+  };
+
+  const getSelectedTypesBreakdown = () => {
+    const breakdown = { tables: 0, views: 0, materializedViews: 0, functions: 0 };
+    selectedItems.forEach((key) => {
+      const [type] = key.split(":");
+      if (type === "table") breakdown.tables++;
+      else if (type === "view") {
+        const viewItem = views.find((v) => `view:${v.schema}.${v.name}` === key);
+        if (viewItem?.kind === "MaterializedView") breakdown.materializedViews++;
+        else breakdown.views++;
+      } else if (type === "function") breakdown.functions++;
+    });
+    return breakdown;
+  };
+
+  const getSelectedItems = () => {
+    const items: Array<{ type: string; schema: string; name: string; kind?: string }> = [];
+    selectedItems.forEach((key) => {
+      const colonIndex = key.indexOf(":");
+      if (colonIndex === -1) return;
+      const type = key.slice(0, colonIndex);
+      const rest = key.slice(colonIndex + 1);
+      const dotIndex = rest.indexOf(".");
+      if (dotIndex === -1) return;
+      const itemSchema = rest.slice(0, dotIndex);
+      const name = rest.slice(dotIndex + 1);
+      if (type === "view") {
+        const viewItem = views.find((v) => v.schema === itemSchema && v.name === name);
+        items.push({ type, schema: itemSchema, name, kind: viewItem?.kind });
+      } else {
+        items.push({ type, schema: itemSchema, name });
+      }
+    });
+    return items;
+  };
+
+  const handleCopyName = async () => {
+    const items = getSelectedItems();
+    const names = items.map((i) => i.name).join("\n");
+    try {
+      await writeClipboardText(names);
+      toast.success(`Copied ${items.length} name(s)`);
+    } catch {
+      toast.error("Failed to copy names");
+    }
+  };
+
+  const handleCopyDefinition = async () => {
+    toast.info("Copy definition - coming soon");
+  };
+
+  const handleExport = () => {
+    toast.info("Export - coming soon");
+  };
+
+  const handlePin = () => {
+    const items = getSelectedItems();
+    items.forEach((item) => {
+      toggleStarred({
+        connectionId,
+        database,
+        schema: item.schema,
+        type: item.type as StarredItemType,
+        name: item.name,
+      });
+    });
+    setSelectedItems(new Set());
+  };
+
+  const handleTruncate = () => {
+    toast.info("Truncate - coming soon");
+  };
+
+  const handleDelete = () => {
+    toast.info("Delete - coming soon");
+  };
+
+  const handleViewData = () => {
+    const items = getSelectedItems();
+    items.forEach((item) => {
+      if (item.type === "table" || item.type === "view") {
+        const meta = item.type === "table"
+          ? tables.find((t) => t.schema === item.schema && t.name === item.name)
+          : views.find((v) => v.schema === item.schema && v.name === item.name);
+        if (meta) handleTableClick(meta, "data");
+      }
+    });
+    setSelectedItems(new Set());
+  };
+
+  const handleViewStructure = () => {
+    const items = getSelectedItems();
+    items.forEach((item) => {
+      if (item.type === "table" || item.type === "view") {
+        const meta = item.type === "table"
+          ? tables.find((t) => t.schema === item.schema && t.name === item.name)
+          : views.find((v) => v.schema === item.schema && v.name === item.name);
+        if (meta) handleTableClick(meta, "structure");
+      }
+    });
+    setSelectedItems(new Set());
+  };
+
+  const handleViewIndexes = () => {
+    const items = getSelectedItems();
+    items.forEach((item) => {
+      if (item.type === "table" || item.type === "view") {
+        const meta = item.type === "table"
+          ? tables.find((t) => t.schema === item.schema && t.name === item.name)
+          : views.find((v) => v.schema === item.schema && v.name === item.name);
+        if (meta) handleTableClick(meta, "indexes");
+      }
+    });
+    setSelectedItems(new Set());
+  };
+
+  const handleViewTriggers = () => {
+    const items = getSelectedItems();
+    items.forEach((item) => {
+      if (item.type === "table") {
+        const meta = tables.find((t) => t.schema === item.schema && t.name === item.name);
+        if (meta) handleTableClick(meta, "triggers");
+      }
+    });
+    setSelectedItems(new Set());
+  };
+
+  const handleViewDefinition = () => {
+    const items = getSelectedItems();
+    items.forEach((item) => {
+      if (item.type === "table" || item.type === "view") {
+        const meta = item.type === "table"
+          ? tables.find((t) => t.schema === item.schema && t.name === item.name)
+          : views.find((v) => v.schema === item.schema && v.name === item.name);
+        if (meta) handleTableClick(meta, "definition");
+      } else if (item.type === "function") {
+        const meta = functions.find((f) => f.schema === item.schema && f.name === item.name);
+        if (meta) handleFunctionClick(meta);
+      }
+    });
+    setSelectedItems(new Set());
+  };
+
   // Status indicator color
   const statusColor =
     status === "connected"
@@ -484,20 +649,20 @@ export const ConnectionSection = forwardRef<
         >
           {/* Expand/Collapse chevron */}
           {isExpanded ? (
-            <IconChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+            <IconChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
           ) : (
-            <IconChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+            <IconChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
           )}
 
           {/* Database icon */}
           <img
             src={getDatabaseLogo(dbType)}
             alt={dbType}
-            className="h-4 w-4 flex-shrink-0"
+            className="h-4 w-4 shrink-0"
           />
 
           {/* Connection name */}
-          <span className="text-sm font-medium truncate flex-1">
+          <span className="text-xs font-medium truncate flex-1">
             {profile.name}
           </span>
 
@@ -507,7 +672,7 @@ export const ConnectionSection = forwardRef<
               onClick={(e) => {
                 e.stopPropagation();
               }}
-              className="flex-shrink-0"
+              className="shrink-0"
             >
               <SchemaDropdown
                 connectionId={connectionId}
@@ -519,7 +684,7 @@ export const ConnectionSection = forwardRef<
 
           {/* Status indicator */}
           <span
-            className={cn("h-2 w-2 rounded-full flex-shrink-0", statusColor)}
+            className={cn("h-2 w-2 rounded-full shrink-0", statusColor)}
             title={status}
           />
         </ContextMenuTrigger>
@@ -625,7 +790,7 @@ export const ConnectionSection = forwardRef<
                       item.type === "function" ? (
                         <IconMathFunction
                           className={cn(
-                            "h-3.5 w-4 min-w-4 flex-shrink-0",
+                            "h-3.5 w-4 min-w-4 shrink-0",
                             isProcedure(itemData as FunctionMeta)
                               ? "text-orange-500"
                               : "text-purple-500",
@@ -634,14 +799,14 @@ export const ConnectionSection = forwardRef<
                       ) : item.type === "view" ? (
                         <IconEye
                           className={cn(
-                            "h-4 min-h-4 w-4 min-w-4 flex-shrink-0",
+                            "h-4 min-h-4 w-4 min-w-4 shrink-0",
                             (itemData as TableMeta).kind === "MaterializedView"
                               ? "text-blue-500"
                               : "text-green-500",
                           )}
                         />
                       ) : (
-                        <IconTable className="h-3.5 w-4 min-w-4 text-primary flex-shrink-0" />
+                        <IconTable className="h-3.5 w-4 min-w-4 text-primary shrink-0" />
                       );
 
                     const isActive =
@@ -708,7 +873,7 @@ export const ConnectionSection = forwardRef<
                       <div key={tableKey}>
                         <SidebarItem
                           icon={
-                            <IconTable className="h-3.5 w-4 min-w-4 text-primary flex-shrink-0" />
+                            <IconTable className="h-3.5 w-4 min-w-4 text-primary shrink-0" />
                           }
                           name={table.name}
                           isActive={isTableActive(table.name, table.schema)}
@@ -732,6 +897,8 @@ export const ConnectionSection = forwardRef<
                           onToggleExpand={() => {
                             togglePartitionedTable(tableKey);
                           }}
+                          isSelected={selectedItems.has(`table:${table.schema}.${table.name}`)}
+                          onContextMenu={(e) => handleContextMenu(`table:${table.schema}.${table.name}`, e)}
                           actions={
                             <>
                               <ActionButton
@@ -805,7 +972,7 @@ export const ConnectionSection = forwardRef<
                       icon={
                         <IconEye
                           className={cn(
-                            "h-4 min-h-4 w-4 min-w-4 flex-shrink-0",
+                            "h-4 min-h-4 w-4 min-w-4 shrink-0",
                             view.kind === "MaterializedView"
                               ? "text-blue-500"
                               : "text-green-500",
@@ -828,6 +995,8 @@ export const ConnectionSection = forwardRef<
                       hasPendingChanges={pendingChangesSet.has(
                         `${view.schema}.${view.name}`,
                       )}
+                      isSelected={selectedItems.has(`view:${view.schema}.${view.name}`)}
+                      onContextMenu={(e) => handleContextMenu(`view:${view.schema}.${view.name}`, e)}
                       actions={
                         <>
                           {view.kind === "MaterializedView" && (
@@ -888,7 +1057,7 @@ export const ConnectionSection = forwardRef<
                       icon={
                         <IconMathFunction
                           className={cn(
-                            "h-3.5 w-4 min-w-4 flex-shrink-0",
+                            "h-3.5 w-4 min-w-4 shrink-0",
                             isProcedure(func)
                               ? "text-orange-500"
                               : "text-purple-500",
@@ -908,6 +1077,8 @@ export const ConnectionSection = forwardRef<
                         func.name,
                         func.schema,
                       )}
+                      isSelected={selectedItems.has(`function:${func.schema}.${func.name}`)}
+                      onContextMenu={(e) => handleContextMenu(`function:${func.schema}.${func.name}`, e)}
                     />
                   ))}
                 </SidebarSection>
@@ -988,7 +1159,7 @@ export const ConnectionSection = forwardRef<
                       <SidebarItem
                         key={collection.name}
                         icon={
-                          <IconLayout2 className="h-3.5 w-4 min-w-4 text-emerald-600 flex-shrink-0" />
+                          <IconLayout2 className="h-3.5 w-4 min-w-4 text-emerald-600 shrink-0" />
                         }
                         name={collection.name}
                         isActive={false}
@@ -1094,6 +1265,31 @@ export const ConnectionSection = forwardRef<
             </div>
           )}
         </div>
+      )}
+
+      {/* Context Menu */}
+      {contextMenu?.visible && selectedItems.size > 0 && (
+        <DatabaseSidebarContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          selectedCount={selectedItems.size}
+          selectedTypes={getSelectedTypesBreakdown()}
+          onClose={() => {
+            setContextMenu(null);
+            setSelectedItems(new Set());
+          }}
+          onExport={handleExport}
+          onCopyName={handleCopyName}
+          onCopyDefinition={handleCopyDefinition}
+          onPin={handlePin}
+          onTruncate={handleTruncate}
+          onDelete={handleDelete}
+          onViewData={handleViewData}
+          onViewStructure={handleViewStructure}
+          onViewIndexes={handleViewIndexes}
+          onViewTriggers={handleViewTriggers}
+          onViewDefinition={handleViewDefinition}
+        />
       )}
     </div>
   );
