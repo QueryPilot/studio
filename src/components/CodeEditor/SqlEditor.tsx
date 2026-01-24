@@ -711,7 +711,7 @@ export const SqlEditor = memo(
           // Dynamic compartments (instance-level to prevent state corruption)
           compartments.theme.of(getThemeExtensions(actualTheme)),
           compartments.dialect.of([
-            ...createDialectLinter(effectiveDialect),
+            ...createDialectLinter(effectiveDialect, { connectionId, schema }),
             ...dialectExtensions,
           ]),
           compartments.completion.of(completionExtension),
@@ -826,11 +826,11 @@ export const SqlEditor = memo(
     useEffect(() => {
       viewRef.current?.dispatch({
         effects: compartments.dialect.reconfigure([
-          ...createDialectLinter(effectiveDialect),
+          ...createDialectLinter(effectiveDialect, { connectionId, schema }),
           ...dialectExtensions,
         ]),
       });
-    }, [effectiveDialect, dialectExtensions, compartments]);
+    }, [effectiveDialect, dialectExtensions, compartments, connectionId, schema]);
 
     // Update completion extension (lightweight - separate from dialect)
     useEffect(() => {

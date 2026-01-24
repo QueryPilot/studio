@@ -7,6 +7,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { logger } from "@/lib/logger";
+import { isTauri } from "@/utils/tauri";
 
 // Types matching Rust structs from outline.rs
 // (serde handles snake_case to camelCase conversion)
@@ -56,14 +57,6 @@ interface OutlineCache {
 let cache: OutlineCache | null = null;
 
 /**
- * Check if Tauri environment is available.
- * Tauri 2 uses __TAURI_INTERNALS__ instead of __TAURI__
- */
-function isTauriAvailable(): boolean {
-  return typeof window !== "undefined" && window.__TAURI_INTERNALS__ !== undefined;
-}
-
-/**
  * Create a failed OutlineTree for error cases.
  */
 function createFailedOutline(): OutlineTree {
@@ -87,7 +80,7 @@ export async function getOutline(
   }
 
   // Check Tauri availability
-  if (!isTauriAvailable()) {
+  if (!isTauri()) {
     logger.warn("[refactor-service] Tauri not available, cannot get outline");
     return createFailedOutline();
   }
@@ -158,7 +151,7 @@ export async function getRefactorActions(
   dialect: string,
   cursorOffset: number
 ): Promise<RefactorAction[]> {
-  if (!isTauriAvailable()) {
+  if (!isTauri()) {
     logger.warn("[refactor-service] Tauri not available");
     return [];
   }
@@ -183,7 +176,7 @@ export async function applyRefactor(
   dialect: string,
   action: RefactorRequest
 ): Promise<RefactorResult> {
-  if (!isTauriAvailable()) {
+  if (!isTauri()) {
     throw new Error("Tauri not available");
   }
 

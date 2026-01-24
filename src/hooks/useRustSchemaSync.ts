@@ -15,6 +15,7 @@ import {
   type EnumInput,
 } from "@/services/sqlEngineService";
 import { logger } from "@/lib/logger";
+import { isTauri } from "@/utils/tauri";
 
 interface UseRustSchemaSyncOptions {
   connectionId: string;
@@ -30,7 +31,7 @@ const SYNC_DEBOUNCE_MS = 5000; // Don't re-sync within 5 seconds
  * Check if Rust schema sync is available (Tauri environment)
  */
 export function isRustSchemaSyncAvailable(): boolean {
-  return typeof window !== "undefined" && "__TAURI__" in window;
+  return isTauri();
 }
 
 /**
