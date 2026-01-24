@@ -40,10 +40,7 @@ import {
   ActionButton,
 } from "./DatabaseSidebarItem";
 import { PartitionSubTree } from "./PartitionSubTree";
-import {
-  type TableMeta,
-  type FunctionMeta,
-} from "@/services/databaseService";
+import { type TableMeta, type FunctionMeta } from "@/services/databaseService";
 import {
   openFunctionObject,
   openTableObject,
@@ -77,17 +74,39 @@ interface ConnectionSectionProps {
   onTableClick?: (
     connectionId: string,
     table: TableMeta,
-    viewType?: "data" | "structure" | "indexes" | "triggers" | "definition" | "partitions"
+    viewType?:
+      | "data"
+      | "structure"
+      | "indexes"
+      | "triggers"
+      | "definition"
+      | "partitions",
   ) => void;
   onFunctionClick?: (connectionId: string, func: FunctionMeta) => void;
 }
 
-export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionProps>(
-  function ConnectionSection(
-    { connection, isExpanded, onToggle, searchQuery, onTableClick, onFunctionClick },
-    ref
-  ) {
-  const { id: connectionId, profile, status, database, schema, error } = connection;
+export const ConnectionSection = forwardRef<
+  HTMLDivElement,
+  ConnectionSectionProps
+>(function ConnectionSection(
+  {
+    connection,
+    isExpanded,
+    onToggle,
+    searchQuery,
+    onTableClick,
+    onFunctionClick,
+  },
+  ref,
+) {
+  const {
+    id: connectionId,
+    profile,
+    status,
+    database,
+    schema,
+    error,
+  } = connection;
   const dbType = profile.db_type;
   const paradigm = getParadigm(dbType);
   const isSqlDb = paradigm === "sql";
@@ -97,7 +116,7 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
 
   // Local state for expanded sections within this connection
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
-    new Set(["tables", "views", "starred", "collections", "keys"])
+    new Set(["tables", "views", "starred", "collections", "keys"]),
   );
   const [expandedPartitionedTables, setExpandedPartitionedTables] = useState<
     Set<string>
@@ -130,10 +149,7 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
   });
 
   // Get keys summary for Redis
-  const {
-    data: redisKeyCount = 0,
-    isLoading: isLoadingKeys,
-  } = useQuery({
+  const { data: redisKeyCount = 0, isLoading: isLoadingKeys } = useQuery({
     queryKey: ["redis-dbsize", connectionId],
     queryFn: async () => {
       const result = await invoke<number>("redis_dbsize", {
@@ -146,8 +162,12 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
   });
 
   // Store actions
-  const { reconnectConnection, removeConnectionFromWorkspace, setFocusedConnection, updateConnectionState } =
-    useWorkspaceBundleStore();
+  const {
+    reconnectConnection,
+    removeConnectionFromWorkspace,
+    setFocusedConnection,
+    updateConnectionState,
+  } = useWorkspaceBundleStore();
   const { toggleStarred, getStarredItems } = useStarredItemsStore();
   const { stagedCommands } = useCrudStore();
   const { panels, activePanelId } = usePanelStore();
@@ -177,7 +197,7 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
   const starredSet = useMemo(() => {
     const set = new Set<string>();
     starredItemsRaw.forEach((item) =>
-      set.add(`${item.type}:${item.schema}.${item.name}`)
+      set.add(`${item.type}:${item.schema}.${item.name}`),
     );
     return set;
   }, [starredItemsRaw]);
@@ -201,15 +221,15 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
   const nonStarredCounts = useMemo(
     () => ({
       tables: tables.filter(
-        (t) => !starredSet.has(`table:${t.schema}.${t.name}`)
+        (t) => !starredSet.has(`table:${t.schema}.${t.name}`),
       ).length,
       views: views.filter((v) => !starredSet.has(`view:${v.schema}.${v.name}`))
         .length,
       functions: functions.filter(
-        (f) => !starredSet.has(`function:${f.schema}.${f.name}`)
+        (f) => !starredSet.has(`function:${f.schema}.${f.name}`),
       ).length,
     }),
-    [tables, views, functions, starredSet]
+    [tables, views, functions, starredSet],
   );
 
   // Auto-expand sections when data is loaded
@@ -217,8 +237,7 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
     if (tables.length > 0 || views.length > 0 || functions.length > 0) {
       queueMicrotask(() => {
         setExpandedNodes(
-          (prev) =>
-            new Set([...prev, "tables", "views", "starred"])
+          (prev) => new Set([...prev, "tables", "views", "starred"]),
         );
       });
     }
@@ -249,7 +268,7 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
   // Filter items based on search and exclude starred
   const filterItems = <T extends { name: string; schema: string }>(
     items: T[],
-    type: "table" | "view" | "function"
+    type: "table" | "view" | "function",
   ): T[] => {
     return items.filter((item) => {
       if (starredSet.has(`${type}:${item.schema}.${item.name}`)) {
@@ -296,7 +315,7 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
 
   const isFunctionActive = (
     functionName: string,
-    functionSchema: string
+    functionSchema: string,
   ): boolean => {
     if (focusedPanelId) {
       const focusedPanel = panelContents.get(focusedPanelId);
@@ -307,7 +326,7 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
           if (
             metadata?.schema === functionSchema &&
             parts.includes(functionName) &&
-            metadata?.connectionId === connectionId
+            metadata.connectionId === connectionId
           ) {
             return true;
           }
@@ -341,7 +360,7 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
         | "indexes"
         | "triggers"
         | "definition"
-        | "partitions" = "data"
+        | "partitions" = "data",
     ) => {
       // Focus this connection first
       setFocusedConnection(connectionId);
@@ -357,7 +376,7 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
         });
       }
     },
-    [connectionId, database, setFocusedConnection, onTableClick]
+    [connectionId, database, setFocusedConnection, onTableClick],
   );
 
   // Handle function click
@@ -376,14 +395,14 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
         });
       }
     },
-    [connectionId, database, setFocusedConnection, onFunctionClick]
+    [connectionId, database, setFocusedConnection, onFunctionClick],
   );
 
   // Handle star toggle
   const handleToggleStar = (
     type: StarredItemType,
     name: string,
-    itemSchema: string
+    itemSchema: string,
   ) => {
     return (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -437,18 +456,20 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
     status === "connected"
       ? "bg-green-500"
       : status === "connecting"
-      ? "bg-yellow-500 animate-pulse"
-      : status === "error"
-      ? "bg-red-500"
-      : "bg-gray-400";
+        ? "bg-yellow-500 animate-pulse"
+        : status === "error"
+          ? "bg-red-500"
+          : "bg-gray-400";
 
   // Show loading state when expanding and no data yet
   const showLoadingSkeleton =
-    isExpanded && status === "connecting" && (
-      isSqlDb ? tables.length === 0 :
-      isDocumentDb ? mongoCollections.length === 0 :
-      true
-    );
+    isExpanded &&
+    status === "connecting" &&
+    (isSqlDb
+      ? tables.length === 0
+      : isDocumentDb
+        ? mongoCollections.length === 0
+        : true);
 
   return (
     <div ref={ref} className="border-b border-border last:border-b-0">
@@ -457,7 +478,7 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
         <ContextMenuTrigger
           className={cn(
             "w-full flex items-center gap-2 p-2 hover:bg-muted/50 transition-colors text-left cursor-pointer",
-            isExpanded && "bg-muted/30"
+            isExpanded && "bg-muted/30",
           )}
           onClick={onToggle}
         >
@@ -483,7 +504,9 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
           {/* Schema dropdown inline (SQL databases only) - stop propagation to prevent toggle */}
           {isSqlDb && (
             <div
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+              }}
               className="flex-shrink-0"
             >
               <SchemaDropdown
@@ -535,7 +558,7 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
       {/* Error state */}
       {status === "error" && error && (
         <div className="px-3 py-2 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 text-xs flex items-center gap-2">
-          <IconAlertCircle className="h-4 w-4 flex-shrink-0" />
+          <IconAlertCircle className="h-4 w-4 shrink-0" />
           <span className="truncate">{error}</span>
           <Button
             variant="ghost"
@@ -550,7 +573,7 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
 
       {/* Expanded content */}
       {isExpanded && status !== "error" && (
-        <div className="pl-4">
+        <div className="px-2">
           {/* Loading skeleton */}
           {showLoadingSkeleton && (
             <div className="pl-2 pr-1 py-2 space-y-2">
@@ -582,7 +605,9 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                   title="Starred"
                   count={starredItemsRaw.length}
                   isExpanded={expandedNodes.has("starred")}
-                  onToggle={() => toggleNode("starred")}
+                  onToggle={() => {
+                    toggleNode("starred");
+                  }}
                   stickyClass=""
                 >
                   {starredItemsRaw.map((item) => {
@@ -591,8 +616,8 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                       item.type === "function"
                         ? functionsByKey.get(key)
                         : item.type === "view"
-                        ? viewsByKey.get(key)
-                        : tablesByKey.get(key);
+                          ? viewsByKey.get(key)
+                          : tablesByKey.get(key);
 
                     if (!itemData) return null;
 
@@ -603,7 +628,7 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                             "h-3.5 w-4 min-w-4 flex-shrink-0",
                             isProcedure(itemData as FunctionMeta)
                               ? "text-orange-500"
-                              : "text-purple-500"
+                              : "text-purple-500",
                           )}
                         />
                       ) : item.type === "view" ? (
@@ -612,7 +637,7 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                             "h-4 min-h-4 w-4 min-w-4 flex-shrink-0",
                             (itemData as TableMeta).kind === "MaterializedView"
                               ? "text-blue-500"
-                              : "text-green-500"
+                              : "text-green-500",
                           )}
                         />
                       ) : (
@@ -626,8 +651,12 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
 
                     const onClick =
                       item.type === "function"
-                        ? () => handleFunctionClick(itemData as FunctionMeta)
-                        : () => handleTableClick(itemData as TableMeta, "data");
+                        ? () => {
+                            handleFunctionClick(itemData as FunctionMeta);
+                          }
+                        : () => {
+                            handleTableClick(itemData as TableMeta, "data");
+                          };
 
                     return (
                       <SidebarItem
@@ -645,7 +674,7 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                         onToggleStar={handleToggleStar(
                           item.type,
                           item.name,
-                          item.schema
+                          item.schema,
                         )}
                         hasPendingChanges={
                           item.type !== "function" &&
@@ -663,7 +692,9 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                   title="Tables"
                   count={nonStarredCounts.tables}
                   isExpanded={expandedNodes.has("tables")}
-                  onToggle={() => toggleNode("tables")}
+                  onToggle={() => {
+                    toggleNode("tables");
+                  }}
                   stickyClass=""
                   onAdd={handleCreateTable}
                   addTooltip="Create new table"
@@ -681,22 +712,26 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                           }
                           name={table.name}
                           isActive={isTableActive(table.name, table.schema)}
-                          onClick={() => handleTableClick(table, "data")}
+                          onClick={() => {
+                            handleTableClick(table, "data");
+                          }}
                           rowCount={table.row_estimate}
                           isStarred={starredSet.has(
-                            `table:${table.schema}.${table.name}`
+                            `table:${table.schema}.${table.name}`,
                           )}
                           onToggleStar={handleToggleStar(
                             "table",
                             table.name,
-                            table.schema
+                            table.schema,
                           )}
                           hasPendingChanges={pendingChangesSet.has(
-                            `${table.schema}.${table.name}`
+                            `${table.schema}.${table.name}`,
                           )}
                           isExpandable={isPartitioned}
                           isExpanded={isPartitionExpanded}
-                          onToggleExpand={() => togglePartitionedTable(tableKey)}
+                          onToggleExpand={() => {
+                            togglePartitionedTable(tableKey);
+                          }}
                           actions={
                             <>
                               <ActionButton
@@ -728,7 +763,10 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                             schema={table.schema}
                             tableName={table.name}
                             dbType={dbType}
-                            onPartitionClick={(partitionName, partitionSchema) => {
+                            onPartitionClick={(
+                              partitionName,
+                              partitionSchema,
+                            ) => {
                               const partitionTable: TableMeta = {
                                 schema: partitionSchema,
                                 name: partitionName,
@@ -736,9 +774,10 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                               };
                               handleTableClick(partitionTable, "data");
                             }}
-                            isPartitionActive={(partitionName, partitionSchema) =>
-                              isTableActive(partitionName, partitionSchema)
-                            }
+                            isPartitionActive={(
+                              partitionName,
+                              partitionSchema,
+                            ) => isTableActive(partitionName, partitionSchema)}
                           />
                         )}
                       </div>
@@ -753,7 +792,9 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                   title="Views"
                   count={nonStarredCounts.views}
                   isExpanded={expandedNodes.has("views")}
-                  onToggle={() => toggleNode("views")}
+                  onToggle={() => {
+                    toggleNode("views");
+                  }}
                   onAdd={handleCreateView}
                   addTooltip="Create new view"
                   stickyClass=""
@@ -767,23 +808,25 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                             "h-4 min-h-4 w-4 min-w-4 flex-shrink-0",
                             view.kind === "MaterializedView"
                               ? "text-blue-500"
-                              : "text-green-500"
+                              : "text-green-500",
                           )}
                         />
                       }
                       name={view.name}
                       isActive={isTableActive(view.name, view.schema)}
-                      onClick={() => handleTableClick(view, "data")}
+                      onClick={() => {
+                        handleTableClick(view, "data");
+                      }}
                       isStarred={starredSet.has(
-                        `view:${view.schema}.${view.name}`
+                        `view:${view.schema}.${view.name}`,
                       )}
                       onToggleStar={handleToggleStar(
                         "view",
                         view.name,
-                        view.schema
+                        view.schema,
                       )}
                       hasPendingChanges={pendingChangesSet.has(
-                        `${view.schema}.${view.name}`
+                        `${view.schema}.${view.name}`,
                       )}
                       actions={
                         <>
@@ -832,7 +875,9 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                   title="Functions"
                   count={nonStarredCounts.functions}
                   isExpanded={expandedNodes.has("functions")}
-                  onToggle={() => toggleNode("functions")}
+                  onToggle={() => {
+                    toggleNode("functions");
+                  }}
                   stickyClass=""
                   onAdd={handleCreateFunction}
                   addTooltip="Create new function"
@@ -846,20 +891,22 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                             "h-3.5 w-4 min-w-4 flex-shrink-0",
                             isProcedure(func)
                               ? "text-orange-500"
-                              : "text-purple-500"
+                              : "text-purple-500",
                           )}
                         />
                       }
                       name={func.name}
                       isActive={isFunctionActive(func.name, func.schema)}
-                      onClick={() => handleFunctionClick(func)}
+                      onClick={() => {
+                        handleFunctionClick(func);
+                      }}
                       isStarred={starredSet.has(
-                        `function:${func.schema}.${func.name}`
+                        `function:${func.schema}.${func.name}`,
                       )}
                       onToggleStar={handleToggleStar(
                         "function",
                         func.name,
-                        func.schema
+                        func.schema,
                       )}
                     />
                   ))}
@@ -910,7 +957,9 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                 title="Collections"
                 count={mongoCollections.length}
                 isExpanded={expandedNodes.has("collections")}
-                onToggle={() => toggleNode("collections")}
+                onToggle={() => {
+                  toggleNode("collections");
+                }}
                 stickyClass=""
               >
                 {isLoadingCollections ? (
@@ -930,8 +979,10 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                   mongoCollections
                     .filter((c) =>
                       searchQuery
-                        ? c.name.toLowerCase().includes(searchQuery.toLowerCase())
-                        : true
+                        ? c.name
+                            .toLowerCase()
+                            .includes(searchQuery.toLowerCase())
+                        : true,
                     )
                     .map((collection) => (
                       <SidebarItem
@@ -943,11 +994,17 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                         isActive={false}
                         onClick={() => {
                           setFocusedConnection(connectionId);
-                          const { focusedPanelId, addTab, panelContents, focusPanel } =
-                            useWorkbenchStore.getState();
+                          const {
+                            focusedPanelId,
+                            addTab,
+                            panelContents,
+                            focusPanel,
+                          } = useWorkbenchStore.getState();
                           let targetPanelId = focusedPanelId;
                           if (!targetPanelId && panelContents.size > 0) {
-                            const firstPanelId = Array.from(panelContents.keys())[0];
+                            const firstPanelId = Array.from(
+                              panelContents.keys(),
+                            )[0];
                             if (firstPanelId) {
                               targetPanelId = firstPanelId;
                               focusPanel(firstPanelId);
@@ -980,7 +1037,9 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                 title="Keys"
                 count={redisKeyCount}
                 isExpanded={expandedNodes.has("keys")}
-                onToggle={() => toggleNode("keys")}
+                onToggle={() => {
+                  toggleNode("keys");
+                }}
                 stickyClass=""
               >
                 {isLoadingKeys ? (
@@ -999,11 +1058,17 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                       className="w-full text-xs h-6"
                       onClick={() => {
                         setFocusedConnection(connectionId);
-                        const { focusedPanelId, addTab, panelContents, focusPanel } =
-                          useWorkbenchStore.getState();
+                        const {
+                          focusedPanelId,
+                          addTab,
+                          panelContents,
+                          focusPanel,
+                        } = useWorkbenchStore.getState();
                         let targetPanelId = focusedPanelId;
                         if (!targetPanelId && panelContents.size > 0) {
-                          const firstPanelId = Array.from(panelContents.keys())[0];
+                          const firstPanelId = Array.from(
+                            panelContents.keys(),
+                          )[0];
                           if (firstPanelId) {
                             targetPanelId = firstPanelId;
                             focusPanel(firstPanelId);
