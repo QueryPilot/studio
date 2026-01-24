@@ -3,8 +3,6 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { useEffect, useState, useCallback } from "react";
 import { WorkspaceTitleBar } from "./components/WorkspaceTitleBar";
 import { SidebarConnectionList } from "./components/SidebarConnectionList";
-import { UnifiedSidebar } from "@/components/Sidebar/UnifiedSidebar";
-import { createSidebarAdapter, shouldUseUnifiedSidebar } from "@/adapters/sidebar/AdapterFactory";
 import { WorkbenchLayout } from "@/components/Workbench";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { useShallow } from "zustand/react/shallow";
@@ -83,14 +81,12 @@ export function WorkspaceScreen() {
   // Use useShallow for multi-value selector to prevent unnecessary re-renders
   const {
     database: selectedDatabase,
-    schema: selectedSchema,
     setSchema: setSelectedSchema,
     setActiveConnection: setActiveWorkspaceConnection,
     setSelectedDatabase: setWorkspaceDatabase,
   } = useWorkspaceSelectionStore(
     useShallow((state) => ({
       database: state.database,
-      schema: state.schema,
       setSchema: state.setSchema,
       setActiveConnection: state.setActiveConnection,
       setSelectedDatabase: state.setSelectedDatabase,
@@ -457,10 +453,6 @@ export function WorkspaceScreen() {
     );
   }
 
-  // Check if we're in multi-connection workspace mode
-  const isMultiConnectionMode =
-    activeWorkspace && activeWorkspace.connections.size > 1;
-
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background">
       {/* Title Bar */}
@@ -484,42 +476,9 @@ export function WorkspaceScreen() {
               maxSize={30}
               className="flex flex-col rounded-xl bg-background"
             >
-              {(() => {
-                const stored = connections.find((c) => c.profile.id === connectionId);
-                const dbType = stored?.profile.db_type;
-
-                // Multi-connection workspaces: use the unified SidebarConnectionList
-                // Also use it for single SQL connections
-                if (isMultiConnectionMode || !dbType || !shouldUseUnifiedSidebar(dbType)) {
-                  return (
-                    <div className="flex-1 overflow-hidden">
-                      <SidebarConnectionList />
-                    </div>
-                  );
-                }
-
-                // Single connection mode for MongoDB/Redis: use UnifiedSidebar
-                // (These have specialized sidebar adapters that don't work with SidebarConnectionList yet)
-                const adapter = createSidebarAdapter(dbType);
-                if (adapter) {
-                  return (
-                    <div className="flex-1 overflow-hidden">
-                      <UnifiedSidebar
-                        connectionId={connectionId}
-                        adapter={adapter}
-                        isLoading={isLoading}
-                      />
-                    </div>
-                  );
-                }
-
-                // Fallback: use SidebarConnectionList
-                return (
-                  <div className="flex-1 overflow-hidden">
-                    <SidebarConnectionList />
-                  </div>
-                );
-              })()}
+              <div className="flex-1 overflow-hidden">
+                <SidebarConnectionList />
+              </div>
             </ResizablePanel>
             <ResizableHandle />
           </>
