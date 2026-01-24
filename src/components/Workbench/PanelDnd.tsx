@@ -28,6 +28,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
 } from "@/components/ui/dropdown-menu";
+import { toast } from "sonner";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { PanelContentRenderer } from "./PanelContentRenderer";
 import { useDroppable } from "@dnd-kit/core";
@@ -417,6 +418,9 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                   workspaceConnectionIds={workspaceConnectionIds}
                   databaseName={metadata?.database}
                   dbType={dbType}
+                  isOnlyTab={content.tabIds.length === 1}
+                  tabIndex={index}
+                  totalTabs={content.tabIds.length}
                   onActivate={() => {
                     setActiveTab(content.id, tabId);
                     focusPanel(content.id);
@@ -429,6 +433,33 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                   }}
                   onClose={() => {
                     removeTab(content.id, tabId);
+                  }}
+                  onCloseOthers={() => {
+                    // Close all tabs except this one
+                    content.tabIds.forEach((tid) => {
+                      if (tid !== tabId) {
+                        removeTab(content.id, tid);
+                      }
+                    });
+                  }}
+                  onCloseToRight={() => {
+                    // Close all tabs to the right of this one
+                    const tabsToClose = content.tabIds.slice(index + 1);
+                    tabsToClose.forEach((tid) => {
+                      removeTab(content.id, tid);
+                    });
+                  }}
+                  onCloseAll={() => {
+                    // Close all tabs
+                    content.tabIds.forEach((tid) => {
+                      removeTab(content.id, tid);
+                    });
+                  }}
+                  onCopyName={() => {
+                    navigator.clipboard.writeText(displayName);
+                    toast.success("Copied to clipboard", {
+                      description: displayName,
+                    });
                   }}
                 />
               );
