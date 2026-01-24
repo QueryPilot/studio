@@ -685,6 +685,46 @@ export const ConnectionSection = forwardRef<
     setSelectedItems(new Set());
   };
 
+  // Section context menu handlers
+  const handleSelectAllTables = useCallback(() => {
+    const tableKeys = tables.map((t) => `table:${t.schema}.${t.name}`);
+    setSelectedItems(new Set(tableKeys));
+  }, [tables]);
+
+  const handleSelectAllViews = useCallback(() => {
+    const viewKeys = views.map((v) => `view:${v.schema}.${v.name}`);
+    setSelectedItems(new Set(viewKeys));
+  }, [views]);
+
+  const handleSelectAllFunctions = useCallback(() => {
+    const funcKeys = functions.map((f) => `function:${f.schema}.${f.name}`);
+    setSelectedItems(new Set(funcKeys));
+  }, [functions]);
+
+  const handleCopyAllTableNames = useCallback(async () => {
+    const names = tables.map((t) => t.name).join("\n");
+    await writeClipboardText(names);
+    toast.success("Copied to clipboard", {
+      description: `${tables.length} table names`,
+    });
+  }, [tables]);
+
+  const handleCopyAllViewNames = useCallback(async () => {
+    const names = views.map((v) => v.name).join("\n");
+    await writeClipboardText(names);
+    toast.success("Copied to clipboard", {
+      description: `${views.length} view names`,
+    });
+  }, [views]);
+
+  const handleCopyAllFunctionNames = useCallback(async () => {
+    const names = functions.map((f) => f.name).join("\n");
+    await writeClipboardText(names);
+    toast.success("Copied to clipboard", {
+      description: `${functions.length} function names`,
+    });
+  }, [functions]);
+
   // Status indicator color
   const statusColor =
     status === "connected"
@@ -941,6 +981,8 @@ export const ConnectionSection = forwardRef<
                   stickyClass=""
                   onAdd={handleCreateTable}
                   addTooltip="Create new table"
+                  onSelectAll={handleSelectAllTables}
+                  onCopyAllNames={handleCopyAllTableNames}
                 >
                   {filterItems(tables, "table").map((table) => {
                     const tableKey = `${table.schema}.${table.name}`;
@@ -1050,6 +1092,8 @@ export const ConnectionSection = forwardRef<
                   onAdd={handleCreateView}
                   addTooltip="Create new view"
                   stickyClass=""
+                  onSelectAll={handleSelectAllViews}
+                  onCopyAllNames={handleCopyAllViewNames}
                 >
                   {filterItems(views, "view").map((view) => (
                     <SidebarItem
@@ -1142,6 +1186,8 @@ export const ConnectionSection = forwardRef<
                   stickyClass=""
                   onAdd={handleCreateFunction}
                   addTooltip="Create new function"
+                  onSelectAll={handleSelectAllFunctions}
+                  onCopyAllNames={handleCopyAllFunctionNames}
                 >
                   {filterItems(functions, "function").map((func) => (
                     <SidebarItem
