@@ -23,11 +23,16 @@ import {
   IconPlugConnected,
   IconX,
   IconExternalLink,
+  IconLayout2,
+  IconKey,
 } from "@tabler/icons-react";
+import { invoke } from "@tauri-apps/api/core";
+import { useQuery } from "@tanstack/react-query";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
 import { useSchemaData } from "@/hooks/useSchemaData";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { isMySQLCompatible, getParadigm } from "@/types/connection";
+import type { CollectionInfo } from "@/adapters/types/mongodb";
 import type { OpenConnection } from "@/types/workspace";
 import {
   SidebarSection,
@@ -84,25 +89,61 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
   ) {
   const { id: connectionId, profile, status, database, schema, error } = connection;
   const dbType = profile.db_type;
-  const isSqlDb = getParadigm(dbType) === "sql";
+  const paradigm = getParadigm(dbType);
+  const isSqlDb = paradigm === "sql";
+  const isDocumentDb = paradigm === "document";
+  const isKeyValueDb = paradigm === "keyvalue";
   const isMySQLDb = isMySQLCompatible(dbType);
 
   // Local state for expanded sections within this connection
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
-    new Set(["tables", "views", "starred"])
+    new Set(["tables", "views", "starred", "collections", "keys"])
   );
   const [expandedPartitionedTables, setExpandedPartitionedTables] = useState<
     Set<string>
   >(new Set());
 
-  // Get schema data for this specific connection
+  // Get schema data for SQL databases
   const {
     tables,
     views,
     functions,
     isLoading: isLoadingData,
     error: schemaError,
-  } = useSchemaData(connectionId);
+  } = useSchemaData(isSqlDb ? connectionId : undefined);
+
+  // Get collections for MongoDB
+  const {
+    data: mongoCollections = [],
+    isLoading: isLoadingCollections,
+    error: collectionsError,
+  } = useQuery({
+    queryKey: ["mongo-collections", connectionId, database],
+    queryFn: async () => {
+      const result = await invoke<CollectionInfo[]>("mongo_list_collections", {
+        connId: connectionId,
+      });
+      return result;
+    },
+    enabled: isDocumentDb && status === "connected" && !!database,
+    staleTime: 60_000,
+  });
+
+  // Get keys summary for Redis
+  const {
+    data: redisKeyCount = 0,
+    isLoading: isLoadingKeys,
+  } = useQuery({
+    queryKey: ["redis-dbsize", connectionId],
+    queryFn: async () => {
+      const result = await invoke<number>("redis_dbsize", {
+        connId: connectionId,
+      });
+      return result;
+    },
+    enabled: isKeyValueDb && status === "connected",
+    staleTime: 30_000,
+  });
 
   // Store actions
   const { reconnectConnection, removeConnectionFromWorkspace, setFocusedConnection, updateConnectionState } =
@@ -403,7 +444,11 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
 
   // Show loading state when expanding and no data yet
   const showLoadingSkeleton =
-    isExpanded && status === "connecting" && tables.length === 0;
+    isExpanded && status === "connecting" && (
+      isSqlDb ? tables.length === 0 :
+      isDocumentDb ? mongoCollections.length === 0 :
+      true
+    );
 
   return (
     <div ref={ref} className="border-b border-border last:border-b-0">
@@ -435,10 +480,19 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
             {profile.name}
           </span>
 
-          {/* Database name badge */}
-          <span className="text-xs text-muted-foreground truncate max-w-[80px]">
-            {database}
-          </span>
+          {/* Schema dropdown inline (SQL databases only) - stop propagation to prevent toggle */}
+          {isSqlDb && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="flex-shrink-0"
+            >
+              <SchemaDropdown
+                connectionId={connectionId}
+                selectedSchema={schema}
+                onSchemaChange={handleSchemaChange}
+              />
+            </div>
+          )}
 
           {/* Status indicator */}
           <span
@@ -497,20 +551,9 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
       {/* Expanded content */}
       {isExpanded && status !== "error" && (
         <div className="pl-4">
-          {/* Schema Dropdown (SQL databases only) */}
-          {isSqlDb && (
-            <div className="px-2 py-1.5">
-              <SchemaDropdown
-                connectionId={connectionId}
-                selectedSchema={schema}
-                onSchemaChange={handleSchemaChange}
-              />
-            </div>
-          )}
-
           {/* Loading skeleton */}
           {showLoadingSkeleton && (
-            <div className="px-2 py-2 space-y-2">
+            <div className="pl-2 pr-1 py-2 space-y-2">
               <Skeleton className="h-5 w-20" />
               <div className="ml-2 space-y-1">
                 <Skeleton className="h-4 w-full" />
@@ -522,7 +565,7 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
 
           {/* Schema error */}
           {schemaError && (
-            <div className="px-2 py-1">
+            <div className="pl-2 pr-1 py-1">
               <div className="flex items-center gap-2 text-xs text-red-500">
                 <IconAlertCircle className="h-3 w-3" />
                 <span>{schemaError}</span>
@@ -530,8 +573,8 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
             </div>
           )}
 
-          {/* Object tree */}
-          {!showLoadingSkeleton && !schemaError && (
+          {/* Object tree - SQL databases */}
+          {isSqlDb && !showLoadingSkeleton && !schemaError && (
             <div className="pb-2">
               {/* Starred Section */}
               {starredItemsRaw.length > 0 && (
@@ -823,16 +866,16 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                 </SidebarSection>
               )}
 
-              {/* Empty state */}
+              {/* Empty state - SQL */}
               {!isLoadingData &&
                 tables.length === 0 &&
                 views.length === 0 &&
                 functions.length === 0 && (
-                  <div className="text-center py-4 px-2">
+                  <div className="text-center py-4 pl-2 pr-1">
                     <p className="text-xs text-muted-foreground mb-3">
                       {schema ? "No objects found" : "Select a schema"}
                     </p>
-                    {schema && isSqlDb && (
+                    {schema && (
                       <div className="flex flex-col gap-1.5">
                         <Button
                           variant="outline"
@@ -856,6 +899,133 @@ export const ConnectionSection = forwardRef<HTMLDivElement, ConnectionSectionPro
                     )}
                   </div>
                 )}
+            </div>
+          )}
+
+          {/* Object tree - MongoDB */}
+          {isDocumentDb && !showLoadingSkeleton && (
+            <div className="pb-2">
+              {/* Collections Section */}
+              <SidebarSection
+                title="Collections"
+                count={mongoCollections.length}
+                isExpanded={expandedNodes.has("collections")}
+                onToggle={() => toggleNode("collections")}
+                stickyClass=""
+              >
+                {isLoadingCollections ? (
+                  <div className="pl-2 pr-1 py-2">
+                    <Skeleton className="h-4 w-full mb-1" />
+                    <Skeleton className="h-4 w-3/4" />
+                  </div>
+                ) : collectionsError ? (
+                  <div className="pl-2 pr-1 py-1 text-xs text-red-500">
+                    Failed to load collections
+                  </div>
+                ) : mongoCollections.length === 0 ? (
+                  <div className="text-center py-3 text-xs text-muted-foreground">
+                    No collections found
+                  </div>
+                ) : (
+                  mongoCollections
+                    .filter((c) =>
+                      searchQuery
+                        ? c.name.toLowerCase().includes(searchQuery.toLowerCase())
+                        : true
+                    )
+                    .map((collection) => (
+                      <SidebarItem
+                        key={collection.name}
+                        icon={
+                          <IconLayout2 className="h-3.5 w-4 min-w-4 text-emerald-600 flex-shrink-0" />
+                        }
+                        name={collection.name}
+                        isActive={false}
+                        onClick={() => {
+                          setFocusedConnection(connectionId);
+                          const { focusedPanelId, addTab, panelContents, focusPanel } =
+                            useWorkbenchStore.getState();
+                          let targetPanelId = focusedPanelId;
+                          if (!targetPanelId && panelContents.size > 0) {
+                            const firstPanelId = Array.from(panelContents.keys())[0];
+                            if (firstPanelId) {
+                              targetPanelId = firstPanelId;
+                              focusPanel(firstPanelId);
+                            }
+                          }
+                          if (targetPanelId) {
+                            const tabId = `mongo-${database}-${collection.name}`;
+                            addTab(targetPanelId, tabId, {
+                              type: "mongo-collection",
+                              title: collection.name,
+                              connectionId,
+                              database,
+                              table: collection.name,
+                            });
+                          }
+                        }}
+                        rowCount={collection.docCount}
+                      />
+                    ))
+                )}
+              </SidebarSection>
+            </div>
+          )}
+
+          {/* Object tree - Redis */}
+          {isKeyValueDb && !showLoadingSkeleton && (
+            <div className="pb-2">
+              {/* Keys Section */}
+              <SidebarSection
+                title="Keys"
+                count={redisKeyCount}
+                isExpanded={expandedNodes.has("keys")}
+                onToggle={() => toggleNode("keys")}
+                stickyClass=""
+              >
+                {isLoadingKeys ? (
+                  <div className="pl-2 pr-1 py-2">
+                    <Skeleton className="h-4 w-full" />
+                  </div>
+                ) : (
+                  <div className="pl-2 pr-1 py-3">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+                      <IconKey className="h-4 w-4" />
+                      <span>{redisKeyCount.toLocaleString()} total keys</span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-xs h-6"
+                      onClick={() => {
+                        setFocusedConnection(connectionId);
+                        const { focusedPanelId, addTab, panelContents, focusPanel } =
+                          useWorkbenchStore.getState();
+                        let targetPanelId = focusedPanelId;
+                        if (!targetPanelId && panelContents.size > 0) {
+                          const firstPanelId = Array.from(panelContents.keys())[0];
+                          if (firstPanelId) {
+                            targetPanelId = firstPanelId;
+                            focusPanel(firstPanelId);
+                          }
+                        }
+                        if (targetPanelId) {
+                          const tabId = `redis-keys-${connectionId}`;
+                          addTab(targetPanelId, tabId, {
+                            type: "redis-keys",
+                            title: "Key Browser",
+                            connectionId,
+                            database,
+                          });
+                        }
+                      }}
+                    >
+                      <IconKey className="h-3 w-3 mr-1" />
+                      Open Key Browser
+                    </Button>
+                  </div>
+                )}
+              </SidebarSection>
             </div>
           )}
         </div>

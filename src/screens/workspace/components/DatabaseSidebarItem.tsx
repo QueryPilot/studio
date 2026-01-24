@@ -30,7 +30,7 @@ export function SidebarSection({
   return (
     <div>
       <div className={cn(stickyClass, "group/section")}>
-        <div className="flex items-center bg-muted/50 rounded text-xs text-foreground/80 dark:text-foreground/70">
+        <div className="flex items-center bg-muted/50 rounded-l text-xs text-foreground/80 dark:text-foreground/70">
           <button
             className="flex items-center gap-1.5 flex-1 text-left p-1.5"
             onClick={onToggle}
@@ -72,7 +72,7 @@ export function SidebarSection({
         </div>
       </div>
       {isExpanded && (
-        <div className="ml-3.5 mt-0.5 space-y-0.5 px-2 overflow-x-hidden">
+        <div className="ml-3.5 mt-0.5 space-y-0.5 pl-2 pr-1 overflow-x-hidden">
           {children}
         </div>
       )}
@@ -133,12 +133,12 @@ export function SidebarItem({
       className={cn(
         "group flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer overflow-hidden border-l-2",
         isActive
-          ? "bg-primary/10 border-l-primary rounded-r"
+          ? "bg-primary/10 border-l-primary"
           : isSelected
-          ? "bg-primary/20 border-l-primary/70 rounded-r"
+          ? "bg-primary/20 border-l-primary/70"
           : isBeingDuplicated
-          ? "bg-blue-500/10 border-l-blue-500 rounded-r"
-          : "rounded border-l-transparent",
+          ? "bg-blue-500/10 border-l-blue-500"
+          : "border-l-transparent",
         className,
       )}
       style={{ paddingLeft }}

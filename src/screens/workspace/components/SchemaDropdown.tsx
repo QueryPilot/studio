@@ -137,30 +137,28 @@ export function SchemaDropdown({
   }
 
   return (
-    <div className="flex items-center gap-1">
-      <span className="text-xs text-muted-foreground">Schema:</span>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger
-          render={
-            <Button
-              variant="ghost"
-              role="combobox"
-              aria-expanded={open}
-              disabled={isSwitching || isLoadingSchemas}
-              className="text-xs h-6 px-2 justify-between min-w-[80px] max-w-[120px] border-0 hover:bg-muted/50"
-            >
-              {isLoadingSchemas ? (
-                <IconLoader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <>
-                  <span className="truncate">{selectedSchema || "..."}</span>
-                  <IconChevronDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
-                </>
-              )}
-            </Button>
-          }
-        />
-        <PopoverContent className="w-[160px] p-0" align="start">
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <Button
+            variant="ghost"
+            role="combobox"
+            aria-expanded={open}
+            disabled={isSwitching || isLoadingSchemas}
+            className="text-xs h-5 px-1.5 justify-between min-w-[60px] max-w-[100px] border-0 hover:bg-muted/80 bg-muted/50 rounded"
+          >
+            {isLoadingSchemas ? (
+              <IconLoader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <>
+                <span className="truncate text-muted-foreground">{selectedSchema || "..."}</span>
+                <IconChevronDown className="ml-0.5 h-3 w-3 shrink-0 opacity-50" />
+              </>
+            )}
+          </Button>
+        }
+      />
+      <PopoverContent className="w-[160px] p-0" align="start">
           <Command>
             <CommandInput placeholder="Search..." className="h-8 text-xs" />
             <CommandList>
@@ -186,7 +184,6 @@ export function SchemaDropdown({
             </CommandList>
           </Command>
         </PopoverContent>
-      </Popover>
-    </div>
+    </Popover>
   );
 }
