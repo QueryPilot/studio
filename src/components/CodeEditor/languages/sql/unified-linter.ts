@@ -31,6 +31,19 @@ interface RustValidateResponse {
   warnings: Array<{ from: number; to: number; message: string; severity: string; source: string }>;
 }
 
+function mapSeverity(severity: string): 'error' | 'warning' | 'info' {
+  switch (severity) {
+    case 'error':
+      return 'error';
+    case 'warning':
+      return 'warning';
+    case 'info':
+    case 'hint':
+    default:
+      return 'info';
+  }
+}
+
 async function lintWithRust(
   sql: string,
   dialect: string,
@@ -47,9 +60,9 @@ async function lintWithRust(
     diagnostics.push({
       from: err.from,
       to: err.to,
-      severity: 'error',
+      severity: mapSeverity(err.severity),
       message: err.message,
-      source: err.source as 'syntax' | 'semantic' | 'version',
+      source: err.source as 'syntax' | 'semantic' | 'version' | 'validation',
     });
   }
 
@@ -57,9 +70,9 @@ async function lintWithRust(
     diagnostics.push({
       from: warn.from,
       to: warn.to,
-      severity: 'warning',
+      severity: mapSeverity(warn.severity),
       message: warn.message,
-      source: warn.source as 'syntax' | 'semantic' | 'version',
+      source: warn.source as 'syntax' | 'semantic' | 'version' | 'validation',
     });
   }
 
