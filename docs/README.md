@@ -1,5 +1,8 @@
 # Query Pilot Documentation
 
+## LLM Context (for AI assistants)
+- [**LLM Context Index**](./llm-context/README.md) - Start here for AI-assisted development
+
 ## Architecture
 - [Backend API](./architecture/backend-api.md) - Tauri command architecture
 - [Query Execution](./architecture/query-execution.md) - Query streaming and execution paths
