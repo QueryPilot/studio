@@ -180,6 +180,29 @@ fn validate_common_issues(stmt: &ParsedStatement, result: &mut ValidationResult)
             });
         }
     }
+
+    validate_ambiguous_columns(stmt, result);
+}
+
+fn validate_ambiguous_columns(stmt: &ParsedStatement, result: &mut ValidationResult) {
+    if stmt.tables.len() < 2 {
+        return;
+    }
+
+    for col in &stmt.columns {
+        if col.table.is_none() && col.name != "*" {
+            result.add_error(SqlError {
+                from: stmt.range.0,
+                to: stmt.range.1,
+                message: format!(
+                    "Column '{}' should be qualified with table name (multiple tables in query)",
+                    col.name
+                ),
+                severity: ErrorSeverity::Hint,
+                source: ErrorSource::Validation,
+            });
+        }
+    }
 }
 
 #[cfg(test)]
@@ -242,5 +265,41 @@ mod tests {
             .warnings
             .iter()
             .any(|w| w.message.contains("never referenced")));
+    }
+
+    #[test]
+    fn test_validate_ambiguous_column() {
+        let doc = parse_document(
+            "SELECT id, name FROM users u JOIN orders o ON u.id = o.user_id",
+            SqlDialect::PostgreSQL,
+        );
+        let result = validate_document(&doc, None, None);
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| { w.message.contains("should be qualified") && w.message.contains("id") }));
+    }
+
+    #[test]
+    fn test_validate_qualified_column_no_warning() {
+        let doc = parse_document(
+            "SELECT u.id, u.name FROM users u JOIN orders o ON u.id = o.user_id",
+            SqlDialect::PostgreSQL,
+        );
+        let result = validate_document(&doc, None, None);
+        assert!(!result
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("should be qualified")));
+    }
+
+    #[test]
+    fn test_validate_single_table_no_ambiguous_warning() {
+        let doc = parse_document("SELECT id, name FROM users", SqlDialect::PostgreSQL);
+        let result = validate_document(&doc, None, None);
+        assert!(!result
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("should be qualified")));
     }
 }
