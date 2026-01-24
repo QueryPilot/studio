@@ -29,7 +29,11 @@ import { formatSql } from "@/utils/codeFormatter";
 import type { SqlDialect } from "@/components/CodeEditor/types";
 import type { SqlEditorRef } from "@/components/CodeEditor/SqlEditor";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
-import { handleMutationCache, isMutationQuery, isSelectQuery } from "@/lib/cacheManager";
+import {
+  handleMutationCache,
+  isMutationQuery,
+  isSelectQuery,
+} from "@/lib/cacheManager";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { parseMutationTables } from "@/utils/sqlParser";
 import { eventBus } from "@/services/eventBus";
@@ -58,7 +62,9 @@ export const QueryPanel = memo(function QueryPanel({
 }: QueryPanelProps) {
   // Use global tab state store to persist across panel moves
   const setQueryState = useTabStateStore((state) => state.setQueryState);
-  const loadTabStateAsync = useTabStateStore((state) => state.loadTabStateAsync);
+  const loadTabStateAsync = useTabStateStore(
+    (state) => state.loadTabStateAsync,
+  );
   const globalState = useTabStateStore((state) => state.queryStates.get(tabId));
   const focusedPanelId = useWorkbenchStore((state) => state.focusedPanelId);
 
@@ -89,18 +95,19 @@ export const QueryPanel = memo(function QueryPanel({
     originalSql: string;
     limit: number;
   } | null>(globalState?.appliedLimit || null);
-  const [viewMode, setViewModeInternal] = useState<"table" | "json" | "explain" | "raw" | "stats">(
-    globalState?.viewMode || "table",
-  );
+  const [viewMode, setViewModeInternal] = useState<
+    "table" | "json" | "explain" | "raw" | "stats"
+  >(globalState?.viewMode || "table");
   // Track if the current result is from an EXPLAIN query
   const [isExplainResult, setIsExplainResult] = useState(false);
 
   // Dialect selection: "auto" means auto-detect, otherwise use selected dialect
   const [selectedDialect, setSelectedDialect] = useState<SqlDialect | "auto">(
-    globalState?.selectedDialect || "auto"
+    globalState?.selectedDialect || "auto",
   );
-  const [detectedDialect, setDetectedDialect] = useState<SqlDialect>("postgresql");
-  
+  const [detectedDialect, setDetectedDialect] =
+    useState<SqlDialect>("postgresql");
+
   // Results panel visibility - hidden by default, shown when query executes
   const [showResults, setShowResults] = useState(result !== null);
 
@@ -175,9 +182,12 @@ export const QueryPanel = memo(function QueryPanel({
     [],
   );
 
-  const setViewMode = useCallback((value: "table" | "json" | "explain" | "raw" | "stats") => {
-    setViewModeInternal(value);
-  }, []);
+  const setViewMode = useCallback(
+    (value: "table" | "json" | "explain" | "raw" | "stats") => {
+      setViewModeInternal(value);
+    },
+    [],
+  );
 
   const smartQueryLimit = usePreferencesStore((state) => state.smartQueryLimit);
   const updateTabMetadata = useWorkbenchStore(
@@ -524,8 +534,7 @@ export const QueryPanel = memo(function QueryPanel({
           sqlUpper.startsWith("RELEASE SAVEPOINT ") ||
           sqlUpper === "START TRANSACTION";
         const isConfig =
-          sqlUpper.startsWith("SET ") ||
-          sqlUpper.startsWith("RESET ");
+          sqlUpper.startsWith("SET ") || sqlUpper.startsWith("RESET ");
         const isDDL =
           sqlUpper.startsWith("CREATE ") ||
           sqlUpper.startsWith("ALTER ") ||
@@ -553,11 +562,15 @@ export const QueryPanel = memo(function QueryPanel({
         }
         // For transaction control commands
         else if (isTransaction) {
-          if (sqlUpper.startsWith("BEGIN") || sqlUpper.startsWith("START TRANSACTION")) {
+          if (
+            sqlUpper.startsWith("BEGIN") ||
+            sqlUpper.startsWith("START TRANSACTION")
+          ) {
             message = "Transaction started";
             setQueryState(tabId, { inTransaction: true });
             toast.success("Transaction started", {
-              description: "This tab now has an active transaction. All queries in this tab will be part of this transaction until you COMMIT or ROLLBACK.",
+              description:
+                "This tab now has an active transaction. All queries in this tab will be part of this transaction until you COMMIT or ROLLBACK.",
               duration: 5000,
             });
           } else if (sqlUpper.startsWith("COMMIT")) {
@@ -615,15 +628,19 @@ export const QueryPanel = memo(function QueryPanel({
             // NEW: Broadcast invalidation to all components displaying affected tables
             const affectedTables = parseMutationTables(sql);
             if (affectedTables.length > 0) {
-              const { invalidateTable, invalidateSchema } = useDataInvalidationStore.getState();
-              
+              const { invalidateTable, invalidateSchema } =
+                useDataInvalidationStore.getState();
+
               if (isDDL) {
                 affectedTables.forEach(({ schema: tableSchema }) => {
                   const targetSchema = tableSchema ?? schema;
                   logger.info(
                     `[QueryPanel] DDL detected - invalidating schema: ${targetSchema}`,
                   );
-                  schemaCache.invalidateSchema(effectiveConnectionId, targetSchema);
+                  schemaCache.invalidateSchema(
+                    effectiveConnectionId,
+                    targetSchema,
+                  );
                   invalidateSchema(
                     effectiveConnectionId,
                     database,
@@ -631,7 +648,7 @@ export const QueryPanel = memo(function QueryPanel({
                   );
                 });
               }
-              
+
               affectedTables.forEach(({ schema, table }) => {
                 logger.info(
                   `[QueryPanel] Invalidating table: ${schema ?? "public"}.${table}`,
@@ -836,15 +853,16 @@ export const QueryPanel = memo(function QueryPanel({
   // Subscribe to event bus for keyboard shortcuts
   // Track if this panel is focused using a ref to avoid re-subscribing
   const isFocusedRef = useRef(false);
-  
+
   useEffect(() => {
     // Update focus state
-    isFocusedRef.current = (panelId === useWorkbenchStore.getState().focusedPanelId);
-    
+    isFocusedRef.current =
+      panelId === useWorkbenchStore.getState().focusedPanelId;
+
     const unsubscribe = useWorkbenchStore.subscribe((state) => {
-      isFocusedRef.current = (panelId === state.focusedPanelId);
+      isFocusedRef.current = panelId === state.focusedPanelId;
     });
-    
+
     return unsubscribe;
   }, [panelId]);
 
@@ -907,7 +925,11 @@ export const QueryPanel = memo(function QueryPanel({
               >
                 <ResizablePanelGroup direction="horizontal" className="h-full">
                   {/* Editor Panel */}
-                  <ResizablePanel defaultSize={75} minSize={30} className="flex flex-col relative">
+                  <ResizablePanel
+                    defaultSize={75}
+                    minSize={30}
+                    className="flex flex-col relative"
+                  >
                     {/* Transaction indicator badge */}
                     {inTransaction && (
                       <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 bg-yellow-500/90 dark:bg-yellow-600/90 text-yellow-950 dark:text-yellow-50 text-xs font-medium rounded-md shadow-md backdrop-blur-sm border border-yellow-600/20">
@@ -941,7 +963,9 @@ export const QueryPanel = memo(function QueryPanel({
                       onExecute={handleExecute}
                       isExecuting={isExecuting}
                       height="100%"
-                      dialectOverride={selectedDialect === "auto" ? undefined : selectedDialect}
+                      dialectOverride={
+                        selectedDialect === "auto" ? undefined : selectedDialect
+                      }
                       onDialectDetected={setDetectedDialect}
                       extraBottomPadding={100}
                     />
@@ -971,24 +995,44 @@ export const QueryPanel = memo(function QueryPanel({
                   {showOutline && (
                     <>
                       <ResizableHandle className="bg-border !w-0.5 hover:bg-primary/50 transition-colors" />
-                      <ResizablePanel defaultSize={25} minSize={15} maxSize={50}>
+                      <ResizablePanel
+                        defaultSize={25}
+                        minSize={15}
+                        maxSize={50}
+                      >
                         <div className="h-full flex flex-col overflow-hidden bg-muted/30">
-                          <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/50 flex-shrink-0">
-                            <span className="text-xs font-medium text-muted-foreground">Query Outline</span>
+                          <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/50 shrink-0">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              Query Outline
+                            </span>
                             <button
                               onClick={() => setShowOutline(false)}
                               className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
                               title="Close Outline"
                             >
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              <svg
+                                className="w-3.5 h-3.5"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M6 18L18 6M6 6l12 12"
+                                />
                               </svg>
                             </button>
                           </div>
                           <div className="flex-1 min-h-0 overflow-auto">
                             <QueryOutline
                               sql={query}
-                              dialect={selectedDialect === "auto" ? detectedDialect : selectedDialect}
+                              dialect={
+                                selectedDialect === "auto"
+                                  ? detectedDialect
+                                  : selectedDialect
+                              }
                               onNavigate={(position) => {
                                 editorRef.current?.setCursorPosition(position);
                               }}
@@ -1035,7 +1079,6 @@ export const QueryPanel = memo(function QueryPanel({
               )}
             </ResizablePanelGroup>
           </ResizablePanel>
-
         </ResizablePanelGroup>
       </div>
     </div>

@@ -105,7 +105,9 @@ export function DatabaseSidebar({
   } | null>(null);
 
   // Track expanded partitioned tables for showing partition sub-tree
-  const [expandedPartitionedTables, setExpandedPartitionedTables] = useState<Set<string>>(new Set());
+  const [expandedPartitionedTables, setExpandedPartitionedTables] = useState<
+    Set<string>
+  >(new Set());
 
   const togglePartitionedTable = (tableKey: string) => {
     setExpandedPartitionedTables((prev) => {
@@ -592,8 +594,8 @@ export function DatabaseSidebar({
           const objectLabel = isMaterializedView
             ? "MATERIALIZED VIEW"
             : objectType === "procedure"
-            ? "PROCEDURE"
-            : type.toUpperCase();
+              ? "PROCEDURE"
+              : type.toUpperCase();
           definitions.push(`-- ${objectLabel}: ${schema}.${name}`);
           definitions.push(definition);
           definitions.push(""); // Empty line between definitions
@@ -1379,8 +1381,8 @@ export function DatabaseSidebar({
                   item.type === "function"
                     ? functionsByKey.get(key)
                     : item.type === "view"
-                    ? viewsByKey.get(key)
-                    : tablesByKey.get(key);
+                      ? viewsByKey.get(key)
+                      : tablesByKey.get(key);
 
                 if (!itemData) return null;
 
@@ -1390,7 +1392,7 @@ export function DatabaseSidebar({
                   item.type === "function" ? (
                     <IconMathFunction
                       className={cn(
-                        "h-3.5 w-4 min-w-4 flex-shrink-0",
+                        "h-3.5 w-4 min-w-4 shrink-0",
                         isProcedure(itemData as FunctionMeta)
                           ? "text-orange-500"
                           : "text-purple-500",
@@ -1399,14 +1401,14 @@ export function DatabaseSidebar({
                   ) : item.type === "view" ? (
                     <IconEye
                       className={cn(
-                        "h-4 min-h-4 w-4 min-w-4 flex-shrink-0",
+                        "h-4 min-h-4 w-4 min-w-4 shrink-0",
                         (itemData as TableMeta).kind === "MaterializedView"
                           ? "text-blue-500"
                           : "text-green-500",
                       )}
                     />
                   ) : (
-                    <IconTable className="h-3.5 w-4 min-w-4 text-primary flex-shrink-0" />
+                    <IconTable className="h-3.5 w-4 min-w-4 text-primary shrink-0" />
                   );
 
                 const isActive =
@@ -1528,12 +1530,13 @@ export function DatabaseSidebar({
                 const itemKey = getItemKey("table", table.name, table.schema);
                 const tableKey = `${table.schema}.${table.name}`;
                 const isPartitioned = table.isPartitioned === true;
-                const isPartitionExpanded = expandedPartitionedTables.has(tableKey);
+                const isPartitionExpanded =
+                  expandedPartitionedTables.has(tableKey);
                 return (
                   <div key={tableKey}>
                     <SidebarItem
                       icon={
-                        <IconTable className="h-3.5 w-4 min-w-4 text-primary flex-shrink-0" />
+                        <IconTable className="h-3.5 w-4 min-w-4 text-primary shrink-0" />
                       }
                       name={table.name}
                       isActive={isTableActive(table.name, table.schema)}
@@ -1642,7 +1645,7 @@ export function DatabaseSidebar({
                     icon={
                       <IconEye
                         className={cn(
-                          "h-4 min-h-4 w-4 min-w-4 flex-shrink-0",
+                          "h-4 min-h-4 w-4 min-w-4 shrink-0",
                           view.kind === "MaterializedView"
                             ? "text-blue-500"
                             : "text-green-500",
@@ -1740,7 +1743,7 @@ export function DatabaseSidebar({
                     icon={
                       <IconMathFunction
                         className={cn(
-                          "h-3.5 w-4 min-w-4 flex-shrink-0",
+                          "h-3.5 w-4 min-w-4 shrink-0",
                           isProcedure(func)
                             ? "text-orange-500"
                             : "text-purple-500",
@@ -1795,7 +1798,7 @@ export function DatabaseSidebar({
                   icon={
                     <IconClock
                       className={cn(
-                        "h-3.5 w-4 min-w-4 flex-shrink-0",
+                        "h-3.5 w-4 min-w-4 shrink-0",
                         event.status === "ENABLED"
                           ? "text-green-500"
                           : "text-muted-foreground",

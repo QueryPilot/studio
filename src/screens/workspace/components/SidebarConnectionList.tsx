@@ -18,10 +18,7 @@ import {
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { ConnectionSection } from "./ConnectionSection";
 import type { OpenConnection } from "@/types/workspace";
-import {
-  type TableMeta,
-  type FunctionMeta,
-} from "@/services/databaseService";
+import { type TableMeta, type FunctionMeta } from "@/services/databaseService";
 import {
   Tooltip,
   TooltipContent,
@@ -34,7 +31,13 @@ interface SidebarConnectionListProps {
   onTableClick?: (
     connectionId: string,
     table: TableMeta,
-    viewType?: "data" | "structure" | "indexes" | "triggers" | "definition" | "partitions"
+    viewType?:
+      | "data"
+      | "structure"
+      | "indexes"
+      | "triggers"
+      | "definition"
+      | "partitions",
   ) => void;
   /** Optional callback when a function is clicked */
   onFunctionClick?: (connectionId: string, func: FunctionMeta) => void;
@@ -77,7 +80,7 @@ export function SidebarConnectionList({
         initial.add(focusedConnectionId);
       }
       return initial;
-    }
+    },
   );
 
   // Track previous focused connection to detect changes
@@ -88,7 +91,10 @@ export function SidebarConnectionList({
 
   // When focused connection changes, auto-expand it and scroll to it
   useEffect(() => {
-    if (focusedConnectionId && focusedConnectionId !== prevFocusedIdRef.current) {
+    if (
+      focusedConnectionId &&
+      focusedConnectionId !== prevFocusedIdRef.current
+    ) {
       setExpandedConnections((prev) => {
         const next = new Set(prev);
         next.add(focusedConnectionId);
@@ -144,7 +150,7 @@ export function SidebarConnectionList({
     return connections.filter(
       (conn) =>
         conn.profile.name.toLowerCase().includes(query) ||
-        conn.database.toLowerCase().includes(query)
+        conn.database.toLowerCase().includes(query),
     );
   }, [connections, searchQuery]);
 
@@ -173,7 +179,7 @@ export function SidebarConnectionList({
   return (
     <div className="flex flex-col h-full">
       {/* Header with search and actions */}
-      <div className="flex-shrink-0 p-1.5 space-y-1.5">
+      <div className="shrink-0 p-1.5 space-y-1.5">
         {/* Title bar with actions */}
         <div className="flex items-center justify-between px-1">
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">

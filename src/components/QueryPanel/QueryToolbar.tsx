@@ -69,7 +69,9 @@ interface QueryToolbarProps {
   onBeautify: () => void;
   onToggleResults: () => void;
   onToggleOutline?: () => void;
-  onViewModeChange: (mode: "table" | "json" | "explain" | "raw" | "stats") => void;
+  onViewModeChange: (
+    mode: "table" | "json" | "explain" | "raw" | "stats",
+  ) => void;
   onDialectChange?: (dialect: SqlDialect | "auto") => void;
 }
 
@@ -108,7 +110,7 @@ export const QueryToolbar = memo(function QueryToolbar({
       : DIALECT_OPTIONS.find((d) => d.value === dialect)?.label || dialect;
 
   return (
-    <div className="@container/toolbar flex-shrink-0">
+    <div className="@container/toolbar shrink-0">
       <div className="flex items-center justify-between gap-1.5 px-1.5 py-1 bg-muted/20">
         {/* Left side */}
         <div className="flex items-center gap-1.5">
@@ -128,7 +130,9 @@ export const QueryToolbar = memo(function QueryToolbar({
             <Tabs
               value={viewMode}
               onValueChange={(value) => {
-                onViewModeChange(value as "table" | "json" | "explain" | "raw" | "stats");
+                onViewModeChange(
+                  value as "table" | "json" | "explain" | "raw" | "stats",
+                );
               }}
               enableShortcuts={true}
               tabGroupId="query-view-mode"
@@ -334,8 +338,8 @@ export const QueryToolbar = memo(function QueryToolbar({
               isExecuting
                 ? "Cancel execution"
                 : executeHint
-                ? `Execute query (${executeHint})`
-                : "Execute query (⌘↵)"
+                  ? `Execute query (${executeHint})`
+                  : "Execute query (⌘↵)"
             }
           >
             {isExecuting ? (

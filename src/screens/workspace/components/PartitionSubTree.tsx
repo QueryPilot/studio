@@ -53,7 +53,9 @@ export function PartitionSubTree({
   if (!hasPartitions) {
     return (
       <div className="ml-6 py-1">
-        <span className="text-xs text-muted-foreground">No partitions found</span>
+        <span className="text-xs text-muted-foreground">
+          No partitions found
+        </span>
       </div>
     );
   }
@@ -64,10 +66,12 @@ export function PartitionSubTree({
         <SidebarItem
           key={partition.partition_name}
           icon={
-            <IconStack2 className="h-3.5 w-4 min-w-4 text-muted-foreground flex-shrink-0" />
+            <IconStack2 className="h-3.5 w-4 min-w-4 text-muted-foreground shrink-0" />
           }
           name={partition.partition_name}
-          isActive={isPartitionActive?.(partition.partition_name, schema) ?? false}
+          isActive={
+            isPartitionActive?.(partition.partition_name, schema) ?? false
+          }
           onClick={() => onPartitionClick(partition.partition_name, schema)}
           rowCount={partition.table_rows}
           level={1}

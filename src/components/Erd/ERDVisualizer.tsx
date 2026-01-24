@@ -25,7 +25,12 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import Dagre from "@dagrejs/dagre";
-import { IconKey, IconLink, IconChevronDown, IconChevronUp } from '@tabler/icons-react';
+import {
+  IconKey,
+  IconLink,
+  IconChevronDown,
+  IconChevronUp,
+} from "@tabler/icons-react";
 import {
   Tooltip,
   TooltipContent,
@@ -247,7 +252,9 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
     return { type, constraints };
   }, []);
 
-  const hiddenColumns: ColumnMeta[] = expanded ? [] : table.columns.slice(PREVIEW_COLUMN_LIMIT);
+  const hiddenColumns: ColumnMeta[] = expanded
+    ? []
+    : table.columns.slice(PREVIEW_COLUMN_LIMIT);
   const hiddenConnectedColumns: ColumnMeta[] = hiddenColumns.filter(
     (column: ColumnMeta) =>
       columnHandles.source.has(column.name) ||
@@ -347,9 +354,7 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
       <div className="overflow-auto px-1.5 py-1">
         <ul className="space-y-0">
           {columns.map((column) => {
-            const { type, constraints } = formatColumnType(
-              column,
-            );
+            const { type, constraints } = formatColumnType(column);
             const showSourceHandles = columnHandles.source.has(column.name);
             const showTargetHandles = columnHandles.target.has(column.name);
             return (
@@ -358,9 +363,16 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                   render={
                     <li
                       className="group relative flex items-center gap-2 rounded px-1.5 py-0.5 transition hover:bg-muted cursor-pointer"
-                      onMouseEnter={() => { onColumnHover?.(column.name); }}
-                      onMouseLeave={() => { onColumnLeave?.(); }}
-                      onDoubleClick={(e) => { e.stopPropagation(); onColumnDoubleClick?.(table.name, column.name); }}
+                      onMouseEnter={() => {
+                        onColumnHover?.(column.name);
+                      }}
+                      onMouseLeave={() => {
+                        onColumnLeave?.();
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        onColumnDoubleClick?.(table.name, column.name);
+                      }}
                     >
                       {showTargetHandles && (
                         <Handle
@@ -368,7 +380,14 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                           position={Position.Left}
                           id={makeHandleId(column.name, "target", "left")}
                           className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
-                          style={{ width: 8, height: 8, border: "none", background: "transparent", pointerEvents: "all", transform: "translate(-8px, -50%)" }}
+                          style={{
+                            width: 8,
+                            height: 8,
+                            border: "none",
+                            background: "transparent",
+                            pointerEvents: "all",
+                            transform: "translate(-8px, -50%)",
+                          }}
                         />
                       )}
                       {showSourceHandles && (
@@ -377,19 +396,35 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                           position={Position.Left}
                           id={makeHandleId(column.name, "source", "left")}
                           className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
-                          style={{ width: 8, height: 8, border: "none", background: "transparent", pointerEvents: "all", transform: "translate(-8px, -50%)" }}
+                          style={{
+                            width: 8,
+                            height: 8,
+                            border: "none",
+                            background: "transparent",
+                            pointerEvents: "all",
+                            transform: "translate(-8px, -50%)",
+                          }}
                         />
                       )}
                       <div className="flex flex-1 items-center gap-2 min-w-0 text-xs">
                         <div className="flex-1 inline-flex items-center gap-2">
-                          <span className="font-medium text-foreground truncate max-w-[160px]">{column.name}</span>
+                          <span className="font-medium text-foreground truncate max-w-[160px]">
+                            {column.name}
+                          </span>
                           {renderColumnIcons(column)}
                         </div>
-                        <div className="flex items-center gap-2 min-w-0 flex-shrink-0">
+                        <div className="flex items-center gap-2 min-w-0 shrink-0">
                           {constraints.length > 0 && (
-                            <span className="text-xs text-orange-500 font-semibold flex-shrink-0">{constraints.join(",")}</span>
+                            <span className="text-xs text-orange-500 font-semibold shrink-0">
+                              {constraints.join(",")}
+                            </span>
                           )}
-                          <span className="text-xs text-muted-foreground truncate max-w-[80px]" title={type}>{type}</span>
+                          <span
+                            className="text-xs text-muted-foreground truncate max-w-[80px]"
+                            title={type}
+                          >
+                            {type}
+                          </span>
                         </div>
                       </div>
                       {showTargetHandles && (
@@ -398,7 +433,14 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                           position={Position.Right}
                           id={makeHandleId(column.name, "target", "right")}
                           className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
-                          style={{ width: 8, height: 8, border: "none", background: "transparent", pointerEvents: "all", transform: "translate(8px, -50%)" }}
+                          style={{
+                            width: 8,
+                            height: 8,
+                            border: "none",
+                            background: "transparent",
+                            pointerEvents: "all",
+                            transform: "translate(8px, -50%)",
+                          }}
                         />
                       )}
                       {showSourceHandles && (
@@ -407,7 +449,14 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                           position={Position.Right}
                           id={makeHandleId(column.name, "source", "right")}
                           className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
-                          style={{ width: 8, height: 8, border: "none", background: "transparent", pointerEvents: "all", transform: "translate(8px, -50%)" }}
+                          style={{
+                            width: 8,
+                            height: 8,
+                            border: "none",
+                            background: "transparent",
+                            pointerEvents: "all",
+                            transform: "translate(8px, -50%)",
+                          }}
                         />
                       )}
                     </li>
@@ -531,19 +580,19 @@ const areTableNodesEqual = (
   // Compare basic props
   if (prevProps.id !== nextProps.id) return false;
   if (prevProps.selected !== nextProps.selected) return false;
-  
+
   // Compare data object deeply
   const prevData = prevProps.data as TableNodeData;
   const nextData = nextProps.data as TableNodeData;
-  
+
   if (!prevData || !nextData) return prevData === nextData;
-  
+
   // Compare relevant data properties
   if (prevData.expanded !== nextData.expanded) return false;
   if (prevData.isSelected !== nextData.isSelected) return false;
   if (prevData.table !== nextData.table) return false;
   if (prevData.columnHandles !== nextData.columnHandles) return false;
-  
+
   return true;
 };
 
@@ -552,36 +601,84 @@ const TableNode = React.memo(TableNodeComponent, areTableNodesEqual);
 // Pre-computed marker styles cache - CRITICAL for performance
 const MARKER_STYLES_CACHE = {
   "1-source-primary": {
-    markerWidth: 4, markerHeight: 7, refX: 0, refY: 3.5,
-    orient: "auto", fill: "none", stroke: EDGE_COLORS.highlighted, strokeWidth: 0.8,
+    markerWidth: 4,
+    markerHeight: 7,
+    refX: 0,
+    refY: 3.5,
+    orient: "auto",
+    fill: "none",
+    stroke: EDGE_COLORS.highlighted,
+    strokeWidth: 0.8,
   },
   "1-target-primary": {
-    markerWidth: 4, markerHeight: 7, refX: 4, refY: 3.5,
-    orient: "auto", fill: "none", stroke: EDGE_COLORS.highlighted, strokeWidth: 0.8,
+    markerWidth: 4,
+    markerHeight: 7,
+    refX: 4,
+    refY: 3.5,
+    orient: "auto",
+    fill: "none",
+    stroke: EDGE_COLORS.highlighted,
+    strokeWidth: 0.8,
   },
   "n-source-primary": {
-    markerWidth: 7, markerHeight: 6, refX: 0, refY: 3,
-    orient: "auto", fill: "none", stroke: EDGE_COLORS.highlighted, strokeWidth: 0.6,
+    markerWidth: 7,
+    markerHeight: 6,
+    refX: 0,
+    refY: 3,
+    orient: "auto",
+    fill: "none",
+    stroke: EDGE_COLORS.highlighted,
+    strokeWidth: 0.6,
   },
   "n-target-primary": {
-    markerWidth: 7, markerHeight: 6, refX: 7, refY: 3,
-    orient: "auto", fill: "none", stroke: EDGE_COLORS.highlighted, strokeWidth: 0.6,
+    markerWidth: 7,
+    markerHeight: 6,
+    refX: 7,
+    refY: 3,
+    orient: "auto",
+    fill: "none",
+    stroke: EDGE_COLORS.highlighted,
+    strokeWidth: 0.6,
   },
   "1-source-base": {
-    markerWidth: 4, markerHeight: 7, refX: 0, refY: 3.5,
-    orient: "auto", fill: "none", stroke: EDGE_COLORS.base, strokeWidth: 0.8,
+    markerWidth: 4,
+    markerHeight: 7,
+    refX: 0,
+    refY: 3.5,
+    orient: "auto",
+    fill: "none",
+    stroke: EDGE_COLORS.base,
+    strokeWidth: 0.8,
   },
   "1-target-base": {
-    markerWidth: 4, markerHeight: 7, refX: 4, refY: 3.5,
-    orient: "auto", fill: "none", stroke: EDGE_COLORS.base, strokeWidth: 0.8,
+    markerWidth: 4,
+    markerHeight: 7,
+    refX: 4,
+    refY: 3.5,
+    orient: "auto",
+    fill: "none",
+    stroke: EDGE_COLORS.base,
+    strokeWidth: 0.8,
   },
   "n-source-base": {
-    markerWidth: 7, markerHeight: 6, refX: 0, refY: 3,
-    orient: "auto", fill: "none", stroke: EDGE_COLORS.base, strokeWidth: 0.6,
+    markerWidth: 7,
+    markerHeight: 6,
+    refX: 0,
+    refY: 3,
+    orient: "auto",
+    fill: "none",
+    stroke: EDGE_COLORS.base,
+    strokeWidth: 0.6,
   },
   "n-target-base": {
-    markerWidth: 7, markerHeight: 6, refX: 7, refY: 3,
-    orient: "auto", fill: "none", stroke: EDGE_COLORS.base, strokeWidth: 0.6,
+    markerWidth: 7,
+    markerHeight: 6,
+    refX: 7,
+    refY: 3,
+    orient: "auto",
+    fill: "none",
+    stroke: EDGE_COLORS.base,
+    strokeWidth: 0.6,
   },
 } as const;
 
@@ -590,7 +687,11 @@ const LINE_STYLES_CACHE = {
   "1-1": { strokeLinecap: "round" as const, strokeLinejoin: "round" as const },
   "1-n": { strokeLinecap: "round" as const, strokeLinejoin: "round" as const },
   "n-1": { strokeLinecap: "round" as const, strokeLinejoin: "round" as const },
-  "n-n": { strokeLinecap: "round" as const, strokeLinejoin: "round" as const, strokeDasharray: "5,5" },
+  "n-n": {
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    strokeDasharray: "5,5",
+  },
 } as const;
 
 // Edge path cache for better performance during pan/zoom
@@ -668,16 +769,22 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
   }
 
   // Use cached line style
-  const lineStyle = LINE_STYLES_CACHE[relationshipType as keyof typeof LINE_STYLES_CACHE] || LINE_STYLES_CACHE["1-1"];
+  const lineStyle =
+    LINE_STYLES_CACHE[relationshipType as keyof typeof LINE_STYLES_CACHE] ||
+    LINE_STYLES_CACHE["1-1"];
 
   // Use cached marker styles
   const sourceMarkerId = `marker-source-${id}`;
   const targetMarkerId = `marker-target-${id}`;
   const sourceMarkerStyle = edgeData?.sourceCardinality
-    ? MARKER_STYLES_CACHE[`${edgeData.sourceCardinality}-source-${colorKey}` as keyof typeof MARKER_STYLES_CACHE]
+    ? MARKER_STYLES_CACHE[
+        `${edgeData.sourceCardinality}-source-${colorKey}` as keyof typeof MARKER_STYLES_CACHE
+      ]
     : null;
   const targetMarkerStyle = edgeData?.targetCardinality
-    ? MARKER_STYLES_CACHE[`${edgeData.targetCardinality}-target-${colorKey}` as keyof typeof MARKER_STYLES_CACHE]
+    ? MARKER_STYLES_CACHE[
+        `${edgeData.targetCardinality}-target-${colorKey}` as keyof typeof MARKER_STYLES_CACHE
+      ]
     : null;
 
   // Position cardinality labels closer to the actual connection points
@@ -726,7 +833,11 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
       {/* Define custom markers */}
       <defs>
         {sourceMarkerStyle && (
-          <marker id={sourceMarkerId} {...sourceMarkerStyle} opacity={markerOpacity}>
+          <marker
+            id={sourceMarkerId}
+            {...sourceMarkerStyle}
+            opacity={markerOpacity}
+          >
             {edgeData?.sourceCardinality === "1" ? (
               <line x1="0" y1="0.5" x2="0" y2="6.5" />
             ) : (
@@ -740,7 +851,11 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
           </marker>
         )}
         {targetMarkerStyle && (
-          <marker id={targetMarkerId} {...targetMarkerStyle} opacity={markerOpacity}>
+          <marker
+            id={targetMarkerId}
+            {...targetMarkerStyle}
+            opacity={markerOpacity}
+          >
             {edgeData?.targetCardinality === "1" ? (
               <line x1="4" y1="0.5" x2="4" y2="6.5" />
             ) : (
@@ -876,23 +991,26 @@ const areForeignKeyEdgesEqual = (
   if (prevProps.targetY !== nextProps.targetY) return false;
   if (prevProps.sourcePosition !== nextProps.sourcePosition) return false;
   if (prevProps.targetPosition !== nextProps.targetPosition) return false;
-  
+
   // Compare edge data
   const prevData = prevProps.data as ForeignEdgeData | undefined;
   const nextData = nextProps.data as ForeignEdgeData | undefined;
-  
+
   if (!prevData || !nextData) return prevData === nextData;
-  
+
   if (prevData.relationshipId !== nextData.relationshipId) return false;
   if (prevData.highlighted !== nextData.highlighted) return false;
   if (prevData.isHovered !== nextData.isHovered) return false;
   if (prevData.isDragging !== nextData.isDragging) return false;
   if (prevData.dimmed !== nextData.dimmed) return false;
-  
+
   return true;
 };
 
-const ForeignKeyEdge = React.memo(ForeignKeyEdgeComponent, areForeignKeyEdgesEqual);
+const ForeignKeyEdge = React.memo(
+  ForeignKeyEdgeComponent,
+  areForeignKeyEdgesEqual,
+);
 
 const nodeTypes = {
   [TABLE_NODE_TYPE]: TableNode,
@@ -990,14 +1108,19 @@ export const ERDVisualizer = React.forwardRef<
     }, []);
 
     // Stable callbacks that don't change - CRITICAL for performance
-    const stableCallbacks = useMemo(() => ({
-      onToggleExpand: toggleExpanded,
-      onHover: setHoveredNodeId,
-      onClick: handleTableClick,
-      onColumnHover: setHoveredColumn,
-      onColumnLeave: () => { setHoveredColumn(null); },
-      onColumnDoubleClick,
-    }), [toggleExpanded, handleTableClick, onColumnDoubleClick]);
+    const stableCallbacks = useMemo(
+      () => ({
+        onToggleExpand: toggleExpanded,
+        onHover: setHoveredNodeId,
+        onClick: handleTableClick,
+        onColumnHover: setHoveredColumn,
+        onColumnLeave: () => {
+          setHoveredColumn(null);
+        },
+        onColumnDoubleClick,
+      }),
+      [toggleExpanded, handleTableClick, onColumnDoubleClick],
+    );
 
     const tableColumnLookup = useMemo(() => {
       const lookup = new Map<string, Map<string, string>>();
@@ -1019,13 +1142,11 @@ export const ERDVisualizer = React.forwardRef<
         const lookup = tableColumnLookup.get(tableId);
         if (!lookup) return null;
         const cleaned = normalizeColumnName(columnName);
-        const direct =
-          lookup.get(cleaned) ?? lookup.get(cleaned.toLowerCase());
+        const direct = lookup.get(cleaned) ?? lookup.get(cleaned.toLowerCase());
         if (direct) return direct;
         if (cleaned.includes(".")) {
           const tail = cleaned.split(".").pop() ?? "";
-          const tailMatch =
-            lookup.get(tail) ?? lookup.get(tail.toLowerCase());
+          const tailMatch = lookup.get(tail) ?? lookup.get(tail.toLowerCase());
           if (tailMatch) return tailMatch;
         }
         return null;
@@ -1098,7 +1219,13 @@ export const ERDVisualizer = React.forwardRef<
         });
       });
       return map;
-    }, [tables, expandedNodes, selectedTableId, stableCallbacks, handleColumnMap]);
+    }, [
+      tables,
+      expandedNodes,
+      selectedTableId,
+      stableCallbacks,
+      handleColumnMap,
+    ]);
 
     // Memoize edge creation for performance - CRITICAL optimization
     const createEdges = useMemo((): any[] => {
@@ -1397,7 +1524,7 @@ export const ERDVisualizer = React.forwardRef<
         isInitialMountRef.current = false;
         return;
       }
-      
+
       // Only re-layout if we have tables to layout
       if (tables.length > 0) {
         layoutWithDagre();
