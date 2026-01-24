@@ -163,14 +163,51 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
 
   const config: ParsedEnvConfig = {};
 
-  // Detect database type from variable prefixes
-  if (hasPrefix("POSTGRES_") || hasPrefix("PG")) {
+  // Detect database type from DB_CONNECTION, DB_DRIVER, etc.
+  const dbConnection = getValue(
+    "DB_CONNECTION",
+    "DB_DRIVER",
+    "DB_TYPE",
+    "DATABASE_DRIVER",
+    "DATABASE_TYPE",
+    "CONNECTION",
+    "DRIVER",
+  );
+  if (dbConnection) {
+    const connLower = dbConnection.toLowerCase();
+    if (
+      connLower === "pgsql" ||
+      connLower === "postgres" ||
+      connLower === "postgresql" ||
+      connLower === "pg"
+    ) {
+      config.dbType = "postgresql";
+    } else if (connLower === "mysql" || connLower === "mysql2") {
+      config.dbType = "mysql";
+    } else if (connLower === "mariadb") {
+      config.dbType = "mariadb";
+    } else if (
+      connLower === "mssql" ||
+      connLower === "sqlserver" ||
+      connLower === "sqlsrv" ||
+      connLower === "sql_server" ||
+      connLower === "odbc"
+    ) {
+      config.dbType = "mssql";
+    } else if (connLower === "sqlite" || connLower === "sqlite3") {
+      config.dbType = "sqlite";
+    } else if (connLower === "mongodb" || connLower === "mongo") {
+      config.dbType = "mongodb";
+    } else if (connLower === "redis") {
+      config.dbType = "redis";
+    }
+  } else if (hasPrefix("POSTGRES_") || hasPrefix("PG_") || hasPrefix("PGHOST")) {
     config.dbType = "postgresql";
   } else if (hasPrefix("MYSQL_")) {
     config.dbType = "mysql";
   } else if (hasPrefix("MARIADB_")) {
     config.dbType = "mariadb";
-  } else if (hasPrefix("MSSQL_") || hasPrefix("SQLSERVER_")) {
+  } else if (hasPrefix("MSSQL_") || hasPrefix("SQLSERVER_") || hasPrefix("SQL_SERVER_")) {
     config.dbType = "mssql";
   } else if (hasPrefix("SQLITE_")) {
     config.dbType = "sqlite";
@@ -181,83 +218,211 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
   }
 
   // Map environment variables to config fields
+  // Host patterns: Laravel, Docker, Heroku, generic
   config.host = getValue(
+    // PostgreSQL
     "POSTGRES_HOST",
     "PGHOST",
+    "PG_HOST",
+    // MySQL/MariaDB
     "MYSQL_HOST",
     "MARIADB_HOST",
+    // SQL Server
     "MSSQL_HOST",
+    "SQLSERVER_HOST",
+    "SQL_SERVER_HOST",
+    // MongoDB
     "MONGODB_HOST",
     "MONGO_HOST",
+    // Redis
     "REDIS_HOST",
+    // Generic (Laravel, Rails, etc.)
     "DB_HOST",
     "DATABASE_HOST",
+    "DB_SERVER",
+    "DATABASE_SERVER",
     "HOST",
+    "HOSTNAME",
+    "SERVER",
   );
 
+  // Port patterns
   config.port = getValue(
+    // PostgreSQL
     "POSTGRES_PORT",
     "PGPORT",
+    "PG_PORT",
+    // MySQL/MariaDB
     "MYSQL_PORT",
+    "MYSQL_TCP_PORT",
     "MARIADB_PORT",
+    // SQL Server
     "MSSQL_PORT",
+    "SQLSERVER_PORT",
+    "SQL_SERVER_PORT",
+    // MongoDB
     "MONGODB_PORT",
     "MONGO_PORT",
+    // Redis
     "REDIS_PORT",
+    // Generic
     "DB_PORT",
     "DATABASE_PORT",
     "PORT",
   );
 
+  // Username patterns
   config.username = getValue(
+    // PostgreSQL
     "POSTGRES_USER",
+    "POSTGRES_USERNAME",
     "PGUSER",
+    "PG_USER",
+    // MySQL/MariaDB (also root user)
     "MYSQL_USER",
+    "MYSQL_USERNAME",
     "MARIADB_USER",
+    "MARIADB_USERNAME",
+    // SQL Server
     "MSSQL_USER",
+    "MSSQL_USERNAME",
+    "SQLSERVER_USER",
+    "SQL_SERVER_USER",
+    "SA_USER",
+    // MongoDB
     "MONGODB_USER",
+    "MONGODB_USERNAME",
     "MONGO_USER",
+    "MONGO_USERNAME",
+    "MONGO_INITDB_ROOT_USERNAME",
+    // Redis
     "REDIS_USER",
+    "REDIS_USERNAME",
+    // Generic (Laravel, Rails, Django, etc.)
     "DB_USER",
+    "DB_USERNAME",
     "DATABASE_USER",
+    "DATABASE_USERNAME",
     "USER",
     "USERNAME",
   );
 
+  // Password patterns
   config.password = getValue(
+    // PostgreSQL
     "POSTGRES_PASSWORD",
     "PGPASSWORD",
+    "PG_PASSWORD",
+    // MySQL/MariaDB (including root)
     "MYSQL_PASSWORD",
+    "MYSQL_ROOT_PASSWORD",
+    "MYSQL_PWD",
     "MARIADB_PASSWORD",
+    "MARIADB_ROOT_PASSWORD",
+    // SQL Server
     "MSSQL_PASSWORD",
+    "MSSQL_SA_PASSWORD",
+    "SQLSERVER_PASSWORD",
+    "SQL_SERVER_PASSWORD",
+    "SA_PASSWORD",
+    // MongoDB
     "MONGODB_PASSWORD",
     "MONGO_PASSWORD",
+    "MONGO_INITDB_ROOT_PASSWORD",
+    // Redis
     "REDIS_PASSWORD",
+    "REDIS_AUTH",
+    // Generic (Laravel, Rails, Django, etc.)
     "DB_PASSWORD",
+    "DB_PASS",
+    "DB_PWD",
     "DATABASE_PASSWORD",
+    "DATABASE_PASS",
     "PASSWORD",
     "PASS",
+    "PWD",
   );
 
+  // Database name patterns
   config.database = getValue(
+    // PostgreSQL
     "POSTGRES_DB",
+    "POSTGRES_DATABASE",
     "PGDATABASE",
+    "PG_DATABASE",
+    // MySQL/MariaDB
     "MYSQL_DATABASE",
+    "MYSQL_DB",
     "MARIADB_DATABASE",
+    "MARIADB_DB",
+    // SQL Server
     "MSSQL_DATABASE",
+    "MSSQL_DB",
+    "SQLSERVER_DATABASE",
+    "SQL_SERVER_DATABASE",
+    // SQLite
     "SQLITE_DATABASE",
     "SQLITE_DB",
+    "SQLITE_PATH",
+    // MongoDB
     "MONGODB_DATABASE",
+    "MONGODB_DB",
     "MONGO_DATABASE",
+    "MONGO_DB",
+    "MONGO_INITDB_DATABASE",
+    // Redis
     "REDIS_DATABASE",
+    "REDIS_DB",
+    // Generic (Laravel, Rails, Django, etc.)
+    "DB_DATABASE",
     "DB_NAME",
+    "DB_SCHEMA",
     "DATABASE_NAME",
     "DATABASE",
+    "DBNAME",
     "DB",
+    "SCHEMA",
+    "CATALOG",
   );
 
   // Handle DATABASE_URL as a full connection URI
-  const databaseUrl = getValue("DATABASE_URL", "DB_URL", "CONNECTION_STRING");
+  // Support: Rails, Heroku, Docker, Laravel, etc.
+  const databaseUrl = getValue(
+    // Generic
+    "DATABASE_URL",
+    "DB_URL",
+    "CONNECTION_STRING",
+    "CONNECTION_URL",
+    "DSN",
+    // PostgreSQL
+    "POSTGRES_URL",
+    "POSTGRESQL_URL",
+    "PG_URL",
+    "PGURL",
+    // MySQL/MariaDB
+    "MYSQL_URL",
+    "MARIADB_URL",
+    // SQL Server
+    "MSSQL_URL",
+    "SQLSERVER_URL",
+    // MongoDB
+    "MONGODB_URL",
+    "MONGODB_URI",
+    "MONGO_URL",
+    "MONGO_URI",
+    // Redis
+    "REDIS_URL",
+    "REDIS_URI",
+    // Heroku-style addons
+    "HEROKU_POSTGRESQL_URL",
+    "CLEARDB_DATABASE_URL",
+    "JAWSDB_URL",
+    "JAWSDB_MARIA_URL",
+    "REDISTOGO_URL",
+    "REDISCLOUD_URL",
+    "MONGOLAB_URI",
+    "MONGODB_ADDON_URI",
+  );
   if (databaseUrl && looksLikeConnectionUri(databaseUrl)) {
     try {
       const uriConfig = parseConnectionUri(databaseUrl);
@@ -278,48 +443,145 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
 
   // SSL Mode
   const sslModeValue = getValue(
+    // PostgreSQL
+    "PGSSLMODE",
+    "PG_SSLMODE",
+    "POSTGRES_SSLMODE",
+    "POSTGRES_SSL_MODE",
+    // MySQL/MariaDB
+    "MYSQL_SSL_MODE",
+    "MYSQL_SSL",
+    "MARIADB_SSL_MODE",
+    // SQL Server
+    "MSSQL_ENCRYPT",
+    "MSSQL_SSL",
+    // Generic
     "SSL_MODE",
     "SSLMODE",
-    "POSTGRES_SSLMODE",
     "DB_SSL",
+    "DB_SSL_MODE",
+    "DATABASE_SSL",
+    "DATABASE_SSL_MODE",
+    "SSL",
+    "ENCRYPT",
   );
   if (sslModeValue) {
     switch (sslModeValue.toLowerCase()) {
       case "disable":
+      case "disabled":
       case "false":
+      case "off":
+      case "no":
       case "0":
+      case "none":
         config.sslMode = SslMode.Disable;
         break;
       case "require":
+      case "required":
       case "true":
+      case "on":
+      case "yes":
       case "1":
+      case "enable":
+      case "enabled":
+      case "prefer":
+      case "allow":
         config.sslMode = SslMode.Require;
         break;
       case "verify-ca":
       case "verify_ca":
+      case "verifyca":
         config.sslMode = SslMode.VerifyCa;
         break;
       case "verify-full":
       case "verify_full":
+      case "verifyfull":
+      case "strict":
         config.sslMode = SslMode.VerifyFull;
         break;
     }
   }
 
   // SSL Certificates
-  config.sslKeyFile = getValue("SSL_KEY_FILE", "SSL_KEY", "PGSSLKEY");
-  config.sslCertFile = getValue("SSL_CERT_FILE", "SSL_CERT", "PGSSLCERT");
-  config.sslCAFile = getValue("SSL_CA_FILE", "SSL_CA", "PGSSLROOTCERT");
+  config.sslKeyFile = getValue(
+    "SSL_KEY_FILE",
+    "SSL_KEY",
+    "SSL_KEY_PATH",
+    "PGSSLKEY",
+    "PG_SSL_KEY",
+    "DB_SSL_KEY",
+    "DATABASE_SSL_KEY",
+    "CLIENT_KEY",
+    "CLIENT_KEY_FILE",
+  );
+  config.sslCertFile = getValue(
+    "SSL_CERT_FILE",
+    "SSL_CERT",
+    "SSL_CERT_PATH",
+    "PGSSLCERT",
+    "PG_SSL_CERT",
+    "DB_SSL_CERT",
+    "DATABASE_SSL_CERT",
+    "CLIENT_CERT",
+    "CLIENT_CERT_FILE",
+  );
+  config.sslCAFile = getValue(
+    "SSL_CA_FILE",
+    "SSL_CA",
+    "SSL_CA_PATH",
+    "SSL_ROOT_CERT",
+    "PGSSLROOTCERT",
+    "PG_SSL_CA",
+    "PG_SSL_ROOT_CERT",
+    "DB_SSL_CA",
+    "DATABASE_SSL_CA",
+    "CA_CERT",
+    "CA_CERT_FILE",
+    "ROOT_CERT",
+    "MYSQL_SSL_CA",
+  );
 
-  // SSH Tunnel
-  const sshHostValue = getValue("SSH_HOST", "SSH_SERVER");
-  const sshPortValue = getValue("SSH_PORT");
-  const sshUserValue = getValue("SSH_USER", "SSH_USERNAME");
-  const sshPasswordValue = getValue("SSH_PASSWORD", "SSH_PASS");
+  // SSH Tunnel (bastion/jump host)
+  const sshHostValue = getValue(
+    "SSH_HOST",
+    "SSH_SERVER",
+    "SSH_HOSTNAME",
+    "BASTION_HOST",
+    "JUMP_HOST",
+    "DB_SSH_HOST",
+  );
+  const sshPortValue = getValue(
+    "SSH_PORT",
+    "BASTION_PORT",
+    "JUMP_PORT",
+    "DB_SSH_PORT",
+  );
+  const sshUserValue = getValue(
+    "SSH_USER",
+    "SSH_USERNAME",
+    "BASTION_USER",
+    "JUMP_USER",
+    "DB_SSH_USER",
+    "SSH_LOGIN",
+  );
+  const sshPasswordValue = getValue(
+    "SSH_PASSWORD",
+    "SSH_PASS",
+    "SSH_PWD",
+    "BASTION_PASSWORD",
+    "JUMP_PASSWORD",
+    "DB_SSH_PASSWORD",
+  );
   const sshKeyValue = getValue(
     "SSH_KEY_PATH",
     "SSH_KEY",
+    "SSH_KEY_FILE",
     "SSH_PRIVATE_KEY",
+    "SSH_PRIVATE_KEY_PATH",
+    "SSH_IDENTITY_FILE",
+    "BASTION_KEY",
+    "JUMP_KEY",
+    "DB_SSH_KEY",
   );
 
   if (sshHostValue || sshPortValue || sshUserValue) {
