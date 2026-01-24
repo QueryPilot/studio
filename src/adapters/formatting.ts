@@ -216,16 +216,66 @@ export function getDialectQuoting(dbType: DbType | string) {
 function operatorToSql(operator: FilterOperator | string, dbType: DbType): string {
   switch (operator) {
     case 'REGEX':
-      return dbType === DbType.PostgreSQL ? '~' : 'REGEXP BINARY';
+      // PostgreSQL: ~ (case-sensitive regex)
+      // MySQL/MariaDB: REGEXP BINARY (case-sensitive)
+      // SQLite: REGEXP (requires extension, may not be available)
+      // SQL Server: No native regex - fall back to LIKE (limited pattern support)
+      switch (dbType) {
+        case DbType.PostgreSQL:
+          return '~';
+        case DbType.MySQL:
+          return 'REGEXP BINARY';
+        case DbType.SQLite:
+          return 'REGEXP'; // Note: requires regexp extension
+        case DbType.SQLServer:
+          return 'LIKE'; // Fallback - regex patterns won't work correctly
+        default:
+          return 'REGEXP BINARY';
+      }
     case 'REGEX_I':
-      return dbType === DbType.PostgreSQL ? '~*' : 'REGEXP';
+      // PostgreSQL: ~* (case-insensitive regex)
+      // MySQL/MariaDB: REGEXP (case-insensitive by default)
+      // SQLite: REGEXP (no case-insensitive variant)
+      // SQL Server: No native regex - fall back to LIKE
+      switch (dbType) {
+        case DbType.PostgreSQL:
+          return '~*';
+        case DbType.MySQL:
+          return 'REGEXP';
+        case DbType.SQLite:
+          return 'REGEXP'; // Note: requires regexp extension
+        case DbType.SQLServer:
+          return 'LIKE'; // Fallback - regex patterns won't work correctly
+        default:
+          return 'REGEXP';
+      }
     case 'ILIKE':
       // MySQL/SQLite don't have ILIKE, use LIKE (case-insensitive by default in MySQL)
+      // SQLite LIKE is case-insensitive for ASCII letters
       return dbType === DbType.PostgreSQL ? 'ILIKE' : 'LIKE';
     case 'NOT ILIKE':
       return dbType === DbType.PostgreSQL ? 'NOT ILIKE' : 'NOT LIKE';
     default:
       return operator;
+  }
+}
+
+/**
+ * Cast a column to text type for the given database
+ */
+function castToText(column: string, dbType: DbType): string {
+  switch (dbType) {
+    case DbType.PostgreSQL:
+      return `${column}::text`;
+    case DbType.MySQL:
+      // MySQL/MariaDB use CAST(col AS CHAR)
+      return `CAST(${column} AS CHAR)`;
+    case DbType.SQLite:
+      return `CAST(${column} AS TEXT)`;
+    case DbType.SQLServer:
+      return `CAST(${column} AS NVARCHAR(MAX))`;
+    default:
+      return `${column}::text`;
   }
 }
 
@@ -239,7 +289,7 @@ function conditionToSql(
 ): string {
   const baseColumn = quoteIdentifier(condition.column, dbType);
   const qualifiedColumn = columnPrefix ? `${columnPrefix}.${baseColumn}` : baseColumn;
-  const column = condition.castToText ? `${qualifiedColumn}::text` : qualifiedColumn;
+  const column = condition.castToText ? castToText(qualifiedColumn, dbType) : qualifiedColumn;
 
   const operator = condition.operator as FilterOperator;
 
