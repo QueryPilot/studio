@@ -4,7 +4,18 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconStar,
+  IconCopy,
+  IconSelect,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
 } from "@tabler/icons-react";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 
 interface SidebarSectionProps {
   title: string;
@@ -15,6 +26,11 @@ interface SidebarSectionProps {
   stickyClass?: string;
   onAdd?: () => void;
   addTooltip?: string;
+  /** Context menu handlers */
+  onExpandAll?: () => void;
+  onCollapseAll?: () => void;
+  onSelectAll?: () => void;
+  onCopyAllNames?: () => void;
 }
 
 export function SidebarSection({
@@ -26,50 +42,95 @@ export function SidebarSection({
   stickyClass = "sticky top-0 bg-background z-20",
   onAdd,
   addTooltip,
+  onExpandAll,
+  onCollapseAll,
+  onSelectAll,
+  onCopyAllNames,
 }: SidebarSectionProps) {
+  const hasContextMenu = onExpandAll || onCollapseAll || onSelectAll || onCopyAllNames;
+
+  const headerContent = (
+    <div className="flex items-center bg-muted/50 rounded-l text-xs text-foreground/80 dark:text-foreground/70">
+      <button
+        className="flex items-center gap-1.5 flex-1 text-left p-1.5"
+        onClick={onToggle}
+      >
+        {isExpanded ? (
+          <IconChevronDown className="h-4 w-4" />
+        ) : (
+          <IconChevronRight className="h-4 w-4" />
+        )}
+        <span className="font-medium text-xs">{title}</span>
+        <span className="text-xs text-muted-foreground ml-auto">
+          {count}
+        </span>
+      </button>
+      {onAdd && (
+        <button
+          className="p-1 mr-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+          onClick={(e) => {
+            e.stopPropagation();
+            onAdd();
+          }}
+          title={addTooltip || `Add ${title.slice(0, -1)}`}
+        >
+          <svg
+            className="h-3.5 w-3.5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 4v16m8-8H4"
+            />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div>
       <div className={cn(stickyClass, "group/section")}>
-        <div className="flex items-center bg-muted/50 rounded-l text-xs text-foreground/80 dark:text-foreground/70">
-          <button
-            className="flex items-center gap-1.5 flex-1 text-left p-1.5"
-            onClick={onToggle}
-          >
-            {isExpanded ? (
-              <IconChevronDown className="h-4 w-4" />
-            ) : (
-              <IconChevronRight className="h-4 w-4" />
-            )}
-            <span className="font-medium text-xs">{title}</span>
-            <span className="text-xs text-muted-foreground ml-auto">
-              {count}
-            </span>
-          </button>
-          {onAdd && (
-            <button
-              className="p-1 mr-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-              onClick={(e) => {
-                e.stopPropagation();
-                onAdd();
-              }}
-              title={addTooltip || `Add ${title.slice(0, -1)}`}
-            >
-              <svg
-                className="h-3.5 w-3.5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 4v16m8-8H4"
-                />
-              </svg>
-            </button>
-          )}
-        </div>
+        {hasContextMenu ? (
+          <ContextMenu>
+            <ContextMenuTrigger render={headerContent} />
+            <ContextMenuContent>
+              {onExpandAll && (
+                <ContextMenuItem onClick={onExpandAll}>
+                  <IconArrowsMaximize className="h-4 w-4 mr-2" />
+                  Expand All {title}
+                </ContextMenuItem>
+              )}
+              {onCollapseAll && (
+                <ContextMenuItem onClick={onCollapseAll}>
+                  <IconArrowsMinimize className="h-4 w-4 mr-2" />
+                  Collapse All {title}
+                </ContextMenuItem>
+              )}
+              {(onExpandAll || onCollapseAll) && (onSelectAll || onCopyAllNames) && (
+                <ContextMenuSeparator />
+              )}
+              {onSelectAll && (
+                <ContextMenuItem onClick={onSelectAll}>
+                  <IconSelect className="h-4 w-4 mr-2" />
+                  Select All {title}
+                </ContextMenuItem>
+              )}
+              {onCopyAllNames && (
+                <ContextMenuItem onClick={onCopyAllNames}>
+                  <IconCopy className="h-4 w-4 mr-2" />
+                  Copy All Names
+                </ContextMenuItem>
+              )}
+            </ContextMenuContent>
+          </ContextMenu>
+        ) : (
+          headerContent
+        )}
       </div>
       {isExpanded && (
         <div className="ml-3.5 mt-0.5 space-y-0.5 pl-2 pr-1 overflow-x-hidden">
