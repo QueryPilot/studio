@@ -9,7 +9,7 @@
  * Note: lintGutter() is provided separately by run-gutter extension or SqlEditor
  *
  * Usage:
- *   const linter = createDialectLinter("postgresql");
+ *   const linter = createDialectLinter("postgresql", { connectionId, schema });
  *   extensions.push(linter);
  */
 
@@ -19,11 +19,21 @@ import { createPgParserLinter } from "./pg-parser-linter";
 import { createUnifiedLinter } from "./unified-linter";
 
 /**
+ * Optional configuration for dialect linters.
+ */
+export interface DialectLinterConfig {
+  /** Connection ID for schema-aware validation */
+  connectionId?: string;
+  /** Schema name for schema-aware validation */
+  schema?: string;
+}
+
+/**
  * Linter strategy configuration per dialect.
  */
 interface LinterStrategy {
   /** The primary linter extension for this dialect */
-  linter: () => Extension;
+  linter: (config?: DialectLinterConfig) => Extension;
   /** Human-readable description */
   description: string;
 }
@@ -37,19 +47,39 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
     description: "pg-parser WASM (PL/pgSQL support)",
   },
   mysql: {
-    linter: () => createUnifiedLinter({ dialect: "mysql" }),
+    linter: (config) =>
+      createUnifiedLinter({
+        dialect: "mysql",
+        connectionId: config?.connectionId,
+        schema: config?.schema,
+      }),
     description: "Unified linter (400ms debounce)",
   },
   sqlite: {
-    linter: () => createUnifiedLinter({ dialect: "sqlite" }),
+    linter: (config) =>
+      createUnifiedLinter({
+        dialect: "sqlite",
+        connectionId: config?.connectionId,
+        schema: config?.schema,
+      }),
     description: "Unified linter (400ms debounce)",
   },
   mssql: {
-    linter: () => createUnifiedLinter({ dialect: "mssql" }),
+    linter: (config) =>
+      createUnifiedLinter({
+        dialect: "mssql",
+        connectionId: config?.connectionId,
+        schema: config?.schema,
+      }),
     description: "Unified linter (400ms debounce)",
   },
   plsql: {
-    linter: () => createUnifiedLinter({ dialect: "plsql" }),
+    linter: (config) =>
+      createUnifiedLinter({
+        dialect: "plsql",
+        connectionId: config?.connectionId,
+        schema: config?.schema,
+      }),
     description: "Unified linter (400ms debounce)",
   },
 };
@@ -61,16 +91,18 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
  * Note: lintGutter() is provided separately (by run-gutter extension or SqlEditor)
  *
  * @param dialect - The SQL dialect to lint for
+ * @param config - Optional configuration with connectionId and schema for schema-aware validation
  * @returns A CodeMirror extension array with dialect-specific linter (without gutter)
  */
 export function createDialectLinter(
   dialect: SqlDialect = "postgresql",
+  config?: DialectLinterConfig,
 ): Extension[] {
   const strategy = LINTER_STRATEGIES[dialect];
 
   return [
     // Note: lintGutter() removed - provided by run-gutter or SqlEditor
-    strategy.linter(),
+    strategy.linter(config),
   ];
 }
 

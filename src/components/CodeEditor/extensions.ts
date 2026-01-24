@@ -643,7 +643,7 @@ export const getEditorExtensions = (
 
   if (language === "sql") {
     // Add dialect-specific linter using unified strategy
-    extensions.push(...createDialectLinter(dialect));
+    extensions.push(...createDialectLinter(dialect, { connectionId, schema }));
   }
 
   // Add tab handling: prioritize autocomplete acceptance over indentation

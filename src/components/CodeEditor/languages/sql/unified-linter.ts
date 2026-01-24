@@ -2,6 +2,7 @@ import { linter, type Diagnostic } from '@codemirror/lint';
 import type { Extension } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import { invoke } from '@tauri-apps/api/core';
+import { isTauri } from '@/utils/tauri';
 import type { SqlDialect } from '../../types';
 import type { LintRequest, LintResponse, LintDiagnostic } from './unified-linter-worker';
 
@@ -28,10 +29,6 @@ interface RustValidateResponse {
   valid: boolean;
   errors: Array<{ from: number; to: number; message: string; severity: string; source: string }>;
   warnings: Array<{ from: number; to: number; message: string; severity: string; source: string }>;
-}
-
-function isRustLintingAvailable(): boolean {
-  return typeof window !== 'undefined' && '__TAURI__' in window;
 }
 
 async function lintWithRust(
@@ -123,7 +120,7 @@ async function lintWithWorker(sql: string, config: UnifiedLinterConfig): Promise
 
 async function lint(sql: string, config: UnifiedLinterConfig): Promise<LintDiagnostic[]> {
   // Try Rust validation first (faster, uses pre-synced schema)
-  if (isRustLintingAvailable()) {
+  if (isTauri()) {
     try {
       return await lintWithRust(sql, config.dialect, config.connectionId, config.schema);
     } catch (error) {
