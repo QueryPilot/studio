@@ -124,13 +124,11 @@ const SQL_FUNCTIONS = new Set([
   "if",
 ]);
 
-// Cache for semantic tokens
+// Cache type for semantic tokens (used per-instance in the plugin)
 interface TokenCache {
   docVersion: number;
   tokens: SemanticToken[];
 }
-
-let tokenCache: TokenCache | null = null;
 
 /**
  * Extract CTE names from the document
@@ -390,40 +388,35 @@ function createSemanticHighlightingPlugin() {
     class {
       decorations: DecorationSet;
       pendingUpdate: ReturnType<typeof setTimeout> | null = null;
+      tokenCache: TokenCache | null = null;
 
       constructor(view: EditorView) {
         this.decorations = this.analyze(view);
       }
 
       analyze(view: EditorView): DecorationSet {
-        const docVersion = view.state.doc.length; // Simple version check
+        const docVersion = view.state.doc.length;
 
-        // Check cache
-        if (tokenCache && tokenCache.docVersion === docVersion) {
-          return buildDecorations(tokenCache.tokens);
+        if (this.tokenCache && this.tokenCache.docVersion === docVersion) {
+          return buildDecorations(this.tokenCache.tokens);
         }
 
-        // Analyze and cache
         const tokens = analyzeSemanticTokens(view);
-        tokenCache = { docVersion, tokens };
+        this.tokenCache = { docVersion, tokens };
 
         return buildDecorations(tokens);
       }
 
       update(update: ViewUpdate) {
         if (update.docChanged || update.viewportChanged) {
-          // Clear stale decorations immediately to avoid position errors
           this.decorations = Decoration.none;
 
-          // Debounce updates to avoid blocking on rapid typing
           if (this.pendingUpdate) {
             clearTimeout(this.pendingUpdate);
           }
 
-          // Capture view reference for the timeout
           const view = update.view;
           this.pendingUpdate = setTimeout(() => {
-            // Re-check view is still valid and document hasn't changed
             if (view.dom.isConnected) {
               this.decorations = this.analyze(view);
               this.pendingUpdate = null;
@@ -520,8 +513,9 @@ export function createSemanticHighlightingExtension() {
 }
 
 /**
- * Clear the semantic token cache (useful when schema changes)
+ * @deprecated Cache is now per-editor-instance, no global cache to clear.
+ * This function is kept for API compatibility but is a no-op.
  */
 export function clearSemanticCache(): void {
-  tokenCache = null;
+  // No-op: cache is now per-instance in the ViewPlugin
 }

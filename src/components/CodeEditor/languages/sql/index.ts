@@ -47,6 +47,7 @@ export {
   usesWorkerLinter,
   getLinterDescription,
 } from "./linter-strategy";
+export type { DialectLinterConfig } from "./linter-strategy";
 
 // Unified linter (uses Rust sql_validate when available, falls back to worker)
 export { createUnifiedLinter, terminateUnifiedLinter } from "./unified-linter";

@@ -288,7 +288,6 @@ export function createRefactoringExtension(options: RefactorOptions): Extension 
   return [
     refactorKeymap,
     createInlineRenameExtension(dialect),
-    // TEMPORARILY DISABLED: lightbulbPlugin causes Base UI MenuGroupLabel error
-    // lightbulbPlugin,
+    lightbulbPlugin,
   ];
 }
