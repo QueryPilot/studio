@@ -77,6 +77,33 @@ export function isKeyValue(dbType: DbType): boolean {
   return getParadigm(dbType) === 'keyvalue';
 }
 
+/**
+ * Get the default schema for a database type.
+ * - PostgreSQL: "public"
+ * - MySQL/MariaDB: Uses database name as schema (pass null, will use database)
+ * - SQLite: "main"
+ * - SQL Server: "dbo"
+ * - MongoDB/Redis: null (no schema concept)
+ */
+export function getDefaultSchema(dbType: DbType, database?: string): string | null {
+  switch (dbType) {
+    case DbType.PostgreSQL:
+      return 'public';
+    case DbType.MySQL:
+    case DbType.MariaDB:
+      // MySQL uses database name as schema
+      return database || null;
+    case DbType.SQLite:
+      return 'main';
+    case DbType.SQLServer:
+      return 'dbo';
+    case DbType.MongoDB:
+    case DbType.Redis:
+      // No schema concept
+      return null;
+  }
+}
+
 export enum SslMode {
   Disable = "Disable",
   Require = "Require",
