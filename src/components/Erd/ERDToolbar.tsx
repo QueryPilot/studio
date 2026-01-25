@@ -152,10 +152,10 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
             render={
               <Button
                 type="button"
-                variant={layoutDirection === "TB" ? "secondary" : "ghost"}
+                variant={layoutDirection === "LR" ? "secondary" : "ghost"}
                 size="icon"
                 onClick={() => {
-                  onLayoutDirectionChange?.("TB");
+                  onLayoutDirectionChange?.("LR");
                 }}
               >
                 <IconArrowsUpDown />
@@ -169,10 +169,10 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
             render={
               <Button
                 type="button"
-                variant={layoutDirection === "LR" ? "secondary" : "ghost"}
+                variant={layoutDirection === "TB" ? "secondary" : "ghost"}
                 size="icon"
                 onClick={() => {
-                  onLayoutDirectionChange?.("LR");
+                  onLayoutDirectionChange?.("TB");
                 }}
               >
                 <IconArrowsRightLeft />
