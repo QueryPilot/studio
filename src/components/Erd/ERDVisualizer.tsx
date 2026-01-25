@@ -15,12 +15,14 @@ import {
   getSmoothStepPath,
   useEdgesState,
   useNodesState,
+  useStore,
   EdgeLabelRenderer,
   type EdgeProps,
   type Node,
   type NodeChange,
   type NodeProps,
   type ReactFlowInstance,
+  type ReactFlowState,
   type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -122,6 +124,14 @@ const edgeStylesInjected = (() => {
       .erd-edge-animated {
         stroke-dasharray: 5 5;
         animation: erd-line-flow 1s linear infinite;
+      }
+      /* Disable expensive animations during drag for better performance */
+      .erd-dragging .erd-edge-animated {
+        animation: none !important;
+        stroke-dasharray: none !important;
+      }
+      .erd-dragging .react-flow__edge path {
+        transition: none !important;
       }
       .erd-table-card {
         transform: translateZ(0);
@@ -711,6 +721,20 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
   markerEnd,
 }) => {
   const edgeData = data as ForeignEdgeData | undefined;
+  const isDragging = Boolean(edgeData?.isDragging);
+
+  // PERFORMANCE: Use simple straight line during drag for maximum performance
+  if (isDragging) {
+    return (
+      <path
+        d={`M ${sourceX} ${sourceY} L ${targetX} ${targetY}`}
+        stroke="var(--muted-foreground)"
+        strokeWidth={1}
+        fill="none"
+        opacity={0.4}
+      />
+    );
+  }
 
   const relationshipType = `${edgeData?.sourceCardinality || "1"}-${edgeData?.targetCardinality || "1"}`;
   const highlighted = Boolean(selected || edgeData?.highlighted);
@@ -719,7 +743,21 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
   const strokeOpacity = isDimmed ? 0.15 : highlighted ? 1 : 0.85;
   const markerOpacity = strokeOpacity;
 
-  const computeSmoothPath = () => {
+  // Round positions for cache key
+  const rx = Math.round(sourceX * 10) / 10;
+  const ry = Math.round(sourceY * 10) / 10;
+  const tx = Math.round(targetX * 10) / 10;
+  const ty = Math.round(targetY * 10) / 10;
+  const cacheKey = `${rx}-${ry}-${tx}-${ty}-${sourcePosition}-${targetPosition}`;
+
+  let edgePath: string;
+  let labelX: number;
+  let labelY: number;
+
+  const cached = edgePathCache.get(cacheKey);
+  if (cached) {
+    [edgePath, labelX, labelY] = cached;
+  } else {
     const result = getSmoothStepPath({
       sourceX,
       sourceY,
@@ -730,47 +768,16 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
       borderRadius: 8,
       offset: 32,
     });
-    return {
-      path: result[0],
-      labelX: result[1],
-      labelY: result[2],
-    } as const;
-  };
+    edgePath = result[0];
+    labelX = result[1];
+    labelY = result[2];
+    edgePathCache.set(cacheKey, [edgePath, labelX, labelY]);
 
-  let edgePath: string;
-  let labelX: number;
-  let labelY: number;
-
-  const shouldUseCache = !edgeData?.isDragging;
-
-  if (shouldUseCache) {
-    // Round positions to prevent cache misses from floating-point precision during zoom
-    const rx = Math.round(sourceX * 10) / 10;
-    const ry = Math.round(sourceY * 10) / 10;
-    const tx = Math.round(targetX * 10) / 10;
-    const ty = Math.round(targetY * 10) / 10;
-    const cacheKey = `${rx}-${ry}-${tx}-${ty}-${sourcePosition}-${targetPosition}`;
-    const cached = edgePathCache.get(cacheKey);
-    if (cached) {
-      [edgePath, labelX, labelY] = cached;
-    } else {
-      const computed = computeSmoothPath();
-      edgePath = computed.path;
-      labelX = computed.labelX;
-      labelY = computed.labelY;
-      edgePathCache.set(cacheKey, [edgePath, labelX, labelY]);
-
-      // Limit cache size to prevent memory bloat
-      if (edgePathCache.size > 500) {
-        const firstKey = edgePathCache.keys().next().value;
-        if (firstKey) edgePathCache.delete(firstKey);
-      }
+    // Limit cache size to prevent memory bloat
+    if (edgePathCache.size > 500) {
+      const firstKey = edgePathCache.keys().next().value;
+      if (firstKey) edgePathCache.delete(firstKey);
     }
-  } else {
-    const computed = computeSmoothPath();
-    edgePath = computed.path;
-    labelX = computed.labelX;
-    labelY = computed.labelY;
   }
 
   // Use cached line style
@@ -910,7 +917,7 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
         markerStart={sourceMarkerStyle ? `url(#${sourceMarkerId})` : undefined}
         markerEnd={targetMarkerStyle ? `url(#${targetMarkerId})` : markerEnd}
         pointerEvents="none"
-        className={highlighted ? "erd-edge-animated" : ""}
+        className={highlighted && !edgeData?.isDragging ? "erd-edge-animated" : ""}
         style={{
           ...style,
           ...lineStyle,
@@ -919,8 +926,9 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
         }}
       />
 
-      {/* Cardinality indicators only show when line is hovered or highlighted */}
-      {edgeData?.sourceCardinality &&
+      {/* Cardinality indicators only show when line is hovered or highlighted - skip during drag */}
+      {!edgeData?.isDragging &&
+        edgeData?.sourceCardinality &&
         (edgeData.isHovered || edgeData.highlighted) && (
           <EdgeLabelRenderer>
             <div
@@ -929,7 +937,6 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
                 transform: `translate(-50%, -50%) translate(${startLabelX}px, ${startLabelY}px)`,
                 pointerEvents: "none",
                 opacity: edgeData.isHovered || edgeData.highlighted ? 1 : 0,
-                transition: "opacity 150ms ease-in-out",
                 zIndex: 10,
               }}
               className="text-[10px] font-semibold text-primary bg-background rounded-full w-4 h-4 flex items-center justify-center border border-primary/50"
@@ -940,7 +947,8 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
             </div>
           </EdgeLabelRenderer>
         )}
-      {edgeData?.targetCardinality &&
+      {!edgeData?.isDragging &&
+        edgeData?.targetCardinality &&
         (edgeData.isHovered || edgeData.highlighted) && (
           <EdgeLabelRenderer>
             <div
@@ -949,7 +957,6 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
                 transform: `translate(-50%, -50%) translate(${endLabelX}px, ${endLabelY}px)`,
                 pointerEvents: "none",
                 opacity: edgeData.isHovered || edgeData.highlighted ? 1 : 0,
-                transition: "opacity 150ms ease-in-out",
                 zIndex: 10,
               }}
               className="text-[10px] font-semibold text-primary bg-background rounded-full w-4 h-4 flex items-center justify-center border border-primary/50"
@@ -961,7 +968,7 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
           </EdgeLabelRenderer>
         )}
 
-      {edgeData?.label && edgeData.isHovered && (
+      {!edgeData?.isDragging && edgeData?.label && edgeData.isHovered && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -1076,6 +1083,21 @@ export const ERDVisualizer = React.forwardRef<
     const viewportChangeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isUserTriggeredLayoutRef = useRef(false);
     const previousTableIdsRef = useRef<Set<string>>(new Set());
+
+    // PERFORMANCE: Use selector to only subscribe to selected node IDs, not full nodes array
+    // This prevents re-renders during drag when node positions change
+    const selectedNodeIds = useStore(
+      useCallback(
+        (state: ReactFlowState) =>
+          state.nodes.filter((n) => n.selected).map((n) => n.id),
+        [],
+      ),
+      // Shallow compare arrays to prevent unnecessary re-renders
+      useCallback((a: string[], b: string[]) => {
+        if (a.length !== b.length) return false;
+        return a.every((id, i) => id === b[i]);
+      }, []),
+    );
 
     // Use a ref to track current nodes to avoid dependency cycles
     const nodesRef = useRef(nodes);
@@ -1760,9 +1782,32 @@ export const ERDVisualizer = React.forwardRef<
       [],
     );
 
+    // PERFORMANCE: Track panning/zooming state to simplify edges during viewport changes
+    const [isInteracting, setIsInteracting] = useState(false);
+    const interactionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     const handleMoveStart = useCallback(() => {
       isPanningRef.current = true;
-    }, []);
+      // Clear any pending timeout
+      if (interactionTimeoutRef.current) {
+        clearTimeout(interactionTimeoutRef.current);
+        interactionTimeoutRef.current = null;
+      }
+      // Set interacting immediately for smooth edge simplification
+      setIsInteracting(true);
+      // Set edges to dragging mode for simplified rendering
+      setEdges((eds) => {
+        const needsUpdate = eds.some(
+          (edge) => (edge.data as ForeignEdgeData).isDragging !== true,
+        );
+        if (!needsUpdate) return eds;
+        return eds.map((edge) => {
+          const currentData = edge.data as ForeignEdgeData;
+          if (currentData.isDragging === true) return edge;
+          return { ...edge, data: { ...currentData, isDragging: true } };
+        });
+      });
+    }, [setEdges]);
 
     const handleMoveEnd = useCallback(
       (
@@ -1781,8 +1826,24 @@ export const ERDVisualizer = React.forwardRef<
             zoom: viewport.zoom,
           });
         }, 150);
+
+        // Delay clearing interaction state to batch rapid pan/zoom events
+        if (interactionTimeoutRef.current) {
+          clearTimeout(interactionTimeoutRef.current);
+        }
+        interactionTimeoutRef.current = setTimeout(() => {
+          setIsInteracting(false);
+          // Restore full edge rendering
+          setEdges((eds) =>
+            eds.map((edge) => {
+              const currentData = edge.data as ForeignEdgeData;
+              if (currentData.isDragging === false) return edge;
+              return { ...edge, data: { ...currentData, isDragging: false } };
+            }),
+          );
+        }, 100);
       },
-      [onViewportChange],
+      [onViewportChange, setEdges],
     );
 
     // Memoized MiniMap node color callback to prevent re-creation on every render
@@ -1792,7 +1853,31 @@ export const ERDVisualizer = React.forwardRef<
     }, []);
 
     // Optimized edge highlighting with RAF throttling for smooth 60fps+ performance
+    // PERFORMANCE: Uses selectedNodeIds from useStore selector instead of filtering nodes array
+    // This prevents re-renders during drag when node positions change
     useEffect(() => {
+      // Skip edge updates during active drag for maximum performance
+      // Only update isDragging flag on edges, nothing else
+      if (draggingNodeId) {
+        setEdges((eds) => {
+          // Check if any edge needs updating to avoid unnecessary state changes
+          const needsUpdate = eds.some(
+            (edge) => (edge.data as ForeignEdgeData).isDragging !== true,
+          );
+          if (!needsUpdate) return eds;
+
+          return eds.map((edge) => {
+            const currentData = edge.data as ForeignEdgeData;
+            if (currentData.isDragging === true) return edge;
+            return {
+              ...edge,
+              data: { ...currentData, isDragging: true },
+            };
+          });
+        });
+        return;
+      }
+
       // Cancel any pending frame
       if (edgeUpdateFrameRef.current !== null) {
         cancelAnimationFrame(edgeUpdateFrameRef.current);
@@ -1800,9 +1885,9 @@ export const ERDVisualizer = React.forwardRef<
 
       // Throttle edge updates using requestAnimationFrame
       edgeUpdateFrameRef.current = requestAnimationFrame(() => {
-        const selectedIds = new Set(
-          nodes.filter((node) => node.selected).map((node) => node.id),
-        );
+        // PERFORMANCE: Use selectedNodeIds from store selector instead of filtering nodes
+        // This avoids depending on the full nodes array which changes on every drag
+        const selectedIds = new Set(selectedNodeIds);
         if (selectedTableId) {
           selectedIds.add(selectedTableId);
         }
@@ -1811,8 +1896,8 @@ export const ERDVisualizer = React.forwardRef<
           hoveredNodeId !== null ||
           hoveredRelationshipId !== null;
 
-        // Skip edge updates during active drag or panning for maximum performance
-        if ((isDraggingRef.current && draggingNodeId) || isPanningRef.current) {
+        // Skip edge updates during panning for better performance
+        if (isPanningRef.current) {
           return;
         }
 
@@ -1835,7 +1920,7 @@ export const ERDVisualizer = React.forwardRef<
 
             const highlighted = isRelatedToSelected || isTemporarilyHighlighted;
             const isHovered = isEdgeHovered;
-            const isDragging = draggingNodeId !== null;
+            const isDragging = false; // Not dragging anymore
             const dimmed = hasActiveHighlight && !highlighted;
             const zIndex = highlighted ? 2 : 0;
 
@@ -1874,7 +1959,8 @@ export const ERDVisualizer = React.forwardRef<
         }
       };
     }, [
-      nodes,
+      // PERFORMANCE: Removed 'nodes' from dependencies - use selectedNodeIds instead
+      selectedNodeIds,
       hoveredNodeId,
       hoveredRelationshipId,
       setEdges,
@@ -1882,18 +1968,24 @@ export const ERDVisualizer = React.forwardRef<
       draggingNodeId,
     ]);
 
-    // Cleanup viewport change timeout on unmount
+    // Cleanup timeouts on unmount
     useEffect(() => {
       return () => {
         if (viewportChangeTimeoutRef.current) {
           clearTimeout(viewportChangeTimeoutRef.current);
         }
+        if (interactionTimeoutRef.current) {
+          clearTimeout(interactionTimeoutRef.current);
+        }
       };
     }, []);
 
+    // Determine if we're in a performance-critical interaction
+    const isInPerformanceMode = Boolean(draggingNodeId) || isInteracting;
+
     return (
       <div
-        className="h-full w-full"
+        className={`h-full w-full ${isInPerformanceMode ? "erd-dragging" : ""}`}
         onClick={(e) => {
           // Only dismiss if clicking directly on the wrapper, not on ReactFlow elements
           if (e.target === e.currentTarget) {
@@ -1947,20 +2039,23 @@ export const ERDVisualizer = React.forwardRef<
           onPaneClick={handlePaneClick}
         >
           <Background className="opacity-60" gap={24} size={1} />
-          <MiniMap
-            nodeStrokeWidth={3}
-            nodeColor={miniMapNodeColor}
-            nodeBorderRadius={4}
-            maskColor="color-mix(in oklch, var(--background) 80%, transparent)"
-            className="!bg-secondary !border !border-border rounded-md shadow-none"
-            position="bottom-right"
-            pannable={true}
-            zoomable={true}
-            style={{
-              width: 180,
-              height: 120,
-            }}
-          />
+          {/* PERFORMANCE: Hide MiniMap during drag/pan/zoom to reduce re-renders */}
+          {!isInPerformanceMode && (
+            <MiniMap
+              nodeStrokeWidth={3}
+              nodeColor={miniMapNodeColor}
+              nodeBorderRadius={4}
+              maskColor="color-mix(in oklch, var(--background) 80%, transparent)"
+              className="!bg-secondary !border !border-border rounded-md shadow-none"
+              position="bottom-right"
+              pannable={true}
+              zoomable={true}
+              style={{
+                width: 180,
+                height: 120,
+              }}
+            />
+          )}
         </ReactFlow>
       </div>
     );
