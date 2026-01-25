@@ -101,11 +101,13 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const lastStructuralHashRef = useRef<string>("");
   const dbmlWorkerRef = useRef<Worker | null>(null);
 
+  // Local view ID - each ERD tab tracks its own view instead of global activeViewId
+  const [localViewId, setLocalViewId] = useState<string | null>(null);
+
   const ensureView = useErdStore((state) => state.ensureView);
-  const setActiveViewStore = useErdStore((state) => state.setActiveView);
-  const activeViewId = useErdStore((state) => state.activeViewId);
-  const activeView = useErdStore((state) =>
-    state.activeViewId ? state.views[state.activeViewId] ?? null : null,
+  // Get the view for THIS tab using localViewId, not the global activeViewId
+  const localView = useErdStore((state) =>
+    localViewId ? state.views[localViewId] ?? null : null,
   );
   const updateView = useErdStore((state) => state.updateView);
   const saveNodePosition = useErdStore((state) => state.saveNodePosition);
@@ -119,12 +121,12 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
 
   const targetDatabase = database ?? connection?.database ?? "";
 
-  // Initialize layout direction from activeView
+  // Initialize layout direction from localView
   useEffect(() => {
-    if (activeView?.layoutDirection) {
-      setLayoutDirection(activeView.layoutDirection);
+    if (localView?.layoutDirection) {
+      setLayoutDirection(localView.layoutDirection);
     }
-  }, [activeView?.layoutDirection]);
+  }, [localView?.layoutDirection]);
 
   // Initialize and manage web worker lifecycle
   useEffect(() => {
@@ -208,7 +210,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         schema: schemaName,
         name: `${schemaName} schema`,
       });
-      setActiveViewStore(viewId);
+      setLocalViewId(viewId);
 
       const cacheHit = options?.force
         ? null
@@ -330,7 +332,6 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
       connectionId,
       targetDatabase,
       ensureView,
-      setActiveViewStore,
       connection?.db_type,
       updateView,
     ],
@@ -343,13 +344,13 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
 
   useEffect(() => {
     if (
-      activeView?.dbml &&
+      localView?.dbml &&
       !skipParseNextRef.current &&
-      activeView.dbml !== dbmlDocument
+      localView.dbml !== dbmlDocument
     ) {
-      setDbmlDocument(activeView.dbml);
+      setDbmlDocument(localView.dbml);
     }
-  }, [activeView?.dbml, dbmlDocument]);
+  }, [localView?.dbml, dbmlDocument]);
 
   const handleRefresh = () => {
     void loadSchemaData(selectedSchema, { force: true });
@@ -357,27 +358,27 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
 
   const handleNodePositionsChange = useCallback(
     (positions: Record<string, NodePosition>) => {
-      if (!activeViewId) return;
+      if (!localViewId) return;
       // When all positions are updated at once (auto-arrange), reset hasManualPositions
-      updateView(activeViewId, { nodePositions: positions, hasManualPositions: false });
+      updateView(localViewId, { nodePositions: positions, hasManualPositions: false });
     },
-    [activeViewId, updateView],
+    [localViewId, updateView],
   );
 
   const handleNodePositionChange = useCallback(
     (nodeId: string, position: NodePosition) => {
-      if (!activeViewId) return;
-      saveNodePosition(activeViewId, nodeId, position);
+      if (!localViewId) return;
+      saveNodePosition(localViewId, nodeId, position);
     },
-    [activeViewId, saveNodePosition],
+    [localViewId, saveNodePosition],
   );
 
   const handleViewportChange = useCallback(
     (viewport: ViewportState) => {
-      if (!activeViewId) return;
-      saveViewport(activeViewId, viewport);
+      if (!localViewId) return;
+      saveViewport(localViewId, viewport);
     },
-    [activeViewId, saveViewport],
+    [localViewId, saveViewport],
   );
 
   type ParserField = {
@@ -719,8 +720,8 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
           setRelationships(parsedRelationships);
           setParseError(null);
           
-          if (activeViewId) {
-            updateView(activeViewId, {
+          if (localViewId) {
+            updateView(localViewId, {
               dbml: dbmlDocument,
               tableCount: parsedTables.length,
               relationshipCount: parsedRelationships.length,
@@ -753,7 +754,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
     };
   }, [
     dbmlDocument,
-    activeViewId,
+    localViewId,
     convertProjectToStructures,
     updateView,
     connectionId,
@@ -764,11 +765,11 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const handleEditorChange = useCallback(
     (value: string) => {
       setDbmlDocument(value);
-      if (activeViewId) {
-        updateView(activeViewId, { dbml: value });
+      if (localViewId) {
+        updateView(localViewId, { dbml: value });
       }
     },
-    [activeViewId, updateView],
+    [localViewId, updateView],
   );
 
   // Memoize CodeEditor to prevent unnecessary re-renders
@@ -922,8 +923,8 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
                   layoutDirection={layoutDirection}
                   onLayoutDirectionChange={(direction) => {
                     setLayoutDirection(direction);
-                    if (activeViewId) {
-                      updateView(activeViewId, { layoutDirection: direction });
+                    if (localViewId) {
+                      updateView(localViewId, { layoutDirection: direction });
                     }
                   }}
                 />
@@ -934,18 +935,18 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
                   ref={erdVisualizerRef}
                   tables={tables}
                   relationships={relationships}
-                  nodePositions={activeView?.nodePositions ?? {}}
-                  initialViewport={activeView?.viewport}
+                  nodePositions={localView?.nodePositions ?? {}}
+                  initialViewport={localView?.viewport}
                   layoutDirection={layoutDirection}
-                  hasManualPositions={activeView?.hasManualPositions ?? false}
+                  hasManualPositions={localView?.hasManualPositions ?? false}
                   onNodePositionsChange={handleNodePositionsChange}
                   onNodePositionChange={handleNodePositionChange}
                   onViewportChange={handleViewportChange}
                   onColumnDoubleClick={handleColumnDoubleClick}
                   onLayoutDirectionChange={(direction) => {
                     setLayoutDirection(direction);
-                    if (activeViewId) {
-                      updateView(activeViewId, { layoutDirection: direction });
+                    if (localViewId) {
+                      updateView(localViewId, { layoutDirection: direction });
                     }
                   }}
                 />
