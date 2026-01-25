@@ -82,8 +82,10 @@ function formatColumnAttributes(column: ColumnMeta): string {
   if (!column.nullable) attributes.push("not null");
   if (column.is_pk) attributes.push("pk");
   if (column.default !== null) {
-    const def = column.default.replace(/'/g, "\\'");
-    attributes.push(`default: '${def}'`);
+    // Use backticks for SQL expressions (which may contain single quotes)
+    // DBML supports backticks for expression defaults
+    const def = column.default.replace(/`/g, "\\`");
+    attributes.push(`default: \`${def}\``);
   }
 
   return attributes.length > 0 ? ` [${attributes.join(", ")}]` : "";
@@ -167,7 +169,9 @@ function formatTable(
     lines.push("", "  indexes {");
     if (table.primaryKeys.length > 0) {
       const pkCols = table.primaryKeys.join(", ");
-      lines.push(`    (${pkCols}) [pk]`);
+      // Single column: no parentheses; Multi-column: wrap in parentheses
+      const pkPart = table.primaryKeys.length === 1 ? pkCols : `(${pkCols})`;
+      lines.push(`    ${pkPart} [pk]`);
     }
     indexLines.forEach((idxLine) => lines.push(idxLine));
     lines.push("  }");
