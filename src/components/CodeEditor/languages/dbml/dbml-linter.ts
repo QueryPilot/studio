@@ -391,16 +391,16 @@ export function dbmlLinter(): Extension {
 
   return linter(
     (view) => {
-      // Debounce linting
+      // Debounce linting for better performance
       clearTimeout(lintTimeout);
       return new Promise((resolve) => {
         lintTimeout = setTimeout(() => {
           resolve(linterInstance.lint(view));
-        }, 300);
+        }, 500);
       });
     },
     {
-      delay: 500,
+      delay: 750,
       needsRefresh: (update) => {
         // Only re-lint on document changes
         if (update.docChanged) {

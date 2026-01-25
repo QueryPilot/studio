@@ -379,7 +379,7 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                           type="target"
                           position={Position.Left}
                           id={makeHandleId(column.name, "target", "left")}
-                          className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
+                          className="absolute left-0 top-1/2 invisible group-hover:visible"
                           style={{
                             width: 8,
                             height: 8,
@@ -395,7 +395,7 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                           type="source"
                           position={Position.Left}
                           id={makeHandleId(column.name, "source", "left")}
-                          className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
+                          className="absolute left-0 top-1/2 invisible group-hover:visible"
                           style={{
                             width: 8,
                             height: 8,
@@ -432,7 +432,7 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                           type="target"
                           position={Position.Right}
                           id={makeHandleId(column.name, "target", "right")}
-                          className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
+                          className="absolute right-0 top-1/2 invisible group-hover:visible"
                           style={{
                             width: 8,
                             height: 8,
@@ -448,7 +448,7 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                           type="source"
                           position={Position.Right}
                           id={makeHandleId(column.name, "source", "right")}
-                          className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
+                          className="absolute right-0 top-1/2 invisible group-hover:visible"
                           style={{
                             width: 8,
                             height: 8,
@@ -744,7 +744,12 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
   const shouldUseCache = !edgeData?.isDragging;
 
   if (shouldUseCache) {
-    const cacheKey = `${sourceX}-${sourceY}-${targetX}-${targetY}-${sourcePosition}-${targetPosition}`;
+    // Round positions to prevent cache misses from floating-point precision during zoom
+    const rx = Math.round(sourceX * 10) / 10;
+    const ry = Math.round(sourceY * 10) / 10;
+    const tx = Math.round(targetX * 10) / 10;
+    const ty = Math.round(targetY * 10) / 10;
+    const cacheKey = `${rx}-${ry}-${tx}-${ty}-${sourcePosition}-${targetPosition}`;
     const cached = edgePathCache.get(cacheKey);
     if (cached) {
       [edgePath, labelX, labelY] = cached;
@@ -925,11 +930,12 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
                 pointerEvents: "none",
                 opacity: edgeData.isHovered || edgeData.highlighted ? 1 : 0,
                 transition: "opacity 150ms ease-in-out",
+                zIndex: 10,
               }}
-              className="text-xs font-bold text-primary bg-background rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-primary/40"
+              className="text-[10px] font-semibold text-primary bg-background rounded-full w-4 h-4 flex items-center justify-center border border-primary/50"
             >
               {edgeData.sourceCardinality === "n"
-                ? "N"
+                ? "n"
                 : edgeData.sourceCardinality}
             </div>
           </EdgeLabelRenderer>
@@ -944,11 +950,12 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
                 pointerEvents: "none",
                 opacity: edgeData.isHovered || edgeData.highlighted ? 1 : 0,
                 transition: "opacity 150ms ease-in-out",
+                zIndex: 10,
               }}
-              className="text-xs font-bold text-primary bg-background rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-primary/40"
+              className="text-[10px] font-semibold text-primary bg-background rounded-full w-4 h-4 flex items-center justify-center border border-primary/50"
             >
               {edgeData.targetCardinality === "n"
-                ? "N"
+                ? "n"
                 : edgeData.targetCardinality}
             </div>
           </EdgeLabelRenderer>
@@ -1061,10 +1068,14 @@ export const ERDVisualizer = React.forwardRef<
     const [, setHoveredColumn] = useState<string | null>(null);
     const flowInstanceRef = useRef<ReactFlowInstance | null>(null);
     const fitAppliedRef = useRef(false);
-    const autoArrangeTriggeredRef = useRef(false);
     const isInitialMountRef = useRef(true);
+    const initialViewportAppliedRef = useRef(false);
     const edgeUpdateFrameRef = useRef<number | null>(null);
     const isDraggingRef = useRef(false);
+    const isPanningRef = useRef(false);
+    const viewportChangeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const isUserTriggeredLayoutRef = useRef(false);
+    const previousTableIdsRef = useRef<Set<string>>(new Set());
 
     // Use a ref to track current nodes to avoid dependency cycles
     const nodesRef = useRef(nodes);
@@ -1343,61 +1354,203 @@ export const ERDVisualizer = React.forwardRef<
         return baseHeight + visibleColumns * columnHeight + 20;
       };
 
-      // Create new graph for this layout (Dagre is mutable)
-      const g = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
-
-      // Configure graph - Outerbase-style settings with dynamic layout direction
-      g.setGraph({
-        rankdir: layoutDirection, // LR = Left-to-right, TB = Top-to-bottom
-        marginx: 50, // Horizontal margin
-        marginy: 50, // Vertical margin
-        nodesep: 75, // Space between nodes on same rank
-        ranksep: 110, // Space between ranks
-        edgesep: 55, // Space for edges
-      });
-
-      // Add nodes with measured dimensions
+      // Build a map of table IDs to their heights for quick lookup
+      const tableHeights = new Map<string, number>();
       tables.forEach((table) => {
-        const id = buildNodeId(table);
-        g.setNode(id, {
-          width: NODE_WIDTH,
-          height: getNodeHeight(table),
-        });
+        tableHeights.set(buildNodeId(table), getNodeHeight(table));
       });
 
-      // Add edges for layout calculation
-      relationships.forEach((relationship) => {
-        const sourceId = `${relationship.fromSchema ?? "public"}.${
-          relationship.fromTable
-        }`;
-        const targetId = `${relationship.toSchema ?? "public"}.${
-          relationship.toTable
-        }`;
-        g.setEdge(sourceId, targetId);
+      // Find connected components using Union-Find
+      const parent = new Map<string, string>();
+      const tableIds = tables.map((t) => buildNodeId(t));
+
+      // Initialize each node as its own parent
+      tableIds.forEach((id) => parent.set(id, id));
+
+      const find = (x: string): string => {
+        if (parent.get(x) !== x) {
+          parent.set(x, find(parent.get(x)!));
+        }
+        return parent.get(x)!;
+      };
+
+      const union = (a: string, b: string) => {
+        const rootA = find(a);
+        const rootB = find(b);
+        if (rootA !== rootB) {
+          parent.set(rootA, rootB);
+        }
+      };
+
+      // Union nodes connected by relationships
+      relationships.forEach((rel) => {
+        const sourceId = `${rel.fromSchema ?? "public"}.${rel.fromTable}`;
+        const targetId = `${rel.toSchema ?? "public"}.${rel.toTable}`;
+        if (parent.has(sourceId) && parent.has(targetId)) {
+          union(sourceId, targetId);
+        }
       });
 
-      // Run layout algorithm (synchronous - much faster than ELK!)
-      Dagre.layout(g);
+      // Group tables by their connected component
+      const components = new Map<string, string[]>();
+      tableIds.forEach((id) => {
+        const root = find(id);
+        if (!components.has(root)) {
+          components.set(root, []);
+        }
+        components.get(root)!.push(id);
+      });
+
+      // Separate into connected groups (with relationships) and orphans (single node, no relationships)
+      const connectedGroups: string[][] = [];
+      const orphans: string[] = [];
+
+      components.forEach((members) => {
+        if (members.length === 1) {
+          // Check if this single node has any relationships
+          const nodeId = members[0]!;
+          const hasRelationship = relationships.some((rel) => {
+            const sourceId = `${rel.fromSchema ?? "public"}.${rel.fromTable}`;
+            const targetId = `${rel.toSchema ?? "public"}.${rel.toTable}`;
+            return sourceId === nodeId || targetId === nodeId;
+          });
+          if (hasRelationship) {
+            connectedGroups.push(members);
+          } else {
+            orphans.push(nodeId);
+          }
+        } else {
+          connectedGroups.push(members);
+        }
+      });
 
       const positions: Record<string, NodePosition> = {};
+      let currentOffsetX = 30;
+      let currentOffsetY = 30;
+      let maxHeightInRow = 0;
+      const componentSpacing = 60;
+      const orphanSpacingX = NODE_WIDTH + 24;
+      const orphanSpacingY = 40;
+
+      // Layout each connected component with dagre
+      connectedGroups.forEach((group) => {
+        const g = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
+
+        g.setGraph({
+          rankdir: layoutDirection,
+          marginx: 16,
+          marginy: 16,
+          nodesep: 40,
+          ranksep: 70,
+          edgesep: 30,
+        });
+
+        // Add nodes for this component
+        group.forEach((id) => {
+          g.setNode(id, {
+            width: NODE_WIDTH,
+            height: tableHeights.get(id) ?? 200,
+          });
+        });
+
+        // Add edges within this component
+        relationships.forEach((rel) => {
+          const sourceId = `${rel.fromSchema ?? "public"}.${rel.fromTable}`;
+          const targetId = `${rel.toSchema ?? "public"}.${rel.toTable}`;
+          if (group.includes(sourceId) && group.includes(targetId)) {
+            g.setEdge(sourceId, targetId);
+          }
+        });
+
+        Dagre.layout(g);
+
+        // Find bounding box of this component
+        let minX = Infinity,
+          minY = Infinity,
+          maxX = -Infinity,
+          maxY = -Infinity;
+
+        group.forEach((id) => {
+          const node = g.node(id);
+          const height = tableHeights.get(id) ?? 200;
+          minX = Math.min(minX, node.x - NODE_WIDTH / 2);
+          minY = Math.min(minY, node.y - height / 2);
+          maxX = Math.max(maxX, node.x + NODE_WIDTH / 2);
+          maxY = Math.max(maxY, node.y + height / 2);
+        });
+
+        const componentWidth = maxX - minX;
+        const componentHeight = maxY - minY;
+
+        // Position nodes with offset
+        group.forEach((id) => {
+          const node = g.node(id);
+          const height = tableHeights.get(id) ?? 200;
+          positions[id] = {
+            x: node.x - NODE_WIDTH / 2 - minX + currentOffsetX,
+            y: node.y - height / 2 - minY + currentOffsetY,
+          };
+        });
+
+        // Update offset for next component (place horizontally for LR, vertically for TB)
+        if (layoutDirection === "TB") {
+          currentOffsetX += componentWidth + componentSpacing;
+          maxHeightInRow = Math.max(maxHeightInRow, componentHeight);
+        } else {
+          currentOffsetY += componentHeight + componentSpacing;
+        }
+      });
+
+      // Layout orphan tables in a grid
+      if (orphans.length > 0) {
+        // Start orphans below/beside connected components
+        let orphanStartX = 50;
+        let orphanStartY = currentOffsetY + maxHeightInRow + componentSpacing;
+
+        if (layoutDirection === "TB") {
+          // For TB layout, wrap orphans in a new row
+          orphanStartX = 50;
+          orphanStartY = currentOffsetY + maxHeightInRow + componentSpacing;
+        }
+
+        // Calculate grid dimensions for orphans
+        // Aim for a roughly square grid
+        const orphanCols = Math.ceil(Math.sqrt(orphans.length));
+        let currentOrphanX = orphanStartX;
+        let currentOrphanY = orphanStartY;
+        let colIndex = 0;
+        let maxHeightInOrphanRow = 0;
+
+        orphans.forEach((id) => {
+          const height = tableHeights.get(id) ?? 200;
+          positions[id] = {
+            x: currentOrphanX,
+            y: currentOrphanY,
+          };
+
+          maxHeightInOrphanRow = Math.max(maxHeightInOrphanRow, height);
+          colIndex++;
+
+          if (colIndex >= orphanCols) {
+            // Move to next row
+            colIndex = 0;
+            currentOrphanX = orphanStartX;
+            currentOrphanY += maxHeightInOrphanRow + orphanSpacingY;
+            maxHeightInOrphanRow = 0;
+          } else {
+            currentOrphanX += orphanSpacingX;
+          }
+        });
+      }
+
+      // Create the final node list
       const layoutNodes: any[] = tables.map((table) => {
         const id = buildNodeId(table);
-        const dagreNode = g.node(id);
-
-        // Dagre uses center-center anchor, ReactFlow uses top-left
-        // So we need to adjust the position
-        const position = {
-          x: dagreNode.x - NODE_WIDTH / 2,
-          y: dagreNode.y - getNodeHeight(table) / 2,
-        };
-        positions[id] = position;
-
         return {
           id,
-          position,
+          position: positions[id] ?? { x: 0, y: 0 },
           data: nodeDataMap.get(id),
           type: TABLE_NODE_TYPE,
-          // Force React to re-render when expansion changes
           style: {
             width: NODE_WIDTH,
           },
@@ -1407,21 +1560,25 @@ export const ERDVisualizer = React.forwardRef<
       setNodes(layoutNodes);
       setEdges(createEdges);
       onNodePositionsChange?.(positions);
-      fitAppliedRef.current = false;
-      autoArrangeTriggeredRef.current = true;
 
-      // Fit view and update viewport after applying new layout
-      setTimeout(() => {
-        const instance = flowInstanceRef.current;
-        if (instance) {
-          void instance.fitView({ padding: FIT_VIEW_PADDING, duration: 400 });
-          // Update viewport state after fitting
-          setTimeout(() => {
-            const newViewport = instance.getViewport();
-            onViewportChange?.(newViewport);
-          }, 450); // After fitView animation completes
-        }
-      }, 50);
+      // Only fit view if user triggered the layout (auto-arrange button)
+      const shouldFitView = isUserTriggeredLayoutRef.current;
+      isUserTriggeredLayoutRef.current = false; // Reset flag
+
+      if (shouldFitView) {
+        setTimeout(() => {
+          const instance = flowInstanceRef.current;
+          if (instance) {
+            void instance.fitView({ padding: FIT_VIEW_PADDING, duration: 400 });
+            fitAppliedRef.current = true;
+            // Update viewport state after fitting
+            setTimeout(() => {
+              const newViewport = instance.getViewport();
+              onViewportChange?.(newViewport);
+            }, 450); // After fitView animation completes
+          }
+        }, 50);
+      }
     }, [
       tables,
       relationships,
@@ -1432,12 +1589,16 @@ export const ERDVisualizer = React.forwardRef<
       createEdges,
       onNodePositionsChange,
       onViewportChange,
+      expandedNodes,
     ]);
 
     React.useImperativeHandle(
       ref,
       () => ({
-        triggerAutoArrange: layoutWithDagre,
+        triggerAutoArrange: () => {
+          isUserTriggeredLayoutRef.current = true;
+          layoutWithDagre();
+        },
         zoomIn: () => {
           const instance = flowInstanceRef.current;
           if (instance) {
@@ -1483,13 +1644,25 @@ export const ERDVisualizer = React.forwardRef<
       if (!tables.length) {
         setNodes([]);
         setEdges([]);
+        previousTableIdsRef.current = new Set();
         return;
       }
+
+      // Check if this is initial load
+      const currentTableIds = new Set(tables.map(t => buildNodeId(t)));
+      const previousTableIds = previousTableIdsRef.current;
+      const isInitialLoad = previousTableIds.size === 0;
+
+      previousTableIdsRef.current = currentTableIds;
 
       // Skip auto-layout if manual positions exist
       if (hasStoredPositions || hasManualPositions) {
         applyStoredPositions();
       } else {
+        // For initial load, fit view. For subsequent changes, preserve viewport.
+        if (isInitialLoad) {
+          isUserTriggeredLayoutRef.current = true;
+        }
         layoutWithDagre();
       }
     }, [
@@ -1531,31 +1704,34 @@ export const ERDVisualizer = React.forwardRef<
       }
     }, [layoutDirection, layoutWithDagre, tables.length]);
 
+    // Apply initial viewport only once on mount - completely separate from node updates
     useEffect(() => {
       const instance = flowInstanceRef.current;
-      if (!instance) return;
-
-      // Don't apply initial viewport if auto-arrange was just triggered
-      if (autoArrangeTriggeredRef.current) {
-        autoArrangeTriggeredRef.current = false;
-        return;
-      }
+      if (!instance || initialViewportAppliedRef.current) return;
 
       if (initialViewport) {
         void instance.setViewport(initialViewport as Viewport, { duration: 0 });
+        initialViewportAppliedRef.current = true;
         fitAppliedRef.current = true;
-        return;
       }
+    }, [initialViewport]);
 
-      if (!fitAppliedRef.current && nodes.length > 0) {
+    // Initial fit view - only when we have nodes for the first time and no saved viewport
+    useEffect(() => {
+      if (fitAppliedRef.current || initialViewportAppliedRef.current) return;
+      if (nodes.length === 0) return;
+
+      const instance = flowInstanceRef.current;
+      if (!instance) return;
+
+      // Small delay to ensure nodes are rendered
+      const timer = setTimeout(() => {
         void instance.fitView({ padding: FIT_VIEW_PADDING, duration: 200 });
         fitAppliedRef.current = true;
-      }
+      }, 100);
 
-      if (nodes.length === 0) {
-        fitAppliedRef.current = false;
-      }
-    }, [nodes, initialViewport]);
+      return () => clearTimeout(timer);
+    }, [nodes.length]); // Only depend on nodes.length, not nodes array
 
     const handleNodesChange = useCallback(
       (changes: NodeChange[]) => {
@@ -1584,19 +1760,36 @@ export const ERDVisualizer = React.forwardRef<
       [],
     );
 
+    const handleMoveStart = useCallback(() => {
+      isPanningRef.current = true;
+    }, []);
+
     const handleMoveEnd = useCallback(
       (
         _event: MouseEvent | React.MouseEvent | TouchEvent | null | undefined,
         viewport: Viewport,
       ) => {
-        onViewportChange?.({
-          x: viewport.x,
-          y: viewport.y,
-          zoom: viewport.zoom,
-        });
+        isPanningRef.current = false;
+        // Debounce viewport changes to avoid too many updates
+        if (viewportChangeTimeoutRef.current) {
+          clearTimeout(viewportChangeTimeoutRef.current);
+        }
+        viewportChangeTimeoutRef.current = setTimeout(() => {
+          onViewportChange?.({
+            x: viewport.x,
+            y: viewport.y,
+            zoom: viewport.zoom,
+          });
+        }, 150);
       },
       [onViewportChange],
     );
+
+    // Memoized MiniMap node color callback to prevent re-creation on every render
+    const miniMapNodeColor = useCallback((node: Node) => {
+      if (node.selected) return "var(--primary)";
+      return "var(--muted)";
+    }, []);
 
     // Optimized edge highlighting with RAF throttling for smooth 60fps+ performance
     useEffect(() => {
@@ -1618,8 +1811,8 @@ export const ERDVisualizer = React.forwardRef<
           hoveredNodeId !== null ||
           hoveredRelationshipId !== null;
 
-        // Skip edge updates during active drag for maximum performance
-        if (isDraggingRef.current && draggingNodeId) {
+        // Skip edge updates during active drag or panning for maximum performance
+        if ((isDraggingRef.current && draggingNodeId) || isPanningRef.current) {
           return;
         }
 
@@ -1689,6 +1882,15 @@ export const ERDVisualizer = React.forwardRef<
       draggingNodeId,
     ]);
 
+    // Cleanup viewport change timeout on unmount
+    useEffect(() => {
+      return () => {
+        if (viewportChangeTimeoutRef.current) {
+          clearTimeout(viewportChangeTimeoutRef.current);
+        }
+      };
+    }, []);
+
     return (
       <div
         className="h-full w-full"
@@ -1705,15 +1907,14 @@ export const ERDVisualizer = React.forwardRef<
           edges={edges as any}
           nodeTypes={nodeTypes as any}
           edgeTypes={edgeTypes as any}
-          fitView
           minZoom={0.1}
           maxZoom={1.5}
           nodesDraggable={true}
           nodesConnectable={false}
           elementsSelectable={true}
           panOnDrag={true}
-          panOnScroll={false}
-          zoomOnScroll={true}
+          panOnScroll={true}
+          zoomOnScroll={false}
           zoomOnPinch={true}
           zoomOnDoubleClick={false}
           selectionOnDrag={false}
@@ -1730,26 +1931,25 @@ export const ERDVisualizer = React.forwardRef<
           preventScrolling={false}
           onInit={(instance) => {
             flowInstanceRef.current = instance;
-            if (initialViewport) {
+            if (initialViewport && !initialViewportAppliedRef.current) {
               void instance.setViewport(initialViewport as Viewport, {
                 duration: 0,
               });
               fitAppliedRef.current = true;
+              initialViewportAppliedRef.current = true;
             }
           }}
           onNodeDragStart={handleNodeDragStart}
           onNodesChange={handleNodesChange}
           onNodeDragStop={handleNodeDragStop}
+          onMoveStart={handleMoveStart}
           onMoveEnd={handleMoveEnd}
           onPaneClick={handlePaneClick}
         >
           <Background className="opacity-60" gap={24} size={1} />
           <MiniMap
             nodeStrokeWidth={3}
-            nodeColor={(node) => {
-              if (node.selected) return "var(--primary)";
-              return "var(--muted)";
-            }}
+            nodeColor={miniMapNodeColor}
             nodeBorderRadius={4}
             maskColor="color-mix(in oklch, var(--background) 80%, transparent)"
             className="!bg-secondary !border !border-border rounded-md shadow-none"
