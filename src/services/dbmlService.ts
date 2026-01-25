@@ -94,7 +94,13 @@ function formatColumnAttributes(column: ColumnMeta): string {
 function formatColumn(column: ColumnMeta): string {
   const comment = column.comment?.trim();
   const commentSuffix = comment ? ` // ${comment.replace(/\n/g, " ")}` : "";
-  return `  ${column.name} ${column.db_type}${formatColumnAttributes(
+
+  // DBML requires types with spaces (like "int unsigned") to be quoted
+  const dbType = column.db_type.includes(" ")
+    ? `"${column.db_type}"`
+    : column.db_type;
+
+  return `  ${column.name} ${dbType}${formatColumnAttributes(
     column,
   )}${commentSuffix}`;
 }
@@ -331,9 +337,24 @@ class DBMLService {
   extractRelationships(tables: TableStructure[]): DBMLRelationship[] {
     const relationships: DBMLRelationship[] = [];
 
+    // Build a set of available tables (schema.table format) for quick lookup
+    const availableTables = new Set(
+      tables.map((t) => `${t.schema.toLowerCase()}.${t.name.toLowerCase()}`)
+    );
+
     tables.forEach((table) => {
       table.foreignKeys.forEach((fk) => {
-        relationships.push(formatRelationship(fk, table));
+        // Only include relationships where the target table exists in the loaded schema
+        // This prevents "Can't find table" errors for cross-schema references
+        const targetKey = `${(fk.foreignSchema ?? table.schema).toLowerCase()}.${fk.foreignTable.toLowerCase()}`;
+        if (availableTables.has(targetKey)) {
+          relationships.push(formatRelationship(fk, table));
+        } else {
+          logger.debug(
+            `Skipping foreign key "${fk.name}" from ${table.schema}.${table.name}: ` +
+            `target table "${fk.foreignSchema ?? table.schema}.${fk.foreignTable}" not in loaded schema`
+          );
+        }
       });
     });
 

@@ -37,22 +37,6 @@ import {
 const DEFAULT_SCHEMA = "public";
 const PARSE_DEBOUNCE_MS = 500;
 
-// Generate a structural hash from tables to detect real changes vs text edits
-const generateStructuralHash = (tables: TableStructure[]): string => {
-  const sortedTables = [...tables].sort((a, b) => 
-    `${a.schema}.${a.name}`.localeCompare(`${b.schema}.${b.name}`)
-  );
-  
-  const structure = sortedTables.map((table) => {
-    const sortedColumns = [...table.columns]
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((col) => `${col.name}:${col.db_type}:${col.is_pk}:${col.is_fk}`);
-    return `${table.schema}.${table.name}|${sortedColumns.join(',')}`;
-  });
-  
-  return structure.join('||');
-};
-
 const relationToCardinality = (relation?: string | null): "1" | "n" => {
   if (!relation) return "1";
   const normalized = relation.toLowerCase();
@@ -86,7 +70,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const [parseError, setParseError] = useState<string | null>(null);
   const [relationships, setRelationships] = useState<DBMLRelationship[]>([]);
   const [tables, setTables] = useState<TableStructure[]>([]);
-  const [layoutDirection, setLayoutDirection] = useState<LayoutDirection>("LR");
+  const [layoutDirection, setLayoutDirection] = useState<LayoutDirection>("TB");
   const [_schemas, setSchemas] = useState<string[]>(() =>
     schema ? [schema] : [DEFAULT_SCHEMA],
   );
@@ -98,7 +82,6 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const parseTimerRef = useRef<number | undefined>(undefined);
   const erdVisualizerRef = useRef<ERDVisualizerRef | null>(null);
   const editorRef = useRef<CodeEditorRef>(null);
-  const lastStructuralHashRef = useRef<string>("");
   const dbmlWorkerRef = useRef<Worker | null>(null);
 
   // Local view ID - each ERD tab tracks its own view instead of global activeViewId
@@ -224,8 +207,6 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         setError(null);
         setParseError(null);
         setLoading(false);
-        // Initialize structural hash for cached data
-        lastStructuralHashRef.current = generateStructuralHash(cacheHit.tables);
         updateView(viewId, {
           dbml: cacheHit.dbml,
           tableCount: cacheHit.metadata.tableCount,
@@ -307,8 +288,6 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         setTables(result.tables);
         setRelationships(result.relationships);
         setError(null);
-        // Initialize structural hash for newly loaded data
-        lastStructuralHashRef.current = generateStructuralHash(result.tables);
         erdCache.set(connectionId, targetDatabase, schemaName, result);
         updateView(viewId, {
           dbml: result.dbml,
@@ -707,16 +686,9 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
 
         if (output.success && output.result) {
           const { tables: parsedTables, relationships: parsedRelationships } = output.result;
-          const newStructuralHash = generateStructuralHash(parsedTables);
-          const structureChanged = newStructuralHash !== lastStructuralHashRef.current;
-          
-          // Only update tables if structure actually changed
-          if (structureChanged) {
-            lastStructuralHashRef.current = newStructuralHash;
-            setTables(parsedTables);
-          }
-          
-          // Always update relationships as they might change independently
+
+          // Always update tables and relationships - viewport preservation is handled in ERDVisualizer
+          setTables(parsedTables);
           setRelationships(parsedRelationships);
           setParseError(null);
           
@@ -896,8 +868,10 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
             backfaceVisibility: 'hidden',
           }}
         >
-          {tables.length > 0 && !loading && !error ? (
-            <>
+          {/* Always render ReactFlowProvider to preserve viewport state */}
+          <ReactFlowProvider>
+            {/* Toolbar - only show when we have tables */}
+            {tables.length > 0 && !loading && !error && (
               <div className="absolute top-0 left-0 right-0 bg-transparent z-10">
                 <ERDToolbar
                   isCodeVisible={isCodeVisible}
@@ -929,38 +903,42 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
                   }}
                 />
               </div>
+            )}
 
-              <ReactFlowProvider>
-                <ERDVisualizer
-                  ref={erdVisualizerRef}
-                  tables={tables}
-                  relationships={relationships}
-                  nodePositions={localView?.nodePositions ?? {}}
-                  initialViewport={localView?.viewport}
-                  layoutDirection={layoutDirection}
-                  hasManualPositions={localView?.hasManualPositions ?? false}
-                  onNodePositionsChange={handleNodePositionsChange}
-                  onNodePositionChange={handleNodePositionChange}
-                  onViewportChange={handleViewportChange}
-                  onColumnDoubleClick={handleColumnDoubleClick}
-                  onLayoutDirectionChange={(direction) => {
-                    setLayoutDirection(direction);
-                    if (localViewId) {
-                      updateView(localViewId, { layoutDirection: direction });
-                    }
-                  }}
-                />
-              </ReactFlowProvider>
-            </>
-          ) : (
-            <ERDVisualizerPlaceholder
-              loading={loading}
-              error={error}
-              tableCount={tables.length}
-              relationshipCount={relationships.length}
-              schema={selectedSchema}
-            />
-          )}
+            {/* ERDVisualizer - always mounted to preserve state, hidden when no data */}
+            <div className={tables.length > 0 && !loading && !error ? "h-full w-full" : "hidden"}>
+              <ERDVisualizer
+                ref={erdVisualizerRef}
+                tables={tables}
+                relationships={relationships}
+                nodePositions={localView?.nodePositions ?? {}}
+                initialViewport={localView?.viewport}
+                layoutDirection={layoutDirection}
+                hasManualPositions={localView?.hasManualPositions ?? false}
+                onNodePositionsChange={handleNodePositionsChange}
+                onNodePositionChange={handleNodePositionChange}
+                onViewportChange={handleViewportChange}
+                onColumnDoubleClick={handleColumnDoubleClick}
+                onLayoutDirectionChange={(direction) => {
+                  setLayoutDirection(direction);
+                  if (localViewId) {
+                    updateView(localViewId, { layoutDirection: direction });
+                  }
+                }}
+              />
+            </div>
+
+            {/* Placeholder - shown when loading or error or no tables */}
+            {(loading || error || tables.length === 0) && (
+              <ERDVisualizerPlaceholder
+                loading={loading}
+                error={error}
+                tableCount={tables.length}
+                relationshipCount={relationships.length}
+                schema={selectedSchema}
+              />
+            )}
+          </ReactFlowProvider>
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
