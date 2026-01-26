@@ -97,7 +97,7 @@ export function NestedSchemaList({
 
   if (isLoading) {
     return (
-      <CommandList ref={listRef}>
+      <CommandList ref={listRef} className="h-[300px]">
         <div className="flex items-center justify-center py-6 text-xs text-muted-foreground gap-2">
           <IconLoader2 className="size-4 animate-spin" />
           Loading schemas...
@@ -108,7 +108,7 @@ export function NestedSchemaList({
 
   if (error) {
     return (
-      <CommandList ref={listRef}>
+      <CommandList ref={listRef} className="h-[300px]">
         <div className="py-6 text-center text-xs text-destructive">
           Failed to load schemas:{" "}
           {error instanceof Error ? error.message : "Unknown error"}
@@ -118,7 +118,7 @@ export function NestedSchemaList({
   }
 
   return (
-    <CommandList ref={listRef}>
+    <CommandList ref={listRef} className="h-[300px]">
       <CommandEmpty>No schemas found.</CommandEmpty>
 
       <CommandGroup heading="Schemas">

@@ -35,6 +35,7 @@ export interface UnifiedContextMenuProps {
   onAddRow?: () => void;
   onInsertRowAbove?: () => void;
   onInsertRowBelow?: () => void;
+  onDuplicateRows?: () => void;
   onDeleteRows?: () => void;
   onPaste?: () => void;
   showDetailsSheet?: boolean;
@@ -78,6 +79,7 @@ export function UnifiedContextMenu({
   onAddRow,
   onInsertRowAbove,
   onInsertRowBelow,
+  onDuplicateRows,
   onDeleteRows,
   onPaste,
   showDetailsSheet: controlledShowDetailsSheet,
@@ -170,7 +172,7 @@ export function UnifiedContextMenu({
         <ContextMenuTrigger className="h-full w-full block">
           {children}
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-56 text-xs p-1">
+        <ContextMenuContent className="w-64 text-xs p-1">
           {menuTarget?.type === "header" && currentHeaderColumn ? (
             <ColumnHeaderContextMenuItems
               column={currentHeaderColumn}
@@ -214,6 +216,7 @@ export function UnifiedContextMenu({
               onAddRow={onAddRow}
               onInsertRowAbove={onInsertRowAbove}
               onInsertRowBelow={onInsertRowBelow}
+              onDuplicateRows={onDuplicateRows}
               onDeleteRows={onDeleteRows}
               onPaste={onPaste}
             />
