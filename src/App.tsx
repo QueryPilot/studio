@@ -9,6 +9,7 @@ import {
 import { HomeScreen } from "./screens/home/HomeScreen";
 import { WorkspaceScreen } from "./screens/workspace/WorkspaceScreen";
 import { WorkspacePickerScreen } from "./screens/workspace/WorkspacePickerScreen";
+import { BackupRestoreScreen } from "./screens/backup-restore";
 import { useEffect, useState } from "react";
 import { isTauri } from "./utils/tauri";
 import type { Update } from "@tauri-apps/plugin-updater";
@@ -77,6 +78,8 @@ function AppContent() {
             path="/connection/:connectionId"
             element={<LegacyConnectionRedirect />}
           />
+          {/* Backup/Restore wizard */}
+          <Route path="/backup-restore" element={<BackupRestoreScreen />} />
         </Routes>
       </Router>
     </>
