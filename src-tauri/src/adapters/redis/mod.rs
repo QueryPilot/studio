@@ -3,6 +3,7 @@
 //! Implements key-value database operations for Redis using the fred crate.
 
 mod adapter;
+mod backup;
 mod msgpack_converter;
 mod types;
 
