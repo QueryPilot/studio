@@ -640,7 +640,7 @@ export function CommandPalette(): React.ReactElement {
         </>
       ) : (
         <>
-          <CommandList ref={listRef}>
+          <CommandList ref={listRef} className="h-[300px]">
             {isLoading ? (
               <div className="flex items-center justify-center py-6 text-xs text-muted-foreground gap-2">
                 <IconLoader2 className="size-4 animate-spin" />

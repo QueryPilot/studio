@@ -1511,6 +1511,91 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     toast.success("New row staged");
   }, [stageCommand, readOnly, gridSelection]);
 
+  // Duplicate selected rows (excluding PK columns)
+  const handleDuplicateRows = useCallback(() => {
+    const factory = commandFactoryRef.current;
+    if (!factory || readOnly) return;
+
+    // Get selected row indices
+    const selectedIndices = gridSelection?.rows?.toArray() ?? [];
+    let rowsToDuplicate: GridRowModel[] = [];
+
+    if (selectedIndices.length > 0) {
+      // Multiple rows selected
+      rowsToDuplicate = selectedIndices
+        .map((idx) => rowsRef.current[idx])
+        .filter((row): row is GridRowModel => Boolean(row));
+    } else if (gridSelection?.current?.cell) {
+      // Single cell selection - duplicate that row
+      const [, rowIndex] = gridSelection.current.cell;
+      const row = rowsRef.current[rowIndex];
+      if (row) {
+        rowsToDuplicate = [row];
+      }
+    }
+
+    if (rowsToDuplicate.length === 0) return;
+
+    // Get PK column fields to exclude
+    const pkFields = new Set<string>();
+    for (const pkColName of factory.primaryKeyColumns) {
+      const field = factory.columnNameToFieldMap.get(pkColName);
+      if (field) {
+        pkFields.add(field);
+      }
+    }
+
+    // Also exclude auto-increment/identity columns (usually PKs but let's be thorough)
+    // and unique columns if they have auto-generated values
+    const columnsToExclude = new Set<string>(pkFields);
+    for (const [field, col] of factory.columnByFieldMap.entries()) {
+      const meta = col.meta;
+      if (meta) {
+        // Exclude primary keys
+        if (meta.is_pk) {
+          columnsToExclude.add(field);
+        }
+        // Exclude auto-increment columns
+        if (meta.default?.toLowerCase().includes("nextval") ||
+            meta.default?.toLowerCase().includes("auto_increment") ||
+            meta.default?.toLowerCase().includes("identity")) {
+          columnsToExclude.add(field);
+        }
+      }
+    }
+
+    // Create insert commands with duplicated data (excluding PK/auto columns)
+    const commands: import("@/types/crud").CrudCommand[] = [];
+    for (const row of rowsToDuplicate) {
+      // Build data using column NAMES (not field IDs) since createInsertCommand expects col.name
+      const duplicateData: Record<string, unknown> = {};
+
+      for (const [field, value] of Object.entries(row)) {
+        if (!columnsToExclude.has(field)) {
+          // Get the column to find its actual name
+          const col = factory.columnByFieldMap.get(field);
+          if (!col) continue;
+
+          const columnName = col.name ?? col.field;
+
+          // Extract raw value from cell format if needed
+          const rawValue = value && typeof value === "object" && "value" in value
+            ? (value as { value: unknown }).value
+            : value;
+          duplicateData[columnName] = rawValue;
+        }
+      }
+
+      const command = factory.createInsertCommand(duplicateData);
+      commands.push(command);
+    }
+
+    if (commands.length > 0) {
+      stageBatchWithSingleHistoryEntry(commands);
+      toast.success(`${commands.length} row${commands.length > 1 ? "s" : ""} duplicated (staged)`);
+    }
+  }, [stageBatchWithSingleHistoryEntry, readOnly, gridSelection]);
+
   const handleDeleteRows = useCallback(() => {
     const factory = commandFactoryRef.current;
     if (!factory || readOnly) return;
@@ -1874,6 +1959,32 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     isCellEditorActive,
   ]);
 
+  // Cmd+D shortcut for duplicate rows
+  useEffect(() => {
+    if (readOnly || !commandFactory) return;
+
+    const handleDuplicateKeyDown = (e: KeyboardEvent) => {
+      // Cmd+D (Mac) or Meta+D - duplicate rows
+      if ((e.metaKey || (e.ctrlKey && !e.metaKey)) && e.key === "d") {
+        // Ctrl+D is fillDown, only handle Cmd+D (metaKey on Mac)
+        if (!e.metaKey) return;
+
+        // Don't intercept if a cell editor is active
+        if (isCellEditorActive()) return;
+        // Use refs for synchronous, accurate focus state
+        if (!isGridFocusedRef.current || isEditingCellRef.current) return;
+
+        e.preventDefault();
+        handleDuplicateRows();
+      }
+    };
+
+    window.addEventListener("keydown", handleDuplicateKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleDuplicateKeyDown);
+    };
+  }, [readOnly, commandFactory, handleDuplicateRows, isCellEditorActive]);
+
   // Delete key handler for batch clear
   useEffect(() => {
     if (readOnly || !commandFactory) return;
@@ -2185,6 +2296,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
             }
             onInsertRowBelow={
               commandFactory && !readOnly ? handleInsertRowBelow : undefined
+            }
+            onDuplicateRows={
+              commandFactory && !readOnly ? handleDuplicateRows : undefined
             }
             onDeleteRows={
               commandFactory && !readOnly ? handleDeleteRows : undefined
