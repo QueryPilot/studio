@@ -33,10 +33,12 @@ import {
   IconTable,
 } from "@tabler/icons-react";
 
+import { type ConnectionProfile } from "@/types/connection";
+
 // ============ Types ============
 
 interface RestoreConfigStepProps {
-  connectionId: string;
+  profile: ConnectionProfile;
   onStart: (config: RestoreConfig) => void;
   onBack: () => void;
 }
@@ -119,7 +121,7 @@ function formatFileSize(bytes: number): string {
 // ============ Component ============
 
 export const RestoreConfigStep = ({
-  connectionId,
+  profile,
   onStart,
   onBack,
 }: RestoreConfigStepProps) => {
@@ -129,7 +131,7 @@ export const RestoreConfigStep = ({
 
   // Capability info from backend
   const [capability, setCapability] = useState<BackupCapabilityInfo | null>(
-    null
+    null,
   );
 
   // Form state
@@ -153,9 +155,12 @@ export const RestoreConfigStep = ({
         setLoading(true);
         setError(null);
 
-        const info = await invoke<BackupCapabilityInfo>("get_backup_capability", {
-          connId: connectionId,
-        });
+        const info = await invoke<BackupCapabilityInfo>(
+          "get_backup_capability",
+          {
+            profile,
+          },
+        );
 
         if (!mounted) return;
 
@@ -173,7 +178,11 @@ export const RestoreConfigStep = ({
       } catch (err) {
         if (!mounted) return;
         const message = err instanceof Error ? err.message : String(err);
-        logger.error("backup-restore", "Failed to fetch restore capability:", err);
+        logger.error(
+          "backup-restore",
+          "Failed to fetch restore capability:",
+          err,
+        );
         setError(message);
       } finally {
         if (mounted) {
@@ -187,7 +196,7 @@ export const RestoreConfigStep = ({
     return () => {
       mounted = false;
     };
-  }, [connectionId]);
+  }, [profile]);
 
   // Fetch backup preview when source path changes
   useEffect(() => {
@@ -205,7 +214,7 @@ export const RestoreConfigStep = ({
         setPreviewError(null);
 
         const previewData = await invoke<BackupPreview>("get_backup_preview", {
-          connId: connectionId,
+          profile,
           filePath: sourcePath,
         });
 
@@ -230,7 +239,7 @@ export const RestoreConfigStep = ({
     return () => {
       mounted = false;
     };
-  }, [connectionId, sourcePath]);
+  }, [profile, sourcePath]);
 
   // Handle file path browse
   const handleBrowse = async () => {
@@ -325,7 +334,7 @@ export const RestoreConfigStep = ({
           <h2 className="text-xl font-semibold">Configure Restore</h2>
         </div>
 
-        <div className="flex items-center gap-3 p-4 rounded-lg bg-destructive/10 text-destructive">
+        <div className="flex items-center gap-3 p-4 rounded-lg bg-destructive/10 text-destructive select-text">
           <IconAlertCircle className="h-5 w-5 shrink-0" />
           <div>
             <p className="font-medium">Failed to load restore options</p>
@@ -367,7 +376,9 @@ export const RestoreConfigStep = ({
           <Input
             id="source"
             value={sourcePath}
-            onChange={(e) => setSourcePath(e.target.value)}
+            onChange={(e) => {
+              setSourcePath(e.target.value);
+            }}
             placeholder="Select a backup file to restore..."
             className="flex-1"
           />
@@ -415,14 +426,19 @@ export const RestoreConfigStep = ({
                   <div className="flex items-center gap-2">
                     <IconFile className="h-4 w-4 text-muted-foreground" />
                     <span className="text-muted-foreground">File:</span>
-                    <span className="font-medium truncate" title={preview.file_name}>
+                    <span
+                      className="font-medium truncate"
+                      title={preview.file_name}
+                    >
                       {preview.file_name}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <IconDatabase className="h-4 w-4 text-muted-foreground" />
                     <span className="text-muted-foreground">Size:</span>
-                    <span className="font-medium">{formatFileSize(preview.file_size)}</span>
+                    <span className="font-medium">
+                      {formatFileSize(preview.file_size)}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <IconDatabase className="h-4 w-4 text-muted-foreground" />
@@ -483,7 +499,9 @@ export const RestoreConfigStep = ({
                 key={field.key}
                 field={field}
                 value={options[field.key]}
-                onChange={(value) => handleOptionChange(field.key, value)}
+                onChange={(value) => {
+                  handleOptionChange(field.key, value);
+                }}
               />
             ))}
           </div>
@@ -497,7 +515,7 @@ export const RestoreConfigStep = ({
             className={cn(
               "flex items-center gap-2 text-sm font-medium",
               "hover:text-foreground transition-colors",
-              advancedOpen ? "text-foreground" : "text-muted-foreground"
+              advancedOpen ? "text-foreground" : "text-muted-foreground",
             )}
           >
             <IconSettings className="h-4 w-4" />
@@ -505,7 +523,7 @@ export const RestoreConfigStep = ({
             <IconChevronDown
               className={cn(
                 "h-4 w-4 transition-transform",
-                advancedOpen && "rotate-180"
+                advancedOpen && "rotate-180",
               )}
             />
           </CollapsibleTrigger>
@@ -516,7 +534,9 @@ export const RestoreConfigStep = ({
                   key={field.key}
                   field={field}
                   value={options[field.key]}
-                  onChange={(value) => handleOptionChange(field.key, value)}
+                  onChange={(value) => {
+                    handleOptionChange(field.key, value);
+                  }}
                 />
               ))}
             </div>
@@ -530,15 +550,13 @@ export const RestoreConfigStep = ({
           Back
         </Button>
         <Button onClick={handleStart} disabled={!isValid}>
-          {!sourcePath ? (
-            "Select backup file to continue"
-          ) : previewLoading ? (
-            "Loading preview..."
-          ) : previewError ? (
-            "Invalid backup file"
-          ) : (
-            "Start Restore"
-          )}
+          {!sourcePath
+            ? "Select backup file to continue"
+            : previewLoading
+              ? "Loading preview..."
+              : previewError
+                ? "Invalid backup file"
+                : "Start Restore"}
         </Button>
       </div>
     </div>
@@ -589,7 +607,9 @@ const OptionFieldRenderer = ({
         <Input
           id={field.key}
           value={String(value ?? "")}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            onChange(e.target.value);
+          }}
           placeholder={field.description}
         />
         {field.description && (
@@ -641,7 +661,7 @@ const OptionFieldRenderer = ({
   // Select field -> Select dropdown
   if (fieldType.type === "select" && fieldType.options) {
     const currentOption = fieldType.options.find(
-      (opt) => opt.value === String(value ?? "")
+      (opt) => opt.value === String(value ?? ""),
     );
     return (
       <div className="space-y-1.5">

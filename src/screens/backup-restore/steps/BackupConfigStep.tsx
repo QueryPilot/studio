@@ -29,10 +29,12 @@ import {
   IconSettings,
 } from "@tabler/icons-react";
 
+import { type ConnectionProfile } from "@/types/connection";
+
 // ============ Types ============
 
 interface BackupConfigStepProps {
-  connectionId: string;
+  profile: ConnectionProfile;
   onStart: (config: BackupConfig) => void;
   onBack: () => void;
 }
@@ -90,7 +92,7 @@ interface BackupCapabilityInfo {
 // ============ Component ============
 
 export const BackupConfigStep = ({
-  connectionId,
+  profile,
   onStart,
   onBack,
 }: BackupConfigStepProps) => {
@@ -100,7 +102,7 @@ export const BackupConfigStep = ({
 
   // Capability info from backend
   const [capability, setCapability] = useState<BackupCapabilityInfo | null>(
-    null
+    null,
   );
 
   // Form state
@@ -120,9 +122,12 @@ export const BackupConfigStep = ({
         setLoading(true);
         setError(null);
 
-        const info = await invoke<BackupCapabilityInfo>("get_backup_capability", {
-          connId: connectionId,
-        });
+        const info = await invoke<BackupCapabilityInfo>(
+          "get_backup_capability",
+          {
+            profile,
+          },
+        );
 
         if (!mounted) return;
 
@@ -148,7 +153,11 @@ export const BackupConfigStep = ({
       } catch (err) {
         if (!mounted) return;
         const message = err instanceof Error ? err.message : String(err);
-        logger.error("backup-restore", "Failed to fetch backup capability:", err);
+        logger.error(
+          "backup-restore",
+          "Failed to fetch backup capability:",
+          err,
+        );
         setError(message);
       } finally {
         if (mounted) {
@@ -162,13 +171,15 @@ export const BackupConfigStep = ({
     return () => {
       mounted = false;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedFormat only used for conditional check, not as trigger
-  }, [connectionId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedFormat only used for conditional check, not as trigger
+  }, [profile]);
 
   // Get current format object
   const currentFormat = useMemo(() => {
     if (!capability) return null;
-    return capability.supportedFormats.find((f) => f.id === selectedFormat) ?? null;
+    return (
+      capability.supportedFormats.find((f) => f.id === selectedFormat) ?? null
+    );
   }, [capability, selectedFormat]);
 
   // Handle file path browse
@@ -201,7 +212,9 @@ export const BackupConfigStep = ({
 
     // Update file extension if path exists
     if (destinationPath) {
-      const newFormat = capability?.supportedFormats.find((f) => f.id === formatId);
+      const newFormat = capability?.supportedFormats.find(
+        (f) => f.id === formatId,
+      );
       if (newFormat) {
         // Replace extension in path
         const pathWithoutExt = destinationPath.replace(/\.[^/.]+$/, "");
@@ -285,7 +298,7 @@ export const BackupConfigStep = ({
           <h2 className="text-xl font-semibold">Configure Backup</h2>
         </div>
 
-        <div className="flex items-center gap-3 p-4 rounded-lg bg-destructive/10 text-destructive">
+        <div className="flex items-center gap-3 p-4 rounded-lg bg-destructive/10 text-destructive select-text">
           <IconAlertCircle className="h-5 w-5 shrink-0" />
           <div>
             <p className="font-medium">Failed to load backup options</p>
@@ -327,7 +340,9 @@ export const BackupConfigStep = ({
           <Input
             id="destination"
             value={destinationPath}
-            onChange={(e) => setDestinationPath(e.target.value)}
+            onChange={(e) => {
+              setDestinationPath(e.target.value);
+            }}
             placeholder="Choose where to save the backup..."
             className="flex-1"
           />
@@ -388,7 +403,9 @@ export const BackupConfigStep = ({
                 key={field.key}
                 field={field}
                 value={options[field.key]}
-                onChange={(value) => handleOptionChange(field.key, value)}
+                onChange={(value) => {
+                  handleOptionChange(field.key, value);
+                }}
               />
             ))}
           </div>
@@ -402,7 +419,7 @@ export const BackupConfigStep = ({
             className={cn(
               "flex items-center gap-2 text-sm font-medium",
               "hover:text-foreground transition-colors",
-              advancedOpen ? "text-foreground" : "text-muted-foreground"
+              advancedOpen ? "text-foreground" : "text-muted-foreground",
             )}
           >
             <IconSettings className="h-4 w-4" />
@@ -410,7 +427,7 @@ export const BackupConfigStep = ({
             <IconChevronDown
               className={cn(
                 "h-4 w-4 transition-transform",
-                advancedOpen && "rotate-180"
+                advancedOpen && "rotate-180",
               )}
             />
           </CollapsibleTrigger>
@@ -421,7 +438,9 @@ export const BackupConfigStep = ({
                   key={field.key}
                   field={field}
                   value={options[field.key]}
-                  onChange={(value) => handleOptionChange(field.key, value)}
+                  onChange={(value) => {
+                    handleOptionChange(field.key, value);
+                  }}
                 />
               ))}
             </div>
@@ -493,7 +512,9 @@ const OptionFieldRenderer = ({
         <Input
           id={field.key}
           value={String(value ?? "")}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            onChange(e.target.value);
+          }}
           placeholder={field.description}
         />
         {field.description && (
@@ -545,7 +566,7 @@ const OptionFieldRenderer = ({
   // Select field -> Select dropdown
   if (fieldType.type === "select" && fieldType.options) {
     const currentOption = fieldType.options.find(
-      (opt) => opt.value === String(value ?? "")
+      (opt) => opt.value === String(value ?? ""),
     );
     return (
       <div className="space-y-1.5">
