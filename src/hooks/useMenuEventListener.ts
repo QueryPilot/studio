@@ -10,6 +10,7 @@ import { isTauri } from "@/utils/tauri";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { eventBus } from "@/services/eventBus";
 import { databaseService } from "@/services/databaseService";
 import { windowManager } from "@/services/windowManager";
@@ -149,10 +150,17 @@ export function useMenuEventListener() {
             handleNewErd(activeConnectionId, workbenchStore);
           }
           break;
-        case "backup_restore":
-          // Open backup/restore window with current connection if available
-          void windowManager.openBackupRestore(activeConnectionId ?? undefined);
+        case "backup_restore": {
+          // Get profile ID from active connection (not runtime connection ID)
+          let profileId: string | undefined;
+          if (activeConnectionId) {
+            const bundleStore = useWorkspaceBundleStore.getState();
+            const connection = bundleStore.getConnectionById(activeConnectionId);
+            profileId = connection?.profile.id;
+          }
+          void windowManager.openBackupRestore(profileId);
           break;
+        }
 
         // Help Menu
         case "open_docs":
