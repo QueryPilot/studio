@@ -1,6 +1,15 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { isTauri } from "@/utils/tauri";
+import {
+  ConnectionStep,
+  OperationStep,
+  BackupConfigStep,
+  RestoreConfigStep,
+  ExecuteStep,
+  type BackupConfig,
+  type RestoreConfig,
+} from "./steps";
 
 type WizardStep = "connection" | "operation" | "config" | "execute";
 
@@ -18,12 +27,12 @@ export function BackupRestoreScreen() {
   const preselectedConnectionId = searchParams.get("connectionId");
 
   const [currentStep, setCurrentStep] = useState<WizardStep>("connection");
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [selectedConnectionId, _setSelectedConnectionId] = useState<
+  const [selectedConnectionId, setSelectedConnectionId] = useState<
     string | null
   >(preselectedConnectionId);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [operation, _setOperation] = useState<"backup" | "restore" | null>(
+  const [operation, setOperation] = useState<"backup" | "restore" | null>(null);
+  const [backupConfig, setBackupConfig] = useState<BackupConfig | null>(null);
+  const [restoreConfig, setRestoreConfig] = useState<RestoreConfig | null>(
     null
   );
 
@@ -52,6 +61,54 @@ export function BackupRestoreScreen() {
   }, [preselectedConnectionId, currentStep]);
 
   const currentStepIndex = STEPS.indexOf(currentStep);
+
+  // Navigation handlers
+  const handleConnectionSelect = (id: string) => {
+    setSelectedConnectionId(id);
+    setCurrentStep("operation");
+  };
+
+  const handleOperationSelect = (op: "backup" | "restore") => {
+    setOperation(op);
+    setCurrentStep("config");
+  };
+
+  const handleBackupStart = (config: BackupConfig) => {
+    setBackupConfig(config);
+    setCurrentStep("execute");
+  };
+
+  const handleRestoreStart = (config: RestoreConfig) => {
+    setRestoreConfig(config);
+    setCurrentStep("execute");
+  };
+
+  const handleComplete = async () => {
+    // Close the window if in Tauri environment
+    if (isTauri()) {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const currentWindow = getCurrentWindow();
+        await currentWindow.close();
+      } catch {
+        // Fallback: reset wizard to initial state
+        resetWizard();
+      }
+    } else {
+      // In browser, reset the wizard
+      resetWizard();
+    }
+  };
+
+  const resetWizard = () => {
+    setCurrentStep(preselectedConnectionId ? "operation" : "connection");
+    setOperation(null);
+    setBackupConfig(null);
+    setRestoreConfig(null);
+    if (!preselectedConnectionId) {
+      setSelectedConnectionId(null);
+    }
+  };
 
   return (
     <div className="flex flex-col h-screen bg-background">
@@ -97,101 +154,57 @@ export function BackupRestoreScreen() {
 
       {/* Content area - render step based on currentStep */}
       <div className="flex-1 overflow-auto p-6">
-        {currentStep === "connection" && (
-          <div className="max-w-2xl mx-auto">
-            <h2 className="text-xl font-semibold mb-4">Select Connection</h2>
-            <p className="text-muted-foreground mb-6">
-              Choose a database connection to backup or restore.
-            </p>
-            {/* ConnectionStep placeholder */}
-            <div className="border rounded-lg p-8 text-center text-muted-foreground">
-              Connection selection step (to be implemented)
-            </div>
-          </div>
-        )}
+        <div className="max-w-2xl mx-auto">
+          {currentStep === "connection" && (
+            <ConnectionStep
+              selectedId={selectedConnectionId}
+              onSelect={handleConnectionSelect}
+            />
+          )}
 
-        {currentStep === "operation" && (
-          <div className="max-w-2xl mx-auto">
-            <h2 className="text-xl font-semibold mb-4">Choose Operation</h2>
-            <p className="text-muted-foreground mb-6">
-              Select whether you want to backup or restore the database.
-            </p>
-            {/* OperationStep placeholder */}
-            <div className="border rounded-lg p-8 text-center text-muted-foreground">
-              Operation selection step (to be implemented)
-              {selectedConnectionId && (
-                <p className="mt-2 text-sm">
-                  Selected connection: {selectedConnectionId}
-                </p>
+          {currentStep === "operation" && (
+            <OperationStep
+              onSelect={handleOperationSelect}
+              onBack={() => setCurrentStep("connection")}
+            />
+          )}
+
+          {currentStep === "config" && selectedConnectionId && (
+            <>
+              {operation === "backup" && (
+                <BackupConfigStep
+                  connectionId={selectedConnectionId}
+                  onStart={handleBackupStart}
+                  onBack={() => setCurrentStep("operation")}
+                />
               )}
-            </div>
-          </div>
-        )}
-
-        {currentStep === "config" && (
-          <div className="max-w-2xl mx-auto">
-            <h2 className="text-xl font-semibold mb-4">
-              Configure {operation === "backup" ? "Backup" : "Restore"}
-            </h2>
-            <p className="text-muted-foreground mb-6">
-              Set the options for your {operation} operation.
-            </p>
-            {/* ConfigStep placeholder */}
-            <div className="border rounded-lg p-8 text-center text-muted-foreground">
-              Configuration step (to be implemented)
-              {operation && (
-                <p className="mt-2 text-sm">Operation: {operation}</p>
+              {operation === "restore" && (
+                <RestoreConfigStep
+                  connectionId={selectedConnectionId}
+                  onStart={handleRestoreStart}
+                  onBack={() => setCurrentStep("operation")}
+                />
               )}
-            </div>
-          </div>
-        )}
+            </>
+          )}
 
-        {currentStep === "execute" && (
-          <div className="max-w-2xl mx-auto">
-            <h2 className="text-xl font-semibold mb-4">
-              {operation === "backup" ? "Backup" : "Restore"} Progress
-            </h2>
-            <p className="text-muted-foreground mb-6">
-              {operation === "backup"
-                ? "Creating backup of your database..."
-                : "Restoring your database from backup..."}
-            </p>
-            {/* ExecuteStep placeholder */}
-            <div className="border rounded-lg p-8 text-center text-muted-foreground">
-              Execution step (to be implemented)
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Footer with navigation buttons - placeholder */}
-      <div className="flex items-center justify-between p-4 border-t">
-        <button
-          className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
-          disabled={currentStep === "connection" && !preselectedConnectionId}
-          onClick={() => {
-            const prevIndex = currentStepIndex - 1;
-            const prevStep = STEPS[prevIndex];
-            if (prevIndex >= 0 && prevStep) {
-              setCurrentStep(prevStep);
-            }
-          }}
-        >
-          Back
-        </button>
-        <button
-          className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
-          disabled={currentStep === "execute"}
-          onClick={() => {
-            const nextIndex = currentStepIndex + 1;
-            const nextStep = STEPS[nextIndex];
-            if (nextIndex < STEPS.length && nextStep) {
-              setCurrentStep(nextStep);
-            }
-          }}
-        >
-          {currentStep === "config" ? "Start" : "Next"}
-        </button>
+          {currentStep === "execute" &&
+            selectedConnectionId &&
+            operation &&
+            (operation === "backup" ? backupConfig : restoreConfig) && (
+              <ExecuteStep
+                connectionId={selectedConnectionId}
+                operation={operation}
+                config={
+                  operation === "backup"
+                    ? (backupConfig as BackupConfig)
+                    : (restoreConfig as RestoreConfig)
+                }
+                onComplete={() => void handleComplete()}
+                onBack={() => setCurrentStep("config")}
+              />
+            )}
+        </div>
       </div>
     </div>
   );
