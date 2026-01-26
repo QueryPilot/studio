@@ -1127,8 +1127,31 @@ function parseSqliteUri(input: string): ParsedUriConfig {
   return config;
 }
 
+/**
+ * Pre-process URI to encode special characters in password that break URL parsing.
+ * Handles common case where password contains unencoded #, ?, or @ characters.
+ */
+function preprocessUri(uri: string): string {
+  // Match: protocol://user:password@host...
+  // We need to find and encode the password portion
+  const match = uri.match(/^([a-z][a-z0-9+.-]*:\/\/)([^:@]+):([^@]+)@(.+)$/i);
+  if (!match) return uri;
+
+  const [, protocol, username, password, rest] = match;
+
+  // Encode special characters in password that break URL parsing
+  const encodedPassword = password
+    .replace(/%/g, '%25')  // Encode % first to avoid double-encoding
+    .replace(/#/g, '%23')
+    .replace(/\?/g, '%3F')
+    .replace(/@/g, '%40');
+
+  return `${protocol}${username}:${encodedPassword}@${rest}`;
+}
+
 function parseStandardUrl(uri: string): ParsedUriConfig {
-  const url = new URL(uri);
+  const processedUri = preprocessUri(uri);
+  const url = new URL(processedUri);
   const protocol = url.protocol.replace(":", "").toLowerCase();
 
   let dbType: DatabaseType;
