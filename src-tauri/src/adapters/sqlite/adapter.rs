@@ -56,6 +56,16 @@ impl SqliteAdapter {
         .await
         .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?
     }
+
+    /// Get a clone of the connection Arc for backup operations
+    pub(crate) fn get_connection(&self) -> Arc<Mutex<Option<Connection>>> {
+        self.connection.clone()
+    }
+
+    /// Get a clone of the db_path Arc for backup operations
+    pub(crate) fn get_db_path(&self) -> Arc<Mutex<Option<PathBuf>>> {
+        self.db_path.clone()
+    }
 }
 
 impl Default for SqliteAdapter {
