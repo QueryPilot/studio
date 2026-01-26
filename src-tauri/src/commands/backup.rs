@@ -11,7 +11,8 @@ use tokio::sync::mpsc;
 
 use crate::core::{
     BackupConfig, BackupFormat, BackupOptionsSchema, BackupPreview, BackupProgress,
-    ConnectionManager, RestoreConfig, RestoreOptionsSchema, ToolRequirement,
+    ConnectionManager, RestoreConfig, RestoreOptionsSchema, ToolCheckStatus, ToolInfo,
+    ToolRegistry, ToolRequirement,
 };
 use crate::types::DbType;
 
@@ -19,11 +20,13 @@ use crate::types::DbType;
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolStatus {
-    /// Tools required by this database type for backup/restore.
-    pub required: Vec<String>,
-    /// Tools that are available on the system.
+    /// Information about tools required by this database type.
+    pub required_tools: Vec<ToolInfo>,
+    /// Detailed status of each required tool.
+    pub tool_statuses: Vec<ToolCheckStatus>,
+    /// Names of tools that are available on the system.
     pub available: Vec<String>,
-    /// Tools that are missing (required but not available).
+    /// Names of tools that are missing (required but not available).
     pub missing: Vec<String>,
 }
 
@@ -76,99 +79,45 @@ pub async fn get_backup_capability(
 /// empty lists since no external tools are needed.
 ///
 /// For tool-based implementations (PostgreSQL, MySQL, MongoDB), checks if the
-/// required tools (pg_dump, mysqldump, mongodump, etc.) are available.
+/// required tools (pg_dump, mariadb-dump, mongodump, etc.) are available.
 #[tauri::command]
 pub async fn get_tool_status(db_type: DbType) -> Result<ToolStatus, String> {
-    // For now, return a basic implementation based on database type.
-    // Native implementations don't require external tools.
-    // Tool-based implementations will be enhanced in future tasks.
-    match db_type {
-        // Native implementations - no external tools required
-        DbType::SQLite | DbType::SQLServer | DbType::Redis => Ok(ToolStatus {
-            required: vec![],
-            available: vec![],
-            missing: vec![],
-        }),
+    // Convert DbType to string for registry lookup
+    let db_type_str = match db_type {
+        DbType::PostgreSQL => "PostgreSQL",
+        DbType::MySQL => "MySQL",
+        DbType::MariaDB => "MariaDB",
+        DbType::MongoDB => "MongoDB",
+        DbType::SQLite => "SQLite",
+        DbType::SQLServer => "SQLServer",
+        DbType::Redis => "Redis",
+    };
 
-        // Tool-based implementations - will check for tools in future
-        DbType::PostgreSQL => {
-            let required = vec!["pg_dump".to_string(), "pg_restore".to_string()];
-            let available = check_tools_available(&required).await;
-            let missing = required
-                .iter()
-                .filter(|t| !available.contains(t))
-                .cloned()
-                .collect();
+    // Get tool requirements from registry
+    let required_tools = ToolRegistry::get_tools_for_db(db_type_str);
 
-            Ok(ToolStatus {
-                required,
-                available,
-                missing,
-            })
-        }
+    // Check status of each required tool
+    let tool_statuses = ToolRegistry::check_tools_for_db(db_type_str).await;
 
-        DbType::MySQL | DbType::MariaDB => {
-            let required = vec!["mysqldump".to_string(), "mysql".to_string()];
-            let available = check_tools_available(&required).await;
-            let missing = required
-                .iter()
-                .filter(|t| !available.contains(t))
-                .cloned()
-                .collect();
+    // Build available and missing lists from statuses
+    let available: Vec<String> = tool_statuses
+        .iter()
+        .filter(|s| s.installed)
+        .map(|s| s.name.clone())
+        .collect();
 
-            Ok(ToolStatus {
-                required,
-                available,
-                missing,
-            })
-        }
+    let missing: Vec<String> = tool_statuses
+        .iter()
+        .filter(|s| !s.installed)
+        .map(|s| s.name.clone())
+        .collect();
 
-        DbType::MongoDB => {
-            let required = vec!["mongodump".to_string(), "mongorestore".to_string()];
-            let available = check_tools_available(&required).await;
-            let missing = required
-                .iter()
-                .filter(|t| !available.contains(t))
-                .cloned()
-                .collect();
-
-            Ok(ToolStatus {
-                required,
-                available,
-                missing,
-            })
-        }
-    }
-}
-
-/// Check which tools from the list are available on the system.
-async fn check_tools_available(tools: &[String]) -> Vec<String> {
-    let mut available = Vec::new();
-
-    for tool in tools {
-        // Use 'which' on Unix or 'where' on Windows to check if tool exists
-        #[cfg(unix)]
-        let result = tokio::process::Command::new("which")
-            .arg(tool)
-            .output()
-            .await
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-
-        #[cfg(windows)]
-        let result = tokio::process::Command::new("where")
-            .arg(tool)
-            .output()
-            .await
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-
-        if result {
-            available.push(tool.clone());
-        }
-    }
-
-    available
+    Ok(ToolStatus {
+        required_tools,
+        tool_statuses,
+        available,
+        missing,
+    })
 }
 
 /// Get backup preview for a file.
@@ -291,14 +240,30 @@ mod tests {
 
     #[test]
     fn test_tool_status_serialization() {
+        use crate::core::{ToolCheckStatus, ToolInfo};
+        use std::path::PathBuf;
+
         let status = ToolStatus {
-            required: vec!["pg_dump".to_string()],
+            required_tools: vec![ToolInfo {
+                name: "pg_dump".to_string(),
+                description: "PostgreSQL backup utility".to_string(),
+                version_command: "--version".to_string(),
+                download_url: Some("https://www.postgresql.org/download/".to_string()),
+                download_size_mb: 50,
+            }],
+            tool_statuses: vec![ToolCheckStatus {
+                name: "pg_dump".to_string(),
+                installed: true,
+                path: Some(PathBuf::from("/usr/bin/pg_dump")),
+                version: Some("pg_dump (PostgreSQL) 15.2".to_string()),
+            }],
             available: vec!["pg_dump".to_string()],
             missing: vec![],
         };
 
         let json = serde_json::to_string(&status).unwrap();
-        assert!(json.contains("\"required\""));
+        assert!(json.contains("\"requiredTools\""));
+        assert!(json.contains("\"toolStatuses\""));
         assert!(json.contains("\"available\""));
         assert!(json.contains("\"missing\""));
     }
