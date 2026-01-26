@@ -14,6 +14,7 @@ use crate::adapters::sqlite::SqliteAdapter;
 use crate::core::capabilities::{
     BaseCapability, CapabilityTestResult, DocumentQueryable, RichKeyValueOperable, SqlQueryable,
 };
+use crate::core::backup_capability::BackupCapable;
 use crate::error::{AppError, Result};
 use crate::ssh::secrets::delete_ssh_passphrase;
 use crate::ssh::SshTunnel;
@@ -41,6 +42,9 @@ pub struct UnifiedAdapter {
     /// Pointer to RichKeyValueOperable trait object (if supported)
     keyvalue: Option<*const dyn RichKeyValueOperable>,
 
+    /// Pointer to BackupCapable trait object (if supported)
+    backup: Option<*const dyn BackupCapable>,
+
     /// Concrete adapter pointers for adapter-specific access
     postgres: Option<*const PostgresAdapter>,
     mongo: Option<*const MongoDbAdapter>,
@@ -66,6 +70,7 @@ impl UnifiedAdapter {
             sql: Some(sql_ptr),
             document: None,
             keyvalue: None,
+            backup: None,
             postgres: Some(ptr),
             mongo: None,
             redis: None,
@@ -83,6 +88,7 @@ impl UnifiedAdapter {
             sql: Some(sql_ptr),
             document: None,
             keyvalue: None,
+            backup: None,
             postgres: None,
             mongo: None,
             redis: None,
@@ -100,6 +106,7 @@ impl UnifiedAdapter {
             sql: Some(sql_ptr),
             document: None,
             keyvalue: None,
+            backup: None,
             postgres: None,
             mongo: None,
             redis: None,
@@ -117,6 +124,7 @@ impl UnifiedAdapter {
             sql: Some(sql_ptr),
             document: None,
             keyvalue: None,
+            backup: None,
             postgres: None,
             mongo: None,
             redis: None,
@@ -134,6 +142,7 @@ impl UnifiedAdapter {
             sql: None,
             document: Some(doc_ptr),
             keyvalue: None,
+            backup: None,
             postgres: None,
             mongo: Some(ptr),
             redis: None,
@@ -151,6 +160,7 @@ impl UnifiedAdapter {
             sql: None,
             document: None,
             keyvalue: Some(kv_ptr),
+            backup: None,
             postgres: None,
             mongo: None,
             redis: Some(ptr),
@@ -195,6 +205,11 @@ impl UnifiedAdapter {
     /// Get key-value operable interface (returns None for SQL/MongoDB)
     pub fn as_keyvalue(&self) -> Option<&dyn RichKeyValueOperable> {
         self.keyvalue.map(|p| unsafe { &*p })
+    }
+
+    /// Get backup capable interface (returns None for adapters that don't support backup)
+    pub fn as_backup(&self) -> Option<&dyn BackupCapable> {
+        self.backup.map(|p| unsafe { &*p })
     }
 
     // ========== Concrete adapter access ==========
