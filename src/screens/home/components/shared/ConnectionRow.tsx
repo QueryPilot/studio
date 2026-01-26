@@ -1,4 +1,4 @@
-import { IconStar, IconTrash, IconPencil, IconCopy } from "@tabler/icons-react";
+import { IconStar, IconTrash, IconPencil, IconCopy, IconDatabaseExport } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import {
   ContextMenu,
@@ -92,6 +92,16 @@ export function ConnectionRow({ connection }: ConnectionRowProps) {
       toast.success("Connection cloned");
     } catch (error) {
       toast.error("Failed to clone connection", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
+
+  const handleBackupRestore = async () => {
+    try {
+      await windowManager.openBackupRestore(profile.id);
+    } catch (error) {
+      toast.error("Failed to open backup/restore", {
         description: error instanceof Error ? error.message : "Unknown error",
       });
     }
@@ -192,6 +202,10 @@ export function ConnectionRow({ connection }: ConnectionRowProps) {
           <IconCopy className="h-3 w-3 mr-2" />
           Clone
           <span className="ml-auto text-[10px] text-muted-foreground">⌘D</span>
+        </ContextMenuItem>
+        <ContextMenuItem onClick={handleBackupRestore} className="text-xs">
+          <IconDatabaseExport className="h-3 w-3 mr-2" />
+          Backup/Restore...
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem

@@ -5,7 +5,7 @@ import {
   IconTrash,
   IconPencil,
   IconCopy,
-  IconCheck,
+  IconDatabaseExport,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -115,6 +115,16 @@ export function ConnectionCard({
     }
   };
 
+  const handleBackupRestore = async () => {
+    try {
+      await windowManager.openBackupRestore(profile.id);
+    } catch (error) {
+      toast.error("Failed to open backup/restore", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
+
   const menuItems = (
     <>
       <ContextMenuItem onClick={handleEdit} className="text-xs">
@@ -131,6 +141,10 @@ export function ConnectionCard({
         <IconCopy className="h-3 w-3 mr-2" />
         Clone
         <span className="ml-auto text-[10px] text-muted-foreground">⌘D</span>
+      </ContextMenuItem>
+      <ContextMenuItem onClick={handleBackupRestore} className="text-xs">
+        <IconDatabaseExport className="h-3 w-3 mr-2" />
+        Backup/Restore...
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem
@@ -334,6 +348,10 @@ export function ConnectionCard({
                   <span className="ml-auto text-[10px] text-muted-foreground">
                     ⌘D
                   </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleBackupRestore} className="text-xs">
+                  <IconDatabaseExport className="h-3 w-3 mr-2" />
+                  Backup/Restore...
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
