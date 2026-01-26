@@ -2,7 +2,9 @@
 
 ## Overview
 
-A standalone Backup/Restore window that lets users backup and restore databases using native tools. Supports all database types: PostgreSQL, MySQL, SQLite, MSSQL, MongoDB, and Redis. Uses native backup formats for maximum compatibility with external tools.
+A standalone Backup/Restore window that lets users backup and restore databases. Supports all database types: PostgreSQL, MySQL, SQLite, MSSQL, MongoDB, and Redis. Uses native backup formats for maximum compatibility.
+
+**Key insight from research:** Not all databases require external tools. Three databases (SQLite, MSSQL, Redis) can be backed up using native Rust crates, while three others (PostgreSQL, MySQL, MongoDB) require external CLI tools.
 
 ## Key Decisions
 
@@ -13,10 +15,35 @@ A standalone Backup/Restore window that lets users backup and restore databases 
 | Storage | Local filesystem only |
 | Restore targets | Same or any compatible database + preview before execute |
 | UI | Standalone window, wizard-style flow |
-| Tools | Native tools if available, download on demand if missing |
-| Options | Common options by default, full native tool flags in advanced |
+| Implementation | Native Rust for SQLite/MSSQL/Redis; external tools for PostgreSQL/MySQL/MongoDB |
+| Tools | Download on demand only for databases that need them |
+| Options | Common options by default, full flags in advanced |
 | History | No history tracking, users manage files manually |
 | Architecture | Trait-based adapters, dynamic option schemas |
+
+## Implementation Strategy
+
+### Native Rust Backups (No External Tools)
+
+These databases use Rust crates directly — no tool download, no subprocess management:
+
+| Database | Rust Crate | Backup Method |
+|----------|------------|---------------|
+| **SQLite** | `rusqlite` | `backup::Backup` API for online backup |
+| **MSSQL** | `tiberius` | Execute `BACKUP DATABASE` T-SQL command |
+| **Redis** | `redis` | Send `BGSAVE` command + `DUMP`/`RESTORE` per key |
+
+### Tool-Based Backups (External CLI Required)
+
+These databases require external CLI tools downloaded on first use:
+
+| Database | Tools | License | Size |
+|----------|-------|---------|------|
+| **PostgreSQL** | `pg_dump`, `pg_restore` | PostgreSQL License (permissive) | ~20 MB |
+| **MySQL** | `mariadb-dump`, `mariadb` | LGPL 2.1+ (permissive) | ~50 MB |
+| **MongoDB** | `mongodump`, `mongorestore` | Apache 2.0 | ~50 MB |
+
+**Note:** We use MariaDB client tools instead of MySQL's `mysqldump` to avoid GPL licensing concerns. MariaDB tools are LGPL-licensed and compatible with MySQL databases.
 
 ## Window Architecture
 
@@ -34,6 +61,13 @@ Following Query Pilot's multi-window pattern, opens as a new Tauri window with l
 ### Single Instance
 
 Only one Backup/Restore window at a time. If already open and user triggers it again with a different connection, focus the existing window and update the selected connection (with confirmation if an operation is in progress).
+
+### Window Registration
+
+Following existing patterns:
+- Register with `windowChannelTracker` on mount
+- Use `BroadcastChannel` for cross-window communication
+- Call `update_window_menu()` Tauri command after window creation/destruction
 
 ## Wizard Flow
 
@@ -56,7 +90,7 @@ Only one Backup/Restore window at a time. If already open and user triggers it a
 - **Scope toggle**: "Full Database" (default) or "Select Objects" (advanced)
   - If "Select Objects": tree view of schemas/tables/collections/key patterns to include/exclude
 - **Options panel**: Common options shown by default (compression, schema-only/data-only for SQL)
-  - "Show Advanced Options" expands to full native tool flags
+  - "Show Advanced Options" expands to full native tool flags (for tool-based databases)
 
 ### Step 3b — Restore Configuration
 
@@ -86,8 +120,8 @@ commands/backup.rs
 ├── start_restore()      — Initiates restore, returns job_id
 ├── cancel_operation()   — Cancels running operation
 ├── get_backup_preview() — Parses backup file for preview info
-├── check_tool_status()  — Returns which native tools are available
-└── download_tool()      — Downloads missing tool to app data
+├── check_tool_status()  — Returns which native tools are available (tool-based only)
+└── download_tool()      — Downloads missing tool to app data (tool-based only)
 ```
 
 ### Backup Adapter Trait
@@ -98,7 +132,8 @@ Following the existing capability trait pattern (`SqlQueryable`, `DocumentQuerya
 // src-tauri/src/core/backup_capability.rs
 
 pub trait BackupCapable: Send + Sync {
-    /// Returns tool requirements for this database type
+    /// Returns tool requirements for this database type.
+    /// Returns empty vec for native Rust implementations (SQLite, MSSQL, Redis).
     fn tool_requirements(&self) -> Vec<ToolRequirement>;
 
     /// Returns available backup formats
@@ -157,18 +192,95 @@ pub async fn start_backup(connection_id: &str, config: BackupConfig) -> Result<J
 ```
 src-tauri/src/adapters/backup/
 ├── mod.rs                    — Trait definition + registry
-├── postgres_backup.rs        — impl BackupCapable for PostgresAdapter
-├── mysql_backup.rs
-├── sqlite_backup.rs
-├── mssql_backup.rs
-├── mongodb_backup.rs
-└── redis_backup.rs
+├── postgres_backup.rs        — Tool-based: shells out to pg_dump/pg_restore
+├── mysql_backup.rs           — Tool-based: shells out to mariadb-dump/mariadb
+├── sqlite_backup.rs          — Native: uses rusqlite::backup API
+├── mssql_backup.rs           — Native: uses tiberius for T-SQL BACKUP command
+├── mongodb_backup.rs         — Tool-based: shells out to mongodump/mongorestore
+└── redis_backup.rs           — Native: uses redis crate with BGSAVE + DUMP/RESTORE
 ```
 
-### Tool Management
+### Subprocess Management (Tool-Based Only)
+
+For PostgreSQL, MySQL, and MongoDB, we spawn external tools as child processes:
+
+```rust
+// src-tauri/src/core/tool_executor.rs
+
+use std::process::{Command, Stdio, Child};
+use tokio::io::{AsyncBufReadExt, BufReader};
+
+pub struct ToolExecutor {
+    child: Child,
+    tool_path: PathBuf,
+}
+
+impl ToolExecutor {
+    pub async fn spawn(
+        tool_path: &Path,
+        args: &[&str],
+        env: HashMap<String, String>,
+    ) -> Result<Self> {
+        let child = Command::new(tool_path)
+            .args(args)
+            .envs(env)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+
+        Ok(Self { child, tool_path: tool_path.to_path_buf() })
+    }
+
+    /// Stream stdout/stderr to frontend via IPC channel
+    pub async fn stream_output(&mut self, progress_tx: ProgressSender) -> Result<ExitStatus> {
+        let stdout = self.child.stdout.take().unwrap();
+        let stderr = self.child.stderr.take().unwrap();
+
+        // Read lines and send to frontend
+        let mut stdout_reader = BufReader::new(stdout).lines();
+        let mut stderr_reader = BufReader::new(stderr).lines();
+
+        loop {
+            tokio::select! {
+                line = stdout_reader.next_line() => {
+                    if let Some(line) = line? {
+                        progress_tx.send(ProgressMessage::Output { line, is_error: false })?;
+                    }
+                }
+                line = stderr_reader.next_line() => {
+                    if let Some(line) = line? {
+                        progress_tx.send(ProgressMessage::Output { line, is_error: true })?;
+                    }
+                }
+            }
+        }
+
+        self.child.wait()
+    }
+
+    /// Cancel running operation
+    pub fn cancel(&mut self) -> Result<()> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            // Send SIGTERM for graceful shutdown
+            unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
+        }
+
+        #[cfg(windows)]
+        {
+            self.child.kill()?;
+        }
+
+        Ok(())
+    }
+}
+```
+
+### Tool Management (Tool-Based Only)
 
 Tools stored in: `{app_data}/tools/{platform}/`
-- e.g., `~/Library/Application Support/com.querypilot.app/tools/darwin/pg_dump`
+- e.g., `~/Library/Application Support/dev.querypilot.studio/tools/darwin-aarch64/pg_dump`
 
 ```rust
 // src-tauri/src/core/tool_registry.rs
@@ -189,14 +301,58 @@ pub struct PlatformBinary {
     pub checksum: String,          // SHA256 for verification
     pub version: String,           // Tool version
 }
+
+// Only 3 databases need tools
+impl ToolRegistry {
+    pub fn new() -> Self {
+        let mut tools = HashMap::new();
+
+        // PostgreSQL: libpq client tools
+        tools.insert(DatabaseType::PostgreSQL, vec![
+            ToolDefinition {
+                name: "pg_dump".to_string(),
+                purpose: ToolPurpose::Backup,
+                // ... platform binaries
+            },
+            ToolDefinition {
+                name: "pg_restore".to_string(),
+                purpose: ToolPurpose::Restore,
+                // ...
+            },
+        ]);
+
+        // MySQL: MariaDB client tools (LGPL licensed)
+        tools.insert(DatabaseType::MySQL, vec![
+            ToolDefinition {
+                name: "mariadb-dump".to_string(),
+                purpose: ToolPurpose::Backup,
+                // ...
+            },
+            ToolDefinition {
+                name: "mariadb".to_string(),
+                purpose: ToolPurpose::Restore,
+                // ...
+            },
+        ]);
+
+        // MongoDB: Database Tools (Apache 2.0)
+        tools.insert(DatabaseType::MongoDB, vec![
+            ToolDefinition {
+                name: "mongodump".to_string(),
+                purpose: ToolPurpose::Backup,
+                // ...
+            },
+            ToolDefinition {
+                name: "mongorestore".to_string(),
+                purpose: ToolPurpose::Restore,
+                // ...
+            },
+        ]);
+
+        Self { tools }
+    }
+}
 ```
-
-### Execution Model
-
-- Operations run as spawned child processes in Rust
-- Progress streamed to frontend via Tauri IPC channel (like existing streaming query path)
-- Stdout/stderr captured and displayed in real-time log
-- Process handle stored to support cancellation
 
 ### Frontend Structure
 
@@ -213,66 +369,143 @@ src/screens/BackupRestoreScreen/
     ├── ObjectSelector.tsx    — Tree view for selective backup
     ├── OptionsPanel.tsx      — Common + advanced options
     ├── ProgressLog.tsx       — Real-time output display
-    └── ToolDownloadPrompt.tsx — Missing tools download UI
+    └── ToolDownloadPrompt.tsx — Missing tools download UI (tool-based only)
 ```
 
 ## Database-Specific Details
 
-### PostgreSQL
+### SQLite (Native Rust)
 
-- Tools: `pg_dump` (backup), `pg_restore` / `psql` (restore)
-- Formats: Plain SQL (`.sql`), Custom (`.dump`), Directory, Tar
-- Default: Custom format with compression (most flexible for restore)
-- Common options: schema-only, data-only, compression level, include/exclude tables
+- **Implementation**: `rusqlite::backup::Backup` API
+- **No external tool needed**
+- **Formats**:
+  - Binary backup (`.db`) — online backup API, recommended
+  - SQL dump (`.sql`) — programmatic schema + data export
+- **Common options**: schema-only, data-only
 
-### MySQL
+```rust
+// Example implementation
+use rusqlite::backup::Backup;
 
-- Tools: `mysqldump` (backup), `mysql` (restore)
-- Format: Plain SQL (`.sql`)
-- Common options: single-transaction, routines, triggers, events, compress
+async fn backup_sqlite(src: &Connection, dest_path: &Path) -> Result<()> {
+    let mut dst = Connection::open(dest_path)?;
+    let backup = Backup::new(src, &mut dst)?;
 
-### SQLite
+    backup.run_to_completion(100, Duration::from_millis(50), Some(|progress| {
+        // Report progress: progress.pagecount, progress.remaining
+    }))?;
 
-- No external tool needed — use Rust `rusqlite` to execute `.dump` equivalent
-- Format: Plain SQL (`.sql`)
-- Alternative: Simple file copy for binary backup (`.db`)
-- Common options: schema-only, data-only
+    Ok(())
+}
+```
 
-### MSSQL
+### MSSQL (Native Rust)
 
-- Tools: `sqlcmd` or `mssql-cli`
-- Format: SQL script (`.sql`) via scripting, or `.bacpac` via `SqlPackage`
-- Common options: schema-only, data-only, specific tables
+- **Implementation**: `tiberius` crate to execute T-SQL
+- **No external tool needed**
+- **Formats**:
+  - Native backup (`.bak`) — `BACKUP DATABASE` command
+  - SQL script (`.sql`) — programmatic schema scripting
+- **Common options**: compression, copy-only, differential
 
-### MongoDB
+```rust
+// Example implementation
+use tiberius::{Client, Config};
 
-- Tools: `mongodump` (backup), `mongorestore` (restore)
-- Format: BSON dump (directory with `.bson` + `.metadata.json` files)
-- Common options: collection filter, query filter, gzip compression
+async fn backup_mssql(client: &mut Client, db_name: &str, path: &str) -> Result<()> {
+    let sql = format!(
+        "BACKUP DATABASE [{}] TO DISK = N'{}' WITH FORMAT, COMPRESSION",
+        db_name, path
+    );
+    client.execute(&sql, &[]).await?;
+    Ok(())
+}
+```
 
-### Redis
+### Redis (Native Rust)
 
-- Tools: `redis-cli`
-- Backup approach: `BGSAVE` trigger + copy RDB file, or key-by-key export to JSON
-- Restore approach: Replace RDB file + restart, or `redis-cli` pipe for JSON
-- Common options: key pattern filter, specific databases (0-15)
+- **Implementation**: `redis` crate
+- **No external tool needed**
+- **Backup approaches**:
+  - `BGSAVE` command → triggers server-side RDB dump
+  - `DUMP` command per key → portable key-by-key export
+- **Formats**: RDB snapshot, JSON export (custom)
+- **Common options**: key pattern filter, specific databases (0-15)
+
+```rust
+// Example implementation
+use redis::Commands;
+
+async fn backup_redis(conn: &mut Connection) -> Result<()> {
+    // Trigger background save
+    redis::cmd("BGSAVE").query::<()>(conn)?;
+
+    // Wait for completion
+    loop {
+        let info: String = redis::cmd("INFO").arg("persistence").query(conn)?;
+        if info.contains("rdb_bgsave_in_progress:0") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // RDB file is now saved on Redis server
+    // For remote servers, use DUMP/RESTORE per key for portable backup
+    Ok(())
+}
+```
+
+### PostgreSQL (Tool-Based)
+
+- **Tools**: `pg_dump` (backup), `pg_restore` / `psql` (restore)
+- **Source**: libpq client package (~20 MB)
+- **License**: PostgreSQL License (permissive)
+- **Formats**: Plain SQL (`.sql`), Custom (`.dump`), Directory, Tar
+- **Default**: Custom format with compression (most flexible for restore)
+- **Common options**: schema-only, data-only, compression level, include/exclude tables
+
+### MySQL (Tool-Based)
+
+- **Tools**: `mariadb-dump` (backup), `mariadb` (restore)
+- **Source**: MariaDB client package (~50 MB)
+- **License**: LGPL 2.1+ (permissive, avoids MySQL's GPL)
+- **Format**: Plain SQL (`.sql`)
+- **Common options**: single-transaction, routines, triggers, events, compress
+- **Note**: MariaDB tools are fully compatible with MySQL databases
+
+### MongoDB (Tool-Based)
+
+- **Tools**: `mongodump` (backup), `mongorestore` (restore)
+- **Source**: MongoDB Database Tools (~50 MB)
+- **License**: Apache 2.0 (permissive)
+- **Format**: BSON dump (directory with `.bson` + `.metadata.json` files)
+- **Common options**: collection filter, query filter, gzip compression
 
 ## Tool Download System
 
+Only applies to PostgreSQL, MySQL, and MongoDB.
+
 ### Download Flow
 
-1. User initiates backup/restore
+1. User initiates backup/restore for tool-based database
 2. Backend calls `adapter.tool_requirements()`
-3. Check if tools exist in `{app_data}/tools/{platform}/`
-4. If missing, frontend shows: "PostgreSQL backup requires pg_dump. Download now? (45 MB)"
-5. User confirms → backend downloads, verifies checksum, extracts
-6. Tool marked as available, operation proceeds
+3. If returns empty (SQLite, MSSQL, Redis): proceed directly
+4. If returns tools: check if tools exist in `{app_data}/tools/{platform}/`
+5. If missing, frontend shows: "PostgreSQL backup requires pg_dump. Download now? (~20 MB)"
+6. User confirms → backend downloads, verifies checksum, extracts
+7. Tool marked as available, operation proceeds
 
 ### Tool Status API
 
 ```rust
 #[tauri::command]
 pub async fn get_tool_status(database_type: DatabaseType) -> ToolStatus {
+    // Returns empty for native implementations
+    if matches!(database_type, DatabaseType::SQLite | DatabaseType::MSSQL | DatabaseType::Redis) {
+        return ToolStatus { required: vec![], available: vec![], missing: vec![] };
+    }
+
+    // Check tool availability for PostgreSQL, MySQL, MongoDB
     ToolStatus {
         required: vec!["pg_dump", "pg_restore"],
         available: vec!["pg_dump"],
@@ -286,11 +519,34 @@ pub async fn download_tool(tool_name: &str, progress: Channel) -> Result<()>
 
 ### Platform Support
 
-| Platform | Tool Source |
-|----------|-------------|
-| macOS | Official binaries or Homebrew bottles |
-| Windows | Official installers extracted or portable builds |
-| Linux | Official binaries or AppImage-style packages |
+| Platform | PostgreSQL Source | MariaDB Source | MongoDB Source |
+|----------|-------------------|----------------|----------------|
+| macOS arm64 | Homebrew libpq | MariaDB binaries | MongoDB Tools |
+| macOS x64 | Homebrew libpq | MariaDB binaries | MongoDB Tools |
+| Windows x64 | EDB installer | MariaDB MSI | MongoDB MSI |
+| Linux x64 | Official packages | MariaDB packages | MongoDB packages |
+
+### Tool Storage Structure
+
+```
+~/Library/Application Support/dev.querypilot.studio/
+├── vault.bin                           # Encrypted connections
+├── tools/
+│   ├── darwin-aarch64/
+│   │   ├── pg_dump
+│   │   ├── pg_restore
+│   │   ├── mariadb-dump
+│   │   ├── mariadb
+│   │   ├── mongodump
+│   │   └── mongorestore
+│   ├── darwin-x86_64/
+│   │   └── ...
+│   ├── windows-x86_64/
+│   │   └── ...
+│   └── linux-x86_64/
+│       └── ...
+└── tools-checksums.json                # SHA256 verification
+```
 
 ## Error Handling
 
@@ -300,7 +556,13 @@ pub async fn download_tool(tool_name: &str, progress: Channel) -> Result<()>
 - If connection drops mid-operation: abort cleanly, show error with partial file warning
 - Backup files from failed operations marked with `.partial` suffix
 
-### Tool Execution Errors
+### Native Backup Errors (SQLite, MSSQL, Redis)
+
+- Rust crate errors mapped to user-friendly messages
+- Full error details in expandable section
+- No subprocess output to parse
+
+### Tool Execution Errors (PostgreSQL, MySQL, MongoDB)
 
 - Capture stderr from native tools, display in progress log
 - Parse common error patterns for friendly messages:
@@ -322,7 +584,8 @@ pub async fn download_tool(tool_name: &str, progress: Channel) -> Result<()>
 
 ### Cancellation
 
-- Send SIGTERM to child process
+- **Native backups**: Cancel via tokio task cancellation
+- **Tool-based backups**: Send SIGTERM to child process
 - Clean up partial backup files
 - Restore operations may leave database in inconsistent state — warn user before allowing cancel
 
@@ -334,11 +597,17 @@ pub async fn download_tool(tool_name: &str, progress: Channel) -> Result<()>
 
 ## Files to Create/Modify
 
-| Layer | Files |
-|-------|-------|
-| Rust traits | `src-tauri/src/core/backup_capability.rs` |
-| Rust adapters | `src-tauri/src/adapters/backup/*.rs` (6 files) |
-| Rust commands | `src-tauri/src/commands/backup.rs` |
-| Tool system | `src-tauri/src/core/tool_registry.rs` |
-| Frontend screen | `src/screens/BackupRestoreScreen/` |
-| Entry points | Menu items, context menus, window registration |
+| Layer | Files | Notes |
+|-------|-------|-------|
+| Rust traits | `src-tauri/src/core/backup_capability.rs` | BackupCapable trait |
+| Rust adapters | `src-tauri/src/adapters/backup/sqlite_backup.rs` | Native: rusqlite |
+| Rust adapters | `src-tauri/src/adapters/backup/mssql_backup.rs` | Native: tiberius |
+| Rust adapters | `src-tauri/src/adapters/backup/redis_backup.rs` | Native: redis crate |
+| Rust adapters | `src-tauri/src/adapters/backup/postgres_backup.rs` | Tool: pg_dump |
+| Rust adapters | `src-tauri/src/adapters/backup/mysql_backup.rs` | Tool: mariadb-dump |
+| Rust adapters | `src-tauri/src/adapters/backup/mongodb_backup.rs` | Tool: mongodump |
+| Rust commands | `src-tauri/src/commands/backup.rs` | Tauri commands |
+| Tool executor | `src-tauri/src/core/tool_executor.rs` | Subprocess management |
+| Tool registry | `src-tauri/src/core/tool_registry.rs` | Tool download (3 DBs only) |
+| Frontend screen | `src/screens/BackupRestoreScreen/` | Wizard UI |
+| Entry points | Menu items, context menus, window registration | Multiple locations |
