@@ -14,11 +14,12 @@ import {
 } from "@tabler/icons-react";
 import type { BackupConfig } from "./BackupConfigStep";
 import type { RestoreConfig } from "./RestoreConfigStep";
+import { type ConnectionProfile } from "@/types/connection";
 
 // ============ Types ============
 
 interface ExecuteStepProps {
-  connectionId: string;
+  profile: ConnectionProfile;
   operation: "backup" | "restore";
   config: BackupConfig | RestoreConfig;
   onComplete: () => void;  // Called to close window or start new
@@ -76,7 +77,7 @@ const MAX_OUTPUT_LINES = 500;
 // ============ Component ============
 
 export const ExecuteStep = ({
-  connectionId,
+  profile,
   operation,
   config,
   onComplete,
@@ -188,13 +189,13 @@ export const ExecuteStep = ({
       // Call the appropriate command
       if (operation === "backup") {
         await invoke("start_backup", {
-          connId: connectionId,
+          profile,
           config: config as BackupConfig,
           channel,
         });
       } else {
         await invoke("start_restore", {
-          connId: connectionId,
+          profile,
           config: config as RestoreConfig,
           channel,
         });
@@ -207,7 +208,7 @@ export const ExecuteStep = ({
       setErrorMessage(message);
       addOutputLine(`Error: ${message}`, true);
     }
-  }, [connectionId, operation, config, handleProgress, addOutputLine]);
+  }, [profile, operation, config, handleProgress, addOutputLine]);
 
   // Auto-start on mount and cleanup on unmount
   useEffect(() => {

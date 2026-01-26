@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { isTauri } from "@/utils/tauri";
+import { vaultStorage } from "@/services/vaultStorage";
+import { type ConnectionProfile } from "@/types/connection";
 import {
   ConnectionStep,
   OperationStep,
@@ -30,6 +32,7 @@ export function BackupRestoreScreen() {
   const [selectedConnectionId, setSelectedConnectionId] = useState<
     string | null
   >(preselectedConnectionId);
+  const [connectionProfile, setConnectionProfile] = useState<ConnectionProfile | null>(null);
   const [operation, setOperation] = useState<"backup" | "restore" | null>(null);
   const [backupConfig, setBackupConfig] = useState<BackupConfig | null>(null);
   const [restoreConfig, setRestoreConfig] = useState<RestoreConfig | null>(
@@ -52,6 +55,32 @@ export function BackupRestoreScreen() {
       })();
     }
   }, []);
+
+  // Load profile when connection ID is selected/preselected
+  useEffect(() => {
+    if (!selectedConnectionId) {
+      setConnectionProfile(null);
+      return;
+    }
+
+    let mounted = true;
+    async function loadProfile() {
+      try {
+        const connections = await vaultStorage.listConnections();
+        const conn = connections.find((c) => c.profile.id === selectedConnectionId);
+        if (mounted && conn) {
+          setConnectionProfile(conn.profile);
+        }
+      } catch {
+        // Profile not found - will show error in config step
+      }
+    }
+    void loadProfile();
+
+    return () => {
+      mounted = false;
+    };
+  }, [selectedConnectionId]);
 
   // Skip connection step if pre-selected
   useEffect(() => {
@@ -169,18 +198,18 @@ export function BackupRestoreScreen() {
             />
           )}
 
-          {currentStep === "config" && selectedConnectionId && (
+          {currentStep === "config" && connectionProfile && (
             <>
               {operation === "backup" && (
                 <BackupConfigStep
-                  connectionId={selectedConnectionId}
+                  profile={connectionProfile}
                   onStart={handleBackupStart}
                   onBack={() => setCurrentStep("operation")}
                 />
               )}
               {operation === "restore" && (
                 <RestoreConfigStep
-                  connectionId={selectedConnectionId}
+                  profile={connectionProfile}
                   onStart={handleRestoreStart}
                   onBack={() => setCurrentStep("operation")}
                 />
@@ -189,11 +218,11 @@ export function BackupRestoreScreen() {
           )}
 
           {currentStep === "execute" &&
-            selectedConnectionId &&
+            connectionProfile &&
             operation &&
             (operation === "backup" ? backupConfig : restoreConfig) && (
               <ExecuteStep
-                connectionId={selectedConnectionId}
+                profile={connectionProfile}
                 operation={operation}
                 config={
                   operation === "backup"

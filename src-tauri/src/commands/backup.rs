@@ -14,7 +14,7 @@ use crate::core::{
     ConnectionManager, RestoreConfig, RestoreOptionsSchema, ToolCheckStatus, ToolInfo,
     ToolRegistry, ToolRequirement,
 };
-use crate::types::DbType;
+use crate::types::{ConnectionProfile, DbType};
 
 /// Progress updates during tool download.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -111,11 +111,19 @@ pub struct BackupCapabilityInfo {
 /// Returns information about what backup/restore features are available for
 /// the specified connection, including required tools, supported formats,
 /// and configurable options.
+///
+/// Accepts a full ConnectionProfile to create/reuse a connection.
 #[tauri::command]
 pub async fn get_backup_capability(
-    conn_id: String,
+    profile: ConnectionProfile,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<BackupCapabilityInfo, String> {
+    // Create or get existing connection using the profile
+    let conn_id = manager
+        .get_or_create_connection(&profile)
+        .await
+        .map_err(|e| e.to_string())?;
+
     let conn = manager
         .get_connection_with_retry(&conn_id, 3)
         .await
@@ -124,7 +132,7 @@ pub async fn get_backup_capability(
     let backup_adapter = conn
         .adapter
         .as_backup()
-        .ok_or_else(|| format!("Connection '{}' does not support backup/restore", conn_id))?;
+        .ok_or_else(|| format!("Connection '{}' does not support backup/restore", profile.name))?;
 
     Ok(BackupCapabilityInfo {
         tool_requirements: backup_adapter.tool_requirements(),
@@ -189,10 +197,16 @@ pub async fn get_tool_status(db_type: DbType) -> Result<ToolStatus, String> {
 /// and their metadata.
 #[tauri::command]
 pub async fn get_backup_preview(
-    conn_id: String,
+    profile: ConnectionProfile,
     file_path: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<BackupPreview, String> {
+    // Create or get existing connection using the profile
+    let conn_id = manager
+        .get_or_create_connection(&profile)
+        .await
+        .map_err(|e| e.to_string())?;
+
     let conn = manager
         .get_connection_with_retry(&conn_id, 3)
         .await
@@ -201,7 +215,7 @@ pub async fn get_backup_preview(
     let backup_adapter = conn
         .adapter
         .as_backup()
-        .ok_or_else(|| format!("Connection '{}' does not support backup/restore", conn_id))?;
+        .ok_or_else(|| format!("Connection '{}' does not support backup/restore", profile.name))?;
 
     let path = PathBuf::from(&file_path);
     backup_adapter
@@ -217,11 +231,17 @@ pub async fn get_backup_preview(
 /// and sends progress events as it executes.
 #[tauri::command]
 pub async fn start_backup(
-    conn_id: String,
+    profile: ConnectionProfile,
     config: BackupConfig,
     channel: tauri::ipc::Channel<BackupProgress>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<(), String> {
+    // Create or get existing connection using the profile
+    let conn_id = manager
+        .get_or_create_connection(&profile)
+        .await
+        .map_err(|e| e.to_string())?;
+
     let conn = manager
         .get_connection_with_retry(&conn_id, 3)
         .await
@@ -230,7 +250,7 @@ pub async fn start_backup(
     let backup_adapter = conn
         .adapter
         .as_backup()
-        .ok_or_else(|| format!("Connection '{}' does not support backup/restore", conn_id))?;
+        .ok_or_else(|| format!("Connection '{}' does not support backup/restore", profile.name))?;
 
     // Create an mpsc channel to receive progress from the adapter
     let (tx, mut rx) = mpsc::channel::<BackupProgress>(100);
@@ -261,11 +281,17 @@ pub async fn start_backup(
 /// and sends progress events as it executes.
 #[tauri::command]
 pub async fn start_restore(
-    conn_id: String,
+    profile: ConnectionProfile,
     config: RestoreConfig,
     channel: tauri::ipc::Channel<BackupProgress>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<(), String> {
+    // Create or get existing connection using the profile
+    let conn_id = manager
+        .get_or_create_connection(&profile)
+        .await
+        .map_err(|e| e.to_string())?;
+
     let conn = manager
         .get_connection_with_retry(&conn_id, 3)
         .await
@@ -274,7 +300,7 @@ pub async fn start_restore(
     let backup_adapter = conn
         .adapter
         .as_backup()
-        .ok_or_else(|| format!("Connection '{}' does not support backup/restore", conn_id))?;
+        .ok_or_else(|| format!("Connection '{}' does not support backup/restore", profile.name))?;
 
     // Create an mpsc channel to receive progress from the adapter
     let (tx, mut rx) = mpsc::channel::<BackupProgress>(100);
