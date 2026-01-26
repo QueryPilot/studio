@@ -120,12 +120,13 @@ impl UnifiedAdapter {
         let boxed = Box::new(adapter);
         let ptr = &*boxed as *const MssqlAdapter;
         let sql_ptr: *const dyn SqlQueryable = ptr;
+        let backup_ptr: *const dyn BackupCapable = ptr;
         Self {
             inner: boxed,
             sql: Some(sql_ptr),
             document: None,
             keyvalue: None,
-            backup: None,
+            backup: Some(backup_ptr),
             postgres: None,
             mongo: None,
             redis: None,
@@ -156,12 +157,13 @@ impl UnifiedAdapter {
         let boxed = Box::new(adapter);
         let ptr = &*boxed as *const RedisAdapter;
         let kv_ptr: *const dyn RichKeyValueOperable = ptr;
+        let backup_ptr: *const dyn BackupCapable = ptr;
         Self {
             inner: boxed,
             sql: None,
             document: None,
             keyvalue: Some(kv_ptr),
-            backup: None,
+            backup: Some(backup_ptr),
             postgres: None,
             mongo: None,
             redis: Some(ptr),
