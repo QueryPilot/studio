@@ -47,7 +47,7 @@ impl SqliteAdapter {
         let conn = self.connection.clone();
 
         tokio::task::spawn_blocking(move || {
-            let guard = futures::executor::block_on(conn.lock());
+            let guard = conn.blocking_lock();
             let conn = guard
                 .as_ref()
                 .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
@@ -55,6 +55,16 @@ impl SqliteAdapter {
         })
         .await
         .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?
+    }
+
+    /// Get a clone of the connection Arc for backup operations
+    pub(crate) fn get_connection(&self) -> Arc<Mutex<Option<Connection>>> {
+        self.connection.clone()
+    }
+
+    /// Get a clone of the db_path Arc for backup operations
+    pub(crate) fn get_db_path(&self) -> Arc<Mutex<Option<PathBuf>>> {
+        self.db_path.clone()
     }
 }
 
@@ -143,7 +153,12 @@ impl BaseCapability for SqliteAdapter {
     }
 
     fn is_connected(&self) -> bool {
-        futures::executor::block_on(self.is_conn_open())
+        // Note: Using try_lock() since this is called from sync context.
+        // Returns false if lock can't be acquired, which is safe behavior.
+        self.connection
+            .try_lock()
+            .map(|guard| guard.is_some())
+            .unwrap_or(false)
     }
 
     fn get_capabilities(&self) -> Vec<AdapterCapability> {

@@ -339,6 +339,18 @@ fn build_database_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
 
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
 
+    // Backup/Restore
+    let backup_restore = MenuItem::with_id(
+        app,
+        "db_backup_restore",
+        "Backup/Restore...",
+        true,
+        None::<&str>,
+    )?;
+    submenu.append(&backup_restore)?;
+
+    submenu.append(&PredefinedMenuItem::separator(app)?)?;
+
     // Show ERD
     let erd = MenuItem::with_id(app, "db_erd", "Show ERD", true, Some("CmdOrCtrl+E"))?;
     submenu.append(&erd)?;
@@ -600,7 +612,8 @@ pub fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         | "db_execute_selection"
         | "db_export"
         | "db_import"
-        | "db_erd" => {
+        | "db_erd"
+        | "db_backup_restore" => {
             let action = id.replace("db_", "");
             if let Err(e) = app.emit("menu_action", action) {
                 tracing::error!("Failed to emit database event: {}", e);

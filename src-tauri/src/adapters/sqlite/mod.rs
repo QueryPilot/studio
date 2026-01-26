@@ -1,4 +1,5 @@
 pub mod adapter;
+mod backup;
 pub mod direct_msgpack;
 pub mod simple_converter;
 pub mod types;
