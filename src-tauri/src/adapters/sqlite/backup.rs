@@ -76,7 +76,7 @@ impl BackupCapable for SqliteAdapter {
         let conn = self.get_connection();
 
         tokio::task::spawn_blocking(move || {
-            let guard = futures::executor::block_on(conn.lock());
+            let guard = conn.blocking_lock();
             let conn = guard
                 .as_ref()
                 .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
@@ -219,15 +219,18 @@ impl BackupCapable for SqliteAdapter {
             .unwrap_or(100) as i32;
 
         tokio::task::spawn_blocking(move || {
-            let guard = futures::executor::block_on(conn.lock());
+            let guard = conn.blocking_lock();
             let source_conn = guard
                 .as_ref()
                 .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
-            // Send started message
-            let _ = futures::executor::block_on(progress.send(BackupProgress::Started {
-                total_steps: None,
-            }));
+            // Send started message - check for cancellation
+            if progress
+                .blocking_send(BackupProgress::Started { total_steps: None })
+                .is_err()
+            {
+                return Err(AppError::InvalidInput("Operation cancelled".into()));
+            }
 
             match format.as_str() {
                 "binary" => {
@@ -256,7 +259,7 @@ impl BackupCapable for SqliteAdapter {
         progress: ProgressSender,
     ) -> Result<(), AppError> {
         let conn = self.get_connection();
-        let _db_path = self.get_db_path();
+        let db_path = self.get_db_path();
         let source_path = config.source_path.clone();
 
         tokio::task::spawn_blocking(move || {
@@ -267,24 +270,32 @@ impl BackupCapable for SqliteAdapter {
                 .map(|s| s.to_string_lossy().to_lowercase())
                 .unwrap_or_default();
 
-            // Send started message
-            let _ = futures::executor::block_on(progress.send(BackupProgress::Started {
-                total_steps: None,
-            }));
+            // Send started message - check for cancellation
+            if progress
+                .blocking_send(BackupProgress::Started { total_steps: None })
+                .is_err()
+            {
+                return Err(AppError::InvalidInput("Operation cancelled".into()));
+            }
 
             match extension.as_str() {
                 "db" | "sqlite" | "sqlite3" => {
                     // Binary restore using backup API (restore from file to connected db)
-                    let guard = futures::executor::block_on(conn.lock());
-                    let dest_conn = guard
+                    // Get the destination path from the adapter's db_path
+                    let db_path_guard = db_path.blocking_lock();
+                    let dest_path = db_path_guard
                         .as_ref()
-                        .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+                        .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?
+                        .clone();
 
-                    execute_binary_restore(&source_path, dest_conn, &progress)
+                    // We don't need the connection for binary restore - we open fresh connections
+                    drop(db_path_guard);
+
+                    execute_binary_restore(&source_path, &dest_path, &progress)
                 }
                 "sql" => {
                     // SQL restore - execute SQL statements
-                    let guard = futures::executor::block_on(conn.lock());
+                    let guard = conn.blocking_lock();
                     let dest_conn = guard
                         .as_ref()
                         .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
@@ -293,13 +304,22 @@ impl BackupCapable for SqliteAdapter {
                 }
                 _ => {
                     // Try binary first, fall back to SQL
-                    let guard = futures::executor::block_on(conn.lock());
-                    let dest_conn = guard
+                    // Get the destination path from the adapter's db_path for binary restore
+                    let db_path_guard = db_path.blocking_lock();
+                    let dest_path = db_path_guard
                         .as_ref()
-                        .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+                        .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?
+                        .clone();
+                    drop(db_path_guard);
 
-                    execute_binary_restore(&source_path, dest_conn, &progress)
-                        .or_else(|_| execute_sql_restore(&source_path, dest_conn, &progress))
+                    execute_binary_restore(&source_path, &dest_path, &progress).or_else(|_| {
+                        let guard = conn.blocking_lock();
+                        let dest_conn = guard
+                            .as_ref()
+                            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+
+                        execute_sql_restore(&source_path, dest_conn, &progress)
+                    })
                 }
             }
         })
@@ -484,10 +504,10 @@ fn execute_binary_backup(
     let backup = Backup::new(source_conn, &mut dest_conn)
         .map_err(|e| AppError::DatabaseError(format!("Failed to initialize backup: {}", e)))?;
 
-    let _ = futures::executor::block_on(progress.send(BackupProgress::Output {
+    let _ = progress.blocking_send(BackupProgress::Output {
         line: "Starting binary backup...".to_string(),
         is_error: false,
-    }));
+    });
 
     // Perform backup in steps
     loop {
@@ -502,11 +522,17 @@ fn execute_binary_backup(
 
         if total > 0 {
             let current = (total - remaining) as u32;
-            let _ = futures::executor::block_on(progress.send(BackupProgress::Progress {
-                current,
-                total: total as u32,
-                message: format!("Copied {} pages", current),
-            }));
+            // Check for cancellation on progress updates
+            if progress
+                .blocking_send(BackupProgress::Progress {
+                    current,
+                    total: total as u32,
+                    message: format!("Copied {} pages", current),
+                })
+                .is_err()
+            {
+                return Err(AppError::InvalidInput("Operation cancelled".into()));
+            }
         }
 
         match result {
@@ -527,12 +553,18 @@ fn execute_binary_backup(
     }
 
     let prog = backup.progress();
-    let _ = futures::executor::block_on(progress.send(BackupProgress::Completed {
-        message: format!(
-            "Backup completed successfully: {} pages copied",
-            prog.pagecount
-        ),
-    }));
+    // Check for cancellation on completion
+    if progress
+        .blocking_send(BackupProgress::Completed {
+            message: format!(
+                "Backup completed successfully: {} pages copied",
+                prog.pagecount
+            ),
+        })
+        .is_err()
+    {
+        return Err(AppError::InvalidInput("Operation cancelled".into()));
+    }
 
     Ok(())
 }
@@ -547,10 +579,10 @@ fn execute_sql_backup(
     let mut file = fs::File::create(destination_path)
         .map_err(|e| AppError::Io(format!("Failed to create backup file: {}", e)))?;
 
-    let _ = futures::executor::block_on(progress.send(BackupProgress::Output {
+    let _ = progress.blocking_send(BackupProgress::Output {
         line: "Starting SQL dump...".to_string(),
         is_error: false,
-    }));
+    });
 
     // Write header
     writeln!(file, "-- SQLite SQL Dump").map_err(|e| AppError::Io(e.to_string()))?;
@@ -587,11 +619,17 @@ fn execute_sql_backup(
 
         current_table += 1;
 
-        let _ = futures::executor::block_on(progress.send(BackupProgress::Progress {
-            current: current_table as u32,
-            total: total_tables as u32,
-            message: format!("Dumping table: {}", name),
-        }));
+        // Check for cancellation on progress updates
+        if progress
+            .blocking_send(BackupProgress::Progress {
+                current: current_table as u32,
+                total: total_tables as u32,
+                message: format!("Dumping table: {}", name),
+            })
+            .is_err()
+        {
+            return Err(AppError::InvalidInput("Operation cancelled".into()));
+        }
 
         // Write CREATE TABLE statement
         writeln!(file, "-- Table: {}", name).map_err(|e| AppError::Io(e.to_string()))?;
@@ -602,10 +640,10 @@ fn execute_sql_backup(
         // Dump data
         let row_count = dump_table_data(conn, &name, &mut file)?;
 
-        let _ = futures::executor::block_on(progress.send(BackupProgress::Output {
+        let _ = progress.blocking_send(BackupProgress::Output {
             line: format!("Table {}: {} rows dumped", name, row_count),
             is_error: false,
-        }));
+        });
 
         writeln!(file).map_err(|e| AppError::Io(e.to_string()))?;
     }
@@ -689,9 +727,15 @@ fn execute_sql_backup(
     writeln!(file, "COMMIT;").map_err(|e| AppError::Io(e.to_string()))?;
     writeln!(file, "PRAGMA foreign_keys=ON;").map_err(|e| AppError::Io(e.to_string()))?;
 
-    let _ = futures::executor::block_on(progress.send(BackupProgress::Completed {
-        message: "SQL dump completed successfully".to_string(),
-    }));
+    // Check for cancellation on completion
+    if progress
+        .blocking_send(BackupProgress::Completed {
+            message: "SQL dump completed successfully".to_string(),
+        })
+        .is_err()
+    {
+        return Err(AppError::InvalidInput("Operation cancelled".into()));
+    }
 
     Ok(())
 }
@@ -769,43 +813,38 @@ fn format_sql_value(value: rusqlite::types::ValueRef) -> String {
 }
 
 /// Execute binary restore using rusqlite's Backup API.
-/// Note: This requires a mutable reference to the destination connection.
-/// We handle this by opening a fresh connection to the destination database.
+/// Opens fresh connections to both source (backup file) and destination (adapter's db).
+/// This avoids race conditions with the adapter's active connection.
 fn execute_binary_restore(
     source_path: &str,
-    dest_conn: &Connection,
+    dest_path: &std::path::PathBuf,
     progress: &ProgressSender,
 ) -> Result<(), AppError> {
     use rusqlite::backup::StepResult;
 
-    // Open source database (the backup file)
-    let source_conn = Connection::open_with_flags(source_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|e| AppError::Io(format!("Failed to open backup file: {}", e)))?;
-
-    let _ = futures::executor::block_on(progress.send(BackupProgress::Output {
-        line: "Starting binary restore...".to_string(),
-        is_error: false,
-    }));
-
-    // Get the path of the destination database
-    // Since we can't get the path from an existing connection easily,
-    // we'll query the database_list pragma
-    let dest_path: String = dest_conn
-        .query_row("SELECT file FROM pragma_database_list WHERE name='main'", [], |r| r.get(0))
-        .map_err(|e| AppError::DatabaseError(format!("Failed to get database path: {}", e)))?;
-
-    if dest_path.is_empty() || dest_path == ":memory:" {
+    // Validate destination path
+    let dest_path_str = dest_path.to_string_lossy();
+    if dest_path_str.is_empty() || dest_path_str == ":memory:" {
         return Err(AppError::InvalidInput(
             "Cannot restore to in-memory database".to_string(),
         ));
     }
 
-    // Open a fresh mutable connection to the destination
-    let mut fresh_dest_conn = Connection::open(&dest_path)
+    // Open source database (the backup file) - read only
+    let source_conn = Connection::open_with_flags(source_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| AppError::Io(format!("Failed to open backup file: {}", e)))?;
+
+    let _ = progress.blocking_send(BackupProgress::Output {
+        line: "Starting binary restore...".to_string(),
+        is_error: false,
+    });
+
+    // Open a fresh mutable connection to the destination database
+    let mut dest_conn = Connection::open(dest_path)
         .map_err(|e| AppError::Io(format!("Failed to open destination database: {}", e)))?;
 
     // Create backup object (source -> dest)
-    let backup = Backup::new(&source_conn, &mut fresh_dest_conn)
+    let backup = Backup::new(&source_conn, &mut dest_conn)
         .map_err(|e| AppError::DatabaseError(format!("Failed to initialize restore: {}", e)))?;
 
     loop {
@@ -819,11 +858,17 @@ fn execute_binary_restore(
 
         if total > 0 {
             let current = (total - remaining) as u32;
-            let _ = futures::executor::block_on(progress.send(BackupProgress::Progress {
-                current,
-                total: total as u32,
-                message: format!("Restored {} pages", current),
-            }));
+            // Check for cancellation on progress updates
+            if progress
+                .blocking_send(BackupProgress::Progress {
+                    current,
+                    total: total as u32,
+                    message: format!("Restored {} pages", current),
+                })
+                .is_err()
+            {
+                return Err(AppError::InvalidInput("Operation cancelled".into()));
+            }
         }
 
         match result {
@@ -842,9 +887,18 @@ fn execute_binary_restore(
     }
 
     let prog = backup.progress();
-    let _ = futures::executor::block_on(progress.send(BackupProgress::Completed {
-        message: format!("Restore completed successfully: {} pages restored", prog.pagecount),
-    }));
+    // Check for cancellation on completion
+    if progress
+        .blocking_send(BackupProgress::Completed {
+            message: format!(
+                "Restore completed successfully: {} pages restored",
+                prog.pagecount
+            ),
+        })
+        .is_err()
+    {
+        return Err(AppError::InvalidInput("Operation cancelled".into()));
+    }
 
     Ok(())
 }
@@ -858,10 +912,10 @@ fn execute_sql_restore(
     let content = fs::read_to_string(source_path)
         .map_err(|e| AppError::Io(format!("Failed to read backup file: {}", e)))?;
 
-    let _ = futures::executor::block_on(progress.send(BackupProgress::Output {
+    let _ = progress.blocking_send(BackupProgress::Output {
         line: "Starting SQL restore...".to_string(),
         is_error: false,
-    }));
+    });
 
     // Count statements for progress
     let statements: Vec<&str> = content
@@ -876,18 +930,24 @@ fn execute_sql_restore(
     conn.execute_batch(&content)
         .map_err(|e| AppError::DatabaseError(format!("SQL restore failed: {}", e)))?;
 
-    let _ = futures::executor::block_on(progress.send(BackupProgress::Progress {
+    let _ = progress.blocking_send(BackupProgress::Progress {
         current: total as u32,
         total: total as u32,
         message: format!("Executed {} statements", total),
-    }));
+    });
 
-    let _ = futures::executor::block_on(progress.send(BackupProgress::Completed {
-        message: format!(
-            "SQL restore completed successfully: {} statements executed",
-            total
-        ),
-    }));
+    // Check for cancellation on completion
+    if progress
+        .blocking_send(BackupProgress::Completed {
+            message: format!(
+                "SQL restore completed successfully: {} statements executed",
+                total
+            ),
+        })
+        .is_err()
+    {
+        return Err(AppError::InvalidInput("Operation cancelled".into()));
+    }
 
     Ok(())
 }

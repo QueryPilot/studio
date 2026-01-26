@@ -47,7 +47,7 @@ impl SqliteAdapter {
         let conn = self.connection.clone();
 
         tokio::task::spawn_blocking(move || {
-            let guard = futures::executor::block_on(conn.lock());
+            let guard = conn.blocking_lock();
             let conn = guard
                 .as_ref()
                 .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
@@ -153,7 +153,12 @@ impl BaseCapability for SqliteAdapter {
     }
 
     fn is_connected(&self) -> bool {
-        futures::executor::block_on(self.is_conn_open())
+        // Note: Using try_lock() since this is called from sync context.
+        // Returns false if lock can't be acquired, which is safe behavior.
+        self.connection
+            .try_lock()
+            .map(|guard| guard.is_some())
+            .unwrap_or(false)
     }
 
     fn get_capabilities(&self) -> Vec<AdapterCapability> {
