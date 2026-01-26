@@ -14,6 +14,7 @@ use crate::adapters::sqlite::SqliteAdapter;
 use crate::core::capabilities::{
     BaseCapability, CapabilityTestResult, DocumentQueryable, RichKeyValueOperable, SqlQueryable,
 };
+use crate::core::backup_capability::BackupCapable;
 use crate::error::{AppError, Result};
 use crate::ssh::secrets::delete_ssh_passphrase;
 use crate::ssh::SshTunnel;
@@ -41,6 +42,9 @@ pub struct UnifiedAdapter {
     /// Pointer to RichKeyValueOperable trait object (if supported)
     keyvalue: Option<*const dyn RichKeyValueOperable>,
 
+    /// Pointer to BackupCapable trait object (if supported)
+    backup: Option<*const dyn BackupCapable>,
+
     /// Concrete adapter pointers for adapter-specific access
     postgres: Option<*const PostgresAdapter>,
     mongo: Option<*const MongoDbAdapter>,
@@ -61,11 +65,13 @@ impl UnifiedAdapter {
         let boxed = Box::new(adapter);
         let ptr = &*boxed as *const PostgresAdapter;
         let sql_ptr: *const dyn SqlQueryable = ptr;
+        let backup_ptr: *const dyn BackupCapable = ptr;
         Self {
             inner: boxed,
             sql: Some(sql_ptr),
             document: None,
             keyvalue: None,
+            backup: Some(backup_ptr),
             postgres: Some(ptr),
             mongo: None,
             redis: None,
@@ -78,11 +84,13 @@ impl UnifiedAdapter {
         let boxed = Box::new(adapter);
         let ptr = &*boxed as *const MySqlAdapter;
         let sql_ptr: *const dyn SqlQueryable = ptr;
+        let backup_ptr: *const dyn BackupCapable = ptr;
         Self {
             inner: boxed,
             sql: Some(sql_ptr),
             document: None,
             keyvalue: None,
+            backup: Some(backup_ptr),
             postgres: None,
             mongo: None,
             redis: None,
@@ -95,11 +103,13 @@ impl UnifiedAdapter {
         let boxed = Box::new(adapter);
         let ptr = &*boxed as *const SqliteAdapter;
         let sql_ptr: *const dyn SqlQueryable = ptr;
+        let backup_ptr: *const dyn BackupCapable = ptr;
         Self {
             inner: boxed,
             sql: Some(sql_ptr),
             document: None,
             keyvalue: None,
+            backup: Some(backup_ptr),
             postgres: None,
             mongo: None,
             redis: None,
@@ -112,11 +122,13 @@ impl UnifiedAdapter {
         let boxed = Box::new(adapter);
         let ptr = &*boxed as *const MssqlAdapter;
         let sql_ptr: *const dyn SqlQueryable = ptr;
+        let backup_ptr: *const dyn BackupCapable = ptr;
         Self {
             inner: boxed,
             sql: Some(sql_ptr),
             document: None,
             keyvalue: None,
+            backup: Some(backup_ptr),
             postgres: None,
             mongo: None,
             redis: None,
@@ -129,11 +141,13 @@ impl UnifiedAdapter {
         let boxed = Box::new(adapter);
         let ptr = &*boxed as *const MongoDbAdapter;
         let doc_ptr: *const dyn DocumentQueryable = ptr;
+        let backup_ptr: *const dyn BackupCapable = ptr;
         Self {
             inner: boxed,
             sql: None,
             document: Some(doc_ptr),
             keyvalue: None,
+            backup: Some(backup_ptr),
             postgres: None,
             mongo: Some(ptr),
             redis: None,
@@ -146,11 +160,13 @@ impl UnifiedAdapter {
         let boxed = Box::new(adapter);
         let ptr = &*boxed as *const RedisAdapter;
         let kv_ptr: *const dyn RichKeyValueOperable = ptr;
+        let backup_ptr: *const dyn BackupCapable = ptr;
         Self {
             inner: boxed,
             sql: None,
             document: None,
             keyvalue: Some(kv_ptr),
+            backup: Some(backup_ptr),
             postgres: None,
             mongo: None,
             redis: Some(ptr),
@@ -195,6 +211,11 @@ impl UnifiedAdapter {
     /// Get key-value operable interface (returns None for SQL/MongoDB)
     pub fn as_keyvalue(&self) -> Option<&dyn RichKeyValueOperable> {
         self.keyvalue.map(|p| unsafe { &*p })
+    }
+
+    /// Get backup capable interface (returns None for adapters that don't support backup)
+    pub fn as_backup(&self) -> Option<&dyn BackupCapable> {
+        self.backup.map(|p| unsafe { &*p })
     }
 
     // ========== Concrete adapter access ==========

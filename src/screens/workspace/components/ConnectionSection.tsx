@@ -26,6 +26,7 @@ import {
   IconLayout2,
   IconKey,
   IconSitemap,
+  IconDatabaseExport,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useQuery } from "@tanstack/react-query";
@@ -66,6 +67,7 @@ import {
 } from "@/components/ui/context-menu";
 import { SchemaDropdown } from "./SchemaDropdown";
 import { DatabaseSidebarContextMenu } from "./DatabaseSidebarContextMenu";
+import { windowManager } from "@/services/windowManager";
 import { toast } from "sonner";
 import { writeClipboardText } from "@/lib/clipboard";
 
@@ -462,6 +464,17 @@ export const ConnectionSection = forwardRef<
     updateConnectionState(connectionId, database, newSchema);
   };
 
+  // Handle backup/restore
+  const handleBackupRestore = async () => {
+    try {
+      await windowManager.openBackupRestore(connectionId);
+    } catch (error) {
+      toast.error("Failed to open backup/restore", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
+
   // Handle open ERD
   const handleOpenErd = () => {
     setFocusedConnection(connectionId);
@@ -825,6 +838,11 @@ export const ConnectionSection = forwardRef<
               </ContextMenuItem>
             </>
           )}
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => void handleBackupRestore()}>
+            <IconDatabaseExport className="h-4 w-4 mr-2" />
+            Backup/Restore...
+          </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
             onClick={() => {
