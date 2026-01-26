@@ -182,6 +182,10 @@ fn main() {
             commands::get_backup_preview,
             commands::start_backup,
             commands::start_restore,
+            // Tool download commands
+            commands::get_tool_download_info,
+            commands::search_tool_paths,
+            commands::download_tool,
         ])
         .build(context)
         .expect("error while building tauri application");
