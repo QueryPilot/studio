@@ -57,7 +57,7 @@ export function NestedWorkspaceList({
   }, [workspaceItems, fuse, query]);
 
   return (
-    <CommandList ref={listRef}>
+    <CommandList ref={listRef} className="h-[300px]">
       <CommandEmpty>No workspaces found.</CommandEmpty>
 
       <CommandGroup heading="Workspaces">

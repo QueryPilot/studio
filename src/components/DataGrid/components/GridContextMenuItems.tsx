@@ -7,7 +7,7 @@ import {
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
-import { IconCopy, IconDownload, IconEye, IconPin, IconPinnedOff, IconPlus, IconTrash, IconClipboardText } from '@tabler/icons-react';
+import { IconCopy, IconCopyPlus, IconDownload, IconEye, IconPin, IconPinnedOff, IconPlus, IconTrash, IconClipboardText } from '@tabler/icons-react';
 import type { GridColumnV2, GridRowModel } from "../types";
 import type { DatabaseType } from "@/types";
 import {
@@ -48,6 +48,7 @@ export interface GridContextMenuItemsProps {
   onAddRow?: () => void;
   onInsertRowAbove?: () => void;
   onInsertRowBelow?: () => void;
+  onDuplicateRows?: () => void;
   onDeleteRows?: () => void;
   onPaste?: () => void;
 }
@@ -70,6 +71,7 @@ export function GridContextMenuItems({
   onAddRow,
   onInsertRowAbove,
   onInsertRowBelow,
+  onDuplicateRows,
   onDeleteRows,
   onPaste,
 }: GridContextMenuItemsProps) {
@@ -111,6 +113,7 @@ export function GridContextMenuItems({
       paste: renderShortcut("cmd+v"),
       insertAbove: renderShortcut("cmd+shift+enter"),
       insertBelow: renderShortcut("cmd+enter"),
+      duplicate: renderShortcut("cmd+d"),
       deleteRows: renderShortcut("cmd+backspace"),
     }),
     [renderShortcut],
@@ -473,6 +476,19 @@ export function GridContextMenuItems({
           <IconPlus className="mr-1.5 h-3 w-3 text-foreground" />
           <span className="flex-1">Insert Row Below</span>
           {shortcuts.insertBelow}
+        </ContextMenuItem>
+      )}
+
+      {onDuplicateRows && (
+        <ContextMenuItem
+          onClick={onDuplicateRows}
+          className="text-xs py-1.5 px-3 outline-none"
+        >
+          <IconCopyPlus className="mr-1.5 h-3 w-3 text-foreground" />
+          <span className="flex-1">
+            Duplicate Row{selectedRows.length > 1 ? "s" : ""}
+          </span>
+          {shortcuts.duplicate}
         </ContextMenuItem>
       )}
 

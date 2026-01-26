@@ -98,7 +98,7 @@ export function NestedConnectionList({
   };
 
   return (
-    <CommandList ref={listRef}>
+    <CommandList ref={listRef} className="h-[300px]">
       <CommandEmpty>No connections found.</CommandEmpty>
 
       <CommandGroup heading="Connections">

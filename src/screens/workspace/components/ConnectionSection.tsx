@@ -119,7 +119,7 @@ export const ConnectionSection = forwardRef<
 
   // Local state for expanded sections within this connection
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
-    new Set(["tables", "views", "starred", "collections", "keys"]),
+    new Set(["tables", "views", "starred", "collections"]),
   );
   const [expandedPartitionedTables, setExpandedPartitionedTables] = useState<
     Set<string>
@@ -1348,65 +1348,50 @@ export const ConnectionSection = forwardRef<
           {/* Object tree - Redis */}
           {isKeyValueDb && !showLoadingSkeleton && (
             <div className="pb-2">
-              {/* Keys Section */}
-              <SidebarSection
-                title="Keys"
-                count={redisKeyCount}
-                isExpanded={expandedNodes.has("keys")}
-                onToggle={() => {
-                  toggleNode("keys");
-                }}
-                stickyClass=""
-              >
-                {isLoadingKeys ? (
-                  <div className="pl-2 pr-1 py-2">
-                    <Skeleton className="h-4 w-full" />
-                  </div>
-                ) : (
-                  <div className="pl-2 pr-1 py-3">
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
-                      <IconKey className="h-4 w-4" />
-                      <span>{redisKeyCount.toLocaleString()} total keys</span>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full text-xs h-6"
-                      onClick={() => {
-                        setFocusedConnection(connectionId);
-                        const {
-                          focusedPanelId,
-                          addTab,
-                          panelContents,
-                          focusPanel,
-                        } = useWorkbenchStore.getState();
-                        let targetPanelId = focusedPanelId;
-                        if (!targetPanelId && panelContents.size > 0) {
-                          const firstPanelId = Array.from(
-                            panelContents.keys(),
-                          )[0];
-                          if (firstPanelId) {
-                            targetPanelId = firstPanelId;
-                            focusPanel(firstPanelId);
-                          }
-                        }
-                        if (targetPanelId) {
-                          const tabId = `redis-keys-${connectionId}`;
-                          addTab(targetPanelId, tabId, {
-                            type: "redis-keys",
-                            title: "Key Browser",
-                            connectionId,
-                            database,
-                          });
-                        }
-                      }}
-                    >
-                      <IconKey className="h-3 w-3 mr-1" />
-                      Open Key Browser
-                    </Button>
-                  </div>
-                )}
-              </SidebarSection>
+              {isLoadingKeys ? (
+                <div className="pl-2 pr-1 py-2">
+                  <Skeleton className="h-4 w-full" />
+                </div>
+              ) : (
+                <SidebarItem
+                  icon={
+                    <IconKey className="h-3.5 w-4 min-w-4 text-primary shrink-0" />
+                  }
+                  name="Keys"
+                  rowCount={redisKeyCount}
+                  isActive={
+                    !!focusedPanelId &&
+                    panelContents.get(focusedPanelId)?.activeTabId ===
+                      `redis-keys-${connectionId}`
+                  }
+                  onClick={() => {
+                    setFocusedConnection(connectionId);
+                    const {
+                      focusedPanelId,
+                      addTab,
+                      panelContents,
+                      focusPanel,
+                    } = useWorkbenchStore.getState();
+                    let targetPanelId = focusedPanelId;
+                    if (!targetPanelId && panelContents.size > 0) {
+                      const firstPanelId = Array.from(panelContents.keys())[0];
+                      if (firstPanelId) {
+                        targetPanelId = firstPanelId;
+                        focusPanel(firstPanelId);
+                      }
+                    }
+                    if (targetPanelId) {
+                      const tabId = `redis-keys-${connectionId}`;
+                      addTab(targetPanelId, tabId, {
+                        type: "redis-keys",
+                        title: "Key Browser",
+                        connectionId,
+                        database,
+                      });
+                    }
+                  }}
+                />
+              )}
             </div>
           )}
         </div>
