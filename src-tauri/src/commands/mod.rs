@@ -6,10 +6,12 @@
 //! - `document.rs`: Document database commands (MongoDB operations)
 //! - `keyvalue.rs`: Key-value database commands (Redis operations)
 //! - `ai.rs`: AI sidecar commands (capability detection, read-only introspection)
+//! - `backup.rs`: Backup and restore commands (backup, restore, preview)
 //!
 //! All commands are re-exported here for registration in lib.rs.
 
 pub mod ai;
+pub mod backup;
 pub mod connection;
 pub mod document;
 pub mod keyvalue;
@@ -17,6 +19,7 @@ pub mod sql;
 
 // Re-export all commands for easy access
 pub use ai::*;
+pub use backup::*;
 pub use connection::*;
 pub use document::*;
 pub use keyvalue::*;
