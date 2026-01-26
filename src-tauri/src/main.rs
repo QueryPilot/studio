@@ -176,6 +176,16 @@ fn main() {
             commands::ai_sql_execute,
             commands::ai_document_execute,
             commands::ai_keyvalue_execute,
+            // Backup and restore commands
+            commands::get_backup_capability,
+            commands::get_tool_status,
+            commands::get_backup_preview,
+            commands::start_backup,
+            commands::start_restore,
+            // Tool download commands
+            commands::get_tool_download_info,
+            commands::search_tool_paths,
+            commands::download_tool,
         ])
         .build(context)
         .expect("error while building tauri application");

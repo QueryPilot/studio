@@ -180,6 +180,7 @@ pub enum AdapterCapability {
     DocumentQueryable,
     KeyValueOperable,
     RichKeyValueOperable,
+    BackupCapable,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

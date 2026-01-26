@@ -740,6 +740,84 @@ class WindowManager {
       throw error;
     }
   }
+
+  /**
+   * Open the backup/restore window
+   * This is a singleton window - only one can be open at a time
+   * Unlike workspace windows, this does NOT hide/show the main window
+   */
+  async openBackupRestore(connectionId?: string): Promise<string> {
+    const label = "backup-restore";
+
+    if (!isTauri()) {
+      const url = connectionId
+        ? `/backup-restore?connectionId=${connectionId}`
+        : "/backup-restore";
+      window.location.href = url;
+      return label;
+    }
+
+    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+
+    // Check if already open - singleton pattern
+    const existing = await WebviewWindow.getByLabel(label);
+    if (existing) {
+      await existing.setFocus();
+      // TODO: If connectionId provided, update the selected connection
+      return label;
+    }
+
+    const url = connectionId
+      ? `/backup-restore?connectionId=${connectionId}`
+      : "/backup-restore";
+
+    const windowOptions: Record<string, unknown> = {
+      url,
+      title: "Backup & Restore",
+      width: 800,
+      height: 600,
+      minWidth: 600,
+      minHeight: 500,
+      center: true,
+      resizable: true,
+      maximizable: true,
+      minimizable: true,
+      closable: true,
+      decorations: true,
+      transparent: false,
+      titleBarStyle: "overlay",
+      hiddenTitle: true,
+      skipTaskbar: false,
+    };
+
+    // Add macOS traffic light position based on OS version
+    const trafficLightPosition = getMacOSTrafficLightPosition();
+    if (trafficLightPosition) {
+      windowOptions.trafficLightPosition = trafficLightPosition;
+    }
+
+    let webview: InstanceType<typeof WebviewWindow>;
+    try {
+      webview = new WebviewWindow(
+        label,
+        windowOptions as ConstructorParameters<typeof WebviewWindow>[1],
+      );
+    } catch (error) {
+      logger.error(`[WindowManager] Failed to create backup-restore window:`, error);
+      throw error;
+    }
+
+    void updateWindowMenu();
+
+    // Handle window close cleanup
+    // Note: Don't track in windowMetadata since it's not tied to a connectionId
+    void webview.once("tauri://destroyed", () => {
+      void updateWindowMenu();
+      logger.info(`[WindowManager] Backup-restore window destroyed`);
+    });
+
+    return label;
+  }
 }
 
 export const windowManager = WindowManager.getInstance();
