@@ -4,6 +4,7 @@
 //! mongodb Rust driver.
 
 mod adapter;
+mod backup;
 mod msgpack_converter;
 mod types;
 
