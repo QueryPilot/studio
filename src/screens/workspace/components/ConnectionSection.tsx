@@ -467,7 +467,8 @@ export const ConnectionSection = forwardRef<
   // Handle backup/restore
   const handleBackupRestore = async () => {
     try {
-      await windowManager.openBackupRestore(connectionId);
+      // Use profile.id (stored profile UUID), not connectionId (runtime ID)
+      await windowManager.openBackupRestore(profile.id);
     } catch (error) {
       toast.error("Failed to open backup/restore", {
         description: error instanceof Error ? error.message : "Unknown error",
