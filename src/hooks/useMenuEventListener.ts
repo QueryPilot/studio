@@ -12,6 +12,7 @@ import useWorkbenchStore from "@/stores/workbenchStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { eventBus } from "@/services/eventBus";
 import { databaseService } from "@/services/databaseService";
+import { windowManager } from "@/services/windowManager";
 import { v4 as uuidv4 } from "uuid";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -147,6 +148,10 @@ export function useMenuEventListener() {
           if (activeConnectionId) {
             handleNewErd(activeConnectionId, workbenchStore);
           }
+          break;
+        case "backup_restore":
+          // Open backup/restore window with current connection if available
+          void windowManager.openBackupRestore(activeConnectionId ?? undefined);
           break;
 
         // Help Menu
