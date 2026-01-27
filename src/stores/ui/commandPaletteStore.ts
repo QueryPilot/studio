@@ -4,7 +4,8 @@ export type NestedMode =
   | { type: "switch-database" }
   | { type: "switch-schema" }
   | { type: "open-connection" }
-  | { type: "switch-workspace" };
+  | { type: "switch-workspace" }
+  | { type: "new-query-connection" };
 
 interface CommandPaletteState {
   isOpen: boolean;

@@ -9,6 +9,7 @@ import useWorkbenchStore from "@/stores/workbenchStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useTabStateStore } from "@/stores/tabStateStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { tabGroupRegistry } from "@/services/tabGroupRegistry";
 import { clearAllCaches } from "@/lib/cacheManager";
 import { useCrudStore } from "@/stores/crudStore";
@@ -464,6 +465,25 @@ export const defaultCommands: Command[] = [
     category: "Workbench",
     when: "activeEditor",
     handler: () => {
+      const connectionStore = useConnectionStore.getState();
+      const workspaceBundleStore = useWorkspaceBundleStore.getState();
+
+      // Get connected connections from the active workspace
+      const activeWorkspace = workspaceBundleStore.activeWorkspace;
+      const connectedConnections = activeWorkspace
+        ? Array.from(activeWorkspace.connections.values())
+            .filter(c => c.status === "connected")
+        : [];
+
+      // If multiple connections, show picker
+      if (connectedConnections.length > 1) {
+        const paletteStore = useCommandPaletteStore.getState();
+        paletteStore.openPalette();
+        paletteStore.setNestedMode({ type: "new-query-connection" });
+        return;
+      }
+
+      // Single or no connection - use current behavior
       const workbench = useWorkbenchStore.getState();
       const panels = workbench.panelContents;
       const focusedPanelId =
@@ -484,7 +504,6 @@ export const defaultCommands: Command[] = [
               .toString(36)
               .slice(2, 8)}`;
 
-      const connectionStore = useConnectionStore.getState();
       const workspaceSelection = useWorkspaceSelectionStore.getState();
       const selectedSchema = workspaceSelection.schema;
 
@@ -496,10 +515,10 @@ export const defaultCommands: Command[] = [
       const dbType = connection?.profile.db_type;
       const paradigm = dbType ? getParadigm(dbType) : "sql";
 
-      const tabTypePrefix = paradigm === "document" 
-        ? "mongo-query" 
-        : paradigm === "keyvalue" 
-        ? "redis-cli" 
+      const tabTypePrefix = paradigm === "document"
+        ? "mongo-query"
+        : paradigm === "keyvalue"
+        ? "redis-cli"
         : "query";
 
       const tabId = `${tabTypePrefix}-${uuid}`;

@@ -40,6 +40,8 @@ interface NestedConnectionListProps {
   query: string;
   onSelect: (connectionId: string) => void;
   onClose?: () => void;
+  title?: string;
+  filterConnected?: boolean;
 }
 
 export function NestedConnectionList({
@@ -47,12 +49,31 @@ export function NestedConnectionList({
   query,
   onSelect,
   onClose,
+  title = "Connections",
+  filterConnected = false,
 }: NestedConnectionListProps): React.ReactElement {
-  const connections = useConnectionStore((state) => state.connections);
+  const allConnections = useConnectionStore((state) => state.connections);
   const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
   const addConnectionToWorkspace = useWorkspaceBundleStore(
     (s) => s.addConnectionToWorkspace,
   );
+
+  // Filter to only connected if requested (using runtime connection status)
+  const connections = useMemo(() => {
+    if (!filterConnected) return allConnections;
+
+    // Get connected connection IDs from the active workspace
+    const connectedIds = new Set<string>();
+    if (activeWorkspace) {
+      for (const [id, conn] of activeWorkspace.connections) {
+        if (conn.status === "connected") {
+          connectedIds.add(id);
+        }
+      }
+    }
+
+    return allConnections.filter((c) => connectedIds.has(c.profile.id));
+  }, [allConnections, filterConnected, activeWorkspace]);
 
   // Check if we're in a multi-connection workspace context
   const isMultiConnectionWorkspace =
@@ -99,9 +120,11 @@ export function NestedConnectionList({
 
   return (
     <CommandList ref={listRef} className="h-[300px]">
-      <CommandEmpty>No connections found.</CommandEmpty>
+      <CommandEmpty>
+        {filterConnected ? "No connected databases." : "No connections found."}
+      </CommandEmpty>
 
-      <CommandGroup heading="Connections">
+      <CommandGroup heading={title}>
         {filteredConnections.map((connItem) => (
           <CommandItem
             key={connItem.id}

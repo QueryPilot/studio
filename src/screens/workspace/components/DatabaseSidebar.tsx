@@ -14,6 +14,8 @@ import {
   IconBookmark,
   IconAssembly,
   IconClock,
+  IconDatabase,
+  IconHistory,
 } from "@tabler/icons-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePanelStore } from "@/stores/panelStore";
@@ -62,6 +64,8 @@ import {
 import { createViewDropCommand } from "@/utils/crudHelpers/viewOperations";
 import { type ObjectDefinitionType } from "@/adapters/types";
 import { writeClipboardText } from "@/lib/clipboard";
+import { eventBus } from "@/services/eventBus";
+import { QueryHistoryPanel } from "@/components/QueryHistory";
 
 interface DatabaseSidebarProps {
   connectionId: string;
@@ -76,6 +80,7 @@ export function DatabaseSidebar({
   selectedDatabase,
   selectedSchema,
 }: DatabaseSidebarProps) {
+  const [sidebarView, setSidebarView] = useState<"objects" | "queries">("objects");
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -455,6 +460,18 @@ export function DatabaseSidebar({
       window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [isDragging]);
+
+  // Listen for sidebar view switch events (from command palette)
+  useEffect(() => {
+    const handleSwitchView = (payload: { view: "objects" | "queries" }) => {
+      setSidebarView(payload.view);
+    };
+
+    eventBus.on("sidebar:switch-view", handleSwitchView);
+    return () => {
+      eventBus.off("sidebar:switch-view", handleSwitchView);
+    };
+  }, []);
 
   // Handle right-click to show context menu
   const handleContextMenu = (itemKey: string, event: React.MouseEvent) => {
@@ -1308,41 +1325,75 @@ export function DatabaseSidebar({
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* IconSearch Input and Refresh */}
-      <div className="p-1">
-        <div className="flex gap-1 items-center">
-          <div className="relative flex-1">
-            <IconSearch className="absolute left-1.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder="Search objects..."
-              className="pl-6 h-7 py-1 !text-xs"
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-              }}
-            />
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0"
-            onClick={handleRefresh}
-            disabled={isLoadingData || isRefreshing}
-            title="Refresh"
-          >
-            <IconRefresh
-              className={cn(
-                "h-3 w-3",
-                (isLoadingData || isRefreshing) && "animate-spin",
-              )}
-            />
-          </Button>
-        </div>
+    <div className="flex h-full">
+      {/* Vertical Tab Bar */}
+      <div className="flex flex-col border-r bg-muted/30 py-1">
+        <button
+          onClick={() => setSidebarView("objects")}
+          title="Database Objects"
+          className={cn(
+            "p-2 transition-colors",
+            sidebarView === "objects"
+              ? "text-foreground bg-background border-l-2 border-primary"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+          )}
+        >
+          <IconDatabase className="h-4 w-4" />
+        </button>
+        <button
+          onClick={() => setSidebarView("queries")}
+          title="Query History"
+          className={cn(
+            "p-2 transition-colors",
+            sidebarView === "queries"
+              ? "text-foreground bg-background border-l-2 border-primary"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+          )}
+        >
+          <IconHistory className="h-4 w-4" />
+        </button>
       </div>
 
-      {/* Error Display */}
+      {/* Content Area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {sidebarView === "queries" ? (
+          <QueryHistoryPanel />
+        ) : (
+          <>
+            {/* IconSearch Input and Refresh */}
+            <div className="p-1">
+              <div className="flex gap-1 items-center">
+                <div className="relative flex-1">
+                  <IconSearch className="absolute left-1.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    placeholder="Search objects..."
+                    className="pl-6 h-7 py-1 !text-xs"
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                    }}
+                  />
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  onClick={handleRefresh}
+                  disabled={isLoadingData || isRefreshing}
+                  title="Refresh"
+                >
+                  <IconRefresh
+                    className={cn(
+                      "h-3 w-3",
+                      (isLoadingData || isRefreshing) && "animate-spin",
+                    )}
+                  />
+                </Button>
+              </div>
+            </div>
+
+            {/* Error Display */}
       {error && (
         <div className="px-2 py-1">
           <div className="flex items-center gap-2 text-xs text-red-500 select-text">
@@ -1898,6 +1949,9 @@ export function DatabaseSidebar({
           onRefreshMaterializedView={handleRefreshMaterializedViews}
         />
       )}
+          </>
+        )}
+      </div>
 
       {/* Truncate Dialog */}
       {truncateDialog && (

@@ -29,6 +29,7 @@ import {
   highlightActiveLine,
   placeholder as placeholderExt,
   scrollPastEnd,
+  tooltips,
 } from "@codemirror/view";
 import {
   defaultKeymap,
@@ -543,11 +544,13 @@ export const SqlEditor = memo(
       return [
         // SQL language support with built-in keyword completion
         sqlLang,
+        // Mount tooltips to document.body to prevent clipping by editor boundaries
+        tooltips({ parent: document.body }),
         // Autocompletion UI settings - debounced to reduce cursor lag
         autocompletion({
           activateOnTyping: true,
           activateOnTypingDelay: 150, // Debounce to prevent lag on every keystroke
-          maxRenderedOptions: 30,
+          maxRenderedOptions: 50,
           defaultKeymap: true,
         }),
         // Hover tooltips

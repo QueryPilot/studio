@@ -46,6 +46,12 @@ type Events = {
   // AI events
   "ai:explain-query": KeyboardEventPayload;
   "ai:generate-sql": KeyboardEventPayload;
+
+  // Sidebar events
+  "sidebar:switch-view": { view: "objects" | "queries" };
+
+  // Query History events
+  "query-history:focus-search": void;
 };
 
 export const eventBus = mitt<Events>();
