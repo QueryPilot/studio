@@ -9,6 +9,7 @@ import {
   memo,
 } from "react";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useContextKey } from "@/hooks/useContextKey";
 import {
   IconSearch,
   IconCode,
@@ -220,6 +221,8 @@ export const QuickFilter = memo(
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [cursorPosition, setCursorPosition] = useState(0);
     const [hasLintError, setHasLintError] = useState(false);
+    const [isFocused, setIsFocused] = useState(false);
+    const focusCleanupRef = useRef<(() => void) | null>(null);
     const justAcceptedSuggestion = useRef(false);
     const justSwitchedMode = useRef(false);
     const autoSubmitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -255,6 +258,19 @@ export const QuickFilter = memo(
     // Theme for CodeMirror
     const { resolvedTheme } = useTheme();
     const editorViewRef = useRef<EditorView | null>(null);
+
+    // Set editorTextFocus context when QuickFilter is focused
+    // This prevents global keybindings (like workspace.undo) from capturing Cmd+Z
+    useContextKey("editorTextFocus", isFocused, { resetOnUnmount: true });
+
+    // Cleanup focus listeners on unmount
+    useEffect(() => {
+      return () => {
+        focusCleanupRef.current?.();
+        focusCleanupRef.current = null;
+        setIsFocused(false);
+      };
+    }, []);
 
     // Acquire/release pg-parser worker for WHERE clause linting
     useEffect(() => {
@@ -1079,7 +1095,18 @@ export const QuickFilter = memo(
                   minHeight="28px"
                   maxHeight="80px"
                   onCreateEditor={(view) => {
+                    focusCleanupRef.current?.();
                     editorViewRef.current = view;
+                    // Track focus state for editorTextFocus context
+                    const handleFocus = () => setIsFocused(true);
+                    const handleBlur = () => setIsFocused(false);
+                    view.dom.addEventListener("focus", handleFocus, true);
+                    view.dom.addEventListener("blur", handleBlur, true);
+                    focusCleanupRef.current = () => {
+                      view.dom.removeEventListener("focus", handleFocus, true);
+                      view.dom.removeEventListener("blur", handleBlur, true);
+                    };
+                    setIsFocused(view.hasFocus);
                   }}
                   onUpdate={handleEditorUpdate}
                 />

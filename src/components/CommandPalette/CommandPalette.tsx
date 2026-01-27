@@ -42,6 +42,7 @@ import {
   openTableInSplitRight,
   openFunctionInSplitRight,
 } from "@/utils/workbench/openers";
+import { getDatabaseLogo } from "@/utils/databaseLogos";
 import { useUnifiedItems, type UnifiedItem } from "./useCommandPaletteQueries";
 import { useFrecency } from "./useFrecency";
 import { NestedDatabaseList } from "./NestedDatabaseList";
@@ -69,7 +70,9 @@ const UNIFIED_FUSE_OPTIONS: IFuseOptions<UnifiedItem> = {
     { name: "keywords", weight: 0.3 },
     { name: "subtitle", weight: 0.1 },
   ],
-  threshold: 0.4,
+  threshold: 0.35,
+  ignoreLocation: true,
+  findAllMatches: true,
   includeScore: true,
   includeMatches: true,
   minMatchCharLength: 1,
@@ -146,6 +149,8 @@ export function CommandPalette(): React.ReactElement {
   const exitNestedMode = useCommandPaletteStore(
     (state) => state.exitNestedMode,
   );
+  const undo = useCommandPaletteStore((state) => state.undo);
+  const redo = useCommandPaletteStore((state) => state.redo);
 
   const activeConnectionId = useWorkspaceSelectionStore(
     (state) => state.connectionId,
@@ -156,7 +161,7 @@ export function CommandPalette(): React.ReactElement {
   const currentSchema = useWorkspaceSelectionStore((state) => state.schema);
   const setSchema = useWorkspaceSelectionStore((state) => state.setSchema);
 
-  const { unifiedItems, isLoading } = useUnifiedItems();
+  const { unifiedItems, isLoading, connectionCount } = useUnifiedItems();
   const { recordAccess, getTopFrecencyItems, sortByFrecency } = useFrecency();
 
   // Invalidate cache when commands or keybindings change
@@ -236,9 +241,14 @@ export function CommandPalette(): React.ReactElement {
       (item) => !recentItemIds.has(item.id),
     );
 
+    // Track Fuse scores when searching
+    let scoreMap: Map<string, number> | null = null;
+
     if (searchQuery) {
       const fuse = new Fuse(itemsToGroup, UNIFIED_FUSE_OPTIONS);
       const results = fuse.search(searchQuery);
+      // Store scores for sorting (lower score = better match)
+      scoreMap = new Map(results.map((r) => [r.item.id, r.score ?? 1]));
       itemsToGroup = results.map((r) => r.item);
     }
 
@@ -254,9 +264,22 @@ export function CommandPalette(): React.ReactElement {
       }
     }
 
-    // Sort within groups by frecency then alphabetically
+    // Sort within groups
     for (const [group, items] of groups) {
-      groups.set(group, sortByFrecency(items).slice(0, MAX_RESULTS_PER_GROUP));
+      let sortedItems: UnifiedItem[];
+      if (scoreMap) {
+        // When searching, sort by Fuse score (relevance)
+        const scores = scoreMap; // Capture for closure
+        sortedItems = [...items].sort((a, b) => {
+          const scoreA = scores.get(a.id) ?? 1;
+          const scoreB = scores.get(b.id) ?? 1;
+          return scoreA - scoreB;
+        });
+      } else {
+        // When not searching, sort by frecency
+        sortedItems = sortByFrecency(items);
+      }
+      groups.set(group, sortedItems.slice(0, MAX_RESULTS_PER_GROUP));
     }
 
     return GROUP_ORDER.filter(
@@ -403,7 +426,11 @@ export function CommandPalette(): React.ReactElement {
         return;
       }
 
-      if (!activeConnectionId) {
+      // Use the item's connection context (not the active/focused connection)
+      const itemConnectionId = item.connectionId;
+      const itemDatabase = item.database;
+
+      if (!itemConnectionId || !itemDatabase) {
         closePalette();
         return;
       }
@@ -412,29 +439,29 @@ export function CommandPalette(): React.ReactElement {
         if (openInSplit) {
           openFunctionInSplitRight({
             func: item.func,
-            connectionId: activeConnectionId,
-            database: selectedDatabase || "#invalid_database",
+            connectionId: itemConnectionId,
+            database: itemDatabase,
           });
         } else {
           openFunctionObject({
             func: item.func,
-            connectionId: activeConnectionId,
-            database: selectedDatabase || "#invalid_database",
+            connectionId: itemConnectionId,
+            database: itemDatabase,
           });
         }
       } else if (item.table) {
         if (openInSplit) {
           openTableInSplitRight({
             table: item.table,
-            connectionId: activeConnectionId,
-            database: selectedDatabase || "#invalid_database",
+            connectionId: itemConnectionId,
+            database: itemDatabase,
             viewType: "data",
           });
         } else {
           openTableObject({
             table: item.table,
-            connectionId: activeConnectionId,
-            database: selectedDatabase || "#invalid_database",
+            connectionId: itemConnectionId,
+            database: itemDatabase,
             viewType: "data",
           });
         }
@@ -444,10 +471,8 @@ export function CommandPalette(): React.ReactElement {
     },
     [
       unifiedItems,
-      activeConnectionId,
       closePalette,
       services,
-      selectedDatabase,
       recordAccess,
     ],
   );
@@ -518,6 +543,18 @@ export function CommandPalette(): React.ReactElement {
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      // Handle undo/redo for the input
+      if (e.key === "z" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+        return;
+      }
+
       // Exit nested mode on backspace when query is empty
       if (e.key === "Backspace" && query === "" && nestedMode) {
         e.preventDefault();
@@ -549,8 +586,9 @@ export function CommandPalette(): React.ReactElement {
       query,
       nestedMode,
       exitNestedMode,
-      selectedItem,
       actions,
+      undo,
+      redo,
     ],
   );
 
@@ -583,7 +621,6 @@ export function CommandPalette(): React.ReactElement {
       open={isOpen}
       onOpenChange={handleOpenChange}
       onKeyDown={handleKeyDown}
-      value={selectedValue}
       onValueChange={setSelectedValue}
       className="min-w-[560px]!"
     >
@@ -657,6 +694,7 @@ export function CommandPalette(): React.ReactElement {
                         key={item.id}
                         item={item}
                         onSelect={(id) => handleSelect(id, false)}
+                        showConnectionName={connectionCount > 1}
                       />
                     ))}
                   </CommandGroup>
@@ -669,6 +707,7 @@ export function CommandPalette(): React.ReactElement {
                         key={item.id}
                         item={item}
                         onSelect={(id) => handleSelect(id, false)}
+                        showConnectionName={connectionCount > 1}
                       />
                     ))}
                   </CommandGroup>
@@ -700,14 +739,41 @@ export function CommandPalette(): React.ReactElement {
 interface UnifiedItemRowProps {
   item: UnifiedItem;
   onSelect: (id: string) => void;
+  showConnectionName?: boolean;
 }
 
-function UnifiedItemRow({ item, onSelect }: UnifiedItemRowProps) {
+/**
+ * Build the badge text for database objects.
+ * Format: "connection › schema" for multi-connection, just "schema" for single connection.
+ * We skip database name since it typically matches connection name.
+ */
+function getBadgeText(item: UnifiedItem, showConnectionName: boolean): string {
+  if (item.type === "command") {
+    return item.subtitle; // keybinding label
+  }
+
+  const parts: string[] = [];
+
+  if (showConnectionName && item.connectionName) {
+    parts.push(item.connectionName);
+  }
+
+  if (item.schema) {
+    parts.push(item.schema);
+  }
+
+  return parts.join(" › ");
+}
+
+function UnifiedItemRow({ item, onSelect, showConnectionName = false }: UnifiedItemRowProps) {
   const keywords = [
     item.name,
     item.subtitle,
     ...item.keywords,
   ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+
+  const badgeText = getBadgeText(item, showConnectionName);
+  const dbLogoPath = item.dbType ? getDatabaseLogo(item.dbType) : null;
 
   return (
     <CommandItem value={item.id} keywords={keywords} onSelect={onSelect}>
@@ -716,7 +782,7 @@ function UnifiedItemRow({ item, onSelect }: UnifiedItemRowProps) {
           {getItemIcon(item)}
           <span className="font-medium">{item.name}</span>
         </div>
-        <div className="text-xs text-muted-foreground text-right max-w-1/3 truncate">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground text-right max-w-[45%] truncate">
           {item.type === "command" && item.command?.keybinding ? (
             <KbdGroup>
               {item.command.keybinding.resolvedLabel
@@ -726,7 +792,19 @@ function UnifiedItemRow({ item, onSelect }: UnifiedItemRowProps) {
                 ))}
             </KbdGroup>
           ) : (
-            item.subtitle
+            <>
+              {dbLogoPath && showConnectionName && (
+                <img
+                  src={dbLogoPath}
+                  alt={item.dbType || "Database"}
+                  className="h-3.5 w-3.5 shrink-0"
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+              )}
+              <span className="truncate">{badgeText}</span>
+            </>
           )}
         </div>
       </div>

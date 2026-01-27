@@ -68,6 +68,15 @@ export class KeyboardHandler {
       return;
     }
 
+    // Check if focus is on a native text input
+    // This allows browser's native undo/redo and text editing shortcuts to work
+    const target = event.target as HTMLElement | null;
+    const isNativeTextInput = target && (
+      target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.isContentEditable
+    );
+
     const dispatch = keyboardEventToDispatch(event, this.platform);
     if (!dispatch) {
       return;
@@ -75,7 +84,20 @@ export class KeyboardHandler {
 
     const nextSequence = [...this.chordSequence, dispatch];
     const activeScopes = this.contextService.getActiveScopes();
+
+    // Temporarily set editorTextFocus for native inputs during keybinding resolution
+    // This ensures keybindings with "!editorTextFocus" don't fire when typing in inputs
+    const prevEditorTextFocus = this.contextService.getValue('editorTextFocus');
+    if (isNativeTextInput && !prevEditorTextFocus) {
+      this.contextService.setValue('editorTextFocus', true);
+    }
+
     const { match, isChordPending } = this.keybindingService.resolve(nextSequence, activeScopes);
+
+    // Restore previous value
+    if (isNativeTextInput && !prevEditorTextFocus) {
+      this.contextService.setValue('editorTextFocus', prevEditorTextFocus ?? false);
+    }
 
     if (isChordPending) {
       this.startChord(nextSequence);

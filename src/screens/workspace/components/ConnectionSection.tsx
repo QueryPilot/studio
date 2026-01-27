@@ -10,8 +10,6 @@
 import { useState, useEffect, useMemo, useCallback, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 import {
-  IconChevronDown,
-  IconChevronRight,
   IconTable,
   IconEye,
   IconMathFunction,
@@ -96,14 +94,17 @@ export const ConnectionSection = forwardRef<
 >(function ConnectionSection(
   {
     connection,
-    isExpanded,
-    onToggle,
+    isExpanded: _isExpanded,
+    onToggle: _onToggle,
     searchQuery,
     onTableClick,
     onFunctionClick,
   },
   ref,
 ) {
+  // Note: isExpanded and onToggle are intentionally unused - connections are always expanded
+  void _isExpanded;
+  void _onToggle;
   const {
     id: connectionId,
     profile,
@@ -749,9 +750,8 @@ export const ConnectionSection = forwardRef<
           ? "bg-red-500"
           : "bg-gray-400";
 
-  // Show loading state when expanding and no data yet
+  // Show loading state when connecting and no data yet
   const showLoadingSkeleton =
-    isExpanded &&
     status === "connecting" &&
     (isSqlDb
       ? tables.length === 0
@@ -765,18 +765,10 @@ export const ConnectionSection = forwardRef<
       <ContextMenu>
         <ContextMenuTrigger
           className={cn(
-            "w-full flex items-center gap-2 p-2 hover:bg-muted/50 transition-colors text-left cursor-pointer",
-            isExpanded && "bg-muted/30",
+            "w-full flex items-center gap-2 p-2 hover:bg-muted/50 transition-colors text-left",
+            "sticky top-0 z-10 bg-background",
           )}
-          onClick={onToggle}
         >
-          {/* Expand/Collapse chevron */}
-          {isExpanded ? (
-            <IconChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <IconChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          )}
-
           {/* Database icon */}
           <img
             src={getDatabaseLogo(dbType)}
@@ -873,9 +865,9 @@ export const ConnectionSection = forwardRef<
         </div>
       )}
 
-      {/* Expanded content */}
-      {isExpanded && status !== "error" && (
-        <div className="px-2">
+      {/* Content - always visible */}
+      {status !== "error" && (
+        <div className="pr-2">
           {/* Loading skeleton */}
           {showLoadingSkeleton && (
             <div className="pl-2 pr-1 py-2 space-y-2">

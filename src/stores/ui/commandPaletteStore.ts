@@ -10,35 +10,65 @@ interface CommandPaletteState {
   isOpen: boolean;
   query: string;
   nestedMode: NestedMode | null;
+  // Undo/redo history
+  queryHistory: string[];
+  historyIndex: number;
   openPalette: () => void;
   closePalette: () => void;
   setQuery: (query: string) => void;
   setNestedMode: (mode: NestedMode | null) => void;
   exitNestedMode: () => void;
+  undo: () => void;
+  redo: () => void;
 }
 
-export const useCommandPaletteStore = create<CommandPaletteState>((set) => ({
+export const useCommandPaletteStore = create<CommandPaletteState>((set, get) => ({
   isOpen: false,
   query: "",
   nestedMode: null,
+  queryHistory: [""],
+  historyIndex: 0,
 
   openPalette: () => {
-    set({ isOpen: true, query: "", nestedMode: null });
+    set({ isOpen: true, query: "", nestedMode: null, queryHistory: [""], historyIndex: 0 });
   },
 
   closePalette: () => {
-    set({ isOpen: false, query: "", nestedMode: null });
+    set({ isOpen: false, query: "", nestedMode: null, queryHistory: [""], historyIndex: 0 });
   },
 
   setQuery: (query: string) => {
-    set({ query });
+    const { queryHistory, historyIndex } = get();
+    // Only add to history if different from current
+    if (query === queryHistory[historyIndex]) {
+      return;
+    }
+    // Truncate future history and add new entry
+    const newHistory = [...queryHistory.slice(0, historyIndex + 1), query];
+    set({ query, queryHistory: newHistory, historyIndex: newHistory.length - 1 });
   },
 
   setNestedMode: (mode: NestedMode | null) => {
-    set({ nestedMode: mode, query: "" });
+    set({ nestedMode: mode, query: "", queryHistory: [""], historyIndex: 0 });
   },
 
   exitNestedMode: () => {
-    set({ nestedMode: null, query: "" });
+    set({ nestedMode: null, query: "", queryHistory: [""], historyIndex: 0 });
+  },
+
+  undo: () => {
+    const { queryHistory, historyIndex } = get();
+    if (historyIndex > 0) {
+      const newIndex = historyIndex - 1;
+      set({ query: queryHistory[newIndex], historyIndex: newIndex });
+    }
+  },
+
+  redo: () => {
+    const { queryHistory, historyIndex } = get();
+    if (historyIndex < queryHistory.length - 1) {
+      const newIndex = historyIndex + 1;
+      set({ query: queryHistory[newIndex], historyIndex: newIndex });
+    }
   },
 }));
