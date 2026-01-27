@@ -42,6 +42,8 @@ import {
   openTableInSplitRight,
   openFunctionInSplitRight,
 } from "@/utils/workbench/openers";
+import useWorkbenchStore from "@/stores/workbenchStore";
+import { getParadigm } from "@/types/connection";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
 import { useUnifiedItems, type UnifiedItem } from "./useCommandPaletteQueries";
 import { useFrecency } from "./useFrecency";
@@ -541,6 +543,85 @@ export function CommandPalette(): React.ReactElement {
     [closePalette],
   );
 
+  // Handler for new-query-connection: create a new query tab with selected connection
+  const handleNewQueryConnectionSelect = useCallback(
+    (connectionId: string) => {
+      const connectionStore = useConnectionStore.getState();
+      const connection = connectionStore.getConnection(connectionId);
+      if (!connection) {
+        toast.error("Connection not found");
+        closePalette();
+        return;
+      }
+
+      const workbench = useWorkbenchStore.getState();
+      const panels = workbench.panelContents;
+      const focusedPanelId = workbench.focusedPanelId ?? panels.keys().next().value;
+
+      if (!focusedPanelId) {
+        closePalette();
+        return;
+      }
+
+      const dbType = connection.profile.db_type;
+      const paradigm = getParadigm(dbType);
+
+      const tabTypePrefix = paradigm === "document"
+        ? "mongo-query"
+        : paradigm === "keyvalue"
+        ? "redis-cli"
+        : "query";
+
+      const uuid = crypto.randomUUID();
+      const tabId = `${tabTypePrefix}-${uuid}`;
+
+      // Count existing query tabs for numbering
+      const matchingTabTypes = [tabTypePrefix];
+      const totalQueryCount = Array.from(panels.values()).reduce(
+        (count, panelContent) => {
+          return (
+            count +
+            panelContent.tabIds.filter((id: string) => {
+              const metadata = panelContent.metadata?.[id];
+              return matchingTabTypes.some(
+                (t) => metadata?.type === t || id.startsWith(`${t}-`)
+              );
+            }).length
+          );
+        },
+        0,
+      );
+
+      const getTitle = () => {
+        const num = totalQueryCount > 0 ? ` ${totalQueryCount + 1}` : "";
+        const connName = connection.profile.name;
+        switch (paradigm) {
+          case "document":
+            return `Mongo Shell${num} - ${connName}`;
+          case "keyvalue":
+            return `Redis CLI${num} - ${connName}`;
+          default:
+            return totalQueryCount > 0
+              ? `Query ${totalQueryCount + 1} - ${connName}`
+              : `New Query - ${connName}`;
+        }
+      };
+
+      workbench.addTab(focusedPanelId, tabId, {
+        type: tabTypePrefix,
+        title: getTitle(),
+        connectionId,
+        database: connection.profile.database || "",
+        schema: "",
+        sql: "",
+      });
+      workbench.setActiveTab(focusedPanelId, tabId);
+      workbench.focusPanel(focusedPanelId);
+      closePalette();
+    },
+    [closePalette],
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       // Handle undo/redo for the input
@@ -607,6 +688,8 @@ export function CommandPalette(): React.ReactElement {
         return "Search connections...";
       case "switch-workspace":
         return "Search workspaces...";
+      case "new-query-connection":
+        return "Select connection for new query...";
     }
   };
 
@@ -650,6 +733,15 @@ export function CommandPalette(): React.ReactElement {
               listRef={listRef}
               query={query}
               onSelect={handleWorkspaceSelect}
+            />
+          ) : nestedMode.type === "new-query-connection" ? (
+            <NestedConnectionList
+              listRef={listRef}
+              query={query}
+              onSelect={handleNewQueryConnectionSelect}
+              onClose={closePalette}
+              title="Select Connection for New Query"
+              filterConnected={true}
             />
           ) : (
             <NestedConnectionList
