@@ -47,6 +47,10 @@ interface DraggableTabProps {
   databaseName?: string;
   /** Database type for showing database logo */
   dbType?: DbType;
+  /** Connection display name for subtitle */
+  connectionName?: string;
+  /** Schema name for subtitle */
+  schemaName?: string;
   /** Whether this is the only tab in the panel */
   isOnlyTab?: boolean;
   /** Index of this tab in the panel */
@@ -82,6 +86,8 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
   workspaceConnectionIds = [],
   databaseName,
   dbType,
+  connectionName,
+  schemaName,
   isOnlyTab = false,
   tabIndex = 0,
   totalTabs = 1,
@@ -172,6 +178,16 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
   const databaseLogoPath =
     showConnectionIndicator && dbType ? getDatabaseLogo(dbType) : null;
 
+  // Build subtitle for multi-connection context: "connectionName:schema"
+  const subtitle = useMemo(() => {
+    if (!showConnectionIndicator) return null;
+    if (!connectionName && !schemaName) return null;
+    const parts: string[] = [];
+    if (connectionName) parts.push(connectionName);
+    if (schemaName) parts.push(schemaName);
+    return parts.join(":");
+  }, [showConnectionIndicator, connectionName, schemaName]);
+
   const hasTabsToRight = tabIndex < totalTabs - 1;
 
   return (
@@ -237,7 +253,14 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
                   )}
                 />
               </div>
-              <span className="whitespace-nowrap pr-1">{displayName}</span>
+              <span className="whitespace-nowrap pr-1">
+                {displayName}
+                {subtitle && (
+                  <span className="text-muted-foreground ml-1 text-[10px]">
+                    {subtitle}
+                  </span>
+                )}
+              </span>
             </div>
           }
         />

@@ -4,9 +4,12 @@ import type { ResolvedKeybinding } from "@/types/keybinding";
 import type { CommandDescriptor } from "@/types/command";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import type { FunctionMeta, TableMeta } from "@/services/databaseService";
-import { useSchemaData } from "@/hooks/useSchemaData";
 import { formatNumber } from "@/utils/formatters";
-import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
+import { schemaCache } from "@/services/schemaCache";
+import { logger } from "@/lib/logger";
+import type { OpenConnection } from "@/types/workspace";
+import type { DbType } from "@/types/connection";
 
 export interface CategorizedCommand extends CommandDescriptor {
   keybinding?: ResolvedKeybinding;
@@ -20,39 +23,59 @@ export interface UnifiedItem {
   type: UnifiedItemType;
   name: string;
   subtitle: string;
-  schema?: string;
   keywords: string[];
+
+  // Connection context for multi-connection support
+  connectionId?: string;   // Which connection this belongs to
+  connectionName?: string; // Display name (e.g., "ftl")
+  database?: string;       // Database name (e.g., "aaa")
+  schema?: string;         // Schema name (e.g., "public")
+  dbType?: DbType;         // Database type for icon display
+
   // Type-specific payload
   table?: TableMeta;
   func?: FunctionMeta;
   command?: CategorizedCommand;
 }
 
-type QuickOpenGroup = "Tables" | "Views" | "Functions";
 type TableEntityType = "table" | "view" | "materializedView";
-type QuickEntityType = TableEntityType | "function";
 
-interface BaseQuickOpenItem {
-  id: string;
-  group: QuickOpenGroup;
-  entityType: QuickEntityType;
-  name: string;
-  schema: string;
-  searchKey: string;
-  subtitle: string;
-}
+// System function prefixes to filter out (same as useSchemaData)
+const SYSTEM_FUNCTION_PREFIXES = [
+  "pg_", "pgp_", "pgsodium_", "hstore_", "json_", "jsonb_", "array_",
+  "enum_", "range_", "ts_", "txid_", "uuid_", "xml_", "inet_", "cidr_",
+  "macaddr_", "bit_", "varbit_", "bytea_", "lo_", "large_object_", "obj_",
+  "oid", "regclass", "regconfig", "regdictionary", "regnamespace",
+  "regoper", "regoperator", "regproc", "regprocedure", "regrole", "regtype",
+];
 
-interface TableQuickOpenItem extends BaseQuickOpenItem {
-  entityType: TableEntityType;
-  table: TableMeta;
-}
+const filterUserFunctions = (functions: FunctionMeta[]): FunctionMeta[] => {
+  const userFunctions = functions.filter((func) => {
+    if (func.schema === "pg_catalog" || func.schema === "information_schema") {
+      return false;
+    }
 
-interface FunctionQuickOpenItem extends BaseQuickOpenItem {
-  entityType: "function";
-  func: FunctionMeta;
-}
+    const funcNameLower = func.name.toLowerCase();
+    if (SYSTEM_FUNCTION_PREFIXES.some((prefix) => funcNameLower.startsWith(prefix))) {
+      return false;
+    }
 
-export type QuickOpenItem = TableQuickOpenItem | FunctionQuickOpenItem;
+    if (funcNameLower.includes("$$") || funcNameLower.startsWith("@") || funcNameLower.startsWith("~")) {
+      return false;
+    }
+
+    return true;
+  });
+
+  // Deduplicate functions based on schema and name only (ignore overloads)
+  const seen = new Set<string>();
+  return userFunctions.filter((func) => {
+    const key = `${func.schema}.${func.name}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
 
 function resolveKeybindingForCommand(
   commandId: string,
@@ -126,103 +149,172 @@ export function useKeybindings() {
   });
 }
 
-/**
- * Hook to fetch and cache quick open items (tables, views, functions)
- */
-export function useQuickOpenItems() {
-  const { tables, views, functions, isLoading, error } = useSchemaData();
-
-  const quickItems = useMemo<QuickOpenItem[]>(() => {
-    const items: QuickOpenItem[] = [];
-
-    const pushTable = (
-      table: TableMeta,
-      entityType: TableEntityType,
-      group: QuickOpenGroup,
-    ) => {
-      items.push({
-        id: `${entityType}:${table.schema}.${table.name}`,
-        group,
-        entityType,
-        name: table.name,
-        schema: table.schema,
-        searchKey: `${table.schema}.${table.name}`.toLowerCase(),
-        subtitle: table.row_estimate
-          ? `~${formatNumber(table.row_estimate)} rows`
-          : "",
-        table,
-      });
-    };
-
-    tables.forEach((table) => {
-      pushTable(table, "table", "Tables");
-    });
-
-    views.forEach((view) => {
-      const entityType: TableEntityType =
-        view.kind === "MaterializedView" ? "materializedView" : "view";
-      const group: QuickOpenGroup = "Views";
-      pushTable(view, entityType, group);
-    });
-
-    functions.forEach((func) => {
-      items.push({
-        id: `function:${func.schema}.${func.name}`,
-        group: "Functions",
-        entityType: "function",
-        name: func.name,
-        schema: func.schema,
-        searchKey: `${func.schema}.${func.name}`.toLowerCase(),
-        subtitle: "",
-        func,
-      });
-    });
-
-    return items.sort((left, right) => left.name.localeCompare(right.name));
-  }, [functions, tables, views]);
-
-  return {
-    quickItems,
-    isLoading,
-    error,
-  };
+interface ConnectionSchemaData {
+  connection: OpenConnection;
+  tables: TableMeta[];
+  views: TableMeta[];
+  functions: FunctionMeta[];
 }
 
 /**
- * Hook that combines all searchable items into a unified list
+ * Hook to fetch schema data from ALL open connections in the workspace.
+ * Used by Command Palette for cross-connection search.
+ */
+export function useAllConnectionsSchemaData() {
+  const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
+
+  // Get connected connections
+  const connectedConnections = useMemo(() => {
+    if (!activeWorkspace) return [];
+    return Array.from(activeWorkspace.connections.values())
+      .filter(c => c.status === "connected" && c.database && c.schema);
+  }, [activeWorkspace]);
+
+  // Build stable query key from connection states
+  const connectionKeys = useMemo(() => {
+    return connectedConnections
+      .map(c => `${c.id}:${c.database}:${c.schema}`)
+      .sort();
+  }, [connectedConnections]);
+
+  return useQuery({
+    queryKey: ["allConnectionsSchemaData", connectionKeys],
+    queryFn: async (): Promise<ConnectionSchemaData[]> => {
+      logger.info(`[useAllConnectionsSchemaData] Fetching data for ${connectedConnections.length} connections`);
+
+      const results = await Promise.all(
+        connectedConnections.map(async (conn) => {
+          try {
+            const [allTables, functions] = await Promise.all([
+              schemaCache.getTables(conn.id, conn.schema),
+              schemaCache.getFunctions(conn.id, conn.schema),
+            ]);
+
+            // Separate tables and views
+            const tables = allTables.filter((t) => t.kind === "Table");
+            const views = allTables.filter((t) => t.kind === "View" || t.kind === "MaterializedView");
+
+            logger.info(`[useAllConnectionsSchemaData] ${conn.profile.name}: ${tables.length} tables, ${views.length} views, ${functions.length} functions`);
+
+            return {
+              connection: conn,
+              tables,
+              views,
+              functions: filterUserFunctions(functions),
+            };
+          } catch (err) {
+            logger.error(`[useAllConnectionsSchemaData] Failed to fetch for ${conn.profile.name}:`, err);
+            return {
+              connection: conn,
+              tables: [],
+              views: [],
+              functions: [],
+            };
+          }
+        })
+      );
+
+      return results;
+    },
+    enabled: connectionKeys.length > 0,
+    staleTime: 30 * 1000, // 30 seconds
+    gcTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+/**
+ * Hook that combines all searchable items into a unified list.
+ * Searches across ALL open connections in the workspace.
  */
 export function useUnifiedItems() {
   const { data: commands = [], isLoading: isLoadingCommands } = useCommands();
-  const { quickItems, isLoading: isLoadingQuickOpen } = useQuickOpenItems();
-  const connectionId = useWorkspaceSelectionStore((state) => state.connectionId);
+  const { data: allConnectionsData = [], isLoading: isLoadingSchemaData } = useAllConnectionsSchemaData();
 
-  // Determine if we're in a workspace context
-  const isInWorkspace = !!connectionId;
+  const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
+  const isInWorkspace = !!activeWorkspace;
+  const connectionCount = activeWorkspace?.connections.size ?? 0;
 
   const unifiedItems = useMemo<UnifiedItem[]>(() => {
     const items: UnifiedItem[] = [];
 
-    // Add database objects
-    for (const item of quickItems) {
-      if (item.entityType === "function") {
+    // Add database objects from all connections
+    for (const connData of allConnectionsData) {
+      const { connection, tables, views, functions } = connData;
+      const connId = connection.id;
+      const connName = connection.profile.name;
+      const database = connection.database;
+      const dbType = connection.profile.db_type;
+
+      // Helper to create item ID with connection context
+      const makeId = (entityType: string, schemaName: string, name: string) =>
+        `${entityType}:${connId}:${schemaName}.${name}`;
+
+      // Add tables
+      for (const table of tables) {
         items.push({
-          id: item.id,
-          type: "function",
-          name: item.name,
-          subtitle: item.schema,
-          schema: item.schema,
-          keywords: [item.searchKey, "function", "func"],
-          func: item.func,
+          id: makeId("table", table.schema, table.name),
+          type: "table",
+          name: table.name,
+          subtitle: table.row_estimate ? `~${formatNumber(table.row_estimate)} rows` : "",
+          schema: table.schema,
+          connectionId: connId,
+          connectionName: connName,
+          database,
+          dbType,
+          keywords: [
+            `${table.schema}.${table.name}`.toLowerCase(),
+            "table",
+            connName.toLowerCase(),
+            database.toLowerCase(),
+          ],
+          table,
         });
-      } else {
+      }
+
+      // Add views
+      for (const view of views) {
+        const entityType: TableEntityType =
+          view.kind === "MaterializedView" ? "materializedView" : "view";
         items.push({
-          id: item.id,
-          type: item.entityType,
-          name: item.name,
-          subtitle: item.schema,
-          schema: item.schema,
-          keywords: [item.searchKey, item.entityType],
-          table: item.table,
+          id: makeId(entityType, view.schema, view.name),
+          type: entityType,
+          name: view.name,
+          subtitle: "",
+          schema: view.schema,
+          connectionId: connId,
+          connectionName: connName,
+          database,
+          dbType,
+          keywords: [
+            `${view.schema}.${view.name}`.toLowerCase(),
+            entityType,
+            connName.toLowerCase(),
+            database.toLowerCase(),
+          ],
+          table: view,
+        });
+      }
+
+      // Add functions
+      for (const func of functions) {
+        items.push({
+          id: makeId("function", func.schema, func.name),
+          type: "function",
+          name: func.name,
+          subtitle: "",
+          schema: func.schema,
+          connectionId: connId,
+          connectionName: connName,
+          database,
+          dbType,
+          keywords: [
+            `${func.schema}.${func.name}`.toLowerCase(),
+            "function",
+            "func",
+            connName.toLowerCase(),
+            database.toLowerCase(),
+          ],
+          func,
         });
       }
     }
@@ -273,10 +365,11 @@ export function useUnifiedItems() {
     }
 
     return items;
-  }, [commands, quickItems, isInWorkspace]);
+  }, [commands, allConnectionsData, isInWorkspace]);
 
   return {
     unifiedItems,
-    isLoading: isLoadingCommands || isLoadingQuickOpen,
+    isLoading: isLoadingCommands || isLoadingSchemaData,
+    connectionCount,
   };
 }
