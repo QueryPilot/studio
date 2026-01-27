@@ -146,12 +146,12 @@ export const defaultKeybindings: Keybinding[] = [
   {
     command: 'workspace.undo',
     key: 'cmd+z',
-    when: '!editorTextFocus && !editingCell',
+    when: '!editorTextFocus && !editingCell && !inQuickOpen',
   },
   {
     command: 'workspace.redo',
     key: 'cmd+shift+z',
-    when: '!editorTextFocus && !editingCell',
+    when: '!editorTextFocus && !editingCell && !inQuickOpen',
   },
   {
     command: 'workbench.action.reloadWindow',

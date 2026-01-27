@@ -319,7 +319,7 @@ export function openTableObject({
     updateTabMetadata,
   } = useWorkbenchStore.getState();
 
-  const baseTabId = `table-${table.schema}-${table.name}`;
+  const baseTabId = `table-${connectionId}-${table.schema}-${table.name}`;
 
   // If sourcePanelId is provided and has a filter, try to reuse existing tab in that panel
   if (sourcePanelId && initialFilter) {
@@ -473,7 +473,7 @@ export function openFunctionObject({
       (!func.routine_type && func.return_type === 'void')
         ? 'procedure'
         : 'function';
-    const tabId = `function-${func.schema}-${func.name}`;
+    const tabId = `function-${connectionId}-${func.schema}-${func.name}`;
     addTab(targetPanelId, tabId, {
       type: 'function',
       title: func.name,
@@ -547,7 +547,7 @@ export function openTableInSplitRight({
 
   if (!targetPanelId) return;
 
-  const tabId = `table-${table.schema}-${table.name}`;
+  const tabId = `table-${connectionId}-${table.schema}-${table.name}`;
   const newPanelId = nanoid(8);
 
   splitPanelAction({
@@ -596,7 +596,7 @@ export function openFunctionInSplitRight({
 
   if (!targetPanelId) return;
 
-  const tabId = `function-${func.schema}-${func.name}`;
+  const tabId = `function-${connectionId}-${func.schema}-${func.name}`;
   const newPanelId = nanoid(8);
 
   const objectType =

@@ -421,7 +421,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   <FeatureErrorBoundary featureName="Data Grid">
                     <SqlDataGrid
                       connectionId={
-                        activeConnectionId || metadata.connectionId || ""
+                        metadata.connectionId || activeConnectionId || ""
                       }
                       database={metadata.database || ""}
                       schema={metadata.schema}
@@ -442,7 +442,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                     panelId={panelId}
                     tabId={tabId}
                     connectionId={
-                      activeConnectionId || metadata.connectionId || ""
+                      metadata.connectionId || activeConnectionId || ""
                     }
                     database={metadata.database || ""}
                     schema={metadata.schema}
@@ -456,7 +456,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 {activeView === "indexes" && (
                   <TableIndexes
                     connectionId={
-                      activeConnectionId || metadata.connectionId || ""
+                      metadata.connectionId || activeConnectionId || ""
                     }
                     database={metadata.database || ""}
                     schema={metadata.schema}
@@ -469,7 +469,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 {activeView === "triggers" && (
                   <TableTriggers
                     connectionId={
-                      activeConnectionId || metadata.connectionId || ""
+                      metadata.connectionId || activeConnectionId || ""
                     }
                     database={metadata.database || ""}
                     schema={metadata.schema}
@@ -481,7 +481,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 {activeView === "partitions" && dbType && isMySQLCompatible(dbType) && (
                   <TablePartitions
                     connectionId={
-                      activeConnectionId || metadata.connectionId || ""
+                      metadata.connectionId || activeConnectionId || ""
                     }
                     database={metadata.database || ""}
                     schema={metadata.schema}
@@ -493,7 +493,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 {activeView === "definition" && (
                   <ObjectDefinition
                     connectionId={
-                      activeConnectionId || metadata.connectionId || ""
+                      metadata.connectionId || activeConnectionId || ""
                     }
                     database={metadata.database || ""}
                     schema={metadata.schema || "public"}

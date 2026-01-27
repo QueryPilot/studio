@@ -253,15 +253,18 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
     content.tabIds,
   );
 
-  // Memoize dbType lookups to avoid O(n*m) connection searches during render
-  const dbTypeByConnectionId = useMemo(() => {
-    const map = new Map<string, DbType>();
+  // Memoize connection lookups to avoid O(n*m) connection searches during render
+  const connectionInfoByConnectionId = useMemo(() => {
+    const map = new Map<string, { dbType: DbType; name: string }>();
     content.tabIds.forEach((tabId) => {
       const connectionId = content.metadata?.[tabId]?.connectionId;
       if (connectionId && !map.has(connectionId)) {
         const conn = useConnectionStore.getState().getConnection(connectionId);
         if (conn) {
-          map.set(connectionId, conn.profile.db_type);
+          map.set(connectionId, {
+            dbType: conn.profile.db_type,
+            name: conn.profile.name,
+          });
         }
       }
     });
@@ -392,9 +395,9 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                 ? content.activeTabId === nextTabId
                 : false;
 
-              // Use memoized dbType lookup
-              const dbType = metadata?.connectionId
-                ? dbTypeByConnectionId.get(metadata.connectionId)
+              // Use memoized connection info lookup
+              const connInfo = metadata?.connectionId
+                ? connectionInfoByConnectionId.get(metadata.connectionId)
                 : undefined;
 
               return (
@@ -417,7 +420,9 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                   connectionId={metadata?.connectionId}
                   workspaceConnectionIds={workspaceConnectionIds}
                   databaseName={metadata?.database}
-                  dbType={dbType}
+                  dbType={connInfo?.dbType}
+                  connectionName={connInfo?.name}
+                  schemaName={metadata?.schema}
                   isOnlyTab={content.tabIds.length === 1}
                   tabIndex={index}
                   totalTabs={content.tabIds.length}
