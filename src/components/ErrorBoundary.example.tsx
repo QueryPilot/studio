@@ -6,8 +6,8 @@
  */
 
 import { logger } from "@/lib/logger";
-import { FeatureErrorBoundary } from './FeatureErrorBoundary';
-import { QueryPanel } from './QueryPanel/QueryPanel';
+import { FeatureErrorBoundary } from "./FeatureErrorBoundary";
+import { QueryPanel } from "./QueryPanel/QueryPanel";
 
 // Example 1: Wrap individual features to isolate errors
 export function WorkbenchPanelExample() {
@@ -15,7 +15,7 @@ export function WorkbenchPanelExample() {
     <FeatureErrorBoundary
       featureName="Query Panel"
       onReset={() => {
-        logger.info('Query panel error boundary reset');
+        logger.info("Query panel error boundary reset");
       }}
     >
       <QueryPanel
@@ -34,26 +34,11 @@ export function DataGridExample() {
     <FeatureErrorBoundary
       featureName="Data Grid"
       onReset={() => {
-        logger.info('Data grid error boundary reset');
+        logger.info("Data grid error boundary reset");
       }}
     >
       {/* Your data grid component */}
       <div>Data Grid Content</div>
-    </FeatureErrorBoundary>
-  );
-}
-
-// Example 3: Wrap AI assistant
-export function AIAssistantExample() {
-  return (
-    <FeatureErrorBoundary
-      featureName="AI Assistant"
-      onReset={() => {
-        logger.info('AI assistant error boundary reset');
-      }}
-    >
-      {/* Your AI assistant component */}
-      <div>AI Assistant Content</div>
     </FeatureErrorBoundary>
   );
 }
@@ -69,7 +54,7 @@ export function AIAssistantExample() {
  *
  * Where to add FeatureErrorBoundary:
  * - Around each workbench panel
- * - Around sidebars (database explorer, AI assistant)
+ * - Around sidebars (database explorer, etc.)
  * - Around major data grids
  * - Around ERD visualizations
  * - Around query editors

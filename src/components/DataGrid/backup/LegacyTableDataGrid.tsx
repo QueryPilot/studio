@@ -29,7 +29,6 @@ import { DataGridSkeleton } from "../components/DataGridSkeleton";
 import { DataGridStatusBar } from "../components/DataGridStatusBar";
 import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
 import { FKPreviewPopover } from "../components/FKPreviewPopover";
-import { useAIFilter } from "../hooks/useAIFilter";
 import { type FilterColumnInfo } from "@/utils/filterParser";
 import { openTableObject } from "@/utils/workbench/openers";
 import {
@@ -454,14 +453,6 @@ export const TableDataGrid = memo(function TableDataGrid(
     props,
   ]);
 
-  // AI filter hook with proper connection context
-  const { generateFilter: generateAIFilter, isLoading: isAIFilterLoading } =
-    useAIFilter(filterColumns, table, dialect, {
-      connectionId,
-      schema,
-      enableCrossTable: true,
-    });
-
   // Quick filter hook - manages filter state, parsing, and submission
   // Called before tableDataQuery to provide activeFilter
   const {
@@ -477,7 +468,7 @@ export const TableDataGrid = memo(function TableDataGrid(
   } = useQuickFilter({
     columns: filterColumns,
     initialFilter,
-    generateAIFilter,
+    generateAIFilter: undefined,
     clientSideFiltering: isQueryMode,
   });
 
@@ -2420,7 +2411,7 @@ export const TableDataGrid = memo(function TableDataGrid(
                     onValueChange={setQuickFilterValue}
                     onModeChange={setQuickFilterMode}
                     onSubmit={handleFilterSubmit}
-                    isLoading={isAIFilterLoading}
+                    isLoading={false}
                     error={quickFilterError}
                     explanation={aiExplanation}
                     clientSideFiltering={isQueryMode}

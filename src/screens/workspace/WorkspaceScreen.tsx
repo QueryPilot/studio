@@ -19,7 +19,6 @@ import {
 
 import { useConnectionAutoReconnect } from "@/hooks/useConnectionAutoReconnect";
 import { useSchemaPreload } from "@/hooks/useSchemaPreload";
-import { AIAssistantSidebar } from "@/components/AIAssistant/AIAssistantSidebar";
 import { PreferencesDialog } from "@/components/Preferences/PreferencesDialog";
 import { DebugKeybindings } from "@/components/DebugKeybindings";
 import { FeatureErrorBoundary } from "@/components/FeatureErrorBoundary";
@@ -40,18 +39,22 @@ export function WorkspaceScreen() {
   // Get workspace bundle store state
   const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
   const savedWorkspaces = useWorkspaceBundleStore((s) => s.savedWorkspaces);
-  const loadSavedWorkspaces = useWorkspaceBundleStore((s) => s.loadSavedWorkspaces);
+  const loadSavedWorkspaces = useWorkspaceBundleStore(
+    (s) => s.loadSavedWorkspaces,
+  );
   const openWorkspace = useWorkspaceBundleStore((s) => s.openWorkspace);
-  const openSingleConnection = useWorkspaceBundleStore((s) => s.openSingleConnection);
+  const openSingleConnection = useWorkspaceBundleStore(
+    (s) => s.openSingleConnection,
+  );
   // Get focused connection - compute from state to ensure proper subscription
   const focusedConnectionId = activeWorkspace?.focusedConnectionId ?? null;
   const focusedConnection =
     activeWorkspace?.connections.get(focusedConnectionId ?? "") ?? null;
-  
+
   // Get connection store state - needed to ensure connections are loaded
   const connections = useConnectionStore((s) => s.connections);
   const fetchConnections = useConnectionStore((s) => s.fetchConnections);
-  
+
   // Track if workspaces and connections have been loaded
   const [workspacesLoaded, setWorkspacesLoaded] = useState(false);
   const [connectionsLoaded, setConnectionsLoaded] = useState(false);
@@ -102,12 +105,14 @@ export function WorkspaceScreen() {
   // Load connections on mount (essential for workspace to function)
   useEffect(() => {
     if (connections.length === 0 && !connectionsLoaded) {
-      void fetchConnections().then(() => {
-        setConnectionsLoaded(true);
-      }).catch(() => {
-        // Still mark as loaded even on error to prevent infinite loop
-        setConnectionsLoaded(true);
-      });
+      void fetchConnections()
+        .then(() => {
+          setConnectionsLoaded(true);
+        })
+        .catch(() => {
+          // Still mark as loaded even on error to prevent infinite loop
+          setConnectionsLoaded(true);
+        });
     } else if (connections.length > 0) {
       setConnectionsLoaded(true);
     }
@@ -117,8 +122,13 @@ export function WorkspaceScreen() {
   useEffect(() => {
     // Only load if we have a workspace ID that's not a temp workspace
     const isTempWorkspace = workspaceId?.startsWith("temp-");
-    
-    if (workspaceId && !isTempWorkspace && savedWorkspaces.length === 0 && !workspacesLoaded) {
+
+    if (
+      workspaceId &&
+      !isTempWorkspace &&
+      savedWorkspaces.length === 0 &&
+      !workspacesLoaded
+    ) {
       void loadSavedWorkspaces().then(() => {
         setWorkspacesLoaded(true);
       });
@@ -126,12 +136,17 @@ export function WorkspaceScreen() {
       // For temp workspaces or when workspaces are already loaded
       setWorkspacesLoaded(true);
     }
-  }, [workspaceId, savedWorkspaces.length, workspacesLoaded, loadSavedWorkspaces]);
+  }, [
+    workspaceId,
+    savedWorkspaces.length,
+    workspacesLoaded,
+    loadSavedWorkspaces,
+  ]);
 
   // Handle workspace opening based on route
   useEffect(() => {
     if (!workspaceId) return;
-    
+
     // Skip if workspace is already active and matches the route
     if (activeWorkspace?.config.id === workspaceId) {
       return;
@@ -146,8 +161,10 @@ export function WorkspaceScreen() {
     if (!workspacesLoaded || !connectionsLoaded) return;
 
     // Check if this is a saved workspace ID
-    const isInSavedWorkspaces = savedWorkspaces.some((ws) => ws.id === workspaceId);
-    
+    const isInSavedWorkspaces = savedWorkspaces.some(
+      (ws) => ws.id === workspaceId,
+    );
+
     if (isInSavedWorkspaces) {
       // It's a named workspace - open it
       void openWorkspace(workspaceId);
@@ -201,8 +218,9 @@ export function WorkspaceScreen() {
     setActiveWorkspace(connectionId ?? null);
     if (connectionId) {
       // Check if we have saved state for this connection
-      const savedState =
-        useWorkspaceSelectionStore.getState().getConnectionState(connectionId);
+      const savedState = useWorkspaceSelectionStore
+        .getState()
+        .getConnectionState(connectionId);
       const currentDatabase = useWorkspaceSelectionStore.getState().database;
 
       // Priority: URL param > saved per-connection state > connection profile default
@@ -243,29 +261,33 @@ export function WorkspaceScreen() {
         setSelectedSchema(savedState.schema);
       } else if (!currentSchema) {
         // Fall back to profile's default_schema or common defaults
-        const stored = useConnectionStore.getState().getConnection(connectionId);
+        const stored = useConnectionStore
+          .getState()
+          .getConnection(connectionId);
         const profile = stored?.profile;
-        
+
         // For MySQL/SQLite, use database name as schema (they don't have separate schemas)
         // For PostgreSQL/MSSQL, use default_schema or fallback to 'public'/'dbo'
         let defaultSchema = profile?.default_schema;
         if (!defaultSchema) {
           const dbType = profile?.db_type;
-          if (dbType === 'MySQL') {
+          if (dbType === "MySQL") {
             // MySQL: use current database name as schema
-            defaultSchema = profile?.database || '';
-          } else if (dbType === 'SQLite') {
+            defaultSchema = profile?.database || "";
+          } else if (dbType === "SQLite") {
             // SQLite: always use 'main' as the schema (profile.database is the file path)
-            defaultSchema = 'main';
-          } else if (dbType === 'SQLServer') {
-            defaultSchema = 'dbo';
+            defaultSchema = "main";
+          } else if (dbType === "SQLServer") {
+            defaultSchema = "dbo";
           } else {
-            defaultSchema = 'public';
+            defaultSchema = "public";
           }
         }
-        
-        logger.info(`[WorkspaceScreen] Setting default schema for ${profile?.db_type}: ${defaultSchema}`);
-        
+
+        logger.info(
+          `[WorkspaceScreen] Setting default schema for ${profile?.db_type}: ${defaultSchema}`,
+        );
+
         useWorkspaceSelectionStore.setState({ schema: defaultSchema });
         setSelectedSchema(defaultSchema);
       }
@@ -311,25 +333,27 @@ export function WorkspaceScreen() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       // Only handle Cmd/Ctrl + N combinations
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") {
         if (event.shiftKey) {
           // Cmd+Shift+N: Open new main window
           event.preventDefault();
-          logger.info('[WorkspaceScreen] Opening new main window (Cmd+Shift+N)');
+          logger.info(
+            "[WorkspaceScreen] Opening new main window (Cmd+Shift+N)",
+          );
           void windowManager.openNewMainWindow();
         } else {
           // Cmd+N: Open new table UI
           event.preventDefault();
-          logger.info('[WorkspaceScreen] Opening new table UI (Cmd+N)');
+          logger.info("[WorkspaceScreen] Opening new table UI (Cmd+N)");
           // TODO: Implement new table UI action
         }
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
 
@@ -342,14 +366,15 @@ export function WorkspaceScreen() {
       const { stagedCommands } = useCrudStore.getState();
       const hasPendingChanges = Array.from(stagedCommands.entries()).some(
         ([tableKey, commands]) =>
-          tableKey.startsWith(`${connectionId}:`) && commands.length > 0
+          tableKey.startsWith(`${connectionId}:`) && commands.length > 0,
       );
 
       if (hasPendingChanges) {
         // Standard way to trigger "unsaved changes" dialog
         event.preventDefault();
         // Chrome requires returnValue to be set
-        event.returnValue = "You have unsaved changes. Are you sure you want to leave?";
+        event.returnValue =
+          "You have unsaved changes. Are you sure you want to leave?";
         return event.returnValue;
       }
     };
@@ -371,63 +396,76 @@ export function WorkspaceScreen() {
     const setupCloseHandler = async () => {
       try {
         const currentWindow = getCurrentWindow();
-        const unlistenFn = await currentWindow.onCloseRequested(async (event) => {
-          // Check if there are pending changes for this connection
-          const { stagedCommands } = useCrudStore.getState();
-          const hasPendingChanges = Array.from(stagedCommands.entries()).some(
-            ([tableKey, commands]) =>
-              tableKey.startsWith(`${connectionId}:`) && commands.length > 0
-          );
-
-          if (hasPendingChanges) {
-            // Prevent close and show confirmation dialog
-            event.preventDefault();
-
-            const confirmed = await import("@tauri-apps/plugin-dialog").then(
-              (dialog) =>
-                dialog.confirm(
-                  "You have unsaved changes. Are you sure you want to close this workspace?",
-                  {
-                    title: "Unsaved Changes",
-                    kind: "warning",
-                  }
-                )
+        const unlistenFn = await currentWindow.onCloseRequested(
+          async (event) => {
+            // Check if there are pending changes for this connection
+            const { stagedCommands } = useCrudStore.getState();
+            const hasPendingChanges = Array.from(stagedCommands.entries()).some(
+              ([tableKey, commands]) =>
+                tableKey.startsWith(`${connectionId}:`) && commands.length > 0,
             );
 
-            if (confirmed) {
-              // User confirmed, disconnect with timeout and destroy window
-              logger.info(`[WorkspaceScreen] Closing window with unsaved changes - disconnecting ${connectionId}`);
+            if (hasPendingChanges) {
+              // Prevent close and show confirmation dialog
+              event.preventDefault();
+
+              const confirmed = await import("@tauri-apps/plugin-dialog").then(
+                (dialog) =>
+                  dialog.confirm(
+                    "You have unsaved changes. Are you sure you want to close this workspace?",
+                    {
+                      title: "Unsaved Changes",
+                      kind: "warning",
+                    },
+                  ),
+              );
+
+              if (confirmed) {
+                // User confirmed, disconnect with timeout and destroy window
+                logger.info(
+                  `[WorkspaceScreen] Closing window with unsaved changes - disconnecting ${connectionId}`,
+                );
+
+                // Only try to disconnect if connection is actually active
+                if (databaseService.isConnectionActive(connectionId)) {
+                  // Use timeout to prevent freeze on dead connections
+                  await databaseService.disconnectWithTimeout(
+                    connectionId,
+                    3000,
+                  );
+                } else {
+                  logger.info(
+                    `[WorkspaceScreen] Connection not active, skipping disconnect`,
+                  );
+                }
+
+                // Destroy the window
+                await currentWindow.destroy();
+              }
+            } else {
+              // No pending changes, prevent default and handle cleanup
+              event.preventDefault();
+
+              logger.info(
+                `[WorkspaceScreen] Closing window - disconnecting ${connectionId}`,
+              );
 
               // Only try to disconnect if connection is actually active
+              // This prevents hanging when window is closed during "Connecting" state
               if (databaseService.isConnectionActive(connectionId)) {
                 // Use timeout to prevent freeze on dead connections
                 await databaseService.disconnectWithTimeout(connectionId, 3000);
               } else {
-                logger.info(`[WorkspaceScreen] Connection not active, skipping disconnect`);
+                logger.info(
+                  `[WorkspaceScreen] Connection not active, skipping disconnect`,
+                );
               }
 
               // Destroy the window
               await currentWindow.destroy();
             }
-          } else {
-            // No pending changes, prevent default and handle cleanup
-            event.preventDefault();
-
-            logger.info(`[WorkspaceScreen] Closing window - disconnecting ${connectionId}`);
-
-            // Only try to disconnect if connection is actually active
-            // This prevents hanging when window is closed during "Connecting" state
-            if (databaseService.isConnectionActive(connectionId)) {
-              // Use timeout to prevent freeze on dead connections
-              await databaseService.disconnectWithTimeout(connectionId, 3000);
-            } else {
-              logger.info(`[WorkspaceScreen] Connection not active, skipping disconnect`);
-            }
-
-            // Destroy the window
-            await currentWindow.destroy();
-          }
-        });
+          },
+        );
 
         // Only store if not already disposed
         if (!isDisposed) {
@@ -469,64 +507,45 @@ export function WorkspaceScreen() {
           direction="horizontal"
           className="flex-1 p-1.5 pt-0 bg-secondary"
         >
-        {/* Left Sidebar - Database Explorer */}
-        {sidebars.left && (
-          <>
-            <ResizablePanel
-              id="sidebar-left"
-              order={1}
-              defaultSize={18}
-              minSize={12}
-              maxSize={30}
-              className="flex flex-col rounded-xl bg-background"
-            >
-              <div className="flex-1 overflow-hidden">
-                <SidebarConnectionList />
-              </div>
-            </ResizablePanel>
-            <ResizableHandle />
-          </>
-        )}
+          {/* Left Sidebar - Database Explorer */}
+          {sidebars.left && (
+            <>
+              <ResizablePanel
+                id="sidebar-left"
+                order={1}
+                defaultSize={18}
+                minSize={12}
+                maxSize={30}
+                className="flex flex-col rounded-xl bg-background"
+              >
+                <div className="flex-1 overflow-hidden">
+                  <SidebarConnectionList />
+                </div>
+              </ResizablePanel>
+              <ResizableHandle />
+            </>
+          )}
 
-        {/* Central Content - Workbench Layout */}
-        <ResizablePanel
-          id="main-content"
-          order={2}
-          defaultSize={
-            sidebars.left
-              ? sidebars.right
-                ? 59
-                : 82
-              : sidebars.right
-              ? 77
-              : 100
-          }
-        >
-          <WorkbenchLayout
-            className="h-full"
-            connectionId={connectionId}
-            database={selectedDatabase ?? undefined}
-          />
-        </ResizablePanel>
-
-        {/* Right Sidebar - AI Assistant */}
-        {sidebars.right && (
-          <>
-            <ResizableHandle />
-            <ResizablePanel
-              id="sidebar-right"
-              order={3}
-              defaultSize={23}
-              minSize={15}
-              maxSize={40}
-              className="flex flex-col rounded-xl bg-background overflow-hidden"
-            >
-              <FeatureErrorBoundary featureName="AI Assistant">
-                <AIAssistantSidebar />
-              </FeatureErrorBoundary>
-            </ResizablePanel>
-          </>
-        )}
+          {/* Central Content - Workbench Layout */}
+          <ResizablePanel
+            id="main-content"
+            order={2}
+            defaultSize={
+              sidebars.left
+                ? sidebars.right
+                  ? 59
+                  : 82
+                : sidebars.right
+                  ? 77
+                  : 100
+            }
+          >
+            <WorkbenchLayout
+              className="h-full"
+              connectionId={connectionId}
+              database={selectedDatabase ?? undefined}
+            />
+          </ResizablePanel>
         </ResizablePanelGroup>
       </div>
 

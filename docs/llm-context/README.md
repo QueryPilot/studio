@@ -10,7 +10,6 @@ Detailed documentation for AI assistants working on Query Pilot. These files pro
 | [Frontend Patterns](./frontend-patterns.md) | Working on React components, Zustand stores, hooks |
 | [Backend Patterns](./backend-patterns.md) | Working on Rust commands, database adapters |
 | [Testing](./testing.md) | Writing or running tests |
-| [AI Sidecar](./ai-sidecar.md) | Working on AI features, sidecar routes |
 | [Code Editor](./code-editor.md) | Working on SQL editor, linting, autocomplete |
 | [Security](./security.md) | Working with vault, keychain, credentials |
 | [Build and Release](./build-and-release.md) | Building, signing, releasing the app |

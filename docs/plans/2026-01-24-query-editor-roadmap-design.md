@@ -187,7 +187,7 @@ Focus: long-term competitive edge.
 - Should we unify symbol table resolution between TypeScript and Rust? (Currently duplicated)
 - Should inspections run in worker for non-Tauri environments? (Fallback path)
 - Do we need a user preference for feature degradation thresholds?
-- Should we expose Rust outline/refactor to non-Tauri via HTTP sidecar?
+- Should we expose Rust outline/refactor to non-Tauri environments?
 
 ## Timeline Assessment
 

@@ -26,7 +26,6 @@ src-tauri/src/
 │   ├── mssql/
 │   ├── mongodb/
 │   └── redis/
-├── ai/                 # AI sidecar manager
 ├── ssh/                # SSH tunnel management
 ├── aws/                # AWS Session Manager
 ├── crud/               # CRUD transaction handling

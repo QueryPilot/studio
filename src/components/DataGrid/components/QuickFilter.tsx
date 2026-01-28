@@ -13,7 +13,6 @@ import { useContextKey } from "@/hooks/useContextKey";
 import {
   IconSearch,
   IconCode,
-  IconSparkles,
   IconX,
   IconLoader2,
   IconCopy,
@@ -44,7 +43,6 @@ import {
 // Note: Removed Popover - using lightweight positioned div for autocomplete performance
 import { cn } from "@/lib/utils";
 import type { FilterMode, FilterColumnInfo } from "@/utils/filterParser";
-import { useAIChatStore } from "@/stores/aiChatStore";
 
 interface QuickFilterProps {
   columns: FilterColumnInfo[];
@@ -86,12 +84,6 @@ const modeConfig: Record<
     label: "WHERE Clause",
     description: "SQL expressions",
     placeholder: "age > 25 AND status = 'active'",
-  },
-  ai: {
-    icon: IconSparkles,
-    label: "AI Assistant",
-    description: "Natural language",
-    placeholder: "active users from last week",
   },
 };
 
@@ -452,32 +444,12 @@ export const QuickFilter = memo(
       ];
     }, [resolvedTheme]);
 
-    // AI model selection
-    const {
-      selectedProvider,
-      selectedModel,
-      availableProviders,
-      configuredProviders,
-      isLoadingProviders,
-      setProvider,
-      setModel,
-      loadProviders,
-      getProviderEnabledModels,
-    } = useAIChatStore();
-
-    // Load providers when entering AI mode
-    useEffect(() => {
-      if (mode === "ai") {
-        void loadProviders();
-      }
-    }, [mode, loadProviders]);
-
     // Debounce value and cursor position TOGETHER to avoid double effect runs
     // When both change, we only want one effect execution, not two
     // Use stable reference via useMemo to prevent debounce reset on every render
     const inputState = useMemo(
       () => ({ value, cursor: cursorPosition }),
-      [value, cursorPosition]
+      [value, cursorPosition],
     );
     const debouncedState = useDebounce(inputState, 250);
     const debouncedValue = debouncedState.value;
@@ -503,12 +475,6 @@ export const QuickFilter = memo(
 
     // Update suggestions based on input
     useEffect(() => {
-      // Skip suggestion updates in AI mode (natural language, not SQL)
-      if (mode === "ai") {
-        setShowSuggestions(false);
-        return;
-      }
-
       // Get word at cursor
       const beforeCursor = debouncedValue.slice(0, debouncedCursor);
       const match = beforeCursor.match(WORD_AT_CURSOR_REGEX);
@@ -555,10 +521,15 @@ export const QuickFilter = memo(
         setSuggestionType("column");
 
         // Don't show suggestion if user already typed exact column name
-        const isExactMatch = filtered.length === 1 &&
+        const isExactMatch =
+          filtered.length === 1 &&
           filtered[0]?.name.toLowerCase() === searchTerm.toLowerCase();
 
-        if (filtered.length > 0 && !justAcceptedSuggestion.current && !isExactMatch) {
+        if (
+          filtered.length > 0 &&
+          !justAcceptedSuggestion.current &&
+          !isExactMatch
+        ) {
           setShowSuggestions(true);
         } else {
           setShowSuggestions(false);
@@ -658,7 +629,6 @@ export const QuickFilter = memo(
         // Calculate cursor position in editor coordinates (without prefix)
         const prefixLen =
           (newValue.startsWith("?") && currentMode === "where") ||
-          (newValue.startsWith("#") && currentMode === "ai") ||
           (newValue.startsWith("!") && currentMode === "search")
             ? 1
             : 0;
@@ -973,8 +943,6 @@ export const QuickFilter = memo(
         if (newValue === "") {
           if (mode === "where") {
             onValueChange("?");
-          } else if (mode === "ai") {
-            onValueChange("#");
           } else {
             onValueChange("");
           }
@@ -983,9 +951,7 @@ export const QuickFilter = memo(
 
         // Compute the expected prefixed value
         let expectedValue: string;
-        if (mode === "ai") {
-          expectedValue = "#" + newValue;
-        } else if (mode === "where") {
+        if (mode === "where") {
           expectedValue = "?" + newValue;
         } else {
           expectedValue = newValue;
@@ -1034,10 +1000,7 @@ export const QuickFilter = memo(
           const pos = update.state.selection.main.head;
           const s = stateRefs.current;
           const prefixLen =
-            (s.value.startsWith("?") && s.mode === "where") ||
-            (s.value.startsWith("#") && s.mode === "ai")
-              ? 1
-              : 0;
+            s.value.startsWith("?") && s.mode === "where" ? 1 : 0;
           setCursorPosition(pos + prefixLen);
         }
       },
@@ -1073,7 +1036,6 @@ export const QuickFilter = memo(
                     )}
                     disabled={isLoading}
                   >
-                    {mode === "ai" && <IconSparkles className="size-3.5" />}
                     {mode === "where" && <IconCode className="size-3.5" />}
                     {mode === "search" && <IconSearch className="size-3.5" />}
                   </DropdownMenuTrigger>
@@ -1154,22 +1116,13 @@ export const QuickFilter = memo(
                             const currentValue = value.replace(/^[?#]\s*/, "");
                             if (m === "where") {
                               onValueChange(
-                                currentValue ? `?${currentValue}` : "?"
-                              );
-                            } else if (m === "ai") {
-                              onValueChange(
-                                currentValue ? `#${currentValue}` : "#"
+                                currentValue ? `?${currentValue}` : "?",
                               );
                             } else {
                               onValueChange(currentValue);
                             }
-                            // Focus editor after mode change (not for AI mode - user selects model first)
-                            if (m !== "ai") {
-                              setTimeout(
-                                () => editorViewRef.current?.focus(),
-                                0
-                              );
-                            }
+                            // Focus editor after mode change
+                            setTimeout(() => editorViewRef.current?.focus(), 0);
                           }}
                           className={cn("text-xs", mode === m && "bg-accent")}
                         >
@@ -1183,77 +1136,6 @@ export const QuickFilter = memo(
                         </DropdownMenuItem>
                       );
                     })}
-
-                  {/* AI Model selector - nested in mode dropdown */}
-                  {mode === "ai" && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuGroup>
-                        <DropdownMenuLabel className="text-xs text-muted-foreground">
-                          AI Model
-                        </DropdownMenuLabel>
-                        {isLoadingProviders ? (
-                          <DropdownMenuItem disabled className="text-xs pl-4">
-                            <IconLoader2 className="h-3 w-3 animate-spin mr-2" />
-                            Loading...
-                          </DropdownMenuItem>
-                        ) : (
-                          (() => {
-                            const configured = availableProviders.filter((p) =>
-                              configuredProviders.includes(p.name),
-                            );
-                            if (configured.length === 0) {
-                              return (
-                                <DropdownMenuItem
-                                  disabled
-                                  className="text-xs pl-4"
-                                >
-                                  No providers configured
-                                </DropdownMenuItem>
-                              );
-                            }
-                            return configured.map((provider) => {
-                              const enabledModels = getProviderEnabledModels(
-                                provider.name,
-                              );
-                              const filteredModels = provider.models.filter(
-                                (m) => enabledModels.includes(m.id),
-                              );
-
-                              // Skip provider if no enabled models
-                              if (filteredModels.length === 0) return null;
-
-                              return (
-                                <DropdownMenuGroup key={provider.name}>
-                                  <DropdownMenuLabel className="text-[10px] text-muted-foreground pl-4">
-                                    {provider.name}
-                                  </DropdownMenuLabel>
-                                  {filteredModels.map((model) => (
-                                    <DropdownMenuItem
-                                      key={`${provider.name}-${model.id}`}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setProvider(provider.name);
-                                        setModel(model.id);
-                                      }}
-                                      className={cn(
-                                        "text-xs pl-6",
-                                        selectedProvider === provider.name &&
-                                          selectedModel === model.id &&
-                                          "bg-accent",
-                                      )}
-                                    >
-                                      {model.name}
-                                    </DropdownMenuItem>
-                                  ))}
-                                </DropdownMenuGroup>
-                              );
-                            });
-                          })()
-                        )}
-                      </DropdownMenuGroup>
-                    </>
-                  )}
                 </DropdownMenuContent>
               )}
             </DropdownMenu>

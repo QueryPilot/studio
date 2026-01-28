@@ -6,7 +6,6 @@ import {
 import {
   IconSettings,
   IconCode,
-  IconRobot,
   IconKeyboard,
   IconWorld,
   IconActivity,
@@ -22,11 +21,6 @@ const categories = [
     id: "editor" as PreferenceCategory,
     label: "Editor",
     icon: IconCode,
-  },
-  {
-    id: "ai" as PreferenceCategory,
-    label: "AI Runtime",
-    icon: IconRobot,
   },
   {
     id: "shortcuts" as PreferenceCategory,

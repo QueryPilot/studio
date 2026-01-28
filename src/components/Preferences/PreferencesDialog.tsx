@@ -3,7 +3,6 @@ import { usePreferencesStore } from "@/stores/preferencesStore";
 import { PreferencesSidebar } from "./PreferencesSidebar";
 import GeneralPanel from "./panels/GeneralPanel";
 import EditorPanel from "./panels/EditorPanel";
-import AIPanel from "./panels/AIPanel";
 import TelemetryPanel from "./panels/TelemetryPanel";
 import { GlobalShortcutsPanel } from "./panels/GlobalShortcutsPanel";
 import { Suspense, lazy } from "react";
@@ -39,8 +38,6 @@ export function PreferencesDialog({
         return <GeneralPanel />;
       case "editor":
         return <EditorPanel />;
-      case "ai":
-        return <AIPanel />;
       case "shortcuts":
         return (
           <Suspense

@@ -5,33 +5,13 @@
 | Command | Purpose |
 |---------|---------|
 | `pnpm build` | Build frontend only |
-| `pnpm tauri:build` | Build full app (includes sidecars) |
-| `make build` | Build with all sidecars + SSM plugin |
-| `make build-ai` | Build AI sidecar for current platform |
-| `make build-ai-all` | Build AI sidecar for all platforms |
-
-## AI Sidecar Build
-
-The sidecar is a Bun-compiled TypeScript executable:
-
-```bash
-# Build for current platform
-make build-ai
-
-# Build for all platforms (distribution)
-BUILD_ALL=true make build-ai
-```
-
-**Script**: `scripts/build-ai-sidecar.sh`
-
-**Output**: `src-tauri/sidecars/ai-server-{triple}`
-
-**Config**: Referenced in `tauri.conf.json` as `externalBin`
+| `pnpm tauri:build` | Build full app |
+| `make build` | Build production app |
 
 ## Release Process
 
 ```bash
-# AI-powered release (auto version + changelog)
+# Create a new release
 make release
 
 # Manual release with specific version
@@ -86,4 +66,3 @@ See [SENTRY.md](../../SENTRY.md) for details.
 | `package.json` | Frontend scripts and deps |
 | `src-tauri/Cargo.toml` | Rust dependencies |
 | `entitlements.plist` | macOS entitlements |
-| `scripts/build-ai-sidecar.sh` | Sidecar build script |

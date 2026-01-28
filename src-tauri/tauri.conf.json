@@ -41,9 +41,7 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": [
-          "querypilot"
-        ]
+        "schemes": ["querypilot"]
       }
     },
     "updater": {
@@ -88,9 +86,6 @@
       },
       "files": {},
       "hardenedRuntime": true
-    },
-    "externalBin": [
-      "sidecars/qp-ai"
-    ]
+    }
   }
 }

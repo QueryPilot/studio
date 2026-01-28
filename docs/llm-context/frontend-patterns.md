@@ -44,7 +44,6 @@ Each store has a single concern:
 | `workbenchStore` | Layout tree, tab metadata, drag-drop |
 | `workspaceScreenStore` | Schema/table navigation, filtering |
 | `crudStore` | Transaction state, pending CRUD |
-| `aiChatStore` | AI provider/model selection (persisted) |
 | `dataInvalidationStore` | Event-driven cache invalidation |
 | `panelStore` | Panel visibility and state |
 | `tabStateStore` | Active tab tracking |

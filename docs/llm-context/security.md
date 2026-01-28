@@ -31,7 +31,6 @@ Query Pilot handles sensitive data (database credentials, API keys) with defense
 **Key points**:
 - API keys stored in native OS keychain
 - Never transmitted over IPC in plaintext
-- Sidecar loads keys on startup
 - Frontend never has direct access to keys
 
 ## Credentials Flow
@@ -48,13 +47,13 @@ Query Pilot handles sensitive data (database credentials, API keys) with defense
 │ (Tauri API) │           │  (keyring)  │
 │             │           │             │
 │ Connection  │           │  API Keys   │
-│ Profiles    │           │  (AI/etc)   │
+│ Profiles    │           │             │
 └─────────────┘           └─────────────┘
     │                             │
     ▼                             ▼
 ┌─────────────┐           ┌─────────────┐
-│   Backend   │           │  AI Sidecar │
-│  (Rust)     │           │   (Bun)     │
+│   Backend   │           │             │
+│  (Rust)     │           │             │
 └─────────────┘           └─────────────┘
 ```
 
