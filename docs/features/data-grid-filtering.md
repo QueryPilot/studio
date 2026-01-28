@@ -4,11 +4,11 @@ Query Pilot provides powerful filtering capabilities across all supported databa
 
 ## Overview
 
-| Feature | SQL (PostgreSQL, MySQL, etc.) | Document (MongoDB) | Key-Value (Redis) |
-|---------|-------------------------------|-------------------|-------------------|
-| Search mode | ✅ | ✅ | ✅ |
-| Query mode | ✅ SQL WHERE clause | ✅ MongoDB query | ❌ |
-| Pattern wildcards | N/A | N/A | ✅ |
+| Feature           | SQL (PostgreSQL, MySQL, etc.) | Document (MongoDB) | Key-Value (Redis) |
+| ----------------- | ----------------------------- | ------------------ | ----------------- |
+| Search mode       | ✅                            | ✅                 | ✅                |
+| Query mode        | ✅ SQL WHERE clause           | ✅ MongoDB query   | ❌                |
+| Pattern wildcards | N/A                           | N/A                | ✅                |
 
 ---
 
@@ -21,6 +21,7 @@ SQL databases support three filtering modes, indicated by a prefix character.
 Type text without any prefix to search across all text columns.
 
 **Examples:**
+
 ```
 john                    # Find "john" in any column
 john smith              # Find rows containing both "john" AND "smith"
@@ -47,6 +48,7 @@ john | smith            # Find rows containing "john" OR "smith"
 Type `?` followed by a SQL WHERE clause for precise filtering.
 
 **Examples:**
+
 ```
 ?status = 'active'
 ?age > 18 AND age < 65
@@ -58,6 +60,7 @@ Type `?` followed by a SQL WHERE clause for precise filtering.
 ```
 
 **Supported Operators:**
+
 - Comparison: `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`
 - Pattern: `LIKE`, `ILIKE`, `NOT LIKE`
 - List: `IN`, `NOT IN`
@@ -76,6 +79,7 @@ MongoDB supports search mode and query mode with MongoDB-specific syntax.
 Type text without any prefix to search across all document fields.
 
 **Examples:**
+
 ```
 john                    # Find "john" in any field
 status:active           # Find documents where status contains "active"
@@ -96,6 +100,7 @@ address.city:NYC        # Search nested fields with dot notation
 Type `?` followed by a MongoDB query. Supports both JSON syntax and simplified syntax.
 
 **JSON Query Syntax:**
+
 ```
 ?{ "status": "active" }
 ?{ "age": { "$gt": 18 } }
@@ -107,6 +112,7 @@ Type `?` followed by a MongoDB query. Supports both JSON syntax and simplified s
 ```
 
 **Simplified Query Syntax:**
+
 ```
 ?status = "active"
 ?age > 18
@@ -141,6 +147,7 @@ Redis filtering is simpler because Redis is a key-value store without a query la
 When viewing the list of keys in a Redis database, use the pattern filter in the toolbar.
 
 **Pattern Examples:**
+
 ```
 user:*                  # Keys starting with "user:"
 *:session:*             # Keys containing ":session:"
@@ -156,6 +163,7 @@ When viewing the contents of a specific key, use search or pattern filtering.
 Type text to search across all visible data.
 
 **Examples:**
+
 ```
 john                    # Find "john" in any field or value
 field:value             # Search in specific column
@@ -163,11 +171,11 @@ field:value             # Search in specific column
 
 **By Redis Type:**
 
-| Type | What is Searched |
-|------|------------------|
-| Hash | Field names and values |
-| List | List item values |
-| Set | Set members |
+| Type | What is Searched        |
+| ---- | ----------------------- |
+| Hash | Field names and values  |
+| List | List item values        |
+| Set  | Set members             |
 | ZSet | Member names and scores |
 
 #### Pattern Mode (Wildcards)
@@ -182,11 +190,11 @@ Use `*` or `?` wildcards to filter by field/member names.
 
 **Examples by Redis Type:**
 
-| Type | Pattern Example | Matches |
-|------|-----------------|---------|
-| Hash | `config_*` | Fields starting with "config_" |
-| Set | `*_active` | Members ending with "_active" |
-| ZSet | `user_???` | Members like "user_001", "user_abc" |
+| Type | Pattern Example | Matches                             |
+| ---- | --------------- | ----------------------------------- |
+| Hash | `config_*`      | Fields starting with "config\_"     |
+| Set  | `*_active`      | Members ending with "\_active"      |
+| ZSet | `user_???`      | Members like "user_001", "user_abc" |
 
 ---
 
@@ -194,29 +202,33 @@ Use `*` or `?` wildcards to filter by field/member names.
 
 ### Mode Prefixes
 
-| Prefix | Mode | Available In |
-|--------|------|--------------|
+| Prefix | Mode   | Available In        |
+| ------ | ------ | ------------------- |
 | (none) | Search | SQL, MongoDB, Redis |
-| `?` | Query | SQL, MongoDB |
+| `?`    | Query  | SQL, MongoDB        |
 
 ### Common Filter Patterns
 
 **Find active items:**
+
 - SQL: `?status = 'active'` or just `active`
 - MongoDB: `?{ "status": "active" }` or `status:active`
 - Redis: `active` (searches values)
 
 **Find by date range:**
+
 - SQL: `?created_at >= '2024-01-01' AND created_at < '2024-02-01'`
 - MongoDB: `?{ "createdAt": { "$gte": "2024-01-01", "$lt": "2024-02-01" } }`
 - Redis: N/A (no date queries)
 
 **Exclude deleted:**
+
 - SQL: `?deleted_at IS NULL` or `-deleted`
 - MongoDB: `?{ "deletedAt": null }` or `-deleted`
 - Redis: `-deleted` (client-side search)
 
 **Pattern matching:**
+
 - SQL: `?name LIKE 'John%'`
 - MongoDB: `?{ "name": { "$regex": "^John" } }`
 - Redis: `John*` (for field/member names)

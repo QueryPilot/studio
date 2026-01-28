@@ -13,6 +13,7 @@ Query Pilot handles sensitive data (database credentials, API keys) with defense
 **Frontend service**: `src/services/vaultStorage.ts`
 
 **Features**:
+
 - In-memory cache with dirty-flag tracking
 - Debounced writes (250ms) to prevent thrashing
 - Encrypted at rest
@@ -24,11 +25,13 @@ Query Pilot handles sensitive data (database credentials, API keys) with defense
 **Implementation**: `keyring` crate (Rust)
 
 **Platforms**:
+
 - macOS: Keychain
 - Windows: Credential Manager
 - Linux: Secret Service
 
 **Key points**:
+
 - API keys stored in native OS keychain
 - Never transmitted over IPC in plaintext
 - Frontend never has direct access to keys
@@ -66,10 +69,10 @@ Query Pilot handles sensitive data (database credentials, API keys) with defense
 
 ## Relevant Files
 
-| File | Purpose |
-|------|---------|
-| `src/services/vaultStorage.ts` | Frontend vault access |
-| `src-tauri/src/vault.rs` | Rust vault implementation |
-| `src-tauri/src/keychain.rs` | OS keychain integration |
-| `.env` | Local env vars (gitignored) |
-| `.env.development` | Dev environment defaults |
+| File                           | Purpose                     |
+| ------------------------------ | --------------------------- |
+| `src/services/vaultStorage.ts` | Frontend vault access       |
+| `src-tauri/src/vault.rs`       | Rust vault implementation   |
+| `src-tauri/src/keychain.rs`    | OS keychain integration     |
+| `.env`                         | Local env vars (gitignored) |
+| `.env.development`             | Dev environment defaults    |
