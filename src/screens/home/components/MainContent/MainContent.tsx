@@ -6,7 +6,6 @@ import { ConnectionForm } from "./ConnectionForm";
 import { WorkspaceForm } from "./WorkspaceForm";
 import { WorkspaceCreationForm } from "./WorkspaceCreationForm";
 import { ConnectionRow } from "../shared/ConnectionRow";
-import { ERDWorkspacesSection } from "./ERDWorkspacesSection";
 import { WorkspacesSection } from "./WorkspacesSection";
 import { WorkspaceDetailView } from "./WorkspaceDetailView";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
@@ -22,17 +21,21 @@ export function MainContent() {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       // Only handle if not in an input/textarea
       const activeElement = document.activeElement;
-      const isInInput = activeElement?.tagName === 'INPUT' || activeElement?.tagName === 'TEXTAREA';
+      const isInInput =
+        activeElement?.tagName === "INPUT" ||
+        activeElement?.tagName === "TEXTAREA";
       if (isInInput) return;
 
       // Cmd+D to clone focused connection
-      if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
-        const focusedItem = document.activeElement?.closest('[data-connection-item]');
+      if ((e.metaKey || e.ctrlKey) && e.key === "d") {
+        const focusedItem = document.activeElement?.closest(
+          "[data-connection-item]",
+        );
         if (focusedItem) {
           e.preventDefault();
-          const connectionId = focusedItem.getAttribute('data-connection-id');
+          const connectionId = focusedItem.getAttribute("data-connection-id");
           if (connectionId) {
-            const conn = connections.find(c => c.profile.id === connectionId);
+            const conn = connections.find((c) => c.profile.id === connectionId);
             if (conn) {
               const { saveConnection } = useConnectionStore.getState();
               const clonedProfile = {
@@ -41,7 +44,7 @@ export function MainContent() {
                 name: `${conn.profile.name} (Copy)`,
               };
               saveConnection(clonedProfile, conn.metadata.tags);
-              toast.success('Connection cloned');
+              toast.success("Connection cloned");
             }
           }
         }
@@ -49,10 +52,14 @@ export function MainContent() {
       }
 
       // Tab or Arrow keys to focus first item if none focused
-      if (e.key === 'Tab' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        const isConnectionFocused = activeElement?.hasAttribute('data-connection-item');
+      if (e.key === "Tab" || e.key === "ArrowDown" || e.key === "ArrowUp") {
+        const isConnectionFocused = activeElement?.hasAttribute(
+          "data-connection-item",
+        );
         if (!isConnectionFocused) {
-          const firstItem = document.querySelector('[data-connection-item]') as HTMLElement;
+          const firstItem = document.querySelector(
+            "[data-connection-item]",
+          ) as HTMLElement;
           if (firstItem) {
             e.preventDefault();
             firstItem.focus();
@@ -61,8 +68,10 @@ export function MainContent() {
       }
     };
 
-    window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => { window.removeEventListener('keydown', handleGlobalKeyDown); };
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleGlobalKeyDown);
+    };
   }, [connections]);
 
   // Filter connections based on search query
@@ -134,10 +143,15 @@ export function MainContent() {
           {isSearching ? (
             <div>
               <div className="text-xs text-muted-foreground mb-3">
-                {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} found
+                {searchResults.length} result
+                {searchResults.length !== 1 ? "s" : ""} found
                 {searchQuery && (
                   <span className="ml-1">
-                    for "<span className="font-medium text-foreground">{searchQuery}</span>"
+                    for "
+                    <span className="font-medium text-foreground">
+                      {searchQuery}
+                    </span>
+                    "
                   </span>
                 )}
               </div>
@@ -162,9 +176,6 @@ export function MainContent() {
             <>
               {/* All Connections grouped by tag */}
               <ConnectionsSection />
-
-              {/* ERD Workspaces */}
-              <ERDWorkspacesSection />
             </>
           )}
         </div>
