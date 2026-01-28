@@ -1,5 +1,6 @@
 import React, {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -143,9 +144,13 @@ export function CommandPalette(): React.ReactElement {
   const actionsButtonRef = useRef<HTMLButtonElement>(null);
   const [selectedValue, setSelectedValue] = useState<string>("");
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [indexReady, setIndexReady] = useState(false);
+  // Track when content is ready to render (after first paint)
+  const [contentReady, setContentReady] = useState(false);
 
   const isOpen = useCommandPaletteStore((state) => state.isOpen);
   const query = useCommandPaletteStore((state) => state.query);
+  const deferredQuery = useDeferredValue(query);
   const setQuery = useCommandPaletteStore((state) => state.setQuery);
   const closePalette = useCommandPaletteStore((state) => state.closePalette);
   const openPalette = useCommandPaletteStore((state) => state.openPalette);
@@ -211,10 +216,62 @@ export function CommandPalette(): React.ReactElement {
     };
   }, [isOpen]);
 
-  const searchQuery = query.trim().toLowerCase();
+  // CRITICAL: Defer content rendering until after first paint
+  // This allows the dialog shell to appear instantly
+  useEffect(() => {
+    if (!isOpen) {
+      setContentReady(false);
+      setIndexReady(false);
+      return;
+    }
+    // Use double-rAF to ensure we're past the first paint
+    // First rAF schedules for next frame, second ensures paint completed
+    let cancelled = false;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!cancelled) {
+          setContentReady(true);
+        }
+      });
+    });
+    return () => { cancelled = true; };
+  }, [isOpen]);
 
-  // Get recently used items
+  // Defer Fuse index creation until after content is ready
+  useEffect(() => {
+    if (!contentReady) {
+      setIndexReady(false);
+      return;
+    }
+    // When content is ready, defer index creation slightly more
+    if (typeof requestIdleCallback !== "undefined") {
+      const id = requestIdleCallback(() => { setIndexReady(true); }, { timeout: 50 });
+      return () => { cancelIdleCallback(id); };
+    }
+    // Fallback for browsers without requestIdleCallback
+    const id = setTimeout(() => { setIndexReady(true); }, 16);
+    return () => { clearTimeout(id); };
+  }, [contentReady]);
+
+  const searchQuery = deferredQuery.trim().toLowerCase();
+
+  // Consolidated Fuse index - only created when content is ready and index is ready
+  const fuseIndex = useMemo(() => {
+    if (!contentReady || !indexReady) return null;
+    return new Fuse(unifiedItems, UNIFIED_FUSE_OPTIONS);
+  }, [contentReady, indexReady, unifiedItems]);
+
+  // Search results from the consolidated index
+  const searchResults = useMemo(() => {
+    if (!searchQuery || !fuseIndex) return null;
+    return fuseIndex.search(searchQuery);
+  }, [fuseIndex, searchQuery]);
+
+  // Get recently used items - only compute when content is ready
   const recentItems = useMemo(() => {
+    // Skip computation until content is ready (after first paint)
+    if (!contentReady) return [];
+
     const limit = searchQuery
       ? MAX_RECENT_ITEMS_SEARCH
       : MAX_RECENT_ITEMS_EMPTY;
@@ -223,24 +280,29 @@ export function CommandPalette(): React.ReactElement {
       return getTopFrecencyItems(unifiedItems, limit);
     }
 
-    // When searching, filter recent items by query match
-    const fuse = new Fuse(unifiedItems, UNIFIED_FUSE_OPTIONS);
-    const searchResults = fuse.search(searchQuery);
-    const matchedIds = new Set(searchResults.map((r) => r.item.id));
+    // When searching but index not ready, show empty results
+    if (!searchResults) {
+      return [];
+    }
 
+    // When searching, filter recent items by query match
+    const matchedIds = new Set(searchResults.map((r) => r.item.id));
     return getTopFrecencyItems(
       unifiedItems.filter((item) => matchedIds.has(item.id)),
       limit,
     );
-  }, [unifiedItems, searchQuery, getTopFrecencyItems]);
+  }, [contentReady, unifiedItems, searchQuery, searchResults, getTopFrecencyItems]);
 
   const recentItemIds = useMemo(
     () => new Set(recentItems.map((item) => item.id)),
     [recentItems],
   );
 
-  // Get grouped items (excluding recent)
+  // Get grouped items (excluding recent) - only compute when content is ready
   const groupedItems = useMemo(() => {
+    // Skip computation until content is ready (after first paint)
+    if (!contentReady) return [];
+
     let itemsToGroup = unifiedItems.filter(
       (item) => !recentItemIds.has(item.id),
     );
@@ -249,11 +311,15 @@ export function CommandPalette(): React.ReactElement {
     let scoreMap: Map<string, number> | null = null;
 
     if (searchQuery) {
-      const fuse = new Fuse(itemsToGroup, UNIFIED_FUSE_OPTIONS);
-      const results = fuse.search(searchQuery);
-      // Store scores for sorting (lower score = better match)
-      scoreMap = new Map(results.map((r) => [r.item.id, r.score ?? 1]));
-      itemsToGroup = results.map((r) => r.item);
+      // When searching but index not ready, show empty results
+      if (!searchResults) {
+        return [];
+      }
+
+      // Build score map from search results
+      scoreMap = new Map(searchResults.map((r) => [r.item.id, r.score ?? 1]));
+      const matchedIds = new Set(searchResults.map((r) => r.item.id));
+      itemsToGroup = itemsToGroup.filter((item) => matchedIds.has(item.id));
     }
 
     // Group by type
@@ -292,7 +358,7 @@ export function CommandPalette(): React.ReactElement {
       const items = groups.get(group);
       return [group, items ?? []] as [ItemGroup, UnifiedItem[]];
     });
-  }, [unifiedItems, searchQuery, recentItemIds, sortByFrecency]);
+  }, [contentReady, unifiedItems, searchQuery, searchResults, recentItemIds, sortByFrecency]);
 
   // Find the selected item for actions
   const selectedItem = useMemo(() => {
@@ -308,9 +374,11 @@ export function CommandPalette(): React.ReactElement {
 
   const firstVisibleItemId = useMemo(() => {
     if (nestedMode) return "";
-    if (recentItems.length > 0) return recentItems[0].id;
+    const firstRecent = recentItems[0];
+    if (firstRecent) return firstRecent.id;
     for (const [, items] of groupedItems) {
-      if (items.length > 0) return items[0].id;
+      const firstItem = items[0];
+      if (firstItem) return firstItem.id;
     }
     return "";
   }, [nestedMode, recentItems, groupedItems]);
@@ -741,6 +809,8 @@ export function CommandPalette(): React.ReactElement {
 
   const emptyMessage = isLoading
     ? ""
+    : searchQuery && !indexReady
+    ? "Indexing..."
     : searchQuery
     ? "No results found."
     : "No items available.";
@@ -823,10 +893,11 @@ export function CommandPalette(): React.ReactElement {
       ) : (
         <>
           <CommandList ref={listRef} className="h-[300px]">
-            {isLoading ? (
+            {!contentReady || isLoading ? (
+              // Show loading immediately - this renders before content is ready
               <div className="flex items-center justify-center py-6 text-xs text-muted-foreground gap-2">
                 <IconLoader2 className="size-4 animate-spin" />
-                Loading...
+                {!contentReady ? "" : "Loading..."}
               </div>
             ) : (
               <>

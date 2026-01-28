@@ -10,6 +10,7 @@ export type {
   MetadataProvider,
   EditorContextAnalysis,
   JoinConditionSuggestion,
+  FunctionMeta,
 } from "./types";
 
 export type { StatementBoundary } from "./query-utils";

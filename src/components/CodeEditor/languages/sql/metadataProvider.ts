@@ -1,5 +1,5 @@
 import { schemaCache } from "@/services/schemaCache";
-import type { MetadataProvider, EntityMeta, FieldMeta, EntityDetails, JoinConditionSuggestion } from "../../types";
+import type { MetadataProvider, EntityMeta, FieldMeta, EntityDetails, JoinConditionSuggestion, FunctionMeta } from "../../types";
 
 /**
  * SQL implementation of MetadataProvider.
@@ -296,6 +296,27 @@ export class SqlMetadataProvider implements MetadataProvider {
           }
         }
       }
+    }
+  }
+
+  /**
+   * List database functions in the given schema.
+   * Returns user-defined and built-in functions from the database.
+   */
+  async listFunctions(schema?: string): Promise<FunctionMeta[]> {
+    const targetSchema = schema || this.defaultSchema;
+
+    try {
+      const functions = await schemaCache.getFunctions(this.connectionId, targetSchema);
+
+      return functions.map((f) => ({
+        name: f.name,
+        returnType: f.return_type,
+        arguments: f.arguments.join(", "),
+        description: undefined,
+      }));
+    } catch {
+      return [];
     }
   }
 

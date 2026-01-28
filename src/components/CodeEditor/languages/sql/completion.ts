@@ -384,8 +384,19 @@ export const createSqlCompletionSource = (
         // Include SQL functions with signatures
         const { identifier } = analysis;
         if (identifier.length >= 2) {
+          // Static SQL functions
           const matchingFunctions = searchFunctions(identifier);
           completions.push(...mapFunctionsToCompletions(matchingFunctions, 0.5));
+
+          // Database functions from schema cache (user-defined and built-in)
+          if (provider.listFunctions) {
+            const dbFunctions = await provider.listFunctions();
+            const upperIdentifier = identifier.toUpperCase();
+            const matchingDbFunctions = dbFunctions.filter(
+              (f) => f.name.toUpperCase().startsWith(upperIdentifier)
+            );
+            completions.push(...mapDbFunctionsToCompletions(matchingDbFunctions, 1));
+          }
         }
 
         // Also include table names
@@ -514,6 +525,27 @@ function mapFunctionsToCompletions(functions: SqlFunction[], boost: number = 0.5
     apply: fn.parameters.length === 0 ? `${fn.name}()` : `${fn.name}(`,
     boost,
   }));
+}
+
+/**
+ * Map database functions (from schema cache) to completions
+ */
+function mapDbFunctionsToCompletions(
+  functions: Array<{ name: string; returnType: string; arguments: string; description?: string }>,
+  boost: number = 1
+): Completion[] {
+  return functions.map((fn) => {
+    const hasArgs = fn.arguments && fn.arguments.length > 0;
+    const signature = `${fn.name}(${fn.arguments || ""})`;
+    return {
+      label: fn.name,
+      type: "function",
+      detail: fn.returnType || "function",
+      info: fn.description || signature,
+      apply: hasArgs ? `${fn.name}(` : `${fn.name}()`,
+      boost,
+    };
+  });
 }
 
 /**
