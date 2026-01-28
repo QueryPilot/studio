@@ -232,9 +232,9 @@ export function ConnectionsSection() {
       map.set(conn.profile.id, conn);
     }
     return map;
-   }, [filteredConnections]);
+  }, [filteredConnections]);
 
-   const workspaceGroups = useMemo(() => {
+  const workspaceGroups = useMemo(() => {
     const groups: WorkspaceGroup[] = [];
     const workspaceToConnections = getConnectionsByWorkspace();
     const uncategorizedIds = getUncategorizedConnectionIds();
@@ -259,7 +259,12 @@ export function ConnectionsSection() {
     }
 
     return groups;
-  }, [savedWorkspaces, connectionMap, getConnectionsByWorkspace, getUncategorizedConnectionIds]);
+  }, [
+    savedWorkspaces,
+    connectionMap,
+    getConnectionsByWorkspace,
+    getUncategorizedConnectionIds,
+  ]);
 
   const toggleWorkspaceCollapse = (wsId: string) => {
     setCollapsedWorkspaces((prev) => {
@@ -312,60 +317,62 @@ export function ConnectionsSection() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <IconDatabase className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-sm font-medium">Connections</h2>
-          <span className="text-xs text-muted-foreground">
-            ({filteredConnections.length})
-          </span>
-        </div>
+      <div className="sticky top-0 z-10 bg-background pb-4 -mx-6 px-6 pt-6 -mt-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <IconDatabase className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-sm font-medium">Connections</h2>
+            <span className="text-xs text-muted-foreground">
+              ({filteredConnections.length})
+            </span>
+          </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex items-center border rounded-md">
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`h-7 px-2 rounded-r-none ${
-                viewMode === "grid" ? "bg-muted" : ""
-              }`}
-              onClick={() => {
-                setViewMode("grid");
-              }}
-              title="Grid view"
-            >
-              <IconLayoutGrid className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`h-7 px-2 rounded-l-none ${
-                viewMode === "list" ? "bg-muted" : ""
-              }`}
-              onClick={() => {
-                setViewMode("list");
-              }}
-              title="List view"
-            >
-              <IconList className="h-3.5 w-3.5" />
-            </Button>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center border rounded-md">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`h-7 px-2 rounded-r-none ${
+                  viewMode === "grid" ? "bg-muted" : ""
+                }`}
+                onClick={() => {
+                  setViewMode("grid");
+                }}
+                title="Grid view"
+              >
+                <IconLayoutGrid className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`h-7 px-2 rounded-l-none ${
+                  viewMode === "list" ? "bg-muted" : ""
+                }`}
+                onClick={() => {
+                  setViewMode("list");
+                }}
+                title="List view"
+              >
+                <IconList className="h-3.5 w-3.5" />
+              </Button>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="flex items-center gap-3 mb-4 text-[10px] text-muted-foreground">
-        <span className="inline-flex items-center gap-1">
-          <Kbd>↑↓</Kbd> navigate
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <Kbd>↵</Kbd> connect
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <Kbd>⌘D</Kbd> clone
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <Kbd>/</Kbd> search
-        </span>
+        <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1">
+            <Kbd>↑↓</Kbd> navigate
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Kbd>↵</Kbd> connect
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Kbd>⌘D</Kbd> clone
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Kbd>/</Kbd> search
+          </span>
+        </div>
       </div>
 
       {filteredConnections.length === 0 ? (
@@ -398,7 +405,9 @@ export function ConnectionsSection() {
 
       <Dialog
         open={deleteDialog.isOpen}
-        onOpenChange={(open) => !open && setDeleteDialog({ isOpen: false, workspace: null })}
+        onOpenChange={(open) =>
+          !open && setDeleteDialog({ isOpen: false, workspace: null })
+        }
       >
         <DialogContent>
           <DialogHeader>
@@ -408,12 +417,17 @@ export function ConnectionsSection() {
             </DialogTitle>
             <DialogDescription>
               Are you sure you want to delete "{deleteDialog.workspace?.name}"?
-              {deleteDialog.workspace && deleteDialog.workspace.connectionIds.length > 0 && (
-                <span className="block mt-2 text-foreground">
-                  This workspace contains {deleteDialog.workspace.connectionIds.length} connection
-                  {deleteDialog.workspace.connectionIds.length !== 1 ? "s" : ""}.
-                </span>
-              )}
+              {deleteDialog.workspace &&
+                deleteDialog.workspace.connectionIds.length > 0 && (
+                  <span className="block mt-2 text-foreground">
+                    This workspace contains{" "}
+                    {deleteDialog.workspace.connectionIds.length} connection
+                    {deleteDialog.workspace.connectionIds.length !== 1
+                      ? "s"
+                      : ""}
+                    .
+                  </span>
+                )}
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-2">
@@ -428,25 +442,34 @@ export function ConnectionsSection() {
                 Only remove the workspace. Connections will remain available.
               </div>
             </button>
-            {deleteDialog.workspace && deleteDialog.workspace.connectionIds.length > 0 && (
-              <button
-                type="button"
-                onClick={() => void handleDeleteWithConnections()}
-                disabled={isDeleting}
-                className="w-full text-left p-3 rounded-lg border border-destructive/30 hover:bg-destructive/5 transition-colors disabled:opacity-50"
-              >
-                <div className="font-medium text-sm text-destructive">Delete everything</div>
-                <div className="text-xs text-muted-foreground mt-0.5">
-                  Permanently delete workspace and all {deleteDialog.workspace.connectionIds.length} connection
-                  {deleteDialog.workspace.connectionIds.length !== 1 ? "s" : ""}.
-                </div>
-              </button>
-            )}
+            {deleteDialog.workspace &&
+              deleteDialog.workspace.connectionIds.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteWithConnections()}
+                  disabled={isDeleting}
+                  className="w-full text-left p-3 rounded-lg border border-destructive/30 hover:bg-destructive/5 transition-colors disabled:opacity-50"
+                >
+                  <div className="font-medium text-sm text-destructive">
+                    Delete everything
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    Permanently delete workspace and all{" "}
+                    {deleteDialog.workspace.connectionIds.length} connection
+                    {deleteDialog.workspace.connectionIds.length !== 1
+                      ? "s"
+                      : ""}
+                    .
+                  </div>
+                </button>
+              )}
           </div>
           <DialogFooter>
             <Button
               variant="ghost"
-              onClick={() => setDeleteDialog({ isOpen: false, workspace: null })}
+              onClick={() =>
+                setDeleteDialog({ isOpen: false, workspace: null })
+              }
               disabled={isDeleting}
             >
               Cancel
