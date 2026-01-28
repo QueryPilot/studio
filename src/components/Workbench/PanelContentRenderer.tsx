@@ -19,6 +19,7 @@ import {
   IconAssembly,
   IconLayoutGrid,
 } from "@tabler/icons-react";
+import { Loader2 } from "lucide-react";
 import { SqlDataGrid, DocumentDataGrid, KeyValueDataGrid } from "@/components/DataGrid";
 import { TableStructure } from "@/components/TableStructure";
 import { TableIndexes } from "@/components/TableIndexes";
@@ -67,6 +68,25 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     );
     const getConnection = useConnectionStore((state) => state.getConnection);
     const focusedPanelId = useWorkbenchStore((state) => state.focusedPanelId);
+
+    // Visibility guard: defer heavy content rendering to allow instant tab switching
+    const [contentReady, setContentReady] = useState(false);
+
+    useEffect(() => {
+      setContentReady(false);
+      let cancelled = false;
+      // Use double-rAF to ensure we're past the first paint
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!cancelled) {
+            setContentReady(true);
+          }
+        });
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [tabId]);
 
     // Get dbType from connection profile
     const connectionId = metadata?.connectionId || activeConnectionId || "";
@@ -182,6 +202,15 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
         setQueryState(tabId, { tableViewType: activeView });
       }
     }, [activeView, metadata, panelId, tabId, updateTabMetadata, type, setQueryState]);
+
+    // Show loading spinner until content is ready (enables instant tab switching)
+    if (!contentReady) {
+      return (
+        <div className="flex items-center justify-center h-full">
+          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
 
     if (type === "query") {
       return (

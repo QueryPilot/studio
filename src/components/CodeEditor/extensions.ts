@@ -44,11 +44,22 @@ import { dbmlMixed } from "./languages/dbml/dbml-mixed";
 import { createDialectLinter } from "./languages/sql/linter-strategy";
 import { preInitPgParser } from "./languages/sql/pg-parser-linter";
 import { preInitLinterWorker } from "./languages/sql/linter-worker-manager";
-
-// Pre-initialize workers to avoid delay on first lint
-preInitPgParser();      // PostgreSQL WASM worker
-preInitLinterWorker();  // MySQL/SQLite/MSSQL tokenizer worker
 import { createSqlCompletionSource } from "./languages/sql/completion";
+
+// Lazy pre-initialization flag - workers are initialized on first SQL editor mount
+let sqlWorkersInitialized = false;
+
+/**
+ * Pre-initialize SQL workers (PostgreSQL WASM parser and tokenizer worker).
+ * Called lazily when the first SQL editor mounts to avoid blocking module load
+ * for JSON-only editors (like MongoDB panel).
+ */
+export function preInitSqlWorkers(): void {
+  if (sqlWorkersInitialized) return;
+  sqlWorkersInitialized = true;
+  preInitPgParser();      // PostgreSQL WASM worker
+  preInitLinterWorker();  // MySQL/SQLite/MSSQL tokenizer worker
+}
 import { createSqlHoverExtension } from "./languages/sql/hover";
 import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";
 import { createExpandStarExtension } from "./languages/sql/code-actions";

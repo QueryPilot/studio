@@ -2715,10 +2715,19 @@ export const ExplainViewer = memo(function ExplainViewer({
 
   const savedPlans = tabId ? getSavedExplainPlans(tabId) : [];
 
-  const parsed = useMemo(
-    () => parsePostgresExplain(result.rows),
-    [result.rows],
-  );
+  const parsed = useMemo(() => {
+    // Only parse when actually viewing explain-related modes
+    if (viewMode !== "explain" && viewMode !== "raw" && viewMode !== "stats") {
+      return {
+        nodes: [],
+        planningTime: 0,
+        executionTime: 0,
+        totalCost: 0,
+        raw: "",
+      };
+    }
+    return parsePostgresExplain(result.rows);
+  }, [result.rows, viewMode]);
 
   const handleSavePlan = () => {
     if (!tabId || !currentQuery) {

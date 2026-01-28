@@ -370,9 +370,12 @@ export const QueryPanel = memo(function QueryPanel({
       const isExplain = sqlUpper.startsWith("EXPLAIN");
       setIsExplainResult(isExplain);
 
-      // Auto-switch to explain view mode for EXPLAIN queries
+      // Auto-switch view mode based on query type
       if (isExplain) {
         setViewMode("explain");
+      } else {
+        // Reset to table view for regular queries (in case user was viewing explain results)
+        setViewMode("table");
       }
 
       setIsExecuting(true);
@@ -926,17 +929,25 @@ export const QueryPanel = memo(function QueryPanel({
       setShowSaveDialog(true);
     };
 
+    const handleToggleResults = () => {
+      if (!isFocusedRef.current) return;
+      logger.info("🟢 QueryPanel handling toggle results event");
+      toggleResults();
+    };
+
     // Subscribe ALWAYS - handlers check focus
     eventBus.on("query-editor:format", handleFormat);
     eventBus.on("query-editor:execute", handleExecuteEvent);
     eventBus.on("query-editor:save", handleSaveQuery);
+    eventBus.on("query-panel:toggle-results", handleToggleResults);
 
     return () => {
       eventBus.off("query-editor:format", handleFormat);
       eventBus.off("query-editor:execute", handleExecuteEvent);
       eventBus.off("query-editor:save", handleSaveQuery);
+      eventBus.off("query-panel:toggle-results", handleToggleResults);
     };
-  }, [handleBeautify, handleExecute, query]);
+  }, [handleBeautify, handleExecute, query, toggleResults]);
 
   // Focus panel when QueryPanel is clicked or focused
   const handleFocusPanel = useCallback(() => {
@@ -945,6 +956,16 @@ export const QueryPanel = memo(function QueryPanel({
       state.focusPanel(panelId);
     }
   }, [panelId]);
+
+  // Auto-focus editor when this panel becomes focused (e.g., via Cmd+[ or Cmd+])
+  useEffect(() => {
+    if (isPanelFocused) {
+      // Use requestAnimationFrame to ensure DOM is ready and avoid race conditions
+      requestAnimationFrame(() => {
+        editorRef.current?.focus();
+      });
+    }
+  }, [isPanelFocused]);
 
   return (
     <div

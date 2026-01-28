@@ -3,6 +3,7 @@ import React, { type ReactNode, createContext, useContext, useEffect, useMemo } 
 
 import { contextKeyDefinitions } from '@/data/contextKeys';
 import { appearanceCommands } from '@/data/commands/appearanceCommands';
+import { queryCommands } from '@/data/commands/queryCommands';
 import { defaultCommands } from '@/data/defaultCommands';
 import { defaultKeybindings } from '@/data/defaultKeybindings';
 import { keyboardHandler } from '@/services/keyboardHandler';
@@ -37,6 +38,7 @@ function initializeServices(): void {
   try {
     commandService.registerMany(defaultCommands, 'default');
     commandService.registerMany(appearanceCommands, 'default');
+    commandService.registerMany(queryCommands, 'default');
   } catch (error) {
     logger.error('[KeyboardProvider] Failed to register default commands:', error);
   }

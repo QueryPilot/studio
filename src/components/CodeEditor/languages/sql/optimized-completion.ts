@@ -116,8 +116,14 @@ function getUsageBoost(type: "tables" | "columns" | "functions", name: string): 
 // FUZZY MATCHING - Better discoverability
 // ============================================================================
 
+// LRU cache for fuzzy score results to avoid recomputation
+const fuzzyScoreCache = new Map<string, number>();
+const MAX_FUZZY_CACHE_SIZE = 500;
+
 /**
  * Calculate fuzzy match score between query and target.
+ * Results are cached for performance when filtering 50+ completion items.
+ *
  * Supports:
  * - Prefix matching: "ord" -> "orders" (highest)
  * - Underscore split: "oi" -> "order_items"
@@ -128,51 +134,83 @@ function getUsageBoost(type: "tables" | "columns" | "functions", name: string): 
 function fuzzyScore(query: string, target: string): number {
   if (!query || !target) return 0;
 
+  // Check cache first
+  const cacheKey = `${query}|${target}`;
+  const cached = fuzzyScoreCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
   const q = query.toLowerCase();
   const t = target.toLowerCase();
 
+  let score: number;
+
   // Exact match
-  if (t === q) return 100;
+  if (t === q) {
+    score = 100;
+  } else if (t.startsWith(q)) {
+    // Prefix match (highest priority)
+    score = 90 + (q.length / t.length) * 10;
+  } else {
+    // Underscore/camelCase acronym match: "oi" -> "order_items"
+    const parts = target.split(/[_\s]|(?=[A-Z])/);
+    const acronym = parts.map(p => p[0] || "").join("").toLowerCase();
 
-  // Prefix match (highest priority)
-  if (t.startsWith(q)) return 90 + (q.length / t.length) * 10;
+    if (acronym === q) {
+      score = 85;
+    } else if (acronym.startsWith(q)) {
+      score = 80 + (q.length / acronym.length) * 5;
+    } else {
+      // Sequential character match with gap penalty
+      let matchScore = 0;
+      let queryIdx = 0;
+      let lastMatchIdx = -1;
+      let consecutiveBonus = 0;
 
-  // Underscore/camelCase acronym match: "oi" -> "order_items"
-  const parts = target.split(/[_\s]|(?=[A-Z])/);
-  const acronym = parts.map(p => p[0] || "").join("").toLowerCase();
-  if (acronym === q) return 85;
-  if (acronym.startsWith(q)) return 80 + (q.length / acronym.length) * 5;
+      for (let i = 0; i < t.length && queryIdx < q.length; i++) {
+        if (t[i] === q[queryIdx]) {
+          // Bonus for consecutive matches
+          if (lastMatchIdx === i - 1) {
+            consecutiveBonus += 5;
+          } else {
+            consecutiveBonus = 0;
+          }
 
-  // Sequential character match with gap penalty
-  let score = 0;
-  let queryIdx = 0;
-  let lastMatchIdx = -1;
-  let consecutiveBonus = 0;
+          // Bonus for matching at word boundaries
+          const isWordStart = i === 0 || /[_\s]/.test(t[i - 1] || "") ||
+                              (t[i - 1]?.toLowerCase() === t[i - 1] && t[i]?.toUpperCase() === t[i]);
 
-  for (let i = 0; i < t.length && queryIdx < q.length; i++) {
-    if (t[i] === q[queryIdx]) {
-      // Bonus for consecutive matches
-      if (lastMatchIdx === i - 1) {
-        consecutiveBonus += 5;
-      } else {
-        consecutiveBonus = 0;
+          matchScore += 10 + consecutiveBonus + (isWordStart ? 15 : 0);
+          lastMatchIdx = i;
+          queryIdx++;
+        }
       }
 
-      // Bonus for matching at word boundaries
-      const isWordStart = i === 0 || /[_\s]/.test(t[i - 1] || "") ||
-                          (t[i - 1]?.toLowerCase() === t[i - 1] && t[i]?.toUpperCase() === t[i]);
-
-      score += 10 + consecutiveBonus + (isWordStart ? 15 : 0);
-      lastMatchIdx = i;
-      queryIdx++;
+      // All characters must match
+      if (queryIdx !== q.length) {
+        score = 0;
+      } else {
+        // Normalize by target length (prefer shorter matches)
+        score = Math.min(matchScore * (q.length / t.length), 75);
+      }
     }
   }
 
-  // All characters must match
-  if (queryIdx !== q.length) return 0;
+  // Cache the result with simple LRU eviction
+  if (fuzzyScoreCache.size >= MAX_FUZZY_CACHE_SIZE) {
+    // Evict oldest half of entries
+    const entries = Array.from(fuzzyScoreCache.entries());
+    fuzzyScoreCache.clear();
+    const keepFrom = Math.floor(entries.length / 2);
+    for (let i = keepFrom; i < entries.length; i++) {
+      const entry = entries[i];
+      if (entry) {
+        fuzzyScoreCache.set(entry[0], entry[1]);
+      }
+    }
+  }
+  fuzzyScoreCache.set(cacheKey, score);
 
-  // Normalize by target length (prefer shorter matches)
-  return Math.min(score * (q.length / t.length), 75);
+  return score;
 }
 
 /**

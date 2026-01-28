@@ -7,6 +7,8 @@ import {
   useEffect,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import { useGridPreferencesStore } from "@/components/DataGrid/stores/gridPreferencesStore";
+import { useGridPreferencesHydrated } from "@/components/DataGrid/stores/gridPreferencesSelectors";
 import {
   GridCellKind,
   type Item,
@@ -221,6 +223,16 @@ export const TableStructure = memo(function TableStructure({
     (state) => state.updateTabMetadata,
   );
 
+  // Grid ID for structure search persistence
+  const structureGridId = `${connectionId}:${database}:${schema}:${table}:structure`;
+
+  // Hydration and persisted search state
+  const hydrated = useGridPreferencesHydrated();
+  const persistedSearch = useGridPreferencesStore(
+    (state) => state.preferences[structureGridId]?.structureSearch ?? ""
+  );
+  const setStructureSearch = useGridPreferencesStore((state) => state.setStructureSearch);
+
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<StructureGridRow | null>(
     null,
@@ -230,7 +242,22 @@ export const TableStructure = memo(function TableStructure({
     columns: CompactSelection.empty(),
     rows: CompactSelection.empty(),
   });
-  const [searchQuery, setSearchQuery] = useState("");
+
+  // Search query with persistence - initialize from persisted value after hydration
+  const [searchQuery, setSearchQueryLocal] = useState("");
+
+  // Sync search query from persisted state after hydration
+  useEffect(() => {
+    if (hydrated && persistedSearch && !searchQuery) {
+      setSearchQueryLocal(persistedSearch);
+    }
+  }, [hydrated, persistedSearch, searchQuery]);
+
+  // Persist search query changes (debounced via useDeferredValue won't work for this, use direct)
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQueryLocal(value);
+    setStructureSearch(structureGridId, value || undefined);
+  }, [structureGridId, setStructureSearch]);
 
   const columns = useMemo(() => structure?.columns ?? [], [structure?.columns]);
   const foreignKeys = useMemo(
@@ -1607,7 +1634,7 @@ export const TableStructure = memo(function TableStructure({
             <Input
               value={searchQuery}
               onChange={(e) => {
-                setSearchQuery(e.target.value);
+                handleSearchChange(e.target.value);
               }}
               placeholder="Filter columns..."
               className="h-7 w-40 pl-7 text-xs"

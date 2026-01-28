@@ -217,4 +217,10 @@ export const defaultKeybindings: Keybinding[] = [
     command: 'query.saved.search',
     key: 'cmd+shift+o',
   },
+  // Query Panel
+  {
+    command: 'query.toggleResults',
+    key: 'cmd+j',
+    when: 'queryEditor',
+  },
 ];

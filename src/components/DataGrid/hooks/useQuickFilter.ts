@@ -9,6 +9,7 @@ import {
 } from "@/utils/filterParser";
 import type { FilterConfig } from "@/types";
 import { useGridPreferencesStore } from "../stores/gridPreferencesStore";
+import { useGridPreferencesHydrated } from "../stores/gridPreferencesSelectors";
 
 export interface UseQuickFilterOptions {
   /** Columns available for filtering (can be empty initially, will update reactively) */
@@ -55,9 +56,15 @@ export function useQuickFilter({
   clientSideFiltering = false,
   gridId,
 }: UseQuickFilterOptions): UseQuickFilterResult {
-  // Filter input state - load from persisted preferences if available
+  // Subscribe to hydration state and persisted filter reactively
+  const hydrated = useGridPreferencesHydrated();
+  const persistedFilter = useGridPreferencesStore(
+    (state) => gridId ? state.preferences[gridId]?.quickFilter : undefined
+  );
+
+  // Filter input state - initialize from persisted or defaults
   const [value, setValue] = useState(() => {
-    // First check store for persisted value
+    // On initial mount, try to read from store (may not be hydrated yet)
     if (gridId) {
       const persisted = useGridPreferencesStore.getState().preferences[gridId]?.quickFilter;
       if (persisted) {
@@ -68,7 +75,7 @@ export function useQuickFilter({
     return initialFilter ? `?${initialFilter}` : "";
   });
   const [mode, setMode] = useState<FilterMode>(() => {
-    // First check store for persisted value
+    // On initial mount, try to read from store (may not be hydrated yet)
     if (gridId) {
       const persisted = useGridPreferencesStore.getState().preferences[gridId]?.quickFilter;
       if (persisted) {
@@ -260,11 +267,11 @@ export function useQuickFilter({
     }
   }, [initialFilter, columns]);
 
-  // Restore persisted filter when columns become available
-  // This runs once after columns load if we have a persisted filter
+  // Restore persisted filter when hydration completes and columns become available
+  // Uses reactive subscription to persistedFilter instead of getState() for proper hydration support
   useEffect(() => {
-    // Skip if no gridId, no columns, or already restored
-    if (!gridId || columns.length === 0 || hasRestoredPersistedFilterRef.current) {
+    // Skip if no gridId, no columns, not hydrated, or already restored
+    if (!gridId || columns.length === 0 || !hydrated || hasRestoredPersistedFilterRef.current) {
       return;
     }
 
@@ -274,30 +281,39 @@ export function useQuickFilter({
       return;
     }
 
-    const persisted = useGridPreferencesStore.getState().preferences[gridId]?.quickFilter;
-    if (!persisted || !persisted.value) {
+    // Use the subscribed persistedFilter (reactive to hydration)
+    if (!persistedFilter || !persistedFilter.value) {
       hasRestoredPersistedFilterRef.current = true;
       return;
     }
 
     hasRestoredPersistedFilterRef.current = true;
 
+    // Sync value and mode state from persisted (in case useState initializer ran before hydration)
+    if (persistedFilter.value !== value) {
+      setValue(persistedFilter.value);
+      prevValueRef.current = persistedFilter.value;
+    }
+    if (persistedFilter.mode !== mode) {
+      setMode(persistedFilter.mode);
+    }
+
     // Parse and apply the persisted filter
-    const sanitized = sanitizeInput(persisted.value, persisted.mode);
+    const sanitized = sanitizeInput(persistedFilter.value, persistedFilter.mode);
     if (!sanitized) return;
 
-    if (persisted.mode === "search") {
+    if (persistedFilter.mode === "search") {
       const filter = parseSimpleSearch(sanitized, columns);
       const newFilter = filter.root.conditions.length > 0 ? filter : undefined;
       setActiveFilter(newFilter);
-    } else if (persisted.mode === "where") {
+    } else if (persistedFilter.mode === "where") {
       const result = parseWhereClause(sanitized, columns);
       if (result.success) {
         setActiveFilter(result.filter);
       }
     }
     // Note: AI mode is not auto-applied since it requires user interaction
-  }, [gridId, columns, initialFilter]);
+  }, [gridId, columns, initialFilter, hydrated, persistedFilter, value, mode]);
 
   return {
     value,

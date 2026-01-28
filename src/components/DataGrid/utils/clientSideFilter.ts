@@ -41,12 +41,12 @@ function getRowValue(
 /**
  * Apply a FilterConfig to rows client-side
  */
-export function applyClientSideFilter(
-  rows: GridRowModel[],
+export function applyClientSideFilter<T extends GridRowModel>(
+  rows: T[],
   filter: FilterConfig | undefined,
   columns: string[],
   options: FilterOptions = {},
-): GridRowModel[] {
+): T[] {
   if (!filter) {
     return rows;
   }
@@ -63,12 +63,12 @@ export function applyClientSideFilter(
 /**
  * Simple search - match any column containing the search term
  */
-function applySimpleSearch(
-  rows: GridRowModel[],
+function applySimpleSearch<T extends GridRowModel>(
+  rows: T[],
   searchTerm: string,
   columns: string[],
   options: FilterOptions,
-): GridRowModel[] {
+): T[] {
   const term = searchTerm.toLowerCase().trim();
   if (!term) {
     return rows;
