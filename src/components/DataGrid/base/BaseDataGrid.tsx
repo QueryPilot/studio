@@ -12,6 +12,7 @@ import {
   type GridSelection,
   type Item,
   type GridCell,
+  type CustomCell,
   type Rectangle,
   type GridMouseEventArgs,
 } from "@glideapps/glide-data-grid";
@@ -67,6 +68,10 @@ import {
   type ColumnTypeHint,
 } from "../utils/pasteUtils";
 import { readClipboardText } from "@/lib/clipboard";
+import {
+  applyClientSideFilter,
+  type FilterOptions,
+} from "../utils/clientSideFilter";
 
 export interface BaseDataGridProps {
   // Core data (from data hooks)
@@ -439,16 +444,16 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     mode: quickFilterMode,
     error: quickFilterError,
     aiExplanation,
-    activeFilter: _activeFilter,
+    activeFilter,
     setValue: setQuickFilterValue,
     setMode: setQuickFilterMode,
     submit: handleFilterSubmit,
-    clear: _handleFilterClear,
+    clear: _clearFilter,
   } = useQuickFilter({
     columns: filterColumns,
     initialFilter: undefined,
     generateAIFilter,
-    clientSideFiltering: false,
+    clientSideFiltering: true,
     gridId,
   });
 
@@ -738,7 +743,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   // This is needed because custom getCellContent from adapters uses their local columns array
   // which is in the original order, but Glide Data Grid calls with the visual index
   const visualToOriginalColIndexRef = useRef<Map<number, number>>(new Map());
-  useMemo(() => {
+  useEffect(() => {
     const map = new Map<number, number>();
     if (enableColumnManagement && columns.length > 0 && finalColumns.length > 0) {
       // Build a lookup from column.id to original index
@@ -755,7 +760,6 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       });
     }
     visualToOriginalColIndexRef.current = map;
-    return map;
   }, [enableColumnManagement, columns, finalColumns]);
 
   // --- Row Pinning ---
@@ -791,6 +795,38 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     return sortedData(rows);
   }, [enableSorting, sortColumns.length, rows, sortedData]);
 
+  // --- Client-side Filtering ---
+  // Apply filter to sorted rows (for query results mode)
+  // Use useDeferredValue to keep UI responsive during filtering
+  const deferredFilter = useDeferredValue(activeFilter);
+
+  const filteredRows = useMemo(() => {
+    if (!enableFiltering || !deferredFilter) {
+      return sortedRows;
+    }
+
+    // Build column name to field key map (columns use col_0, col_1, etc.)
+    const columnKeyMap = new Map<string, string>();
+    columns.forEach((col, index) => {
+      if (col.name) {
+        columnKeyMap.set(col.name, `col_${index}`);
+      }
+    });
+
+    const columnNames = columns.map((c) => c.name).filter(Boolean);
+    const filterOptions: FilterOptions = {
+      columnKeyMap,
+      wrappedValues: true, // Query mode wraps values in {value: ...} objects
+    };
+
+    return applyClientSideFilter(
+      sortedRows,
+      deferredFilter,
+      columnNames,
+      filterOptions,
+    );
+  }, [enableFiltering, deferredFilter, sortedRows, columns]);
+
   const handlePinnedRowsChange = useCallback(
     (ids: string[]) => {
       if (!hydrated || !enableRowPinning) return;
@@ -801,7 +837,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
   const { pinnedRows, unpinnedRows, pinnedRowIds, pinRow, unpinRow } =
     useRowPinning({
-      rows: sortedRows, // Use sorted rows as input
+      rows: filteredRows, // Use filtered rows as input
       initialPinned: enableRowPinning ? (preferences?.pinnedRows ?? []) : [],
       maxPinnedRows: 5,
       getRowId: getRowKey,
@@ -809,9 +845,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     });
 
   const displayRows = useMemo(() => {
-    if (!enableRowPinning) return sortedRows;
+    if (!enableRowPinning) return filteredRows;
     return [...pinnedRows, ...unpinnedRows];
-  }, [enableRowPinning, sortedRows, pinnedRows, unpinnedRows]);
+  }, [enableRowPinning, filteredRows, pinnedRows, unpinnedRows]);
 
   // --- Optimistic Updates ---
   // Apply staged changes to display rows for immediate visual feedback
@@ -1352,10 +1388,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(
                   "kind" in baseCell.data;
 
                 if (isCustomCellWithKind) {
+                  const customCell = baseCell as CustomCell;
                   updatedCell = {
-                    ...baseCell,
+                    ...customCell,
                     data: {
-                      ...(baseCell.data as Record<string, unknown>),
+                      ...(customCell.data as Record<string, unknown>),
                       value: stagedValue,
                     },
                     copyData:

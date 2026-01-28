@@ -165,6 +165,8 @@ export const createSqlHoverTheme = (isDark: boolean): Extension => {
   return EditorView.baseTheme({
     ".cm-tooltip.cm-tooltip-hover": {
       zIndex: "10000 !important",
+      border: "none !important",
+      background: "transparent !important",
     },
     ".cm-sql-hover-tooltip": {
       backgroundColor: isDark ? "#1e1e1e" : "#ffffff",
