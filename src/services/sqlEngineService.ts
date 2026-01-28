@@ -124,6 +124,7 @@ export interface SetSchemaRequest {
   tables: TableInput[];
   foreignKeys: ForeignKeyInput[];
   enums: EnumInput[];
+  functions: FunctionInput[];
 }
 
 export interface TableInput {
@@ -150,6 +151,12 @@ export interface ForeignKeyInput {
 export interface EnumInput {
   name: string;
   values: string[];
+}
+
+export interface FunctionInput {
+  name: string;
+  returnType: string;
+  arguments: string[];
 }
 
 export interface SetSchemaResponse {
@@ -266,10 +273,11 @@ export const SqlEngineService = {
     schema: string,
     tables: TableInput[],
     foreignKeys: ForeignKeyInput[],
-    enums: EnumInput[]
+    enums: EnumInput[],
+    functions: FunctionInput[] = []
   ): Promise<SetSchemaResponse> {
     return invoke<SetSchemaResponse>("sql_set_schema", {
-      request: { connectionId, schema, tables, foreignKeys, enums },
+      request: { connectionId, schema, tables, foreignKeys, enums, functions },
     });
   },
 

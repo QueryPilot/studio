@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/resizable";
 
 import { useConnectionAutoReconnect } from "@/hooks/useConnectionAutoReconnect";
+import { useSchemaPreload } from "@/hooks/useSchemaPreload";
 import { AIAssistantSidebar } from "@/components/AIAssistant/AIAssistantSidebar";
 import { PreferencesDialog } from "@/components/Preferences/PreferencesDialog";
 import { DebugKeybindings } from "@/components/DebugKeybindings";
@@ -94,6 +95,9 @@ export function WorkspaceScreen() {
   );
 
   useConnectionAutoReconnect(connectionId);
+
+  // Background prefetch schema data for Command Palette warm cache
+  useSchemaPreload();
 
   // Load connections on mount (essential for workspace to function)
   useEffect(() => {

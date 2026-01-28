@@ -32,4 +32,5 @@ export type {
   MetadataProvider,
   EditorContextAnalysis,
   JoinConditionSuggestion,
+  FunctionMeta,
 } from "./core";

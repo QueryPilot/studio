@@ -151,8 +151,8 @@ pub fn complete(request: &CompletionRequest) -> CompletionResult {
             if let Some(schema) = &request.schema {
                 add_columns_in_scope(&request.document, request.position, schema, &mut items);
             }
-            // Add functions
-            add_function_completions(request.dialect, &mut items);
+            // Add functions (from schema + built-in fallbacks)
+            add_function_completions(request.dialect, request.schema.as_ref(), &mut items);
             // Add keywords
             add_expression_keywords(&mut items);
         }
@@ -338,8 +338,85 @@ fn add_columns_in_scope(
     }
 }
 
-fn add_function_completions(dialect: SqlDialect, items: &mut Vec<CompletionItem>) {
-    let functions = match dialect {
+fn add_function_completions(
+    dialect: SqlDialect,
+    schema: Option<&CachedSchema>,
+    items: &mut Vec<CompletionItem>,
+) {
+    // Add user-defined functions from schema (higher priority)
+    if let Some(schema) = schema {
+        for func in &schema.functions {
+            let detail = build_function_detail(func);
+            let insert_text = build_function_insert_text(func);
+
+            items.push(CompletionItem {
+                label: func.name.clone(),
+                kind: CompletionKind::Function,
+                detail: Some(detail),
+                insert_text: Some(insert_text),
+                sort_order: 15, // Higher priority than built-in functions
+            });
+        }
+    }
+
+    // Add built-in functions as fallback
+    let builtin_functions = get_builtin_functions(dialect);
+
+    for (name, detail) in builtin_functions {
+        items.push(CompletionItem {
+            label: name.to_string(),
+            kind: CompletionKind::Function,
+            detail: Some(detail.to_string()),
+            insert_text: Some(format!("{}($0)", name)),
+            sort_order: 20,
+        });
+    }
+}
+
+/// Build detail string for a function (return type and parameters).
+fn build_function_detail(func: &super::schema_store::FunctionInfo) -> String {
+    let params: Vec<String> = func
+        .parameters
+        .iter()
+        .map(|p| {
+            let name_part = p.name.as_ref().map(|n| format!("{} ", n)).unwrap_or_default();
+            format!("{}{}", name_part, p.data_type)
+        })
+        .collect();
+
+    let params_str = params.join(", ");
+    let return_str = func.return_type.as_ref().map(|r| format!(" -> {}", r)).unwrap_or_default();
+
+    if let Some(desc) = &func.description {
+        format!("({}){}  {}", params_str, return_str, desc)
+    } else {
+        format!("({}){}", params_str, return_str)
+    }
+}
+
+/// Build insert text for a function with parameter placeholders.
+fn build_function_insert_text(func: &super::schema_store::FunctionInfo) -> String {
+    if func.parameters.is_empty() {
+        return format!("{}()", func.name);
+    }
+
+    // Create tab stops for each parameter
+    let placeholders: Vec<String> = func
+        .parameters
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let placeholder_name = p.name.as_deref().unwrap_or(&p.data_type);
+            format!("${{{}:{}}}", i + 1, placeholder_name)
+        })
+        .collect();
+
+    format!("{}({})", func.name, placeholders.join(", "))
+}
+
+/// Get built-in functions for the given dialect.
+fn get_builtin_functions(dialect: SqlDialect) -> Vec<(&'static str, &'static str)> {
+    match dialect {
         SqlDialect::PostgreSQL => vec![
             ("COUNT", "Aggregate: count rows"),
             ("SUM", "Aggregate: sum values"),
@@ -367,16 +444,6 @@ fn add_function_completions(dialect: SqlDialect, items: &mut Vec<CompletionItem>
             ("MIN", "Aggregate: minimum"),
             ("COALESCE", "Return first non-null"),
         ],
-    };
-
-    for (name, detail) in functions {
-        items.push(CompletionItem {
-            label: name.to_string(),
-            kind: CompletionKind::Function,
-            detail: Some(detail.to_string()),
-            insert_text: Some(format!("{}($0)", name)),
-            sort_order: 20,
-        });
     }
 }
 

@@ -9,7 +9,7 @@ use tauri::State;
 use crate::core::ConnectionManager;
 use super::{
     complete, parse_document, validate_document, CompletionRequest, SqlDialect,
-    schema_store::{CacheKey, CachedSchemaBuilder, TableInfo, ColumnInfo, ForeignKeyInfo, EnumInfo, TableType},
+    schema_store::{CacheKey, CachedSchemaBuilder, ColumnInfo, EnumInfo, ForeignKeyInfo, FunctionInfo, FunctionParam, ParamMode, TableInfo, TableType},
     outline::{OutlineBuilder, OutlineTree},
     SCHEMA_STORE,
 };
@@ -324,17 +324,6 @@ pub async fn sql_apply_refactor(
 // Schema Push Commands (receives data from frontend - TypeScript is source of truth)
 // =============================================================================
 
-/// Schema data pushed from frontend (TypeScript adapters are source of truth)
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SetSchemaRequest {
-    pub connection_id: String,
-    pub schema: String,
-    pub tables: Vec<TableInput>,
-    pub foreign_keys: Vec<ForeignKeyInput>,
-    pub enums: Vec<EnumInput>,
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableInput {
@@ -367,6 +356,27 @@ pub struct ForeignKeyInput {
 pub struct EnumInput {
     pub name: String,
     pub values: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FunctionInput {
+    pub name: String,
+    pub return_type: String,
+    pub arguments: Vec<String>,
+}
+
+/// Schema data pushed from frontend (TypeScript adapters are source of truth)
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSchemaRequest {
+    pub connection_id: String,
+    pub schema: String,
+    pub tables: Vec<TableInput>,
+    pub foreign_keys: Vec<ForeignKeyInput>,
+    pub enums: Vec<EnumInput>,
+    #[serde(default)]
+    pub functions: Vec<FunctionInput>,
 }
 
 /// Response for set_schema
@@ -448,6 +458,28 @@ pub async fn sql_set_schema(request: SetSchemaRequest) -> Result<SetSchemaRespon
         builder = builder.add_enum(EnumInfo {
             name: e.name.clone(),
             values: e.values.clone(),
+        });
+    }
+
+    // Add functions
+    for f in &request.functions {
+        let parameters: Vec<FunctionParam> = f
+            .arguments
+            .iter()
+            .map(|arg| FunctionParam {
+                name: None,
+                data_type: arg.clone(),
+                mode: ParamMode::In,
+                default_value: None,
+            })
+            .collect();
+
+        builder = builder.add_function(FunctionInfo {
+            name: f.name.clone(),
+            schema: Some(request.schema.clone()),
+            parameters,
+            return_type: Some(f.return_type.clone()),
+            description: None,
         });
     }
 
@@ -590,6 +622,7 @@ mod tests {
             }],
             foreign_keys: vec![],
             enums: vec![],
+            functions: vec![],
         };
 
         let response = sql_set_schema(request).await.unwrap();
