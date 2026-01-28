@@ -38,6 +38,9 @@ import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { parseMutationTables } from "@/utils/sqlParser";
 import { eventBus } from "@/services/eventBus";
 import { schemaCache } from "@/services/schemaCache";
+import { trackQuery } from "@/services/queryTracker";
+import { SaveQueryDialog } from "@/components/QueryHistory";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 
 interface QueryPanelProps {
   panelId: string;
@@ -113,6 +116,9 @@ export const QueryPanel = memo(function QueryPanel({
 
   // Outline panel visibility - hidden by default, toggleable via toolbar
   const [showOutline, setShowOutline] = useState(false);
+
+  // Save query dialog state
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
 
   // Get transaction state from persisted store
   const inTransaction = globalState?.inTransaction || false;
@@ -198,6 +204,13 @@ export const QueryPanel = memo(function QueryPanel({
     () => connectionId || "",
     [connectionId],
   );
+
+  // Get profile ID from connection for saving queries
+  const profileId = useMemo(() => {
+    if (!effectiveConnectionId) return undefined;
+    const connection = useConnectionStore.getState().getConnection(effectiveConnectionId);
+    return connection?.profile.id;
+  }, [effectiveConnectionId]);
 
   useEffect(() => {
     // Connection ID is now always passed from parent
@@ -689,6 +702,18 @@ export const QueryPanel = memo(function QueryPanel({
           ...(isSelect ? { lastSelectQuery: sql } : {}),
         });
 
+        // Track successful query in history
+        void trackQuery({
+          query: sql,
+          connectionId: effectiveConnectionId,
+          database,
+          schema,
+          executionTimeMs: executionTime,
+          rowCount: final.totalRows ?? rowCount,
+          success: true,
+          source: "editor",
+        });
+
         queryResult = {
           columns: final.columns.map((c) => c.name),
           columnMeta: final.columns as unknown as ColumnMeta[],
@@ -735,6 +760,17 @@ export const QueryPanel = memo(function QueryPanel({
           });
 
           logger.error("Query execution failed:", error);
+
+          // Track failed query in history
+          void trackQuery({
+            query: sql,
+            connectionId: effectiveConnectionId,
+            database,
+            schema,
+            success: false,
+            error: errorMessage,
+            source: "editor",
+          });
         }
       } finally {
         isExecutingRef.current = false;
@@ -880,15 +916,27 @@ export const QueryPanel = memo(function QueryPanel({
       void handleExecute();
     };
 
+    const handleSaveQuery = () => {
+      if (!isFocusedRef.current) return;
+      if (!query.trim()) {
+        toast.error("No query to save");
+        return;
+      }
+      logger.info("🟢 QueryPanel handling save query event");
+      setShowSaveDialog(true);
+    };
+
     // Subscribe ALWAYS - handlers check focus
     eventBus.on("query-editor:format", handleFormat);
     eventBus.on("query-editor:execute", handleExecuteEvent);
+    eventBus.on("query-editor:save", handleSaveQuery);
 
     return () => {
       eventBus.off("query-editor:format", handleFormat);
       eventBus.off("query-editor:execute", handleExecuteEvent);
+      eventBus.off("query-editor:save", handleSaveQuery);
     };
-  }, [handleBeautify, handleExecute]);
+  }, [handleBeautify, handleExecute, query]);
 
   // Focus panel when QueryPanel is clicked or focused
   const handleFocusPanel = useCallback(() => {
@@ -1081,6 +1129,16 @@ export const QueryPanel = memo(function QueryPanel({
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>
+
+      {/* Save Query Dialog */}
+      <SaveQueryDialog
+        open={showSaveDialog}
+        onOpenChange={setShowSaveDialog}
+        query={query}
+        profileId={profileId}
+        database={database}
+        schema={schema}
+      />
     </div>
   );
 });
