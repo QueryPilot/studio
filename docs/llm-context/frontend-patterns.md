@@ -27,6 +27,7 @@ src/
 ## Path Aliases
 
 Configured in `vite.config.ts`:
+
 - `@/` → `src/`
 - `@components/` → `src/components/`
 - `@hooks/` → `src/hooks/`
@@ -38,33 +39,35 @@ Configured in `vite.config.ts`:
 
 Each store has a single concern:
 
-| Store | Purpose |
-|-------|---------|
-| `connectionStoreNew` | Active connections, favorites, recents |
-| `workbenchStore` | Layout tree, tab metadata, drag-drop |
-| `workspaceScreenStore` | Schema/table navigation, filtering |
-| `crudStore` | Transaction state, pending CRUD |
-| `dataInvalidationStore` | Event-driven cache invalidation |
-| `panelStore` | Panel visibility and state |
-| `tabStateStore` | Active tab tracking |
-| `erdStore` | Entity relationship diagram data |
+| Store                   | Purpose                                |
+| ----------------------- | -------------------------------------- |
+| `connectionStoreNew`    | Active connections, favorites, recents |
+| `workbenchStore`        | Layout tree, tab metadata, drag-drop   |
+| `workspaceScreenStore`  | Schema/table navigation, filtering     |
+| `crudStore`             | Transaction state, pending CRUD        |
+| `dataInvalidationStore` | Event-driven cache invalidation        |
+| `panelStore`            | Panel visibility and state             |
+| `tabStateStore`         | Active tab tracking                    |
+| `erdStore`              | Entity relationship diagram data       |
 
 **Pattern**: Use Zustand for global state, React `useState` for local UI.
 
 ## Component Patterns
 
 **Functional components with named exports:**
+
 ```tsx
 export const MyComponent = ({ prop }: Props) => {
   // ...
-}
+};
 ```
 
 **Conditional class merging with `cn()`:**
-```tsx
-import { cn } from '@/lib/utils'
 
-<div className={cn("base-class", isActive && "active-class")} />
+```tsx
+import { cn } from "@/lib/utils";
+
+<div className={cn("base-class", isActive && "active-class")} />;
 ```
 
 ## Frontend Adapters
@@ -72,9 +75,9 @@ import { cn } from '@/lib/utils'
 Type-safe paradigm dispatch:
 
 ```typescript
-import { getAdapter, isSqlAdapter } from '@/adapters'
+import { getAdapter, isSqlAdapter } from "@/adapters";
 
-const adapter = getAdapter(connection)
+const adapter = getAdapter(connection);
 if (isSqlAdapter(adapter)) {
   // SQL-specific operations
 }
@@ -85,28 +88,31 @@ Available guards: `isSqlAdapter()`, `isDocumentAdapter()`, `isKeyValueAdapter()`
 ## Data Invalidation Pattern
 
 ```typescript
-import { useDataInvalidationStore } from '@/stores/dataInvalidationStore'
+import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 
 // Subscribe to table changes
-const unsubscribe = useDataInvalidationStore.getState()
-  .subscribe('conn:db:schema:table', () => refetch())
+const unsubscribe = useDataInvalidationStore
+  .getState()
+  .subscribe("conn:db:schema:table", () => refetch());
 
 // Trigger invalidation after CRUD
-useDataInvalidationStore.getState().invalidateTable('conn:db:schema:table')
+useDataInvalidationStore.getState().invalidateTable("conn:db:schema:table");
 ```
 
 ## Backend Communication
 
 **Direct query** (metadata, small results):
+
 ```typescript
-import { BackendAPI } from '@/services/backend'
-const result = await BackendAPI.query(connectionId, sql)
+import { BackendAPI } from "@/services/backend";
+const result = await BackendAPI.query(connectionId, sql);
 ```
 
 **Streaming query** (data grids, large results):
+
 ```typescript
-import { queryStreamClient } from '@/services/queryStreamClient'
-await queryStreamClient.streamWithCallbacks(params, { onBatch })
+import { queryStreamClient } from "@/services/queryStreamClient";
+await queryStreamClient.streamWithCallbacks(params, { onBatch });
 ```
 
 See [Query Execution](../architecture/query-execution.md) for details.

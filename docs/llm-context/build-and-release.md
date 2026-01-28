@@ -2,11 +2,11 @@
 
 ## Build Commands
 
-| Command | Purpose |
-|---------|---------|
-| `pnpm build` | Build frontend only |
-| `pnpm tauri:build` | Build full app |
-| `make build` | Build production app |
+| Command            | Purpose              |
+| ------------------ | -------------------- |
+| `pnpm build`       | Build frontend only  |
+| `pnpm tauri:build` | Build full app       |
+| `make build`       | Build production app |
 
 ## Release Process
 
@@ -51,6 +51,7 @@ cargo build --release --features telemetry
 ```
 
 **Environment variables**:
+
 - `SENTRY_DSN` - Backend DSN
 - `VITE_SENTRY_DSN` - Frontend DSN
 - `SENTRY_AUTH_TOKEN` - Source map upload
@@ -59,10 +60,10 @@ See [SENTRY.md](../../SENTRY.md) for details.
 
 ## Important Files
 
-| File | Purpose |
-|------|---------|
-| `tauri.conf.json` | Tauri config (windows, bundle, signing) |
-| `Makefile` | Build and dev tasks |
-| `package.json` | Frontend scripts and deps |
-| `src-tauri/Cargo.toml` | Rust dependencies |
-| `entitlements.plist` | macOS entitlements |
+| File                   | Purpose                                 |
+| ---------------------- | --------------------------------------- |
+| `tauri.conf.json`      | Tauri config (windows, bundle, signing) |
+| `Makefile`             | Build and dev tasks                     |
+| `package.json`         | Frontend scripts and deps               |
+| `src-tauri/Cargo.toml` | Rust dependencies                       |
+| `entitlements.plist`   | macOS entitlements                      |

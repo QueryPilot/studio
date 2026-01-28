@@ -37,16 +37,17 @@ src-tauri/src/
 
 Commands are organized by paradigm:
 
-| File | Paradigm | Operations |
-|------|----------|------------|
-| `connection.rs` | All | connect, disconnect, test_connection |
-| `sql.rs` | SQL | query, execute_query, switch_database |
-| `document.rs` | Document | find, insert, update, delete, aggregate |
-| `keyvalue.rs` | Key-Value | get, set, scan, delete, hash/list/set ops |
+| File            | Paradigm  | Operations                                |
+| --------------- | --------- | ----------------------------------------- |
+| `connection.rs` | All       | connect, disconnect, test_connection      |
+| `sql.rs`        | SQL       | query, execute_query, switch_database     |
+| `document.rs`   | Document  | find, insert, update, delete, aggregate   |
+| `keyvalue.rs`   | Key-Value | get, set, scan, delete, hash/list/set ops |
 
 ## Adding a Tauri Command
 
 1. Define in `src-tauri/src/commands/<paradigm>.rs`:
+
 ```rust
 #[tauri::command]
 pub async fn my_command(
@@ -60,6 +61,7 @@ pub async fn my_command(
 ```
 
 2. Register in `src-tauri/src/lib.rs`:
+
 ```rust
 .invoke_handler(tauri::generate_handler![
     commands::sql::my_command,
@@ -68,13 +70,15 @@ pub async fn my_command(
 ```
 
 3. Call from frontend:
+
 ```typescript
-const result = await invoke('my_command', { connId })
+const result = await invoke("my_command", { connId });
 ```
 
 ## Capability-Based Adapters
 
 All adapters implement `BaseCapability`:
+
 ```rust
 pub trait BaseCapability: Send + Sync {
     async fn connect(&mut self) -> Result<()>;
@@ -85,6 +89,7 @@ pub trait BaseCapability: Send + Sync {
 ```
 
 Paradigm-specific traits add operations:
+
 - `SqlQueryable` - execute_query, execute_statement
 - `DocumentQueryable` - find_documents, insert_document, aggregate
 - `RichKeyValueOperable` - Hash, List, Set, ZSet, Stream operations
@@ -92,6 +97,7 @@ Paradigm-specific traits add operations:
 ## UnifiedAdapter Pattern
 
 Runtime capability checking:
+
 ```rust
 let unified = manager.get_connection(&conn_id).await?;
 
@@ -131,6 +137,7 @@ pub async fn query(...) -> Result<QueryResult, String> {
 See [CONTRIBUTING_DB.md](../guides/CONTRIBUTING_DB.md) for the complete guide.
 
 Summary:
+
 1. Determine paradigm (SQL, Document, Key-Value)
 2. Create adapter in `src-tauri/src/adapters/<dbname>/`
 3. Implement `BaseCapability` + paradigm-specific trait
