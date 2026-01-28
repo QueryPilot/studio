@@ -68,7 +68,6 @@ cd studio-app
 - 🔌 **Multi-Database Support**: PostgreSQL, MySQL, SQLite, SQL Server, Oracle
 - 🔒 **Local-First**: All data stays on your machine
 - 🚀 **High Performance**: Built with Tauri 2 + React 19
-- 🤖 **AI-Powered**: SQL generation, query optimization, and smart suggestions
 - 🌐 **SSH Tunneling**: Secure connections to remote databases
 - 📊 **Advanced Query Tools**: Autocomplete, formatting, syntax highlighting
 - 🎨 **Modern UI**: Beautiful, customizable interface

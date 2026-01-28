@@ -28,7 +28,6 @@ import type { FilterColumnInfo } from "@/utils/filterParser";
 import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
 import type { FilterMode } from "@/utils/filterParser";
 import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
-import { useAIFilter } from "../hooks/useAIFilter";
 
 // ============================================================================
 // Types
@@ -92,18 +91,11 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
     }));
   }, [data.columns]);
 
-  // AI filter hook for MongoDB query generation
-  const { generateFilter: generateAIFilter, isLoading: isAIFilterLoading } =
-    useAIFilter(filterColumns, collection, "mongodb", {
-      connectionId,
-      enableCrossTable: false,
-    });
-
   // Quick filter hook for managing filter input state
   const quickFilter = useQuickFilter({
     columns: filterColumns,
     clientSideFiltering: false, // We handle both server and client filtering ourselves
-    generateAIFilter, // Pass AI filter generator
+    generateAIFilter: undefined,
   });
 
   // Handle filter submission
@@ -198,7 +190,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
             onSubmit={handleFilterSubmit}
             error={filterError}
             explanation={quickFilter.aiExplanation}
-            isLoading={isAIFilterLoading}
+            isLoading={false}
             searchModeOnly={false}
             clientSideFiltering={false}
           />
@@ -216,7 +208,6 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       handleModeChange,
       handleFilterSubmit,
       filterError,
-      isAIFilterLoading,
     ],
   );
 
@@ -235,7 +226,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       await adapter.findDocuments(collection, {}, { limit: 1 });
       await data.refetch();
     } catch (err) {
-      console.error('Reconnection failed:', err);
+      console.error("Reconnection failed:", err);
       await data.refetch(); // Still try to refetch
     }
   }, [connectionId, collection, data]);

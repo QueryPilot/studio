@@ -42,7 +42,6 @@ import { openTableObject } from "@/utils/workbench/openers";
 
 // Hooks
 import { useQuickFilter } from "../hooks/useQuickFilter";
-import { useAIFilter } from "../hooks/useAIFilter";
 import { useColumnSizing } from "../hooks/useColumnSizing";
 import { useColumnVisibility } from "../hooks/useColumnVisibility";
 import { useRowPinning } from "../hooks/useRowPinning";
@@ -55,7 +54,11 @@ import {
 } from "../hooks/useStagedChangesIndicator";
 import { useCellHoverIcons } from "../hooks/useCellHoverIcons";
 import { useOptimisticRows } from "../hooks/useOptimisticRows";
-import { useGridPreferencesStore, useGridPreferencesHydrated, upsertGridColumnsState } from "../stores";
+import {
+  useGridPreferencesStore,
+  useGridPreferencesHydrated,
+  upsertGridColumnsState,
+} from "../stores";
 import { useCrudStore } from "@/stores/crudStore";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 
@@ -280,7 +283,12 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   } = props;
 
   // --- CRUD Store Integration ---
-  const { stageCommand, stageBatchWithSingleHistoryEntry, getTableKey, stagedCommands } = useCrudStore();
+  const {
+    stageCommand,
+    stageBatchWithSingleHistoryEntry,
+    getTableKey,
+    stagedCommands,
+  } = useCrudStore();
   const tableKey = commandFactory
     ? getTableKey({
         connectionId: commandFactory.connectionId,
@@ -359,7 +367,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         setIsGridFocused(true);
       }
     }, 100);
-    return () => { clearTimeout(timeoutId); };
+    return () => {
+      clearTimeout(timeoutId);
+    };
   }, [focused, autoFocus]);
 
   // --- State ---
@@ -396,7 +406,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   // --- Column State from Store ---
   const preferences = useGridPreferencesStore((s) => s.preferences[gridId]);
   const hydrated = useGridPreferencesHydrated();
-  
+
   const columnState = preferences?.columns ?? {
     order: [],
     widths: {},
@@ -426,19 +436,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       }));
   }, [columns]);
 
-  // --- Quick Filter with AI Support ---
-  const { generateFilter: generateAIFilter, isLoading: isAIFilterLoading } =
-    useAIFilter(
-      filterColumns,
-      tableName ?? "",
-      (dialect ?? "postgresql") as "postgresql" | "mysql" | "sqlite" | "mssql",
-      {
-        connectionId,
-        schema,
-        enableCrossTable: paradigm === "sql",
-      },
-    );
-
+  // --- Quick Filter ---
   const {
     value: quickFilterValue,
     mode: quickFilterMode,
@@ -452,7 +450,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   } = useQuickFilter({
     columns: filterColumns,
     initialFilter: undefined,
-    generateAIFilter,
+    generateAIFilter: undefined,
     clientSideFiltering: true,
     gridId,
   });
@@ -463,14 +461,22 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     // Check if focus is inside a cell editor overlay
     const activeElement = document.activeElement;
     if (activeElement) {
-      const editorShell = activeElement.closest('.gdg-editor-shell, .click-outside-ignore');
+      const editorShell = activeElement.closest(
+        ".gdg-editor-shell, .click-outside-ignore",
+      );
       if (editorShell) return true;
     }
     // Also check if the active element is an input/textarea inside the grid context
     // This catches cases where the editor is open but focus tracking didn't update
-    if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
+    if (
+      activeElement &&
+      (activeElement.tagName === "INPUT" ||
+        activeElement.tagName === "TEXTAREA")
+    ) {
       // Check if this input is part of a data grid editor (not QuickFilter or other UI)
-      const isInGridEditor = activeElement.closest('.gdg-style, [data-slot="grid-editor"]');
+      const isInGridEditor = activeElement.closest(
+        '.gdg-style, [data-slot="grid-editor"]',
+      );
       if (isInGridEditor) return true;
     }
     return false;
@@ -502,7 +508,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     // Check if focus is moving to a cell editor overlay (renders in a portal outside the grid)
     // Cell editors have the class 'gdg-editor-shell' or 'click-outside-ignore'
     if (relatedTarget) {
-      const editorShell = relatedTarget.closest('.gdg-editor-shell, .click-outside-ignore');
+      const editorShell = relatedTarget.closest(
+        ".gdg-editor-shell, .click-outside-ignore",
+      );
       if (editorShell) {
         // Focus is moving to cell editor - keep editing state
         return;
@@ -525,7 +533,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     const handleKeyDown = (e: KeyboardEvent) => {
       // Check if THIS grid is focused using refs for synchronous, accurate state
       // This is critical for multi-panel scenarios
-      const hasActiveElementInGrid = wrapperRef.current?.contains(document.activeElement);
+      const hasActiveElementInGrid = wrapperRef.current?.contains(
+        document.activeElement,
+      );
       if (!isGridFocusedRef.current && !hasActiveElementInGrid) return;
 
       if ((e.metaKey || e.ctrlKey) && e.key === "f") {
@@ -745,7 +755,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const visualToOriginalColIndexRef = useRef<Map<number, number>>(new Map());
   useEffect(() => {
     const map = new Map<number, number>();
-    if (enableColumnManagement && columns.length > 0 && finalColumns.length > 0) {
+    if (
+      enableColumnManagement &&
+      columns.length > 0 &&
+      finalColumns.length > 0
+    ) {
       // Build a lookup from column.id to original index
       const idToOriginalIndex = new Map<string, number>();
       columns.forEach((col, idx) => {
@@ -783,11 +797,16 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   );
 
   // --- Column Sorting (must be before sortedRows) ---
-  const { sortColumns, getSortIndex, getSortDirection, toggleSort, sortedData } =
-    useColumnSorting({
-      gridId,
-      columns: finalColumns,
-    });
+  const {
+    sortColumns,
+    getSortIndex,
+    getSortDirection,
+    toggleSort,
+    sortedData,
+  } = useColumnSorting({
+    gridId,
+    columns: finalColumns,
+  });
 
   // Apply sorting to rows BEFORE pinning (so unpinned rows are sorted)
   const sortedRows = useMemo(() => {
@@ -1243,7 +1262,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
       // Check if our grid is focused using REFS for synchronous, accurate state
       // This is critical for multi-panel scenarios where state updates are async
-      const hasActiveElementInGrid = wrapperRef.current?.contains(document.activeElement);
+      const hasActiveElementInGrid = wrapperRef.current?.contains(
+        document.activeElement,
+      );
       if (!isGridFocusedRef.current && !hasActiveElementInGrid) return;
 
       // Don't intercept if editing a cell (use ref for synchronous check)
@@ -1329,7 +1350,15 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         ? customGetCellContent(cell, gridCell)
         : gridCell;
     },
-    [readOnly, connectionId, database, schema, tableName, customGetCellContent, finalColumns],
+    [
+      readOnly,
+      connectionId,
+      database,
+      schema,
+      tableName,
+      customGetCellContent,
+      finalColumns,
+    ],
   );
 
   // Use prop getCellContent if provided, otherwise use internal
@@ -1346,11 +1375,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       let baseCell: GridCell;
       if (propGetCellContentRef.current) {
         const [visualColIdx, rowIdx] = cell;
-        const originalColIdx = visualToOriginalColIndexRef.current.get(visualColIdx);
+        const originalColIdx =
+          visualToOriginalColIndexRef.current.get(visualColIdx);
         // If we have a mapping, use the original index; otherwise fall back to visual index
-        const mappedCell: Item = originalColIdx !== undefined
-          ? [originalColIdx, rowIdx]
-          : cell;
+        const mappedCell: Item =
+          originalColIdx !== undefined ? [originalColIdx, rowIdx] : cell;
         baseCell = propGetCellContentRef.current(mappedCell);
       } else {
         baseCell = internalGetCellContent(cell);
@@ -1593,9 +1622,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(
           columnsToExclude.add(field);
         }
         // Exclude auto-increment columns
-        if (meta.default?.toLowerCase().includes("nextval") ||
-            meta.default?.toLowerCase().includes("auto_increment") ||
-            meta.default?.toLowerCase().includes("identity")) {
+        if (
+          meta.default?.toLowerCase().includes("nextval") ||
+          meta.default?.toLowerCase().includes("auto_increment") ||
+          meta.default?.toLowerCase().includes("identity")
+        ) {
           columnsToExclude.add(field);
         }
       }
@@ -1616,9 +1647,10 @@ export const BaseDataGrid = memo(function BaseDataGrid(
           const columnName = col.name ?? col.field;
 
           // Extract raw value from cell format if needed
-          const rawValue = value && typeof value === "object" && "value" in value
-            ? (value as { value: unknown }).value
-            : value;
+          const rawValue =
+            value && typeof value === "object" && "value" in value
+              ? (value as { value: unknown }).value
+              : value;
           duplicateData[columnName] = rawValue;
         }
       }
@@ -1629,7 +1661,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
     if (commands.length > 0) {
       stageBatchWithSingleHistoryEntry(commands);
-      toast.success(`${commands.length} row${commands.length > 1 ? "s" : ""} duplicated (staged)`);
+      toast.success(
+        `${commands.length} row${commands.length > 1 ? "s" : ""} duplicated (staged)`,
+      );
     }
   }, [stageBatchWithSingleHistoryEntry, readOnly, gridSelection]);
 
@@ -1811,7 +1845,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
             };
             const coercedValue = coerceToColumnType(
               typeof value === "string" ? value.trim() : value,
-              columnTypeHint
+              columnTypeHint,
             );
 
             // Use column.name as the key - this matches what createInsertCommand expects
@@ -1840,7 +1874,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
             };
             const coercedValue = coerceToColumnType(
               typeof value === "string" ? value.trim() : value,
-              columnTypeHint
+              columnTypeHint,
             );
 
             edits.push({
@@ -1861,7 +1895,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         stageBatchWithSingleHistoryEntry(insertCommands);
       }
 
-      const totalRowsPasted = (edits.length > 0 ? new Set(edits.map(e => e.cell[1])).size : 0) + insertCommands.length;
+      const totalRowsPasted =
+        (edits.length > 0 ? new Set(edits.map((e) => e.cell[1])).size : 0) +
+        insertCommands.length;
       if (totalRowsPasted > 0) {
         toast.success(`Pasted ${totalRowsPasted} row(s)`);
       }
@@ -1876,7 +1912,12 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         toast.error("Failed to paste from clipboard");
       }
     }
-  }, [readOnly, commandFactory, handleBatchEdit, stageBatchWithSingleHistoryEntry]);
+  }, [
+    readOnly,
+    commandFactory,
+    handleBatchEdit,
+    stageBatchWithSingleHistoryEntry,
+  ]);
 
   // --- Native Paste Handler (fallback when Glide doesn't handle it) ---
   // Glide Data Grid only handles paste when a cell is selected AND focused.
@@ -1898,7 +1939,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       e.preventDefault();
       handlePaste();
     },
-    [handlePaste]
+    [handlePaste],
   );
 
   // Handle row insert from paste operations (Ctrl+V creating new rows)
@@ -1915,10 +1956,15 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         const rowData: Record<string, unknown> = {};
         for (const column of columns) {
           const cellValue = row[column.field];
-          if (cellValue && typeof cellValue === "object" && "value" in cellValue) {
+          if (
+            cellValue &&
+            typeof cellValue === "object" &&
+            "value" in cellValue
+          ) {
             // Skip PK columns and null values
             if (column.meta?.is_pk) continue;
-            if (cellValue.value === null || cellValue.value === undefined) continue;
+            if (cellValue.value === null || cellValue.value === undefined)
+              continue;
             rowData[column.name] = cellValue.value;
           }
         }
@@ -1931,7 +1977,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       toast.success(`${event.rows.length} row(s) staged for insert`);
       return undefined;
     },
-    [readOnly, stageCommand]
+    [readOnly, stageCommand],
   );
 
   // --- Cell Edit State Tracking ---
@@ -2035,7 +2081,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
       // Check if our grid is focused using REFS for synchronous, accurate state
       // This is critical for multi-panel scenarios where state updates are async
-      const hasActiveElementInGrid = wrapperRef.current?.contains(document.activeElement);
+      const hasActiveElementInGrid = wrapperRef.current?.contains(
+        document.activeElement,
+      );
       if (!isGridFocusedRef.current && !hasActiveElementInGrid) return;
 
       // Don't intercept if editing a cell (use ref for synchronous check)
@@ -2140,11 +2188,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const handleColumnMoved = useCallback(
     (startIndex: number, endIndex: number) => {
       if (!hydrated || !enableColumnManagement) return;
-      
+
       const newOrder = [...finalColumns.map((c) => c.id)];
       const [movedId] = newOrder.splice(startIndex, 1);
       newOrder.splice(endIndex, 0, movedId!);
-      
+
       upsertGridColumnsState(gridId, (draft) => {
         draft.order = newOrder;
       });
@@ -2275,7 +2323,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
                 onValueChange={setQuickFilterValue}
                 onModeChange={setQuickFilterMode}
                 onSubmit={handleFilterSubmit}
-                isLoading={isAIFilterLoading}
+                isLoading={false}
                 error={quickFilterError}
                 explanation={aiExplanation}
                 clientSideFiltering={false}

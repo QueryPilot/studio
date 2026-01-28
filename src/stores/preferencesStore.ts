@@ -4,7 +4,6 @@ import { persist } from "zustand/middleware";
 export type PreferenceCategory =
   | "general"
   | "editor"
-  | "ai"
   | "shortcuts"
   | "globalShortcuts"
   | "telemetry";

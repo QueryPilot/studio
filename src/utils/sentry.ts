@@ -226,14 +226,9 @@ export function disableSentry(): void {
 export async function configureTelemetryBackend(
   sentryEnabled: boolean,
 ): Promise<void> {
-  try {
-    // Configure backend and AI sidecar via Tauri command
-    await invoke("configure_telemetry", { sentryEnabled });
-    logger.info(
-      `[Sentry] Backend and sidecar configured: ${sentryEnabled}`,
-    );
-  } catch (error) {
-    logger.error("[Sentry] Failed to configure backend telemetry:", error);
-    throw error;
-  }
+  // Note: Backend telemetry is configured via environment variables and Cargo features
+  // No runtime configuration needed - backend initializes Sentry based on SENTRY_DSN env var
+  logger.info(
+    `[Sentry] Backend telemetry preference updated: ${sentryEnabled} (requires restart)`,
+  );
 }
