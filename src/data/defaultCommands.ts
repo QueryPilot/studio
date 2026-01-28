@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import React from "react";
 import { ConfirmationToast } from "@/components/ConfirmationToast";
 import { eventBus } from "@/services/eventBus";
+import { useQueryHistoryStore } from "@/stores/queryHistoryStore";
 import { windowManager } from "@/services/windowManager";
 import {
   openQueryWithSql,
@@ -909,6 +910,81 @@ export const defaultCommands: Command[] = [
     when: "editorTextFocus && queryEditor",
     handler: () => {
       eventBus.emit("query-editor:execute-background", {});
+    },
+  },
+  // Query History Commands
+  {
+    id: "query.history.show",
+    label: "Show Query History",
+    category: "Query History",
+    handler: () => {
+      // Open sidebar if closed, then switch to queries view
+      const screenStore = useWorkspaceScreenStore.getState();
+      if (!screenStore.getSidebars().left) {
+        screenStore.toggleSidebar("left");
+      }
+      eventBus.emit("sidebar:switch-view", { view: "queries" });
+      useQueryHistoryStore.getState().setActiveTab("history");
+    },
+  },
+  {
+    id: "query.saved.show",
+    label: "Show Saved Queries",
+    category: "Query History",
+    handler: () => {
+      // Open sidebar if closed, then switch to queries view
+      const screenStore = useWorkspaceScreenStore.getState();
+      if (!screenStore.getSidebars().left) {
+        screenStore.toggleSidebar("left");
+      }
+      eventBus.emit("sidebar:switch-view", { view: "queries" });
+      useQueryHistoryStore.getState().setActiveTab("saved");
+    },
+  },
+  {
+    id: "query.history.search",
+    label: "Search Query History",
+    category: "Query History",
+    handler: () => {
+      // Open sidebar if closed, then switch to queries view
+      const screenStore = useWorkspaceScreenStore.getState();
+      if (!screenStore.getSidebars().left) {
+        screenStore.toggleSidebar("left");
+      }
+      eventBus.emit("sidebar:switch-view", { view: "queries" });
+      useQueryHistoryStore.getState().setActiveTab("history");
+      // Focus the search input after a brief delay for view to render
+      setTimeout(() => {
+        eventBus.emit("query-history:focus-search", undefined);
+      }, 100);
+    },
+  },
+  {
+    id: "query.history.clear",
+    label: "Clear Query History",
+    category: "Query History",
+    handler: async () => {
+      await useQueryHistoryStore.getState().clearHistory();
+      toast.success("Query history cleared");
+    },
+  },
+  {
+    id: "query.saved.create",
+    label: "Save Current Query",
+    category: "Query History",
+    when: "editorTextFocus && queryEditor",
+    handler: () => {
+      eventBus.emit("query-editor:save", {});
+    },
+  },
+  {
+    id: "query.saved.search",
+    label: "Search Saved Queries",
+    category: "Query History",
+    handler: () => {
+      const paletteStore = useCommandPaletteStore.getState();
+      paletteStore.setNestedMode({ type: "search-saved-queries" });
+      paletteStore.openPalette();
     },
   },
 ];
