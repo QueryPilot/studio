@@ -26,6 +26,8 @@ export interface GridPreferences {
     value: string;
     mode: FilterMode;
   };
+  /** Search query for structure view */
+  structureSearch?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -54,6 +56,7 @@ export interface GridPreferencesState {
     gridId: string,
     filter: { value: string; mode: FilterMode } | undefined,
   ) => void;
+  setStructureSearch: (gridId: string, search: string | undefined) => void;
   reset: (gridId: string) => void;
   resetAll: () => void;
 }
@@ -228,6 +231,17 @@ export const useGridPreferencesStore = create<GridPreferencesState>()(
             prefs.quickFilter = filter;
             prefs.updatedAt = Date.now();
           }, false, `gridPreferences/setQuickFilter:${gridId}`);
+        },
+        setStructureSearch: (gridId, search) => {
+          set((state) => {
+            const prefs =
+              state.preferences[gridId] ?? createDefaultPreferences();
+            if (!state.preferences[gridId]) {
+              state.preferences[gridId] = prefs as any;
+            }
+            prefs.structureSearch = search;
+            prefs.updatedAt = Date.now();
+          }, false, `gridPreferences/setStructureSearch:${gridId}`);
         },
         reset: (gridId) => {
           set((state) => {

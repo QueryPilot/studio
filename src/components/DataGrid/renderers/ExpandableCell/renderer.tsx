@@ -14,6 +14,26 @@ const MONO_FONT = `400 11px ${MONOSPACE_FONT_FAMILY}`;
 const EXPAND_ICON = "▶";
 const COLLAPSE_ICON = "▼";
 
+// Cache for formatted JSON strings to avoid repeated JSON.stringify calls
+const formattedJsonCache = new Map<unknown, string>();
+const MAX_CACHE_SIZE = 200;
+
+function getFormattedJson(value: unknown): string {
+  let formatted = formattedJsonCache.get(value);
+  if (!formatted) {
+    try {
+      formatted = JSON.stringify(value, null, 2);
+      if (formattedJsonCache.size > MAX_CACHE_SIZE) {
+        formattedJsonCache.clear();
+      }
+      formattedJsonCache.set(value, formatted);
+    } catch {
+      formatted = String(value);
+    }
+  }
+  return formatted;
+}
+
 function formatValue(value: unknown, isExpanded: boolean): string {
   if (value === null || value === undefined) {
     return "NULL";
@@ -22,13 +42,13 @@ function formatValue(value: unknown, isExpanded: boolean): string {
   if (typeof value === "object") {
     if (Array.isArray(value)) {
       if (isExpanded) {
-        return JSON.stringify(value, null, 2);
+        return getFormattedJson(value);
       }
       return `Array[${value.length}]`;
     }
 
     if (isExpanded) {
-      return JSON.stringify(value, null, 2);
+      return getFormattedJson(value);
     }
 
     const keys = Object.keys(value);

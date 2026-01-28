@@ -120,7 +120,7 @@ export const QueryToolbar = memo(function QueryToolbar({
             variant={showResults ? "secondary" : "ghost"}
             onClick={onToggleResults}
             className="!h-6 !w-6 !p-0"
-            title={showResults ? "Hide results (⌥R)" : "Show results (⌥R)"}
+            title={showResults ? "Hide results (⌘J)" : "Show results (⌘J)"}
           >
             <IconLayoutRows className="h-3.5 w-3.5" />
           </Button>

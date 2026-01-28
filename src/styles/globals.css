@@ -291,20 +291,23 @@
   border-radius: 6px;
   padding: 8px 12px;
   font-size: 12px;
-  max-width: 320px;
+  max-width: 360px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
 }
 
 .cm-sql-hover-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-bottom: 6px;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--border);
 }
 
 .cm-sql-hover-type {
+  flex-shrink: 0;
   background: var(--primary);
   color: var(--primary-foreground);
   padding: 2px 6px;
@@ -317,6 +320,26 @@
 .cm-sql-hover-name {
   font-weight: 600;
   color: var(--foreground);
+  word-break: break-word;
+  min-width: 0;
+}
+
+.cm-sql-hover-badge {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.cm-sql-hover-badge.pk {
+  background: var(--chart-2);
+  color: var(--primary-foreground);
+}
+
+.cm-sql-hover-badge.not-null {
+  background: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .cm-sql-hover-body {
@@ -364,6 +387,12 @@
   margin-top: 8px;
   font-style: italic;
   font-size: 11px;
+}
+
+/* Remove default CodeMirror border from hover tooltip wrapper */
+.cm-tooltip.cm-tooltip-hover {
+  border: none !important;
+  background: transparent !important;
 }
 
 /* SQL Editor Autocomplete Styles - matches QuickFilter style */

@@ -52,6 +52,9 @@ type Events = {
 
   // Query History events
   "query-history:focus-search": void;
+
+  // Query Panel events
+  "query-panel:toggle-results": KeyboardEventPayload;
 };
 
 export const eventBus = mitt<Events>();

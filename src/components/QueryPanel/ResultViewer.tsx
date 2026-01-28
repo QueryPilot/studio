@@ -81,6 +81,20 @@ interface ExportMenuProps {
   databaseType?: string;
 }
 
+// Database type mapping - defined at module level to avoid recreation on each render
+const DB_TYPE_MAP: Record<string, DbType> = {
+  postgresql: DbType.PostgreSQL,
+  postgres: DbType.PostgreSQL,
+  mysql: DbType.MySQL,
+  mariadb: DbType.MariaDB,
+  sqlite: DbType.SQLite,
+  mssql: DbType.SQLServer,
+  sqlserver: DbType.SQLServer,
+  mongodb: DbType.MongoDB,
+  mongo: DbType.MongoDB,
+  redis: DbType.Redis,
+};
+
 const ExportMenu = memo(function ExportMenu({
   columns,
   rows,
@@ -464,22 +478,8 @@ export const ResultViewer = memo(function ResultViewer({
   const paradigm: DatabaseParadigm = useMemo(() => {
     if (!databaseType) return "sql";
 
-    // Try to map string dbType to DbType enum
-    const dbTypeMap: Record<string, DbType> = {
-      postgresql: DbType.PostgreSQL,
-      postgres: DbType.PostgreSQL,
-      mysql: DbType.MySQL,
-      mariadb: DbType.MariaDB,
-      sqlite: DbType.SQLite,
-      mssql: DbType.SQLServer,
-      sqlserver: DbType.SQLServer,
-      mongodb: DbType.MongoDB,
-      mongo: DbType.MongoDB,
-      redis: DbType.Redis,
-    };
-
     const normalizedType = databaseType.toLowerCase();
-    const dbType = dbTypeMap[normalizedType];
+    const dbType = DB_TYPE_MAP[normalizedType];
 
     return dbType ? getParadigm(dbType) : "sql";
   }, [databaseType]);

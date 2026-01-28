@@ -74,7 +74,7 @@ import { detectSqlDialect } from "@/utils/dialectDetector";
 import { logger } from "@/lib/logger";
 import { getThemeExtensions } from "./themes";
 import { getQueryAtCursor, getStatementAtPosition, isDestructiveQuery } from "./core";
-import { sqlFoldService } from "./extensions";
+import { sqlFoldService, preInitSqlWorkers } from "./extensions";
 
 // Extensions
 import { createMultiCursorExtension } from "./extensions/multi-cursor";
@@ -632,6 +632,10 @@ export const SqlEditor = memo(
     // Initialize editor
     useEffect(() => {
       if (!containerRef.current || viewRef.current) return;
+
+      // Lazily pre-initialize SQL workers on first SQL editor mount
+      // This avoids blocking module load for JSON-only editors (MongoDB panel)
+      preInitSqlWorkers();
 
       const actualTheme = resolvedTheme === "dark" ? "dark" : "light";
 

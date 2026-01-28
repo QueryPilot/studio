@@ -49,7 +49,8 @@ const EMPTY_PANEL_SHORTCUTS: Array<{ label: string; binding: string }> = [
 ];
 
 // Keep last N tabs mounted for instant switching
-const MAX_MOUNTED_TABS = 3;
+// Increased from 3 to preserve more tab state during typical usage
+const MAX_MOUNTED_TABS = 20;
 
 /**
  * Hook to track recently accessed tabs and keep the last N mounted.
