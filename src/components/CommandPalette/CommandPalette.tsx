@@ -51,7 +51,9 @@ import { NestedDatabaseList } from "./NestedDatabaseList";
 import { NestedSchemaList } from "./NestedSchemaList";
 import { NestedConnectionList } from "./NestedConnectionList";
 import { NestedWorkspaceList } from "./NestedWorkspaceList";
+import { NestedSavedQueriesList } from "./NestedSavedQueriesList";
 import { ActionsPopover } from "./ActionsPopover";
+import type { SavedQuery } from "@/lib/db/queryHistory";
 import {
   useItemActions,
   getNestedDatabaseActions,
@@ -543,6 +545,48 @@ export function CommandPalette(): React.ReactElement {
     [closePalette],
   );
 
+  // Handler for search-saved-queries: open a new query tab with the saved query SQL
+  const handleSavedQuerySelect = useCallback(
+    (savedQuery: SavedQuery) => {
+      const workbench = useWorkbenchStore.getState();
+      const panels = workbench.panelContents;
+      const focusedPanelId = workbench.focusedPanelId ?? panels.keys().next().value;
+
+      if (!focusedPanelId) {
+        closePalette();
+        return;
+      }
+
+      // Use the saved query's profile ID to find a matching connection, otherwise use active
+      let connectionId = activeConnectionId;
+      if (savedQuery.profileId) {
+        const connectionStore = useConnectionStore.getState();
+        const matchingConnection = connectionStore.connections.find(
+          (c) => c.profile.id === savedQuery.profileId,
+        );
+        if (matchingConnection) {
+          connectionId = matchingConnection.profile.id;
+        }
+      }
+
+      const uuid = crypto.randomUUID();
+      const tabId = `query-${uuid}`;
+
+      workbench.addTab(focusedPanelId, tabId, {
+        type: "query",
+        title: savedQuery.name,
+        connectionId: connectionId || "",
+        database: savedQuery.database || "",
+        schema: savedQuery.schema || "",
+        sql: savedQuery.query,
+      });
+      workbench.setActiveTab(focusedPanelId, tabId);
+      workbench.focusPanel(focusedPanelId);
+      closePalette();
+    },
+    [closePalette, activeConnectionId],
+  );
+
   // Handler for new-query-connection: create a new query tab with selected connection
   const handleNewQueryConnectionSelect = useCallback(
     (connectionId: string) => {
@@ -690,6 +734,8 @@ export function CommandPalette(): React.ReactElement {
         return "Search workspaces...";
       case "new-query-connection":
         return "Select connection for new query...";
+      case "search-saved-queries":
+        return "Search saved queries...";
     }
   };
 
@@ -742,6 +788,13 @@ export function CommandPalette(): React.ReactElement {
               onClose={closePalette}
               title="Select Connection for New Query"
               filterConnected={true}
+            />
+          ) : nestedMode.type === "search-saved-queries" ? (
+            <NestedSavedQueriesList
+              listRef={listRef}
+              query={query}
+              onSelect={handleSavedQuerySelect}
+              onClose={closePalette}
             />
           ) : (
             <NestedConnectionList

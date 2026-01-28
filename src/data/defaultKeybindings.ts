@@ -203,4 +203,18 @@ export const defaultKeybindings: Keybinding[] = [
     key: 'cmd+9',
     when: 'tabGroupFocused',
   },
+  // Query History
+  {
+    command: 'query.history.show',
+    key: 'cmd+shift+h',
+  },
+  {
+    command: 'query.saved.create',
+    key: 'cmd+shift+s',
+    when: 'editorTextFocus && queryEditor',
+  },
+  {
+    command: 'query.saved.search',
+    key: 'cmd+shift+o',
+  },
 ];

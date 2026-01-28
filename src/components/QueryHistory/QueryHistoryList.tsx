@@ -5,7 +5,7 @@
  * Supports context menu actions for opening, saving, and copying queries.
  */
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   useFilteredHistory,
@@ -32,11 +32,13 @@ import type { QueryHistoryEntry } from "@/lib/db/queryHistory";
 import { toast } from "sonner";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
+import { SaveQueryDialog } from "./SaveQueryDialog";
 
 export function QueryHistoryList() {
   const parentRef = useRef<HTMLDivElement>(null);
   const history = useFilteredHistory();
   const { loadHistory, isLoading } = useQueryHistoryStore();
+  const [saveDialogEntry, setSaveDialogEntry] = useState<QueryHistoryEntry | null>(null);
 
   useEffect(() => {
     void loadHistory();
@@ -64,38 +66,57 @@ export function QueryHistoryList() {
   }
 
   return (
-    <div ref={parentRef} className="h-full overflow-auto">
-      <div
-        style={{ height: virtualizer.getTotalSize(), position: "relative" }}
-      >
-        {virtualizer.getVirtualItems().map((virtualItem) => {
-          const entry = history[virtualItem.index];
-          if (!entry) return null;
-          return (
-            <HistoryItem
-              key={entry.id}
-              entry={entry}
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                transform: `translateY(${virtualItem.start}px)`,
-              }}
-            />
-          );
-        })}
+    <>
+      <div ref={parentRef} className="h-full overflow-auto">
+        <div
+          style={{ height: virtualizer.getTotalSize(), position: "relative" }}
+        >
+          {virtualizer.getVirtualItems().map((virtualItem) => {
+            const entry = history[virtualItem.index];
+            if (!entry) return null;
+            return (
+              <HistoryItem
+                key={entry.id}
+                entry={entry}
+                onSave={() => {
+                  setSaveDialogEntry(entry);
+                }}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${virtualItem.start}px)`,
+                }}
+              />
+            );
+          })}
+        </div>
       </div>
-    </div>
+
+      {/* Save Query Dialog */}
+      <SaveQueryDialog
+        open={saveDialogEntry !== null}
+        onOpenChange={(open) => {
+          if (!open) setSaveDialogEntry(null);
+        }}
+        query={saveDialogEntry?.query ?? ""}
+        profileId={saveDialogEntry?.profileId}
+        database={saveDialogEntry?.database}
+        schema={saveDialogEntry?.schema}
+      />
+    </>
   );
 }
 
 function HistoryItem({
   entry,
   style,
+  onSave,
 }: {
   entry: QueryHistoryEntry;
   style: React.CSSProperties;
+  onSave: () => void;
 }) {
   const truncatedQuery = entry.query.slice(0, 80).replace(/\s+/g, " ");
   const workbench = useWorkbenchStore();
@@ -127,11 +148,6 @@ function HistoryItem({
   const handleCopy = async () => {
     await navigator.clipboard.writeText(entry.query);
     toast.success("Query copied to clipboard");
-  };
-
-  const handleSave = () => {
-    // TODO: Open save dialog
-    toast.info("Save dialog coming soon");
   };
 
   return (
@@ -187,7 +203,7 @@ function HistoryItem({
           <IconPlayerPlay className="h-3 w-3 mr-2" />
           Open in New Tab
         </ContextMenuItem>
-        <ContextMenuItem onClick={handleSave}>
+        <ContextMenuItem onClick={onSave}>
           <IconBookmarkPlus className="h-3 w-3 mr-2" />
           Save Query
         </ContextMenuItem>

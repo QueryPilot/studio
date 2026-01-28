@@ -5,7 +5,8 @@ export type NestedMode =
   | { type: "switch-schema" }
   | { type: "open-connection" }
   | { type: "switch-workspace" }
-  | { type: "new-query-connection" };
+  | { type: "new-query-connection" }
+  | { type: "search-saved-queries" };
 
 interface CommandPaletteState {
   isOpen: boolean;

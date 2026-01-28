@@ -301,8 +301,8 @@ function quickAnalyze(
 
   // Use smart trigger check - only complete on meaningful characters
   if (!shouldTriggerCompletion(lastChar, beforeCursor.slice(0, -1), false)) {
-    // Not a trigger character - require at least 2 chars of identifier
-    if (!word || word.text.length < 2) {
+    // Not a trigger character - require at least 1 char of identifier
+    if (!word || word.text.length < 1) {
       return { shouldComplete: false, intent: "unknown" };
     }
   }
