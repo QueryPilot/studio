@@ -1,5 +1,4 @@
 pub mod adapters;
-pub mod ai;
 pub mod core;
 pub mod error;
 pub mod keychain;

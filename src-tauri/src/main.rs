@@ -3,13 +3,11 @@
     windows_subsystem = "windows"
 )]
 
-mod http_server;
 // NOTE: window_state module removed - tracking now uses BroadcastChannel API on frontend
 
 // Use library modules
 use query_pilot::*;
 
-use ai::manager::AIManager;
 use ssh::rate_limiter::RateLimiter;
 use state::AppState;
 use std::sync::Arc;
@@ -33,9 +31,6 @@ fn main() {
     // Create connection manager
     let manager = Arc::new(core::manager::ConnectionManager::new());
 
-    // Create AI manager with default provider
-    let ai_manager = Arc::new(AIManager::new());
-
     // Create app state
     let app_state = AppState {
         ssh_test_rate_limiter: RateLimiter::new(5),
@@ -57,7 +52,6 @@ fn main() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(manager)
-        .manage(ai_manager.clone())
         .manage(app_state)
         .setup(|app| {
             // Build and set the application menu
@@ -116,12 +110,6 @@ fn main() {
             commands::execute_query,
             commands::get_connection_health,
             commands::ping,
-            // AI sidecar
-            ai::commands::reload_ai_api_keys,
-            ai::commands::get_sidecar_status,
-            ai::commands::configure_telemetry,
-            ai::secure_storage::get_ai_api_key,
-            ai::secure_storage::set_ai_api_key,
             // Updater commands (for private repo releases)
             updater::check_for_updates,
             updater::download_update,
@@ -171,11 +159,6 @@ fn main() {
             // Paradigm-level IPC commands
             commands::document_execute,
             commands::keyvalue_execute,
-            // AI sidecar introspection commands
-            commands::ai_get_capabilities,
-            commands::ai_sql_execute,
-            commands::ai_document_execute,
-            commands::ai_keyvalue_execute,
             // Backup and restore commands
             commands::get_backup_capability,
             commands::get_tool_status,
@@ -190,24 +173,6 @@ fn main() {
         .build(context)
         .expect("error while building tauri application");
 
-    // Initialize AI sidecar
-    let ai_manager = app.state::<Arc<ai::manager::AIManager>>();
-    let ai_manager_clone = ai_manager.inner().clone();
-    let app_handle = app.handle().clone();
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = ai_manager_clone.initialize_sidecar(&app_handle).await {
-            tracing::error!("Failed to initialize AI sidecar: {}", e);
-        }
-    });
-
-    // Start HTTP API server for AI tools
-    let app_handle_clone = app.handle().clone();
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = http_server::start_http_server(app_handle_clone).await {
-            tracing::error!("Failed to start HTTP API server: {}", e);
-        }
-    });
-
     // Run the app with proper cleanup
     app.run(|app_handle, event| {
         // Handle both ExitRequested and Exit to ensure cleanup on Cmd+Q
@@ -220,9 +185,6 @@ fn main() {
             tracing::info!("🛑 Application exit requested, cleaning up resources...");
 
             // Run cleanup with overall timeout to prevent hanging
-            let ai_manager_opt = app_handle
-                .try_state::<Arc<AIManager>>()
-                .map(|s| s.inner().clone());
             let conn_manager_opt = app_handle
                 .try_state::<Arc<core::manager::ConnectionManager>>()
                 .map(|s| s.inner().clone());
@@ -230,13 +192,6 @@ fn main() {
             tauri::async_runtime::block_on(async move {
                 // Overall 3 second timeout for all cleanup
                 let cleanup_future = async {
-                    // Stop AI sidecar
-                    if let Some(ai_manager) = ai_manager_opt {
-                        if let Err(e) = ai_manager.sidecar_manager().stop().await {
-                            tracing::error!("Failed to stop AI sidecar: {}", e);
-                        }
-                    }
-
                     // Disconnect all database connections and close tunnels
                     if let Some(manager) = conn_manager_opt {
                         if let Err(e) = manager.disconnect_all().await {

@@ -20,8 +20,8 @@
  * ```
  */
 
-import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
-import type { InvokeArgs } from '@tauri-apps/api/core';
+import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import type { InvokeArgs } from "@tauri-apps/api/core";
 
 export type TauriCommandHandler = (cmd: string, args?: InvokeArgs) => any;
 
@@ -31,63 +31,66 @@ export type TauriCommandHandler = (cmd: string, args?: InvokeArgs) => any;
 export const defaultCommandMocks: Record<string, (args?: InvokeArgs) => any> = {
   // Connection commands
   connect_to_database: () => ({
-    id: 'test-connection-id',
+    id: "test-connection-id",
     success: true,
   }),
   disconnect_from_database: () => ({ success: true }),
   test_connection: () => ({
     success: true,
-    message: 'Connection successful',
-    version: 'PostgreSQL 15.0',
+    message: "Connection successful",
+    version: "PostgreSQL 15.0",
     warnings: [],
   }),
 
   // Database introspection
-  get_databases: () => ['postgres', 'testdb'],
-  get_schemas: () => ['public', 'private'],
+  get_databases: () => ["postgres", "testdb"],
+  get_schemas: () => ["public", "private"],
   get_tables: () => [
-    { name: 'users', schema: 'public', kind: 'Regular', row_count: 100 },
-    { name: 'posts', schema: 'public', kind: 'Regular', row_count: 500 },
+    { name: "users", schema: "public", kind: "Regular", row_count: 100 },
+    { name: "posts", schema: "public", kind: "Regular", row_count: 500 },
   ],
   get_table_columns: () => [
     {
-      name: 'id',
+      name: "id",
       data_type: { Integer: null },
       nullable: false,
       primary_key: true,
-      db_type: 'integer',
+      db_type: "integer",
     },
     {
-      name: 'email',
+      name: "email",
       data_type: { Text: null },
       nullable: false,
       primary_key: false,
-      db_type: 'varchar',
+      db_type: "varchar",
     },
   ],
   get_table_indexes: () => [
     {
-      name: 'users_pkey',
-      table_name: 'users',
-      columns: ['id'],
+      name: "users_pkey",
+      table_name: "users",
+      columns: ["id"],
       is_unique: true,
       is_primary: true,
-      definition: 'CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)',
+      definition:
+        "CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)",
     },
   ],
   get_table_constraints: () => [
     {
-      name: 'users_pkey',
-      table_name: 'users',
-      constraint_type: 'PrimaryKey',
-      definition: 'PRIMARY KEY (id)',
+      name: "users_pkey",
+      table_name: "users",
+      constraint_type: "PrimaryKey",
+      definition: "PRIMARY KEY (id)",
     },
   ],
 
   // Query execution
   execute_query: () => ({
     success: true,
-    data: new Uint8Array([0x81, 0xa7, 0x73, 0x75, 0x63, 0x63, 0x65, 0x73, 0x73, 0xc3]),
+    data: new Uint8Array([
+      0x81, 0xa7, 0x73, 0x75, 0x63, 0x63, 0x65, 0x73, 0x73, 0xc3,
+    ]),
   }),
   execute_sql: () => ({
     success: true,
@@ -98,14 +101,6 @@ export const defaultCommandMocks: Record<string, (args?: InvokeArgs) => any> = {
   save_connection_profile: () => ({ success: true }),
   load_connection_profiles: () => [],
   delete_connection_profile: () => ({ success: true }),
-
-  // AI commands
-  get_ai_api_key: () => null,
-  set_ai_api_key: () => ({ success: true }),
-  get_sidecar_status: () => ({
-    running: true,
-    port: 3001,
-  }),
 };
 
 /**
@@ -126,7 +121,7 @@ export const defaultCommandMocks: Record<string, (args?: InvokeArgs) => any> = {
  */
 export function mockTauriCommands(
   handler?: TauriCommandHandler,
-  useDefaults: boolean = true
+  useDefaults: boolean = true,
 ) {
   mockIPC((cmd, args) => {
     // Try custom handler first
@@ -223,14 +218,14 @@ export function mockCommandError(message: string) {
  */
 export function createMockConnectionProfile(overrides?: any) {
   return {
-    id: 'test-connection',
-    name: 'Test Database',
-    db_type: 'Postgres',
-    host: 'localhost',
+    id: "test-connection",
+    name: "Test Database",
+    db_type: "Postgres",
+    host: "localhost",
     port: 5432,
-    username: 'postgres',
-    database: 'testdb',
-    color: '#3b82f6',
+    username: "postgres",
+    database: "testdb",
+    color: "#3b82f6",
     created_at: new Date().toISOString(),
     ...overrides,
   };
@@ -241,9 +236,9 @@ export function createMockConnectionProfile(overrides?: any) {
  */
 export function createMockTable(overrides?: any) {
   return {
-    name: 'users',
-    schema: 'public',
-    kind: 'Regular',
+    name: "users",
+    schema: "public",
+    kind: "Regular",
     row_count: 100,
     ...overrides,
   };
@@ -254,11 +249,11 @@ export function createMockTable(overrides?: any) {
  */
 export function createMockColumn(overrides?: any) {
   return {
-    name: 'id',
+    name: "id",
     data_type: { Integer: null },
     nullable: false,
     primary_key: true,
-    db_type: 'integer',
+    db_type: "integer",
     ...overrides,
   };
 }

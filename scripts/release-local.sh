@@ -49,7 +49,6 @@ check_requirements() {
     command -v gh >/dev/null 2>&1 || error "GitHub CLI (gh) not installed. Run: brew install gh"
     command -v pnpm >/dev/null 2>&1 || error "pnpm not installed"
     command -v cargo >/dev/null 2>&1 || error "Rust/Cargo not installed"
-    command -v bun >/dev/null 2>&1 || error "Bun not installed"
     command -v jq >/dev/null 2>&1 || error "jq not installed. Run: brew install jq"
 
     # Check gh auth
@@ -97,10 +96,6 @@ Cannot proceed without AI CLI for version and changelog generation."
 run_tests() {
     log "Running tests before release..."
     echo ""
-
-    # Build AI sidecar first (required for some tests)
-    log "Building AI sidecar for tests..."
-    bash scripts/build-ai-sidecar.sh >/dev/null 2>&1 || error "Failed to build AI sidecar"
 
     # Run Rust backend tests
     log "Running Rust backend tests..."
@@ -454,19 +449,6 @@ $(echo "$changelog" | sed 's/^## \[.*\] - .*//; s/^### /- /; s/^- $//; /^$/d' | 
     success "Version bumped, committed and pushed"
 }
 
-# Build AI sidecar
-build_sidecar() {
-    log "Building AI sidecars for universal macOS build..."
-    BUILD_ALL=true bash scripts/build-ai-sidecar.sh
-
-    # Verify both architectures for universal build
-    for arch_target in aarch64-apple-darwin x86_64-apple-darwin; do
-        SIDECAR="src-tauri/sidecars/qp-ai-$arch_target"
-        [ -f "$SIDECAR" ] || error "Sidecar not found: $SIDECAR"
-    done
-    success "AI sidecars built for both architectures"
-}
-
 # Build Tauri app with signing
 build_app() {
     log "Building Tauri app for $TARGET..."
@@ -742,7 +724,6 @@ main() {
     log "Starting local build..."
     echo ""
 
-    build_sidecar
     build_app
     prepare_dmg
 

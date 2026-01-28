@@ -8,7 +8,6 @@ Query Pilot provides powerful filtering capabilities across all supported databa
 |---------|-------------------------------|-------------------|-------------------|
 | Search mode | ✅ | ✅ | ✅ |
 | Query mode | ✅ SQL WHERE clause | ✅ MongoDB query | ❌ |
-| AI mode | ✅ | ✅ | ❌ |
 | Pattern wildcards | N/A | N/A | ✅ |
 
 ---
@@ -65,18 +64,6 @@ Type `?` followed by a SQL WHERE clause for precise filtering.
 - Null: `IS NULL`, `IS NOT NULL`
 - Range: `BETWEEN`
 - Logical: `AND`, `OR`, `NOT`
-
-### AI Mode (# prefix)
-
-Type `#` followed by a natural language description. AI generates the appropriate SQL filter.
-
-**Examples:**
-```
-#users created this week
-#orders over $100 that are pending
-#customers from California
-#products low in stock
-```
 
 ---
 
@@ -141,24 +128,13 @@ Type `?` followed by a MongoDB query. Supports both JSON syntax and simplified s
 | `$regex` | Regular expression | `{ "name": { "$regex": "^john", "$options": "i" } }` |
 | `$and`, `$or` | Logical operators | `{ "$or": [{...}, {...}] }` |
 
-### AI Mode (# prefix)
-
-Type `#` followed by a natural language description.
-
-**Examples:**
-```
-#active users from last month
-#orders with total over 100
-#products in electronics category
-```
-
 ---
 
 ## Redis (Key-Value Store)
 
 Redis filtering is simpler because Redis is a key-value store without a query language. Only search and pattern modes are supported.
 
-> **Note:** Query mode (`?`) and AI mode (`#`) are not available for Redis because Redis doesn't have a query language - data is accessed by key, not by querying field values.
+> **Note:** Query mode (`?`) is not available for Redis because Redis doesn't have a query language - data is accessed by key, not by querying field values.
 
 ### Browser Mode (Key List)
 
@@ -222,7 +198,6 @@ Use `*` or `?` wildcards to filter by field/member names.
 |--------|------|--------------|
 | (none) | Search | SQL, MongoDB, Redis |
 | `?` | Query | SQL, MongoDB |
-| `#` | AI | SQL, MongoDB |
 
 ### Common Filter Patterns
 
@@ -261,5 +236,3 @@ Use `*` or `?` wildcards to filter by field/member names.
 5. **Performance**:
    - SQL/MongoDB query mode filters server-side (faster for large datasets)
    - Redis filtering is client-side (loads data first, then filters)
-
-6. **AI mode limitations**: AI-generated queries are best for exploratory filtering. Review the generated query for critical operations.

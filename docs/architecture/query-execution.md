@@ -280,9 +280,9 @@ const result = await queryStreamClient.streamWithCallbacks(
    - Consistent API across all data operations
    - RETURNING clauses may return multiple rows
 
-4. **HTTP API Uses Direct Query**
-   - AI sidecar HTTP server uses `adapter.query()`
-   - Cannot use IPC channels from HTTP context
+4. **External Tools Use Direct Query**
+   - External processes use `adapter.query()` via commands
+   - Cannot use IPC channels from external context
    - Results are typically small (schema info)
 
 ### Optimization Tips

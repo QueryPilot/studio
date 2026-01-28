@@ -2,13 +2,6 @@ import { renderHook } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { useQuickFilter } from "../useQuickFilter";
 
-vi.mock("../../useAIFilter", () => ({
-  useAIFilter: vi.fn(() => ({
-    isProcessing: false,
-    processAIFilter: vi.fn(),
-  })),
-}));
-
 describe("useQuickFilter", () => {
   it("should provide filter state and methods", () => {
     const { result } = renderHook(() =>

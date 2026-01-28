@@ -88,56 +88,6 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      # Bun setup for sidecar
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Cache Bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('src-tauri/sidecar-ai/bun.lockb') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
-
-      - name: Install sidecar dependencies
-        working-directory: src-tauri/sidecar-ai
-        run: bun install
-
-      # Build AI sidecar (required by Tauri build script)
-      - name: Build AI sidecar
-        run: pnpm build:ai-sidecar
-
-      - name: Verify AI sidecar build
-        run: |
-          echo "Checking for built sidecar..."
-          ls -la src-tauri/sidecars/ || echo "Sidecars directory not found!"
-
-          # Determine expected filename based on OS
-          case "${{ matrix.os }}" in
-            macos-latest)
-              EXPECTED_FILE="src-tauri/sidecars/qp-ai-aarch64-apple-darwin"
-              ;;
-            ubuntu-latest)
-              EXPECTED_FILE="src-tauri/sidecars/qp-ai-x86_64-unknown-linux-gnu"
-              ;;
-            windows-latest)
-              EXPECTED_FILE="src-tauri/sidecars/qp-ai-x86_64-pc-windows-msvc.exe"
-              ;;
-          esac
-
-          echo "Expecting: $EXPECTED_FILE"
-
-          if [ ! -f "$EXPECTED_FILE" ]; then
-            echo "ERROR: Sidecar binary not found!"
-            exit 1
-          fi
-
-          echo "✅ Sidecar built successfully"
-        shell: bash
-
       # Build frontend (required by Tauri build script)
       - name: Build frontend
         env:
@@ -155,11 +105,6 @@ jobs:
 
       - name: Run frontend unit tests
         run: pnpm test:unit
-
-      - name: Run sidecar tests
-        working-directory: src-tauri/sidecar-ai
-        run: bun test || echo "Skipping sidecar tests - not yet implemented"
-        continue-on-error: true
 
       # Linting (only on Linux to save time)
       - name: Run Rust clippy

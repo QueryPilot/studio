@@ -10,7 +10,7 @@
 
 ## DataGrid
 - [**DataGrid Adapter Architecture**](./guides/datagrid-adapter-architecture.md) - Complete guide to frontend/backend adapters
-- [DataGrid Filtering](./features/data-grid-filtering.md) - QuickFilter with Search/Query/AI modes
+- [DataGrid Filtering](./features/data-grid-filtering.md) - QuickFilter with Search/Query modes
 
 ## Guides
 - [Adding New Databases](./guides/CONTRIBUTING_DB.md) - **Start here for contributors**
@@ -19,7 +19,6 @@
 - [SSH Tunnels](./guides/ssh-tunnels.md) - SSH tunnel configuration
 
 ## Specifications
-- [AI Features](./specs/ai-features.md) - AI integration specs
 - [DBML Support](./specs/dbml-support.md) - DBML language support
 - [ERD Panel](./specs/erd-panel.md) - Entity relationship diagram panel
 

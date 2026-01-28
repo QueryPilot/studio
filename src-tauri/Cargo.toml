@@ -31,7 +31,6 @@ tokio = { version = "1.35", features = ["full"] }
 async-trait = "0.1"
 futures = "0.3"
 deadpool-postgres = "0.14"
-axum = "0.7"  # HTTP server for AI tool proxy
 
 # PostgreSQL
 tokio-postgres = { version = "0.7", features = [

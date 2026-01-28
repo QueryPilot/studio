@@ -52,7 +52,7 @@ This comprehensive guide explains the Query Pilot release system with cross-repo
 ### Key Components
 
 1. **Smart Release Script** (`scripts/smart-release-v2.sh`)
-   - AI-powered version bumping
+   - Automated version bumping
    - Professional changelog generation
    - Automated git tagging
    - Cross-repo publish orchestration
@@ -84,9 +84,8 @@ This comprehensive guide explains the Query Pilot release system with cross-repo
 - **pnpm** (package manager)
 - **Tauri CLI** (via pnpm)
 - **GitHub CLI** (`gh`)
-- **Codex CLI** (for AI changelog generation)
+- **Codex CLI** (for changelog generation)
 - **Rust** toolchain
-- **Bun** (for AI sidecar)
 
 Install missing tools:
 
@@ -259,8 +258,6 @@ The AI will generate a changelog like:
 ### New Features
 - Connect to remote databases securely through SSH tunnels. Automatic health
   monitoring ensures connections stay stable.
-- AI-powered SQL assistant now supports natural language queries. Ask in plain
-  English and get optimized SQL for PostgreSQL, MySQL, and SQL Server.
 
 ### Improvements
 - Query editor autocomplete is now 50% faster with improved caching and smarter
@@ -440,8 +437,7 @@ gh repo view QueryPilot/studio-app
 
 **Causes:**
 1. Tauri build failed
-2. AI sidecar build failed
-3. Code signing failed
+2. Code signing failed
 
 **Fix:**
 ```bash
@@ -452,8 +448,8 @@ gh run list --workflow release-enhanced.yml
 gh run view <run_id> --log
 
 # Common issues:
-# - Missing sidecars: Check scripts/build-ai-sidecar.sh
 # - Signing failed: Verify Apple certificates
+# - Build errors: Check Rust/TypeScript compilation
 ```
 
 ---

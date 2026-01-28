@@ -23,7 +23,7 @@ export default function TelemetryPanel() {
       // Disable Sentry immediately when user opts out
       disableSentry();
 
-      // Also disable backend and sidecar
+      // Also disable backend
       try {
         await configureTelemetryBackend(false);
         toast.success("Error tracking disabled", {
@@ -40,7 +40,7 @@ export default function TelemetryPanel() {
       setNeedsRestart(false);
     } else {
       // Enabling requires restart to initialize properly
-      // Configure backend and sidecar now, but frontend needs restart
+      // Configure backend now, but frontend needs restart
       try {
         await configureTelemetryBackend(true);
         setNeedsRestart(true);
@@ -153,9 +153,9 @@ export default function TelemetryPanel() {
           <Switch
             id="performance-monitoring"
             checked={telemetry.performanceMonitoring}
-            onCheckedChange={(checked) =>
-              { setTelemetry({ performanceMonitoring: checked }); }
-            }
+            onCheckedChange={(checked) => {
+              setTelemetry({ performanceMonitoring: checked });
+            }}
             disabled={!telemetry.sentryEnabled}
           />
         </div>
@@ -177,9 +177,9 @@ export default function TelemetryPanel() {
           <Switch
             id="session-replay"
             checked={telemetry.sessionReplay}
-            onCheckedChange={(checked) =>
-              { setTelemetry({ sessionReplay: checked }); }
-            }
+            onCheckedChange={(checked) => {
+              setTelemetry({ sessionReplay: checked });
+            }}
             disabled={!telemetry.sentryEnabled}
           />
         </div>

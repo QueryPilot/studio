@@ -30,7 +30,6 @@ import { databaseService } from "@/services/databaseService";
 import { DataGridSkeleton } from "../components/DataGridSkeleton";
 import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
 import { useQuickFilter } from "../hooks/useQuickFilter";
-import { useAIFilter } from "../hooks/useAIFilter";
 import { DbType, type GridCellValue } from "@/types";
 import type { FilterColumnInfo } from "@/utils/filterParser";
 import { useEmbeddedFKPreferencesStore } from "../stores/embeddedFKPreferencesStore";
@@ -211,14 +210,6 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
     }
   }, [dbType]);
 
-  // AI filter hook
-  const { generateFilter: generateAIFilter, isLoading: isAIFilterLoading } =
-    useAIFilter(filterColumns, table, dialect, {
-      connectionId,
-      schema,
-      enableCrossTable: true,
-    });
-
   // Quick filter hook - manages filter state, parsing, and submission
   const {
     value: quickFilterValue,
@@ -232,19 +223,19 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   } = useQuickFilter({
     columns: filterColumns,
     initialFilter: props.initialFilter,
-    generateAIFilter,
+    generateAIFilter: undefined,
     clientSideFiltering: false,
   });
 
   // --- Sort Configuration ---
   // Get sort state from grid preferences and convert to SortConfig format
   const sortColumns = useGridPreferencesStore(
-    (state) => state.preferences[gridId]?.sortColumns ?? EMPTY_SORT_COLUMNS
+    (state) => state.preferences[gridId]?.sortColumns ?? EMPTY_SORT_COLUMNS,
   );
 
   const sorts = useMemo<SortConfig[]>(() => {
     if (sortColumns.length === 0) return [];
-    
+
     return sortColumns.map(({ columnId, direction }) => ({
       column: columnId,
       direction,
@@ -710,7 +701,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
             onValueChange={setQuickFilterValue}
             onModeChange={setQuickFilterMode}
             onSubmit={handleFilterSubmit}
-            isLoading={isAIFilterLoading}
+            isLoading={false}
             error={quickFilterError}
             explanation={aiExplanation}
             clientSideFiltering={false}
@@ -781,9 +772,10 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
               {isViewOrMatView ? "No rows in this view" : "No data"}
             </div>
             <div className="text-muted-foreground/70 text-xs">
-              {isViewOrMatView 
-                ? "This view contains no data" 
-                : "No rows found" + (quickFilterValue ? " matching your filter" : "")}
+              {isViewOrMatView
+                ? "This view contains no data"
+                : "No rows found" +
+                  (quickFilterValue ? " matching your filter" : "")}
             </div>
           </div>
         </div>
