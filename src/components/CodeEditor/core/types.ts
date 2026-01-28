@@ -68,6 +68,22 @@ export interface MetadataProvider {
     targetTable: { name: string; alias?: string; schema?: string },
     schema?: string
   ): Promise<JoinConditionSuggestion[]>;
+
+  /**
+   * List database functions in the given schema.
+   * Returns user-defined and built-in functions from the database.
+   */
+  listFunctions?(schema?: string): Promise<FunctionMeta[]>;
+}
+
+/**
+ * Metadata about a database function
+ */
+export interface FunctionMeta {
+  name: string;
+  returnType: string;
+  arguments: string;
+  description?: string;
 }
 
 /**

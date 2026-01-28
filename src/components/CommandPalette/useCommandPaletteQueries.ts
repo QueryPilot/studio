@@ -157,78 +157,215 @@ interface ConnectionSchemaData {
 }
 
 /**
- * Hook to fetch schema data from ALL open connections in the workspace.
- * Used by Command Palette for cross-connection search.
+ * Fetch schema data for a single connection.
  */
-export function useAllConnectionsSchemaData() {
+async function fetchConnectionSchemaData(conn: OpenConnection): Promise<ConnectionSchemaData> {
+  try {
+    const [allTables, functions] = await Promise.all([
+      schemaCache.getTables(conn.id, conn.schema),
+      schemaCache.getFunctions(conn.id, conn.schema),
+    ]);
+
+    const tables = allTables.filter((t) => t.kind === "Table");
+    const views = allTables.filter((t) => t.kind === "View" || t.kind === "MaterializedView");
+
+    logger.info(`[fetchConnectionSchemaData] ${conn.profile.name}: ${tables.length} tables, ${views.length} views, ${functions.length} functions`);
+
+    return {
+      connection: conn,
+      tables,
+      views,
+      functions: filterUserFunctions(functions),
+    };
+  } catch (err) {
+    logger.error(`[fetchConnectionSchemaData] Failed to fetch for ${conn.profile.name}:`, err);
+    return {
+      connection: conn,
+      tables: [],
+      views: [],
+      functions: [],
+    };
+  }
+}
+
+/**
+ * Hook to fetch schema data for the CURRENT (focused) connection.
+ * High priority - fetches immediately for instant results.
+ */
+export function useCurrentConnectionSchemaData() {
   const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
+  const focusedConnectionId = activeWorkspace?.focusedConnectionId;
 
-  // Get connected connections
-  const connectedConnections = useMemo(() => {
-    if (!activeWorkspace) return [];
-    return Array.from(activeWorkspace.connections.values())
-      .filter(c => c.status === "connected" && c.database && c.schema);
-  }, [activeWorkspace]);
+  const currentConnection = useMemo(() => {
+    if (!activeWorkspace || !focusedConnectionId) return null;
+    const conn = activeWorkspace.connections.get(focusedConnectionId);
+    if (conn?.status === "connected" && conn.database && conn.schema) {
+      return conn;
+    }
+    return null;
+  }, [activeWorkspace, focusedConnectionId]);
 
-  // Build stable query key from connection states
-  const connectionKeys = useMemo(() => {
-    return connectedConnections
-      .map(c => `${c.id}:${c.database}:${c.schema}`)
-      .sort();
-  }, [connectedConnections]);
+  const connectionKey = currentConnection
+    ? `${currentConnection.id}:${currentConnection.database}:${currentConnection.schema}`
+    : null;
 
   return useQuery({
-    queryKey: ["allConnectionsSchemaData", connectionKeys],
-    queryFn: async (): Promise<ConnectionSchemaData[]> => {
-      logger.info(`[useAllConnectionsSchemaData] Fetching data for ${connectedConnections.length} connections`);
-
-      const results = await Promise.all(
-        connectedConnections.map(async (conn) => {
-          try {
-            const [allTables, functions] = await Promise.all([
-              schemaCache.getTables(conn.id, conn.schema),
-              schemaCache.getFunctions(conn.id, conn.schema),
-            ]);
-
-            // Separate tables and views
-            const tables = allTables.filter((t) => t.kind === "Table");
-            const views = allTables.filter((t) => t.kind === "View" || t.kind === "MaterializedView");
-
-            logger.info(`[useAllConnectionsSchemaData] ${conn.profile.name}: ${tables.length} tables, ${views.length} views, ${functions.length} functions`);
-
-            return {
-              connection: conn,
-              tables,
-              views,
-              functions: filterUserFunctions(functions),
-            };
-          } catch (err) {
-            logger.error(`[useAllConnectionsSchemaData] Failed to fetch for ${conn.profile.name}:`, err);
-            return {
-              connection: conn,
-              tables: [],
-              views: [],
-              functions: [],
-            };
-          }
-        })
-      );
-
-      return results;
+    queryKey: ["currentConnectionSchemaData", connectionKey],
+    queryFn: async (): Promise<ConnectionSchemaData | null> => {
+      if (!currentConnection) return null;
+      logger.info(`[useCurrentConnectionSchemaData] Fetching data for current connection: ${currentConnection.profile.name}`);
+      return fetchConnectionSchemaData(currentConnection);
     },
-    enabled: connectionKeys.length > 0,
-    staleTime: 30 * 1000, // 30 seconds
-    gcTime: 5 * 60 * 1000, // 5 minutes
+    enabled: !!connectionKey,
+    staleTime: 5 * 60 * 1000, // 5 minutes - reduce refetches
+    gcTime: 10 * 60 * 1000,
+    refetchOnMount: false, // Use cache on open
+    refetchOnWindowFocus: false,
   });
+}
+
+/**
+ * Hook to fetch schema data for OTHER connections (not the focused one).
+ * Lower priority - fetches in background after current connection data is ready.
+ */
+export function useOtherConnectionsSchemaData(currentDataReady: boolean) {
+  const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
+  const focusedConnectionId = activeWorkspace?.focusedConnectionId;
+
+  const otherConnections = useMemo(() => {
+    if (!activeWorkspace) return [];
+    return Array.from(activeWorkspace.connections.values())
+      .filter(c =>
+        c.status === "connected" &&
+        c.database &&
+        c.schema &&
+        c.id !== focusedConnectionId
+      );
+  }, [activeWorkspace, focusedConnectionId]);
+
+  const connectionKeys = useMemo(() => {
+    return otherConnections
+      .map(c => `${c.id}:${c.database}:${c.schema}`)
+      .sort();
+  }, [otherConnections]);
+
+  return useQuery({
+    queryKey: ["otherConnectionsSchemaData", connectionKeys],
+    queryFn: async (): Promise<ConnectionSchemaData[]> => {
+      logger.info(`[useOtherConnectionsSchemaData] Fetching data for ${otherConnections.length} other connections`);
+      return Promise.all(otherConnections.map(fetchConnectionSchemaData));
+    },
+    enabled: currentDataReady && connectionKeys.length > 0,
+    staleTime: 5 * 60 * 1000, // 5 minutes - reduce refetches
+    gcTime: 10 * 60 * 1000,
+    refetchOnMount: false, // Use cache on open
+    refetchOnWindowFocus: false,
+  });
+}
+
+/**
+ * Convert connection schema data to unified items.
+ */
+function connectionDataToItems(connData: ConnectionSchemaData): UnifiedItem[] {
+  const items: UnifiedItem[] = [];
+  const { connection, tables, views, functions } = connData;
+  const connId = connection.id;
+  const connName = connection.profile.name;
+  const database = connection.database;
+  const dbType = connection.profile.db_type;
+
+  const makeId = (entityType: string, schemaName: string, name: string) =>
+    `${entityType}:${connId}:${schemaName}.${name}`;
+
+  for (const table of tables) {
+    items.push({
+      id: makeId("table", table.schema, table.name),
+      type: "table",
+      name: table.name,
+      subtitle: table.row_estimate ? `~${formatNumber(table.row_estimate)} rows` : "",
+      schema: table.schema,
+      connectionId: connId,
+      connectionName: connName,
+      database,
+      dbType,
+      keywords: [
+        `${table.schema}.${table.name}`.toLowerCase(),
+        "table",
+        connName.toLowerCase(),
+        database.toLowerCase(),
+      ],
+      table,
+    });
+  }
+
+  for (const view of views) {
+    const entityType: TableEntityType =
+      view.kind === "MaterializedView" ? "materializedView" : "view";
+    items.push({
+      id: makeId(entityType, view.schema, view.name),
+      type: entityType,
+      name: view.name,
+      subtitle: "",
+      schema: view.schema,
+      connectionId: connId,
+      connectionName: connName,
+      database,
+      dbType,
+      keywords: [
+        `${view.schema}.${view.name}`.toLowerCase(),
+        entityType,
+        connName.toLowerCase(),
+        database.toLowerCase(),
+      ],
+      table: view,
+    });
+  }
+
+  for (const func of functions) {
+    items.push({
+      id: makeId("function", func.schema, func.name),
+      type: "function",
+      name: func.name,
+      subtitle: "",
+      schema: func.schema,
+      connectionId: connId,
+      connectionName: connName,
+      database,
+      dbType,
+      keywords: [
+        `${func.schema}.${func.name}`.toLowerCase(),
+        "function",
+        "func",
+        connName.toLowerCase(),
+        database.toLowerCase(),
+      ],
+      func,
+    });
+  }
+
+  return items;
 }
 
 /**
  * Hook that combines all searchable items into a unified list.
  * Searches across ALL open connections in the workspace.
+ * Uses prioritized loading: current connection first, others in background.
  */
 export function useUnifiedItems() {
   const { data: commands = [], isLoading: isLoadingCommands } = useCommands();
-  const { data: allConnectionsData = [], isLoading: isLoadingSchemaData } = useAllConnectionsSchemaData();
+
+  // Fetch current connection first (high priority)
+  const {
+    data: currentConnectionData,
+    isLoading: isLoadingCurrent,
+  } = useCurrentConnectionSchemaData();
+
+  // Fetch other connections in background (lower priority, waits for current)
+  const currentDataReady = !isLoadingCurrent && currentConnectionData !== undefined;
+  const {
+    data: otherConnectionsData = [],
+    isLoading: isLoadingOthers,
+  } = useOtherConnectionsSchemaData(currentDataReady);
 
   const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
   const isInWorkspace = !!activeWorkspace;
@@ -237,95 +374,21 @@ export function useUnifiedItems() {
   const unifiedItems = useMemo<UnifiedItem[]>(() => {
     const items: UnifiedItem[] = [];
 
-    // Add database objects from all connections
-    for (const connData of allConnectionsData) {
-      const { connection, tables, views, functions } = connData;
-      const connId = connection.id;
-      const connName = connection.profile.name;
-      const database = connection.database;
-      const dbType = connection.profile.db_type;
+    // Add current connection items first (available immediately)
+    if (currentConnectionData) {
+      items.push(...connectionDataToItems(currentConnectionData));
+    }
 
-      // Helper to create item ID with connection context
-      const makeId = (entityType: string, schemaName: string, name: string) =>
-        `${entityType}:${connId}:${schemaName}.${name}`;
-
-      // Add tables
-      for (const table of tables) {
-        items.push({
-          id: makeId("table", table.schema, table.name),
-          type: "table",
-          name: table.name,
-          subtitle: table.row_estimate ? `~${formatNumber(table.row_estimate)} rows` : "",
-          schema: table.schema,
-          connectionId: connId,
-          connectionName: connName,
-          database,
-          dbType,
-          keywords: [
-            `${table.schema}.${table.name}`.toLowerCase(),
-            "table",
-            connName.toLowerCase(),
-            database.toLowerCase(),
-          ],
-          table,
-        });
-      }
-
-      // Add views
-      for (const view of views) {
-        const entityType: TableEntityType =
-          view.kind === "MaterializedView" ? "materializedView" : "view";
-        items.push({
-          id: makeId(entityType, view.schema, view.name),
-          type: entityType,
-          name: view.name,
-          subtitle: "",
-          schema: view.schema,
-          connectionId: connId,
-          connectionName: connName,
-          database,
-          dbType,
-          keywords: [
-            `${view.schema}.${view.name}`.toLowerCase(),
-            entityType,
-            connName.toLowerCase(),
-            database.toLowerCase(),
-          ],
-          table: view,
-        });
-      }
-
-      // Add functions
-      for (const func of functions) {
-        items.push({
-          id: makeId("function", func.schema, func.name),
-          type: "function",
-          name: func.name,
-          subtitle: "",
-          schema: func.schema,
-          connectionId: connId,
-          connectionName: connName,
-          database,
-          dbType,
-          keywords: [
-            `${func.schema}.${func.name}`.toLowerCase(),
-            "function",
-            "func",
-            connName.toLowerCase(),
-            database.toLowerCase(),
-          ],
-          func,
-        });
-      }
+    // Add other connections items (available progressively)
+    for (const connData of otherConnectionsData) {
+      items.push(...connectionDataToItems(connData));
     }
 
     // Filter commands based on context
     const contextFilteredCommands = commands.filter((cmd) => {
-      // Hide commands that shouldn't appear in the palette
       if (cmd.id === "quickOpen.show") {
         return false;
       }
-      // Workspace-only commands - only show when in a workspace
       if (
         cmd.id === "workspace.openDatabase" ||
         cmd.id === "workspace.openSchema" ||
@@ -340,14 +403,12 @@ export function useUnifiedItems() {
       ) {
         return isInWorkspace;
       }
-      // Home-only commands - only show when NOT in a workspace
       if (cmd.id === "connection.open") {
         return !isInWorkspace;
       }
       return true;
     });
 
-    // Add filtered commands
     for (const command of contextFilteredCommands) {
       items.push({
         id: `command:${command.id}`,
@@ -365,11 +426,13 @@ export function useUnifiedItems() {
     }
 
     return items;
-  }, [commands, allConnectionsData, isInWorkspace]);
+  }, [commands, currentConnectionData, otherConnectionsData, isInWorkspace]);
 
   return {
     unifiedItems,
-    isLoading: isLoadingCommands || isLoadingSchemaData,
+    isLoading: isLoadingCommands,
+    isLoadingCurrent,
+    isLoadingOthers,
     connectionCount,
   };
 }
