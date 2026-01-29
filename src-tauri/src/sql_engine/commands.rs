@@ -165,7 +165,6 @@ pub async fn sql_parse(request: ParseRequest) -> Result<ParseResponse, String> {
 #[tauri::command]
 pub async fn sql_validate(
     request: ValidateRequest,
-    _manager: State<'_, ConnectionManager>,
 ) -> Result<ValidateResponse, String> {
     let dialect = parse_dialect(&request.dialect);
     let doc = parse_document(&request.sql, dialect);
@@ -210,7 +209,6 @@ pub async fn sql_validate(
 #[tauri::command]
 pub async fn sql_complete(
     request: CompleteRequest,
-    _manager: State<'_, ConnectionManager>,
 ) -> Result<CompleteResponse, String> {
     let dialect = parse_dialect(&request.dialect);
     let doc = parse_document(&request.sql, dialect);

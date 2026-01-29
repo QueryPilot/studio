@@ -2,9 +2,7 @@
  * SQL Linter Strategy
  *
  * Provides a unified interface for creating dialect-specific linters.
- * Each dialect gets the most appropriate linter implementation:
- * - PostgreSQL: pg-parser WASM (most accurate for PL/pgSQL)
- * - Other dialects: Web Worker-based validation
+ * All dialects use the Rust backend for validation (via Tauri IPC).
  *
  * Note: lintGutter() is provided separately by run-gutter extension or SqlEditor
  *
@@ -15,7 +13,6 @@
 
 import type { Extension } from "@codemirror/state";
 import type { SqlDialect } from "../../types";
-import { createPgParserLinter } from "./pg-parser-linter";
 import { createUnifiedLinter } from "./unified-linter";
 
 /**
@@ -43,8 +40,13 @@ interface LinterStrategy {
  */
 const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
   postgresql: {
-    linter: () => createPgParserLinter(),
-    description: "pg-parser WASM (PL/pgSQL support)",
+    linter: (config) =>
+      createUnifiedLinter({
+        dialect: "postgresql",
+        connectionId: config?.connectionId,
+        schema: config?.schema,
+      }),
+    description: "Rust backend linter (500ms debounce)",
   },
   mysql: {
     linter: (config) =>
@@ -53,7 +55,7 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
         connectionId: config?.connectionId,
         schema: config?.schema,
       }),
-    description: "Unified linter (400ms debounce)",
+    description: "Rust backend linter (500ms debounce)",
   },
   sqlite: {
     linter: (config) =>
@@ -62,7 +64,7 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
         connectionId: config?.connectionId,
         schema: config?.schema,
       }),
-    description: "Unified linter (400ms debounce)",
+    description: "Rust backend linter (500ms debounce)",
   },
   mssql: {
     linter: (config) =>
@@ -71,7 +73,7 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
         connectionId: config?.connectionId,
         schema: config?.schema,
       }),
-    description: "Unified linter (400ms debounce)",
+    description: "Rust backend linter (500ms debounce)",
   },
   plsql: {
     linter: (config) =>
@@ -80,7 +82,7 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
         connectionId: config?.connectionId,
         schema: config?.schema,
       }),
-    description: "Unified linter (400ms debounce)",
+    description: "Rust backend linter (500ms debounce)",
   },
 };
 
@@ -108,10 +110,10 @@ export function createDialectLinter(
 
 /**
  * Check if a dialect uses the worker-based linter.
- * Useful for managing worker lifecycle.
+ * All dialects now use the unified linter (Rust backend in Tauri).
  */
-export function usesWorkerLinter(dialect: SqlDialect): boolean {
-  return dialect !== "postgresql";
+export function usesWorkerLinter(_dialect: SqlDialect): boolean {
+  return true;
 }
 
 /**

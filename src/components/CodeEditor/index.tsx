@@ -12,15 +12,6 @@ import { EditorView } from "@codemirror/view";
 import { useTheme } from "@/components/theme-provider";
 import { getThemeExtensions } from "./themes";
 import { getEditorExtensions } from "./extensions";
-import {
-  acquireLinterWorker,
-  releaseLinterWorker,
-} from "./languages/sql/linter-worker-manager";
-import {
-  acquirePgParserWorker,
-  releasePgParserWorker,
-} from "./languages/sql/pg-parser-worker-manager";
-import { usesWorkerLinter } from "./languages/sql/linter-strategy";
 import type { CodeEditorProps } from "./types";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import { useScopedKeybindings, useContextKey } from "@/hooks/useContextKey";
@@ -83,7 +74,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
       // This handles the "loopback" case where user types -> onChange -> parent state update -> prop update
       if (value !== currentValue) {
         view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: value }
+          changes: { from: 0, to: view.state.doc.length, insert: value },
         });
       }
     }, [value]);
@@ -106,31 +97,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
       };
     }, []);
 
-    // Acquire/release linter worker for SQL editors that use worker-based linting
-    // Uses reference counting to properly cleanup when last editor unmounts
-    useEffect(() => {
-      if (language !== "sql" || !usesWorkerLinter(dialect)) {
-        return;
-      }
-
-      acquireLinterWorker();
-      return () => {
-        releaseLinterWorker();
-      };
-    }, [language, dialect]);
-
-    // Acquire/release pg-parser worker for PostgreSQL dialect
-    // PostgreSQL uses its own dedicated worker for WASM parsing
-    useEffect(() => {
-      if (language !== "sql" || dialect !== "postgresql") {
-        return;
-      }
-
-      acquirePgParserWorker();
-      return () => {
-        releasePgParserWorker();
-      };
-    }, [language, dialect]);
+    // Note: Worker lifecycle removed - Tauri-only app uses Rust backend directly
 
     useImperativeHandle(
       ref,
@@ -210,13 +177,13 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
             minHeight: "100%",
           },
         }),
-      []
+      [],
     );
 
     // Theme extensions - only changes when theme changes
     const themeExtensions = useMemo(
       () => getThemeExtensions(actualTheme),
-      [actualTheme]
+      [actualTheme],
     );
 
     // Stable refs for callbacks to avoid extension rebuilds
@@ -238,7 +205,6 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
       return onEnterRef.current?.() ?? false;
     }, []);
 
-
     // Core extensions - stable, only rebuilds when language/connection config changes
     const coreExtensions = useMemo(
       () =>
@@ -254,7 +220,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
           connectionId,
           database,
           schema,
-          { disableExecuteKeymap }
+          { disableExecuteKeymap },
         ),
       [
         language,
@@ -267,13 +233,13 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
         database,
         schema,
         disableExecuteKeymap,
-      ]
+      ],
     );
 
     // Combined extensions array
     const extensions = useMemo(
       () => [...coreExtensions, ...themeExtensions, layoutExtensions],
-      [coreExtensions, themeExtensions, layoutExtensions]
+      [coreExtensions, themeExtensions, layoutExtensions],
     );
 
     // Consolidated auto-focus effect
@@ -288,7 +254,9 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
         editorRef.current?.focus();
       }, FOCUS_DELAY_MS);
 
-      return () => { clearTimeout(timeoutId); };
+      return () => {
+        clearTimeout(timeoutId);
+      };
     }, [autoFocus, value]);
 
     return (

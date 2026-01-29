@@ -42,23 +42,14 @@ import { acceptCompletion, autocompletion } from "@codemirror/autocomplete";
 import { dbmlMixed } from "./languages/dbml/dbml-mixed";
 // NOTE: Legacy createSemanticLinter removed - validation handled by createDialectLinter (unified-linter)
 import { createDialectLinter } from "./languages/sql/linter-strategy";
-import { preInitPgParser } from "./languages/sql/pg-parser-linter";
-import { preInitLinterWorker } from "./languages/sql/linter-worker-manager";
 import { createSqlCompletionSource } from "./languages/sql/completion";
 
-// Lazy pre-initialization flag - workers are initialized on first SQL editor mount
-let sqlWorkersInitialized = false;
-
 /**
- * Pre-initialize SQL workers (PostgreSQL WASM parser and tokenizer worker).
- * Called lazily when the first SQL editor mounts to avoid blocking module load
- * for JSON-only editors (like MongoDB panel).
+ * Pre-initialize SQL workers (no-op for Tauri-only app).
+ * Kept for API compatibility but does nothing - Rust backend handles everything.
  */
 export function preInitSqlWorkers(): void {
-  if (sqlWorkersInitialized) return;
-  sqlWorkersInitialized = true;
-  preInitPgParser();      // PostgreSQL WASM worker
-  preInitLinterWorker();  // MySQL/SQLite/MSSQL tokenizer worker
+  // No-op: Tauri-only app uses Rust backend directly, no workers needed
 }
 import { createSqlHoverExtension } from "./languages/sql/hover";
 import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";
@@ -330,7 +321,7 @@ export const getLanguageExtension = (
 // Execute query with destructive action protection
 const executeWithSafetyCheck = (
   query: string,
-  onExecute: (query?: string) => void
+  onExecute: (query?: string) => void,
 ): void => {
   const check = isDestructiveQuery(query);
 
@@ -339,8 +330,8 @@ const executeWithSafetyCheck = (
       check.type === "TRUNCATE"
         ? `⚠️ Warning: You are running a TRUNCATE command. This will delete ALL rows in the table. Proceed?`
         : check.type === "DROP"
-        ? `⚠️ Warning: You are running a DROP command. This will permanently delete the database object. Proceed?`
-        : `⚠️ Warning: You are running a ${check.type} without a WHERE clause. This will affect ALL rows. Proceed?`;
+          ? `⚠️ Warning: You are running a DROP command. This will permanently delete the database object. Proceed?`
+          : `⚠️ Warning: You are running a ${check.type} without a WHERE clause. This will affect ALL rows. Proceed?`;
 
     if (!window.confirm(message)) {
       return;

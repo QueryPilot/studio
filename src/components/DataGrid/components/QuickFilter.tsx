@@ -25,11 +25,7 @@ import { history, historyKeymap } from "@codemirror/commands";
 import { getThemeExtensions } from "@/components/CodeEditor/themes";
 import { useTheme } from "@/components/theme-provider";
 import { linter, type Diagnostic } from "@codemirror/lint";
-import {
-  parseWithWorker,
-  acquirePgParserWorker,
-  releasePgParserWorker,
-} from "@/components/CodeEditor/languages/sql/pg-parser-worker-manager";
+import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -264,13 +260,7 @@ export const QuickFilter = memo(
       };
     }, []);
 
-    // Acquire/release pg-parser worker for WHERE clause linting
-    useEffect(() => {
-      acquirePgParserWorker();
-      return () => {
-        releasePgParserWorker();
-      };
-    }, []);
+    // Note: SQL validation now uses Rust backend (no worker setup needed)
 
     // Click-outside handler for suggestions dropdown (replaces Popover behavior)
     useEffect(() => {
@@ -368,17 +358,32 @@ export const QuickFilter = memo(
             try {
               // Wrap WHERE clause in SELECT to make it valid SQL
               const testSql = `SELECT * FROM t WHERE ${content}`;
-              const diagnostics = await parseWithWorker(testSql);
 
-              if (diagnostics.length > 0) {
+              // Use Rust backend for validation
+              const response = await invoke<{
+                valid: boolean;
+                errors: Array<{
+                  from: number;
+                  to: number;
+                  message: string;
+                  severity: string;
+                }>;
+              }>("sql_validate", {
+                request: {
+                  sql: testSql,
+                  dialect: "postgresql",
+                },
+              });
+
+              if (response.errors.length > 0) {
                 setHasLintError(true);
                 // Adjust positions to account for "SELECT * FROM t WHERE " prefix (23 chars)
                 const prefixLen = 23;
-                return diagnostics
+                return response.errors
                   .map((d) => ({
                     from: Math.max(0, d.from - prefixLen),
                     to: Math.min(Math.max(0, d.to - prefixLen), content.length),
-                    severity: d.severity,
+                    severity: d.severity as "error" | "warning" | "info",
                     message: d.message,
                   }))
                   .filter((d) => d.from >= 0 && d.to > d.from);
