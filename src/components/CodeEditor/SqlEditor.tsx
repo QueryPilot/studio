@@ -73,7 +73,11 @@ import { debounce } from "@/utils/debounce";
 import { detectSqlDialect } from "@/utils/dialectDetector";
 import { logger } from "@/lib/logger";
 import { getThemeExtensions } from "./themes";
-import { getQueryAtCursor, getStatementAtPosition, isDestructiveQuery } from "./core";
+import {
+  getQueryAtCursor,
+  getStatementAtPosition,
+  isDestructiveQuery,
+} from "./core";
 import { sqlFoldService, preInitSqlWorkers } from "./extensions";
 
 // Extensions
@@ -99,16 +103,7 @@ import { createSqlHoverExtension } from "./languages/sql/hover";
 import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";
 import { createExpandStarExtension } from "./languages/sql/code-actions";
 import { createOptimizedCompletionSource } from "./languages/sql/optimized-completion";
-import {
-  acquireLinterWorker,
-  releaseLinterWorker,
-} from "./languages/sql/linter-worker-manager";
 import { useRustSchemaSync } from "@/hooks/useRustSchemaSync";
-import {
-  acquirePgParserWorker,
-  releasePgParserWorker,
-} from "./languages/sql/pg-parser-worker-manager";
-import { usesWorkerLinter } from "./languages/sql/linter-strategy";
 
 import type { SqlDialect } from "./types";
 
@@ -294,7 +289,9 @@ export const SqlEditor = memo(
 
     // Instance-level compartments - fixes state corruption across multiple editors
     // Using useState initializer ensures these are created exactly once per instance
-    const [compartments] = useState<EditorCompartments>(() => createCompartments());
+    const [compartments] = useState<EditorCompartments>(() =>
+      createCompartments(),
+    );
 
     // FIX: Use uncontrolled mode to avoid "typing latch" bug
     // We only pass the initial value to the editor, and handle subsequent updates manually
@@ -313,7 +310,7 @@ export const SqlEditor = memo(
       // Only dispatch update if value is effectively different
       if (value !== currentValue) {
         view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: value }
+          changes: { from: 0, to: view.state.doc.length, insert: value },
         });
       }
     }, [value]);
@@ -325,7 +322,13 @@ export const SqlEditor = memo(
       onGotoDefinitionRef.current = onGotoDefinition;
       onDialectDetectedRef.current = onDialectDetected;
       contextServiceRef.current = keyboardServices?.contextService;
-    }, [onChange, onExecute, onGotoDefinition, onDialectDetected, keyboardServices]);
+    }, [
+      onChange,
+      onExecute,
+      onGotoDefinition,
+      onDialectDetected,
+      keyboardServices,
+    ]);
 
     // Debounced dialect detection
     const handleDialectDetection = useCallback(
@@ -345,29 +348,7 @@ export const SqlEditor = memo(
     // Use override or detected dialect
     const effectiveDialect = dialectOverride ?? currentDialect;
 
-    // Acquire/release linter worker for dialects using worker-based linting
-    useEffect(() => {
-      if (!usesWorkerLinter(effectiveDialect)) {
-        return;
-      }
-
-      acquireLinterWorker();
-      return () => {
-        releaseLinterWorker();
-      };
-    }, [effectiveDialect]);
-
-    // Acquire/release pg-parser worker for PostgreSQL dialect
-    useEffect(() => {
-      if (effectiveDialect !== "postgresql") {
-        return;
-      }
-
-      acquirePgParserWorker();
-      return () => {
-        releasePgParserWorker();
-      };
-    }, [effectiveDialect]);
+    // Note: Worker lifecycle removed - Tauri-only app uses Rust backend directly
 
     // Create debounced onChange
     const handleChange = useCallback((value: string) => {
@@ -392,8 +373,8 @@ export const SqlEditor = memo(
           check.type === "TRUNCATE"
             ? `⚠️ Warning: You are running a TRUNCATE command. This will delete ALL rows in the table. Proceed?`
             : check.type === "DROP"
-            ? `⚠️ Warning: You are running a DROP command. This will permanently delete the database object. Proceed?`
-            : `⚠️ Warning: You are running a ${check.type} without a WHERE clause. This will affect ALL rows. Proceed?`;
+              ? `⚠️ Warning: You are running a DROP command. This will permanently delete the database object. Proceed?`
+              : `⚠️ Warning: You are running a ${check.type} without a WHERE clause. This will affect ALL rows. Proceed?`;
 
         if (!window.confirm(message)) {
           return;
@@ -496,7 +477,7 @@ export const SqlEditor = memo(
       eventBus.on("query-editor:execute-background", handleExecute);
       eventBus.on("query-editor:find", handleFind);
       eventBus.on("query-editor:replace", handleReplace);
-      
+
       return () => {
         eventBus.off("query-editor:execute", handleExecute);
         eventBus.off("query-editor:execute-background", handleExecute);
@@ -755,7 +736,52 @@ export const SqlEditor = memo(
                   if (query) executeQuery(query);
                 }),
               ]
-            : [lintGutter()]),
+            : [
+                lintGutter({
+                  markerDOM(diagnostics) {
+                    const div = document.createElement("div");
+                    div.className = "cm-lint-marker";
+
+                    // Find highest severity
+                    const hasError = diagnostics.some(
+                      (d) => d.severity === "error",
+                    );
+                    const hasWarning = diagnostics.some(
+                      (d) => d.severity === "warning",
+                    );
+
+                    // Create SVG icon
+                    const svg = document.createElementNS(
+                      "http://www.w3.org/2000/svg",
+                      "svg",
+                    );
+                    svg.setAttribute("width", "14");
+                    svg.setAttribute("height", "14");
+                    svg.setAttribute("viewBox", "0 0 16 16");
+                    svg.setAttribute("fill", "currentColor");
+
+                    if (hasError) {
+                      div.className += " cm-lint-marker-error";
+                      // X Circle icon for errors
+                      svg.innerHTML = `<path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                        <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>`;
+                    } else if (hasWarning) {
+                      div.className += " cm-lint-marker-warning";
+                      // Alert triangle icon for warnings
+                      svg.innerHTML = `<path d="M7.938 2.016A.13.13 0 0 1 8.002 2a.13.13 0 0 1 .063.016.146.146 0 0 1 .054.057l6.857 11.667c.036.06.035.124.002.183a.163.163 0 0 1-.054.06.116.116 0 0 1-.066.017H1.146a.115.115 0 0 1-.066-.017.163.163 0 0 1-.054-.06.176.176 0 0 1 .002-.183L7.884 2.073a.147.147 0 0 1 .054-.057zm1.044-.45a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566z"/>
+                        <path d="M7.002 12a1 1 0 1 1 2 0 1 1 0 0 1-2 0zM7.1 5.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995z"/>`;
+                    } else {
+                      div.className += " cm-lint-marker-info";
+                      // Info circle icon for info
+                      svg.innerHTML = `<path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                        <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>`;
+                    }
+
+                    div.appendChild(svg);
+                    return div;
+                  },
+                }),
+              ]),
 
           // Update listener
           updateListener,
@@ -816,7 +842,7 @@ export const SqlEditor = memo(
         view.destroy();
         viewRef.current = null;
       };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); // Empty deps - only mount once
 
     // Update theme
@@ -837,7 +863,13 @@ export const SqlEditor = memo(
           ...dialectExtensions,
         ]),
       });
-    }, [effectiveDialect, dialectExtensions, compartments, connectionId, schema]);
+    }, [
+      effectiveDialect,
+      dialectExtensions,
+      compartments,
+      connectionId,
+      schema,
+    ]);
 
     // Update completion extension (lightweight - separate from dialect)
     useEffect(() => {
@@ -883,7 +915,11 @@ export const SqlEditor = memo(
             setExtractCteDialogOpen(true);
           }}
           onGotoTableStructure={(table, schema) => {
-            onGotoDefinitionRef.current?.({ type: "table", name: table, schema });
+            onGotoDefinitionRef.current?.({
+              type: "table",
+              name: table,
+              schema,
+            });
           }}
         >
           <div
@@ -900,7 +936,8 @@ export const SqlEditor = memo(
 
             try {
               const sql = viewRef.current.state.doc.toString();
-              const { applyRefactor } = await import("./languages/sql/refactor-service");
+              const { applyRefactor } =
+                await import("./languages/sql/refactor-service");
 
               const result = await applyRefactor(sql, effectiveDialect, {
                 kind: "extract_cte",
