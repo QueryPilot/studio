@@ -21,25 +21,8 @@ export { createSqlHoverExtension } from "./hover";
 
 // NOTE: Legacy sql-linter.ts and version-linter.ts DELETED
 // Validation is now handled by:
-// - unified-linter.ts (uses Rust sql_validate when available, falls back to worker)
+// - unified-linter.ts (uses Rust sql_validate for Tauri-only app)
 // - linter-strategy.ts (routes dialects to appropriate linter)
-
-// High-performance worker-based linter
-export {
-  createWorkerLinter,
-  terminateLinterWorker,
-  acquireLinterWorker,
-  releaseLinterWorker,
-  preInitLinterWorker,
-} from "./linter-worker-manager";
-
-// PostgreSQL parser (uses libpg_query for 100% PostgreSQL compatibility)
-export {
-  createPgParserLinter,
-  parsePgSQL,
-  isInitialized as isPgParserReady,
-  preInitPgParser,
-} from "./pg-parser-linter";
 
 // Unified linter strategy
 export {
@@ -49,8 +32,8 @@ export {
 } from "./linter-strategy";
 export type { DialectLinterConfig } from "./linter-strategy";
 
-// Unified linter (uses Rust sql_validate when available, falls back to worker)
-export { createUnifiedLinter, terminateUnifiedLinter } from "./unified-linter";
+// Unified linter (uses Rust sql_validate for Tauri-only app)
+export { createUnifiedLinter } from "./unified-linter";
 
 // Rust completion bridge (Tauri environment)
 export {
@@ -70,11 +53,19 @@ export { getDialectValidator } from "./dialect-validators";
 export type { SyntaxError } from "./dialect-validators";
 
 // SQL Functions database
-export { SQL_FUNCTIONS, getFunction, searchFunctions, getFunctionsByCategory } from "./functions";
+export {
+  SQL_FUNCTIONS,
+  getFunction,
+  searchFunctions,
+  getFunctionsByCategory,
+} from "./functions";
 export type { SqlFunction } from "./functions";
 
 // Code actions
-export { createExpandStarExtension, expandStarAtPosition } from "./code-actions";
+export {
+  createExpandStarExtension,
+  expandStarAtPosition,
+} from "./code-actions";
 
 // Symbol table
 export {
