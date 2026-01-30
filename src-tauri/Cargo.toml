@@ -77,6 +77,11 @@ base64 = "0.21"
 # SQL Parsing
 sqlparser = { version = "0.52", features = ["serde"] }
 
+# ACP (Agent Client Protocol)
+agent-client-protocol = { version = "0.9", features = ["unstable_session_model"] }  # ACP protocol with model selection
+which = "7.0"                   # Agent binary detection in PATH
+piper = "0.2"                   # In-memory pipes with futures traits for ACP
+
 # Utilities
 dashmap = "5.5"
 once_cell = "1.19"  # Lazy static initialization for global schema store

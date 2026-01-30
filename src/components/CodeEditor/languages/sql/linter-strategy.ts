@@ -46,7 +46,7 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
         connectionId: config?.connectionId,
         schema: config?.schema,
       }),
-    description: "Rust backend linter (500ms debounce)",
+    description: "Rust backend linter (1s debounce)",
   },
   mysql: {
     linter: (config) =>
@@ -55,7 +55,7 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
         connectionId: config?.connectionId,
         schema: config?.schema,
       }),
-    description: "Rust backend linter (500ms debounce)",
+    description: "Rust backend linter (1s debounce)",
   },
   sqlite: {
     linter: (config) =>
@@ -64,7 +64,7 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
         connectionId: config?.connectionId,
         schema: config?.schema,
       }),
-    description: "Rust backend linter (500ms debounce)",
+    description: "Rust backend linter (1s debounce)",
   },
   mssql: {
     linter: (config) =>
@@ -73,7 +73,7 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
         connectionId: config?.connectionId,
         schema: config?.schema,
       }),
-    description: "Rust backend linter (500ms debounce)",
+    description: "Rust backend linter (1s debounce)",
   },
   plsql: {
     linter: (config) =>
@@ -82,7 +82,7 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
         connectionId: config?.connectionId,
         schema: config?.schema,
       }),
-    description: "Rust backend linter (500ms debounce)",
+    description: "Rust backend linter (1s debounce)",
   },
 };
 

@@ -9,7 +9,7 @@ import type { ColumnMeta } from "@/types/schema";
 // Re-export ColumnMeta for backwards compatibility with existing imports
 export type { ColumnMeta };
 
-export type FilterMode = "search" | "where";
+export type FilterMode = "search" | "where" | "ai";
 
 // ============================================================================
 // Search Pattern Types

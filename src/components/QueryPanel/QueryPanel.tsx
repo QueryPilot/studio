@@ -41,6 +41,7 @@ import { schemaCache } from "@/services/schemaCache";
 import { trackQuery } from "@/services/queryTracker";
 import { SaveQueryDialog } from "@/components/QueryHistory";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { editorRegistry } from "@/services/editorRegistry";
 
 interface QueryPanelProps {
   panelId: string;
@@ -144,6 +145,35 @@ export const QueryPanel = memo(function QueryPanel({
 
   // Editor ref for focusing
   const editorRef = useRef<SqlEditorRef>(null);
+
+  // Register editor with the global registry for AI commands
+  useEffect(() => {
+    const editorId = `${panelId}:${tabId}`;
+
+    // Register this editor
+    editorRegistry.register({
+      id: editorId,
+      connectionId,
+      database,
+      schema,
+      getRef: () => editorRef.current,
+    });
+
+    // Cleanup on unmount
+    return () => {
+      editorRegistry.unregister(editorId);
+    };
+  }, [panelId, tabId, connectionId, database, schema]);
+
+  // Update focused editor when panel focus changes
+  useEffect(() => {
+    const editorId = `${panelId}:${tabId}`;
+    if (isPanelFocused) {
+      editorRegistry.setFocusedEditor(editorId);
+    } else {
+      editorRegistry.clearFocusedEditor(editorId);
+    }
+  }, [isPanelFocused, panelId, tabId]);
 
   // Wrapper setters that update ONLY local state (Zustand sync happens in useEffect)
   const setQuery = useCallback(

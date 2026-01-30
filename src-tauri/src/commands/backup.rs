@@ -386,51 +386,49 @@ pub async fn get_tool_download_info(tool_name: String) -> Result<ToolDownloadInf
             common_paths: get_common_paths_for_tool(&tool_name),
             auto_download_supported: false,
         },
-        "mariadb-dump" | "mariadb" => ToolDownloadInfo {
+        "mysqldump" | "mysql" | "mariadb-dump" | "mariadb" => ToolDownloadInfo {
             name: tool_name.clone(),
-            description: "MariaDB/MySQL client tools for backup and restore".to_string(),
-            official_url: "https://mariadb.org/download/".to_string(),
+            description: "MySQL/MariaDB client tools for backup and restore".to_string(),
+            official_url: "https://dev.mysql.com/downloads/mysql/".to_string(),
             downloads: vec![
                 PlatformDownload {
                     platform: "macos".to_string(),
                     arch: "universal".to_string(),
-                    url: "https://mariadb.org/download/?t=mariadb&p=mariadb".to_string(),
-                    format: "pkg".to_string(),
+                    url: "https://dev.mysql.com/downloads/mysql/".to_string(),
+                    format: "dmg".to_string(),
                 },
                 PlatformDownload {
                     platform: "windows".to_string(),
                     arch: "x64".to_string(),
-                    url: "https://mariadb.org/download/?t=mariadb&p=mariadb&os=windows".to_string(),
+                    url: "https://dev.mysql.com/downloads/mysql/".to_string(),
                     format: "msi".to_string(),
                 },
                 PlatformDownload {
                     platform: "linux".to_string(),
                     arch: "x64".to_string(),
-                    url: "https://mariadb.org/download/?t=mariadb&p=mariadb".to_string(),
+                    url: "https://dev.mysql.com/downloads/mysql/".to_string(),
                     format: "package".to_string(),
                 },
             ],
             install_instructions: vec![
                 InstallInstructions {
                     package_manager: "Homebrew (macOS)".to_string(),
-                    command: "brew install mariadb".to_string(),
-                    notes: Some(
-                        "Tools are installed to /opt/homebrew/opt/mariadb/bin/".to_string(),
-                    ),
+                    command: "brew install mysql-client".to_string(),
+                    notes: Some("Lightweight client.".to_string()),
                 },
                 InstallInstructions {
                     package_manager: "Chocolatey (Windows)".to_string(),
-                    command: "choco install mariadb".to_string(),
+                    command: "choco install mysql-cli".to_string(),
                     notes: None,
                 },
                 InstallInstructions {
                     package_manager: "apt (Debian/Ubuntu)".to_string(),
-                    command: "sudo apt install mariadb-client".to_string(),
+                    command: "sudo apt install mysql-client".to_string(),
                     notes: None,
                 },
                 InstallInstructions {
                     package_manager: "dnf (Fedora/RHEL)".to_string(),
-                    command: "sudo dnf install mariadb".to_string(),
+                    command: "sudo dnf install mysql".to_string(),
                     notes: None,
                 },
             ],
@@ -516,12 +514,17 @@ fn get_common_paths_for_tool(tool_name: &str) -> Vec<String> {
                 paths.push("/Library/PostgreSQL/16/bin".to_string());
                 paths.push("/Library/PostgreSQL/15/bin".to_string());
             }
-            "mariadb-dump" | "mariadb" => {
-                paths.push("/opt/homebrew/opt/mariadb/bin".to_string());
+            "mysqldump" | "mysql" | "mariadb-dump" | "mariadb" => {
+                // mysql-client (recommended - lightweight, no server)
+                paths.push("/opt/homebrew/opt/mysql-client/bin".to_string());
+                paths.push("/usr/local/opt/mysql-client/bin".to_string());
+                // Full MySQL installation
                 paths.push("/opt/homebrew/opt/mysql/bin".to_string());
-                paths.push("/usr/local/opt/mariadb/bin".to_string());
                 paths.push("/usr/local/opt/mysql/bin".to_string());
                 paths.push("/usr/local/mysql/bin".to_string());
+                // MariaDB installation
+                paths.push("/opt/homebrew/opt/mariadb/bin".to_string());
+                paths.push("/usr/local/opt/mariadb/bin".to_string());
             }
             "mongodump" | "mongorestore" => {
                 paths.push("/opt/homebrew/bin".to_string());
@@ -679,6 +682,39 @@ pub async fn download_tool(
             .collect::<Vec<_>>()
             .join("\n")
     ))
+}
+
+/// Install a tool using Homebrew.
+///
+/// Runs `brew install <package>` and returns the output.
+/// Only available on macOS.
+#[tauri::command]
+pub async fn install_tool_via_brew(package_name: String) -> Result<String, String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        return Err("Homebrew installation is only available on macOS".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use tokio::process::Command;
+
+        let output = Command::new("brew")
+            .arg("install")
+            .arg(&package_name)
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run brew: {}", e))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        if output.status.success() {
+            Ok(format!("{}\n{}", stdout, stderr).trim().to_string())
+        } else {
+            Err(format!("brew install failed:\n{}\n{}", stdout, stderr))
+        }
+    }
 }
 
 /// Get the current platform identifier.
