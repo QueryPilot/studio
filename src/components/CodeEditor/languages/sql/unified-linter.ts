@@ -118,6 +118,9 @@ export function createUnifiedLinter(config: UnifiedLinterConfig): Extension {
         return [];
       }
     },
-    { delay: config.delay ?? 500 },
+    {
+      delay: config.delay ?? 1000, // Increased from 500ms to reduce lag
+      needsRefresh: () => false, // Don't auto-refresh on viewport changes
+    },
   );
 }

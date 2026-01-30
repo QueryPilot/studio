@@ -31,6 +31,9 @@ fn main() {
     // Create connection manager
     let manager = Arc::new(core::manager::ConnectionManager::new());
 
+    // Create ACP manager for AI agent integration
+    let acp_manager = Arc::new(acp::manager::AcpManager::new());
+
     // Create app state
     let app_state = AppState {
         ssh_test_rate_limiter: RateLimiter::new(5),
@@ -52,6 +55,7 @@ fn main() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(manager)
+        .manage(acp_manager)
         .manage(app_state)
         .setup(|app| {
             // Build and set the application menu
@@ -169,6 +173,18 @@ fn main() {
             commands::get_tool_download_info,
             commands::search_tool_paths,
             commands::download_tool,
+            commands::install_tool_via_brew,
+            // ACP (AI agent) commands
+            acp::commands::acp_list_agents,
+            acp::commands::acp_fetch_agent_models,
+            acp::commands::acp_start_agent,
+            acp::commands::acp_create_session,
+            acp::commands::acp_set_session_model,
+            acp::commands::acp_send_prompt,
+            acp::commands::acp_cancel_session,
+            acp::commands::acp_install_package,
+            acp::commands::acp_initialize_llm_home,
+            acp::commands::acp_get_llm_home,
         ])
         .build(context)
         .expect("error while building tauri application");

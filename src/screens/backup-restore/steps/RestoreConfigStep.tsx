@@ -44,7 +44,7 @@ interface RestoreConfigStepProps {
 }
 
 export interface RestoreConfig {
-  source_path: string;
+  sourcePath: string;
   options: Record<string, unknown>;
 }
 
@@ -274,7 +274,7 @@ export const RestoreConfigStep = ({
     if (!sourcePath) return;
 
     const config: RestoreConfig = {
-      source_path: sourcePath,
+      sourcePath: sourcePath,
       options,
     };
 

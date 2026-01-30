@@ -18,6 +18,8 @@ import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useConnectionWindowStore } from "./stores/connectionWindowStore";
 import { useWorkspaceBundleStore } from "./stores/workspaceBundleStore";
+import { useAcpStore } from "./stores/acpStore";
+import { AcpService } from "./services/acpService";
 
 function VaultLoadingScreen() {
   return (
@@ -90,6 +92,7 @@ function App() {
   const [vaultReady, setVaultReady] = useState(!isTauri());
   const { initialize: initializeConnectionWindowStore } =
     useConnectionWindowStore();
+  const loadAgents = useAcpStore((s) => s.loadAgents);
 
   // Initialize connection window tracking
   // Note: BroadcastChannel works in both Tauri and browser
@@ -184,31 +187,59 @@ function App() {
           } finally {
             // Mark vault as ready to show main UI
             setVaultReady(true);
+
+            // Initialize LLM home directory and load ACP agents in background (non-blocking)
+            void (async () => {
+              try {
+                await AcpService.initializeLlmHome();
+              } catch (error) {
+                logger.error("LLM home initialization failed (continuing with agent load)", error);
+              }
+              // Always try to load agents, even if LLM home init failed
+              try {
+                await loadAgents();
+              } catch (error) {
+                logger.error("Agent discovery failed", error);
+              }
+            })();
           }
         } else if (isWorkspaceWindow) {
           // Workspace windows - show immediately, vault loads in background
           // Workspace windows don't need vault data to render since they get
           // connection info from URL params
           setVaultReady(true);
-          // Initialize vault in background for metadata operations
-          void vaultStorage
-            .initialize()
-            .then(() => vaultStorage.preloadAll())
-            .catch((error: unknown) => {
-              logger.error(
-                "Background vault load for workspace window failed",
-                error,
-              );
-            });
+          // Initialize vault and load agents in background
+          void (async () => {
+            try {
+              await vaultStorage.initialize();
+              await vaultStorage.preloadAll();
+            } catch (error) {
+              logger.error("Background vault load for workspace window failed", error);
+            }
+            // Also load agents for workspace windows
+            try {
+              await loadAgents();
+            } catch (error) {
+              logger.error("Agent discovery failed in workspace window", error);
+            }
+          })();
         } else {
           // Secondary main windows (main-<timestamp>) - minimal background init
           setVaultReady(true);
-          void vaultStorage
-            .initialize()
-            .then(() => vaultStorage.preloadAll())
-            .catch((error: unknown) => {
+          void (async () => {
+            try {
+              await vaultStorage.initialize();
+              await vaultStorage.preloadAll();
+            } catch (error) {
               logger.error("Background preload failed", error);
-            });
+            }
+            // Also load agents for secondary windows
+            try {
+              await loadAgents();
+            } catch (error) {
+              logger.error("Agent discovery failed in secondary window", error);
+            }
+          })();
         }
 
         if (!isMainWindow) {

@@ -76,20 +76,15 @@ impl ToolRegistry {
                     download_size_mb: 0, // Included with pg_dump
                 },
             ],
+            // MySQL/MariaDB: Support both mysqldump/mysql AND mariadb-dump/mariadb
+            // We only need ONE of each pair to be installed
             "MySQL" | "MariaDB" => vec![
                 ToolInfo {
-                    name: "mariadb-dump".to_string(),
-                    description: "MariaDB/MySQL backup utility".to_string(),
+                    name: "mysqldump".to_string(),
+                    description: "MySQL/MariaDB backup utility (or mariadb-dump)".to_string(),
                     version_command: "--version".to_string(),
-                    download_url: Some("https://mariadb.org/download/".to_string()),
-                    download_size_mb: 30,
-                },
-                ToolInfo {
-                    name: "mariadb".to_string(),
-                    description: "MariaDB/MySQL client for restore".to_string(),
-                    version_command: "--version".to_string(),
-                    download_url: Some("https://mariadb.org/download/".to_string()),
-                    download_size_mb: 0, // Included with mariadb-dump
+                    download_url: Some("https://dev.mysql.com/downloads/mysql/".to_string()),
+                    download_size_mb: 15,
                 },
             ],
             "MongoDB" => vec![
@@ -201,7 +196,8 @@ impl ToolRegistry {
     /// Check all tools required for a database type.
     ///
     /// Convenience method that retrieves tool requirements for a database type
-    /// and checks the availability of each tool.
+    /// and checks the availability of each tool. For MySQL/MariaDB, also checks
+    /// for alternative tools (mysqldump vs mariadb-dump).
     ///
     /// # Arguments
     ///
@@ -213,8 +209,30 @@ impl ToolRegistry {
     pub async fn check_tools_for_db(db_type: &str) -> Vec<ToolCheckStatus> {
         let tools = Self::get_tools_for_db(db_type);
         let mut statuses = Vec::new();
+
         for tool in tools {
-            statuses.push(Self::check_tool(&tool.name).await);
+            let mut status = Self::check_tool(&tool.name).await;
+
+            // For MySQL tools, check alternatives if primary not found
+            if !status.installed {
+                if tool.name == "mysqldump" {
+                    // Try mariadb-dump as alternative
+                    let alt = Self::check_tool("mariadb-dump").await;
+                    if alt.installed {
+                        status = alt;
+                        status.name = "mysqldump".to_string(); // Keep original name for consistency
+                    }
+                } else if tool.name == "mysql" {
+                    // Try mariadb as alternative
+                    let alt = Self::check_tool("mariadb").await;
+                    if alt.installed {
+                        status = alt;
+                        status.name = "mysql".to_string();
+                    }
+                }
+            }
+
+            statuses.push(status);
         }
         statuses
     }
@@ -242,16 +260,15 @@ mod tests {
     #[test]
     fn test_get_tools_for_mysql() {
         let tools = ToolRegistry::get_tools_for_db("MySQL");
-        assert_eq!(tools.len(), 2);
-        assert_eq!(tools[0].name, "mariadb-dump");
-        assert_eq!(tools[1].name, "mariadb");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "mysqldump");
     }
 
     #[test]
     fn test_get_tools_for_mariadb() {
         let tools = ToolRegistry::get_tools_for_db("MariaDB");
-        assert_eq!(tools.len(), 2);
-        assert_eq!(tools[0].name, "mariadb-dump");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "mysqldump");
     }
 
     #[test]
