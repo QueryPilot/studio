@@ -81,6 +81,12 @@ const modeConfig: Record<
     description: "SQL expressions",
     placeholder: "age > 25 AND status = 'active'",
   },
+  ai: {
+    icon: IconSearch,
+    label: "AI Filter",
+    description: "Natural language filter",
+    placeholder: "#show orders over $100 from last week",
+  },
 };
 
 // Pre-compiled regex patterns for performance (Phase 3.1)

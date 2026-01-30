@@ -6,6 +6,7 @@ import { type ConnectionProfile } from "@/types/connection";
 import {
   ConnectionStep,
   OperationStep,
+  ToolCheckStep,
   BackupConfigStep,
   RestoreConfigStep,
   ExecuteStep,
@@ -13,16 +14,17 @@ import {
   type RestoreConfig,
 } from "./steps";
 
-type WizardStep = "connection" | "operation" | "config" | "execute";
+type WizardStep = "connection" | "operation" | "tools" | "config" | "execute";
 
 const STEP_LABELS: Record<WizardStep, string> = {
   connection: "Select Connection",
   operation: "Choose Operation",
+  tools: "Check Tools",
   config: "Configure",
   execute: "Execute",
 };
 
-const STEPS: WizardStep[] = ["connection", "operation", "config", "execute"];
+const STEPS: WizardStep[] = ["connection", "operation", "tools", "config", "execute"];
 
 export function BackupRestoreScreen() {
   const [searchParams] = useSearchParams();
@@ -99,6 +101,10 @@ export function BackupRestoreScreen() {
 
   const handleOperationSelect = (op: "backup" | "restore") => {
     setOperation(op);
+    setCurrentStep("tools");
+  };
+
+  const handleToolsReady = () => {
     setCurrentStep("config");
   };
 
@@ -140,50 +146,62 @@ export function BackupRestoreScreen() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-background">
-      {/* Header with title and step indicator */}
-      <div className="flex items-center justify-between p-4 border-b">
-        <h1 className="text-lg font-semibold">Backup & Restore</h1>
+    <div className="flex h-screen bg-background">
+      {/* Left Sidebar - Steps */}
+      <div className="w-56 border-r bg-muted/30 flex flex-col">
+        {/* Title */}
+        <div className="p-4 border-b">
+          <h1 className="text-lg font-semibold">Backup & Restore</h1>
+        </div>
 
-        {/* Step indicator */}
-        <div className="flex items-center gap-2">
+        {/* Step List */}
+        <nav className="flex-1 p-3 space-y-1">
           {STEPS.map((step, index) => {
             const isActive = step === currentStep;
             const isCompleted = index < currentStepIndex;
             const isDisabled = index > currentStepIndex;
 
             return (
-              <div key={step} className="flex items-center">
-                {index > 0 && (
-                  <div
-                    className={`w-8 h-px mx-2 ${
-                      isCompleted ? "bg-primary" : "bg-border"
-                    }`}
-                  />
-                )}
+              <div
+                key={step}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors ${
+                  isActive
+                    ? "bg-primary text-primary-foreground"
+                    : isCompleted
+                      ? "text-primary hover:bg-primary/10 cursor-pointer"
+                      : isDisabled
+                        ? "text-muted-foreground"
+                        : ""
+                }`}
+                onClick={() => {
+                  // Allow clicking on completed steps to go back
+                  if (isCompleted) {
+                    setCurrentStep(step);
+                  }
+                }}
+              >
+                {/* Step number/indicator */}
                 <div
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${
+                  className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-medium ${
                     isActive
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-primary-foreground/20"
                       : isCompleted
                         ? "bg-primary/20 text-primary"
-                        : isDisabled
-                          ? "bg-muted text-muted-foreground"
-                          : ""
+                        : "bg-muted text-muted-foreground"
                   }`}
                 >
-                  <span className="font-medium">{index + 1}</span>
-                  <span className="hidden sm:inline">{STEP_LABELS[step]}</span>
+                  {isCompleted ? "✓" : index + 1}
                 </div>
+                <span className="font-medium">{STEP_LABELS[step]}</span>
               </div>
             );
           })}
-        </div>
+        </nav>
       </div>
 
-      {/* Content area - render step based on currentStep */}
+      {/* Main Content Area */}
       <div className="flex-1 overflow-auto p-6">
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-2xl">
           {currentStep === "connection" && (
             <ConnectionStep
               selectedId={selectedConnectionId}
@@ -195,6 +213,14 @@ export function BackupRestoreScreen() {
             <OperationStep
               onSelect={handleOperationSelect}
               onBack={() => setCurrentStep("connection")}
+            />
+          )}
+
+          {currentStep === "tools" && connectionProfile && (
+            <ToolCheckStep
+              profile={connectionProfile}
+              onToolsReady={handleToolsReady}
+              onBack={() => setCurrentStep("operation")}
             />
           )}
 

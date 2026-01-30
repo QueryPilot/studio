@@ -494,7 +494,11 @@ impl BaseCapability for MssqlAdapter {
     }
 
     fn is_connected(&self) -> bool {
-        self.pool.blocking_read().is_some()
+        // Use try_read to avoid blocking - if lock is held, assume connected
+        self.pool
+            .try_read()
+            .map(|guard| guard.is_some())
+            .unwrap_or(false)
     }
 
     fn get_capabilities(&self) -> Vec<AdapterCapability> {

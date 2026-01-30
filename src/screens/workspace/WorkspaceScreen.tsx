@@ -16,6 +16,7 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
+import { AIPanel } from "@/components/AI";
 
 import { useConnectionAutoReconnect } from "@/hooks/useConnectionAutoReconnect";
 import { useSchemaPreload } from "@/hooks/useSchemaPreload";
@@ -546,6 +547,28 @@ export function WorkspaceScreen() {
               database={selectedDatabase ?? undefined}
             />
           </ResizablePanel>
+
+          {/* Right Sidebar - AI Panel */}
+          {sidebars.right && (
+            <>
+              <ResizableHandle />
+              <ResizablePanel
+                id="sidebar-right"
+                order={3}
+                defaultSize={23}
+                minSize={18}
+                maxSize={40}
+                className="flex flex-col rounded-xl bg-background"
+              >
+                <AIPanel
+                  connectionId={connectionId}
+                  onClose={() => {
+                    useWorkspaceScreenStore.getState().toggleSidebar("right");
+                  }}
+                />
+              </ResizablePanel>
+            </>
+          )}
         </ResizablePanelGroup>
       </div>
 

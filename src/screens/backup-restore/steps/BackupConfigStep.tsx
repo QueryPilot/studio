@@ -40,9 +40,9 @@ interface BackupConfigStepProps {
 }
 
 export interface BackupConfig {
-  destination_path: string;
+  destinationPath: string;
   format: string;
-  selected_objects: string[] | null;
+  selectedObjects: string[] | null;
   options: Record<string, unknown>;
 }
 
@@ -236,9 +236,9 @@ export const BackupConfigStep = ({
     if (!destinationPath || !selectedFormat) return;
 
     const config: BackupConfig = {
-      destination_path: destinationPath,
+      destinationPath: destinationPath,
       format: selectedFormat,
-      selected_objects: null, // Full backup for now
+      selectedObjects: null, // Full backup for now
       options,
     };
 

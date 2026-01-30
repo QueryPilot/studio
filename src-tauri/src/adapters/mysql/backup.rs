@@ -33,6 +33,64 @@ struct ConnectionInfo {
 }
 
 impl MySqlAdapter {
+    /// Find the available dump tool (mysqldump or mariadb-dump).
+    async fn find_dump_tool() -> Result<String, AppError> {
+        // Try mysqldump first (more common)
+        if let Ok(output) = tokio::process::Command::new("which")
+            .arg("mysqldump")
+            .output()
+            .await
+        {
+            if output.status.success() {
+                return Ok("mysqldump".to_string());
+            }
+        }
+
+        // Try mariadb-dump as fallback
+        if let Ok(output) = tokio::process::Command::new("which")
+            .arg("mariadb-dump")
+            .output()
+            .await
+        {
+            if output.status.success() {
+                return Ok("mariadb-dump".to_string());
+            }
+        }
+
+        Err(AppError::Internal(
+            "Neither mysqldump nor mariadb-dump found. Install MySQL client tools: brew install mysql-client".to_string()
+        ))
+    }
+
+    /// Find the available MySQL client tool (mysql or mariadb).
+    async fn find_client_tool() -> Result<String, AppError> {
+        // Try mysql first (more common)
+        if let Ok(output) = tokio::process::Command::new("which")
+            .arg("mysql")
+            .output()
+            .await
+        {
+            if output.status.success() {
+                return Ok("mysql".to_string());
+            }
+        }
+
+        // Try mariadb as fallback
+        if let Ok(output) = tokio::process::Command::new("which")
+            .arg("mariadb")
+            .output()
+            .await
+        {
+            if output.status.success() {
+                return Ok("mariadb".to_string());
+            }
+        }
+
+        Err(AppError::Internal(
+            "Neither mysql nor mariadb client found. Install MySQL client tools: brew install mysql-client".to_string()
+        ))
+    }
+
     /// Get connection info from the adapter's current connection.
     /// This requires the adapter to be connected with stored profile info.
     async fn get_connection_info(&self) -> Result<ConnectionInfo, AppError> {
@@ -73,18 +131,14 @@ impl MySqlAdapter {
 
 #[async_trait]
 impl BackupCapable for MySqlAdapter {
-    /// MySQL/MariaDB requires mariadb-dump for backup and mariadb for restore.
+    /// MySQL/MariaDB supports both mysqldump/mysql AND mariadb-dump/mariadb.
+    /// Only one tool is required - we use whichever is available.
     fn tool_requirements(&self) -> Vec<ToolRequirement> {
         vec![
             ToolRequirement {
-                name: "mariadb-dump".to_string(),
+                name: "mysqldump".to_string(),
                 purpose: ToolPurpose::Backup,
-                download_size_mb: 30,
-            },
-            ToolRequirement {
-                name: "mariadb".to_string(),
-                purpose: ToolPurpose::Restore,
-                download_size_mb: 0, // Included with mariadb-dump
+                download_size_mb: 15,
             },
         ]
     }
@@ -304,15 +358,18 @@ impl BackupCapable for MySqlAdapter {
             return Err(AppError::InvalidInput("Operation cancelled".into()));
         }
 
+        // Find available dump tool
+        let dump_tool = Self::find_dump_tool().await?;
+
         let _ = progress
             .send(BackupProgress::Output {
-                line: format!("Starting backup of database '{}'...", conn_info.database),
+                line: format!("Starting backup of database '{}' using {}...", conn_info.database, dump_tool),
                 is_error: false,
             })
             .await;
 
-        // Build mariadb-dump command
-        let mut cmd = Command::new("mariadb-dump");
+        // Build dump command (mysqldump or mariadb-dump)
+        let mut cmd = Command::new(&dump_tool);
 
         // Connection options
         cmd.arg("-h").arg(&conn_info.host);
@@ -450,7 +507,7 @@ impl BackupCapable for MySqlAdapter {
         // Spawn the process
         let mut child = cmd
             .spawn()
-            .map_err(|e| AppError::Internal(format!("Failed to start mariadb-dump: {}", e)))?;
+            .map_err(|e| AppError::Internal(format!("Failed to start {}: {}", dump_tool, e)))?;
 
         // Stream stderr for progress
         if let Some(stderr) = child.stderr.take() {
@@ -473,13 +530,13 @@ impl BackupCapable for MySqlAdapter {
         let status = child
             .wait()
             .await
-            .map_err(|e| AppError::Internal(format!("Failed to wait for mariadb-dump: {}", e)))?;
+            .map_err(|e| AppError::Internal(format!("Failed to wait for {}: {}", dump_tool, e)))?;
 
         if !status.success() {
             let code = status.code().unwrap_or(-1);
             return Err(AppError::DatabaseError(format!(
-                "mariadb-dump exited with code {}",
-                code
+                "{} exited with code {}",
+                dump_tool, code
             )));
         }
 
@@ -530,9 +587,12 @@ impl BackupCapable for MySqlAdapter {
             return Err(AppError::InvalidInput("Operation cancelled".into()));
         }
 
+        // Find available client tool
+        let client_tool = Self::find_client_tool().await?;
+
         let _ = progress
             .send(BackupProgress::Output {
-                line: format!("Starting restore to database '{}'...", conn_info.database),
+                line: format!("Starting restore to database '{}' using {}...", conn_info.database, client_tool),
                 is_error: false,
             })
             .await;
@@ -544,8 +604,8 @@ impl BackupCapable for MySqlAdapter {
             })
             .await;
 
-        // Build mariadb command
-        let mut cmd = Command::new("mariadb");
+        // Build client command (mysql or mariadb)
+        let mut cmd = Command::new(&client_tool);
 
         // Connection options
         cmd.arg("-h").arg(&conn_info.host);
@@ -585,7 +645,7 @@ impl BackupCapable for MySqlAdapter {
         // Spawn the process
         let mut child = cmd
             .spawn()
-            .map_err(|e| AppError::Internal(format!("Failed to start mariadb: {}", e)))?;
+            .map_err(|e| AppError::Internal(format!("Failed to start {}: {}", client_tool, e)))?;
 
         // Stream stderr for progress
         if let Some(stderr) = child.stderr.take() {
@@ -608,13 +668,13 @@ impl BackupCapable for MySqlAdapter {
         let status = child
             .wait()
             .await
-            .map_err(|e| AppError::Internal(format!("Failed to wait for mariadb: {}", e)))?;
+            .map_err(|e| AppError::Internal(format!("Failed to wait for {}: {}", client_tool, e)))?;
 
         if !status.success() {
             let code = status.code().unwrap_or(-1);
             return Err(AppError::DatabaseError(format!(
-                "mariadb exited with code {}",
-                code
+                "{} exited with code {}",
+                client_tool, code
             )));
         }
 
@@ -844,11 +904,9 @@ mod tests {
         let adapter = MySqlAdapter::new();
         let requirements = adapter.tool_requirements();
 
-        assert_eq!(requirements.len(), 2);
-        assert_eq!(requirements[0].name, "mariadb-dump");
+        assert_eq!(requirements.len(), 1);
+        assert_eq!(requirements[0].name, "mysqldump");
         assert_eq!(requirements[0].purpose, ToolPurpose::Backup);
-        assert_eq!(requirements[1].name, "mariadb");
-        assert_eq!(requirements[1].purpose, ToolPurpose::Restore);
     }
 
     #[test]
