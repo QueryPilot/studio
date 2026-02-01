@@ -16,7 +16,7 @@ import {
 import { useAcpStore } from "@/stores/acpStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import type { PanelContent } from "@/types/workbench";
-import { useAIContextWithSchema, serializeAIContext } from "@/hooks/useAIContext";
+import { useAIContextWithSchema, serializeAIContext, enrichMentionsFromMessage } from "@/hooks/useAIContext";
 import { getMentionAtCursor, formatMention } from "@/utils/mentionParser";
 import type { AIContext } from "@/types/aiContext";
 import { AgentSelector } from "./AgentSelector";
@@ -29,6 +29,15 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   IconX,
   IconSend,
@@ -44,12 +53,13 @@ import {
   IconSearch,
   IconCheck,
   IconClock,
-  IconMessages,
   IconWand,
   IconTrash,
   IconTable,
   IconEye,
   IconCode,
+  IconPlus,
+  IconMessage,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
@@ -64,8 +74,6 @@ interface AIPanelProps {
   onClose?: () => void;
   className?: string;
 }
-
-type PanelMode = "agent" | "chat";
 
 // ============================================================================
 // Main Component
@@ -83,11 +91,15 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     availableAgents,
     isLoadingAgents,
     isWarmingUp,
-    selectedAgentId,
+    recentSessions,
     sendMessage,
     startSession,
     warmupAgent,
     cancelGeneration,
+    newConversation,
+    loadSession,
+    loadRecentSessions,
+    deleteSession,
   } = useAcpStore();
 
   // Get AI context with schema data for current workspace
@@ -115,29 +127,21 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
 
   const [inputValue, setInputValue] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<PanelMode>("agent");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
-  // Pre-warm agent on mount
+  // Load recent sessions on mount
   useEffect(() => {
-    if (!selectedAgentId || activeSession || isWarmingUp || isLoadingAgents) {
-      return;
+    void loadRecentSessions();
+  }, [loadRecentSessions]);
+
+  // Warmup when user starts typing (if no active session)
+  const handleStartTyping = useCallback(() => {
+    if (!activeSession && !isWarmingUp) {
+      void warmupAgent(connectionId);
     }
-    const agent = availableAgents.find((a) => a.id === selectedAgentId);
-    if (agent?.installed) {
-      void warmupAgent(connectionId).catch(console.error);
-    }
-  }, [
-    selectedAgentId,
-    activeSession,
-    isWarmingUp,
-    isLoadingAgents,
-    availableAgents,
-    warmupAgent,
-    connectionId,
-  ]);
+  }, [activeSession, isWarmingUp, warmupAgent, connectionId]);
 
   // Auto-scroll on new content
   useEffect(() => {
@@ -172,9 +176,15 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         await startSession(connectionId);
       }
 
-      // Build context JSON with connection info and schema data
-      // TODO: Add @ mention parsing and detailed object info
-      const contextJson = serializeAIContext(aiContext);
+      // Enrich @ mentions with full table details (columns, etc.)
+      const enrichedMentions = await enrichMentionsFromMessage(content, aiContext);
+
+      // Build context with enriched mentions
+      const contextWithMentions = {
+        ...aiContext,
+        mentions: enrichedMentions,
+      };
+      const contextJson = serializeAIContext(contextWithMentions);
 
       await sendMessage(content, contextJson);
     } catch (err) {
@@ -209,10 +219,18 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     focusInput();
   }, [cancelGeneration, focusInput]);
 
-  const handleClearChat = useCallback(() => {
-    // TODO: Implement clear chat functionality
+  const handleNewConversation = useCallback(() => {
+    newConversation();
     focusInput();
-  }, [focusInput]);
+  }, [newConversation, focusInput]);
+
+  const handleLoadSession = useCallback((sessionId: string) => {
+    void loadSession(sessionId);
+  }, [loadSession]);
+
+  const handleDeleteSession = useCallback((sessionId: string) => {
+    void deleteSession(sessionId);
+  }, [deleteSession]);
 
   // Derived state
   const displayError = error || streamingError;
@@ -227,18 +245,20 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
 
   return (
     <div
+      data-slot="ai-panel"
       className={cn(
-        "flex flex-col h-full bg-background/95 backdrop-blur-sm",
+        "flex flex-col h-full min-h-0 bg-background overflow-hidden",
         className,
       )}
     >
       {/* Header */}
       <PanelHeader
-        mode={mode}
-        onModeChange={setMode}
         onClose={onClose}
-        onClear={handleClearChat}
-        hasMessages={hasMessages}
+        onNewConversation={handleNewConversation}
+        onLoadSession={handleLoadSession}
+        onDeleteSession={handleDeleteSession}
+        activeSession={activeSession}
+        recentSessions={recentSessions}
       />
 
       {/* Error Banner */}
@@ -252,8 +272,8 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
       )}
 
       {/* Messages Area */}
-      <ScrollArea ref={scrollAreaRef} className="flex-1">
-        <div className="flex flex-col">
+      <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0">
+        <div className="flex flex-col min-h-full">
           {hasMessages ? (
             <MessageList
               messages={messages}
@@ -265,9 +285,11 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
           ) : (
             <EmptyState
               isLoading={isLoadingAgents}
-              isWarmingUp={isWarmingUp}
               hasInstalledAgents={hasInstalledAgents}
-              mode={mode}
+              onExampleClick={(prompt) => {
+                setInputValue(prompt);
+                inputRef.current?.focus();
+              }}
             />
           )}
           <div ref={messagesEndRef} className="h-4" />
@@ -282,11 +304,11 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         onSubmit={handleSend}
         onKeyDown={handleKeyDown}
         onCancel={handleCancel}
+        onStartTyping={handleStartTyping}
         isStreaming={isStreaming}
         isWarmingUp={isWarmingUp}
         canSend={canSend}
         disabled={!hasInstalledAgents}
-        mode={mode}
         aiContext={aiContext}
         openTabs={openTabs}
       />
@@ -299,76 +321,113 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
 // ============================================================================
 
 interface PanelHeaderProps {
-  mode: PanelMode;
-  onModeChange: (mode: PanelMode) => void;
   onClose?: () => void;
-  onClear: () => void;
-  hasMessages: boolean;
+  onNewConversation: () => void;
+  onLoadSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string) => void;
+  activeSession: { id: string; title: string } | null;
+  recentSessions: Array<{ id: string; title: string; updatedAt: number; agentId: string }>;
 }
 
 function PanelHeader({
-  mode,
-  onModeChange,
   onClose,
-  onClear,
-  hasMessages,
+  onNewConversation,
+  onLoadSession,
+  onDeleteSession,
+  activeSession,
+  recentSessions,
 }: PanelHeaderProps) {
+  // Filter out current session from history
+  const otherSessions = recentSessions.filter(s => s.id !== activeSession?.id);
+
   return (
-    <div className="flex items-center gap-1 border-b px-2 py-1.5 bg-background/50">
-      {/* Mode Toggle */}
-      <div className="flex items-center rounded-md bg-muted/50 p-0.5">
-        <button
-          type="button"
-          onClick={() => {
-            onModeChange("agent");
-          }}
-          className={cn(
-            "flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium transition-all",
-            mode === "agent"
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
+    <div className="flex items-center gap-1 border-b px-3 py-2 bg-background/50">
+      {/* Session History Dropdown */}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={(props) => (
+            <button
+              {...props}
+              type="button"
+              className="flex items-center gap-2 px-2 py-1 -ml-2 rounded-md hover:bg-accent transition-colors"
+            >
+              <IconSparkles className="h-4 w-4 text-primary" />
+              <span className="text-[13px] font-medium truncate max-w-[160px]">
+                {activeSession?.title ?? "AI Assistant"}
+              </span>
+              <IconChevronDown className="h-3 w-3 text-muted-foreground" />
+            </button>
           )}
-        >
-          <IconWand className="h-3 w-3" />
-          Agent
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            onModeChange("chat");
-          }}
-          className={cn(
-            "flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium transition-all",
-            mode === "chat"
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
+        />
+        <DropdownMenuContent align="start" className="w-64">
+          {/* New Conversation */}
+          <DropdownMenuItem onClick={onNewConversation} className="gap-2">
+            <IconPlus className="h-4 w-4" />
+            <span className="text-[12px]">New conversation</span>
+          </DropdownMenuItem>
+
+          {/* Recent Sessions */}
+          {otherSessions.length > 0 && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
+                  Recent
+                </DropdownMenuLabel>
+                {otherSessions.slice(0, 10).map((session) => (
+                  <DropdownMenuItem
+                    key={session.id}
+                    onClick={() => { onLoadSession(session.id); }}
+                    className="group gap-2 pr-1"
+                  >
+                    <IconMessage className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] truncate">{session.title}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {formatRelativeTime(session.updatedAt)}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        onDeleteSession(session.id);
+                      }}
+                      onPointerDown={(e) => {
+                        // Prevent DropdownMenuItem from handling this click
+                        e.stopPropagation();
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-all"
+                    >
+                      <IconTrash className="h-3 w-3" />
+                    </button>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
+            </>
           )}
-        >
-          <IconMessages className="h-3 w-3" />
-          Chat
-        </button>
-      </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <div className="flex-1" />
 
-      {/* Actions */}
-      {hasMessages && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={onClear}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <IconTrash className="h-3 w-3" />
-              </Button>
-            }
-          />
-          <TooltipContent side="bottom">Clear chat</TooltipContent>
-        </Tooltip>
-      )}
+      {/* New conversation shortcut */}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={onNewConversation}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <IconPlus className="h-3.5 w-3.5" />
+            </Button>
+          }
+        />
+        <TooltipContent side="bottom">New conversation</TooltipContent>
+      </Tooltip>
 
       {onClose && (
         <Button
@@ -382,6 +441,23 @@ function PanelHeader({
       )}
     </div>
   );
+}
+
+/** Format timestamp as relative time (e.g., "2 hours ago") */
+function formatRelativeTime(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+
+  return new Date(timestamp).toLocaleDateString();
 }
 
 // ============================================================================
@@ -485,8 +561,8 @@ function MessageBubble({
   return (
     <div
       className={cn(
-        "group px-4 py-3 transition-colors",
-        isUser && "bg-primary/10",
+        "group px-3 py-3 transition-colors",
+        isUser && "bg-primary/5 border-l-3 border-primary",
       )}
     >
       <div className="max-w-2xl mx-auto">
@@ -513,14 +589,14 @@ function MessageBubble({
             <div
               className={cn(
                 "prose prose-sm dark:prose-invert max-w-none",
-                "prose-p:my-1.5 prose-p:leading-relaxed",
-                "prose-headings:mt-4 prose-headings:mb-2 prose-headings:font-semibold",
-                "prose-ul:my-2 prose-ol:my-2",
-                "prose-li:my-0.5",
-                "prose-pre:my-2 prose-pre:rounded-lg prose-pre:bg-muted",
-                "prose-code:text-[13px] prose-code:font-medium",
+                "prose-p:my-1 prose-p:leading-normal",
+                "prose-headings:mt-3 prose-headings:mb-1.5 prose-headings:font-semibold prose-headings:text-sm",
+                "prose-ul:my-1.5 prose-ol:my-1.5",
+                "prose-li:my-0",
+                "prose-pre:my-1.5 prose-pre:p-2 prose-pre:rounded-md prose-pre:bg-muted prose-pre:text-[11px] prose-pre:leading-tight",
+                "prose-code:text-[11px] prose-code:font-medium prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:bg-muted",
                 "prose-code:before:content-none prose-code:after:content-none",
-                "text-[13px] leading-relaxed",
+                "text-[12px] leading-normal",
               )}
             >
               <Streamdown className="select-text">{content}</Streamdown>
@@ -575,7 +651,7 @@ function ThinkingBlock({ content, expanded, onToggle }: ThinkingBlockProps) {
       </button>
       {expanded && (
         <div className="border-t border-dashed border-muted-foreground/20 px-3 py-2">
-          <p className="whitespace-pre-wrap text-[12px] text-muted-foreground leading-relaxed">
+          <p className="whitespace-pre-wrap text-[12px] text-muted-foreground leading-relaxed select-text">
             {content}
           </p>
         </div>
@@ -672,20 +748,18 @@ function ToolCallBadge({ call }: ToolCallBadgeProps) {
 
 interface EmptyStateProps {
   isLoading: boolean;
-  isWarmingUp: boolean;
   hasInstalledAgents: boolean;
-  mode: PanelMode;
+  onExampleClick?: (prompt: string) => void;
 }
 
 function EmptyState({
   isLoading,
-  isWarmingUp,
   hasInstalledAgents,
-  mode,
+  onExampleClick,
 }: EmptyStateProps) {
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 px-8">
+      <div className="flex flex-col items-center justify-center flex-1 min-h-[300px] py-16 px-8">
         <IconLoader2 className="h-8 w-8 text-muted-foreground/40 animate-spin mb-4" />
         <p className="text-[13px] text-muted-foreground">
           Discovering AI agents...
@@ -696,45 +770,48 @@ function EmptyState({
 
   if (!hasInstalledAgents) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 px-8 text-center">
+      <div className="flex flex-col items-center justify-center flex-1 min-h-[300px] py-16 px-8 text-center">
         <div className="h-12 w-12 rounded-xl bg-muted/50 flex items-center justify-center mb-4">
           <IconSparkles className="h-6 w-6 text-muted-foreground/50" />
         </div>
         <h3 className="text-sm font-medium mb-1">No AI agents installed</h3>
         <p className="text-[12px] text-muted-foreground max-w-[240px] mb-4">
-          Select an agent from the dropdown above to get started.
+          Select an agent below to get started.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col items-center justify-center py-16 px-8 text-center">
-      {isWarmingUp ? (
-        <>
-          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 flex items-center justify-center mb-4">
-            <IconLoader2 className="h-6 w-6 text-amber-500 animate-spin" />
-          </div>
-          <h3 className="text-sm font-medium mb-1">Preparing agent...</h3>
-          <p className="text-[12px] text-muted-foreground max-w-[240px]">
-            You can start typing while the agent initializes.
-          </p>
-        </>
-      ) : (
-        <>
-          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 flex items-center justify-center mb-4">
-            <IconSparkles className="h-6 w-6 text-amber-500" />
-          </div>
-          <h3 className="text-sm font-medium mb-1">
-            {mode === "agent" ? "Agent Mode" : "Chat Mode"}
-          </h3>
-          <p className="text-[12px] text-muted-foreground max-w-[240px]">
-            {mode === "agent"
-              ? "I can help write queries, explain schemas, and analyze your database."
-              : "Ask me anything about SQL, databases, or your data."}
-          </p>
-        </>
-      )}
+    <div className="flex flex-col items-center justify-center flex-1 min-h-[300px] py-12 px-8 text-center">
+      <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center mb-4">
+        <IconSparkles className="h-6 w-6 text-primary" />
+      </div>
+      <h3 className="text-sm font-medium mb-2">How can I help?</h3>
+      <p className="text-[12px] text-muted-foreground max-w-[260px] mb-6">
+        I can write queries, explain schemas, optimize SQL, and help you understand your data.
+      </p>
+
+      {/* Example prompts */}
+      <div className="w-full max-w-[280px] space-y-2">
+        <p className="text-[10px] text-muted-foreground/70 uppercase tracking-wide font-medium mb-2">
+          Try asking
+        </p>
+        {[
+          "Show me the largest tables",
+          "Write a query to find duplicates",
+          "Explain the schema for @users",
+        ].map((prompt) => (
+          <button
+            key={prompt}
+            type="button"
+            onClick={() => onExampleClick?.(prompt)}
+            className="w-full text-left px-3 py-2 rounded-md border border-dashed border-border/60 text-[11px] text-muted-foreground hover:border-primary/40 hover:bg-accent/50 hover:text-foreground transition-colors"
+          >
+            {prompt}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -758,11 +835,11 @@ interface InputAreaProps {
   onSubmit: () => void;
   onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
   onCancel: () => void;
+  onStartTyping: () => void;
   isStreaming: boolean;
   isWarmingUp: boolean;
   canSend: boolean;
   disabled: boolean;
-  mode: PanelMode;
   aiContext: AIContext;
   openTabs: Array<{ id: string; name: string; type: string; panelId: string }>;
 }
@@ -773,11 +850,11 @@ const InputArea = ({
   onSubmit,
   onKeyDown: parentOnKeyDown,
   onCancel,
+  onStartTyping,
   isStreaming,
   isWarmingUp,
   canSend,
   disabled,
-  mode,
   aiContext,
   openTabs,
 }: InputAreaProps & { ref?: React.Ref<HTMLTextAreaElement> }) => {
@@ -786,6 +863,7 @@ const InputArea = ({
   const [mentionFilter, setMentionFilter] = useState("");
   const [mentionStart, setMentionStart] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [isFocused, setIsFocused] = useState(false);
   const mentionListRef = useRef<HTMLDivElement>(null);
 
   // Build suggestions from context - ALL connections in workspace
@@ -892,6 +970,11 @@ const InputArea = ({
       const newValue = e.target.value;
       const cursorPos = e.target.selectionStart;
 
+      // Trigger warmup when user starts typing (empty -> non-empty)
+      if (value.length === 0 && newValue.length > 0) {
+        onStartTyping();
+      }
+
       onChange(newValue);
 
       // Check for @ mention at cursor
@@ -906,7 +989,7 @@ const InputArea = ({
         setMentionFilter("");
       }
     },
-    [onChange]
+    [value, onChange, onStartTyping]
   );
 
   // Insert selected mention
@@ -973,10 +1056,8 @@ const InputArea = ({
   const placeholder = disabled
     ? "No AI agent available"
     : isWarmingUp
-      ? "Agent starting... you can type now"
-      : mode === "agent"
-        ? "Ask the agent... use @ to mention tables"
-        : "Ask a question... use @ to mention objects";
+      ? "Starting agent... you can type now"
+      : "Ask anything... use @ to mention tables";
 
   const getMentionIcon = (type: MentionSuggestion["type"]) => {
     switch (type) {
@@ -992,101 +1073,106 @@ const InputArea = ({
   };
 
   return (
-    <div className="border-t bg-background/80 backdrop-blur-sm">
-      {/* Input Container */}
-      <div className="p-3">
-        <div
-          className={cn(
-            "relative flex items-end gap-2 rounded-lg border bg-background transition-all",
-            "focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10",
-            disabled && "opacity-50",
-          )}
-        >
-          {/* @ Mention Autocomplete Dropdown */}
-          {showMentions && suggestions.length > 0 && (
-            <div
-              ref={mentionListRef}
-              className="absolute bottom-full left-0 mb-1 w-80 max-h-64 overflow-y-auto rounded-lg border bg-popover shadow-lg z-50"
-            >
-              <div className="py-1">
-                {suggestions.map((suggestion, index) => (
-                  <button
-                    key={`${suggestion.type}-${suggestion.name}-${suggestion.breadcrumb}`}
-                    type="button"
-                    className={cn(
-                      "w-full flex items-center gap-2 px-3 py-1.5 text-left text-[12px]",
-                      "hover:bg-accent transition-colors",
-                      index === selectedIndex && "bg-accent"
-                    )}
-                    onClick={() => { insertMention(suggestion); }}
-                    onMouseEnter={() => { setSelectedIndex(index); }}
-                  >
-                    {getMentionIcon(suggestion.type)}
-                    <span className="font-medium truncate">{suggestion.name}</span>
-                    <span className="flex-1" />
-                    <span className="text-[11px] text-muted-foreground truncate max-w-[140px]">
-                      {suggestion.breadcrumb}
-                    </span>
-                  </button>
-                ))}
-              </div>
+    <div className="p-1.5">
+      {/* Unified Input Container */}
+      <div
+        className={cn(
+          "relative rounded-xl border-2 bg-background transition-all duration-200",
+          isFocused
+            ? "border-primary shadow-[0_0_0_3px_rgba(var(--primary-rgb),0.1)]"
+            : "border-border hover:border-border/80",
+          disabled && "opacity-50 pointer-events-none",
+        )}
+      >
+        {/* @ Mention Autocomplete Dropdown */}
+        {showMentions && suggestions.length > 0 && (
+          <div
+            ref={mentionListRef}
+            className="absolute bottom-full left-0 mb-2 w-80 max-h-64 overflow-y-auto rounded-xl border-2 border-border bg-popover shadow-lg z-50"
+          >
+            <div className="p-1">
+              {suggestions.map((suggestion, index) => (
+                <button
+                  key={`${suggestion.type}-${suggestion.name}-${suggestion.breadcrumb}`}
+                  type="button"
+                  className={cn(
+                    "w-full flex items-center gap-2 px-3 py-2 text-left text-[12px] rounded-lg",
+                    "transition-colors",
+                    index === selectedIndex
+                      ? "bg-accent text-accent-foreground"
+                      : "hover:bg-accent/50"
+                  )}
+                  onClick={() => { insertMention(suggestion); }}
+                  onMouseEnter={() => { setSelectedIndex(index); }}
+                >
+                  {getMentionIcon(suggestion.type)}
+                  <span className="font-medium truncate">{suggestion.name}</span>
+                  <span className="flex-1" />
+                  <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">
+                    {suggestion.breadcrumb}
+                  </span>
+                </button>
+              ))}
             </div>
+          </div>
+        )}
+
+        {/* Textarea */}
+        <Textarea
+          ref={inputRef}
+          value={value}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onFocus={() => { setIsFocused(true); }}
+          onBlur={() => { setIsFocused(false); }}
+          placeholder={placeholder}
+          disabled={disabled || isStreaming}
+          className={cn(
+            "min-h-[48px] max-h-[160px] w-full resize-none border-0 bg-transparent",
+            "px-4 pt-3 pb-2 text-[13px] placeholder:text-muted-foreground/50",
+            "focus-visible:ring-0 focus-visible:ring-offset-0",
           )}
+          rows={1}
+        />
 
-          <Textarea
-            ref={inputRef}
-            value={value}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder}
-            disabled={disabled || isStreaming}
-            className={cn(
-              "min-h-[44px] max-h-[160px] flex-1 resize-none border-0 bg-transparent",
-              "px-3 py-3 text-[13px] placeholder:text-muted-foreground/60",
-              "focus-visible:ring-0 focus-visible:ring-offset-0",
-            )}
-            rows={1}
-          />
-        </div>
-
-        {/* Footer - Agent & Model Selectors + Send/Stop */}
-        <div className="flex items-center gap-2 mt-2 px-1">
+        {/* Footer inside the input container */}
+        <div className="flex items-center gap-1 px-2 pb-2">
           <AgentSelector />
           <ModelSelector />
           <div className="flex-1" />
+
+          {/* Keyboard hint */}
+          {!isStreaming && canSend && (
+            <span className="text-[10px] text-muted-foreground/50 mr-2 hidden sm:inline">
+              ↵ to send
+            </span>
+          )}
+
           {isStreaming ? (
             <Button
-              variant="destructive"
+              variant="ghost"
               size="sm"
               onClick={onCancel}
-              className="h-7 px-3 text-[11px] gap-1.5"
+              className="h-8 px-3 text-[11px] gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10"
             >
               <IconPlayerStop className="h-3.5 w-3.5" />
               Stop
             </Button>
           ) : (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant={canSend ? "default" : "ghost"}
-                    size="icon-sm"
-                    disabled={!canSend}
-                    onClick={onSubmit}
-                    className={cn(
-                      "transition-all",
-                      canSend && "bg-primary hover:bg-primary/90",
-                    )}
-                  >
-                    <IconSend className="h-3.5 w-3.5" />
-                  </Button>
-                }
-              />
-              <TooltipContent side="top">
-                Send message{" "}
-                <kbd className="ml-1 text-[10px] opacity-60">↵</kbd>
-              </TooltipContent>
-            </Tooltip>
+            <Button
+              variant={canSend ? "default" : "ghost"}
+              size="icon"
+              disabled={!canSend}
+              onClick={onSubmit}
+              className={cn(
+                "h-8 w-8 rounded-lg transition-all",
+                canSend
+                  ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+                  : "text-muted-foreground",
+              )}
+            >
+              <IconSend className="h-4 w-4" />
+            </Button>
           )}
         </div>
       </div>

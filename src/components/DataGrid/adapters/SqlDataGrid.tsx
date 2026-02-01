@@ -870,7 +870,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
       />
 
       {/* Empty state overlay - shown when no rows but grid/filters remain visible */}
-      {!isLoading && rows.length === 0 && (
+      {!isError && rows.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="text-center space-y-2 p-8">
             <div className="text-muted-foreground text-sm font-medium">

@@ -1,4 +1,5 @@
 import { logger } from "@/lib/logger";
+import { batchWithConcurrency } from "@/utils/batch";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ResizablePanelGroup,
@@ -262,8 +263,12 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
           return;
         }
 
-        const structures = await Promise.all(
-          baseTables.map((table) =>
+        // Fetch table structures with limited concurrency to avoid overwhelming
+        // the database connection pool (especially for MySQL/MariaDB with many tables).
+        // ERD only needs columns and constraints, not triggers or stats.
+        const structures = await batchWithConcurrency(
+          baseTables,
+          (table) =>
             databaseService.getTableStructure(
               connectionId,
               targetDatabase,
@@ -273,9 +278,11 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
                 includeIndexes: true,
                 includeConstraints: true,
                 includeForeignKeys: true,
+                includeTriggers: false,
+                includeStatistics: false,
               },
             ),
-          ),
+          5, // Limit to 5 concurrent table fetches
         );
 
         const result = await dbmlService.schemaToDBML(structures, {

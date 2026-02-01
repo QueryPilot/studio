@@ -997,7 +997,8 @@ export const ConnectionSection = forwardRef<
                 >
                   {filterItems(tables, "table").map((table) => {
                     const tableKey = `${table.schema}.${table.name}`;
-                    const isPartitioned = table.isPartitioned === true;
+                    // MySQL/MariaDB don't support browsing partition tables yet
+                    const isPartitioned = table.isPartitioned === true && !isMySQLDb;
                     const isPartitionExpanded =
                       expandedPartitionedTables.has(tableKey);
                     return (

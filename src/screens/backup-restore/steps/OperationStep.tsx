@@ -38,7 +38,7 @@ export const OperationStep = ({ onSelect, onBack }: OperationStepProps) => {
             "focus:ring-2 focus:ring-primary focus:ring-offset-2",
             "group"
           )}
-          onClick={() => onSelect("backup")}
+          onClick={() => { onSelect("backup"); }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
@@ -69,7 +69,7 @@ export const OperationStep = ({ onSelect, onBack }: OperationStepProps) => {
             "focus:ring-2 focus:ring-primary focus:ring-offset-2",
             "group"
           )}
-          onClick={() => onSelect("restore")}
+          onClick={() => { onSelect("restore"); }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();

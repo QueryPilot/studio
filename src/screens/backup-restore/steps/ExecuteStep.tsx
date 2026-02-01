@@ -30,9 +30,10 @@ type ExecuteState = "idle" | "running" | "completed" | "failed";
 
 // BackupProgress is a tagged union from Rust backend
 // Each variant has a "type" field that discriminates the union
+// Note: Rust uses #[serde(rename_all = "camelCase")] so field names are camelCase
 interface BackupProgressStarted {
   type: "Started";
-  total_steps: number | null;
+  totalSteps: number | null;
 }
 
 interface BackupProgressProgress {
@@ -45,7 +46,7 @@ interface BackupProgressProgress {
 interface BackupProgressOutput {
   type: "Output";
   line: string;
-  is_error: boolean;
+  isError: boolean;
 }
 
 interface BackupProgressCompleted {
@@ -129,9 +130,9 @@ export const ExecuteStep = ({
           setProgressMessage(
             `Starting ${operation === "backup" ? "backup" : "restore"}...`
           );
-          if (progress.total_steps) {
+          if (progress.totalSteps) {
             addOutputLine(
-              `Operation started with ${progress.total_steps} steps`,
+              `Operation started with ${progress.totalSteps} steps`,
               false
             );
           } else {
@@ -149,7 +150,7 @@ export const ExecuteStep = ({
           break;
 
         case "Output":
-          addOutputLine(progress.line, progress.is_error);
+          addOutputLine(progress.line, progress.isError);
           break;
 
         case "Completed":

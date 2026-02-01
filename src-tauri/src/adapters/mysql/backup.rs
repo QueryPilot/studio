@@ -23,37 +23,25 @@ use crate::error::AppError;
 
 use super::MySqlAdapter;
 
-/// Connection info extracted from the adapter for subprocess execution
-struct ConnectionInfo {
-    host: String,
-    port: u16,
-    username: String,
-    password: Option<String>,
-    database: String,
-}
-
 impl MySqlAdapter {
     /// Find the available dump tool (mysqldump or mariadb-dump).
+    /// Checks PATH and common Homebrew keg-only locations.
     async fn find_dump_tool() -> Result<String, AppError> {
+        use crate::core::tool_registry::ToolRegistry;
+
         // Try mysqldump first (more common)
-        if let Ok(output) = tokio::process::Command::new("which")
-            .arg("mysqldump")
-            .output()
-            .await
-        {
-            if output.status.success() {
-                return Ok("mysqldump".to_string());
+        let status = ToolRegistry::check_tool("mysqldump").await;
+        if status.installed {
+            if let Some(path) = status.path {
+                return Ok(path.to_string_lossy().to_string());
             }
         }
 
         // Try mariadb-dump as fallback
-        if let Ok(output) = tokio::process::Command::new("which")
-            .arg("mariadb-dump")
-            .output()
-            .await
-        {
-            if output.status.success() {
-                return Ok("mariadb-dump".to_string());
+        let status = ToolRegistry::check_tool("mariadb-dump").await;
+        if status.installed {
+            if let Some(path) = status.path {
+                return Ok(path.to_string_lossy().to_string());
             }
         }
 
@@ -63,69 +51,29 @@ impl MySqlAdapter {
     }
 
     /// Find the available MySQL client tool (mysql or mariadb).
+    /// Checks PATH and common Homebrew keg-only locations.
     async fn find_client_tool() -> Result<String, AppError> {
+        use crate::core::tool_registry::ToolRegistry;
+
         // Try mysql first (more common)
-        if let Ok(output) = tokio::process::Command::new("which")
-            .arg("mysql")
-            .output()
-            .await
-        {
-            if output.status.success() {
-                return Ok("mysql".to_string());
+        let status = ToolRegistry::check_tool("mysql").await;
+        if status.installed {
+            if let Some(path) = status.path {
+                return Ok(path.to_string_lossy().to_string());
             }
         }
 
         // Try mariadb as fallback
-        if let Ok(output) = tokio::process::Command::new("which")
-            .arg("mariadb")
-            .output()
-            .await
-        {
-            if output.status.success() {
-                return Ok("mariadb".to_string());
+        let status = ToolRegistry::check_tool("mariadb").await;
+        if status.installed {
+            if let Some(path) = status.path {
+                return Ok(path.to_string_lossy().to_string());
             }
         }
 
         Err(AppError::Internal(
             "Neither mysql nor mariadb client found. Install MySQL client tools: brew install mysql-client".to_string()
         ))
-    }
-
-    /// Get connection info from the adapter's current connection.
-    /// This requires the adapter to be connected with stored profile info.
-    async fn get_connection_info(&self) -> Result<ConnectionInfo, AppError> {
-        let mut conn = self.get_conn().await?;
-
-        // Query connection variables to get host, port, user, database
-        use mysql_async::prelude::*;
-
-        let row: Option<(String, String, String, u16)> = conn
-            .query_first(
-                "SELECT DATABASE(), USER(), @@hostname, @@port",
-            )
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to get connection info: {}", e)))?;
-
-        match row {
-            Some((database, user, _host, port)) => {
-                // Extract username from user@host format
-                let username = user.split('@').next().unwrap_or(&user).to_string();
-
-                // Note: We can't retrieve the password from the connection.
-                // The caller must provide it through the profile.
-                // For now, we'll return None for password and handle it in execute_backup/restore.
-                Ok(ConnectionInfo {
-                    host: "localhost".to_string(), // Default, will be overridden by profile
-                    port,
-                    username,
-                    password: None,
-                    database,
-                })
-            }
-            None => Err(AppError::DatabaseError(
-                "Failed to get connection info".into(),
-            )),
-        }
     }
 }
 
@@ -346,8 +294,40 @@ impl BackupCapable for MySqlAdapter {
         config: BackupConfig,
         progress: ProgressSender,
     ) -> Result<(), AppError> {
-        // Get connection info
-        let conn_info = self.get_connection_info().await?;
+        // Extract connection parameters from config options
+        let host = config
+            .options
+            .get("host")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::InvalidInput("Missing host in config".into()))?
+            .to_string();
+
+        let port = config
+            .options
+            .get("port")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3306) as u16;
+
+        let user = config
+            .options
+            .get("user")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::InvalidInput("Missing user in config".into()))?
+            .to_string();
+
+        let password = config
+            .options
+            .get("password")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let database = config
+            .options
+            .get("database")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::InvalidInput("Missing database in config".into()))?
+            .to_string();
 
         // Send started message
         if progress
@@ -363,7 +343,7 @@ impl BackupCapable for MySqlAdapter {
 
         let _ = progress
             .send(BackupProgress::Output {
-                line: format!("Starting backup of database '{}' using {}...", conn_info.database, dump_tool),
+                line: format!("Starting backup of database '{}' using {}...", database, dump_tool),
                 is_error: false,
             })
             .await;
@@ -372,13 +352,13 @@ impl BackupCapable for MySqlAdapter {
         let mut cmd = Command::new(&dump_tool);
 
         // Connection options
-        cmd.arg("-h").arg(&conn_info.host);
-        cmd.arg("-P").arg(conn_info.port.to_string());
-        cmd.arg("-u").arg(&conn_info.username);
+        cmd.arg("-h").arg(&host);
+        cmd.arg("-P").arg(port.to_string());
+        cmd.arg("-u").arg(&user);
 
         // Password handling - use environment variable for security
-        if let Some(ref password) = conn_info.password {
-            cmd.env("MYSQL_PWD", password);
+        if !password.is_empty() {
+            cmd.env("MYSQL_PWD", &password);
         }
 
         // Parse backup options
@@ -482,7 +462,7 @@ impl BackupCapable for MySqlAdapter {
         cmd.arg("--result-file").arg(&config.destination_path);
 
         // Add database name
-        cmd.arg(&conn_info.database);
+        cmd.arg(&database);
 
         // Add specific tables if selected
         if let Some(ref selected) = config.selected_objects {
@@ -557,7 +537,7 @@ impl BackupCapable for MySqlAdapter {
             .send(BackupProgress::Completed {
                 message: format!(
                     "Backup completed successfully. Database '{}' backed up to {} ({} bytes)",
-                    conn_info.database, config.destination_path, file_size
+                    database, config.destination_path, file_size
                 ),
             })
             .await
@@ -575,8 +555,40 @@ impl BackupCapable for MySqlAdapter {
         config: RestoreConfig,
         progress: ProgressSender,
     ) -> Result<(), AppError> {
-        // Get connection info
-        let conn_info = self.get_connection_info().await?;
+        // Extract connection parameters from config options
+        let host = config
+            .options
+            .get("host")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::InvalidInput("Missing host in config".into()))?
+            .to_string();
+
+        let port = config
+            .options
+            .get("port")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3306) as u16;
+
+        let user = config
+            .options
+            .get("user")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::InvalidInput("Missing user in config".into()))?
+            .to_string();
+
+        let password = config
+            .options
+            .get("password")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let database = config
+            .options
+            .get("database")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::InvalidInput("Missing database in config".into()))?
+            .to_string();
 
         // Send started message
         if progress
@@ -592,7 +604,7 @@ impl BackupCapable for MySqlAdapter {
 
         let _ = progress
             .send(BackupProgress::Output {
-                line: format!("Starting restore to database '{}' using {}...", conn_info.database, client_tool),
+                line: format!("Starting restore to database '{}' using {}...", database, client_tool),
                 is_error: false,
             })
             .await;
@@ -608,13 +620,13 @@ impl BackupCapable for MySqlAdapter {
         let mut cmd = Command::new(&client_tool);
 
         // Connection options
-        cmd.arg("-h").arg(&conn_info.host);
-        cmd.arg("-P").arg(conn_info.port.to_string());
-        cmd.arg("-u").arg(&conn_info.username);
+        cmd.arg("-h").arg(&host);
+        cmd.arg("-P").arg(port.to_string());
+        cmd.arg("-u").arg(&user);
 
         // Password handling - use environment variable for security
-        if let Some(ref password) = conn_info.password {
-            cmd.env("MYSQL_PWD", password);
+        if !password.is_empty() {
+            cmd.env("MYSQL_PWD", &password);
         }
 
         // Parse restore options
@@ -629,7 +641,7 @@ impl BackupCapable for MySqlAdapter {
         }
 
         // Database name
-        cmd.arg(&conn_info.database);
+        cmd.arg(&database);
 
         // Open the SQL file for stdin
         let file = fs::File::open(&config.source_path)
@@ -690,7 +702,7 @@ impl BackupCapable for MySqlAdapter {
             .send(BackupProgress::Completed {
                 message: format!(
                     "Restore completed successfully. {} bytes restored to database '{}'",
-                    file_size, conn_info.database
+                    file_size, database
                 ),
             })
             .await

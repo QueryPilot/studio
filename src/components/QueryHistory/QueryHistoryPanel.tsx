@@ -52,12 +52,12 @@ export function QueryHistoryPanel() {
         onValueChange={(v) => { setActiveTab(v as "history" | "saved"); }}
         className="flex-1 flex flex-col"
       >
-        <TabsList className="mx-1 h-7">
-          <TabsTrigger value="history" className="text-xs gap-1">
+        <TabsList className="w-full h-7 px-1">
+          <TabsTrigger value="history" className="flex-1 text-xs gap-1">
             <IconHistory className="h-3 w-3" />
             History
           </TabsTrigger>
-          <TabsTrigger value="saved" className="text-xs gap-1">
+          <TabsTrigger value="saved" className="flex-1 text-xs gap-1">
             <IconBookmark className="h-3 w-3" />
             Saved
           </TabsTrigger>

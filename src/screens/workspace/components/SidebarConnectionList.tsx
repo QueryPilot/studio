@@ -196,138 +196,135 @@ export function SidebarConnectionList({
   }
 
   return (
-    <div className="flex h-full">
-      {/* Vertical Tab Bar */}
-      <div className="flex flex-col py-1">
-        <button
-          onClick={() => {
-            setSidebarView("objects");
-          }}
-          title="Database Objects"
-          className={cn(
-            "p-2 transition-colors",
-            sidebarView === "objects"
-              ? "text-foreground bg-background border-r-2 border-primary"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted",
-          )}
-        >
-          <IconDatabase className="h-4 w-4" />
-        </button>
-        <button
-          onClick={() => {
-            setSidebarView("queries");
-          }}
-          title="Query History"
-          className={cn(
-            "p-2 transition-colors",
-            sidebarView === "queries"
-              ? "text-foreground bg-background border-r-2 border-primary"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted",
-          )}
-        >
-          <IconHistory className="h-4 w-4" />
-        </button>
+    <div className="flex flex-col h-full">
+      {/* Header with tabs and actions */}
+      <div className="shrink-0 p-1.5 space-y-1.5">
+        {/* Tabs and action buttons row */}
+        <div className="flex items-center justify-between">
+          {/* Horizontal Tabs */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => {
+                setSidebarView("objects");
+              }}
+              className={cn(
+                "flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded transition-colors",
+                sidebarView === "objects"
+                  ? "text-foreground bg-muted"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+              )}
+            >
+              <IconDatabase className="h-3.5 w-3.5" />
+              <span>Objects</span>
+            </button>
+            <button
+              onClick={() => {
+                setSidebarView("queries");
+              }}
+              className={cn(
+                "flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded transition-colors",
+                sidebarView === "queries"
+                  ? "text-foreground bg-muted"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+              )}
+            >
+              <IconHistory className="h-3.5 w-3.5" />
+              <span>History</span>
+            </button>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-0.5">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0"
+                    onClick={handleAddConnection}
+                  >
+                    <IconPlus className="h-3.5 w-3.5" />
+                  </Button>
+                }
+              />
+              <TooltipContent side="bottom">Add Connection</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0"
+                    onClick={handleRefreshAll}
+                    disabled={isRefreshingAll}
+                  >
+                    {isRefreshingAll ? (
+                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <IconRefresh className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                }
+              />
+              <TooltipContent side="bottom">Refresh All</TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+
+        {/* Search input - only show for objects view */}
+        {sidebarView === "objects" && (
+          <div className="relative">
+            <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Search objects..."
+              className="pl-7 h-7 text-xs"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Content Area */}
       {sidebarView === "queries" ? (
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 overflow-auto">
           <QueryHistoryPanel />
         </div>
       ) : (
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Header with search and actions */}
-          <div className="shrink-0 p-1.5 space-y-1.5">
-            {/* Title bar with actions */}
-            <div className="flex items-center justify-between px-1">
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Connections
-              </span>
-              <div className="flex items-center gap-0.5">
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0"
-                        onClick={handleAddConnection}
-                      >
-                        <IconPlus className="h-3.5 w-3.5" />
-                      </Button>
-                    }
-                  />
-                  <TooltipContent side="bottom">Add Connection</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0"
-                        onClick={handleRefreshAll}
-                        disabled={isRefreshingAll}
-                      >
-                        {isRefreshingAll ? (
-                          <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <IconRefresh className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                    }
-                  />
-                  <TooltipContent side="bottom">Refresh All</TooltipContent>
-                </Tooltip>
-              </div>
+        <div className="flex-1 overflow-auto">
+          {filteredConnections.length === 0 ? (
+            <div className="p-4 text-center">
+              <p className="text-xs text-muted-foreground">
+                No connections match "{searchQuery}"
+              </p>
             </div>
-
-            {/* Search input */}
-            <div className="relative">
-              <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Search objects..."
-                className="pl-7 h-7 text-xs"
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
+          ) : (
+            filteredConnections.map((connection) => (
+              <ConnectionSection
+                key={connection.id}
+                ref={(el) => {
+                  if (el) {
+                    connectionRefs.current.set(connection.id, el);
+                  } else {
+                    connectionRefs.current.delete(connection.id);
+                  }
                 }}
+                connection={connection}
+                isExpanded={expandedConnections.has(connection.id)}
+                onToggle={() => {
+                  toggleConnection(connection.id);
+                }}
+                searchQuery={searchQuery}
+                onTableClick={onTableClick}
+                onFunctionClick={onFunctionClick}
               />
-            </div>
-          </div>
-
-          {/* Connection list */}
-          <div className="flex-1 overflow-auto">
-            {filteredConnections.length === 0 ? (
-              <div className="p-4 text-center">
-                <p className="text-xs text-muted-foreground">
-                  No connections match "{searchQuery}"
-                </p>
-              </div>
-            ) : (
-              filteredConnections.map((connection) => (
-                <ConnectionSection
-                  key={connection.id}
-                  ref={(el) => {
-                    if (el) {
-                      connectionRefs.current.set(connection.id, el);
-                    } else {
-                      connectionRefs.current.delete(connection.id);
-                    }
-                  }}
-                  connection={connection}
-                  isExpanded={expandedConnections.has(connection.id)}
-                  onToggle={() => {
-                    toggleConnection(connection.id);
-                  }}
-                  searchQuery={searchQuery}
-                  onTableClick={onTableClick}
-                  onFunctionClick={onFunctionClick}
-                />
-              ))
-            )}
-          </div>
+            ))
+          )}
         </div>
       )}
     </div>

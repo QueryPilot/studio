@@ -40,6 +40,16 @@ export function BackupRestoreScreen() {
   const [restoreConfig, setRestoreConfig] = useState<RestoreConfig | null>(
     null
   );
+  // Partial config to preserve state when navigating back
+  const [partialBackupConfig, setPartialBackupConfig] = useState<{
+    destinationPath?: string;
+    format?: string;
+    options?: Record<string, unknown>;
+  }>({});
+  const [partialRestoreConfig, setPartialRestoreConfig] = useState<{
+    sourcePath?: string;
+    options?: Record<string, unknown>;
+  }>({});
 
   // Register window with Tauri on mount
   useEffect(() => {
@@ -140,6 +150,8 @@ export function BackupRestoreScreen() {
     setOperation(null);
     setBackupConfig(null);
     setRestoreConfig(null);
+    setPartialBackupConfig({});
+    setPartialRestoreConfig({});
     if (!preselectedConnectionId) {
       setSelectedConnectionId(null);
     }
@@ -229,6 +241,8 @@ export function BackupRestoreScreen() {
               {operation === "backup" && (
                 <BackupConfigStep
                   profile={connectionProfile}
+                  initialConfig={partialBackupConfig}
+                  onConfigChange={setPartialBackupConfig}
                   onStart={handleBackupStart}
                   onBack={() => setCurrentStep("operation")}
                 />
@@ -236,6 +250,8 @@ export function BackupRestoreScreen() {
               {operation === "restore" && (
                 <RestoreConfigStep
                   profile={connectionProfile}
+                  initialConfig={partialRestoreConfig}
+                  onConfigChange={setPartialRestoreConfig}
                   onStart={handleRestoreStart}
                   onBack={() => setCurrentStep("operation")}
                 />
