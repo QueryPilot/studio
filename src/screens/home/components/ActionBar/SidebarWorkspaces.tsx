@@ -157,7 +157,7 @@ export function SidebarWorkspaces() {
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger
-                    onClick={() => handleAddConnectionToWorkspace(ws.id)}
+                    onClick={() => { handleAddConnectionToWorkspace(ws.id); }}
                     className={cn(
                       "p-1 rounded hover:bg-foreground/10",
                       "text-muted-foreground hover:text-foreground",
