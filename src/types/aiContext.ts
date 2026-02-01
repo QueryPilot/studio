@@ -6,6 +6,7 @@
  */
 
 import type { TabMetadata } from "./workbench";
+import type { DatabaseParadigm } from "./connection";
 
 // =============================================================================
 // Connection Context (lightweight - names only)
@@ -18,12 +19,38 @@ export interface AISchemaContext {
   functions: string[];
 }
 
+/**
+ * MongoDB collection info for AI context
+ */
+export interface AIMongoCollection {
+  name: string;
+  documentCount?: number;
+  indexes: string[];
+  sampleFields: string[]; // Field names from sample document
+}
+
+/**
+ * Redis key pattern info for AI context
+ */
+export interface AIRedisKeyPattern {
+  pattern: string;
+  count: number;
+  types: Array<"string" | "hash" | "list" | "set" | "zset" | "stream">;
+  sampleKeys?: string[]; // A few example keys
+}
+
 export interface AIConnectionContext {
   id: string;
   name: string;
   dbType: string;
   database: string;
+  paradigm: DatabaseParadigm;
+  /** SQL schemas with tables/views/functions (for sql paradigm) */
   schemas: AISchemaContext[];
+  /** MongoDB collections (for document paradigm) */
+  collections?: AIMongoCollection[];
+  /** Redis key patterns (for keyvalue paradigm) */
+  keyPatterns?: AIRedisKeyPattern[];
 }
 
 export interface AIContext {

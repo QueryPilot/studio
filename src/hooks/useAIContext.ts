@@ -3,6 +3,7 @@
  *
  * Builds lightweight AI context for the current workspace.
  * Provides connection info + schema/table names without full column details.
+ * Supports SQL, MongoDB, and Redis connections.
  */
 
 import { useMemo } from "react";
@@ -19,6 +20,7 @@ import type {
   MentionReference,
 } from "@/types/aiContext";
 import { parseMentions } from "@/utils/mentionParser";
+import { getParadigm, type DatabaseParadigm } from "@/types/connection";
 
 /**
  * Build lightweight AI context for all connections in the workspace.
@@ -42,13 +44,23 @@ export function useAIContext(): AIContext {
       const storedConn = connections.find((c) => c.profile.id === connectionId);
       const profile = storedConn?.profile;
 
+      // Determine paradigm from database type
+      const dbType = profile?.db_type;
+      const paradigm: DatabaseParadigm = dbType
+        ? getParadigm(dbType)
+        : "sql"; // Default to SQL for unknown types
+
       return {
         id: connectionId,
         name: profile?.name ?? "Unknown",
         dbType: profile?.db_type ?? "Unknown",
         database: openConn.database,
+        paradigm,
         // Schemas will be populated by useAIContextWithSchema
         schemas: [],
+        // NoSQL fields will be populated by useAIContextWithSchema
+        collections: undefined,
+        keyPatterns: undefined,
       };
     });
   }, [openConnections, connections]);
@@ -63,6 +75,7 @@ export function useAIContext(): AIContext {
 /**
  * Build AI context with schema data for ALL connections in workspace.
  * Includes table/view/function names for each connection's current schema.
+ * Supports SQL (schemas), MongoDB (collections), and Redis (key patterns).
  */
 export function useAIContextWithSchema(): AIContext {
   const baseContext = useAIContext();
@@ -81,33 +94,63 @@ export function useAIContextWithSchema(): AIContext {
   }, [activeWorkspace]);
 
   // Load schema data for ALL connections in parallel using useQueries
+  // Query function adapts based on paradigm
   const schemaQueries = useQueries({
-    queries: openConnections.map((conn) => ({
-      queryKey: ["ai-schema", conn.id, conn.database, conn.schema],
-      queryFn: async () => {
-        // Ensure connection is established
-        await databaseService.connectById(conn.id);
-        schemaCache.setConnection(conn.id);
+    queries: openConnections.map((conn) => {
+      // Find the paradigm for this connection
+      const connContext = baseContext.connections.find((c) => c.id === conn.id);
+      const paradigm = connContext?.paradigm ?? "sql";
 
-        // Load tables and functions
-        const [tables, functions] = await Promise.all([
-          schemaCache.getTables(conn.id, conn.schema),
-          schemaCache.getFunctions(conn.id, conn.schema),
-        ]);
+      return {
+        queryKey: ["ai-schema", conn.id, conn.database, conn.schema, paradigm],
+        queryFn: async () => {
+          // Ensure connection is established
+          await databaseService.connectById(conn.id);
+          schemaCache.setConnection(conn.id);
 
-        return {
-          connectionId: conn.id,
-          schema: conn.schema,
-          tables: tables.filter((t) => t.kind === "Table").map((t) => t.name),
-          views: tables
-            .filter((t) => t.kind === "View" || t.kind === "MaterializedView")
-            .map((t) => t.name),
-          functions: functions.map((f) => f.name),
-        };
-      },
-      enabled: !!conn.id && !!conn.database && !!conn.schema,
-      staleTime: 5 * 60 * 1000, // 5 minutes
-    })),
+          // Load data based on paradigm
+          if (paradigm === "document") {
+            // MongoDB: load collections
+            const collections = await schemaCache.getMongoCollections(
+              conn.id,
+              conn.database,
+            );
+            return {
+              connectionId: conn.id,
+              paradigm: "document" as const,
+              collections,
+            };
+          } else if (paradigm === "keyvalue") {
+            // Redis: load key patterns
+            const keyPatterns = await schemaCache.getRedisKeyPatterns(conn.id);
+            return {
+              connectionId: conn.id,
+              paradigm: "keyvalue" as const,
+              keyPatterns,
+            };
+          } else {
+            // SQL: load tables and functions
+            const [tables, functions] = await Promise.all([
+              schemaCache.getTables(conn.id, conn.schema),
+              schemaCache.getFunctions(conn.id, conn.schema),
+            ]);
+
+            return {
+              connectionId: conn.id,
+              paradigm: "sql" as const,
+              schema: conn.schema,
+              tables: tables.filter((t) => t.kind === "Table").map((t) => t.name),
+              views: tables
+                .filter((t) => t.kind === "View" || t.kind === "MaterializedView")
+                .map((t) => t.name),
+              functions: functions.map((f) => f.name),
+            };
+          }
+        },
+        enabled: !!conn.id && !!conn.database,
+        staleTime: 5 * 60 * 1000, // 5 minutes
+      };
+    }),
   });
 
   // Merge schema data into connection contexts
@@ -120,17 +163,33 @@ export function useAIContextWithSchema(): AIContext {
 
       if (queryResult?.data) {
         const data = queryResult.data;
-        return {
-          ...conn,
-          schemas: [
-            {
-              name: data.schema,
-              tables: data.tables,
-              views: data.views,
-              functions: data.functions,
-            },
-          ],
-        };
+
+        if (data.paradigm === "document") {
+          // MongoDB connection
+          return {
+            ...conn,
+            collections: data.collections,
+          };
+        } else if (data.paradigm === "keyvalue") {
+          // Redis connection
+          return {
+            ...conn,
+            keyPatterns: data.keyPatterns,
+          };
+        } else {
+          // SQL connection
+          return {
+            ...conn,
+            schemas: [
+              {
+                name: data.schema,
+                tables: data.tables,
+                views: data.views,
+                functions: data.functions,
+              },
+            ],
+          };
+        }
       }
 
       return conn;
@@ -211,48 +270,63 @@ export async function enrichMentionsFromMessage(
 }
 
 /**
- * Find which connection a mentioned table belongs to.
- * Matches by schema.table or just table name against available schemas.
+ * Find which connection a mentioned table/collection belongs to.
+ * Supports all database paradigms: SQL (tables/views), MongoDB (collections), Redis (keys).
  */
 function findConnectionForMention(
   ref: MentionReference,
   context: AIContext
 ): { connectionId: string; schema: string } | null {
-  // If schema is specified in the mention, look for exact match
-  if (ref.schema) {
-    for (const conn of context.connections) {
-      const schema = conn.schemas.find(
-        (s) =>
-          s.name === ref.schema &&
-          (s.tables.includes(ref.name) || s.views.includes(ref.name))
-      );
-      if (schema) {
-        return { connectionId: conn.id, schema: schema.name };
-      }
-    }
-  }
-
-  // No schema specified - search all connections/schemas
-  // Prefer focused connection if it has the table
   const focusedConn = context.connections.find(
     (c) => c.id === context.focusedConnectionId
   );
 
-  if (focusedConn) {
-    for (const schema of focusedConn.schemas) {
-      if (schema.tables.includes(ref.name) || schema.views.includes(ref.name)) {
-        return { connectionId: focusedConn.id, schema: schema.name };
+  // Helper to check if connection has the mentioned entity
+  const hasEntity = (conn: AIConnectionContext): string | null => {
+    if (conn.paradigm === "sql") {
+      // Search SQL schemas for tables/views
+      if (ref.schema) {
+        const schema = conn.schemas.find(
+          (s) =>
+            s.name === ref.schema &&
+            (s.tables.includes(ref.name) || s.views.includes(ref.name))
+        );
+        if (schema) return schema.name;
+      } else {
+        for (const schema of conn.schemas) {
+          if (schema.tables.includes(ref.name) || schema.views.includes(ref.name)) {
+            return schema.name;
+          }
+        }
       }
+    } else if (conn.paradigm === "document") {
+      // Search MongoDB collections
+      if (conn.collections?.some((c) => c.name === ref.name)) {
+        return ""; // MongoDB has no schema concept
+      }
+    } else if (conn.paradigm === "keyvalue") {
+      // Search Redis key patterns
+      if (conn.keyPatterns?.some((p) => p.pattern === ref.name || p.sampleKeys?.includes(ref.name))) {
+        return ""; // Redis has no schema concept
+      }
+    }
+    return null;
+  };
+
+  // Prefer focused connection
+  if (focusedConn) {
+    const schema = hasEntity(focusedConn);
+    if (schema !== null) {
+      return { connectionId: focusedConn.id, schema };
     }
   }
 
   // Search other connections
   for (const conn of context.connections) {
     if (conn.id === context.focusedConnectionId) continue;
-    for (const schema of conn.schemas) {
-      if (schema.tables.includes(ref.name) || schema.views.includes(ref.name)) {
-        return { connectionId: conn.id, schema: schema.name };
-      }
+    const schema = hasEntity(conn);
+    if (schema !== null) {
+      return { connectionId: conn.id, schema };
     }
   }
 
@@ -266,60 +340,119 @@ function findConnectionForMention(
 const QUERYPILOT_SYSTEM_INSTRUCTIONS = `
 ## Context: QueryPilot Database IDE
 
-You are assisting a user in QueryPilot, a database IDE application. The user has connected to one or more databases and is asking for help with SQL queries, schema understanding, or data analysis.
+You are assisting a user in QueryPilot, a database IDE application. The user has connected to one or more databases and is asking for help with queries, schema understanding, or data analysis.
+
+QueryPilot supports multiple database paradigms:
+- **SQL databases**: PostgreSQL, MySQL, MariaDB, SQLite, SQL Server
+- **Document databases**: MongoDB
+- **Key-value stores**: Redis
 
 ## CRITICAL RESTRICTIONS
 
 **DO NOT use any of these tools:**
 - Bash, Terminal, Shell commands
-- psql, mysql, sqlite3, mongosh, or any database CLI tools
+- psql, mysql, sqlite3, mongosh, redis-cli, or any database CLI tools
 - File system operations (Read, Write, Edit, Glob, Grep)
 - Any tool that executes commands on the user's machine
 
-**WHY:** The user's database connections are managed by QueryPilot's internal connection manager. You do NOT have direct access to their databases via terminal. Any psql/mysql commands you try to run will fail or connect to wrong databases.
+**WHY:** The user's database connections are managed by QueryPilot's internal connection manager. You do NOT have direct access to their databases via terminal. Any CLI commands you try to run will fail or connect to wrong databases.
 
 ## WHAT YOU SHOULD DO
 
+### For SQL Databases (paradigm: "sql")
 1. **Generate SQL queries** - Write SQL that the user can run in QueryPilot's query editor
-2. **Explain schemas** - Help users understand their database structure using the provided context
-3. **Optimize queries** - Suggest performance improvements for SQL queries
-4. **Answer questions** - Explain SQL concepts, best practices, and database design
-5. **Debug SQL errors** - Help fix SQL syntax or logic issues
+2. **Explain schemas** - Help users understand their database structure
+3. **Optimize queries** - Suggest performance improvements
+4. **Debug SQL errors** - Help fix SQL syntax or logic issues
+
+### For MongoDB (paradigm: "document")
+1. **Generate MongoDB queries** - Write find/aggregate operations
+2. **Explain collections** - Help users understand document structure
+3. **Design aggregation pipelines** - Build complex data transformations
+4. **Index recommendations** - Suggest indexes for query optimization
+
+### For Redis (paradigm: "keyvalue")
+1. **Generate Redis commands** - Write GET/SET/SCAN operations
+2. **Explain key patterns** - Help users understand data organization
+3. **Data structure guidance** - Recommend appropriate Redis data types
 
 ## HOW TO RESPOND
 
-- Provide SQL queries in code blocks with the appropriate language tag (\`\`\`sql)
-- Reference the actual table/column names from the provided schema context
-- If you need more information about a table's structure, ask the user to use @ mentions
-- Do NOT attempt to query the database yourself - provide SQL for the user to run
+- For SQL: Use \`\`\`sql code blocks
+- For MongoDB: Use \`\`\`javascript or \`\`\`json code blocks
+- For Redis: Use \`\`\`redis or plain text for commands
+- Reference actual object names from the provided context
+- If you need more information, ask the user to use @ mentions
+- Do NOT attempt to query the database yourself - provide queries for the user to run
 
-## SCHEMA CONTEXT FORMAT
+## DATABASE CONTEXT FORMAT
 
-Below you'll find the database schema context with:
-- Connected databases and their types (PostgreSQL, MySQL, SQLite, etc.)
-- Available schemas, tables, views, and functions
-- If the user mentioned specific objects with @, detailed column/index info is included
+Below you'll find the database context with:
+- Connected databases and their types
+- For SQL: schemas, tables, views, and functions
+- For MongoDB: collections with indexes and sample field names
+- For Redis: key patterns with counts and data types
+- If the user mentioned specific objects with @, detailed info is included
 `.trim();
 
 /**
- * Convert AI context to JSON string for sending to AI.
- * Includes system instructions and schema context.
+ * Serialize a connection context based on its paradigm.
+ * Returns an object with appropriate fields for SQL, MongoDB, or Redis.
  */
-export function serializeAIContext(context: AIContext): string {
-  const schemaContext = {
-    focusedConnection: context.focusedConnectionId,
-    connections: context.connections.map((conn) => ({
-      id: conn.id,
-      name: conn.name,
-      type: conn.dbType,
-      database: conn.database,
+function serializeConnectionContext(conn: AIConnectionContext): Record<string, unknown> {
+  const base = {
+    id: conn.id,
+    name: conn.name,
+    type: conn.dbType,
+    database: conn.database,
+    paradigm: conn.paradigm,
+  };
+
+  if (conn.paradigm === "document") {
+    // MongoDB: include collections
+    return {
+      ...base,
+      collections: conn.collections?.map((c) => ({
+        name: c.name,
+        documentCount: c.documentCount,
+        indexes: c.indexes,
+        sampleFields: c.sampleFields,
+      })) ?? [],
+    };
+  } else if (conn.paradigm === "keyvalue") {
+    // Redis: include key patterns
+    return {
+      ...base,
+      keyPatterns: conn.keyPatterns?.map((p) => ({
+        pattern: p.pattern,
+        count: p.count,
+        types: p.types,
+        sampleKeys: p.sampleKeys,
+      })) ?? [],
+    };
+  } else {
+    // SQL: include schemas
+    return {
+      ...base,
       schemas: conn.schemas.map((s) => ({
         name: s.name,
         tables: s.tables,
         views: s.views,
         functions: s.functions,
       })),
-    })),
+    };
+  }
+}
+
+/**
+ * Convert AI context to JSON string for sending to AI.
+ * Includes system instructions and schema context.
+ * Supports SQL, MongoDB, and Redis connections.
+ */
+export function serializeAIContext(context: AIContext): string {
+  const schemaContext = {
+    focusedConnection: context.focusedConnectionId,
+    connections: context.connections.map(serializeConnectionContext),
     mentions: context.mentions.map((m) => {
       // Serialize based on mention type
       switch (m.type) {
@@ -374,10 +507,10 @@ export function serializeAIContext(context: AIContext): string {
     }),
   };
 
-  // Combine instructions with schema context
+  // Combine instructions with database context
   return `${QUERYPILOT_SYSTEM_INSTRUCTIONS}
 
-## Database Schema
+## Database Context
 
 \`\`\`json
 ${JSON.stringify(schemaContext, null, 2)}
