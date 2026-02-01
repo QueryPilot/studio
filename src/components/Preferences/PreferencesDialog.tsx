@@ -73,14 +73,13 @@ export function PreferencesDialog({
             >
               <Button
                 variant="ghost"
-                size="sm"
-                className="h-7 px-2 gap-1 text-muted-foreground hover:text-foreground focus:outline-none outline-none"
+                className="px-2 gap-1 text-muted-foreground hover:text-foreground focus:outline-none outline-none"
                 onClick={() => {
                   handleOpenChange(false);
                 }}
               >
-                <IconChevronLeft className="h-4 w-4" />
-                <span className="text-xs">Back</span>
+                <IconChevronLeft className="size-4!" />
+                <span className="text-sm">Back</span>
               </Button>
             </div>
             <PreferencesSidebar />

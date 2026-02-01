@@ -148,7 +148,7 @@ export function BulkActionsBar({
 
   return (
     <>
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 bg-card border rounded-lg shadow-lg">
+      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 p-1 bg-card border rounded-lg shadow-lg">
         <div className="flex items-center gap-2 pr-3 border-r">
           <IconCheck className="h-4 w-4 text-primary" />
           <span className="text-sm font-medium">
@@ -159,7 +159,7 @@ export function BulkActionsBar({
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              <Button variant="ghost" size="sm" disabled={isMoving}>
+              <Button variant="ghost" disabled={isMoving}>
                 <IconFolderPlus className="h-4 w-4 mr-1" />
                 Move to
               </Button>
@@ -180,14 +180,13 @@ export function BulkActionsBar({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Button variant="ghost" size="sm" onClick={handleExport}>
+        <Button variant="ghost" onClick={handleExport}>
           <IconDownload className="h-4 w-4 mr-1" />
           Export
         </Button>
 
         <Button
           variant="ghost"
-          size="sm"
           className="text-destructive hover:text-destructive"
           onClick={() => { setDeleteDialogOpen(true); }}
         >
@@ -198,8 +197,6 @@ export function BulkActionsBar({
         <div className="pl-2 border-l">
           <Button
             variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
             onClick={onClearSelection}
           >
             <IconX className="h-4 w-4" />
