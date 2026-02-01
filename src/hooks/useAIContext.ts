@@ -11,7 +11,14 @@ import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { schemaCache } from "@/services/schemaCache";
 import { databaseService } from "@/services/databaseService";
-import type { AIContext, AIConnectionContext } from "@/types/aiContext";
+import type {
+  AIContext,
+  AIConnectionContext,
+  AIMention,
+  TableMention,
+  MentionReference,
+} from "@/types/aiContext";
+import { parseMentions } from "@/utils/mentionParser";
 
 /**
  * Build lightweight AI context for all connections in the workspace.
@@ -137,11 +144,169 @@ export function useAIContextWithSchema(): AIContext {
 }
 
 /**
+ * Enrich @ mentions in the user's message with full table/view details.
+ * Parses mentions from the text and fetches column info from schema cache.
+ *
+ * @param messageText - The user's message containing @ mentions
+ * @param context - The current AI context with connection info
+ * @returns Promise resolving to enriched mentions array
+ */
+export async function enrichMentionsFromMessage(
+  messageText: string,
+  context: AIContext
+): Promise<AIMention[]> {
+  const parsed = parseMentions(messageText);
+  if (parsed.length === 0) return [];
+
+  const enrichedMentions: AIMention[] = [];
+
+  for (const ref of parsed) {
+    // Skip tab mentions for now (they don't need column info)
+    if (ref.type === "tab") continue;
+
+    // Find which connection this table belongs to
+    const matchingConn = findConnectionForMention(ref, context);
+    if (!matchingConn) continue;
+
+    try {
+      // Ensure connection is ready
+      await databaseService.connectById(matchingConn.connectionId);
+      schemaCache.setConnection(matchingConn.connectionId);
+
+      // Fetch column details
+      const columns = await schemaCache.getTableColumns(
+        matchingConn.connectionId,
+        matchingConn.schema,
+        ref.name
+      );
+
+      // Build enriched mention
+      const tableMention: TableMention = {
+        type: "table",
+        name: ref.name,
+        schema: matchingConn.schema,
+        connectionId: matchingConn.connectionId,
+        columns: columns.map((c) => ({
+          name: c.name,
+          dataType: c.db_type,
+          nullable: c.nullable,
+          defaultValue: c.default ?? undefined,
+          isPrimaryKey: c.is_pk,
+          isUnique: false, // Not directly available in ColumnMeta
+          comment: c.comment ?? undefined,
+        })),
+        indexes: [], // TODO: fetch indexes if needed
+        triggers: [],
+        foreignKeys: [],
+        constraints: [],
+      };
+
+      enrichedMentions.push(tableMention);
+    } catch (error) {
+      console.warn(`Failed to enrich mention @${ref.schema ? ref.schema + "." : ""}${ref.name}:`, error);
+    }
+  }
+
+  return enrichedMentions;
+}
+
+/**
+ * Find which connection a mentioned table belongs to.
+ * Matches by schema.table or just table name against available schemas.
+ */
+function findConnectionForMention(
+  ref: MentionReference,
+  context: AIContext
+): { connectionId: string; schema: string } | null {
+  // If schema is specified in the mention, look for exact match
+  if (ref.schema) {
+    for (const conn of context.connections) {
+      const schema = conn.schemas.find(
+        (s) =>
+          s.name === ref.schema &&
+          (s.tables.includes(ref.name) || s.views.includes(ref.name))
+      );
+      if (schema) {
+        return { connectionId: conn.id, schema: schema.name };
+      }
+    }
+  }
+
+  // No schema specified - search all connections/schemas
+  // Prefer focused connection if it has the table
+  const focusedConn = context.connections.find(
+    (c) => c.id === context.focusedConnectionId
+  );
+
+  if (focusedConn) {
+    for (const schema of focusedConn.schemas) {
+      if (schema.tables.includes(ref.name) || schema.views.includes(ref.name)) {
+        return { connectionId: focusedConn.id, schema: schema.name };
+      }
+    }
+  }
+
+  // Search other connections
+  for (const conn of context.connections) {
+    if (conn.id === context.focusedConnectionId) continue;
+    for (const schema of conn.schemas) {
+      if (schema.tables.includes(ref.name) || schema.views.includes(ref.name)) {
+        return { connectionId: conn.id, schema: schema.name };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * System instructions for the AI agent in QueryPilot context.
+ * Defines capabilities and restrictions for database IDE assistance.
+ */
+const QUERYPILOT_SYSTEM_INSTRUCTIONS = `
+## Context: QueryPilot Database IDE
+
+You are assisting a user in QueryPilot, a database IDE application. The user has connected to one or more databases and is asking for help with SQL queries, schema understanding, or data analysis.
+
+## CRITICAL RESTRICTIONS
+
+**DO NOT use any of these tools:**
+- Bash, Terminal, Shell commands
+- psql, mysql, sqlite3, mongosh, or any database CLI tools
+- File system operations (Read, Write, Edit, Glob, Grep)
+- Any tool that executes commands on the user's machine
+
+**WHY:** The user's database connections are managed by QueryPilot's internal connection manager. You do NOT have direct access to their databases via terminal. Any psql/mysql commands you try to run will fail or connect to wrong databases.
+
+## WHAT YOU SHOULD DO
+
+1. **Generate SQL queries** - Write SQL that the user can run in QueryPilot's query editor
+2. **Explain schemas** - Help users understand their database structure using the provided context
+3. **Optimize queries** - Suggest performance improvements for SQL queries
+4. **Answer questions** - Explain SQL concepts, best practices, and database design
+5. **Debug SQL errors** - Help fix SQL syntax or logic issues
+
+## HOW TO RESPOND
+
+- Provide SQL queries in code blocks with the appropriate language tag (\`\`\`sql)
+- Reference the actual table/column names from the provided schema context
+- If you need more information about a table's structure, ask the user to use @ mentions
+- Do NOT attempt to query the database yourself - provide SQL for the user to run
+
+## SCHEMA CONTEXT FORMAT
+
+Below you'll find the database schema context with:
+- Connected databases and their types (PostgreSQL, MySQL, SQLite, etc.)
+- Available schemas, tables, views, and functions
+- If the user mentioned specific objects with @, detailed column/index info is included
+`.trim();
+
+/**
  * Convert AI context to JSON string for sending to AI.
- * Produces a compact representation suitable for LLM consumption.
+ * Includes system instructions and schema context.
  */
 export function serializeAIContext(context: AIContext): string {
-  const simplified = {
+  const schemaContext = {
     focusedConnection: context.focusedConnectionId,
     connections: context.connections.map((conn) => ({
       id: conn.id,
@@ -209,5 +374,12 @@ export function serializeAIContext(context: AIContext): string {
     }),
   };
 
-  return JSON.stringify(simplified, null, 2);
+  // Combine instructions with schema context
+  return `${QUERYPILOT_SYSTEM_INSTRUCTIONS}
+
+## Database Schema
+
+\`\`\`json
+${JSON.stringify(schemaContext, null, 2)}
+\`\`\``;
 }

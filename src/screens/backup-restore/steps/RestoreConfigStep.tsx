@@ -39,6 +39,14 @@ import { type ConnectionProfile } from "@/types/connection";
 
 interface RestoreConfigStepProps {
   profile: ConnectionProfile;
+  initialConfig?: {
+    sourcePath?: string;
+    options?: Record<string, unknown>;
+  };
+  onConfigChange?: (partial: {
+    sourcePath?: string;
+    options?: Record<string, unknown>;
+  }) => void;
   onStart: (config: RestoreConfig) => void;
   onBack: () => void;
 }
@@ -122,6 +130,8 @@ function formatFileSize(bytes: number): string {
 
 export const RestoreConfigStep = ({
   profile,
+  initialConfig,
+  onConfigChange,
   onStart,
   onBack,
 }: RestoreConfigStepProps) => {
@@ -134,9 +144,17 @@ export const RestoreConfigStep = ({
     null,
   );
 
-  // Form state
-  const [sourcePath, setSourcePath] = useState("");
-  const [options, setOptions] = useState<Record<string, unknown>>({});
+  // Form state - use initial values if provided
+  const [sourcePath, setSourcePath] = useState(initialConfig?.sourcePath ?? "");
+  const [options, setOptions] = useState<Record<string, unknown>>(initialConfig?.options ?? {});
+
+  // Notify parent of config changes for persistence
+  useEffect(() => {
+    onConfigChange?.({
+      sourcePath,
+      options,
+    });
+  }, [sourcePath, options, onConfigChange]);
 
   // Preview state
   const [preview, setPreview] = useState<BackupPreview | null>(null);
@@ -273,9 +291,19 @@ export const RestoreConfigStep = ({
   const handleStart = () => {
     if (!sourcePath) return;
 
+    // Include connection parameters from profile in options
+    const configOptions = {
+      ...options,
+      host: profile.host,
+      port: profile.port,
+      user: profile.username,
+      password: profile.password,
+      database: profile.database,
+    };
+
     const config: RestoreConfig = {
       sourcePath: sourcePath,
-      options,
+      options: configOptions,
     };
 
     onStart(config);

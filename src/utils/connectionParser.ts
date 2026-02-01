@@ -1,4 +1,4 @@
-import { SslMode } from "@/types/connection";
+import { SslMode, type ConnectionProfile, DbType } from "@/types/connection";
 
 export type ConnectionFormat = "uri" | "env" | "unknown";
 export type DatabaseType =
@@ -1284,4 +1284,54 @@ export function parseConnectionUri(uri: string): ParsedUriConfig {
   }
 
   return parseStandardUrl(trimmed);
+}
+
+/**
+ * Builds a connection URI from a ConnectionProfile
+ * @param profile - Connection profile object
+ * @param includePassword - Whether to include password in URI (default: false for security)
+ * @returns Connection URI string
+ */
+export function buildConnectionUri(
+  profile: ConnectionProfile,
+  includePassword = false
+): string {
+  const { db_type, host, port, username, password, database } = profile;
+
+  // SQLite is just a file path
+  if (db_type === DbType.SQLite) {
+    return database || "";
+  }
+
+  // Get the scheme based on database type
+  const schemeMap: Record<DbType, string> = {
+    [DbType.PostgreSQL]: "postgresql",
+    [DbType.MySQL]: "mysql",
+    [DbType.MariaDB]: "mariadb",
+    [DbType.SQLite]: "sqlite",
+    [DbType.SQLServer]: "mssql",
+    [DbType.MongoDB]: "mongodb",
+    [DbType.Redis]: "redis",
+  };
+
+  const scheme = schemeMap[db_type] || db_type.toLowerCase();
+
+  // Build user:password part
+  let userPart = "";
+  if (username) {
+    userPart = encodeURIComponent(username);
+    if (includePassword && password) {
+      userPart += `:${encodeURIComponent(password)}`;
+    }
+    userPart += "@";
+  }
+
+  // Build host:port part
+  const hostPart = host || "localhost";
+  const portPart = port ? `:${port}` : "";
+
+  // Build database part (Redis doesn't typically have a database name in URI)
+  const dbPart = database && db_type !== DbType.Redis ? `/${encodeURIComponent(database)}` : "";
+
+  return `${scheme}://${userPart}${hostPart}${portPart}${dbPart}`;
 }

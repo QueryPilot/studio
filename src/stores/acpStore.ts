@@ -21,6 +21,36 @@ export const DEFAULT_QUICK_FILTER_MODEL = "haiku";
 // Storage key for persisted model preferences
 const STORAGE_KEY = "acp-model-preferences";
 
+// Maximum title length
+const MAX_TITLE_LENGTH = 50;
+
+/**
+ * Generate a session title from the first user message.
+ * Truncates and cleans up the message for display.
+ */
+function generateSessionTitle(message: string): string {
+  // Remove @ mentions (e.g., @public.users)
+  let title = message.replace(/@[\w.]+/g, "").trim();
+
+  // Remove excess whitespace
+  title = title.replace(/\s+/g, " ");
+
+  // Truncate if too long
+  if (title.length > MAX_TITLE_LENGTH) {
+    // Try to cut at a word boundary
+    const truncated = title.slice(0, MAX_TITLE_LENGTH);
+    const lastSpace = truncated.lastIndexOf(" ");
+    title = lastSpace > 20 ? truncated.slice(0, lastSpace) + "…" : truncated + "…";
+  }
+
+  // Fallback if title is empty after cleanup
+  if (!title || title === "…") {
+    title = "New Conversation";
+  }
+
+  return title;
+}
+
 /**
  * Hook to get available models for the currently selected agent
  * Returns dynamically fetched models if available, otherwise static models
@@ -54,6 +84,9 @@ interface AcpState {
   selectedModel: string | null;
   isLoadingAgents: boolean;
 
+  // Per-agent model preferences (agentId -> modelId)
+  modelPreferences: Record<string, string>;
+
   // Dynamic models fetched from agents (keyed by agentId)
   dynamicModels: Record<string, ModelInfo[]>;
   isLoadingModels: boolean;
@@ -77,17 +110,24 @@ interface AcpState {
   // Warmup state - pre-starts agent for faster first message
   isWarmingUp: boolean;
 
+  // Session history
+  recentSessions: AcpSession[];
+  isLoadingSessions: boolean;
+
   // UI state
   isPanelOpen: boolean;
 
   // Actions
   loadAgents: () => Promise<void>;
+  loadRecentSessions: () => Promise<void>;
   selectAgent: (agentId: string) => void;
   fetchModelsForAgent: (agentId: string) => Promise<void>;
   selectModel: (modelId: string) => Promise<void>;
   warmupAgent: (connectionId?: string) => Promise<string>;
   startSession: (connectionId?: string) => Promise<string>;
   loadSession: (sessionId: string) => Promise<void>;
+  newConversation: () => void;
+  deleteSession: (sessionId: string) => Promise<void>;
   sendMessage: (content: string, contextJson?: string) => Promise<void>;
   cancelGeneration: () => Promise<void>;
   appendChunk: (text: string) => void;
@@ -106,6 +146,7 @@ export const useAcpStore = create<AcpState>()(
     selectedAgentId: null,
     selectedModel: null,
     isLoadingAgents: false,
+    modelPreferences: {},
     dynamicModels: {},
     isLoadingModels: false,
     activeSession: null,
@@ -117,6 +158,8 @@ export const useAcpStore = create<AcpState>()(
     streamingError: null,
     activeToolCalls: [],
     isWarmingUp: false,
+    recentSessions: [],
+    isLoadingSessions: false,
     isPanelOpen: false,
 
     loadAgents: async () => {
@@ -125,47 +168,98 @@ export const useAcpStore = create<AcpState>()(
         const agents = await AcpService.listAgents();
         set({ availableAgents: agents });
 
+        const currentAgentId = get().selectedAgentId;
+
+        // If we have a persisted agent, verify it's still installed and fetch its models
+        if (currentAgentId) {
+          const persistedAgent = agents.find((a) => a.id === currentAgentId && a.installed);
+          if (persistedAgent) {
+            // Fetch dynamic models for persisted agent
+            void get().fetchModelsForAgent(currentAgentId);
+          } else {
+            // Persisted agent no longer available, clear selection
+            set({ selectedAgentId: null, selectedModel: null });
+          }
+        }
+
         // Auto-select first installed agent if none selected
-        const firstInstalledAgent = agents.find((agent) => agent.installed);
-        if (firstInstalledAgent && !get().selectedAgentId) {
-          const defaultModel = firstInstalledAgent.models[0]?.id ?? null;
-          set({
-            selectedAgentId: firstInstalledAgent.id,
-            selectedModel: get().selectedModel ?? defaultModel,
-          });
-          // Fetch dynamic models for auto-selected agent
-          void get().fetchModelsForAgent(firstInstalledAgent.id);
+        if (!get().selectedAgentId) {
+          const firstInstalledAgent = agents.find((agent) => agent.installed);
+          if (firstInstalledAgent) {
+            const defaultModel = firstInstalledAgent.models[0]?.id ?? null;
+            set({
+              selectedAgentId: firstInstalledAgent.id,
+              selectedModel: get().selectedModel ?? defaultModel,
+            });
+            // Fetch dynamic models for auto-selected agent
+            void get().fetchModelsForAgent(firstInstalledAgent.id);
+          }
         }
       } finally {
         set({ isLoadingAgents: false });
       }
     },
 
-    selectAgent: (agentId) => {
-      const { selectedAgentId: currentAgentId, activeSession, availableAgents, dynamicModels } = get();
+    loadRecentSessions: async () => {
+      set({ isLoadingSessions: true });
+      try {
+        const sessions = await db.listRecentSessions(20);
+        set({ recentSessions: sessions });
+      } finally {
+        set({ isLoadingSessions: false });
+      }
+    },
 
-      // Find the new agent and get its default model
+    selectAgent: (agentId) => {
+      const {
+        selectedAgentId: currentAgentId,
+        selectedModel: currentModel,
+        availableAgents,
+        dynamicModels,
+        modelPreferences,
+      } = get();
+
+      // Save current model preference before switching
+      const updatedPreferences = { ...modelPreferences };
+      if (currentAgentId && currentModel) {
+        updatedPreferences[currentAgentId] = currentModel;
+      }
+
+      // Find the new agent
       const newAgent = availableAgents.find((a) => a.id === agentId);
 
       // Use dynamic models if available, otherwise static
       const models = dynamicModels[agentId]?.length ? dynamicModels[agentId] : newAgent?.models ?? [];
-      const defaultModel = models[0]?.id ?? null;
+
+      // Restore saved preference for this agent, or use first available model
+      const savedModel = modelPreferences[agentId];
+      const defaultModel = savedModel ?? models[0]?.id ?? null;
 
       // If changing to a different agent, clear current session and warmup
-      if (currentAgentId !== agentId && activeSession) {
+      if (currentAgentId !== agentId) {
         currentWarmupPromise = null;
         set({
           selectedAgentId: agentId,
           selectedModel: defaultModel,
+          modelPreferences: updatedPreferences,
           activeSession: null,
           activeInstanceId: null,
           messages: [],
           isWarmingUp: false,
         });
+
+        // Warmup the new agent in the background (if installed)
+        if (newAgent?.installed) {
+          // Small delay to let the UI update first
+          setTimeout(() => {
+            void get().warmupAgent();
+          }, 100);
+        }
       } else {
         set({
           selectedAgentId: agentId,
           selectedModel: defaultModel,
+          modelPreferences: updatedPreferences,
         });
       }
 
@@ -211,11 +305,25 @@ export const useAcpStore = create<AcpState>()(
     },
 
     selectModel: async (modelId: string) => {
-      const { selectedModel: currentModel, activeSession, activeInstanceId } = get();
+      const {
+        selectedAgentId,
+        selectedModel: currentModel,
+        activeSession,
+        activeInstanceId,
+        modelPreferences,
+      } = get();
 
       if (currentModel === modelId) return;
 
-      set({ selectedModel: modelId });
+      // Save model preference for the current agent
+      const updatedPreferences = selectedAgentId
+        ? { ...modelPreferences, [selectedAgentId]: modelId }
+        : modelPreferences;
+
+      set({
+        selectedModel: modelId,
+        modelPreferences: updatedPreferences,
+      });
 
       // If we have an active session, try to update the model on it
       // Note: Some agents (e.g., Gemini) don't support session/set_model
@@ -230,10 +338,10 @@ export const useAcpStore = create<AcpState>()(
     },
 
     warmupAgent: async (connectionId) => {
-      const { selectedAgentId, selectedModel, activeSession, isWarmingUp } = get();
+      const { selectedAgentId, selectedModel, activeSession, activeInstanceId, isWarmingUp, messages } = get();
 
-      // Already have a session for this agent
-      if (activeSession) {
+      // Already have an active running session
+      if (activeSession && activeInstanceId) {
         return activeSession.id;
       }
 
@@ -251,6 +359,11 @@ export const useAcpStore = create<AcpState>()(
       if (!agent?.installed) {
         throw new Error("Selected agent is not installed");
       }
+
+      // If we have a loaded session but no instanceId, we're resuming an old conversation
+      // Keep the existing messages but create a fresh agent session
+      const resumeSession = (activeSession && !activeInstanceId) ? activeSession : null;
+      const existingMessages = resumeSession ? messages : [];
 
       // Start warmup
       set({ isWarmingUp: true });
@@ -274,26 +387,37 @@ export const useAcpStore = create<AcpState>()(
             }
           }
 
-          const session: AcpSession = {
-            id: sessionId,
-            agentId: selectedAgentId,
-            instanceId,
-            connectionId,
-            title: "New Conversation",
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          };
+          // If resuming old session, update it with new instanceId
+          // Otherwise create a fresh session
+          let session: AcpSession;
+          if (resumeSession) {
+            session = {
+              ...resumeSession,
+              instanceId,
+              updatedAt: Date.now(),
+            };
+          } else {
+            session = {
+              id: sessionId,
+              agentId: selectedAgentId,
+              instanceId,
+              connectionId,
+              title: "New Conversation",
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            };
+          }
 
           await db.saveSession(session);
           set({
             activeSession: session,
             activeInstanceId: instanceId,
-            messages: [],
+            messages: existingMessages, // Keep existing messages if resuming
             isWarmingUp: false,
           });
 
           currentWarmupPromise = null;
-          return sessionId;
+          return session.id;
         } catch (error) {
           set({ isWarmingUp: false });
           currentWarmupPromise = null;
@@ -315,15 +439,76 @@ export const useAcpStore = create<AcpState>()(
 
       const messages = await db.getSessionMessages(sessionId);
 
+      // Select the agent that was used for this session (if different)
+      const { selectedAgentId, availableAgents } = get();
+      if (session.agentId !== selectedAgentId) {
+        // Check if agent is still installed
+        const agent = availableAgents.find((a) => a.id === session.agentId);
+        if (agent?.installed) {
+          get().selectAgent(session.agentId);
+        }
+      }
+
+      // Note: ACP doesn't support session resume. The old instanceId is invalid
+      // (the process is gone). We load the messages for display, but set
+      // activeInstanceId to null. When user sends a new message, a fresh
+      // agent session will be started automatically.
       set({
         activeSession: session,
-        activeInstanceId: session.instanceId,
+        activeInstanceId: null, // Old instance is dead - will warmup on next message
         messages,
+        isWarmingUp: false,
       });
+
+      // Warmup the agent in background so it's ready for the next message
+      const agent = get().availableAgents.find((a) => a.id === session.agentId);
+      if (agent?.installed) {
+        setTimeout(() => {
+          void get().warmupAgent();
+        }, 100);
+      }
+    },
+
+    newConversation: () => {
+      // Clear current session state to start fresh
+      currentWarmupPromise = null;
+      set({
+        activeSession: null,
+        activeInstanceId: null,
+        messages: [],
+        isStreaming: false,
+        streamingContent: "",
+        streamingThinking: "",
+        streamingError: null,
+        activeToolCalls: [],
+        isWarmingUp: false,
+      });
+
+      // Trigger warmup for the selected agent
+      const { selectedAgentId, availableAgents } = get();
+      const agent = availableAgents.find((a) => a.id === selectedAgentId);
+      if (agent?.installed) {
+        setTimeout(() => {
+          void get().warmupAgent();
+        }, 100);
+      }
+    },
+
+    deleteSession: async (sessionId) => {
+      await db.deleteSession(sessionId);
+
+      // If deleting the active session, clear it
+      const { activeSession } = get();
+      if (activeSession?.id === sessionId) {
+        get().newConversation();
+      }
+
+      // Refresh the session list
+      void get().loadRecentSessions();
     },
 
     sendMessage: async (content, contextJson) => {
-      let { activeSession, activeInstanceId } = get();
+      let { activeSession, activeInstanceId, messages } = get();
 
       // If no active session but warmup is in progress, wait for it
       if (!activeSession && currentWarmupPromise) {
@@ -331,10 +516,22 @@ export const useAcpStore = create<AcpState>()(
         // Re-read state after warmup completes
         activeSession = get().activeSession;
         activeInstanceId = get().activeInstanceId;
+        messages = get().messages;
       }
 
       if (!activeSession || !activeInstanceId) {
         throw new Error("No active session");
+      }
+
+      // Generate title from first user message
+      const isFirstMessage = messages.filter((m) => m.role === "user").length === 0;
+      if (isFirstMessage && activeSession.title === "New Conversation") {
+        const title = generateSessionTitle(content);
+        activeSession = { ...activeSession, title };
+        set({ activeSession });
+        await db.saveSession(activeSession);
+        // Refresh session list so title shows immediately in dropdown
+        void get().loadRecentSessions();
       }
 
       // Add user message
@@ -449,6 +646,9 @@ export const useAcpStore = create<AcpState>()(
         ...activeSession,
         updatedAt: Date.now(),
       });
+
+      // Refresh session list so this conversation appears in history
+      void get().loadRecentSessions();
     },
 
     togglePanel: () => {
@@ -457,9 +657,11 @@ export const useAcpStore = create<AcpState>()(
   }),
     {
       name: STORAGE_KEY,
-      // Only persist model selection, not session state
+      // Persist agent selection and per-agent model preferences
       partialize: (state) => ({
+        selectedAgentId: state.selectedAgentId,
         selectedModel: state.selectedModel,
+        modelPreferences: state.modelPreferences,
       }),
     },
   ),

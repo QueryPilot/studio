@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from "react";
+import { useMemo } from "react";
 import {
   IconDotsVertical,
   IconStar,
@@ -6,6 +6,7 @@ import {
   IconPencil,
   IconCopy,
   IconDatabaseExport,
+  IconLink,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { windowManager } from "@/services/windowManager";
 import { toast } from "sonner";
+import { buildConnectionUri } from "@/utils/connectionParser";
 
 interface ConnectionCardProps {
   connection: StoredConnection;
@@ -125,6 +127,18 @@ export function ConnectionCard({
     }
   };
 
+  const handleCopyUri = async () => {
+    try {
+      const uri = buildConnectionUri(profile);
+      await navigator.clipboard.writeText(uri);
+      toast.success("URI copied to clipboard");
+    } catch (error) {
+      toast.error("Failed to copy URI", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
+
   const menuItems = (
     <>
       <ContextMenuItem onClick={handleEdit} className="text-xs">
@@ -141,6 +155,10 @@ export function ConnectionCard({
         <IconCopy className="h-3 w-3 mr-2" />
         Clone
         <span className="ml-auto text-[10px] text-muted-foreground">⌘D</span>
+      </ContextMenuItem>
+      <ContextMenuItem onClick={() => void handleCopyUri()} className="text-xs">
+        <IconLink className="h-3 w-3 mr-2" />
+        Copy URI
       </ContextMenuItem>
       <ContextMenuItem onClick={handleBackupRestore} className="text-xs">
         <IconDatabaseExport className="h-3 w-3 mr-2" />

@@ -126,8 +126,8 @@ impl ToolRegistry {
     /// `ToolCheckStatus` with installation status, path, and version info.
     pub async fn check_tool(name: &str) -> ToolCheckStatus {
         let path = Self::find_tool_path(name).await;
-        let version = if path.is_some() {
-            Self::get_tool_version(name).await
+        let version = if let Some(ref p) = path {
+            Self::get_tool_version(p).await
         } else {
             None
         };
@@ -143,7 +143,8 @@ impl ToolRegistry {
     /// Find tool path using system commands.
     ///
     /// Uses `which` on Unix-like systems or `where` on Windows to locate
-    /// the tool binary in the system PATH.
+    /// the tool binary in the system PATH. Also checks common Homebrew
+    /// keg-only locations on macOS.
     async fn find_tool_path(name: &str) -> Option<PathBuf> {
         #[cfg(unix)]
         let result = tokio::process::Command::new("which")
@@ -164,18 +165,59 @@ impl ToolRegistry {
                     .lines()
                     .next()?
                     .to_string();
-                Some(PathBuf::from(path_str))
+                return Some(PathBuf::from(path_str));
             }
-            _ => None,
+            _ => {}
         }
+
+        // Check Homebrew keg-only locations on macOS
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(path) = Self::find_in_homebrew_kegs(name) {
+                return Some(path);
+            }
+        }
+
+        None
+    }
+
+    /// Check Homebrew keg-only package locations for a tool.
+    ///
+    /// Homebrew installs some packages as "keg-only" meaning they're not
+    /// symlinked to /usr/local/bin or /opt/homebrew/bin. This checks common
+    /// keg locations for database client tools.
+    #[cfg(target_os = "macos")]
+    fn find_in_homebrew_kegs(name: &str) -> Option<PathBuf> {
+        // Map tool names to their Homebrew package names
+        let keg_names = match name {
+            "mysqldump" | "mysql" => vec!["mysql-client", "mysql", "mariadb"],
+            "mariadb-dump" | "mariadb" => vec!["mariadb", "mysql-client", "mysql"],
+            "pg_dump" | "pg_restore" | "psql" => vec!["libpq", "postgresql@16", "postgresql@15", "postgresql@14", "postgresql"],
+            "mongodump" | "mongorestore" => vec!["mongodb-database-tools"],
+            _ => return None,
+        };
+
+        // Check both Apple Silicon and Intel Homebrew locations
+        let homebrew_prefixes = ["/opt/homebrew/opt", "/usr/local/opt"];
+
+        for prefix in homebrew_prefixes {
+            for keg in &keg_names {
+                let path = PathBuf::from(format!("{}/{}/bin/{}", prefix, keg, name));
+                if path.exists() {
+                    return Some(path);
+                }
+            }
+        }
+
+        None
     }
 
     /// Get tool version by running the version command.
     ///
     /// Executes the tool with `--version` flag and parses the output.
     /// Version information may appear in stdout or stderr depending on the tool.
-    async fn get_tool_version(name: &str) -> Option<String> {
-        let result = tokio::process::Command::new(name)
+    async fn get_tool_version(path: &PathBuf) -> Option<String> {
+        let result = tokio::process::Command::new(path)
             .arg("--version")
             .output()
             .await;

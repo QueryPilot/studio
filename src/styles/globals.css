@@ -318,7 +318,7 @@
   color: var(--primary-foreground);
   padding: 2px 6px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
   font-weight: 600;
 }
@@ -334,7 +334,7 @@
   flex-shrink: 0;
   padding: 2px 6px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -379,11 +379,11 @@
 .cm-sql-hover-col-type {
   color: var(--muted-foreground);
   font-family: monospace;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .cm-sql-hover-more {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted-foreground);
   font-style: italic;
   margin-top: 4px;
@@ -444,7 +444,7 @@
 
 /* Completion detail (data type) */
 .cm-completionDetail {
-  font-size: 10px !important;
+  font-size: 11px !important;
   color: var(--muted-foreground) !important;
   margin-left: auto !important;
   font-style: normal !important;
@@ -463,21 +463,21 @@
 /* Property icon (columns) */
 .cm-completionIcon-property::after {
   content: "⊡" !important;
-  font-size: 10px !important;
+  font-size: 11px !important;
   color: var(--primary) !important;
 }
 
 /* Class icon (tables) */
 .cm-completionIcon-class::after {
   content: "▦" !important;
-  font-size: 10px !important;
+  font-size: 11px !important;
   color: var(--chart-1) !important;
 }
 
 /* Constant icon (views) */
 .cm-completionIcon-constant::after {
   content: "◫" !important;
-  font-size: 10px !important;
+  font-size: 11px !important;
   color: var(--chart-2) !important;
 }
 
@@ -560,4 +560,219 @@ div.backdrop[part="backdrop"] {
 
 p {
   @apply select-text;
+}
+
+/* ============================================
+   AI Panel - Performance Optimizations
+   ============================================ */
+
+/* Optimize scroll container */
+[data-slot="ai-panel"] [data-slot="scroll-area-viewport"] {
+  will-change: scroll-position;
+  -webkit-overflow-scrolling: touch;
+  contain: strict;
+}
+
+/* Prevent layout thrashing during scroll */
+[data-slot="ai-panel"] [data-streamdown] {
+  contain: content;
+}
+
+/* Optimize message bubbles */
+[data-slot="ai-panel"] .group {
+  contain: layout style;
+}
+
+/* Reduce paint during scroll - disable backdrop blur */
+[data-slot="ai-panel"] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* GPU accelerate code blocks */
+[data-slot="ai-panel"] pre {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* ============================================
+   AI Panel - Streamdown Markdown Overrides
+   ============================================ */
+
+/* Base text size for all content */
+[data-streamdown],
+[data-streamdown] p,
+[data-streamdown] li,
+[data-streamdown] blockquote,
+.prose,
+.prose p,
+.prose li,
+.prose blockquote {
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+}
+
+/* Headings - relative sizes */
+[data-streamdown] h1, .prose h1 { font-size: 18px !important; }
+[data-streamdown] h2, .prose h2 { font-size: 16px !important; }
+[data-streamdown] h3, .prose h3 { font-size: 14px !important; }
+[data-streamdown] h4, .prose h4 { font-size: 13px !important; }
+[data-streamdown] h5, .prose h5 { font-size: 12px !important; }
+[data-streamdown] h6, .prose h6 { font-size: 12px !important; }
+
+/* Lists - compact */
+[data-streamdown] ul,
+[data-streamdown] ol,
+.prose ul,
+.prose ol {
+  padding-left: 1.5rem !important;
+  margin: 4px 0 !important;
+}
+
+[data-streamdown] ol,
+.prose ol {
+  list-style-type: decimal !important;
+}
+
+[data-streamdown] ul,
+.prose ul {
+  list-style-type: disc !important;
+}
+
+[data-streamdown] li,
+.prose li {
+  margin: 2px 0 !important;
+  display: list-item !important;
+}
+
+[data-streamdown] li > p:first-child,
+.prose li > p:first-child {
+  display: inline !important;
+  margin: 0 !important;
+}
+
+/* Blockquotes */
+[data-streamdown] blockquote,
+.prose blockquote {
+  padding: 8px 12px !important;
+  margin: 8px 0 !important;
+  border-left: 3px solid var(--border) !important;
+  font-style: italic !important;
+}
+
+/* Links */
+[data-streamdown] a,
+.prose a {
+  font-size: inherit !important;
+}
+
+/* Horizontal rule */
+[data-streamdown] hr,
+.prose hr {
+  margin: 12px 0 !important;
+}
+
+/* Code block header (Streamdown uses h-[46px] hardcoded) - make compact */
+[data-streamdown] .h-\[46px\],
+[data-streamdown] [class*="h-[46px]"],
+[data-streamdown] .bg-muted\/80,
+[data-streamdown] > div:has(pre) > div:first-child,
+[data-streamdown] div:has(> pre) > div:first-child,
+[data-streamdown] div > div:first-child:has(~ pre) {
+  font-size: 11px !important;
+  padding: 8px !important;
+  min-height: auto !important;
+  max-height: none !important;
+  height: auto !important;
+  line-height: 1.2 !important;
+  gap: 4px !important;
+}
+
+/* Icons in header - smaller */
+[data-streamdown] .h-\[46px\] svg,
+[data-streamdown] .bg-muted\/80 svg,
+[data-streamdown] > div:has(pre) > div:first-child svg,
+[data-streamdown] div:has(> pre) > div:first-child svg,
+[data-streamdown] div > div:first-child:has(~ pre) svg {
+  width: 14px !important;
+  height: 14px !important;
+}
+
+/* Icon buttons in header */
+[data-streamdown] .h-\[46px\] button,
+[data-streamdown] .bg-muted\/80 button,
+[data-streamdown] > div:has(pre) > div:first-child button,
+[data-streamdown] div:has(> pre) > div:first-child button,
+[data-streamdown] div > div:first-child:has(~ pre) button {
+  padding: 4px !important;
+}
+
+/* Make code blocks more compact */
+[data-streamdown] pre,
+.prose pre {
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+  padding: 8px 12px !important;
+  margin: 0 !important;
+}
+
+/* Override Streamdown line number styling */
+[data-streamdown] pre code span::before,
+.prose pre code span::before {
+  font-size: 11px !important;
+  width: 1.25rem !important;
+  margin-right: 0.5rem !important;
+}
+
+/* Code block container */
+[data-streamdown] pre code,
+.prose pre code {
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+}
+
+/* Inline code - only in paragraphs and lists, not headings */
+[data-streamdown] p code:not(pre code),
+[data-streamdown] li code:not(pre code),
+.prose p code:not(pre code),
+.prose li code:not(pre code) {
+  font-size: 12px !important;
+  padding: 1px 4px !important;
+  border-radius: 3px !important;
+  background: var(--muted) !important;
+}
+
+/* Inline code in headings - inherit size, just style */
+[data-streamdown] h1 code,
+[data-streamdown] h2 code,
+[data-streamdown] h3 code,
+[data-streamdown] h4 code,
+.prose h1 code,
+.prose h2 code,
+.prose h3 code,
+.prose h4 code {
+  font-size: inherit !important;
+  padding: 2px 6px !important;
+  border-radius: 4px !important;
+  background: var(--muted) !important;
+}
+
+/* Tables - compact styling */
+[data-streamdown] table,
+.prose table {
+  font-size: 12px !important;
+}
+
+[data-streamdown] table th,
+[data-streamdown] table td,
+.prose table th,
+.prose table td {
+  font-size: 12px !important;
+  padding: 6px 11px !important;
+}
+
+[data-streamdown] table code,
+.prose table code {
+  font-size: 11px !important;
+  padding: 1px 4px !important;
 }

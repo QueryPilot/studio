@@ -24,15 +24,17 @@ impl MySqlAdapter {
         }
     }
 
-    /// Get a connection from the pool
+    /// Get a connection from the pool with timeout
     pub async fn get_conn(&self) -> Result<Conn, AppError> {
         let pool_guard = self.pool.read().await;
         let pool = pool_guard
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
-        pool.get_conn()
+        // Add timeout to prevent hanging on stale/dead connections
+        tokio::time::timeout(std::time::Duration::from_secs(30), pool.get_conn())
             .await
+            .map_err(|_| AppError::Internal("Timed out waiting for database connection".into()))?
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))
     }
 
@@ -147,11 +149,18 @@ impl MySqlAdapter {
             }
         }
 
-        // Connection pool options
+        // Connection pool options with proper settings to prevent stale connections
         let pool_opts = PoolOpts::default()
-            .with_constraints(PoolConstraints::new(1, 50).unwrap());
+            .with_constraints(PoolConstraints::new(1, 20).unwrap())
+            // Reset connections when returning to pool to ensure clean state
+            .with_reset_connection(true);
 
-        builder = builder.pool_opts(pool_opts);
+        builder = builder
+            .pool_opts(pool_opts)
+            // Enable TCP keepalive to detect dead connections (30 seconds)
+            .tcp_keepalive(Some(30_000_u32))
+            // Enable TCP_NODELAY for faster responses
+            .tcp_nodelay(true);
 
         Ok(builder.into())
     }

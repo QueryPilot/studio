@@ -120,8 +120,8 @@ export type ContentBlock =
 /**
  * Tool call from agent
  * Note: Different agents may use different field names
- * - id or tool_call_id
- * - name or tool_name
+ * - id or tool_call_id or toolCallId
+ * - name or tool_name or title
  * - input or arguments
  */
 export interface AcpToolCall {
@@ -133,6 +133,15 @@ export interface AcpToolCall {
   tool_call_id?: string;
   tool_name?: string;
   arguments?: Record<string, unknown>;
+  // Claude Code specific fields
+  toolCallId?: string;
+  title?: string;
+  kind?: string;
+  _meta?: {
+    claudeCode?: {
+      toolName?: string;
+    };
+  };
 }
 
 /**
@@ -145,7 +154,9 @@ export interface ToolCallUpdateData {
   // Alternate field names
   tool_call_id?: string;
   id?: string;
-  status: "running" | "completed" | "failed";
+  status?: "running" | "completed" | "failed";
+  // Alternate status field
+  state?: string;
   output?: unknown;
   error?: string;
 }
