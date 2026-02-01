@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  IconDatabase,
+  DndContext,
+  DragOverlay,
+  closestCenter,
+  useSensor,
+  useSensors,
+  PointerSensor,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
+import {
   IconLayoutGrid,
   IconList,
   IconChevronRight,
@@ -9,9 +19,13 @@ import {
   IconPlus,
   IconTrash,
   IconAlertTriangle,
+  IconDatabase,
+  IconCheckbox,
+  IconSquare,
 } from "@tabler/icons-react";
 import { Kbd } from "@/components/ui/kbd";
 import { Button } from "@/components/ui/button";
+import { StatsHeader } from "./StatsHeader";
 import {
   Dialog,
   DialogContent,
@@ -26,9 +40,13 @@ import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { ConnectionCard } from "../shared/ConnectionCard";
 import { ConnectionRow } from "../shared/ConnectionRow";
 import { windowManager } from "@/services/windowManager";
+import { vaultStorage } from "@/services/vaultStorage";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import type { StoredConnection } from "@/types/connection";
 import type { WorkspaceConfig } from "@/types/workspace";
+import { getDatabaseLogo } from "@/utils/databaseLogos";
+import { BulkActionsBar } from "./BulkActionsBar";
 
 type ViewMode = "hybrid" | "grid" | "list";
 
@@ -52,13 +70,70 @@ function sortConnections(connections: StoredConnection[]): StoredConnection[] {
   });
 }
 
-function ConnectionGroup({
+// Draggable wrapper for connection items
+function DraggableConnection({
+  connection,
+  viewMode,
+  selectionMode,
+  isSelected,
+  onToggleSelect,
+}: {
+  connection: StoredConnection;
+  viewMode: ViewMode;
+  selectionMode: boolean;
+  isSelected: boolean;
+  onToggleSelect: (id: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: connection.profile.id,
+    data: { connection },
+  });
+
+  // In selection mode, don't attach drag listeners
+  const dragProps = selectionMode ? {} : { ...listeners, ...attributes };
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...dragProps}
+      className={cn(
+        "relative",
+        isDragging && "opacity-50",
+        !selectionMode && "cursor-grab active:cursor-grabbing"
+      )}
+    >
+      {viewMode === "list" ? (
+        <ConnectionRow
+          connection={connection}
+          selectionMode={selectionMode}
+          isSelected={isSelected}
+          onToggleSelect={onToggleSelect}
+        />
+      ) : (
+        <ConnectionCard
+          connection={connection}
+          variant="compact"
+          selectionMode={selectionMode}
+          isSelected={isSelected}
+          onToggleSelect={onToggleSelect}
+        />
+      )}
+    </div>
+  );
+}
+
+// Droppable zone for workspace groups
+function DroppableWorkspaceGroup({
   group,
   viewMode,
   isCollapsed,
   onToggleCollapse,
   onAddConnection,
   onDeleteWorkspace,
+  isOver,
+  selectionMode,
+  selectedIds,
+  onToggleSelect,
 }: {
   group: WorkspaceGroup;
   viewMode: ViewMode;
@@ -66,23 +141,32 @@ function ConnectionGroup({
   onToggleCollapse: () => void;
   onAddConnection: (workspaceId: string) => void;
   onDeleteWorkspace: (workspace: WorkspaceConfig) => void;
+  isOver: boolean;
+  selectionMode: boolean;
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
 }) {
   const sortedConnections = useMemo(
     () => sortConnections(group.connections),
-    [group.connections],
+    [group.connections]
   );
 
   const handleOpenWorkspace = async () => {
     if (!group.workspace) return;
     await windowManager.openNamedWorkspace(
       group.workspace.id,
-      group.workspace.name,
+      group.workspace.name
     );
   };
 
   return (
-    <div className="mb-4">
-      <div className="flex items-center gap-2 mb-2 w-full text-left group hover:bg-accent/50 rounded-md px-2 py-1.5 -mx-2 transition-colors">
+    <div
+      className={cn(
+        "mb-4 rounded-lg transition-colors",
+        isOver && "bg-primary/5 ring-2 ring-primary/30 ring-inset"
+      )}
+    >
+      <div className="flex items-center gap-2 mb-2 w-full text-left group hover:bg-accent/50 rounded-md px-2 py-1.5 transition-colors">
         <button
           type="button"
           onClick={onToggleCollapse}
@@ -106,47 +190,50 @@ function ConnectionGroup({
           </span>
         </button>
         <div className="flex items-center gap-1">
-          {group.workspace && (
-            <>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAddConnection(group.workspace!.id);
-                }}
-                className="h-6 px-2 text-xs"
-                title="Add connection to workspace"
-              >
-                <IconPlus className="h-3 w-3 mr-1" />
-                Add
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void handleOpenWorkspace();
-                }}
-                className="h-6 px-2 text-xs"
-              >
-                <IconPlayerPlay className="h-3 w-3 mr-1" />
-                Open
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteWorkspace(group.workspace!);
-                }}
-                className="h-6 px-2 text-xs text-destructive hover:text-destructive"
-                title="Delete workspace"
-              >
-                <IconTrash className="h-3 w-3" />
-              </Button>
-            </>
-          )}
+          {group.workspace && (() => {
+            const workspace = group.workspace;
+            return (
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAddConnection(workspace.id);
+                  }}
+                  className="h-6 px-2 text-xs"
+                  title="Add connection to workspace"
+                >
+                  <IconPlus className="h-3 w-3 mr-1" />
+                  Add
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleOpenWorkspace();
+                  }}
+                  className="h-6 px-2 text-xs"
+                >
+                  <IconPlayerPlay className="h-3 w-3 mr-1" />
+                  Open
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteWorkspace(workspace);
+                  }}
+                  className="h-6 px-2 text-xs text-destructive hover:text-destructive"
+                  title="Delete workspace"
+                >
+                  <IconTrash className="h-3 w-3" />
+                </Button>
+              </>
+            );
+          })()}
         </div>
       </div>
 
@@ -155,51 +242,125 @@ function ConnectionGroup({
           {viewMode === "list" ? (
             <div className="space-y-0.5">
               {sortedConnections.map((connection) => (
-                <ConnectionRow
+                <DraggableConnection
                   key={connection.profile.id}
                   connection={connection}
+                  viewMode={viewMode}
+                  selectionMode={selectionMode}
+                  isSelected={selectedIds.has(connection.profile.id)}
+                  onToggleSelect={onToggleSelect}
                 />
               ))}
             </div>
           ) : (
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
               {sortedConnections.map((connection) => (
-                <ConnectionCard
+                <DraggableConnection
                   key={connection.profile.id}
                   connection={connection}
-                  variant="compact"
+                  viewMode={viewMode}
+                  selectionMode={selectionMode}
+                  isSelected={selectedIds.has(connection.profile.id)}
+                  onToggleSelect={onToggleSelect}
                 />
               ))}
             </div>
           )}
         </div>
       )}
+
+      {/* Drop zone when collapsed or empty */}
+      {(isCollapsed || group.connections.length === 0) && isOver && (
+        <div className="ml-7 py-4 text-center text-xs text-muted-foreground border-2 border-dashed border-primary/30 rounded-md">
+          Drop here to add to {group.workspace?.name ?? "Uncategorized"}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Wrapper that adds useDroppable
+function DroppableGroup({
+  group,
+  ...props
+}: {
+  group: WorkspaceGroup;
+  viewMode: ViewMode;
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
+  onAddConnection: (workspaceId: string) => void;
+  onDeleteWorkspace: (workspace: WorkspaceConfig) => void;
+  selectionMode: boolean;
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
+}) {
+  const groupId = group.workspace?.id ?? "uncategorized";
+  const { setNodeRef, isOver } = useDroppable({
+    id: `droppable-${groupId}`,
+    data: { workspaceId: group.workspace?.id ?? null },
+  });
+
+  return (
+    <div ref={setNodeRef}>
+      <DroppableWorkspaceGroup group={group} isOver={isOver} {...props} />
+    </div>
+  );
+}
+
+// Drag overlay content
+function DragOverlayContent({
+  connection,
+}: {
+  connection: StoredConnection | null;
+}) {
+  if (!connection) return null;
+
+  return (
+    <div className="bg-card border rounded-md shadow-lg p-3 w-64 opacity-90">
+      <div className="flex items-center gap-2">
+        <img
+          src={getDatabaseLogo(connection.profile.db_type)}
+          alt=""
+          className="h-4 w-4"
+        />
+        <span className="text-xs font-medium truncate">
+          {connection.profile.name}
+        </span>
+      </div>
+      <div className="mt-1 text-[11px] text-muted-foreground">
+        {connection.profile.host}:{connection.profile.port}
+      </div>
     </div>
   );
 }
 
 export function ConnectionsSection() {
   const connections = useConnectionStore((s) => s.connections);
+  const fetchConnections = useConnectionStore((s) => s.fetchConnections);
   const deleteConnection = useConnectionStore((s) => s.deleteConnection);
   const activeEnvFilters = useHomeScreenStore((s) => s.activeEnvFilters);
   const openConnectionForm = useHomeScreenStore((s) => s.openConnectionForm);
 
   const savedWorkspaces = useWorkspaceBundleStore((s) => s.savedWorkspaces);
   const loadSavedWorkspaces = useWorkspaceBundleStore(
-    (s) => s.loadSavedWorkspaces,
+    (s) => s.loadSavedWorkspaces
   );
   const deleteWorkspace = useWorkspaceBundleStore((s) => s.deleteWorkspace);
   const getConnectionsByWorkspace = useWorkspaceBundleStore(
-    (s) => s.getConnectionsByWorkspace,
+    (s) => s.getConnectionsByWorkspace
   );
   const getUncategorizedConnectionIds = useWorkspaceBundleStore(
-    (s) => s.getUncategorizedConnectionIds,
+    (s) => s.getUncategorizedConnectionIds
   );
 
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(
-    new Set(),
+    new Set()
   );
+  const [activeConnection, setActiveConnection] =
+    useState<StoredConnection | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
@@ -207,13 +368,21 @@ export function ConnectionsSection() {
   }>({ isOpen: false, workspace: null });
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Configure sensors for drag and drop
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // Require 8px of movement before starting drag
+      },
+    })
+  );
+
   useEffect(() => {
     void loadSavedWorkspaces();
   }, [loadSavedWorkspaces]);
 
   const filteredConnections = useMemo(() => {
     if (
-      !activeEnvFilters ||
       activeEnvFilters.length === 0 ||
       activeEnvFilters.includes("all")
     ) {
@@ -221,7 +390,7 @@ export function ConnectionsSection() {
     }
 
     return connections.filter((conn) => {
-      const tags = conn.metadata?.tags ?? [];
+      const tags = conn.metadata.tags;
       return tags.some((tag) => activeEnvFilters.includes(tag));
     });
   }, [connections, activeEnvFilters]);
@@ -245,18 +414,16 @@ export function ConnectionsSection() {
         .map((id) => connectionMap.get(id))
         .filter((c): c is StoredConnection => c !== undefined);
 
-      if (wsConnections.length > 0) {
-        groups.push({ workspace: ws, connections: wsConnections });
-      }
+      // Always show workspace groups even if empty (so they can receive drops)
+      groups.push({ workspace: ws, connections: wsConnections });
     }
 
     const uncategorizedConnections = uncategorizedIds
       .map((id) => connectionMap.get(id))
       .filter((c): c is StoredConnection => c !== undefined);
 
-    if (uncategorizedConnections.length > 0) {
-      groups.push({ workspace: null, connections: uncategorizedConnections });
-    }
+    // Always show uncategorized group
+    groups.push({ workspace: null, connections: uncategorizedConnections });
 
     return groups;
   }, [
@@ -276,6 +443,87 @@ export function ConnectionsSection() {
       }
       return next;
     });
+  };
+
+  const toggleSelectionMode = () => {
+    setSelectionMode((prev) => {
+      if (prev) {
+        // Exiting selection mode - clear selection
+        setSelectedIds(new Set());
+      }
+      return !prev;
+    });
+  };
+
+  const toggleConnectionSelection = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+  };
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const { active } = event;
+    const connection = connectionMap.get(active.id as string);
+    setActiveConnection(connection ?? null);
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveConnection(null);
+
+    if (!over) return;
+
+    const connectionId = active.id as string;
+    const connection = connectionMap.get(connectionId);
+    if (!connection) return;
+
+    // Extract target workspace ID from droppable
+    const targetWorkspaceId = over.data.current?.workspaceId as string | null;
+
+    // Get current workspace IDs for this connection
+    const currentWorkspaceIds = connection.metadata.workspace_ids || [];
+
+    // Find source workspace (first one in the list, or null for uncategorized)
+    const sourceWorkspaceId = currentWorkspaceIds[0] ?? null;
+
+    // If dropped on the same workspace, do nothing
+    if (targetWorkspaceId === sourceWorkspaceId) return;
+
+    try {
+      // Update the connection's workspace_ids
+      const newWorkspaceIds =
+        targetWorkspaceId === null ? [] : [targetWorkspaceId];
+
+      const conn = await vaultStorage.getConnection(connectionId);
+      if (conn) {
+        conn.metadata.workspace_ids = newWorkspaceIds;
+        await vaultStorage.updateMetadata(connectionId, conn.metadata);
+      }
+
+      // Refresh connections to update UI
+      await fetchConnections();
+      await loadSavedWorkspaces();
+
+      const targetName =
+        savedWorkspaces.find((ws) => ws.id === targetWorkspaceId)?.name ??
+        "Uncategorized";
+      toast.success(`Moved to ${targetName}`);
+    } catch (error) {
+      toast.error("Failed to move connection", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
   };
 
   const handleDeleteWorkspaceOnly = async () => {
@@ -303,7 +551,7 @@ export function ConnectionsSection() {
       }
       await deleteWorkspace(deleteDialog.workspace.id);
       toast.success(
-        `Deleted workspace "${deleteDialog.workspace.name}" and ${deleteDialog.workspace.connectionIds.length} connection(s)`,
+        `Deleted workspace "${deleteDialog.workspace.name}" and ${deleteDialog.workspace.connectionIds.length} connection(s)`
       );
       setDeleteDialog({ isOpen: false, workspace: null });
     } catch (error) {
@@ -316,98 +564,137 @@ export function ConnectionsSection() {
   };
 
   return (
-    <div>
-      <div className="sticky top-0 z-10 bg-background pb-4 -mx-6 px-6 pt-6 -mt-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <IconDatabase className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-medium">Connections</h2>
-            <span className="text-xs text-muted-foreground">
-              ({filteredConnections.length})
-            </span>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
+      <div>
+        <div className="sticky top-0 z-10 bg-background pb-4 -mx-6 px-6 pt-6 -mt-6">
+          {/* Stats Header */}
+          <div className="mb-4">
+            <StatsHeader />
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="flex items-center border rounded-md">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+              <span className="inline-flex items-center gap-1">
+                <Kbd>↑↓</Kbd> navigate
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <Kbd>↵</Kbd> connect
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <Kbd>⌘D</Kbd> clone
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <Kbd>/</Kbd> search
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* Selection mode toggle */}
               <Button
-                variant="ghost"
+                variant={selectionMode ? "secondary" : "ghost"}
                 size="sm"
-                className={`h-7 px-2 rounded-r-none ${
-                  viewMode === "grid" ? "bg-muted" : ""
-                }`}
-                onClick={() => {
-                  setViewMode("grid");
-                }}
-                title="Grid view"
+                className="h-7 px-2"
+                onClick={toggleSelectionMode}
+                title={selectionMode ? "Exit selection mode" : "Select multiple"}
               >
-                <IconLayoutGrid className="h-3.5 w-3.5" />
+                {selectionMode ? (
+                  <IconCheckbox className="h-3.5 w-3.5" />
+                ) : (
+                  <IconSquare className="h-3.5 w-3.5" />
+                )}
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`h-7 px-2 rounded-l-none ${
-                  viewMode === "list" ? "bg-muted" : ""
-                }`}
-                onClick={() => {
-                  setViewMode("list");
-                }}
-                title="List view"
-              >
-                <IconList className="h-3.5 w-3.5" />
-              </Button>
+
+              <div className="flex items-center border rounded-md">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={`h-7 px-2 rounded-r-none ${
+                    viewMode === "grid" ? "bg-muted" : ""
+                  }`}
+                  onClick={() => {
+                    setViewMode("grid");
+                  }}
+                  title="Grid view"
+                >
+                  <IconLayoutGrid className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={`h-7 px-2 rounded-l-none ${
+                    viewMode === "list" ? "bg-muted" : ""
+                  }`}
+                  onClick={() => {
+                    setViewMode("list");
+                  }}
+                  title="List view"
+                >
+                  <IconList className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-          <span className="inline-flex items-center gap-1">
-            <Kbd>↑↓</Kbd> navigate
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Kbd>↵</Kbd> connect
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Kbd>⌘D</Kbd> clone
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Kbd>/</Kbd> search
-          </span>
-        </div>
+        {filteredConnections.length === 0 &&
+        workspaceGroups.every((g) => g.connections.length === 0) ? (
+          <div className="text-center py-12 text-muted-foreground text-sm">
+            No connections match the selected filter
+          </div>
+        ) : (
+          <div>
+            {workspaceGroups.map((group) => (
+              <DroppableGroup
+                key={group.workspace?.id ?? "uncategorized"}
+                group={group}
+                viewMode={viewMode}
+                isCollapsed={collapsedWorkspaces.has(
+                  group.workspace?.id ?? "uncategorized"
+                )}
+                onToggleCollapse={() => {
+                  toggleWorkspaceCollapse(
+                    group.workspace?.id ?? "uncategorized"
+                  );
+                }}
+                onAddConnection={(workspaceId) => {
+                  openConnectionForm("create", undefined, workspaceId);
+                }}
+                onDeleteWorkspace={(workspace) => {
+                  setDeleteDialog({ isOpen: true, workspace });
+                }}
+                selectionMode={selectionMode}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleConnectionSelection}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
-      {filteredConnections.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground text-sm">
-          No connections match the selected filter
-        </div>
-      ) : (
-        <div>
-          {workspaceGroups.map((group) => (
-            <ConnectionGroup
-              key={group.workspace?.id ?? "uncategorized"}
-              group={group}
-              viewMode={viewMode}
-              isCollapsed={collapsedWorkspaces.has(
-                group.workspace?.id ?? "uncategorized",
-              )}
-              onToggleCollapse={() => {
-                toggleWorkspaceCollapse(group.workspace?.id ?? "uncategorized");
-              }}
-              onAddConnection={(workspaceId) => {
-                openConnectionForm("create", undefined, workspaceId);
-              }}
-              onDeleteWorkspace={(workspace) => {
-                setDeleteDialog({ isOpen: true, workspace });
-              }}
-            />
-          ))}
-        </div>
-      )}
+      {/* Drag overlay - shows the dragged item */}
+      <DragOverlay>
+        <DragOverlayContent connection={activeConnection} />
+      </DragOverlay>
+
+      {/* Bulk actions bar */}
+      <BulkActionsBar
+        selectedCount={selectedIds.size}
+        selectedIds={selectedIds}
+        onClearSelection={clearSelection}
+      />
 
       <Dialog
         open={deleteDialog.isOpen}
-        onOpenChange={(open) =>
-          !open && setDeleteDialog({ isOpen: false, workspace: null })
-        }
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteDialog({ isOpen: false, workspace: null });
+          }
+        }}
       >
         <DialogContent>
           <DialogHeader>
@@ -467,9 +754,7 @@ export function ConnectionsSection() {
           <DialogFooter>
             <Button
               variant="ghost"
-              onClick={() =>
-                setDeleteDialog({ isOpen: false, workspace: null })
-              }
+              onClick={() => { setDeleteDialog({ isOpen: false, workspace: null }); }}
               disabled={isDeleting}
             >
               Cancel
@@ -477,6 +762,6 @@ export function ConnectionsSection() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </DndContext>
   );
 }

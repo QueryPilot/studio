@@ -10,6 +10,7 @@ import { WorkspacesSection } from "./WorkspacesSection";
 import { WorkspaceDetailView } from "./WorkspaceDetailView";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { toast } from "sonner";
+import { parseSearchFilters } from "../ActionBar/SidebarSearch";
 
 export function MainContent() {
   const contentMode = useHomeScreenStore((s) => s.contentMode);
@@ -43,7 +44,7 @@ export function MainContent() {
                 id: crypto.randomUUID(),
                 name: `${conn.profile.name} (Copy)`,
               };
-              saveConnection(clonedProfile, conn.metadata.tags);
+              void saveConnection(clonedProfile, conn.metadata.tags);
               toast.success("Connection cloned");
             }
           }
@@ -57,9 +58,9 @@ export function MainContent() {
           "data-connection-item",
         );
         if (!isConnectionFocused) {
-          const firstItem = document.querySelector(
-            "[data-connection-item]",
-          ) as HTMLElement;
+          const firstItem = document.querySelector<HTMLElement>(
+            "[data-connection-item]"
+          );
           if (firstItem) {
             e.preventDefault();
             firstItem.focus();
@@ -74,19 +75,45 @@ export function MainContent() {
     };
   }, [connections]);
 
-  // Filter connections based on search query
+  // Filter connections based on search query with filter chip support
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) {
       return null;
     }
 
-    const lowerQuery = searchQuery.toLowerCase();
+    const { text, filters } = parseSearchFilters(searchQuery);
+    const lowerQuery = text.toLowerCase();
+
     return connections.filter((conn) => {
       const { profile, metadata } = conn;
+
+      // Apply filter chips first
+      for (const filter of filters) {
+        if (filter.key === "type" || filter.key === "db") {
+          const dbType = profile.db_type.toLowerCase();
+          if (!dbType.includes(filter.value)) {
+            return false;
+          }
+        } else if (filter.key === "tag" || filter.key === "env") {
+          const hasTag = metadata.tags.some(
+            (tag) => tag.toLowerCase() === filter.value
+          );
+          if (!hasTag) {
+            return false;
+          }
+        }
+      }
+
+      // If there's no text query, just use filters
+      if (!lowerQuery) {
+        return true;
+      }
+
+      // Text search
       return (
         profile.name.toLowerCase().includes(lowerQuery) ||
         profile.host.toLowerCase().includes(lowerQuery) ||
-        profile.database?.toLowerCase().includes(lowerQuery) ||
+        profile.database.toLowerCase().includes(lowerQuery) ||
         metadata.tags.some((tag) => tag.toLowerCase().includes(lowerQuery))
       );
     });

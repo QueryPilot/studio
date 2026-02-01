@@ -17,8 +17,6 @@ export const useHomeScreenStore = create<HomeScreenState>()(
       formPreselectedWorkspaceId: null,
       activeEnvFilters: ["all"],
       searchQuery: "",
-      actionBarExpanded: false,
-      sidebarWidth: 200,
       collapsedGroups: [],
 
       // Workspace form state
@@ -72,16 +70,6 @@ export const useHomeScreenStore = create<HomeScreenState>()(
         }),
 
       setSearchQuery: (query: string) => set({ searchQuery: query }),
-
-      toggleActionBar: () =>
-        set((state) => ({
-          actionBarExpanded: !state.actionBarExpanded,
-        })),
-
-      setActionBarExpanded: (expanded: boolean) =>
-        set({ actionBarExpanded: expanded }),
-
-      setSidebarWidth: (width: number) => set({ sidebarWidth: width }),
 
       toggleGroup: (group: string) =>
         set((state) => ({
@@ -160,8 +148,6 @@ export const useHomeScreenStore = create<HomeScreenState>()(
     {
       name: "home-screen-state",
       partialize: (state) => ({
-        actionBarExpanded: state.actionBarExpanded,
-        sidebarWidth: state.sidebarWidth,
         collapsedGroups: state.collapsedGroups,
         activeEnvFilters: state.activeEnvFilters,
       }),

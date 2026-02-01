@@ -35,11 +35,17 @@ import { buildConnectionUri } from "@/utils/connectionParser";
 interface ConnectionCardProps {
   connection: StoredConnection;
   variant?: "compact" | "list";
+  selectionMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }
 
 export function ConnectionCard({
   connection,
   variant = "compact",
+  selectionMode = false,
+  isSelected = false,
+  onToggleSelect,
 }: ConnectionCardProps) {
   const openConnectionForm = useHomeScreenStore((s) => s.openConnectionForm);
   const toggleFavorite = useConnectionStore((s) => s.toggleFavorite);
@@ -176,6 +182,14 @@ export function ConnectionCard({
     </>
   );
 
+  const handleClick = () => {
+    if (selectionMode && onToggleSelect) {
+      onToggleSelect(profile.id);
+    } else {
+      handleConnect();
+    }
+  };
+
   if (variant === "compact") {
     return (
       <ContextMenu>
@@ -187,13 +201,17 @@ export function ConnectionCard({
                 "group relative rounded-md border bg-card overflow-hidden",
                 "transition-all duration-150 cursor-pointer outline-none",
                 "hover:bg-accent/50 focus:bg-accent focus:ring-1 focus:ring-primary",
+                selectionMode && isSelected && "ring-2 ring-primary bg-primary/5",
               )}
-              onClick={handleConnect}
-              onDoubleClick={handleConnect}
+              onClick={handleClick}
+              onDoubleClick={selectionMode ? undefined : handleConnect}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  handleConnect();
+                  handleClick();
+                } else if (e.key === " " && selectionMode) {
+                  e.preventDefault();
+                  onToggleSelect?.(profile.id);
                 } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                   e.preventDefault();
                   const items = Array.from(
@@ -217,6 +235,32 @@ export function ConnectionCard({
               <div className="px-3 py-2">
                 {/* Header: Icon + Name */}
                 <div className="flex items-center gap-2">
+                  {selectionMode && (
+                    <div
+                      className={cn(
+                        "h-4 w-4 rounded border flex items-center justify-center shrink-0",
+                        isSelected
+                          ? "bg-primary border-primary"
+                          : "border-muted-foreground/30"
+                      )}
+                    >
+                      {isSelected && (
+                        <svg
+                          className="h-3 w-3 text-primary-foreground"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={3}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                      )}
+                    </div>
+                  )}
                   <img
                     src={getDatabaseLogo(profile.db_type)}
                     alt=""
