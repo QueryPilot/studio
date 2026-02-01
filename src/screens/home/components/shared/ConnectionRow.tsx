@@ -17,6 +17,9 @@ import { buildConnectionUri } from "@/utils/connectionParser";
 
 interface ConnectionRowProps {
   connection: StoredConnection;
+  selectionMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }
 
 const TAG_COLORS: Record<string, { bg: string; text: string }> = {
@@ -37,7 +40,12 @@ function getTagColor(tag: string) {
   return TAG_COLORS[lower] || { bg: "bg-muted", text: "text-muted-foreground" };
 }
 
-export function ConnectionRow({ connection }: ConnectionRowProps) {
+export function ConnectionRow({
+  connection,
+  selectionMode = false,
+  isSelected = false,
+  onToggleSelect,
+}: ConnectionRowProps) {
   const openConnectionForm = useHomeScreenStore((s) => s.openConnectionForm);
   const toggleFavorite = useConnectionStore((s) => s.toggleFavorite);
   const deleteConnection = useConnectionStore((s) => s.deleteConnection);
@@ -120,6 +128,14 @@ export function ConnectionRow({ connection }: ConnectionRowProps) {
     }
   };
 
+  const handleClick = () => {
+    if (selectionMode && onToggleSelect) {
+      onToggleSelect(profile.id);
+    } else {
+      handleConnect();
+    }
+  };
+
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -130,12 +146,16 @@ export function ConnectionRow({ connection }: ConnectionRowProps) {
               "group flex items-center gap-3 px-2 py-2 rounded outline-none",
               "transition-colors duration-100 cursor-pointer",
               "hover:bg-accent/50 focus:bg-accent focus:ring-1 focus:ring-primary",
+              selectionMode && isSelected && "ring-2 ring-primary bg-primary/5",
             )}
-            onClick={handleConnect}
+            onClick={handleClick}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                handleConnect();
+                handleClick();
+              } else if (e.key === " " && selectionMode) {
+                e.preventDefault();
+                onToggleSelect?.(profile.id);
               } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                 e.preventDefault();
                 const items = Array.from(
@@ -156,6 +176,33 @@ export function ConnectionRow({ connection }: ConnectionRowProps) {
             data-connection-item
             data-connection-id={profile.id}
           >
+            {/* Selection checkbox */}
+            {selectionMode && (
+              <div
+                className={cn(
+                  "h-4 w-4 rounded border flex items-center justify-center shrink-0",
+                  isSelected
+                    ? "bg-primary border-primary"
+                    : "border-muted-foreground/30"
+                )}
+              >
+                {isSelected && (
+                  <svg
+                    className="h-3 w-3 text-primary-foreground"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={3}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                )}
+              </div>
+            )}
             {/* DB Icon */}
             <img
               src={getDatabaseLogo(profile.db_type)}
