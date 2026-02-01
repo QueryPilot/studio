@@ -35,6 +35,16 @@ import { type ConnectionProfile } from "@/types/connection";
 
 interface BackupConfigStepProps {
   profile: ConnectionProfile;
+  initialConfig?: {
+    destinationPath?: string;
+    format?: string;
+    options?: Record<string, unknown>;
+  };
+  onConfigChange?: (partial: {
+    destinationPath?: string;
+    format?: string;
+    options?: Record<string, unknown>;
+  }) => void;
   onStart: (config: BackupConfig) => void;
   onBack: () => void;
 }
@@ -93,6 +103,8 @@ interface BackupCapabilityInfo {
 
 export const BackupConfigStep = ({
   profile,
+  initialConfig,
+  onConfigChange,
   onStart,
   onBack,
 }: BackupConfigStepProps) => {
@@ -105,10 +117,19 @@ export const BackupConfigStep = ({
     null,
   );
 
-  // Form state
-  const [destinationPath, setDestinationPath] = useState("");
-  const [selectedFormat, setSelectedFormat] = useState<string>("");
-  const [options, setOptions] = useState<Record<string, unknown>>({});
+  // Form state - use initial values if provided
+  const [destinationPath, setDestinationPath] = useState(initialConfig?.destinationPath ?? "");
+  const [selectedFormat, setSelectedFormat] = useState<string>(initialConfig?.format ?? "");
+  const [options, setOptions] = useState<Record<string, unknown>>(initialConfig?.options ?? {});
+
+  // Notify parent of config changes for persistence
+  useEffect(() => {
+    onConfigChange?.({
+      destinationPath,
+      format: selectedFormat,
+      options,
+    });
+  }, [destinationPath, selectedFormat, options, onConfigChange]);
 
   // UI state
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -186,6 +207,15 @@ export const BackupConfigStep = ({
   const handleBrowse = async () => {
     if (!currentFormat) return;
 
+    // Generate default filename: dbname_YYYYMMDD_HHMMSS.ext
+    const now = new Date();
+    const timestamp = now.toISOString()
+      .replace(/[-:]/g, '')
+      .replace('T', '_')
+      .slice(0, 15); // YYYYMMDD_HHMMSS
+    const dbName = profile.database || 'backup';
+    const defaultFileName = `${dbName}_${timestamp}`;
+
     try {
       const filePath = await save({
         title: "Save Backup",
@@ -195,7 +225,7 @@ export const BackupConfigStep = ({
             extensions: [currentFormat.extension.replace(".", "")],
           },
         ],
-        defaultPath: `backup${currentFormat.extension}`,
+        defaultPath: defaultFileName,
       });
 
       if (filePath) {
@@ -235,11 +265,21 @@ export const BackupConfigStep = ({
   const handleStart = () => {
     if (!destinationPath || !selectedFormat) return;
 
+    // Include connection parameters from profile in options
+    const configOptions = {
+      ...options,
+      host: profile.host,
+      port: profile.port,
+      user: profile.username,
+      password: profile.password,
+      database: profile.database,
+    };
+
     const config: BackupConfig = {
       destinationPath: destinationPath,
       format: selectedFormat,
       selectedObjects: null, // Full backup for now
-      options,
+      options: configOptions,
     };
 
     onStart(config);

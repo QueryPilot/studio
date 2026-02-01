@@ -359,9 +359,9 @@ pub async fn get_tool_download_info(tool_name: String) -> Result<ToolDownloadInf
             install_instructions: vec![
                 InstallInstructions {
                     package_manager: "Homebrew (macOS)".to_string(),
-                    command: "brew install postgresql@16".to_string(),
+                    command: "brew install libpq".to_string(),
                     notes: Some(
-                        "Tools are installed to /opt/homebrew/opt/postgresql@16/bin/".to_string(),
+                        "Lightweight client. Tools are installed to /opt/homebrew/opt/libpq/bin/".to_string(),
                     ),
                 },
                 InstallInstructions {
@@ -414,7 +414,7 @@ pub async fn get_tool_download_info(tool_name: String) -> Result<ToolDownloadInf
                 InstallInstructions {
                     package_manager: "Homebrew (macOS)".to_string(),
                     command: "brew install mysql-client".to_string(),
-                    notes: Some("Lightweight client.".to_string()),
+                    notes: Some("Lightweight client. Tools are installed to /opt/homebrew/opt/mysql-client/bin/".to_string()),
                 },
                 InstallInstructions {
                     package_manager: "Chocolatey (Windows)".to_string(),
@@ -500,8 +500,11 @@ fn get_common_paths_for_tool(tool_name: &str) -> Vec<String> {
     #[cfg(target_os = "macos")]
     {
         match tool_name {
-            "pg_dump" | "pg_restore" => {
-                // Homebrew paths (Apple Silicon and Intel)
+            "pg_dump" | "pg_restore" | "psql" => {
+                // libpq (recommended - lightweight, client only)
+                paths.push("/opt/homebrew/opt/libpq/bin".to_string());
+                paths.push("/usr/local/opt/libpq/bin".to_string());
+                // Homebrew full PostgreSQL paths (Apple Silicon and Intel)
                 paths.push("/opt/homebrew/opt/postgresql@16/bin".to_string());
                 paths.push("/opt/homebrew/opt/postgresql@15/bin".to_string());
                 paths.push("/opt/homebrew/opt/postgresql/bin".to_string());

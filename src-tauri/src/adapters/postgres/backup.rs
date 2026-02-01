@@ -18,9 +18,51 @@ use crate::core::backup_capability::{
     OptionField, ProgressSender, RestoreConfig, RestoreOptionsSchema, SelectOption,
     ToolPurpose, ToolRequirement,
 };
+use crate::core::tool_registry::ToolRegistry;
 use crate::error::AppError;
 
 use super::PostgresAdapter;
+
+impl PostgresAdapter {
+    /// Find pg_dump tool path, checking both PATH and Homebrew keg-only locations.
+    async fn find_pg_dump() -> Result<String, AppError> {
+        let status = ToolRegistry::check_tool("pg_dump").await;
+        if status.installed {
+            if let Some(path) = status.path {
+                return Ok(path.to_string_lossy().to_string());
+            }
+        }
+        Err(AppError::Internal(
+            "pg_dump not found. Install PostgreSQL client tools: brew install libpq".to_string(),
+        ))
+    }
+
+    /// Find pg_restore tool path, checking both PATH and Homebrew keg-only locations.
+    async fn find_pg_restore() -> Result<String, AppError> {
+        let status = ToolRegistry::check_tool("pg_restore").await;
+        if status.installed {
+            if let Some(path) = status.path {
+                return Ok(path.to_string_lossy().to_string());
+            }
+        }
+        Err(AppError::Internal(
+            "pg_restore not found. Install PostgreSQL client tools: brew install libpq".to_string(),
+        ))
+    }
+
+    /// Find psql tool path, checking both PATH and Homebrew keg-only locations.
+    async fn find_psql() -> Result<String, AppError> {
+        let status = ToolRegistry::check_tool("psql").await;
+        if status.installed {
+            if let Some(path) = status.path {
+                return Ok(path.to_string_lossy().to_string());
+            }
+        }
+        Err(AppError::Internal(
+            "psql not found. Install PostgreSQL client tools: brew install libpq".to_string(),
+        ))
+    }
+}
 
 #[async_trait]
 impl BackupCapable for PostgresAdapter {
@@ -362,7 +404,8 @@ impl BackupCapable for PostgresAdapter {
         }
 
         // For custom/tar formats, use pg_restore --list
-        let output = Command::new("pg_restore")
+        let pg_restore = Self::find_pg_restore().await?;
+        let output = Command::new(&pg_restore)
             .arg("--list")
             .arg(&path_str)
             .output()
@@ -442,7 +485,8 @@ impl BackupCapable for PostgresAdapter {
         }
 
         // Build pg_dump command
-        let mut cmd = Command::new("pg_dump");
+        let pg_dump = Self::find_pg_dump().await?;
+        let mut cmd = Command::new(&pg_dump);
         cmd.arg("-h").arg(&host)
             .arg("-p").arg(port.to_string())
             .arg("-U").arg(&user)
@@ -656,7 +700,8 @@ impl BackupCapable for PostgresAdapter {
 
         let mut cmd = if is_sql {
             // Use psql for SQL files
-            let mut c = Command::new("psql");
+            let psql = Self::find_psql().await?;
+            let mut c = Command::new(&psql);
             c.arg("-h").arg(&host)
                 .arg("-p").arg(port.to_string())
                 .arg("-U").arg(&user)
@@ -665,7 +710,8 @@ impl BackupCapable for PostgresAdapter {
             c
         } else {
             // Use pg_restore for custom/tar formats
-            let mut c = Command::new("pg_restore");
+            let pg_restore = Self::find_pg_restore().await?;
+            let mut c = Command::new(&pg_restore);
             c.arg("-h").arg(&host)
                 .arg("-p").arg(port.to_string())
                 .arg("-U").arg(&user)

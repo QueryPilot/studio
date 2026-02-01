@@ -161,10 +161,19 @@ export const AcpService = {
         }
         case "ToolCall": {
           console.log("[ACP] ToolCall raw payload:", JSON.stringify(update.toolCall, null, 2));
-          // ACP protocol uses tool_name, not name
-          const toolName = update.toolCall.tool_name ?? update.toolCall.name ?? "Unknown";
+          // Extract tool name from various possible fields:
+          // - title: Claude Code uses this
+          // - _meta.claudeCode.toolName: Claude Code metadata
+          // - tool_name: ACP protocol standard
+          // - name: fallback
+          const toolName =
+            update.toolCall.title ??
+            update.toolCall._meta?.claudeCode?.toolName ??
+            update.toolCall.tool_name ??
+            update.toolCall.name ??
+            "Unknown";
           callbacks?.onToolCall?.({
-            id: update.toolCall.id ?? update.toolCall.tool_call_id ?? crypto.randomUUID(),
+            id: update.toolCall.toolCallId ?? update.toolCall.id ?? update.toolCall.tool_call_id ?? crypto.randomUUID(),
             name: toolName,
             status: "pending",
             input: update.toolCall.input ?? update.toolCall.arguments ?? {},
@@ -173,9 +182,15 @@ export const AcpService = {
         }
         case "ToolCallUpdate": {
           console.log("[ACP] ToolCallUpdate raw payload:", JSON.stringify(update.update, null, 2));
-          const toolCallId = update.update.toolCallId ?? update.update.tool_call_id ?? update.update.id;
+          // Try multiple field names for the tool call ID
+          const toolCallId =
+            update.update.toolCallId ??
+            update.update.tool_call_id ??
+            update.update.id;
+          // Status can be in different fields
+          const status = update.update.status ?? update.update.state ?? "completed";
           if (toolCallId) {
-            callbacks?.onToolCallUpdate?.(toolCallId, update.update.status);
+            callbacks?.onToolCallUpdate?.(toolCallId, status);
           }
           break;
         }
