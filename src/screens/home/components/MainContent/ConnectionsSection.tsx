@@ -238,7 +238,7 @@ function DroppableWorkspaceGroup({
       </div>
 
       {!isCollapsed && (
-        <div className="pl-7">
+        <div className="pl-7 pb-3">
           {viewMode === "list" ? (
             <div className="space-y-0.5">
               {sortedConnections.map((connection) => (
@@ -677,7 +677,7 @@ export function ConnectionsSection() {
       </div>
 
       {/* Drag overlay - shows the dragged item */}
-      <DragOverlay>
+      <DragOverlay dropAnimation={null}>
         <DragOverlayContent connection={activeConnection} />
       </DragOverlay>
 

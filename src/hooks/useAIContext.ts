@@ -21,6 +21,11 @@ import type {
 } from "@/types/aiContext";
 import { parseMentions } from "@/utils/mentionParser";
 import { getParadigm, type DatabaseParadigm } from "@/types/connection";
+import {
+  COMMAND_META,
+  type AiCommandName,
+  type CommandApprovalLevel,
+} from "@/types/aiCommands";
 
 /**
  * Build lightweight AI context for all connections in the workspace.
@@ -304,8 +309,8 @@ function findConnectionForMention(
       if (conn.collections?.some((c) => c.name === ref.name)) {
         return ""; // MongoDB has no schema concept
       }
-    } else if (conn.paradigm === "keyvalue") {
-      // Search Redis key patterns
+    } else {
+      // Redis: Search key patterns
       if (conn.keyPatterns?.some((p) => p.pattern === ref.name || p.sampleKeys?.includes(ref.name))) {
         return ""; // Redis has no schema concept
       }
@@ -333,18 +338,349 @@ function findConnectionForMention(
   return null;
 }
 
+// ============================================================================
+// Command Parameter Schema Registry
+// ============================================================================
+
+interface ParamSchema {
+  type: string;
+  required: boolean;
+  description: string;
+  default?: string;
+}
+
+interface CommandSchema {
+  params: Record<string, ParamSchema>;
+  example: Record<string, unknown>;
+  guidelines: string;
+}
+
+/**
+ * Complete parameter schemas for all AI commands.
+ * Used to generate documentation for the AI system prompt.
+ */
+const COMMAND_SCHEMAS: Record<AiCommandName, CommandSchema> = {
+  // SQL Commands
+  "sql.execute": {
+    params: {
+      connectionId: { type: "string", required: true, description: "Connection ID from context" },
+      sql: { type: "string", required: true, description: "SQL SELECT query to execute" },
+      limit: { type: "number", required: false, description: "Max rows to return", default: "100 (max 1000)" },
+    },
+    example: {
+      connectionId: "conn-123",
+      sql: "SELECT * FROM users WHERE active = true",
+      limit: 100,
+    },
+    guidelines: "Only SELECT queries allowed. Use crud.stage for INSERT/UPDATE/DELETE.",
+  },
+  "sql.explain": {
+    params: {
+      connectionId: { type: "string", required: true, description: "Connection ID from context" },
+      sql: { type: "string", required: true, description: "SQL query to analyze" },
+    },
+    example: {
+      connectionId: "conn-123",
+      sql: "SELECT * FROM orders WHERE created_at > '2024-01-01'",
+    },
+    guidelines: "Use to analyze query performance before executing expensive queries.",
+  },
+
+  // MongoDB Commands
+  "mongodb.find": {
+    params: {
+      connectionId: { type: "string", required: true, description: "Connection ID from context" },
+      collection: { type: "string", required: true, description: "Collection name" },
+      filter: { type: "object", required: false, description: "MongoDB filter document" },
+      projection: { type: "object", required: false, description: "Fields to include (1) or exclude (0)" },
+      sort: { type: "object", required: false, description: "Sort order: 1 ascending, -1 descending" },
+      limit: { type: "number", required: false, description: "Max documents to return", default: "20 (max 100)" },
+    },
+    example: {
+      connectionId: "conn-456",
+      collection: "users",
+      filter: { status: "active" },
+      projection: { name: 1, email: 1 },
+      sort: { createdAt: -1 },
+      limit: 20,
+    },
+    guidelines: "Use MongoDB query operators like $gt, $in, $regex in filter.",
+  },
+  "mongodb.aggregate": {
+    params: {
+      connectionId: { type: "string", required: true, description: "Connection ID from context" },
+      collection: { type: "string", required: true, description: "Collection name" },
+      pipeline: { type: "array", required: true, description: "Array of aggregation stages" },
+    },
+    example: {
+      connectionId: "conn-456",
+      collection: "orders",
+      pipeline: [
+        { $match: { status: "completed" } },
+        { $group: { _id: "$customerId", total: { $sum: "$amount" } } },
+        { $sort: { total: -1 } },
+      ],
+    },
+    guidelines: "Use for complex queries with $match, $group, $sort, $lookup, etc.",
+  },
+  "mongodb.count": {
+    params: {
+      connectionId: { type: "string", required: true, description: "Connection ID from context" },
+      collection: { type: "string", required: true, description: "Collection name" },
+      filter: { type: "object", required: false, description: "MongoDB filter document" },
+    },
+    example: {
+      connectionId: "conn-456",
+      collection: "events",
+      filter: { type: "click" },
+    },
+    guidelines: "Lightweight operation to count documents without fetching data.",
+  },
+
+  // Redis Commands
+  "redis.get": {
+    params: {
+      connectionId: { type: "string", required: true, description: "Connection ID from context" },
+      key: { type: "string", required: true, description: "Redis key to retrieve" },
+    },
+    example: {
+      connectionId: "conn-789",
+      key: "user:123",
+    },
+    guidelines: "Works with all Redis data types: string, hash, list, set, zset, stream.",
+  },
+  "redis.keys": {
+    params: {
+      connectionId: { type: "string", required: true, description: "Connection ID from context" },
+      pattern: { type: "string", required: false, description: "Glob-style pattern", default: '"*"' },
+      limit: { type: "number", required: false, description: "Max keys to return", default: "100" },
+    },
+    example: {
+      connectionId: "conn-789",
+      pattern: "session:*",
+      limit: 100,
+    },
+    guidelines: "Use patterns like 'user:*', 'cache:*:data'. Avoid '*' on large databases.",
+  },
+  "redis.scan": {
+    params: {
+      connectionId: { type: "string", required: true, description: "Connection ID from context" },
+      pattern: { type: "string", required: false, description: "Glob-style pattern" },
+      count: { type: "number", required: false, description: "Hint for keys per iteration" },
+      cursor: { type: "string", required: false, description: "Cursor from previous scan", default: '"0"' },
+    },
+    example: {
+      connectionId: "conn-789",
+      pattern: "cache:*",
+      count: 100,
+      cursor: "0",
+    },
+    guidelines: "Use for iterating large keyspaces. Continue scanning until cursor returns '0'.",
+  },
+
+  // Universal Commands
+  "crud.stage": {
+    params: {
+      connectionId: { type: "string", required: true, description: "Connection ID from context" },
+      database: { type: "string", required: false, description: "Database name" },
+      schema: { type: "string", required: false, description: "Schema name (SQL only)" },
+      table: { type: "string", required: false, description: "Table name (SQL databases)" },
+      collection: { type: "string", required: false, description: "Collection name (MongoDB)" },
+      operation: { type: '"insert" | "update" | "delete"', required: true, description: "Type of mutation" },
+      document: { type: "object", required: false, description: "Document to insert (for insert)" },
+      filter: { type: "object", required: false, description: "Filter for update/delete" },
+      update: { type: "object", required: false, description: "Update document (for update)" },
+      primaryKeys: { type: "object", required: false, description: "Primary key values (for delete)" },
+      description: { type: "string", required: false, description: "Human-readable description of the change" },
+    },
+    example: {
+      connectionId: "conn-123",
+      table: "users",
+      operation: "insert",
+      document: { name: "John", email: "john@example.com" },
+      description: "Add new user John",
+    },
+    guidelines: "Changes are STAGED, not executed. User must review and commit from Changes panel.",
+  },
+  "tab.update": {
+    params: {
+      tabId: { type: "string", required: false, description: "Tab ID (defaults to active tab)" },
+      content: { type: "string", required: false, description: "New content for the editor" },
+      title: { type: "string", required: false, description: "New tab title" },
+    },
+    example: {
+      content: "SELECT * FROM users WHERE created_at > NOW() - INTERVAL '7 days'",
+    },
+    guidelines: "Updates the current active tab by default. Use to modify SQL queries.",
+  },
+  "tab.create": {
+    params: {
+      connectionId: { type: "string", required: true, description: "Connection ID from context" },
+      type: { type: '"query"', required: true, description: "Tab type (currently only query)" },
+      title: { type: "string", required: false, description: "Tab title" },
+      content: { type: "string", required: false, description: "Initial content" },
+    },
+    example: {
+      connectionId: "conn-123",
+      type: "query",
+      title: "User Analysis",
+      content: "SELECT COUNT(*) FROM users GROUP BY status",
+    },
+    guidelines: "Creates a new query tab associated with the specified connection.",
+  },
+  "editor.insert": {
+    params: {
+      text: { type: "string", required: true, description: "Text to insert" },
+      position: { type: '"cursor" | "end" | "replace"', required: false, description: "Where to insert", default: '"cursor"' },
+    },
+    example: {
+      text: "WHERE status = 'active'",
+      position: "cursor",
+    },
+    guidelines: "Insert snippets at cursor, append to end, or replace entire content.",
+  },
+};
+
+/**
+ * Generate documentation for a single command from COMMAND_META and COMMAND_SCHEMAS.
+ */
+function generateCommandDoc(name: AiCommandName): string {
+  const meta = COMMAND_META[name];
+  const schema = COMMAND_SCHEMAS[name];
+
+  // Build parameters table
+  const paramLines = Object.entries(schema.params).map(([paramName, param]) => {
+    const reqStr = param.required ? "required" : `optional${param.default ? `, default: ${param.default}` : ""}`;
+    return `  - \`${paramName}\` (${param.type}, ${reqStr}): ${param.description}`;
+  });
+
+  // Approval level description
+  const approvalDesc = getApprovalLevelDescription(meta.approvalLevel);
+
+  return `### ${name}
+
+**${meta.description}** | Approval: ${meta.approvalLevel} (${approvalDesc})
+
+Parameters:
+${paramLines.join("\n")}
+
+Example:
+\`\`\`
+<command name="${name}">
+${JSON.stringify(schema.example, null, 2)}
+</command>
+\`\`\`
+
+> ${schema.guidelines}`;
+}
+
+/**
+ * Get human-readable description for approval level.
+ */
+function getApprovalLevelDescription(level: CommandApprovalLevel): string {
+  switch (level) {
+    case "auto":
+      return "executes automatically";
+    case "approve":
+      return "requires user approval";
+    case "dangerous":
+      return "requires explicit confirmation";
+  }
+}
+
+/**
+ * Generate complete command documentation from COMMAND_META registry.
+ * Groups commands by paradigm and includes approval level info.
+ */
+function generateCommandDocumentation(): string {
+  const commandNames = Object.keys(COMMAND_META) as AiCommandName[];
+
+  // Group by paradigm
+  const byParadigm = {
+    sql: commandNames.filter((n) => COMMAND_META[n].paradigm === "sql"),
+    document: commandNames.filter((n) => COMMAND_META[n].paradigm === "document"),
+    keyvalue: commandNames.filter((n) => COMMAND_META[n].paradigm === "keyvalue"),
+    universal: commandNames.filter((n) => COMMAND_META[n].paradigm === "universal"),
+  };
+
+  const sections: string[] = [];
+
+  // Approval level legend
+  sections.push(`## Command Approval Levels
+
+Commands have different approval levels:
+- **auto**: Executes immediately without user confirmation (read-only operations)
+- **approve**: Requires user to click "Run" button before execution
+- **dangerous**: Requires explicit confirmation with warning dialog
+
+Always check the approval level to understand if user interaction is needed.`);
+
+  // SQL commands
+  if (byParadigm.sql.length > 0) {
+    sections.push(`## SQL Commands (PostgreSQL, MySQL, SQLite, MSSQL)
+
+Use these commands when the connection paradigm is "sql".
+
+${byParadigm.sql.map(generateCommandDoc).join("\n\n---\n\n")}`);
+  }
+
+  // MongoDB commands
+  if (byParadigm.document.length > 0) {
+    sections.push(`## MongoDB Commands
+
+Use these commands when the connection paradigm is "document".
+
+${byParadigm.document.map(generateCommandDoc).join("\n\n---\n\n")}`);
+  }
+
+  // Redis commands
+  if (byParadigm.keyvalue.length > 0) {
+    sections.push(`## Redis Commands
+
+Use these commands when the connection paradigm is "keyvalue".
+
+${byParadigm.keyvalue.map(generateCommandDoc).join("\n\n---\n\n")}`);
+  }
+
+  // Universal commands
+  if (byParadigm.universal.length > 0) {
+    sections.push(`## Universal Commands (All Databases)
+
+These commands work with any database type.
+
+${byParadigm.universal.map(generateCommandDoc).join("\n\n---\n\n")}`);
+  }
+
+  // Command summary table
+  const summaryRows = commandNames.map((name) => {
+    const meta = COMMAND_META[name];
+    return `| ${name} | ${meta.paradigm} | ${meta.approvalLevel} | ${meta.description} |`;
+  });
+
+  sections.push(`## Command Quick Reference
+
+| Command | Paradigm | Approval | Description |
+|---------|----------|----------|-------------|
+${summaryRows.join("\n")}`);
+
+  return sections.join("\n\n");
+}
+
 /**
  * System instructions for the AI agent in QueryPilot context.
  * Defines capabilities and restrictions for database IDE assistance.
+ * Command documentation is generated dynamically from COMMAND_META.
  */
 const QUERYPILOT_SYSTEM_INSTRUCTIONS = `
-## Context: QueryPilot Database IDE
+# QueryPilot Database IDE - AI Assistant
 
-You are assisting a user in QueryPilot, a database IDE that supports SQL databases (PostgreSQL, MySQL, SQLite, MSSQL), MongoDB, and Redis.
+You are assisting a user in QueryPilot, a database IDE that supports:
+- **SQL databases**: PostgreSQL, MySQL, SQLite, MSSQL
+- **Document databases**: MongoDB
+- **Key-value stores**: Redis
 
 ## Your Capabilities
 
-You can:
 1. **Read database schema** - Use the provided context to understand tables, collections, keys
 2. **Execute read queries** - Output commands to run SELECT queries, find documents, or get Redis values
 3. **Stage mutations** - Output commands to stage INSERT/UPDATE/DELETE (user must review and commit)
@@ -352,7 +688,7 @@ You can:
 
 ## Command Format
 
-To execute actions, output command blocks:
+To execute actions, output command blocks in this format:
 
 \`\`\`
 <command name="command.name">
@@ -363,141 +699,29 @@ To execute actions, output command blocks:
 </command>
 \`\`\`
 
-The user will see these commands and can approve or reject them.
-
-## Available Commands
-
-### SQL Databases (PostgreSQL, MySQL, SQLite, MSSQL)
-
-**sql.execute** - Run a SELECT query
-\`\`\`
-<command name="sql.execute">
-{
-  "connectionId": "use-id-from-context",
-  "sql": "SELECT * FROM users WHERE active = true",
-  "limit": 100
-}
-</command>
-\`\`\`
-
-**sql.explain** - Get query execution plan
-\`\`\`
-<command name="sql.explain">
-{
-  "connectionId": "...",
-  "sql": "SELECT * FROM orders WHERE created_at > '2024-01-01'"
-}
-</command>
-\`\`\`
-
-### MongoDB
-
-**mongodb.find** - Find documents
-\`\`\`
-<command name="mongodb.find">
-{
-  "connectionId": "...",
-  "collection": "users",
-  "filter": { "status": "active" },
-  "limit": 20
-}
-</command>
-\`\`\`
-
-**mongodb.aggregate** - Run aggregation pipeline
-\`\`\`
-<command name="mongodb.aggregate">
-{
-  "connectionId": "...",
-  "collection": "orders",
-  "pipeline": [
-    { "$match": { "status": "completed" } },
-    { "$group": { "_id": "$customerId", "total": { "$sum": "$amount" } } }
-  ]
-}
-</command>
-\`\`\`
-
-**mongodb.count** - Count documents
-\`\`\`
-<command name="mongodb.count">
-{
-  "connectionId": "...",
-  "collection": "events",
-  "filter": { "type": "click" }
-}
-</command>
-\`\`\`
-
-### Redis
-
-**redis.get** - Get key value
-\`\`\`
-<command name="redis.get">
-{
-  "connectionId": "...",
-  "key": "user:123"
-}
-</command>
-\`\`\`
-
-**redis.keys** - List keys by pattern
-\`\`\`
-<command name="redis.keys">
-{
-  "connectionId": "...",
-  "pattern": "session:*",
-  "limit": 100
-}
-</command>
-\`\`\`
-
-### Mutations (All Databases)
-
-**crud.stage** - Stage a change (INSERT, UPDATE, or DELETE)
-\`\`\`
-<command name="crud.stage">
-{
-  "connectionId": "...",
-  "table": "users",
-  "operation": "insert",
-  "document": { "name": "John", "email": "john@example.com" },
-  "description": "Add new user John"
-}
-</command>
-\`\`\`
-
-Mutations are STAGED, not executed immediately. The user must review and commit from the Changes panel.
-
-### Tab Operations
-
-**tab.update** - Update current tab content
-\`\`\`
-<command name="tab.update">
-{
-  "content": "SELECT * FROM users WHERE created_at > NOW() - INTERVAL '7 days'"
-}
-</command>
-\`\`\`
-
-**tab.create** - Create new query tab
-\`\`\`
-<command name="tab.create">
-{
-  "connectionId": "...",
-  "type": "query",
-  "title": "User Analysis",
-  "content": "SELECT COUNT(*) FROM users"
-}
-</command>
-\`\`\`
+The JSON must be valid. Commands will be parsed and displayed to the user for approval (depending on approval level).
 
 ## Important Rules
 
 1. **Always use connectionId from context** - Look at the \`connections\` array and use the correct \`id\`
-2. **Check the paradigm** - SQL commands for sql paradigm, mongodb.* for document, redis.* for keyvalue
+2. **Check the paradigm** - Match commands to connection paradigm:
+   - \`sql.*\` commands for paradigm "sql"
+   - \`mongodb.*\` commands for paradigm "document"
+   - \`redis.*\` commands for paradigm "keyvalue"
+   - \`crud.*\`, \`tab.*\`, \`editor.*\` work with any paradigm
 3. **Read-only by default** - sql.execute only allows SELECT. Use crud.stage for mutations
 4. **Results come back** - After a command executes, you'll see the results and can continue reasoning
+5. **Check approval levels** - Some commands run automatically, others need user approval
+
+`.trim();
+
+/**
+ * Build the complete system prompt with dynamically generated command documentation.
+ */
+function buildSystemPrompt(): string {
+  return `${QUERYPILOT_SYSTEM_INSTRUCTIONS}
+
+${generateCommandDocumentation()}
 
 ## Schema Context
 
@@ -506,8 +730,8 @@ Below you'll find the database context with:
 - SQL: schemas, tables, views, functions
 - MongoDB: collections with sample fields and indexes
 - Redis: key patterns with counts and types
-- If the user used @ mentions, detailed column/field info is included
-`.trim();
+- If the user used @ mentions, detailed column/field info is included`;
+}
 
 /**
  * Serialize a connection context based on its paradigm.
@@ -621,8 +845,8 @@ export function serializeAIContext(context: AIContext): string {
     }),
   };
 
-  // Combine instructions with database context
-  return `${QUERYPILOT_SYSTEM_INSTRUCTIONS}
+  // Combine system prompt (with generated command docs) and database context
+  return `${buildSystemPrompt()}
 
 ## Database Context
 

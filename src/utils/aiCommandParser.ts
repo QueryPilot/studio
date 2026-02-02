@@ -5,8 +5,23 @@
  * Supports progressive parsing during streaming.
  */
 
-import { nanoid } from "nanoid";
 import { COMMAND_META, type AiCommandName, type ParsedCommand } from "@/types/aiCommands";
+
+/**
+ * Generate a deterministic ID for a command based on its content and position.
+ * This ensures the same command gets the same ID across re-parses during streaming.
+ */
+function generateCommandId(name: string, content: string, startIndex: number): string {
+  // Simple hash based on command name, content, and position
+  const str = `${name}:${startIndex}:${content.slice(0, 100)}`;
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return `cmd-${Math.abs(hash).toString(36)}`;
+}
 
 /**
  * Valid command names from the COMMAND_META registry.
@@ -35,9 +50,12 @@ export function parseCommands(text: string): ParsedCommand[] {
     const startIndex = match.index;
     const endIndex = startIndex + raw.length;
 
+    // name should always be present due to regex structure, but handle defensively
+    const commandName = name ?? "";
+
     const command: ParsedCommand = {
-      id: nanoid(),
-      name: name as AiCommandName,
+      id: generateCommandId(commandName, content ?? "", startIndex),
+      name: commandName as AiCommandName,
       params: {},
       raw,
       startIndex,
@@ -45,8 +63,8 @@ export function parseCommands(text: string): ParsedCommand[] {
     };
 
     // Validate command name is in registry
-    if (!VALID_COMMAND_NAMES.has(name)) {
-      command.error = `Unknown command: ${name}`;
+    if (!commandName || !VALID_COMMAND_NAMES.has(commandName)) {
+      command.error = `Unknown command: ${commandName}`;
     } else {
       try {
         const trimmedContent = content?.trim() ?? "";
