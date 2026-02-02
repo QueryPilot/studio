@@ -99,7 +99,7 @@ function DraggableConnection({
       className={cn(
         "relative",
         isDragging && "opacity-50",
-        !selectionMode && "cursor-grab active:cursor-grabbing"
+        !selectionMode && "cursor-grab active:cursor-grabbing",
       )}
     >
       {viewMode === "list" ? (
@@ -148,14 +148,14 @@ function DroppableWorkspaceGroup({
 }) {
   const sortedConnections = useMemo(
     () => sortConnections(group.connections),
-    [group.connections]
+    [group.connections],
   );
 
   const handleOpenWorkspace = async () => {
     if (!group.workspace) return;
     await windowManager.openNamedWorkspace(
       group.workspace.id,
-      group.workspace.name
+      group.workspace.name,
     );
   };
 
@@ -163,7 +163,7 @@ function DroppableWorkspaceGroup({
     <div
       className={cn(
         "mb-4 rounded-lg transition-colors",
-        isOver && "bg-primary/5 ring-2 ring-primary/30 ring-inset"
+        isOver && "bg-primary/5 ring-2 ring-primary/30 ring-inset",
       )}
     >
       <div className="flex items-center gap-2 mb-2 w-full text-left group hover:bg-accent/50 rounded-md px-2 py-1.5 transition-colors">
@@ -190,55 +190,56 @@ function DroppableWorkspaceGroup({
           </span>
         </button>
         <div className="flex items-center gap-1">
-          {group.workspace && (() => {
-            const workspace = group.workspace;
-            return (
-              <>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onAddConnection(workspace.id);
-                  }}
-                  className="h-6 px-2 text-xs"
-                  title="Add connection to workspace"
-                >
-                  <IconPlus className="h-3 w-3 mr-1" />
-                  Add
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleOpenWorkspace();
-                  }}
-                  className="h-6 px-2 text-xs"
-                >
-                  <IconPlayerPlay className="h-3 w-3 mr-1" />
-                  Open
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteWorkspace(workspace);
-                  }}
-                  className="h-6 px-2 text-xs text-destructive hover:text-destructive"
-                  title="Delete workspace"
-                >
-                  <IconTrash className="h-3 w-3" />
-                </Button>
-              </>
-            );
-          })()}
+          {group.workspace &&
+            (() => {
+              const workspace = group.workspace;
+              return (
+                <>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAddConnection(workspace.id);
+                    }}
+                    className="h-6 px-2 text-xs"
+                    title="Add connection to workspace"
+                  >
+                    <IconPlus className="h-3 w-3 mr-1" />
+                    Add
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleOpenWorkspace();
+                    }}
+                    className="h-6 px-2 text-xs"
+                  >
+                    <IconPlayerPlay className="h-3 w-3 mr-1" />
+                    Open
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteWorkspace(workspace);
+                    }}
+                    className="h-6 px-2 text-xs text-destructive hover:text-destructive"
+                    title="Delete workspace"
+                  >
+                    <IconTrash className="h-3 w-3" />
+                  </Button>
+                </>
+              );
+            })()}
         </div>
       </div>
 
       {!isCollapsed && (
-        <div className="pl-7 pb-3">
+        <div className="pl-7 pb-3 pr-3">
           {viewMode === "list" ? (
             <div className="space-y-0.5">
               {sortedConnections.map((connection) => (
@@ -343,19 +344,19 @@ export function ConnectionsSection() {
 
   const savedWorkspaces = useWorkspaceBundleStore((s) => s.savedWorkspaces);
   const loadSavedWorkspaces = useWorkspaceBundleStore(
-    (s) => s.loadSavedWorkspaces
+    (s) => s.loadSavedWorkspaces,
   );
   const deleteWorkspace = useWorkspaceBundleStore((s) => s.deleteWorkspace);
   const getConnectionsByWorkspace = useWorkspaceBundleStore(
-    (s) => s.getConnectionsByWorkspace
+    (s) => s.getConnectionsByWorkspace,
   );
   const getUncategorizedConnectionIds = useWorkspaceBundleStore(
-    (s) => s.getUncategorizedConnectionIds
+    (s) => s.getUncategorizedConnectionIds,
   );
 
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(
-    new Set()
+    new Set(),
   );
   const [activeConnection, setActiveConnection] =
     useState<StoredConnection | null>(null);
@@ -374,7 +375,7 @@ export function ConnectionsSection() {
       activationConstraint: {
         distance: 8, // Require 8px of movement before starting drag
       },
-    })
+    }),
   );
 
   useEffect(() => {
@@ -382,10 +383,7 @@ export function ConnectionsSection() {
   }, [loadSavedWorkspaces]);
 
   const filteredConnections = useMemo(() => {
-    if (
-      activeEnvFilters.length === 0 ||
-      activeEnvFilters.includes("all")
-    ) {
+    if (activeEnvFilters.length === 0 || activeEnvFilters.includes("all")) {
       return connections;
     }
 
@@ -551,7 +549,7 @@ export function ConnectionsSection() {
       }
       await deleteWorkspace(deleteDialog.workspace.id);
       toast.success(
-        `Deleted workspace "${deleteDialog.workspace.name}" and ${deleteDialog.workspace.connectionIds.length} connection(s)`
+        `Deleted workspace "${deleteDialog.workspace.name}" and ${deleteDialog.workspace.connectionIds.length} connection(s)`,
       );
       setDeleteDialog({ isOpen: false, workspace: null });
     } catch (error) {
@@ -600,7 +598,9 @@ export function ConnectionsSection() {
                 size="sm"
                 className="h-7 px-2"
                 onClick={toggleSelectionMode}
-                title={selectionMode ? "Exit selection mode" : "Select multiple"}
+                title={
+                  selectionMode ? "Exit selection mode" : "Select multiple"
+                }
               >
                 {selectionMode ? (
                   <IconCheckbox className="h-3.5 w-3.5" />
@@ -654,11 +654,11 @@ export function ConnectionsSection() {
                 group={group}
                 viewMode={viewMode}
                 isCollapsed={collapsedWorkspaces.has(
-                  group.workspace?.id ?? "uncategorized"
+                  group.workspace?.id ?? "uncategorized",
                 )}
                 onToggleCollapse={() => {
                   toggleWorkspaceCollapse(
-                    group.workspace?.id ?? "uncategorized"
+                    group.workspace?.id ?? "uncategorized",
                   );
                 }}
                 onAddConnection={(workspaceId) => {
@@ -754,7 +754,9 @@ export function ConnectionsSection() {
           <DialogFooter>
             <Button
               variant="ghost"
-              onClick={() => { setDeleteDialog({ isOpen: false, workspace: null }); }}
+              onClick={() => {
+                setDeleteDialog({ isOpen: false, workspace: null });
+              }}
               disabled={isDeleting}
             >
               Cancel
