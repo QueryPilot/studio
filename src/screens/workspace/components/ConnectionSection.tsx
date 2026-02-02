@@ -745,10 +745,10 @@ export const ConnectionSection = forwardRef<
     status === "connected"
       ? "bg-green-500"
       : status === "connecting"
-        ? "bg-yellow-500 animate-pulse"
-        : status === "error"
-          ? "bg-red-500"
-          : "bg-gray-400";
+      ? "bg-yellow-500 animate-pulse"
+      : status === "error"
+      ? "bg-red-500"
+      : "bg-gray-400";
 
   // Show loading state when connecting and no data yet
   const showLoadingSkeleton =
@@ -756,8 +756,8 @@ export const ConnectionSection = forwardRef<
     (isSqlDb
       ? tables.length === 0
       : isDocumentDb
-        ? mongoCollections.length === 0
-        : true);
+      ? mongoCollections.length === 0
+      : true);
 
   return (
     <div ref={ref}>
@@ -910,8 +910,8 @@ export const ConnectionSection = forwardRef<
                       item.type === "function"
                         ? functionsByKey.get(key)
                         : item.type === "view"
-                          ? viewsByKey.get(key)
-                          : tablesByKey.get(key);
+                        ? viewsByKey.get(key)
+                        : tablesByKey.get(key);
 
                     if (!itemData) return null;
 
@@ -998,7 +998,8 @@ export const ConnectionSection = forwardRef<
                   {filterItems(tables, "table").map((table) => {
                     const tableKey = `${table.schema}.${table.name}`;
                     // MySQL/MariaDB don't support browsing partition tables yet
-                    const isPartitioned = table.isPartitioned === true && !isMySQLDb;
+                    const isPartitioned =
+                      table.isPartitioned === true && !isMySQLDb;
                     const isPartitionExpanded =
                       expandedPartitionedTables.has(tableKey);
                     return (

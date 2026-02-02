@@ -8,6 +8,7 @@ import { GlobalShortcutsPanel } from "./panels/GlobalShortcutsPanel";
 import { Suspense, lazy } from "react";
 import { IconLoader2, IconChevronLeft } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 // Lazy load the shortcuts panel (it might be heavy)
 const ShortcutsPanel = lazy(() => import("./panels/EditorPanel"));
@@ -62,7 +63,7 @@ export function PreferencesDialog({
   return (
     <Dialog open={isDialogOpen} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="!max-w-none !w-screen !h-screen !rounded-none p-0 gap-0 overflow-hidden border-none z-50 bg-secondary"
+        className="max-w-none! w-screen! h-screen! rounded-none! p-0 gap-0 overflow-hidden border-none z-50 bg-secondary"
         showCloseButton={false}
       >
         <div className="relative z-50 flex h-full" data-tauri-drag-region>
@@ -73,7 +74,10 @@ export function PreferencesDialog({
             >
               <Button
                 variant="ghost"
-                className="px-2 gap-1 text-muted-foreground hover:text-foreground focus:outline-none outline-none"
+                className={cn(
+                  "px-2 gap-1 text-muted-foreground hover:text-foreground focus:outline-none outline-none",
+                  { "mt-[5px]": ["", "/"].includes(window.location.pathname) },
+                )}
                 onClick={() => {
                   handleOpenChange(false);
                 }}
