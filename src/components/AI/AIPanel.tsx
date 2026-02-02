@@ -64,6 +64,9 @@ import {
 import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
 import type { ToolCall as ToolCallType } from "@/types/acp";
+import { parseCommandsProgressive, stripCommands } from "@/utils/aiCommandParser";
+import { CommandList } from "./CommandCard";
+import { useAiCommandPermissionStore } from "@/stores/aiCommandPermissionStore";
 
 // ============================================================================
 // Types
@@ -219,10 +222,14 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     focusInput();
   }, [cancelGeneration, focusInput]);
 
+  // Permission store for command approval
+  const resetPermissions = useAiCommandPermissionStore((s) => s.reset);
+
   const handleNewConversation = useCallback(() => {
     newConversation();
+    resetPermissions();
     focusInput();
-  }, [newConversation, focusInput]);
+  }, [newConversation, resetPermissions, focusInput]);
 
   const handleLoadSession = useCallback((sessionId: string) => {
     void loadSession(sessionId);
@@ -558,6 +565,18 @@ function MessageBubble({
   const isUser = role === "user";
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
 
+  // Parse commands from assistant messages
+  const parsedCommands = useMemo(() => {
+    if (isUser || !content) return { complete: [], incomplete: false };
+    return parseCommandsProgressive(content);
+  }, [content, isUser]);
+
+  // Strip commands from content for display
+  const displayContent = useMemo(() => {
+    if (isUser || !content) return content;
+    return stripCommands(content);
+  }, [content, isUser]);
+
   return (
     <div
       className={cn(
@@ -585,7 +604,7 @@ function MessageBubble({
           )}
 
           {/* Message Content */}
-          {content ? (
+          {displayContent ? (
             <div
               className={cn(
                 "prose prose-sm dark:prose-invert max-w-none",
@@ -599,7 +618,7 @@ function MessageBubble({
                 "text-[12px] leading-normal",
               )}
             >
-              <Streamdown className="select-text">{content}</Streamdown>
+              <Streamdown className="select-text">{displayContent}</Streamdown>
             </div>
           ) : isStreaming &&
             !thinking &&
@@ -615,6 +634,19 @@ function MessageBubble({
               </span>
             </div>
           ) : null}
+
+          {/* AI Commands */}
+          {!isUser && parsedCommands.complete.length > 0 && (
+            <CommandList commands={parsedCommands.complete} />
+          )}
+
+          {/* Incomplete command indicator */}
+          {!isUser && parsedCommands.incomplete && isStreaming && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
+              <IconLoader2 className="h-3 w-3 animate-spin" />
+              <span>Command loading...</span>
+            </div>
+          )}
         </div>
       </div>
     </div>
