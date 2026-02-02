@@ -112,9 +112,11 @@ describe("aiCommandPermissionStore", () => {
 
     it("returns false for approve-level commands without allowAll", () => {
       const { shouldAutoApprove } = useAiCommandPermissionStore.getState();
-      expect(shouldAutoApprove("sql.execute")).toBe(false);
+      // sql.execute is now auto-level, so only test actual approve-level commands
       expect(shouldAutoApprove("mongodb.find")).toBe(false);
+      expect(shouldAutoApprove("mongodb.aggregate")).toBe(false);
       expect(shouldAutoApprove("redis.scan")).toBe(false);
+      expect(shouldAutoApprove("crud.stage")).toBe(false);
     });
   });
 });
