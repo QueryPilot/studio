@@ -481,37 +481,37 @@ export function formatResultForConversation(
     return `**Error:** ${result.error}`;
   }
 
-  const data = result.data as Record<string, unknown>;
+  const data = result.data;
 
   switch (command.name) {
     case "sql.execute": {
-      const sqlResult = data as SqlExecuteResult;
+      const sqlResult = data as unknown as SqlExecuteResult;
       if (sqlResult.rowCount === 0) {
         return `**Query returned no results** (${sqlResult.executionTimeMs}ms)`;
       }
       return formatTableResult(sqlResult.columns, sqlResult.rows, sqlResult.rowCount, sqlResult.truncated, sqlResult.executionTimeMs);
     }
     case "sql.explain": {
-      const explainResult = data as SqlExplainResult;
+      const explainResult = data as unknown as SqlExplainResult;
       return `**Query Plan** (${explainResult.executionTimeMs}ms)\n\`\`\`\n${explainResult.plan}\n\`\`\``;
     }
     case "mongodb.find": {
-      const mongoResult = data as MongodbFindResult;
+      const mongoResult = data as unknown as MongodbFindResult;
       if (mongoResult.count === 0) {
         return `**No documents found** (${mongoResult.executionTimeMs}ms)`;
       }
       return `**Found ${mongoResult.count} documents** (${mongoResult.executionTimeMs}ms)${mongoResult.truncated ? " (truncated)" : ""}\n\`\`\`json\n${JSON.stringify(mongoResult.documents, null, 2)}\n\`\`\``;
     }
     case "mongodb.aggregate": {
-      const aggResult = data as MongodbAggregateResult;
+      const aggResult = data as unknown as MongodbAggregateResult;
       return `**Aggregation Result** (${aggResult.executionTimeMs}ms)\n\`\`\`json\n${JSON.stringify(aggResult.results, null, 2)}\n\`\`\``;
     }
     case "mongodb.count": {
-      const countResult = data as MongodbCountResult;
+      const countResult = data as unknown as MongodbCountResult;
       return `**Document count: ${countResult.count}** (${countResult.executionTimeMs}ms)`;
     }
     case "redis.get": {
-      const redisResult = data as RedisGetResult;
+      const redisResult = data as unknown as RedisGetResult;
       if (redisResult.type === "none") {
         return `**Key not found:** ${redisResult.key}`;
       }
@@ -519,15 +519,15 @@ export function formatResultForConversation(
       return `**${redisResult.key}** (${redisResult.type}, ${ttlInfo})\n\`\`\`json\n${JSON.stringify(redisResult.value, null, 2)}\n\`\`\``;
     }
     case "redis.keys": {
-      const keysResult = data as RedisKeysResult;
+      const keysResult = data as unknown as RedisKeysResult;
       return `**Found ${keysResult.count} keys**${keysResult.truncated ? " (truncated)" : ""}\n\`\`\`\n${keysResult.keys.join("\n")}\n\`\`\``;
     }
     case "redis.scan": {
-      const scanResult = data as RedisScanResult;
+      const scanResult = data as unknown as RedisScanResult;
       return `**Scanned ${scanResult.keys.length} keys** (cursor: ${scanResult.cursor}, done: ${scanResult.done})\n\`\`\`\n${scanResult.keys.join("\n")}\n\`\`\``;
     }
     case "crud.stage": {
-      const stageResult = data as CrudStageResult;
+      const stageResult = data as unknown as CrudStageResult;
       return `**Change staged** (ID: ${stageResult.commandId})\nReview in the Changes panel and commit when ready.`;
     }
     case "tab.update":
