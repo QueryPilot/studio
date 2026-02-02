@@ -812,6 +812,31 @@ impl ConnectionManager {
             total_queries,
         }
     }
+
+    /// List all active connections with their basic info
+    pub fn list_connections(&self) -> Vec<ConnectionInfo> {
+        self.connections
+            .iter()
+            .map(|entry| {
+                let conn = entry.value();
+                ConnectionInfo {
+                    id: conn.profile.id.clone(),
+                    name: conn.profile.name.clone(),
+                    db_type: format!("{:?}", conn.profile.db_type),
+                    database: conn.profile.database.clone(),
+                }
+            })
+            .collect()
+    }
+}
+
+/// Basic information about an active connection (for MCP bridge)
+#[derive(Debug, Clone)]
+pub struct ConnectionInfo {
+    pub id: String,
+    pub name: String,
+    pub db_type: String,
+    pub database: String,
 }
 
 impl ConnectionManager {
