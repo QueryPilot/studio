@@ -1,12 +1,8 @@
 /**
  * CommandCard Component Tests
  *
- * End-to-end integration tests that verify the complete command flow:
- * 1. Parse commands from mock AI response
- * 2. Render CommandCard components
- * 3. Simulate user approval
- * 4. Verify execution calls correct backend APIs
- * 5. Verify results display in conversation
+ * Tests for mutation and UI commands only.
+ * Note: Read commands (SQL, MongoDB, Redis) have been removed - AI uses MCP tools.
  */
 
 /* eslint-disable @typescript-eslint/require-await */
@@ -43,7 +39,13 @@ vi.mock("@/stores/crudStore", () => ({
 vi.mock("@/stores/workspaceScreenStore", () => ({
   useWorkspaceScreenStore: {
     getState: () => ({
-      getPanels: () => new Map(),
+      getPanels: () => {
+        const panel = {
+          activeTabId: "tab-1",
+          tabs: new Map([["tab-1", { payload: { sql: "SELECT 1" } }]]),
+        };
+        return new Map([["panel-1", panel]]);
+      },
       getActivePanelId: () => "panel-1",
       addTab: vi.fn(() => "tab-1"),
       updateTab: vi.fn(),
@@ -84,52 +86,54 @@ describe("CommandCard", () => {
   });
 
   describe("Rendering", () => {
-    it("should render SQL execute command card", async () => {
-      // sql.execute is now auto-approved, so it will start executing immediately
-      const command = createParsedCommand("sql.execute", {
+    it("should render crud.stage command card", async () => {
+      const command = createParsedCommand("crud.stage", {
         connectionId: "conn-123",
-        sql: "SELECT * FROM users LIMIT 10",
+        table: "users",
+        operation: "insert",
+        document: { name: "Alice" },
       });
 
       await act(async () => {
         render(<CommandCard command={command} />);
       });
 
-      // sql.execute is auto-approved so should show executing or completed state
-      expect(screen.getByText(/Execute SQL query/i)).toBeInTheDocument();
-      // No Run button since it auto-executes
+      // crud.stage requires approval, so should show Run button
+      expect(screen.getByText(/Stage insert/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Run/i })).toBeInTheDocument();
     });
 
-    it("should render MongoDB find command card", () => {
-      const command = createParsedCommand("mongodb.find", {
-        connectionId: "conn-mongo",
-        collection: "users",
-        filter: { active: true },
-      });
-
-      render(<CommandCard command={command} />);
-
-      expect(screen.getByText(/Find documents in users/i)).toBeInTheDocument();
-    });
-
-    it("should render Redis get command card", async () => {
-      const command = createParsedCommand("redis.get", {
-        connectionId: "conn-redis",
-        key: "user:123",
+    it("should render tab.update command card", async () => {
+      const command = createParsedCommand("tab.update", {
+        content: "SELECT * FROM users",
+        title: "User Query",
       });
 
       await act(async () => {
         render(<CommandCard command={command} />);
       });
 
-      // Redis get is auto-approve, so it may already be executing
-      // Just check the component rendered something
-      expect(screen.getByText(/user:123/i)).toBeInTheDocument();
+      // tab.update is auto-approve, so should execute automatically
+      expect(screen.getByText(/Update tab content/i)).toBeInTheDocument();
+    });
+
+    it("should render editor.insert command card", async () => {
+      const command = createParsedCommand("editor.insert", {
+        text: "-- Comment",
+        position: "cursor",
+      });
+
+      await act(async () => {
+        render(<CommandCard command={command} />);
+      });
+
+      // editor.insert is auto-approve, so should execute automatically
+      expect(screen.getByText(/Insert at cursor/i)).toBeInTheDocument();
     });
 
     it("should display error message for commands with parsing errors", () => {
       const command = createParsedCommand(
-        "sql.execute",
+        "crud.stage",
         {},
         { error: "Invalid JSON: Unexpected token" }
       );
@@ -141,40 +145,26 @@ describe("CommandCard", () => {
     });
 
     it("should display validation error for missing required params", () => {
-      const command = createParsedCommand("sql.execute", {
+      const command = createParsedCommand("crud.stage", {
         connectionId: "conn-123",
-        // Missing required 'sql' param
+        // Missing required 'operation' param
       });
 
       render(<CommandCard command={command} />);
 
       // There can be multiple instances of the error message (in header and expanded details)
-      const errorMessages = screen.getAllByText(/Missing required parameter: sql/i);
+      const errorMessages = screen.getAllByText(/Missing required parameter: operation/i);
       expect(errorMessages.length).toBeGreaterThanOrEqual(1);
-    });
-
-    it("should expand command details when clicked", () => {
-      const command = createParsedCommand("sql.execute", {
-        connectionId: "conn-123",
-        sql: "SELECT * FROM users",
-      });
-
-      render(<CommandCard command={command} />);
-
-      // The card should initially be collapsed for non-approve level
-      // But sql.execute is "approve" level so it auto-expands
-      // Check that "Parameters" text exists (approve-level commands auto-expand)
-      // The component auto-expands for "approve" level commands
-      // So we just verify the component renders correctly
-      expect(screen.getByText(/Execute SQL query/i)).toBeInTheDocument();
     });
   });
 
   describe("Approval Flow", () => {
     it("should track command in permission store on mount", async () => {
-      const command = createParsedCommand("sql.execute", {
+      const command = createParsedCommand("crud.stage", {
         connectionId: "conn-123",
-        sql: "SELECT 1",
+        table: "users",
+        operation: "insert",
+        document: { name: "Test" },
       });
 
       await act(async () => {
@@ -182,15 +172,15 @@ describe("CommandCard", () => {
       });
 
       const state = useAiCommandPermissionStore.getState().getCommandState(command.id);
-      // Should be pending or approved (if auto-approved)
       expect(["pending", "approved", "executing", "completed"]).toContain(state);
     });
 
-    it("should show pending state initially for approve-level commands", async () => {
-      // Use mongodb.find which requires manual approval
-      const command = createParsedCommand("mongodb.find", {
+    it("should show pending state for approve-level commands", async () => {
+      const command = createParsedCommand("crud.stage", {
         connectionId: "conn-123",
-        collection: "users",
+        table: "users",
+        operation: "insert",
+        document: { name: "Test" },
       });
 
       await act(async () => {
@@ -202,38 +192,31 @@ describe("CommandCard", () => {
     });
 
     it("should auto-approve auto-level commands", async () => {
-      // Import the actual invoke mock
-      const { invoke } = await import("@tauri-apps/api/core");
-      vi.mocked(invoke).mockResolvedValue({
-        columns: [{ name: "plan" }],
-        rows: [["Seq Scan on users"]],
-      });
-
       const onResult = vi.fn();
-      const command = createParsedCommand("sql.explain", {
-        connectionId: "conn-123",
-        sql: "SELECT * FROM users",
+      const command = createParsedCommand("tab.update", {
+        content: "SELECT 1",
+        title: "Test",
       });
 
       await act(async () => {
         render(<CommandCard command={command} onResult={onResult} />);
       });
 
-      // Auto-level commands should auto-execute - wait for invoke to be called
-      await waitFor(() => {
-        expect(invoke).toHaveBeenCalled();
-      }, { timeout: 2000 });
-
-      // Or wait for the result callback
-      await waitFor(() => {
-        expect(onResult).toHaveBeenCalled();
-      }, { timeout: 2000 });
+      // Auto-level commands should auto-execute - wait for the result callback
+      await waitFor(
+        () => {
+          expect(onResult).toHaveBeenCalled();
+        },
+        { timeout: 2000 }
+      );
     });
 
     it("should reject command when reject button is clicked", async () => {
-      const command = createParsedCommand("sql.execute", {
+      const command = createParsedCommand("crud.stage", {
         connectionId: "conn-123",
-        sql: "SELECT 1",
+        table: "users",
+        operation: "insert",
+        document: { name: "Test" },
       });
 
       await act(async () => {
@@ -242,8 +225,10 @@ describe("CommandCard", () => {
 
       // Find all buttons - the reject button is the one that doesn't contain "Run" text
       const buttons = screen.getAllByRole("button");
-      const runButton = buttons.find(btn => btn.textContent?.includes("Run"));
-      const rejectButton = buttons.find(btn => !btn.textContent?.includes("Run") && btn !== runButton);
+      const runButton = buttons.find((btn) => btn.textContent?.includes("Run"));
+      const rejectButton = buttons.find(
+        (btn) => !btn.textContent?.includes("Run") && btn !== runButton
+      );
       expect(rejectButton).toBeDefined();
 
       await act(async () => {
@@ -258,253 +243,53 @@ describe("CommandCard", () => {
     });
   });
 
-  describe("SQL Command Execution", () => {
-    it("should auto-execute SQL query and display results", async () => {
-      const { invoke } = await import("@tauri-apps/api/core");
-      vi.mocked(invoke).mockResolvedValue({
-        columns: [{ name: "id" }, { name: "name" }],
-        rows: [
-          [1, "Alice"],
-          [2, "Bob"],
-        ],
-      });
-
+  describe("CRUD Command Execution", () => {
+    it("should execute crud.stage command", async () => {
       const onResult = vi.fn();
-      // sql.execute is now auto-approved
-      const command = createParsedCommand("sql.execute", {
+      const command = createParsedCommand("crud.stage", {
         connectionId: "conn-123",
-        sql: "SELECT * FROM users",
+        table: "users",
+        operation: "insert",
+        document: { name: "Alice", email: "alice@example.com" },
+        description: "Add new user",
       });
 
-      await act(async () => {
-        render(<CommandCard command={command} onResult={onResult} />);
-      });
+      render(<CommandCard command={command} onResult={onResult} />);
 
-      // sql.execute auto-executes, so we just wait for the invoke to happen
-      await waitFor(() => {
-        expect(invoke).toHaveBeenCalledWith("query", expect.objectContaining({
-          conn_id: "conn-123",
-        }));
-      });
+      const runButton = screen.getByRole("button", { name: /Run/i });
+      fireEvent.click(runButton);
 
       await waitFor(() => {
         expect(onResult).toHaveBeenCalled();
-        const resultText = onResult.mock.calls[0][0];
-        expect(resultText).toContain("2 rows");
+        const resultText = onResult.mock.calls[0]?.[0];
+        expect(resultText).toContain("Change staged");
       });
     });
 
-    it("should handle SQL execution errors", async () => {
-      const { invoke } = await import("@tauri-apps/api/core");
-      vi.mocked(invoke).mockRejectedValue(new Error("Connection refused"));
-
+    it("should handle crud.stage validation errors", async () => {
       const onResult = vi.fn();
-      // sql.execute now auto-executes
-      const command = createParsedCommand("sql.execute", {
+      const command = createParsedCommand("crud.stage", {
         connectionId: "conn-123",
-        sql: "SELECT * FROM users",
+        table: "users",
+        operation: "insert",
+        document: {}, // Empty document should fail
       });
 
-      await act(async () => {
-        render(<CommandCard command={command} onResult={onResult} />);
-      });
+      render(<CommandCard command={command} onResult={onResult} />);
 
-      // Since sql.execute auto-executes, we just wait for the error result
+      const runButton = screen.getByRole("button", { name: /Run/i });
+      fireEvent.click(runButton);
+
       await waitFor(() => {
         expect(onResult).toHaveBeenCalled();
-        const resultText = onResult.mock.calls[0][0];
+        const resultText = onResult.mock.calls[0]?.[0];
         expect(resultText).toContain("Error");
-      });
-    });
-
-    it("should only allow SELECT queries", async () => {
-      const onResult = vi.fn();
-      // sql.execute now auto-executes
-      const command = createParsedCommand("sql.execute", {
-        connectionId: "conn-123",
-        sql: "DELETE FROM users",
-      });
-
-      await act(async () => {
-        render(<CommandCard command={command} onResult={onResult} />);
-      });
-
-      // Since sql.execute auto-executes, we just wait for validation error
-      await waitFor(() => {
-        expect(onResult).toHaveBeenCalled();
-        const resultText = onResult.mock.calls[0][0];
-        expect(resultText).toContain("Only SELECT queries are allowed");
+        expect(resultText).toContain("non-empty document");
       });
     });
   });
 
-  describe("MongoDB Command Execution", () => {
-    it("should execute MongoDB find and display results", async () => {
-      const { invoke } = await import("@tauri-apps/api/core");
-      vi.mocked(invoke).mockResolvedValue([
-        { _id: "1", name: "Alice", active: true },
-        { _id: "2", name: "Bob", active: true },
-      ]);
-
-      const onResult = vi.fn();
-      const command = createParsedCommand("mongodb.find", {
-        connectionId: "conn-mongo",
-        collection: "users",
-        filter: { active: true },
-      });
-
-      render(<CommandCard command={command} onResult={onResult} />);
-
-      const runButton = screen.getByRole("button", { name: /Run/i });
-      fireEvent.click(runButton);
-
-      await waitFor(() => {
-        expect(invoke).toHaveBeenCalledWith("mongo_find_documents", expect.objectContaining({
-          conn_id: "conn-mongo",
-          collection: "users",
-        }));
-      });
-
-      await waitFor(() => {
-        expect(onResult).toHaveBeenCalled();
-        const resultText = onResult.mock.calls[0][0];
-        expect(resultText).toContain("Found 2 documents");
-      });
-    });
-
-    it("should execute MongoDB count", async () => {
-      const { invoke } = await import("@tauri-apps/api/core");
-      vi.mocked(invoke).mockResolvedValue(42);
-
-      const onResult = vi.fn();
-      const command = createParsedCommand("mongodb.count", {
-        connectionId: "conn-mongo",
-        collection: "users",
-      });
-
-      await act(async () => {
-        render(<CommandCard command={command} onResult={onResult} />);
-      });
-
-      // mongodb.count is auto-approve level, so it should execute automatically
-      await waitFor(() => {
-        expect(invoke).toHaveBeenCalledWith("mongo_count_documents", expect.objectContaining({
-          conn_id: "conn-mongo",
-          collection: "users",
-        }));
-      });
-
-      await waitFor(() => {
-        expect(onResult).toHaveBeenCalled();
-        const resultText = onResult.mock.calls[0][0];
-        expect(resultText).toContain("Document count: 42");
-      });
-    });
-
-    it("should execute MongoDB aggregate", async () => {
-      const { invoke } = await import("@tauri-apps/api/core");
-      vi.mocked(invoke).mockResolvedValue([
-        { _id: "active", count: 10 },
-        { _id: "inactive", count: 5 },
-      ]);
-
-      const onResult = vi.fn();
-      const command = createParsedCommand("mongodb.aggregate", {
-        connectionId: "conn-mongo",
-        collection: "users",
-        pipeline: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
-      });
-
-      render(<CommandCard command={command} onResult={onResult} />);
-
-      const runButton = screen.getByRole("button", { name: /Run/i });
-      fireEvent.click(runButton);
-
-      await waitFor(() => {
-        expect(invoke).toHaveBeenCalledWith("mongo_aggregate", expect.objectContaining({
-          conn_id: "conn-mongo",
-          collection: "users",
-          pipeline: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
-        }));
-      });
-
-      await waitFor(() => {
-        expect(onResult).toHaveBeenCalled();
-        const resultText = onResult.mock.calls[0][0];
-        expect(resultText).toContain("Aggregation Result");
-      });
-    });
-  });
-
-  describe("Redis Command Execution", () => {
-    it("should execute Redis get and display results", async () => {
-      const { invoke } = await import("@tauri-apps/api/core");
-      vi.mocked(invoke)
-        .mockResolvedValueOnce("string") // redis_type
-        .mockResolvedValueOnce('{"name":"Alice"}') // redis_get
-        .mockResolvedValueOnce(3600); // redis_ttl
-
-      const onResult = vi.fn();
-      const command = createParsedCommand("redis.get", {
-        connectionId: "conn-redis",
-        key: "user:123",
-      });
-
-      await act(async () => {
-        render(<CommandCard command={command} onResult={onResult} />);
-      });
-
-      // redis.get is auto-approve level
-      await waitFor(() => {
-        expect(invoke).toHaveBeenCalledWith("redis_type", expect.objectContaining({
-          conn_id: "conn-redis",
-          key: "user:123",
-        }));
-      });
-
-      await waitFor(() => {
-        expect(onResult).toHaveBeenCalled();
-        const resultText = onResult.mock.calls[0][0];
-        expect(resultText).toContain("user:123");
-      });
-    });
-
-    it("should execute Redis scan", async () => {
-      const { invoke } = await import("@tauri-apps/api/core");
-      vi.mocked(invoke).mockResolvedValue({
-        type: "scan",
-        data: {
-          keys: ["user:1", "user:2", "user:3"],
-          cursor: 0,
-        },
-      });
-
-      const onResult = vi.fn();
-      const command = createParsedCommand("redis.scan", {
-        connectionId: "conn-redis",
-        pattern: "user:*",
-      });
-
-      render(<CommandCard command={command} onResult={onResult} />);
-
-      const runButton = screen.getByRole("button", { name: /Run/i });
-      fireEvent.click(runButton);
-
-      await waitFor(() => {
-        expect(invoke).toHaveBeenCalledWith("keyvalue_execute", expect.objectContaining({
-          conn_id: "conn-redis",
-        }));
-      });
-
-      await waitFor(() => {
-        expect(onResult).toHaveBeenCalled();
-        const resultText = onResult.mock.calls[0][0];
-        expect(resultText).toContain("Scanned");
-      });
-    });
-  });
-
-  describe("Universal Command Execution", () => {
+  describe("Tab Commands Execution", () => {
     it("should execute tab.update command", async () => {
       const onResult = vi.fn();
       const command = createParsedCommand("tab.update", {
@@ -517,9 +302,12 @@ describe("CommandCard", () => {
       });
 
       // tab.update is auto-approve level - wait for auto-execution
-      await waitFor(() => {
-        expect(onResult).toHaveBeenCalled();
-      }, { timeout: 2000 });
+      await waitFor(
+        () => {
+          expect(onResult).toHaveBeenCalled();
+        },
+        { timeout: 2000 }
+      );
     });
 
     it("should execute editor.insert command", async () => {
@@ -534,58 +322,35 @@ describe("CommandCard", () => {
       });
 
       // editor.insert is auto-approve level
-      await waitFor(() => {
-        expect(onResult).toHaveBeenCalled();
-      }, { timeout: 2000 });
+      await waitFor(
+        () => {
+          expect(onResult).toHaveBeenCalled();
+        },
+        { timeout: 2000 }
+      );
     });
   });
 
   describe("Error Handling", () => {
-    it("should handle network errors gracefully", async () => {
-      const { invoke } = await import("@tauri-apps/api/core");
-      vi.mocked(invoke).mockRejectedValue(new Error("Network timeout"));
-
+    it("should handle validation errors gracefully", async () => {
       const onResult = vi.fn();
-      // sql.execute now auto-executes, so render triggers execution immediately
-      const command = createParsedCommand("sql.execute", {
+      const command = createParsedCommand("crud.stage", {
         connectionId: "conn-123",
-        sql: "SELECT 1",
+        table: "users",
+        operation: "update",
+        // Missing primaryKeys/filter for update
+        update: { name: "Bob" },
       });
 
-      await act(async () => {
-        render(<CommandCard command={command} onResult={onResult} />);
-      });
+      render(<CommandCard command={command} onResult={onResult} />);
 
-      // Since sql.execute auto-executes, we just wait for the error result
+      const runButton = screen.getByRole("button", { name: /Run/i });
+      fireEvent.click(runButton);
+
       await waitFor(() => {
         expect(onResult).toHaveBeenCalled();
-        const resultText = onResult.mock.calls[0][0];
+        const resultText = onResult.mock.calls[0]?.[0];
         expect(resultText).toContain("Error");
-        expect(resultText).toContain("Network timeout");
-      });
-    });
-
-    it("should display failed state after error", async () => {
-      const { invoke } = await import("@tauri-apps/api/core");
-      vi.mocked(invoke).mockRejectedValue(new Error("Database error"));
-
-      const onResult = vi.fn();
-      // sql.execute now auto-executes
-      const command = createParsedCommand("sql.execute", {
-        connectionId: "conn-123",
-        sql: "SELECT 1",
-      });
-
-      await act(async () => {
-        render(<CommandCard command={command} onResult={onResult} />);
-      });
-
-      // Since sql.execute auto-executes, we just wait for the error result
-      await waitFor(() => {
-        expect(onResult).toHaveBeenCalled();
-        const resultText = onResult.mock.calls[0][0];
-        expect(resultText).toContain("Error");
-        expect(resultText).toContain("Database error");
       });
     });
   });
@@ -599,25 +364,43 @@ describe("CommandList", () => {
   });
 
   it("should render multiple commands", async () => {
-    // Use mongodb.find which requires manual approval (not auto-executed)
     const commands = [
-      createParsedCommand("mongodb.find", { connectionId: "c1", collection: "users" }, { id: "cmd-1" }),
-      createParsedCommand("mongodb.find", { connectionId: "c1", collection: "orders" }, { id: "cmd-2" }),
+      createParsedCommand(
+        "crud.stage",
+        { connectionId: "c1", table: "users", operation: "insert", document: { name: "A" } },
+        { id: "cmd-1" }
+      ),
+      createParsedCommand(
+        "crud.stage",
+        { connectionId: "c1", table: "users", operation: "insert", document: { name: "B" } },
+        { id: "cmd-2" }
+      ),
     ];
 
     await act(async () => {
       render(<CommandList commands={commands} />);
     });
 
-    expect(screen.getAllByText(/Find documents in/i)).toHaveLength(2);
+    expect(screen.getAllByText(/Stage insert/i)).toHaveLength(2);
   });
 
   it("should show 'Allow all' button when multiple pending commands", async () => {
-    // Use mongodb.find which requires manual approval
     const commands = [
-      createParsedCommand("mongodb.find", { connectionId: "c1", collection: "users" }, { id: "cmd-1" }),
-      createParsedCommand("mongodb.find", { connectionId: "c1", collection: "orders" }, { id: "cmd-2" }),
-      createParsedCommand("mongodb.find", { connectionId: "c1", collection: "products" }, { id: "cmd-3" }),
+      createParsedCommand(
+        "crud.stage",
+        { connectionId: "c1", table: "users", operation: "insert", document: { name: "A" } },
+        { id: "cmd-1" }
+      ),
+      createParsedCommand(
+        "crud.stage",
+        { connectionId: "c1", table: "users", operation: "insert", document: { name: "B" } },
+        { id: "cmd-2" }
+      ),
+      createParsedCommand(
+        "crud.stage",
+        { connectionId: "c1", table: "users", operation: "insert", document: { name: "C" } },
+        { id: "cmd-3" }
+      ),
     ];
 
     await act(async () => {
@@ -634,13 +417,18 @@ describe("CommandList", () => {
   });
 
   it("should call onResult with command ID when command completes", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    // Use mongodb.find which requires manual approval
-    vi.mocked(invoke).mockResolvedValue([{ _id: "1", name: "Test" }]);
-
     const onResult = vi.fn();
     const commands = [
-      createParsedCommand("mongodb.find", { connectionId: "c1", collection: "users" }, { id: "cmd-1" }),
+      createParsedCommand(
+        "crud.stage",
+        {
+          connectionId: "c1",
+          table: "users",
+          operation: "insert",
+          document: { name: "Test" },
+        },
+        { id: "cmd-1" }
+      ),
     ];
 
     await act(async () => {
@@ -663,145 +451,53 @@ describe("End-to-End: Parse -> Render -> Execute", () => {
     nanoidCounter = 0;
   });
 
-  it("should parse SQL commands from AI response and auto-execute", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    vi.mocked(invoke).mockResolvedValue({
-      columns: [{ name: "count" }],
-      rows: [[42]],
-    });
+  it("should parse crud.stage commands from AI response and execute", async () => {
+    const aiResponse = `I'll help you insert a new user.
 
-    const aiResponse = `I'll help you count the users.
-
-<command name="sql.execute">
+<command name="crud.stage">
 {
   "connectionId": "conn-123",
-  "sql": "SELECT COUNT(*) as count FROM users"
+  "table": "users",
+  "operation": "insert",
+  "document": { "name": "Alice", "email": "alice@example.com" }
 }
 </command>
 
-This will give you the total number of users in the database.`;
+This will stage the insert for review.`;
 
     // Step 1: Parse commands
     const commands = parseCommands(aiResponse);
     expect(commands).toHaveLength(1);
     const command = commands[0];
     expect(command).toBeDefined();
-    expect(command?.name).toBe("sql.execute");
+    expect(command?.name).toBe("crud.stage");
 
-    // Step 2: Render CommandCard - sql.execute is now auto-approved
+    // Step 2: Render CommandCard
     const onResult = vi.fn();
     await act(async () => {
       render(<CommandCard command={command as ParsedCommand} onResult={onResult} />);
     });
 
-    // sql.execute auto-executes, so we should see "Executing..." or completed state
-    // Step 3: Verify auto-execution happened
-    await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith("query", expect.objectContaining({
-        conn_id: "conn-123",
-      }));
-    });
+    // Step 3: Click Run
+    const runButton = screen.getByRole("button", { name: /Run/i });
+    fireEvent.click(runButton);
 
     // Step 4: Verify result
     await waitFor(() => {
       expect(onResult).toHaveBeenCalled();
-      const resultText = onResult.mock.calls[0][0];
-      expect(resultText).toContain("1 rows");
+      const resultText = onResult.mock.calls[0]?.[0];
+      expect(resultText).toContain("Change staged");
     });
   });
 
-  it("should parse MongoDB commands from AI response and execute", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    vi.mocked(invoke).mockResolvedValue([
-      { _id: "1", name: "Product A", price: 100 },
-    ]);
+  it("should handle multiple mutation commands in one response", async () => {
+    const aiResponse = `Let me stage these changes:
 
-    const aiResponse = `Let me find products over $50.
-
-<command name="mongodb.find">
-{
-  "connectionId": "conn-mongo",
-  "collection": "products",
-  "filter": { "price": { "$gt": 50 } },
-  "limit": 10
-}
-</command>`;
-
-    const commands = parseCommands(aiResponse);
-    expect(commands).toHaveLength(1);
-    const command = commands[0] as ParsedCommand;
-    expect(command.name).toBe("mongodb.find");
-
-    const onResult = vi.fn();
-    render(<CommandCard command={command} onResult={onResult} />);
-
-    const runButton = screen.getByRole("button", { name: /Run/i });
-    fireEvent.click(runButton);
-
-    await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith("mongo_find_documents", expect.objectContaining({
-        conn_id: "conn-mongo",
-        collection: "products",
-      }));
-    });
-
-    await waitFor(() => {
-      expect(onResult).toHaveBeenCalled();
-      const resultText = onResult.mock.calls[0][0];
-      expect(resultText).toContain("Found 1 documents");
-    });
-  });
-
-  it("should parse Redis commands from AI response and execute", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    vi.mocked(invoke)
-      .mockResolvedValueOnce("string")
-      .mockResolvedValueOnce("session-data-value")
-      .mockResolvedValueOnce(1800);
-
-    const aiResponse = `I'll check that session key for you.
-
-<command name="redis.get">
-{
-  "connectionId": "conn-redis",
-  "key": "session:abc123"
-}
-</command>`;
-
-    const commands = parseCommands(aiResponse);
-    expect(commands).toHaveLength(1);
-    const command = commands[0] as ParsedCommand;
-    expect(command.name).toBe("redis.get");
-
-    const onResult = vi.fn();
-    await act(async () => {
-      render(<CommandCard command={command} onResult={onResult} />);
-    });
-
-    // redis.get is auto-approve, should execute automatically
-    await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith("redis_type", expect.objectContaining({
-        conn_id: "conn-redis",
-        key: "session:abc123",
-      }));
-    });
-
-    await waitFor(() => {
-      expect(onResult).toHaveBeenCalled();
-      const resultText = onResult.mock.calls[0][0];
-      expect(resultText).toContain("session:abc123");
-    });
-  });
-
-  it("should handle multiple commands in one response", async () => {
-    // Use mongodb.find which requires manual approval (not auto-executed)
-    const aiResponse = `Let me run these queries:
-
-<command name="mongodb.find">{"connectionId": "c1", "collection": "users"}</command>
+<command name="crud.stage">{"connectionId": "c1", "table": "users", "operation": "insert", "document": {"name": "A"}}</command>
 
 And also:
 
-<command name="mongodb.find">{"connectionId": "c1", "collection": "orders"}</command>`;
+<command name="crud.stage">{"connectionId": "c1", "table": "users", "operation": "insert", "document": {"name": "B"}}</command>`;
 
     const commands = parseCommands(aiResponse);
     expect(commands).toHaveLength(2);
@@ -810,7 +506,7 @@ And also:
       render(<CommandList commands={commands} />);
     });
 
-    expect(screen.getAllByText(/Find documents in/i)).toHaveLength(2);
+    expect(screen.getAllByText(/Stage insert/i)).toHaveLength(2);
     expect(screen.getByText(/Allow all this conversation/i)).toBeInTheDocument();
   });
 });
@@ -823,18 +519,14 @@ describe("Permission Store Integration", () => {
   });
 
   it("should respect allowAllThisConversation setting", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    vi.mocked(invoke).mockResolvedValue({
-      columns: [{ name: "id" }],
-      rows: [[1]],
-    });
-
     // Enable allow all
     useAiCommandPermissionStore.getState().setAllowAll(true);
 
-    const command = createParsedCommand("sql.execute", {
+    const command = createParsedCommand("crud.stage", {
       connectionId: "conn-123",
-      sql: "SELECT 1",
+      table: "users",
+      operation: "insert",
+      document: { name: "Test" },
     });
 
     const onResult = vi.fn();
@@ -842,30 +534,29 @@ describe("Permission Store Integration", () => {
       render(<CommandCard command={command} onResult={onResult} />);
     });
 
-    // Should auto-execute since allowAll is true
-    await waitFor(() => {
-      expect(invoke).toHaveBeenCalled();
-    });
+    // Should auto-execute since allowAll is true and crud.stage is approve-level
+    await waitFor(
+      () => {
+        expect(onResult).toHaveBeenCalled();
+      },
+      { timeout: 2000 }
+    );
   });
 
   it("should update command state through execution lifecycle", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-
-    // Use resolved mock for mongodb.find (which requires manual approval)
-    vi.mocked(invoke).mockResolvedValue([{ _id: "1", name: "Test" }]);
-
     const onResult = vi.fn();
-    // Use mongodb.find which requires approval (not auto-executed)
-    const command = createParsedCommand("mongodb.find", {
+    const command = createParsedCommand("crud.stage", {
       connectionId: "conn-123",
-      collection: "users",
+      table: "users",
+      operation: "insert",
+      document: { name: "Test" },
     });
 
     await act(async () => {
       render(<CommandCard command={command} onResult={onResult} />);
     });
 
-    // Initially pending (mongodb.find requires approval)
+    // Initially pending
     expect(useAiCommandPermissionStore.getState().getCommandState(command.id)).toBe("pending");
 
     // Click run
@@ -879,7 +570,7 @@ describe("Permission Store Integration", () => {
       expect(onResult).toHaveBeenCalled();
     });
 
-    // Should be completed (transitioned through pending -> executing -> completed)
+    // Should be completed
     await waitFor(() => {
       const finalState = useAiCommandPermissionStore.getState().getCommandState(command.id);
       expect(["completed", "approved"]).toContain(finalState);

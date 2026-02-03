@@ -373,9 +373,25 @@ export const useAcpStore = create<AcpState>()(
           // Start agent subprocess
           const instanceId = await AcpService.startAgent(selectedAgentId);
 
+          // Get MCP sidecar path for database access
+          let mcpServers: { name: string; command: string; args: string[] }[] | undefined;
+          try {
+            const sidecarPath = await AcpService.getMcpSidecarPath();
+            mcpServers = [
+              {
+                name: "querypilot",
+                command: sidecarPath,
+                args: [],
+              },
+            ];
+          } catch (err) {
+            // MCP sidecar not available - continue without it
+            console.warn("MCP sidecar not available:", err);
+          }
+
           // Create ACP session with LLM home directory as working directory
           const llmHome = await AcpService.getLlmHome();
-          const sessionId = await AcpService.createSession(instanceId, llmHome);
+          const sessionId = await AcpService.createSession(instanceId, llmHome, mcpServers);
 
           // Set the model for the session (if one is selected)
           // Note: Some agents (e.g., Gemini) don't support session/set_model

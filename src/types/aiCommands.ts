@@ -9,20 +9,17 @@
 // Base Types
 // ============================================================================
 
+/**
+ * AI Command Names
+ *
+ * Note: Read commands (sql.execute, sql.explain, mongodb.find, etc.) have been
+ * removed. The AI agent now accesses database data through MCP tools instead
+ * of structured commands. Only mutation and UI commands remain.
+ */
 export type AiCommandName =
-  // SQL commands
-  | "sql.execute"
-  | "sql.explain"
-  // MongoDB commands
-  | "mongodb.find"
-  | "mongodb.aggregate"
-  | "mongodb.count"
-  // Redis commands
-  | "redis.get"
-  | "redis.keys"
-  | "redis.scan"
-  // Universal commands
+  // Universal mutation commands
   | "crud.stage"
+  // UI/Editor commands
   | "tab.update"
   | "tab.create"
   | "editor.insert";
@@ -44,101 +41,13 @@ export interface AiCommandMeta {
   params?: ParamSchema[];
 }
 
+/**
+ * Command metadata for mutation and UI commands only.
+ *
+ * Read commands have been removed - AI agent now uses MCP tools for database access.
+ */
 export const COMMAND_META: Record<AiCommandName, AiCommandMeta> = {
-  // SQL
-  "sql.execute": {
-    name: "sql.execute",
-    paradigm: "sql",
-    approvalLevel: "auto",
-    description: "Execute SELECT query",
-    params: [
-      { name: "connectionId", type: "string", required: true, description: "Database connection ID" },
-      { name: "sql", type: "string", required: true, description: "SQL query to execute" },
-      { name: "limit", type: "number", required: false, description: "Max rows to return (default: 100, max: 1000)" },
-    ],
-  },
-  "sql.explain": {
-    name: "sql.explain",
-    paradigm: "sql",
-    approvalLevel: "auto",
-    description: "Explain query plan",
-    params: [
-      { name: "connectionId", type: "string", required: true, description: "Database connection ID" },
-      { name: "sql", type: "string", required: true, description: "SQL query to explain" },
-    ],
-  },
-  // MongoDB
-  "mongodb.find": {
-    name: "mongodb.find",
-    paradigm: "document",
-    approvalLevel: "approve",
-    description: "Find documents",
-    params: [
-      { name: "connectionId", type: "string", required: true, description: "Database connection ID" },
-      { name: "collection", type: "string", required: true, description: "Collection name" },
-      { name: "filter", type: "object", required: false, description: "Query filter" },
-      { name: "projection", type: "object", required: false, description: "Fields to include/exclude" },
-      { name: "sort", type: "object", required: false, description: "Sort order" },
-      { name: "limit", type: "number", required: false, description: "Max documents (default: 20, max: 100)" },
-    ],
-  },
-  "mongodb.aggregate": {
-    name: "mongodb.aggregate",
-    paradigm: "document",
-    approvalLevel: "approve",
-    description: "Run aggregation",
-    params: [
-      { name: "connectionId", type: "string", required: true, description: "Database connection ID" },
-      { name: "collection", type: "string", required: true, description: "Collection name" },
-      { name: "pipeline", type: "array", required: true, description: "Aggregation pipeline stages" },
-    ],
-  },
-  "mongodb.count": {
-    name: "mongodb.count",
-    paradigm: "document",
-    approvalLevel: "auto",
-    description: "Count documents",
-    params: [
-      { name: "connectionId", type: "string", required: true, description: "Database connection ID" },
-      { name: "collection", type: "string", required: true, description: "Collection name" },
-      { name: "filter", type: "object", required: false, description: "Query filter" },
-    ],
-  },
-  // Redis
-  "redis.get": {
-    name: "redis.get",
-    paradigm: "keyvalue",
-    approvalLevel: "auto",
-    description: "Get key value",
-    params: [
-      { name: "connectionId", type: "string", required: true, description: "Database connection ID" },
-      { name: "key", type: "string", required: true, description: "Redis key to get" },
-    ],
-  },
-  "redis.keys": {
-    name: "redis.keys",
-    paradigm: "keyvalue",
-    approvalLevel: "auto",
-    description: "List keys",
-    params: [
-      { name: "connectionId", type: "string", required: true, description: "Database connection ID" },
-      { name: "pattern", type: "string", required: false, description: "Key pattern (default: *)" },
-      { name: "limit", type: "number", required: false, description: "Max keys (default: 100)" },
-    ],
-  },
-  "redis.scan": {
-    name: "redis.scan",
-    paradigm: "keyvalue",
-    approvalLevel: "approve",
-    description: "Scan keys",
-    params: [
-      { name: "connectionId", type: "string", required: true, description: "Database connection ID" },
-      { name: "pattern", type: "string", required: false, description: "Key pattern" },
-      { name: "count", type: "number", required: false, description: "Count hint per iteration" },
-      { name: "cursor", type: "string", required: false, description: "Scan cursor" },
-    ],
-  },
-  // Universal
+  // Universal mutation command
   "crud.stage": {
     name: "crud.stage",
     paradigm: "universal",
@@ -197,60 +106,10 @@ export const COMMAND_META: Record<AiCommandName, AiCommandMeta> = {
 // Command Parameter Types
 // ============================================================================
 
-// SQL Commands
-export interface SqlExecuteParams {
-  connectionId: string;
-  sql: string;
-  limit?: number; // Default 100, max 1000
-}
+// Note: Read command parameter types (SqlExecuteParams, MongodbFindParams, etc.)
+// have been removed. AI agent now uses MCP tools for database reads.
 
-export interface SqlExplainParams {
-  connectionId: string;
-  sql: string;
-}
-
-// MongoDB Commands
-export interface MongodbFindParams {
-  connectionId: string;
-  collection: string;
-  filter?: Record<string, unknown>;
-  projection?: Record<string, 0 | 1>;
-  sort?: Record<string, 1 | -1>;
-  limit?: number; // Default 20, max 100
-}
-
-export interface MongodbAggregateParams {
-  connectionId: string;
-  collection: string;
-  pipeline: Record<string, unknown>[];
-}
-
-export interface MongodbCountParams {
-  connectionId: string;
-  collection: string;
-  filter?: Record<string, unknown>;
-}
-
-// Redis Commands
-export interface RedisGetParams {
-  connectionId: string;
-  key: string;
-}
-
-export interface RedisKeysParams {
-  connectionId: string;
-  pattern?: string; // Default "*"
-  limit?: number; // Default 100
-}
-
-export interface RedisScanParams {
-  connectionId: string;
-  pattern?: string;
-  count?: number;
-  cursor?: string;
-}
-
-// Universal Commands
+// Mutation Commands
 export interface CrudStageParams {
   connectionId: string;
   database?: string;
@@ -290,54 +149,8 @@ export interface EditorInsertParams {
 // Command Result Types
 // ============================================================================
 
-export interface SqlExecuteResult {
-  columns: string[];
-  rows: unknown[][];
-  rowCount: number;
-  executionTimeMs: number;
-  truncated: boolean;
-}
-
-export interface SqlExplainResult {
-  plan: string;
-  executionTimeMs: number;
-}
-
-export interface MongodbFindResult {
-  documents: Record<string, unknown>[];
-  count: number;
-  executionTimeMs: number;
-  truncated: boolean;
-}
-
-export interface MongodbAggregateResult {
-  results: Record<string, unknown>[];
-  executionTimeMs: number;
-}
-
-export interface MongodbCountResult {
-  count: number;
-  executionTimeMs: number;
-}
-
-export interface RedisGetResult {
-  key: string;
-  type: "string" | "hash" | "list" | "set" | "zset" | "stream" | "none";
-  value: unknown;
-  ttl: number | null; // -1 = no expiry, -2 = key doesn't exist
-}
-
-export interface RedisKeysResult {
-  keys: string[];
-  count: number;
-  truncated: boolean;
-}
-
-export interface RedisScanResult {
-  keys: string[];
-  cursor: string;
-  done: boolean;
-}
+// Note: Read command result types have been removed.
+// AI agent now uses MCP tools for database reads.
 
 export interface CrudStageResult {
   staged: boolean;
@@ -374,14 +187,6 @@ export interface ParsedCommand<T = unknown> {
 }
 
 export type AnyParsedCommand =
-  | ParsedCommand<SqlExecuteParams>
-  | ParsedCommand<SqlExplainParams>
-  | ParsedCommand<MongodbFindParams>
-  | ParsedCommand<MongodbAggregateParams>
-  | ParsedCommand<MongodbCountParams>
-  | ParsedCommand<RedisGetParams>
-  | ParsedCommand<RedisKeysParams>
-  | ParsedCommand<RedisScanParams>
   | ParsedCommand<CrudStageParams>
   | ParsedCommand<TabUpdateParams>
   | ParsedCommand<TabCreateParams>

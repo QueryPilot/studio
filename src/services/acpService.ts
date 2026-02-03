@@ -16,6 +16,15 @@ import type {
   NpmPackageManager,
 } from "@/types/acp";
 
+/**
+ * MCP Server configuration for passing to ACP sessions
+ */
+export interface McpServerConfig {
+  name: string;
+  command: string;
+  args: string[];
+}
+
 const activeListeners = new Map<string, UnlistenFn>();
 
 /**
@@ -82,10 +91,27 @@ export const AcpService = {
    * Create a new ACP session for an agent instance
    * @param instanceId The running agent instance ID
    * @param cwd Working directory for the session
+   * @param mcpServers Optional MCP servers to attach to the session
    * @returns Session ID
    */
-  async createSession(instanceId: string, cwd: string): Promise<string> {
-    return invoke<string>("acp_create_session", { instanceId, cwd });
+  async createSession(
+    instanceId: string,
+    cwd: string,
+    mcpServers?: McpServerConfig[]
+  ): Promise<string> {
+    return invoke<string>("acp_create_session", {
+      instanceId,
+      cwd,
+      mcpServers: mcpServers ?? null,
+    });
+  },
+
+  /**
+   * Get the path to the MCP sidecar binary
+   * @returns Absolute path to the querypilot-mcp binary
+   */
+  async getMcpSidecarPath(): Promise<string> {
+    return invoke<string>("acp_get_mcp_sidecar_path");
   },
 
   /**

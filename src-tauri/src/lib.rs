@@ -3,6 +3,7 @@ pub mod adapters;
 pub mod core;
 pub mod error;
 pub mod keychain;
+pub mod mcp;
 pub mod menu;
 pub mod sentry_integration;
 pub mod sql_engine;
