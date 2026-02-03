@@ -358,126 +358,11 @@ interface CommandSchema {
 /**
  * Complete parameter schemas for all AI commands.
  * Used to generate documentation for the AI system prompt.
+ *
+ * Note: Read commands (sql.execute, mongodb.find, redis.get, etc.) have been removed.
+ * The AI agent should use MCP tools for database reads instead.
  */
 const COMMAND_SCHEMAS: Record<AiCommandName, CommandSchema> = {
-  // SQL Commands
-  "sql.execute": {
-    params: {
-      connectionId: { type: "string", required: true, description: "Connection ID from context" },
-      sql: { type: "string", required: true, description: "SQL SELECT query to execute" },
-      limit: { type: "number", required: false, description: "Max rows to return", default: "100 (max 1000)" },
-    },
-    example: {
-      connectionId: "conn-123",
-      sql: "SELECT * FROM users WHERE active = true",
-      limit: 100,
-    },
-    guidelines: "Only SELECT queries allowed. Use crud.stage for INSERT/UPDATE/DELETE.",
-  },
-  "sql.explain": {
-    params: {
-      connectionId: { type: "string", required: true, description: "Connection ID from context" },
-      sql: { type: "string", required: true, description: "SQL query to analyze" },
-    },
-    example: {
-      connectionId: "conn-123",
-      sql: "SELECT * FROM orders WHERE created_at > '2024-01-01'",
-    },
-    guidelines: "Use to analyze query performance before executing expensive queries.",
-  },
-
-  // MongoDB Commands
-  "mongodb.find": {
-    params: {
-      connectionId: { type: "string", required: true, description: "Connection ID from context" },
-      collection: { type: "string", required: true, description: "Collection name" },
-      filter: { type: "object", required: false, description: "MongoDB filter document" },
-      projection: { type: "object", required: false, description: "Fields to include (1) or exclude (0)" },
-      sort: { type: "object", required: false, description: "Sort order: 1 ascending, -1 descending" },
-      limit: { type: "number", required: false, description: "Max documents to return", default: "20 (max 100)" },
-    },
-    example: {
-      connectionId: "conn-456",
-      collection: "users",
-      filter: { status: "active" },
-      projection: { name: 1, email: 1 },
-      sort: { createdAt: -1 },
-      limit: 20,
-    },
-    guidelines: "Use MongoDB query operators like $gt, $in, $regex in filter.",
-  },
-  "mongodb.aggregate": {
-    params: {
-      connectionId: { type: "string", required: true, description: "Connection ID from context" },
-      collection: { type: "string", required: true, description: "Collection name" },
-      pipeline: { type: "array", required: true, description: "Array of aggregation stages" },
-    },
-    example: {
-      connectionId: "conn-456",
-      collection: "orders",
-      pipeline: [
-        { $match: { status: "completed" } },
-        { $group: { _id: "$customerId", total: { $sum: "$amount" } } },
-        { $sort: { total: -1 } },
-      ],
-    },
-    guidelines: "Use for complex queries with $match, $group, $sort, $lookup, etc.",
-  },
-  "mongodb.count": {
-    params: {
-      connectionId: { type: "string", required: true, description: "Connection ID from context" },
-      collection: { type: "string", required: true, description: "Collection name" },
-      filter: { type: "object", required: false, description: "MongoDB filter document" },
-    },
-    example: {
-      connectionId: "conn-456",
-      collection: "events",
-      filter: { type: "click" },
-    },
-    guidelines: "Lightweight operation to count documents without fetching data.",
-  },
-
-  // Redis Commands
-  "redis.get": {
-    params: {
-      connectionId: { type: "string", required: true, description: "Connection ID from context" },
-      key: { type: "string", required: true, description: "Redis key to retrieve" },
-    },
-    example: {
-      connectionId: "conn-789",
-      key: "user:123",
-    },
-    guidelines: "Works with all Redis data types: string, hash, list, set, zset, stream.",
-  },
-  "redis.keys": {
-    params: {
-      connectionId: { type: "string", required: true, description: "Connection ID from context" },
-      pattern: { type: "string", required: false, description: "Glob-style pattern", default: '"*"' },
-      limit: { type: "number", required: false, description: "Max keys to return", default: "100" },
-    },
-    example: {
-      connectionId: "conn-789",
-      pattern: "session:*",
-      limit: 100,
-    },
-    guidelines: "Use patterns like 'user:*', 'cache:*:data'. Avoid '*' on large databases.",
-  },
-  "redis.scan": {
-    params: {
-      connectionId: { type: "string", required: true, description: "Connection ID from context" },
-      pattern: { type: "string", required: false, description: "Glob-style pattern" },
-      count: { type: "number", required: false, description: "Hint for keys per iteration" },
-      cursor: { type: "string", required: false, description: "Cursor from previous scan", default: '"0"' },
-    },
-    example: {
-      connectionId: "conn-789",
-      pattern: "cache:*",
-      count: 100,
-      cursor: "0",
-    },
-    guidelines: "Use for iterating large keyspaces. Continue scanning until cursor returns '0'.",
-  },
-
   // Universal Commands
   "crud.stage": {
     params: {
@@ -681,14 +566,26 @@ You are assisting a user in QueryPilot, a database IDE that supports:
 
 ## Your Capabilities
 
-1. **Read database schema** - Use the provided context to understand tables, collections, keys
-2. **Execute read queries** - Output commands to run SELECT queries, find documents, or get Redis values
+1. **Read database data** - Use MCP tools (query_database, list_tables, describe_table) to query databases
+2. **Read database schema** - Use the provided context to understand tables, collections, keys
 3. **Stage mutations** - Output commands to stage INSERT/UPDATE/DELETE (user must review and commit)
 4. **Modify tabs** - Update SQL in editor tabs or create new tabs
 
-## Command Format
+## IMPORTANT: Use MCP Tools for Database Reads
 
-To execute actions, output command blocks in this format:
+**DO NOT use structured commands for reading data.** Instead, use MCP tools:
+
+- \`query_database\` - Execute SQL queries, MongoDB queries, or Redis commands
+- \`list_tables\` - List tables/collections in a database
+- \`describe_table\` - Get column info for a table
+- \`list_connections\` - Get available database connections
+- \`get_query_history\` - See recent queries the user executed
+- \`get_current_context\` - See what the user is currently working on
+- \`get_execution_plan\` - Get EXPLAIN output for query optimization
+
+## Command Format (for mutations and UI actions only)
+
+To stage mutations or modify tabs, output command blocks:
 
 \`\`\`
 <command name="command.name">
@@ -699,19 +596,14 @@ To execute actions, output command blocks in this format:
 </command>
 \`\`\`
 
-The JSON must be valid. Commands will be parsed and displayed to the user for approval (depending on approval level).
+The JSON must be valid. Commands will be parsed and displayed to the user for approval.
 
 ## Important Rules
 
-1. **Always use connectionId from context** - Look at the \`connections\` array and use the correct \`id\`
-2. **Check the paradigm** - Match commands to connection paradigm:
-   - \`sql.*\` commands for paradigm "sql"
-   - \`mongodb.*\` commands for paradigm "document"
-   - \`redis.*\` commands for paradigm "keyvalue"
-   - \`crud.*\`, \`tab.*\`, \`editor.*\` work with any paradigm
-3. **Read-only by default** - sql.execute only allows SELECT. Use crud.stage for mutations
-4. **Results come back** - After a command executes, you'll see the results and can continue reasoning
-5. **Check approval levels** - Some commands run automatically, others need user approval
+1. **Use MCP tools for reads** - DO NOT output sql.execute, mongodb.find, or redis.get commands
+2. **Use commands for mutations** - Use crud.stage to stage INSERT/UPDATE/DELETE changes
+3. **Use commands for UI** - Use tab.update, tab.create, editor.insert to modify the editor
+4. **Always use connectionId from context** - Look at the \`connections\` array
 
 `.trim();
 
