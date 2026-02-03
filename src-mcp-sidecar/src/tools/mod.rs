@@ -2,6 +2,7 @@
 //!
 //! This module contains all the MCP tools that can be called by LLM agents.
 
+pub mod context;
 pub mod describe;
 pub mod list;
 pub mod query;
@@ -16,19 +17,22 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
         list::list_tables_definition(),
         list::list_connections_definition(),
         describe::definition(),
+        context::query_history_definition(),
+        context::current_context_definition(),
+        context::execution_plan_definition(),
     ]
 }
 
 /// Execute a tool call
-pub async fn execute_tool(
-    client: &IpcClient,
-    params: &ToolCallParams,
-) -> ToolCallResult {
+pub async fn execute_tool(client: &IpcClient, params: &ToolCallParams) -> ToolCallResult {
     match params.name.as_str() {
         "query_database" => query::execute(client, &params.arguments).await,
         "list_tables" => list::execute_list_tables(client, &params.arguments).await,
         "list_connections" => list::execute_list_connections(client, &params.arguments).await,
         "describe_table" => describe::execute(client, &params.arguments).await,
+        "get_query_history" => context::execute_query_history(client, &params.arguments).await,
+        "get_current_context" => context::execute_current_context(client).await,
+        "get_execution_plan" => context::execute_execution_plan(client, &params.arguments).await,
         _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
     }
 }
