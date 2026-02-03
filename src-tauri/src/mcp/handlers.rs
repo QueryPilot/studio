@@ -17,6 +17,15 @@ use crate::types::DbType;
 use super::protocol::{error_codes, JsonRpcResponse};
 
 // ============================================================================
+// SQL Injection Prevention
+// ============================================================================
+
+/// Validate that a name is a safe SQL identifier (alphanumeric + underscore)
+fn is_valid_sql_identifier(name: &str) -> bool {
+    !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
+// ============================================================================
 // Request Parameter Types
 // ============================================================================
 
@@ -218,7 +227,14 @@ impl McpHandler {
                 .collect(),
         };
 
-        JsonRpcResponse::success(id, serde_json::to_value(result).unwrap())
+        match serde_json::to_value(&result) {
+            Ok(value) => JsonRpcResponse::success(id, value),
+            Err(e) => JsonRpcResponse::error(
+                id,
+                error_codes::INTERNAL_ERROR,
+                format!("Serialization error: {}", e),
+            ),
+        }
     }
 
     /// Execute a query
@@ -287,7 +303,14 @@ impl McpHandler {
                     },
                     error: None,
                 };
-                JsonRpcResponse::success(id, serde_json::to_value(result).unwrap())
+                match serde_json::to_value(&result) {
+                    Ok(value) => JsonRpcResponse::success(id, value),
+                    Err(e) => JsonRpcResponse::error(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        format!("Serialization error: {}", e),
+                    ),
+                }
             }
             Err(e) => {
                 let result = QueryResult {
@@ -304,7 +327,14 @@ impl McpHandler {
                     },
                     error: Some(e),
                 };
-                JsonRpcResponse::success(id, serde_json::to_value(result).unwrap())
+                match serde_json::to_value(&result) {
+                    Ok(value) => JsonRpcResponse::success(id, value),
+                    Err(e) => JsonRpcResponse::error(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        format!("Serialization error: {}", e),
+                    ),
+                }
             }
         }
     }
@@ -322,8 +352,8 @@ impl McpHandler {
             .as_sql()
             .ok_or_else(|| "Connection does not support SQL queries".to_string())?;
 
-        // Build query with limit and order
-        let modified_query = self.build_limited_query(query, limit, order);
+        // Build query with limit and order (validates column names)
+        let modified_query = self.build_limited_query(query, limit, order)?;
 
         let result = sql_adapter
             .execute_query(&modified_query)
@@ -359,11 +389,12 @@ impl McpHandler {
     }
 
     /// Build a limited query (simple approach - wraps in subquery for safety)
-    fn build_limited_query(&self, query: &str, limit: u64, order: &Option<Vec<OrderSpec>>) -> String {
+    /// Returns None if any column name fails validation
+    fn build_limited_query(&self, query: &str, limit: u64, order: &Option<Vec<OrderSpec>>) -> Result<String, String> {
         // If the query already has LIMIT, don't modify it
         let upper_query = query.to_uppercase();
         if upper_query.contains(" LIMIT ") {
-            return query.to_string();
+            return Ok(query.to_string());
         }
 
         let mut modified = query.trim_end_matches(';').to_string();
@@ -371,6 +402,12 @@ impl McpHandler {
         // Add ORDER BY if specified (supports multiple columns)
         if let Some(orders) = order {
             if !orders.is_empty() {
+                // Validate all column names before building query
+                for o in orders {
+                    if !is_valid_sql_identifier(&o.column) {
+                        return Err(format!("Invalid column name in ORDER BY: '{}'", o.column));
+                    }
+                }
                 let order_clauses: Vec<String> = orders
                     .iter()
                     .map(|o| {
@@ -386,7 +423,7 @@ impl McpHandler {
         }
 
         // Add LIMIT
-        format!("{} LIMIT {}", modified, limit)
+        Ok(format!("{} LIMIT {}", modified, limit))
     }
 
     /// Execute document (MongoDB) query
@@ -546,7 +583,14 @@ impl McpHandler {
         };
 
         match result {
-            Ok(tables) => JsonRpcResponse::success(id, serde_json::to_value(tables).unwrap()),
+            Ok(tables) => match serde_json::to_value(&tables) {
+                Ok(value) => JsonRpcResponse::success(id, value),
+                Err(e) => JsonRpcResponse::error(
+                    id,
+                    error_codes::INTERNAL_ERROR,
+                    format!("Serialization error: {}", e),
+                ),
+            },
             Err(e) => JsonRpcResponse::error(id, error_codes::QUERY_FAILED, e),
         }
     }
@@ -564,6 +608,12 @@ impl McpHandler {
 
         // Build query based on database type
         let schema = params.schema.as_deref().unwrap_or("public");
+
+        // Validate schema name to prevent SQL injection
+        if !is_valid_sql_identifier(schema) {
+            return Err(format!("Invalid schema name: '{}'", schema));
+        }
+
         let db_type = conn.adapter.db_type();
 
         let query = match db_type {
@@ -681,7 +731,14 @@ impl McpHandler {
         };
 
         match result {
-            Ok(desc) => JsonRpcResponse::success(id, serde_json::to_value(desc).unwrap()),
+            Ok(desc) => match serde_json::to_value(&desc) {
+                Ok(value) => JsonRpcResponse::success(id, value),
+                Err(e) => JsonRpcResponse::error(
+                    id,
+                    error_codes::INTERNAL_ERROR,
+                    format!("Serialization error: {}", e),
+                ),
+            },
             Err(e) => JsonRpcResponse::error(id, error_codes::QUERY_FAILED, e),
         }
     }
@@ -699,6 +756,15 @@ impl McpHandler {
 
         let schema = params.schema.as_deref().unwrap_or("public");
         let table = &params.table;
+
+        // Validate schema and table names to prevent SQL injection
+        if !is_valid_sql_identifier(schema) {
+            return Err(format!("Invalid schema name: '{}'", schema));
+        }
+        if !is_valid_sql_identifier(table) {
+            return Err(format!("Invalid table name: '{}'", table));
+        }
+
         let db_type = conn.adapter.db_type();
 
         // Query for columns
@@ -888,7 +954,7 @@ mod tests {
     #[test]
     fn test_build_limited_query_basic() {
         let handler = McpHandler::new(Arc::new(ConnectionManager::new()));
-        let result = handler.build_limited_query("SELECT * FROM users", 100, &None);
+        let result = handler.build_limited_query("SELECT * FROM users", 100, &None).unwrap();
         assert_eq!(result, "SELECT * FROM users LIMIT 100");
     }
 
@@ -899,7 +965,7 @@ mod tests {
             column: "created_at".to_string(),
             direction: OrderDirection::Desc,
         }]);
-        let result = handler.build_limited_query("SELECT * FROM users", 50, &order);
+        let result = handler.build_limited_query("SELECT * FROM users", 50, &order).unwrap();
         assert_eq!(result, "SELECT * FROM users ORDER BY \"created_at\" DESC LIMIT 50");
     }
 
@@ -916,15 +982,40 @@ mod tests {
                 direction: OrderDirection::Asc,
             },
         ]);
-        let result = handler.build_limited_query("SELECT * FROM users", 50, &order);
+        let result = handler.build_limited_query("SELECT * FROM users", 50, &order).unwrap();
         assert_eq!(result, "SELECT * FROM users ORDER BY \"created_at\" DESC, \"name\" ASC LIMIT 50");
     }
 
     #[test]
     fn test_build_limited_query_already_has_limit() {
         let handler = McpHandler::new(Arc::new(ConnectionManager::new()));
-        let result = handler.build_limited_query("SELECT * FROM users LIMIT 10", 100, &None);
+        let result = handler.build_limited_query("SELECT * FROM users LIMIT 10", 100, &None).unwrap();
         assert_eq!(result, "SELECT * FROM users LIMIT 10");
+    }
+
+    #[test]
+    fn test_build_limited_query_rejects_invalid_column() {
+        let handler = McpHandler::new(Arc::new(ConnectionManager::new()));
+        let order = Some(vec![OrderSpec {
+            column: "column; DROP TABLE users;--".to_string(),
+            direction: OrderDirection::Asc,
+        }]);
+        let result = handler.build_limited_query("SELECT * FROM users", 50, &order);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid column name"));
+    }
+
+    #[test]
+    fn test_is_valid_sql_identifier() {
+        assert!(is_valid_sql_identifier("users"));
+        assert!(is_valid_sql_identifier("user_table"));
+        assert!(is_valid_sql_identifier("User123"));
+        assert!(is_valid_sql_identifier("_private"));
+        assert!(!is_valid_sql_identifier(""));
+        assert!(!is_valid_sql_identifier("table name"));
+        assert!(!is_valid_sql_identifier("table;drop"));
+        assert!(!is_valid_sql_identifier("table'injection"));
+        assert!(!is_valid_sql_identifier("table--comment"));
     }
 
     #[test]

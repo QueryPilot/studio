@@ -15,8 +15,8 @@ use tokio::sync::{mpsc, oneshot};
 
 use agent_client_protocol::{
     Agent, CancelNotification, Client, ClientCapabilities, ClientSideConnection, ContentBlock,
-    FileSystemCapability, Implementation, InitializeRequest, ModelId, NewSessionRequest,
-    PermissionOptionKind, PromptRequest, PromptResponse, ProtocolVersion,
+    FileSystemCapability, Implementation, InitializeRequest, McpServer, McpServerStdio, ModelId,
+    NewSessionRequest, PermissionOptionKind, PromptRequest, PromptResponse, ProtocolVersion,
     RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
     SelectedPermissionOutcome, SessionId, SessionNotification, SetSessionModelRequest, ToolKind,
 };
@@ -27,6 +27,14 @@ use super::discovery::AgentInfo;
 pub type NotificationSender = mpsc::UnboundedSender<SessionNotification>;
 pub type NotificationReceiver = mpsc::UnboundedReceiver<SessionNotification>;
 
+/// MCP Server configuration for passing to ACP sessions
+#[derive(Clone, Debug)]
+pub struct McpServerConfig {
+    pub name: String,
+    pub command: PathBuf,
+    pub args: Vec<String>,
+}
+
 /// Commands that can be sent to the ACP worker thread
 enum AcpCommand {
     StartAgent {
@@ -36,6 +44,7 @@ enum AcpCommand {
     CreateSession {
         agent_id: String,
         cwd: String,
+        mcp_servers: Vec<McpServerConfig>,
         response_tx: oneshot::Sender<Result<String, String>>,
     },
     SetSessionModel {
@@ -294,10 +303,25 @@ impl AcpWorker {
         Ok(agent_id)
     }
 
-    async fn create_session(&mut self, agent_id: &str, cwd: &str) -> Result<String, String> {
+    async fn create_session(
+        &mut self,
+        agent_id: &str,
+        cwd: &str,
+        mcp_servers: Vec<McpServerConfig>,
+    ) -> Result<String, String> {
         let process = self.agents.get_mut(agent_id).ok_or("Agent not found")?;
 
-        let request = NewSessionRequest::new(PathBuf::from(cwd)).mcp_servers(vec![]);
+        // Convert McpServerConfig to protocol's McpServer type
+        let acp_mcp_servers: Vec<McpServer> = mcp_servers
+            .into_iter()
+            .map(|cfg| {
+                McpServer::Stdio(
+                    McpServerStdio::new(&cfg.name, &cfg.command).args(cfg.args),
+                )
+            })
+            .collect();
+
+        let request = NewSessionRequest::new(PathBuf::from(cwd)).mcp_servers(acp_mcp_servers);
 
         let response = process
             .connection
@@ -440,9 +464,10 @@ impl AcpManager {
                         AcpCommand::CreateSession {
                             agent_id,
                             cwd,
+                            mcp_servers,
                             response_tx,
                         } => {
-                            let result = worker.create_session(&agent_id, &cwd).await;
+                            let result = worker.create_session(&agent_id, &cwd, mcp_servers).await;
                             let _ = response_tx.send(result);
                         }
                         AcpCommand::SetSessionModel {
@@ -503,12 +528,18 @@ impl AcpManager {
     }
 
     /// Create a new session for an agent
-    pub async fn create_session(&self, agent_id: &str, cwd: &str) -> Result<String, String> {
+    pub async fn create_session(
+        &self,
+        agent_id: &str,
+        cwd: &str,
+        mcp_servers: Vec<McpServerConfig>,
+    ) -> Result<String, String> {
         let (response_tx, response_rx) = oneshot::channel();
         self.command_tx
             .send(AcpCommand::CreateSession {
                 agent_id: agent_id.to_string(),
                 cwd: cwd.to_string(),
+                mcp_servers,
                 response_tx,
             })
             .map_err(|_| "ACP worker shutdown")?;
