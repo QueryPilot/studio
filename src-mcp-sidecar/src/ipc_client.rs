@@ -234,6 +234,39 @@ impl IpcClient {
     pub async fn list_connections(&self) -> Result<serde_json::Value> {
         self.request("list_connections", serde_json::json!({})).await
     }
+
+    /// Get query history
+    pub async fn get_query_history(
+        &self,
+        limit: Option<usize>,
+        connection_id: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        let params = serde_json::json!({
+            "limit": limit,
+            "connectionId": connection_id
+        });
+        self.request("get_query_history", params).await
+    }
+
+    /// Get current active context
+    pub async fn get_current_context(&self) -> Result<serde_json::Value> {
+        self.request("get_current_context", serde_json::json!({})).await
+    }
+
+    /// Get execution plan for a query
+    pub async fn get_execution_plan(
+        &self,
+        connection_id: &str,
+        query: &str,
+        analyze: bool,
+    ) -> Result<serde_json::Value> {
+        let params = serde_json::json!({
+            "connectionId": connection_id,
+            "query": query,
+            "analyze": analyze
+        });
+        self.request("get_execution_plan", params).await
+    }
 }
 
 /// Mock IPC client for testing without a running Tauri backend
