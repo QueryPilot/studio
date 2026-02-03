@@ -1047,8 +1047,13 @@ impl McpHandler {
                 format!("EXPLAIN QUERY PLAN {}", params.query)
             }
             DbType::SQLServer => {
-                // SQL Server uses SET SHOWPLAN_TEXT ON before query
-                format!("SET SHOWPLAN_TEXT ON; {}", params.query)
+                // SQL Server requires SET SHOWPLAN_TEXT ON as a separate session setting
+                // which doesn't work well with single-query execution. Return error for now.
+                return JsonRpcResponse::error(
+                    id,
+                    error_codes::QUERY_FAILED,
+                    "EXPLAIN is not yet supported for SQL Server. Use SQL Server Management Studio for execution plans.".to_string(),
+                );
             }
             _ => {
                 return JsonRpcResponse::error(
