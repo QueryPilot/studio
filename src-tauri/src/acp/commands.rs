@@ -92,15 +92,41 @@ pub async fn acp_start_agent(
     Ok(instance_id)
 }
 
+/// MCP server configuration passed from frontend
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServerConfig {
+    pub name: String,
+    pub command: String,
+    pub args: Vec<String>,
+}
+
 /// Create a new session for an agent
 #[tauri::command]
 pub async fn acp_create_session(
     instance_id: String,
     cwd: String,
+    mcp_servers: Option<Vec<McpServerConfig>>,
     manager: State<'_, Arc<AcpManager>>,
 ) -> Result<String, String> {
     tracing::info!("Creating session for instance {} with cwd: {}", instance_id, cwd);
-    match manager.create_session(&instance_id, &cwd).await {
+
+    // Convert frontend config to manager's internal format
+    let mcp_configs: Vec<super::manager::McpServerConfig> = mcp_servers
+        .unwrap_or_default()
+        .into_iter()
+        .map(|cfg| super::manager::McpServerConfig {
+            name: cfg.name,
+            command: std::path::PathBuf::from(cfg.command),
+            args: cfg.args,
+        })
+        .collect();
+
+    if !mcp_configs.is_empty() {
+        tracing::info!("MCP servers configured: {:?}", mcp_configs.iter().map(|c| &c.name).collect::<Vec<_>>());
+    }
+
+    match manager.create_session(&instance_id, &cwd, mcp_configs).await {
         Ok(session_id) => {
             tracing::info!("Session created: {}", session_id);
             Ok(session_id)
@@ -277,6 +303,60 @@ pub async fn acp_initialize_llm_home() -> Result<String, String> {
 pub async fn acp_get_llm_home() -> Result<String, String> {
     let llm_home = super::llm_home::get_llm_home()?;
     Ok(llm_home.to_string_lossy().to_string())
+}
+
+/// Get the path to the MCP sidecar binary
+/// Returns the absolute path to the querypilot-mcp sidecar bundled with the app
+#[tauri::command]
+pub async fn acp_get_mcp_sidecar_path(app_handle: tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+
+    // In development, use the debug build path
+    // In production, use the bundled sidecar from the app resources
+    let sidecar_name = if cfg!(target_os = "windows") {
+        "querypilot-mcp.exe"
+    } else {
+        "querypilot-mcp"
+    };
+
+    // Try to resolve from app resources (production)
+    if let Ok(resource_dir) = app_handle.path().resource_dir() {
+        let sidecar_path = resource_dir.join("binaries").join(sidecar_name);
+        if sidecar_path.exists() {
+            tracing::info!("Found MCP sidecar at: {}", sidecar_path.display());
+            return Ok(sidecar_path.to_string_lossy().to_string());
+        }
+    }
+
+    // Fallback: try the target/debug path for development
+    let dev_path = std::env::current_dir()
+        .map_err(|e| format!("Failed to get current dir: {}", e))?
+        .join("target")
+        .join("debug")
+        .join(sidecar_name);
+
+    if dev_path.exists() {
+        tracing::info!("Found MCP sidecar (dev) at: {}", dev_path.display());
+        return Ok(dev_path.to_string_lossy().to_string());
+    }
+
+    // Also check relative to src-tauri for monorepo structure
+    let monorepo_path = std::env::current_dir()
+        .map_err(|e| format!("Failed to get current dir: {}", e))?
+        .parent()
+        .map(|p| p.join("src-tauri").join("target").join("debug").join(sidecar_name));
+
+    if let Some(path) = monorepo_path {
+        if path.exists() {
+            tracing::info!("Found MCP sidecar (monorepo dev) at: {}", path.display());
+            return Ok(path.to_string_lossy().to_string());
+        }
+    }
+
+    Err(format!(
+        "MCP sidecar not found. Expected at bundled resources or target/debug/{}",
+        sidecar_name
+    ))
 }
 
 /// Install a package using the specified package manager

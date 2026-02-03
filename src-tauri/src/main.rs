@@ -31,6 +31,20 @@ fn main() {
     // Create connection manager
     let manager = Arc::new(core::manager::ConnectionManager::new());
 
+    // Create and start MCP bridge for AI agent communication
+    let mcp_bridge = Arc::new(mcp::McpBridge::new(manager.clone()));
+    let mcp_bridge_for_cleanup = mcp_bridge.clone();
+
+    // Start MCP bridge in background
+    {
+        let bridge = mcp_bridge.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = bridge.start().await {
+                tracing::error!("Failed to start MCP bridge: {}", e);
+            }
+        });
+    }
+
     // Create ACP manager for AI agent integration
     let acp_manager = Arc::new(acp::manager::AcpManager::new());
 
@@ -185,12 +199,13 @@ fn main() {
             acp::commands::acp_install_package,
             acp::commands::acp_initialize_llm_home,
             acp::commands::acp_get_llm_home,
+            acp::commands::acp_get_mcp_sidecar_path,
         ])
         .build(context)
         .expect("error while building tauri application");
 
     // Run the app with proper cleanup
-    app.run(|app_handle, event| {
+    app.run(move |app_handle, event| {
         // Handle both ExitRequested and Exit to ensure cleanup on Cmd+Q
         let should_cleanup = matches!(
             event,
@@ -199,6 +214,10 @@ fn main() {
 
         if should_cleanup {
             tracing::info!("🛑 Application exit requested, cleaning up resources...");
+
+            // Shutdown MCP bridge
+            mcp_bridge_for_cleanup.shutdown();
+            tracing::info!("✅ MCP bridge shutdown signaled");
 
             // Run cleanup with overall timeout to prevent hanging
             let conn_manager_opt = app_handle

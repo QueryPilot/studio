@@ -143,25 +143,11 @@ export function hasIncompleteCommand(text: string): boolean {
 
 /**
  * Get human-readable description for a command.
+ *
+ * Note: Read command cases have been removed - AI uses MCP tools for database reads.
  */
 export function getCommandDescription(command: ParsedCommand): string {
   switch (command.name) {
-    case "sql.execute":
-      return `Execute SQL query`;
-    case "sql.explain":
-      return `Explain query plan`;
-    case "mongodb.find":
-      return `Find documents in ${(command.params as { collection?: string }).collection ?? "collection"}`;
-    case "mongodb.aggregate":
-      return `Run aggregation on ${(command.params as { collection?: string }).collection ?? "collection"}`;
-    case "mongodb.count":
-      return `Count documents in ${(command.params as { collection?: string }).collection ?? "collection"}`;
-    case "redis.get":
-      return `Get key: ${(command.params as { key?: string }).key ?? "key"}`;
-    case "redis.keys":
-      return `List keys: ${(command.params as { pattern?: string }).pattern ?? "*"}`;
-    case "redis.scan":
-      return `Scan keys`;
     case "crud.stage":
       return `Stage ${(command.params as { operation?: string }).operation ?? "change"}`;
     case "tab.update":
@@ -177,6 +163,8 @@ export function getCommandDescription(command: ParsedCommand): string {
 
 /**
  * Validate command parameters.
+ *
+ * Note: Read command validation removed - AI uses MCP tools for database reads.
  */
 export function validateCommand(command: ParsedCommand): string | null {
   // Check if command name is valid
@@ -193,18 +181,6 @@ export function validateCommand(command: ParsedCommand): string | null {
   }
 
   switch (command.name) {
-    case "sql.execute":
-    case "sql.explain":
-      if (!params.sql) return "Missing required parameter: sql";
-      break;
-    case "mongodb.find":
-    case "mongodb.aggregate":
-    case "mongodb.count":
-      if (!params.collection) return "Missing required parameter: collection";
-      break;
-    case "redis.get":
-      if (!params.key) return "Missing required parameter: key";
-      break;
     case "crud.stage":
       if (!params.operation) return "Missing required parameter: operation";
       break;
