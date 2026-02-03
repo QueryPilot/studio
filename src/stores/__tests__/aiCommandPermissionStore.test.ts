@@ -14,14 +14,14 @@ describe("aiCommandPermissionStore", () => {
 
   it("tracks pending commands", () => {
     const { trackCommand, getCommandState } = useAiCommandPermissionStore.getState();
-    trackCommand("cmd-1", "sql.execute");
+    trackCommand("cmd-1", "crud.stage");
     expect(getCommandState("cmd-1")).toBe("pending");
   });
 
   it("approves commands", () => {
     const { trackCommand, approveCommand, getCommandState } =
       useAiCommandPermissionStore.getState();
-    trackCommand("cmd-1", "sql.execute");
+    trackCommand("cmd-1", "crud.stage");
     approveCommand("cmd-1");
     expect(getCommandState("cmd-1")).toBe("approved");
   });
@@ -29,7 +29,7 @@ describe("aiCommandPermissionStore", () => {
   it("rejects commands", () => {
     const { trackCommand, rejectCommand, getCommandState } =
       useAiCommandPermissionStore.getState();
-    trackCommand("cmd-1", "sql.execute");
+    trackCommand("cmd-1", "crud.stage");
     rejectCommand("cmd-1");
     expect(getCommandState("cmd-1")).toBe("rejected");
   });
@@ -37,30 +37,28 @@ describe("aiCommandPermissionStore", () => {
   it("auto-approves when allowAllThisConversation is true", () => {
     const { setAllowAll, shouldAutoApprove } = useAiCommandPermissionStore.getState();
     setAllowAll(true);
-    expect(shouldAutoApprove("sql.execute")).toBe(true);
-    expect(shouldAutoApprove("mongodb.find")).toBe(true);
-  });
-
-  it("never auto-approves dangerous commands", () => {
-    const { setAllowAll, shouldAutoApprove } = useAiCommandPermissionStore.getState();
-    setAllowAll(true);
-    // crud.stage is approve-level, not dangerous
-    // For now we don't have dangerous commands, but this tests the logic
+    // crud.stage is approve-level, so it auto-approves with allowAll
     expect(shouldAutoApprove("crud.stage")).toBe(true);
   });
 
   it("auto-approves auto-level commands", () => {
     const { shouldAutoApprove } = useAiCommandPermissionStore.getState();
-    // sql.explain is auto-approve level
-    expect(shouldAutoApprove("sql.explain")).toBe(true);
-    expect(shouldAutoApprove("redis.get")).toBe(true);
+    // These are auto-approve level
     expect(shouldAutoApprove("tab.update")).toBe(true);
+    expect(shouldAutoApprove("tab.create")).toBe(true);
+    expect(shouldAutoApprove("editor.insert")).toBe(true);
+  });
+
+  it("does not auto-approve approve-level commands without allowAll", () => {
+    const { shouldAutoApprove } = useAiCommandPermissionStore.getState();
+    // crud.stage is approve-level, needs explicit approval
+    expect(shouldAutoApprove("crud.stage")).toBe(false);
   });
 
   it("resets on new conversation", () => {
     const store = useAiCommandPermissionStore.getState();
     store.setAllowAll(true);
-    store.trackCommand("cmd-1", "sql.execute");
+    store.trackCommand("cmd-1", "crud.stage");
     store.approveCommand("cmd-1");
 
     store.reset();
@@ -74,7 +72,7 @@ describe("aiCommandPermissionStore", () => {
     it("updates command state to executing", () => {
       const { trackCommand, setCommandState, getCommandState } =
         useAiCommandPermissionStore.getState();
-      trackCommand("cmd-1", "sql.execute");
+      trackCommand("cmd-1", "crud.stage");
       setCommandState("cmd-1", "executing");
       expect(getCommandState("cmd-1")).toBe("executing");
     });
@@ -82,7 +80,7 @@ describe("aiCommandPermissionStore", () => {
     it("updates command state to completed", () => {
       const { trackCommand, setCommandState, getCommandState } =
         useAiCommandPermissionStore.getState();
-      trackCommand("cmd-1", "sql.execute");
+      trackCommand("cmd-1", "tab.update");
       setCommandState("cmd-1", "completed");
       expect(getCommandState("cmd-1")).toBe("completed");
     });
@@ -90,7 +88,7 @@ describe("aiCommandPermissionStore", () => {
     it("updates command state to failed", () => {
       const { trackCommand, setCommandState, getCommandState } =
         useAiCommandPermissionStore.getState();
-      trackCommand("cmd-1", "sql.execute");
+      trackCommand("cmd-1", "editor.insert");
       setCommandState("cmd-1", "failed");
       expect(getCommandState("cmd-1")).toBe("failed");
     });
@@ -112,11 +110,14 @@ describe("aiCommandPermissionStore", () => {
 
     it("returns false for approve-level commands without allowAll", () => {
       const { shouldAutoApprove } = useAiCommandPermissionStore.getState();
-      // sql.execute is now auto-level, so only test actual approve-level commands
-      expect(shouldAutoApprove("mongodb.find")).toBe(false);
-      expect(shouldAutoApprove("mongodb.aggregate")).toBe(false);
-      expect(shouldAutoApprove("redis.scan")).toBe(false);
+      // crud.stage is the only approve-level command remaining
       expect(shouldAutoApprove("crud.stage")).toBe(false);
+    });
+
+    it("returns true for approve-level commands with allowAll", () => {
+      const { setAllowAll, shouldAutoApprove } = useAiCommandPermissionStore.getState();
+      setAllowAll(true);
+      expect(shouldAutoApprove("crud.stage")).toBe(true);
     });
   });
 });
