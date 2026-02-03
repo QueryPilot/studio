@@ -8,6 +8,7 @@ import {
   migrateFromLocalStorage,
   type PersistedTabState,
 } from "@/lib/db/tabState";
+import { debouncedSyncAiContext } from "@/services/aiContextService";
 
 // Re-export PersistedTabState for consumers
 export type { PersistedTabState };
@@ -149,7 +150,11 @@ interface TabStateStore {
   loadTabStateAsync: (tabId: string) => Promise<void>;
 
   // Update query state for a tab
-  setQueryState: (tabId: string, state: Partial<QueryState>) => void;
+  setQueryState: (
+    tabId: string,
+    state: Partial<QueryState>,
+    connectionContext?: { connectionId: string; database: string; schema: string }
+  ) => void;
 
   // Clear query state for a tab (when tab is closed)
   clearQueryState: (tabId: string) => void;
@@ -246,7 +251,11 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
     }
   },
 
-  setQueryState: (tabId: string, state: Partial<QueryState>) => {
+  setQueryState: (
+    tabId: string,
+    state: Partial<QueryState>,
+    connectionContext?: { connectionId: string; database: string; schema: string }
+  ) => {
     set((store) => {
       const newStates = new Map(store.queryStates);
       const existing = newStates.get(tabId) || {
@@ -286,6 +295,22 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
           viewMode: newState.viewMode,
           selectedDialect: newState.selectedDialect,
           tableViewType: newState.tableViewType,
+        });
+      }
+
+      // Sync to AI context (for MCP tools)
+      // Only sync if we have meaningful state
+      if (newState.query || newState.result) {
+        debouncedSyncAiContext({
+          connectionId: connectionContext?.connectionId ?? null,
+          database: connectionContext?.database ?? null,
+          schema: connectionContext?.schema ?? null,
+          query: newState.query || null,
+          lastExecutedQuery: newState.lastExecutedQuery || null,
+          hasResults: newState.result !== null,
+          rowCount: newState.result?.rowCount ?? null,
+          columnCount: newState.result?.columns?.length ?? null,
+          updatedAt: Date.now(),
         });
       }
 
