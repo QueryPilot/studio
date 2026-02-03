@@ -39,6 +39,7 @@ import { parseMutationTables } from "@/utils/sqlParser";
 import { eventBus } from "@/services/eventBus";
 import { schemaCache } from "@/services/schemaCache";
 import { trackQuery } from "@/services/queryTracker";
+import { trackQueryExecution } from "@/services/aiContextService";
 import { SaveQueryDialog } from "@/components/QueryHistory";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { editorRegistry } from "@/services/editorRegistry";
@@ -282,15 +283,20 @@ export const QueryPanel = memo(function QueryPanel({
     }
 
     // Batch all state updates into single Zustand update
-    setQueryState(tabId, {
-      query,
-      result,
-      isExecuting,
-      isStreaming,
-      appliedLimit,
-      viewMode,
-      selectedDialect,
-    });
+    setQueryState(
+      tabId,
+      {
+        query,
+        result,
+        isExecuting,
+        isStreaming,
+        appliedLimit,
+        viewMode,
+        selectedDialect,
+      },
+      // Pass connection context for AI sync
+      { connectionId: effectiveConnectionId, database, schema }
+    );
   }, [
     query,
     result,
@@ -301,6 +307,9 @@ export const QueryPanel = memo(function QueryPanel({
     selectedDialect,
     tabId,
     setQueryState,
+    effectiveConnectionId,
+    database,
+    schema,
   ]);
 
   // Cleanup global state when component fully unmounts (tab closed, not just moved)
@@ -747,6 +756,19 @@ export const QueryPanel = memo(function QueryPanel({
           source: "editor",
         });
 
+        // Track for AI agent context
+        void trackQueryExecution({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          query: sql,
+          connectionId: effectiveConnectionId,
+          database,
+          schema,
+          executedAt: Date.now(),
+          executionTimeMs: executionTime,
+          rowCount: final.totalRows ?? rowCount,
+          success: true,
+        });
+
         queryResult = {
           columns: final.columns.map((c) => c.name),
           columnMeta: final.columns as unknown as ColumnMeta[],
@@ -803,6 +825,18 @@ export const QueryPanel = memo(function QueryPanel({
             success: false,
             error: errorMessage,
             source: "editor",
+          });
+
+          // Track for AI agent context
+          void trackQueryExecution({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            query: sql,
+            connectionId: effectiveConnectionId,
+            database,
+            schema,
+            executedAt: Date.now(),
+            success: false,
+            error: errorMessage,
           });
         }
       } finally {
