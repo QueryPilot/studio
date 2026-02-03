@@ -71,6 +71,9 @@ fn main() {
         .manage(manager)
         .manage(acp_manager)
         .manage(app_state)
+        .manage(ai_context::AiContextState(std::sync::Arc::new(
+            ai_context::AiContextStore::new(),
+        )))
         .setup(|app| {
             // Build and set the application menu
             let menu = query_pilot::menu::build_menu(&app.handle()).expect("Failed to build menu");
@@ -200,6 +203,11 @@ fn main() {
             acp::commands::acp_initialize_llm_home,
             acp::commands::acp_get_llm_home,
             acp::commands::acp_get_mcp_sidecar_path,
+            // AI Context commands (for syncing context to MCP bridge)
+            ai_context::commands::sync_ai_context,
+            ai_context::commands::track_query_execution,
+            ai_context::commands::get_ai_query_history,
+            ai_context::commands::get_ai_active_context,
         ])
         .build(context)
         .expect("error while building tauri application");
