@@ -6,7 +6,7 @@
  * Enhanced parameter preview with syntax highlighting and validation.
  */
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, Component, type ReactNode, type ErrorInfo } from "react";
 import {
   IconCheck,
   IconX,
@@ -261,6 +261,47 @@ function ParamRow({
 }
 
 // ============================================================================
+// Error Boundary for Command Cards
+// ============================================================================
+
+interface CommandCardErrorBoundaryProps {
+  children: ReactNode;
+  commandName: string;
+}
+
+interface CommandCardErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class CommandCardErrorBoundary extends Component<CommandCardErrorBoundaryProps, CommandCardErrorBoundaryState> {
+  constructor(props: CommandCardErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): CommandCardErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
+    console.error("[CommandCard] Error rendering command:", this.props.commandName, error, errorInfo);
+  }
+
+  render(): ReactNode {
+    if (this.state.hasError) {
+      return (
+        <div className="flex items-center gap-2 p-2 rounded bg-destructive/10 text-destructive text-xs">
+          <IconAlertTriangle className="h-3 w-3" />
+          <span>Error rendering command: {this.props.commandName}</span>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ============================================================================
 // Command Card Component
 // ============================================================================
 
@@ -271,7 +312,15 @@ interface CommandCardProps {
   batchResult?: string;
 }
 
-export function CommandCard({ command, onResult, batchResult }: CommandCardProps) {
+export function CommandCard(props: CommandCardProps) {
+  return (
+    <CommandCardErrorBoundary commandName={props.command.name}>
+      <CommandCardInner {...props} />
+    </CommandCardErrorBoundary>
+  );
+}
+
+function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) {
   const meta = COMMAND_META[command.name];
 
   // Handle unknown commands gracefully
