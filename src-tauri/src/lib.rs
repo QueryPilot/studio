@@ -1,5 +1,6 @@
 pub mod acp;
 pub mod adapters;
+pub mod ai_context;
 pub mod core;
 pub mod error;
 pub mod keychain;
