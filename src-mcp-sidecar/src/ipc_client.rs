@@ -101,6 +101,9 @@ impl IpcClient {
             }
 
             // Clean up any remaining pending requests when writer loop exits
+            // Note: Both reader and writer attempt cleanup; whichever exits first drains the map,
+            // the other finds it empty. This is intentional - ensures cleanup happens regardless
+            // of which task exits first.
             let mut pending_to_drain = pending_clone.lock().await;
             for (_, tx) in pending_to_drain.drain() {
                 let _ = tx.send(Err(anyhow::anyhow!("Connection closed")));
@@ -145,6 +148,7 @@ impl IpcClient {
             }
 
             // Clean up any remaining pending requests when reader loop exits
+            // (See writer cleanup comment for race condition explanation)
             let mut pending_to_drain = pending_reader.lock().await;
             for (_, tx) in pending_to_drain.drain() {
                 let _ = tx.send(Err(anyhow::anyhow!("Connection closed")));
