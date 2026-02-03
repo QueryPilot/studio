@@ -31,8 +31,11 @@ fn main() {
     // Create connection manager
     let manager = Arc::new(core::manager::ConnectionManager::new());
 
+    // Create shared AI context store for both Tauri state and MCP bridge
+    let ai_context = Arc::new(ai_context::AiContextStore::new());
+
     // Create and start MCP bridge for AI agent communication
-    let mcp_bridge = Arc::new(mcp::McpBridge::new(manager.clone()));
+    let mcp_bridge = Arc::new(mcp::McpBridge::new(manager.clone(), Arc::clone(&ai_context)));
     let mcp_bridge_for_cleanup = mcp_bridge.clone();
 
     // Start MCP bridge in background
@@ -71,9 +74,7 @@ fn main() {
         .manage(manager)
         .manage(acp_manager)
         .manage(app_state)
-        .manage(ai_context::AiContextState(std::sync::Arc::new(
-            ai_context::AiContextStore::new(),
-        )))
+        .manage(ai_context::AiContextState(Arc::clone(&ai_context)))
         .setup(|app| {
             // Build and set the application menu
             let menu = query_pilot::menu::build_menu(&app.handle()).expect("Failed to build menu");

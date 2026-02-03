@@ -9,6 +9,7 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::ai_context::AiContextStore;
 use crate::core::capabilities::{FindOptions, KeyValueOperable};
 use crate::core::manager::ConnectionInfo as ManagerConnectionInfo;
 use crate::core::ConnectionManager;
@@ -98,35 +99,35 @@ pub struct ListConnectionsResult {
     pub connections: Vec<ConnectionInfo>,
 }
 
+/// Query result for MCP sidecar consumption
+/// This format matches what the MCP sidecar expects in QueryResultData
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryResult {
+    /// Column metadata - must be at root level for sidecar parsing
+    pub columns: Vec<ColumnInfo>,
+    /// Rows as array of arrays (not objects) for sidecar parsing
+    pub rows: Vec<Vec<Value>>,
+    /// Success indicator
     pub success: bool,
-    pub data: Vec<Value>,
-    pub metadata: QueryMetadata,
+    /// Row count for metadata
+    pub row_count: usize,
+    /// Whether results were truncated
+    pub truncated: bool,
+    /// Execution time in milliseconds
+    pub execution_time_ms: u64,
+    /// Database type (e.g., "PostgreSQL")
+    pub database_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct QueryMetadata {
-    /// Column names as array of strings (spec compliant)
-    pub columns: Vec<String>,
-    /// Detailed column type info (name + dataType) for LLMs that need type information
-    pub column_types: Vec<ColumnInfo>,
-    pub row_count: usize,
-    pub returned: usize,
-    pub truncated: bool,
-    pub execution_time_ms: u64,
-    pub database_type: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ColumnInfo {
     pub name: String,
-    pub data_type: String,
+    /// Use db_type to match sidecar's ColumnMeta.db_type field
+    pub db_type: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -189,26 +190,37 @@ pub struct ForeignKeyInfo {
 /// MCP Bridge request handler
 pub struct McpHandler {
     manager: Arc<ConnectionManager>,
+    ai_context: Arc<AiContextStore>,
 }
 
 impl McpHandler {
-    pub fn new(manager: Arc<ConnectionManager>) -> Self {
-        Self { manager }
+    pub fn new(manager: Arc<ConnectionManager>, ai_context: Arc<AiContextStore>) -> Self {
+        Self { manager, ai_context }
     }
 
     /// Dispatch a JSON-RPC request to the appropriate handler
     pub async fn handle_request(&self, id: String, method: &str, params: Value) -> JsonRpcResponse {
-        match method {
-            "list_connections" => self.handle_list_connections(id).await,
-            "query" => self.handle_query(id, params).await,
-            "list_tables" => self.handle_list_tables(id, params).await,
-            "describe_table" => self.handle_describe_table(id, params).await,
+        tracing::info!("[MCP Bridge] Received request: method={}, params={:?}", method, params);
+        let response = match method {
+            "list_connections" => self.handle_list_connections(id.clone()).await,
+            "query" => self.handle_query(id.clone(), params).await,
+            "list_tables" => self.handle_list_tables(id.clone(), params).await,
+            "describe_table" => self.handle_describe_table(id.clone(), params).await,
+            "get_query_history" => self.handle_get_query_history(id.clone(), params).await,
+            "get_current_context" => self.handle_get_current_context(id.clone()).await,
+            "get_execution_plan" => self.handle_get_execution_plan(id.clone(), params).await,
             _ => JsonRpcResponse::error(
-                id,
+                id.clone(),
                 error_codes::METHOD_NOT_FOUND,
                 format!("Unknown method: {}", method),
             ),
+        };
+        if response.error.is_some() {
+            tracing::error!("[MCP Bridge] Request {} error: {:?}", id, response.error);
+        } else {
+            tracing::info!("[MCP Bridge] Request {} success", id);
         }
+        response
     }
 
     /// List all active connections
@@ -285,22 +297,16 @@ impl McpHandler {
         let execution_time_ms = start.elapsed().as_millis() as u64;
 
         match result {
-            Ok((data, column_types, row_count)) => {
-                let returned = data.len();
-                // Extract just column names for spec-compliant columns array
-                let columns: Vec<String> = column_types.iter().map(|c| c.name.clone()).collect();
+            Ok((rows, columns, row_count)) => {
+                let returned = rows.len();
                 let result = QueryResult {
+                    columns,
+                    rows,
                     success: true,
-                    data,
-                    metadata: QueryMetadata {
-                        columns,
-                        column_types,
-                        row_count,
-                        returned,
-                        truncated: row_count > returned,
-                        execution_time_ms,
-                        database_type: format!("{:?}", db_type),
-                    },
+                    row_count,
+                    truncated: row_count > returned,
+                    execution_time_ms,
+                    database_type: format!("{:?}", db_type),
                     error: None,
                 };
                 match serde_json::to_value(&result) {
@@ -314,17 +320,13 @@ impl McpHandler {
             }
             Err(e) => {
                 let result = QueryResult {
+                    columns: vec![],
+                    rows: vec![],
                     success: false,
-                    data: vec![],
-                    metadata: QueryMetadata {
-                        columns: vec![],
-                        column_types: vec![],
-                        row_count: 0,
-                        returned: 0,
-                        truncated: false,
-                        execution_time_ms,
-                        database_type: format!("{:?}", db_type),
-                    },
+                    row_count: 0,
+                    truncated: false,
+                    execution_time_ms,
+                    database_type: format!("{:?}", db_type),
                     error: Some(e),
                 };
                 match serde_json::to_value(&result) {
@@ -346,7 +348,7 @@ impl McpHandler {
         limit: u64,
         order: &Option<Vec<OrderSpec>>,
         conn: &crate::core::manager::LiveConnection,
-    ) -> Result<(Vec<Value>, Vec<ColumnInfo>, usize), String> {
+    ) -> Result<(Vec<Vec<Value>>, Vec<ColumnInfo>, usize), String> {
         let sql_adapter = conn
             .adapter
             .as_sql()
@@ -365,27 +367,15 @@ impl McpHandler {
             .iter()
             .map(|c| ColumnInfo {
                 name: c.name.clone(),
-                data_type: c.data_type.clone(),
+                db_type: c.data_type.clone(),
             })
             .collect();
 
-        // Convert rows to array of objects
-        let data: Vec<Value> = result
-            .rows
-            .into_iter()
-            .map(|row| {
-                let mut obj = serde_json::Map::new();
-                for (i, cell) in row.into_iter().enumerate() {
-                    if let Some(col) = columns.get(i) {
-                        obj.insert(col.name.clone(), cell);
-                    }
-                }
-                Value::Object(obj)
-            })
-            .collect();
+        // Keep rows as arrays (not objects) for sidecar parsing
+        let rows: Vec<Vec<Value>> = result.rows;
 
-        let row_count = data.len();
-        Ok((data, columns, row_count))
+        let row_count = rows.len();
+        Ok((rows, columns, row_count))
     }
 
     /// Build a limited query (simple approach - wraps in subquery for safety)
@@ -432,7 +422,7 @@ impl McpHandler {
         params: &QueryParams,
         limit: u64,
         conn: &crate::core::manager::LiveConnection,
-    ) -> Result<(Vec<Value>, Vec<ColumnInfo>, usize), String> {
+    ) -> Result<(Vec<Vec<Value>>, Vec<ColumnInfo>, usize), String> {
         let mongo_adapter = conn
             .adapter
             .as_mongo()
@@ -477,14 +467,26 @@ impl McpHandler {
                 obj.keys()
                     .map(|k| ColumnInfo {
                         name: k.clone(),
-                        data_type: "json".to_string(),
+                        db_type: "json".to_string(),
                     })
                     .collect()
             })
             .unwrap_or_default();
 
-        let row_count = documents.len();
-        Ok((documents, columns, row_count))
+        // Convert documents to rows (array of arrays)
+        let rows: Vec<Vec<Value>> = documents
+            .into_iter()
+            .map(|doc| {
+                if let Some(obj) = doc.as_object() {
+                    columns.iter().map(|col| obj.get(&col.name).cloned().unwrap_or(Value::Null)).collect()
+                } else {
+                    vec![doc]
+                }
+            })
+            .collect();
+
+        let row_count = rows.len();
+        Ok((rows, columns, row_count))
     }
 
     /// Parse MongoDB query format: "collection" or "collection:filter_json"
@@ -507,7 +509,7 @@ impl McpHandler {
         &self,
         params: &QueryParams,
         conn: &crate::core::manager::LiveConnection,
-    ) -> Result<(Vec<Value>, Vec<ColumnInfo>, usize), String> {
+    ) -> Result<(Vec<Vec<Value>>, Vec<ColumnInfo>, usize), String> {
         let redis_adapter = conn
             .adapter
             .as_redis()
@@ -523,25 +525,26 @@ impl McpHandler {
             .map_err(|e| e.to_string())?;
 
         let columns = vec![
-            ColumnInfo { name: "key".to_string(), data_type: "string".to_string() },
-            ColumnInfo { name: "type".to_string(), data_type: "string".to_string() },
-            ColumnInfo { name: "ttl".to_string(), data_type: "integer".to_string() },
+            ColumnInfo { name: "key".to_string(), db_type: "string".to_string() },
+            ColumnInfo { name: "type".to_string(), db_type: "string".to_string() },
+            ColumnInfo { name: "ttl".to_string(), db_type: "integer".to_string() },
         ];
 
-        let data: Vec<Value> = scan_result
+        // Convert to rows (array of arrays)
+        let rows: Vec<Vec<Value>> = scan_result
             .keys
             .into_iter()
             .map(|key_info| {
-                json!({
-                    "key": key_info.key,
-                    "type": key_info.key_type.to_string(),
-                    "ttl": key_info.ttl,
-                })
+                vec![
+                    json!(key_info.key),
+                    json!(key_info.key_type.to_string()),
+                    json!(key_info.ttl),
+                ]
             })
             .collect();
 
-        let row_count = data.len();
-        Ok((data, columns, row_count))
+        let row_count = rows.len();
+        Ok((rows, columns, row_count))
     }
 
     /// List tables/collections
@@ -929,15 +932,177 @@ impl McpHandler {
             foreign_keys: None,
         })
     }
+
+    /// Get query history
+    async fn handle_get_query_history(&self, id: String, params: Value) -> JsonRpcResponse {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Params {
+            #[serde(default)]
+            limit: Option<usize>,
+            #[serde(default)]
+            connection_id: Option<String>,
+        }
+
+        let params: Params = match serde_json::from_value(params) {
+            Ok(p) => p,
+            Err(e) => {
+                return JsonRpcResponse::error(
+                    id,
+                    error_codes::INVALID_PARAMS,
+                    format!("Invalid parameters: {}", e),
+                );
+            }
+        };
+
+        let limit = params.limit.unwrap_or(20).min(100);
+        let history = self.ai_context.get_history(limit, params.connection_id.as_deref()).await;
+
+        match serde_json::to_value(&history) {
+            Ok(value) => JsonRpcResponse::success(id, value),
+            Err(e) => JsonRpcResponse::error(
+                id,
+                error_codes::INTERNAL_ERROR,
+                format!("Serialization error: {}", e),
+            ),
+        }
+    }
+
+    /// Get current active context
+    async fn handle_get_current_context(&self, id: String) -> JsonRpcResponse {
+        let context = self.ai_context.get_active_context().await;
+
+        match serde_json::to_value(&context) {
+            Ok(value) => JsonRpcResponse::success(id, value),
+            Err(e) => JsonRpcResponse::error(
+                id,
+                error_codes::INTERNAL_ERROR,
+                format!("Serialization error: {}", e),
+            ),
+        }
+    }
+
+    /// Get execution plan (EXPLAIN) for a query
+    async fn handle_get_execution_plan(&self, id: String, params: Value) -> JsonRpcResponse {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Params {
+            connection_id: String,
+            query: String,
+            #[serde(default)]
+            analyze: bool,
+        }
+
+        let params: Params = match serde_json::from_value(params) {
+            Ok(p) => p,
+            Err(e) => {
+                return JsonRpcResponse::error(
+                    id,
+                    error_codes::INVALID_PARAMS,
+                    format!("Invalid parameters: {}", e),
+                );
+            }
+        };
+
+        let conn = match self.manager.get_connection(&params.connection_id) {
+            Some(c) => c,
+            None => {
+                return JsonRpcResponse::error(
+                    id,
+                    error_codes::CONNECTION_NOT_FOUND,
+                    format!("Connection not found: {}", params.connection_id),
+                );
+            }
+        };
+
+        let sql_adapter = match conn.adapter.as_sql() {
+            Some(a) => a,
+            None => {
+                return JsonRpcResponse::error(
+                    id,
+                    error_codes::QUERY_FAILED,
+                    "Connection does not support SQL queries".to_string(),
+                );
+            }
+        };
+
+        // Build EXPLAIN query based on database type
+        let db_type = conn.adapter.db_type();
+        let explain_query = match db_type {
+            DbType::PostgreSQL => {
+                if params.analyze {
+                    format!("EXPLAIN (ANALYZE, FORMAT TEXT) {}", params.query)
+                } else {
+                    format!("EXPLAIN (FORMAT TEXT) {}", params.query)
+                }
+            }
+            DbType::MySQL | DbType::MariaDB => {
+                if params.analyze {
+                    format!("EXPLAIN ANALYZE {}", params.query)
+                } else {
+                    format!("EXPLAIN {}", params.query)
+                }
+            }
+            DbType::SQLite => {
+                format!("EXPLAIN QUERY PLAN {}", params.query)
+            }
+            DbType::SQLServer => {
+                // SQL Server uses SET SHOWPLAN_TEXT ON before query
+                format!("SET SHOWPLAN_TEXT ON; {}", params.query)
+            }
+            _ => {
+                return JsonRpcResponse::error(
+                    id,
+                    error_codes::QUERY_FAILED,
+                    format!("EXPLAIN not supported for {:?}", db_type),
+                );
+            }
+        };
+
+        match sql_adapter.execute_query(&explain_query).await {
+            Ok(result) => {
+                // Format as text output
+                let plan_text: Vec<String> = result.rows
+                    .iter()
+                    .map(|row| {
+                        row.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect::<Vec<_>>()
+                            .join(" | ")
+                    })
+                    .collect();
+
+                let output = serde_json::json!({
+                    "plan": plan_text.join("\n"),
+                    "databaseType": format!("{:?}", db_type),
+                    "analyzed": params.analyze,
+                });
+
+                JsonRpcResponse::success(id, output)
+            }
+            Err(e) => JsonRpcResponse::error(
+                id,
+                error_codes::QUERY_FAILED,
+                format!("Failed to get execution plan: {}", e),
+            ),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn create_test_handler() -> McpHandler {
+        McpHandler::new(
+            Arc::new(ConnectionManager::new()),
+            Arc::new(AiContextStore::new()),
+        )
+    }
+
     #[test]
     fn test_parse_mongo_query_simple() {
-        let handler = McpHandler::new(Arc::new(ConnectionManager::new()));
+        let handler = create_test_handler();
         let (collection, filter) = handler.parse_mongo_query("users").unwrap();
         assert_eq!(collection, "users");
         assert_eq!(filter, json!({}));
@@ -945,7 +1110,7 @@ mod tests {
 
     #[test]
     fn test_parse_mongo_query_with_filter() {
-        let handler = McpHandler::new(Arc::new(ConnectionManager::new()));
+        let handler = create_test_handler();
         let (collection, filter) = handler.parse_mongo_query("users:{\"age\": 25}").unwrap();
         assert_eq!(collection, "users");
         assert_eq!(filter, json!({"age": 25}));
@@ -953,14 +1118,14 @@ mod tests {
 
     #[test]
     fn test_build_limited_query_basic() {
-        let handler = McpHandler::new(Arc::new(ConnectionManager::new()));
+        let handler = create_test_handler();
         let result = handler.build_limited_query("SELECT * FROM users", 100, &None).unwrap();
         assert_eq!(result, "SELECT * FROM users LIMIT 100");
     }
 
     #[test]
     fn test_build_limited_query_with_order() {
-        let handler = McpHandler::new(Arc::new(ConnectionManager::new()));
+        let handler = create_test_handler();
         let order = Some(vec![OrderSpec {
             column: "created_at".to_string(),
             direction: OrderDirection::Desc,
@@ -971,7 +1136,7 @@ mod tests {
 
     #[test]
     fn test_build_limited_query_with_multiple_orders() {
-        let handler = McpHandler::new(Arc::new(ConnectionManager::new()));
+        let handler = create_test_handler();
         let order = Some(vec![
             OrderSpec {
                 column: "created_at".to_string(),
@@ -988,14 +1153,14 @@ mod tests {
 
     #[test]
     fn test_build_limited_query_already_has_limit() {
-        let handler = McpHandler::new(Arc::new(ConnectionManager::new()));
+        let handler = create_test_handler();
         let result = handler.build_limited_query("SELECT * FROM users LIMIT 10", 100, &None).unwrap();
         assert_eq!(result, "SELECT * FROM users LIMIT 10");
     }
 
     #[test]
     fn test_build_limited_query_rejects_invalid_column() {
-        let handler = McpHandler::new(Arc::new(ConnectionManager::new()));
+        let handler = create_test_handler();
         let order = Some(vec![OrderSpec {
             column: "column; DROP TABLE users;--".to_string(),
             direction: OrderDirection::Asc,

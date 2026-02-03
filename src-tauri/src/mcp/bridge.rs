@@ -10,6 +10,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 use tokio::sync::Notify;
 
+use crate::ai_context::AiContextStore;
 use crate::core::ConnectionManager;
 
 use super::handlers::McpHandler;
@@ -20,19 +21,22 @@ pub struct McpBridge {
     socket_path: PathBuf,
     handler: Arc<McpHandler>,
     shutdown: Arc<Notify>,
+    #[allow(dead_code)]
+    ai_context: Arc<AiContextStore>,
 }
 
 impl McpBridge {
     /// Create a new MCP bridge
-    pub fn new(manager: Arc<ConnectionManager>) -> Self {
+    pub fn new(manager: Arc<ConnectionManager>, ai_context: Arc<AiContextStore>) -> Self {
         let socket_path = Self::default_socket_path();
-        let handler = Arc::new(McpHandler::new(manager));
+        let handler = Arc::new(McpHandler::new(Arc::clone(&manager), Arc::clone(&ai_context)));
         let shutdown = Arc::new(Notify::new());
 
         Self {
             socket_path,
             handler,
             shutdown,
+            ai_context,
         }
     }
 
@@ -215,7 +219,8 @@ mod tests {
     #[tokio::test]
     async fn test_bridge_creation() {
         let manager = Arc::new(ConnectionManager::new());
-        let bridge = McpBridge::new(manager);
+        let ai_context = Arc::new(AiContextStore::new());
+        let bridge = McpBridge::new(manager, ai_context);
         assert!(bridge.socket_path().ends_with("mcp-bridge.sock"));
     }
 }
