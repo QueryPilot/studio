@@ -274,6 +274,16 @@ interface CommandCardProps {
 export function CommandCard({ command, onResult, batchResult }: CommandCardProps) {
   const meta = COMMAND_META[command.name];
 
+  // Handle unknown commands gracefully
+  if (!meta) {
+    return (
+      <div className="flex items-center gap-2 p-2 rounded bg-muted/50 text-muted-foreground text-xs">
+        <IconAlertTriangle className="h-3 w-3" />
+        <span>Unknown command: {command.name}</span>
+      </div>
+    );
+  }
+
   // Auto-expand for "approve" level commands (user needs to review)
   const shouldAutoExpand = meta.approvalLevel === "approve";
   const [expanded, setExpanded] = useState(shouldAutoExpand);
