@@ -158,6 +158,17 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     void loadRecentSessions(connectionId);
   }, [loadRecentSessions, connectionId]);
 
+  // Proactively warmup agent on mount and when switching agents
+  // This creates a session immediately so sending messages is instant
+  const selectedAgentId = useAcpStore((s) => s.selectedAgentId);
+  useEffect(() => {
+    // Only warmup if we have an installed agent and no active session
+    const agent = availableAgents.find((a) => a.id === selectedAgentId);
+    if (agent?.installed && !activeSession && !isWarmingUp) {
+      void warmupAgent(connectionId);
+    }
+  }, [selectedAgentId, availableAgents, activeSession, isWarmingUp, warmupAgent, connectionId]);
+
   // Warmup when user starts typing (if no active session)
   const handleStartTyping = useCallback(() => {
     if (!activeSession && !isWarmingUp) {

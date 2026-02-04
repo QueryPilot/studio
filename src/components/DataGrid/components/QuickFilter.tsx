@@ -16,6 +16,8 @@ import {
   IconX,
   IconLoader2,
   IconCopy,
+  IconSparkles,
+  IconCheck,
 } from "@tabler/icons-react";
 import CodeMirror, { EditorView } from "@uiw/react-codemirror";
 import { sql, PostgreSQL } from "@codemirror/lang-sql";
@@ -32,10 +34,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  DropdownMenuSeparator,
-  DropdownMenuLabel,
-  DropdownMenuGroup,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
+import { useAcpStore } from "@/stores/acpStore";
 // Note: Removed Popover - using lightweight positioned div for autocomplete performance
 import { cn } from "@/lib/utils";
 import type { FilterMode, FilterColumnInfo } from "@/utils/filterParser";
@@ -82,7 +85,7 @@ const modeConfig: Record<
     placeholder: "age > 25 AND status = 'active'",
   },
   ai: {
-    icon: IconSearch,
+    icon: IconSparkles,
     label: "AI Filter",
     description: "Natural language filter",
     placeholder: "#show orders over $100 from last week",
@@ -188,6 +191,173 @@ const ColumnSuggestionItem = memo<ColumnSuggestionItemProps>(
   },
 );
 ColumnSuggestionItem.displayName = "ColumnSuggestionItem";
+
+// ============================================================================
+// Mode Selection Menu with AI Model Submenu
+// ============================================================================
+
+interface QuickFilterModeMenuProps {
+  mode: FilterMode;
+  value: string;
+  clientSideFiltering?: boolean;
+  onModeChange: (mode: FilterMode) => void;
+  onValueChange: (value: string) => void;
+  onFocusEditor: () => void;
+}
+
+function QuickFilterModeMenu({
+  mode,
+  value,
+  clientSideFiltering,
+  onModeChange,
+  onValueChange,
+  onFocusEditor,
+}: QuickFilterModeMenuProps) {
+  // Get all agents and their models from ACP store
+  const availableAgents = useAcpStore((s) => s.availableAgents);
+  const selectedModel = useAcpStore((s) => s.selectedModel);
+  const selectedAgentId = useAcpStore((s) => s.selectedAgentId);
+  const selectAgent = useAcpStore((s) => s.selectAgent);
+  const selectModel = useAcpStore((s) => s.selectModel);
+  const dynamicModels = useAcpStore((s) => s.dynamicModels);
+
+  // Get installed agents with their models
+  const installedAgents = useMemo(() => {
+    return availableAgents
+      .filter((agent) => agent.installed)
+      .map((agent) => ({
+        ...agent,
+        // Use dynamic models if available, otherwise static
+        models: dynamicModels[agent.id]?.length
+          ? dynamicModels[agent.id]
+          : agent.models,
+      }));
+  }, [availableAgents, dynamicModels]);
+
+  // Handle mode selection for non-AI modes
+  const handleModeSelect = useCallback(
+    (m: FilterMode) => {
+      onModeChange(m);
+      const currentValue = value.replace(/^[?#]\s*/, "");
+      if (m === "where") {
+        onValueChange(currentValue ? `?${currentValue}` : "?");
+      } else {
+        onValueChange(currentValue);
+      }
+      onFocusEditor();
+    },
+    [value, onModeChange, onValueChange, onFocusEditor]
+  );
+
+  // Handle AI mode with agent and model selection
+  const handleAiModeWithModel = useCallback(
+    (agentId: string, modelId: string) => {
+      // Switch agent if different (this also updates model preferences)
+      if (agentId !== selectedAgentId) {
+        selectAgent(agentId);
+      }
+      // Select the model (this syncs with the AI sidebar)
+      void selectModel(modelId);
+      // Switch to AI mode
+      onModeChange("ai");
+      const currentValue = value.replace(/^[?#]\s*/, "");
+      onValueChange(currentValue);
+      onFocusEditor();
+    },
+    [value, onModeChange, onValueChange, onFocusEditor, selectAgent, selectModel, selectedAgentId]
+  );
+
+  // Non-AI modes (search, where)
+  const nonAiModes: FilterMode[] = clientSideFiltering
+    ? ["search"]
+    : ["search", "where"];
+
+  return (
+    <DropdownMenuContent align="start" className="w-52">
+      {/* Pattern Search and WHERE modes */}
+      {nonAiModes.map((m) => {
+        const cfg = modeConfig[m];
+        const Icon = cfg.icon;
+        return (
+          <DropdownMenuItem
+            key={m}
+            onClick={() => { handleModeSelect(m); }}
+            className={cn("text-xs", mode === m && "bg-accent")}
+          >
+            <Icon className="h-3.5 w-3.5 mr-2" />
+            <div className="flex flex-col">
+              <span className="text-xs">{cfg.label}</span>
+              <span className="text-[10px] text-muted-foreground">
+                {cfg.description}
+              </span>
+            </div>
+          </DropdownMenuItem>
+        );
+      })}
+
+      {/* AI Filter with model submenu grouped by agent */}
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger
+          className={cn(
+            "text-xs",
+            mode === "ai" && "bg-accent"
+          )}
+        >
+          <IconSparkles className="h-3.5 w-3.5 mr-2" />
+          <div className="flex flex-col flex-1">
+            <span className="text-xs">
+              {clientSideFiltering ? "AI Filter" : modeConfig.ai.label}
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              {clientSideFiltering ? "Generate search patterns" : modeConfig.ai.description}
+            </span>
+          </div>
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent className="w-56 max-h-80 overflow-y-auto">
+          {installedAgents.length === 0 ? (
+            <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+              No AI agents installed
+            </DropdownMenuItem>
+          ) : (
+            installedAgents.map((agent) => (
+              <div key={agent.id}>
+                {/* Agent name as group header */}
+                <div className="text-[10px] text-muted-foreground font-medium px-2 py-1.5 border-b border-border/50">
+                  {agent.name}
+                </div>
+                {/* Models for this agent */}
+                {agent.models.map((model) => {
+                  const isSelected = selectedAgentId === agent.id && selectedModel === model.id;
+                  return (
+                    <DropdownMenuItem
+                      key={`${agent.id}:${model.id}`}
+                      onClick={() => { handleAiModeWithModel(agent.id, model.id); }}
+                      className="text-xs"
+                    >
+                      <div className="flex items-center gap-2 w-full">
+                        {isSelected ? (
+                          <IconCheck className="h-3 w-3 text-primary shrink-0" />
+                        ) : (
+                          <div className="w-3 shrink-0" />
+                        )}
+                        <div className="flex flex-col min-w-0">
+                          <span className="truncate">{model.name}</span>
+                          <span className="text-[10px] text-muted-foreground truncate">
+                            {model.description}
+                          </span>
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </div>
+            ))
+          )}
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+    </DropdownMenuContent>
+  );
+}
 
 export const QuickFilter = memo(
   forwardRef<QuickFilterRef, QuickFilterProps>(function QuickFilter(
@@ -1049,6 +1219,7 @@ export const QuickFilter = memo(
                   >
                     {mode === "where" && <IconCode className="size-3.5" />}
                     {mode === "search" && <IconSearch className="size-3.5" />}
+                    {mode === "ai" && <IconSparkles className="size-3.5" />}
                   </DropdownMenuTrigger>
                 )}
                 <CodeMirror
@@ -1099,55 +1270,16 @@ export const QuickFilter = memo(
                 </div>
               </div>
               {(!searchModeOnly || clientSideFiltering) && (
-                <DropdownMenuContent align="start" className="w-48">
-                  {(Object.keys(modeConfig) as FilterMode[])
-                    .filter((m) => !clientSideFiltering || m !== "where")
-                    .map((m) => {
-                      const cfg = modeConfig[m];
-                      const Icon = cfg.icon;
-                      const label =
-                        clientSideFiltering && m === "ai"
-                          ? "AI Filter"
-                          : cfg.label;
-                      const description =
-                        clientSideFiltering && m === "ai"
-                          ? "Generate search patterns"
-                          : cfg.description;
-
-                      return (
-                        <DropdownMenuItem
-                          key={m}
-                          onClick={(e) => {
-                            // Keep dropdown open for AI mode to let user select model
-                            if (m === "ai") {
-                              e.preventDefault();
-                            }
-                            onModeChange(m);
-                            // Auto-add/replace prefix based on mode
-                            const currentValue = value.replace(/^[?#]\s*/, "");
-                            if (m === "where") {
-                              onValueChange(
-                                currentValue ? `?${currentValue}` : "?",
-                              );
-                            } else {
-                              onValueChange(currentValue);
-                            }
-                            // Focus editor after mode change
-                            setTimeout(() => editorViewRef.current?.focus(), 0);
-                          }}
-                          className={cn("text-xs", mode === m && "bg-accent")}
-                        >
-                          <Icon className="h-3.5 w-3.5 mr-2" />
-                          <div className="flex flex-col">
-                            <span className="text-xs">{label}</span>
-                            <span className="text-[10px] text-muted-foreground">
-                              {description}
-                            </span>
-                          </div>
-                        </DropdownMenuItem>
-                      );
-                    })}
-                </DropdownMenuContent>
+                <QuickFilterModeMenu
+                  mode={mode}
+                  value={value}
+                  clientSideFiltering={clientSideFiltering}
+                  onModeChange={onModeChange}
+                  onValueChange={onValueChange}
+                  onFocusEditor={() => {
+                    setTimeout(() => editorViewRef.current?.focus(), 0);
+                  }}
+                />
               )}
             </DropdownMenu>
             {/* Suggestions dropdown - lightweight positioned div (no Portal/Popover overhead) */}

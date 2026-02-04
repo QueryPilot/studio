@@ -10,7 +10,7 @@
  * are handled by BaseDataGrid.
  */
 
-import { memo, useCallback, useMemo, useRef, useDeferredValue } from "react";
+import { memo, useCallback, useMemo, useRef, useDeferredValue, useEffect } from "react";
 import type { Item, GridCell } from "@glideapps/glide-data-grid";
 import { GridCellKind } from "@glideapps/glide-data-grid";
 import { cn } from "@/lib/utils";
@@ -322,6 +322,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     error: quickFilterError,
     aiExplanation,
     activeFilter,
+    isLoading: quickFilterLoading,
     setValue: setQuickFilterValue,
     setMode: setQuickFilterMode,
     submit: handleFilterSubmit,
@@ -331,6 +332,16 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     generateAIFilter,
     clientSideFiltering: false,
   });
+
+  // Warmup silent agent for faster AI filter responses
+  // This proactively starts the agent so it's ready when user types #
+  useEffect(() => {
+    const acpStore = useAcpStore.getState();
+    const agentId = acpStore.selectedAgentId;
+    if (agentId) {
+      void AcpService.warmupSilentAgent(agentId, DEFAULT_QUICK_FILTER_MODEL);
+    }
+  }, []); // Only on mount
 
   // --- Sort Configuration ---
   // Get sort state from grid preferences and convert to SortConfig format
@@ -806,7 +817,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
             onValueChange={setQuickFilterValue}
             onModeChange={setQuickFilterMode}
             onSubmit={handleFilterSubmit}
-            isLoading={false}
+            isLoading={quickFilterLoading}
             error={quickFilterError}
             explanation={aiExplanation}
             clientSideFiltering={false}
