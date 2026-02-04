@@ -45,11 +45,12 @@ export interface UseKeyValueDataParams {
   filter?: KeyValueFilter;
 }
 
-// Browser mode columns (when viewing list of keys): Key, Value, TTL
+// Browser mode columns (when viewing list of keys): Key, Type, Value, TTL
 const BROWSER_COLUMNS: GridColumnV2[] = [
-  { id: 'key', field: 'col_0', title: 'Key', name: 'key', width: 350, type: 'string' },
-  { id: 'value', field: 'col_1', title: 'Value', name: 'value', width: 400, type: 'string' },
-  { id: 'ttl', field: 'col_2', title: 'TTL', name: 'ttl', width: 120, type: 'string' },
+  { id: 'key', field: 'col_0', title: 'Key', name: 'key', width: 300, type: 'string' },
+  { id: 'type', field: 'col_1', title: 'Type', name: 'type', width: 80, type: 'string' },
+  { id: 'value', field: 'col_2', title: 'Value', name: 'value', width: 400, type: 'string' },
+  { id: 'ttl', field: 'col_3', title: 'TTL', name: 'ttl', width: 100, type: 'string' },
 ];
 
 // Helper to create CellValue for browser mode
@@ -411,12 +412,13 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
   const rows = useMemo<GridRowModel[]>(() => {
     let result: GridRowModel[];
 
-    // Browser mode: show list of keys (Key, Value, TTL)
+    // Browser mode: show list of keys (Key, Type, Value, TTL)
     if (isBrowserMode && browserKeys) {
       result = browserKeys.map((keyInfo) => ({
         col_0: createBrowserCellValue(keyInfo.key, 'text'),
-        col_1: createBrowserCellValue(keyInfo.value, 'json', keyInfo.type),
-        col_2: createBrowserCellValue(
+        col_1: createBrowserCellValue(keyInfo.type, 'text'),
+        col_2: createBrowserCellValue(keyInfo.value, 'json', keyInfo.type),
+        col_3: createBrowserCellValue(
           keyInfo.ttl === -1 ? 'No TTL' : keyInfo.ttl === -2 ? 'N/A' : `${keyInfo.ttl}s`,
           'text'
         ),
@@ -490,8 +492,25 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
           };
         }
 
-        // Value column (col_1): json-cell for complex types, text for string
+        // Type column (col_1): text-single-cell
         if (column.field === 'col_1') {
+          return {
+            kind: GridCellKind.Custom,
+            data: {
+              kind: 'text-single-cell',
+              value: strValue,
+              nullable: false,
+              columnName: 'Type',
+              dbType: 'text',
+            },
+            copyData: strValue,
+            allowOverlay: true,
+            readonly: true,
+          };
+        }
+
+        // Value column (col_2): json-cell for complex types, text for string
+        if (column.field === 'col_2') {
           // Get redis type from metadata.attributes
           const cellMetadata = cellValue && typeof cellValue === 'object' && 'metadata' in cellValue
             ? (cellValue as { metadata?: { attributes?: { redisType?: string } } }).metadata
@@ -533,8 +552,8 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
           };
         }
 
-        // TTL column (col_2): text-single-cell
-        if (column.field === 'col_2') {
+        // TTL column (col_3): text-single-cell
+        if (column.field === 'col_3') {
           return {
             kind: GridCellKind.Custom,
             data: {

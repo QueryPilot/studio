@@ -27,6 +27,18 @@ export interface McpServerConfig {
 
 const activeListeners = new Map<string, UnlistenFn>();
 
+// Cached silent agent instance for fast AI filter requests
+// This avoids starting a new agent process for every quick filter
+interface CachedSilentAgent {
+  agentId: string;
+  instanceId: string;
+  modelId?: string;
+  lastUsed: number;
+}
+
+let cachedSilentAgent: CachedSilentAgent | null = null;
+const SILENT_AGENT_TTL = 5 * 60 * 1000; // 5 minutes TTL
+
 /**
  * Extract text content from ContentBlock (can be array or single object)
  */
@@ -287,7 +299,7 @@ export const AcpService = {
   /**
    * Send a silent prompt that doesn't go through the conversation store.
    * Used for background AI tasks like filter generation.
-   * Creates a temporary agent session, gets the response, and cleans up.
+   * Reuses a cached agent instance when possible for faster responses.
    *
    * @param agentId The agent identifier (e.g., "opencode")
    * @param prompt The prompt to send
@@ -303,19 +315,58 @@ export const AcpService = {
     cwd?: string,
     modelId?: string
   ): Promise<string> {
-    // Start a dedicated agent instance for this request
-    const instanceId = await this.startAgent(agentId);
+    const now = Date.now();
 
-    try {
+    // Check if we can reuse cached agent
+    const canReuse =
+      cachedSilentAgent &&
+      cachedSilentAgent.agentId === agentId &&
+      cachedSilentAgent.modelId === modelId &&
+      now - cachedSilentAgent.lastUsed < SILENT_AGENT_TTL;
+
+    let instanceId: string;
+
+    if (canReuse && cachedSilentAgent) {
+      // Reuse existing agent instance
+      instanceId = cachedSilentAgent.instanceId;
+      cachedSilentAgent.lastUsed = now;
+    } else {
+      // Kill old cached agent if exists
+      if (cachedSilentAgent) {
+        try {
+          await this.cancelSession(cachedSilentAgent.instanceId);
+        } catch {
+          // Ignore cleanup errors
+        }
+        cachedSilentAgent = null;
+      }
+
+      // Start a new agent instance
+      instanceId = await this.startAgent(agentId);
+
       // Create a session
       const workingDir = cwd || "/tmp";
       await this.createSession(instanceId, workingDir);
 
       // Set model if specified
       if (modelId) {
-        await this.setSessionModel(instanceId, modelId);
+        try {
+          await this.setSessionModel(instanceId, modelId);
+        } catch {
+          // Some agents don't support model selection
+        }
       }
 
+      // Cache the agent for reuse
+      cachedSilentAgent = {
+        agentId,
+        instanceId,
+        modelId,
+        lastUsed: now,
+      };
+    }
+
+    try {
       // Collect the response
       let responseText = "";
       let completed = false;
@@ -344,21 +395,70 @@ export const AcpService = {
       }
 
       if (error) {
+        // On error, clear cached agent (might be in bad state)
+        cachedSilentAgent = null;
         throw new Error(error);
       }
 
       if (!completed) {
+        // On timeout, clear cached agent
+        cachedSilentAgent = null;
         throw new Error("AI request timed out");
       }
 
       return responseText;
-    } finally {
-      // Clean up - cancel and let the agent terminate
+    } catch (err) {
+      // On any error, clear the cached agent
+      cachedSilentAgent = null;
+      throw err;
+    }
+  },
+
+  /**
+   * Warmup the silent agent for faster first response.
+   * Call this proactively when user opens a table grid.
+   */
+  async warmupSilentAgent(agentId: string, modelId?: string): Promise<void> {
+    // Only warmup if no cached agent or different agent
+    if (
+      cachedSilentAgent &&
+      cachedSilentAgent.agentId === agentId &&
+      cachedSilentAgent.modelId === modelId
+    ) {
+      cachedSilentAgent.lastUsed = Date.now();
+      return;
+    }
+
+    // Kill old cached agent if exists
+    if (cachedSilentAgent) {
       try {
-        await this.cancelSession(instanceId);
+        await this.cancelSession(cachedSilentAgent.instanceId);
       } catch {
         // Ignore cleanup errors
       }
     }
+
+    // Start a new agent instance
+    const instanceId = await this.startAgent(agentId);
+
+    // Create a session
+    await this.createSession(instanceId, "/tmp");
+
+    // Set model if specified
+    if (modelId) {
+      try {
+        await this.setSessionModel(instanceId, modelId);
+      } catch {
+        // Some agents don't support model selection
+      }
+    }
+
+    // Cache the agent for reuse
+    cachedSilentAgent = {
+      agentId,
+      instanceId,
+      modelId,
+      lastUsed: Date.now(),
+    };
   },
 };
