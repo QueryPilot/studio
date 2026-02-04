@@ -21,11 +21,12 @@ import {
   IconCode,
   IconAlertTriangle,
   IconInfoCircle,
+  IconArrowBack,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { ParsedCommand, ParamSchema } from "@/types/aiCommands";
+import type { ParsedCommand, ParamSchema, CrudStageResult } from "@/types/aiCommands";
 import { COMMAND_META } from "@/types/aiCommands";
 import { getCommandDescription, validateCommand } from "@/utils/aiCommandParser";
 import { useAiCommandPermissionStore, type CommandState } from "@/stores/aiCommandPermissionStore";
@@ -34,6 +35,7 @@ import {
   formatResultForConversation,
   executeCommandsInParallel,
   formatBatchedResultsForAgent,
+  executeCommand,
 } from "@/services/aiCommandExecutor";
 
 // ============================================================================
@@ -138,11 +140,11 @@ function tokenizeJson(jsonStr: string): JsonToken[] {
 }
 
 const TOKEN_COLORS: Record<JsonTokenType, string> = {
-  key: "text-blue-400",
-  string: "text-green-400",
-  number: "text-amber-400",
-  boolean: "text-purple-400",
-  null: "text-gray-400",
+  key: "text-blue-600 dark:text-blue-400",
+  string: "text-emerald-700 dark:text-emerald-400",
+  number: "text-amber-600 dark:text-amber-400",
+  boolean: "text-purple-600 dark:text-purple-400",
+  null: "text-gray-500 dark:text-gray-400",
   punctuation: "text-muted-foreground",
 };
 
@@ -153,7 +155,7 @@ function HighlightedJson({ json }: { json: string }) {
   const tokens = useMemo(() => tokenizeJson(json), [json]);
 
   return (
-    <pre className="text-[10px] bg-background rounded p-2 overflow-x-auto font-mono leading-relaxed">
+    <pre className="text-[10px] bg-muted/50 rounded p-2 overflow-x-auto font-mono leading-relaxed border border-border/50">
       {tokens.map((token, i) => (
         <span key={i} className={TOKEN_COLORS[token.type]}>
           {token.value}
@@ -321,25 +323,13 @@ export function CommandCard(props: CommandCardProps) {
 }
 
 function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) {
-  const meta = COMMAND_META[command.name];
+  // Note: meta can be undefined if an unknown command name is parsed (cast from string)
+  // Use Object.hasOwn to safely check if the command name exists in the registry
+  const meta = Object.hasOwn(COMMAND_META, command.name)
+    ? COMMAND_META[command.name]
+    : undefined;
 
-  // Handle unknown commands gracefully
-  if (!meta) {
-    return (
-      <div className="flex items-center gap-2 p-2 rounded bg-muted/50 text-muted-foreground text-xs">
-        <IconAlertTriangle className="h-3 w-3" />
-        <span>Unknown command: {command.name}</span>
-      </div>
-    );
-  }
-
-  // Auto-expand for "approve" level commands (user needs to review)
-  const shouldAutoExpand = meta.approvalLevel === "approve";
-  const [expanded, setExpanded] = useState(shouldAutoExpand);
-  const [showParamDetails, setShowParamDetails] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
-  const [localState, setLocalState] = useState<CommandState>("pending");
-
+  // All hooks MUST be called before any early returns (React rules of hooks)
   const {
     trackCommand,
     approveCommand,
@@ -349,14 +339,25 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
     shouldAutoApprove,
   } = useAiCommandPermissionStore();
 
+  // Auto-expand for "approve" level commands (user needs to review)
+  const shouldAutoExpand = meta?.approvalLevel === "approve";
+  const [expanded, setExpanded] = useState(shouldAutoExpand);
+  const [showParamDetails, setShowParamDetails] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [localState, setLocalState] = useState<CommandState>("pending");
+
+  // Track staged CRUD command state
+  const [stagedCommandId, setStagedCommandId] = useState<string | null>(null);
+  const [isUnstaging, setIsUnstaging] = useState(false);
+
   const state = getCommandState(command.id);
   const description = getCommandDescription(command);
   const validationError = validateCommand(command);
 
-  // Validate parameters against schema
+  // Validate parameters against schema (use empty array for unknown commands)
   const paramValidation = useMemo(
-    () => validateParams(command.params as Record<string, unknown>, meta.params),
-    [command.params, meta.params]
+    () => validateParams(command.params as Record<string, unknown>, meta?.params),
+    [command.params, meta?.params]
   );
 
   const hasValidationIssues = paramValidation.errors.length > 0 || paramValidation.warnings.length > 0;
@@ -380,24 +381,65 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
 
   // Handle command approval with proper error handling
   const handleApprove = useCallback(async () => {
-    if (command.error || validationError) return;
-    if (localState !== "pending") return; // Prevent double execution
+    console.log("[CommandCard] handleApprove START", {
+      hasMeta: !!meta,
+      commandId: command.id,
+      commandName: command.name,
+    });
 
+    if (!meta) {
+      console.log("[CommandCard] Blocked: no meta");
+      return; // Guard for unknown commands
+    }
+
+    console.log("[CommandCard] handleApprove checking conditions", {
+      commandId: command.id,
+      commandName: command.name,
+      commandError: command.error,
+      validationError,
+      localState,
+    });
+
+    if (command.error || validationError) {
+      console.log("[CommandCard] Blocked by error/validation", { error: command.error, validationError });
+      return;
+    }
+    // Allow re-execution if failed, but not if already executing or completed
+    if (localState === "executing") {
+      console.log("[CommandCard] Blocked: already executing", { localState });
+      return;
+    }
+    if (localState === "completed") {
+      console.log("[CommandCard] Blocked: already completed", { localState });
+      return;
+    }
+
+    console.log("[CommandCard] Executing command...");
     setLocalState("executing");
     setCommandState(command.id, "executing");
 
     try {
       // Use 30s timeout for all command executions
       const execResult = await executeCommandWithTimeout(command, 30_000);
+      console.log("[CommandCard] Execution result:", execResult);
       const formatted = formatResultForConversation(command, execResult);
 
       setResult(formatted);
+
+      // For successful crud.stage commands, capture the commandId for unstage
+      if (command.name === "crud.stage" && execResult.success) {
+        const stageResult = execResult.data as CrudStageResult;
+        setStagedCommandId(stageResult.commandId);
+      }
+
       const finalState = execResult.success ? "completed" : "failed";
+      console.log("[CommandCard] Final state:", finalState);
       setLocalState(finalState);
       setCommandState(command.id, finalState);
       approveCommand(command.id);
       onResult?.(formatted);
     } catch (error) {
+      console.error("[CommandCard] Execution error:", error);
       // Handle unexpected errors (network issues, etc.)
       const errorMessage = error instanceof Error ? error.message : String(error);
       setResult(`**Error:** ${errorMessage}`);
@@ -405,7 +447,7 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
       setCommandState(command.id, "failed");
       onResult?.(`**Error:** ${errorMessage}`);
     }
-  }, [command, validationError, localState, setCommandState, approveCommand, onResult]);
+  }, [meta, command, validationError, localState, setCommandState, approveCommand, onResult]);
 
   // Store latest handleApprove in ref to avoid infinite loop
   const handleApproveRef = useRef(handleApprove);
@@ -424,15 +466,36 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
   // Handle auto-approval (separate effect)
   // Skip if batchResult exists - means batch execution already handled this command
   useEffect(() => {
+    console.log("[CommandCard] Auto-approve effect running", {
+      commandName: command.name,
+      hasMeta: !!meta,
+      autoApproveAttempted: autoApproveAttempted.current,
+      hasBatchResult: !!batchResult,
+      localState,
+    });
+
+    if (!meta) return; // Skip for unknown commands
+
     // Auto-approve if eligible (only once per command)
     // Skip if batch execution already handled this command
-    if (autoApproveAttempted.current || batchResult) return;
+    if (autoApproveAttempted.current || batchResult) {
+      console.log("[CommandCard] Auto-approve skipped (already attempted or has batch result)");
+      return;
+    }
 
     const canAutoApprove =
       shouldAutoApprove(command.name) &&
       !command.error &&
       !validationError &&
       localState === "pending";
+
+    console.log("[CommandCard] Can auto-approve?", {
+      canAutoApprove,
+      shouldAutoApprove: shouldAutoApprove(command.name),
+      hasError: !!command.error,
+      hasValidationError: !!validationError,
+      isPending: localState === "pending",
+    });
 
     if (canAutoApprove) {
       autoApproveAttempted.current = true;
@@ -441,13 +504,61 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
         void handleApproveRef.current();
       });
     }
-  }, [command.name, command.error, validationError, shouldAutoApprove, localState, batchResult]);
+  }, [meta, command.name, command.error, validationError, shouldAutoApprove, localState, batchResult]);
 
-  const handleReject = () => {
+  const handleReject = useCallback(() => {
     setLocalState("rejected");
     rejectCommand(command.id);
     setCommandState(command.id, "rejected");
-  };
+  }, [command.id, rejectCommand, setCommandState]);
+
+  // Handle unstaging a previously staged CRUD command
+  const handleUnstage = useCallback(async () => {
+    if (!stagedCommandId || isUnstaging) return;
+
+    setIsUnstaging(true);
+
+    try {
+      const unstageCommand: ParsedCommand = {
+        id: `unstage-${stagedCommandId}`,
+        name: "crud.unstage",
+        params: {
+          scope: "id",
+          commandId: stagedCommandId,
+        },
+        raw: "",
+        startIndex: 0,
+        endIndex: 0,
+      };
+
+      const unstageResult = await executeCommand(unstageCommand);
+
+      if (unstageResult.success) {
+        setStagedCommandId(null);
+        setResult("**Unstaged** - Change removed from staging area.");
+      } else {
+        setResult(`**Unstage failed:** ${unstageResult.error}`);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setResult(`**Unstage error:** ${errorMessage}`);
+    } finally {
+      setIsUnstaging(false);
+    }
+  }, [stagedCommandId, isUnstaging]);
+
+  // Handle unknown commands gracefully - AFTER all hooks
+  if (!meta) {
+    return (
+      <div className="flex items-center gap-2 p-2 rounded bg-muted/50 text-muted-foreground text-xs">
+        <IconAlertTriangle className="h-3 w-3" />
+        <span>Unknown command: {command.name}</span>
+      </div>
+    );
+  }
+
+  // Computed values that depend on meta (safe after the guard)
+  const isStagedCrudCommand = command.name === "crud.stage" && localState === "completed" && stagedCommandId;
 
   // Get paradigm icon
   const getIcon = () => {
@@ -469,6 +580,47 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
 
   // Render based on state
   if (localState === "completed" || localState === "failed") {
+    // Special rendering for staged CRUD commands
+    if (isStagedCrudCommand) {
+      return (
+        <div className="rounded-md border-2 border-green-500/50 bg-green-500/5 my-2 overflow-hidden">
+          <div className="flex items-center gap-2 px-3 py-2">
+            <Icon className="h-4 w-4 text-green-500" />
+            <span className="flex-1 text-xs font-medium">{description}</span>
+            <Badge variant="outline" className="text-green-500 border-green-500/50 text-[10px]">
+              <IconCheck className="h-3 w-3 mr-1" />
+              Staged
+            </Badge>
+          </div>
+          <div className="px-3 pb-3 text-xs border-t border-green-500/20">
+            <div className="pt-2 space-y-2">
+              <HighlightedJson json={JSON.stringify(command.params, null, 2)} />
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-muted-foreground text-[10px]">
+                  Staged for review. Commit from Changes panel.
+                </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
+                  onClick={() => void handleUnstage()}
+                  disabled={isUnstaging}
+                >
+                  {isUnstaging ? (
+                    <IconLoader2 className="h-3 w-3 mr-1 animate-spin" />
+                  ) : (
+                    <IconArrowBack className="h-3 w-3 mr-1" />
+                  )}
+                  Unstage
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Default completed/failed state rendering
     return (
       <div className={cn(
         "rounded-md border my-2 overflow-hidden",
@@ -544,6 +696,7 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
               className="h-6 px-2 text-xs"
               onClick={(e) => {
                 e.stopPropagation();
+                console.log("[CommandCard] Run button clicked for:", command.name);
                 void handleApprove();
               }}
             >

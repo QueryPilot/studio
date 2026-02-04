@@ -198,7 +198,7 @@ export function SidebarConnectionList({
   return (
     <div className="flex flex-col h-full">
       {/* Header with tabs and actions */}
-      <div className="shrink-0 p-1.5 space-y-1.5">
+      <div className="shrink-0 p-1.5 space-y-2">
         {/* Tabs and action buttons row */}
         <div className="flex items-center justify-between">
           {/* Horizontal Tabs */}
@@ -208,9 +208,9 @@ export function SidebarConnectionList({
                 setSidebarView("objects");
               }}
               className={cn(
-                "flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded transition-colors",
+                "flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors",
                 sidebarView === "objects"
-                  ? "text-foreground bg-muted"
+                  ? "text-foreground bg-muted rounded-md"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
               )}
             >
@@ -222,9 +222,9 @@ export function SidebarConnectionList({
                 setSidebarView("queries");
               }}
               className={cn(
-                "flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded transition-colors",
+                "flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors",
                 sidebarView === "queries"
-                  ? "text-foreground bg-muted"
+                  ? "text-foreground bg-muted rounded-md"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
               )}
             >

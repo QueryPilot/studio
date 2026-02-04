@@ -87,7 +87,12 @@ impl BaseCapability for PostgresAdapter {
     }
 
     async fn disconnect(&self) -> Result<(), AppError> {
-        *self.pool.write().await = None;
+        let mut pool_guard = self.pool.write().await;
+        if let Some(pool) = pool_guard.take() {
+            // Close the pool to immediately terminate all connections
+            // This prevents stale connections from lingering after disconnect
+            pool.close();
+        }
         Ok(())
     }
 

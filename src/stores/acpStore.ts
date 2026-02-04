@@ -110,6 +110,9 @@ interface AcpState {
   // Warmup state - pre-starts agent for faster first message
   isWarmingUp: boolean;
 
+  // MCP tools availability - false if sidecar is missing
+  mcpAvailable: boolean;
+
   // Session history
   recentSessions: AcpSession[];
   isLoadingSessions: boolean;
@@ -119,7 +122,7 @@ interface AcpState {
 
   // Actions
   loadAgents: () => Promise<void>;
-  loadRecentSessions: () => Promise<void>;
+  loadRecentSessions: (connectionId?: string) => Promise<void>;
   selectAgent: (agentId: string) => void;
   fetchModelsForAgent: (agentId: string) => Promise<void>;
   selectModel: (modelId: string) => Promise<void>;
@@ -158,6 +161,7 @@ export const useAcpStore = create<AcpState>()(
     streamingError: null,
     activeToolCalls: [],
     isWarmingUp: false,
+    mcpAvailable: true, // Assume available until warmup confirms
     recentSessions: [],
     isLoadingSessions: false,
     isPanelOpen: false,
@@ -200,10 +204,11 @@ export const useAcpStore = create<AcpState>()(
       }
     },
 
-    loadRecentSessions: async () => {
+    loadRecentSessions: async (connectionId?: string) => {
       set({ isLoadingSessions: true });
       try {
-        const sessions = await db.listRecentSessions(20);
+        // Load sessions filtered by connectionId for workspace-specific history
+        const sessions = await db.listRecentSessions(20, connectionId);
         set({ recentSessions: sessions });
       } finally {
         set({ isLoadingSessions: false });
@@ -374,7 +379,9 @@ export const useAcpStore = create<AcpState>()(
           const instanceId = await AcpService.startAgent(selectedAgentId);
 
           // Get MCP sidecar path for database access
+          // CRITICAL: Without MCP sidecar, agents cannot access database tools
           let mcpServers: { name: string; command: string; args: string[] }[] | undefined;
+          let mcpAvailable = false;
           try {
             const sidecarPath = await AcpService.getMcpSidecarPath();
             mcpServers = [
@@ -384,10 +391,16 @@ export const useAcpStore = create<AcpState>()(
                 args: [],
               },
             ];
+            mcpAvailable = true;
+            console.log("[ACP] MCP sidecar found:", sidecarPath);
           } catch (err) {
-            // MCP sidecar not available - continue without it
-            console.warn("MCP sidecar not available:", err);
+            // MCP sidecar not available - agent will have limited functionality
+            console.error("[ACP] ⚠️ MCP sidecar NOT available - database tools disabled:", err);
+            console.error("[ACP] Run 'cargo build -p querypilot-mcp' to build the sidecar");
           }
+
+          // Store MCP availability for UI to show warnings
+          set({ mcpAvailable });
 
           // Create ACP session with LLM home directory as working directory
           const llmHome = await AcpService.getLlmHome();
@@ -425,12 +438,23 @@ export const useAcpStore = create<AcpState>()(
           }
 
           await db.saveSession(session);
-          set({
-            activeSession: session,
-            activeInstanceId: instanceId,
-            messages: existingMessages, // Keep existing messages if resuming
-            isWarmingUp: false,
-          });
+
+          // Only set messages if resuming an old session (to restore history)
+          // For new sessions, preserve current messages (may have optimistically added user message)
+          if (resumeSession) {
+            set({
+              activeSession: session,
+              activeInstanceId: instanceId,
+              messages: existingMessages,
+              isWarmingUp: false,
+            });
+          } else {
+            set({
+              activeSession: session,
+              activeInstanceId: instanceId,
+              isWarmingUp: false,
+            });
+          }
 
           currentWarmupPromise = null;
           return session.id;
@@ -515,61 +539,79 @@ export const useAcpStore = create<AcpState>()(
 
       // If deleting the active session, clear it
       const { activeSession } = get();
+      // Get connectionId before deleting for refresh
+      const deletedSession = get().recentSessions.find((s) => s.id === sessionId);
+      const connectionId = deletedSession?.connectionId;
+
       if (activeSession?.id === sessionId) {
         get().newConversation();
       }
 
-      // Refresh the session list
-      void get().loadRecentSessions();
+      // Refresh the session list for this connection
+      void get().loadRecentSessions(connectionId);
     },
 
     sendMessage: async (content, contextJson) => {
-      let { activeSession, activeInstanceId, messages } = get();
+      const { messages } = get();
 
-      // If no active session but warmup is in progress, wait for it
-      if (!activeSession && currentWarmupPromise) {
-        await currentWarmupPromise;
-        // Re-read state after warmup completes
-        activeSession = get().activeSession;
-        activeInstanceId = get().activeInstanceId;
-        messages = get().messages;
-      }
-
-      if (!activeSession || !activeInstanceId) {
-        throw new Error("No active session");
-      }
-
-      // Generate title from first user message
+      // Generate a temporary message ID for optimistic UI
+      const tempMessageId = nanoid();
       const isFirstMessage = messages.filter((m) => m.role === "user").length === 0;
-      if (isFirstMessage && activeSession.title === "New Conversation") {
-        const title = generateSessionTitle(content);
-        activeSession = { ...activeSession, title };
-        set({ activeSession });
-        await db.saveSession(activeSession);
-        // Refresh session list so title shows immediately in dropdown
-        void get().loadRecentSessions();
-      }
 
-      // Add user message
+      // Add user message IMMEDIATELY (optimistic UI)
       const userMessage: AcpMessage = {
-        id: nanoid(),
-        sessionId: activeSession.id,
+        id: tempMessageId,
+        sessionId: "pending", // Will be updated once session is ready
         role: "user",
         content,
         timestamp: Date.now(),
       };
 
-      set((state) => ({ messages: [...state.messages, userMessage] }));
-      await db.saveMessage(userMessage);
-
-      // Start streaming - clear tool calls too
-      set({
+      set((state) => ({
+        messages: [...state.messages, userMessage],
         isStreaming: true,
         streamingContent: "",
         streamingThinking: "",
         streamingError: null,
         activeToolCalls: [],
-      });
+      }));
+
+      // Now wait for session to be ready (user sees their message while waiting)
+      let activeSession = get().activeSession;
+      let activeInstanceId = get().activeInstanceId;
+
+      if (!activeSession && currentWarmupPromise) {
+        await currentWarmupPromise;
+        // Re-read state after warmup completes
+        activeSession = get().activeSession;
+        activeInstanceId = get().activeInstanceId;
+      }
+
+      if (!activeSession || !activeInstanceId) {
+        set({ isStreaming: false, streamingError: "No active session" });
+        return;
+      }
+
+      // Update the message with the real session ID
+      const finalMessage: AcpMessage = { ...userMessage, sessionId: activeSession.id };
+      set((state) => ({
+        messages: state.messages.map((m) =>
+          m.id === tempMessageId ? finalMessage : m
+        ),
+      }));
+
+      // Generate title from first user message
+      if (isFirstMessage && activeSession.title === "New Conversation") {
+        const title = generateSessionTitle(content);
+        activeSession = { ...activeSession, title };
+        set({ activeSession });
+        void db.saveSession(activeSession);
+        // Refresh session list so title shows immediately in dropdown
+        void get().loadRecentSessions(activeSession.connectionId);
+      }
+
+      // Save message to DB (don't await - fire and forget)
+      void db.saveMessage(finalMessage);
 
       try {
         // sendPrompt returns sessionId and sets up event listeners
@@ -622,9 +664,15 @@ export const useAcpStore = create<AcpState>()(
     },
 
     addToolCall: (toolCall) => {
-      set((state) => ({
-        activeToolCalls: [...state.activeToolCalls, toolCall],
-      }));
+      set((state) => {
+        // Prevent duplicate tool calls (same ID can be sent multiple times during streaming)
+        if (state.activeToolCalls.some((tc) => tc.id === toolCall.id)) {
+          return state; // Already have this tool call
+        }
+        return {
+          activeToolCalls: [...state.activeToolCalls, toolCall],
+        };
+      });
     },
 
     updateToolCall: (toolCallId, status) => {
@@ -664,7 +712,7 @@ export const useAcpStore = create<AcpState>()(
       });
 
       // Refresh session list so this conversation appears in history
-      void get().loadRecentSessions();
+      void get().loadRecentSessions(activeSession.connectionId);
     },
 
     togglePanel: () => {
