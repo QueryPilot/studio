@@ -68,18 +68,33 @@ export async function getSession(id: string): Promise<AcpSession | undefined> {
 
 /**
  * List recent sessions, ordered by updatedAt descending
+ * @param limit - Maximum number of sessions to return (default: 20)
+ * @param connectionId - Optional connection ID to filter by (workspace-specific history)
  */
-export async function listRecentSessions(limit = 20): Promise<AcpSession[]> {
+export async function listRecentSessions(limit = 20, connectionId?: string): Promise<AcpSession[]> {
   try {
-    return await getDb()
-      .sessions.orderBy("updatedAt")
+    const db = getDb();
+    if (connectionId) {
+      // Filter by connectionId for workspace-specific history
+      return await db.sessions
+        .where("connectionId")
+        .equals(connectionId)
+        .reverse()
+        .sortBy("updatedAt")
+        .then((sessions) => sessions.slice(0, limit));
+    }
+    // Return all sessions if no connectionId specified
+    return await db.sessions
+      .orderBy("updatedAt")
       .reverse()
       .limit(limit)
       .toArray();
   } catch {
-    return Array.from(memoryStore.sessions.values())
+    const sessions = Array.from(memoryStore.sessions.values())
+      .filter((s) => !connectionId || s.connectionId === connectionId)
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, limit);
+    return sessions;
   }
 }
 

@@ -16,7 +16,12 @@ import {
 import { useAcpStore } from "@/stores/acpStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import type { PanelContent } from "@/types/workbench";
-import { useAIContextWithSchema, serializeAIContext, enrichMentionsFromMessage } from "@/hooks/useAIContext";
+import {
+  useAIContextWithSchema,
+  serializeAIContext,
+  enrichMentionsFromMessage,
+  findConnectionFromMentions,
+} from "@/hooks/useAIContext";
 import { getMentionAtCursor, formatMention } from "@/utils/mentionParser";
 import type { AIContext } from "@/types/aiContext";
 import { AgentSelector } from "./AgentSelector";
@@ -64,9 +69,16 @@ import {
 import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
 import type { ToolCall as ToolCallType } from "@/types/acp";
-import { parseCommandsProgressive, stripCommands } from "@/utils/aiCommandParser";
+import {
+  parseCommandsProgressive,
+  stripCommands,
+} from "@/utils/aiCommandParser";
 import { CommandList } from "./CommandCard";
+import { QueryBlock } from "./QueryBlock";
 import { useAiCommandPermissionStore } from "@/stores/aiCommandPermissionStore";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
+import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
+import { tableStreamingService } from "@/services/tableStreamingService";
 
 // ============================================================================
 // Types
@@ -94,6 +106,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     availableAgents,
     isLoadingAgents,
     isWarmingUp,
+    mcpAvailable,
     recentSessions,
     sendMessage,
     startSession,
@@ -110,10 +123,15 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
 
   // Get open tabs for @ mention autocomplete
   const panelContents = useWorkbenchStore(
-    (s): Map<string, PanelContent> => s.panelContents
+    (s): Map<string, PanelContent> => s.panelContents,
   );
   const openTabs = useMemo(() => {
-    const tabs: Array<{ id: string; name: string; type: string; panelId: string }> = [];
+    const tabs: Array<{
+      id: string;
+      name: string;
+      type: string;
+      panelId: string;
+    }> = [];
     panelContents.forEach((panel: PanelContent, panelId: string) => {
       panel.tabIds.forEach((tabId: string) => {
         const meta = panel.metadata?.[tabId];
@@ -134,10 +152,11 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
-  // Load recent sessions on mount
+  // Load recent sessions on mount and when connection changes
+  // Sessions are filtered by connectionId for workspace-specific history
   useEffect(() => {
-    void loadRecentSessions();
-  }, [loadRecentSessions]);
+    void loadRecentSessions(connectionId);
+  }, [loadRecentSessions, connectionId]);
 
   // Warmup when user starts typing (if no active session)
   const handleStartTyping = useCallback(() => {
@@ -180,7 +199,10 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
       }
 
       // Enrich @ mentions with full table details (columns, etc.)
-      const enrichedMentions = await enrichMentionsFromMessage(content, aiContext);
+      const enrichedMentions = await enrichMentionsFromMessage(
+        content,
+        aiContext,
+      );
 
       // Build context with enriched mentions
       const contextWithMentions = {
@@ -231,13 +253,19 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     focusInput();
   }, [newConversation, resetPermissions, focusInput]);
 
-  const handleLoadSession = useCallback((sessionId: string) => {
-    void loadSession(sessionId);
-  }, [loadSession]);
+  const handleLoadSession = useCallback(
+    (sessionId: string) => {
+      void loadSession(sessionId);
+    },
+    [loadSession],
+  );
 
-  const handleDeleteSession = useCallback((sessionId: string) => {
-    void deleteSession(sessionId);
-  }, [deleteSession]);
+  const handleDeleteSession = useCallback(
+    (sessionId: string) => {
+      void deleteSession(sessionId);
+    },
+    [deleteSession],
+  );
 
   // Derived state
   const displayError = error || streamingError;
@@ -276,6 +304,19 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
             setError(null);
           }}
         />
+      )}
+
+      {/* MCP Warning Banner */}
+      {!mcpAvailable && activeSession && (
+        <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <IconAlertTriangle className="h-4 w-4 shrink-0" />
+          <span>
+            Database tools unavailable. Build MCP sidecar:{" "}
+            <code className="bg-muted px-1 rounded">
+              cargo build -p querypilot-mcp
+            </code>
+          </span>
+        </div>
       )}
 
       {/* Messages Area */}
@@ -333,7 +374,12 @@ interface PanelHeaderProps {
   onLoadSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
   activeSession: { id: string; title: string } | null;
-  recentSessions: Array<{ id: string; title: string; updatedAt: number; agentId: string }>;
+  recentSessions: Array<{
+    id: string;
+    title: string;
+    updatedAt: number;
+    agentId: string;
+  }>;
 }
 
 function PanelHeader({
@@ -345,7 +391,9 @@ function PanelHeader({
   recentSessions,
 }: PanelHeaderProps) {
   // Filter out current session from history
-  const otherSessions = recentSessions.filter(s => s.id !== activeSession?.id);
+  const otherSessions = recentSessions.filter(
+    (s) => s.id !== activeSession?.id,
+  );
 
   return (
     <div className="flex items-center gap-1 border-b px-3 py-2 bg-background/50">
@@ -384,12 +432,16 @@ function PanelHeader({
                 {otherSessions.slice(0, 10).map((session) => (
                   <DropdownMenuItem
                     key={session.id}
-                    onClick={() => { onLoadSession(session.id); }}
+                    onClick={() => {
+                      onLoadSession(session.id);
+                    }}
                     className="group gap-2 pr-1"
                   >
                     <IconMessage className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <div className="text-[12px] truncate">{session.title}</div>
+                      <div className="text-[12px] truncate">
+                        {session.title}
+                      </div>
                       <div className="text-[10px] text-muted-foreground">
                         {formatRelativeTime(session.updatedAt)}
                       </div>
@@ -555,6 +607,22 @@ interface MessageBubbleProps {
   isStreaming?: boolean;
 }
 
+// SQL-like languages that should render as QueryBlock
+const QUERY_LANGUAGES = new Set([
+  "sql",
+  "postgresql",
+  "postgres",
+  "pgsql",
+  "mysql",
+  "sqlite",
+  "mssql",
+  "tsql",
+  "plpgsql",
+  "mongodb",
+  "mongo",
+  "redis",
+]);
+
 function MessageBubble({
   role,
   content,
@@ -564,6 +632,39 @@ function MessageBubble({
 }: MessageBubbleProps) {
   const isUser = role === "user";
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
+
+  // Get AI context for resolving @ mentions to connections
+  const aiContext = useAIContextWithSchema();
+
+  // Get focused connection as fallback for QueryBlock context
+  const getFocusedConnection = useWorkspaceBundleStore(
+    (s) => s.getFocusedConnection,
+  );
+  const focusedConnection = getFocusedConnection();
+
+  // Resolve connection from @ mentions in the message content
+  // Falls back to focused connection if no mention is found
+  const resolvedConnection = useMemo(() => {
+    if (isUser || !content) {
+      return focusedConnection
+        ? { id: focusedConnection.id, name: focusedConnection.profile.name }
+        : null;
+    }
+
+    // Try to find connection from @ mentions in the assistant's message
+    const mentionMatch = findConnectionFromMentions(content, aiContext);
+    if (mentionMatch) {
+      return {
+        id: mentionMatch.connectionId,
+        name: mentionMatch.connectionName,
+      };
+    }
+
+    // Fall back to focused connection
+    return focusedConnection
+      ? { id: focusedConnection.id, name: focusedConnection.profile.name }
+      : null;
+  }, [content, isUser, aiContext, focusedConnection]);
 
   // Parse commands from assistant messages
   const parsedCommands = useMemo(() => {
@@ -577,6 +678,153 @@ function MessageBubble({
     return stripCommands(content);
   }, [content, isUser]);
 
+  // Handle query execution from QueryBlock
+  const handleQueryRun = useCallback(
+    async (query: string, connectionId: string) => {
+      console.log("[QueryBlock] handleQueryRun called", {
+        query: query.slice(0, 50),
+        connectionId,
+      });
+      try {
+        const store = useWorkspaceScreenStore.getState();
+
+        // Set active connection and ensure workspace is initialized
+        console.log(
+          "[QueryBlock] Current activeConnectionId:",
+          store.activeConnectionId,
+        );
+        let activeConnectionId = store.activeConnectionId;
+        if (!activeConnectionId || activeConnectionId !== connectionId) {
+          console.log("[QueryBlock] Switching connection to:", connectionId);
+          store.setActiveConnection(connectionId);
+          activeConnectionId = connectionId;
+        }
+
+        if (!store.workspaces.has(activeConnectionId)) {
+          console.log(
+            "[QueryBlock] Initializing workspace for:",
+            activeConnectionId,
+          );
+          store.initWorkspace(activeConnectionId);
+        }
+
+        const panelId = store.getActivePanelId();
+        console.log("[QueryBlock] Active panel ID:", panelId);
+        if (!panelId) {
+          console.error("[QueryBlock] No panel found for query execution");
+          return;
+        }
+
+        // Generate tab title from query
+        const cleanedQuery = query.trim();
+        const tabTitle =
+          cleanedQuery.slice(0, 30) + (cleanedQuery.length > 30 ? "..." : "");
+
+        // Create the tab with the query content
+        console.log("[QueryBlock] Creating tab in panel:", panelId);
+        const tabId = store.addTab(panelId, {
+          type: "query",
+          connectionId,
+          title: tabTitle,
+          payload: { sql: cleanedQuery },
+        });
+
+        console.log("[QueryBlock] Tab created:", tabId);
+        if (!tabId) {
+          console.error("[QueryBlock] Failed to create tab");
+          return;
+        }
+
+        // Focus the panel and tab to make sure they're visible
+        store.setActivePanel(panelId);
+        store.setActiveTab(panelId, tabId);
+
+        // Execute the query using streaming service
+        const queryToExecute = cleanedQuery.replace(/;\s*$/, "");
+        console.log(
+          "[QueryBlock] Executing query:",
+          queryToExecute.slice(0, 50),
+        );
+        await tableStreamingService.streamQuery(
+          connectionId,
+          tabId,
+          queryToExecute,
+          2500, // pageSize
+          () => {}, // Progress callback
+          (error) => {
+            console.error("[QueryBlock] Query execution error:", error);
+          },
+        );
+        console.log("[QueryBlock] Query execution complete");
+      } catch (err) {
+        console.error("[QueryBlock] Failed to execute query:", err);
+      }
+    },
+    [],
+  );
+
+  // Custom Streamdown components to render QueryBlock for SQL code blocks
+  const streamdownComponents = useMemo(
+    () => ({
+      // Override the pre element to detect SQL code blocks
+      pre: ({
+        children,
+        ...props
+      }: React.HTMLAttributes<HTMLPreElement> & {
+        children?: React.ReactNode;
+      }) => {
+        // Check if this pre contains a code element with a query language
+        // Streamdown renders code blocks as: <pre><code className="language-xxx">...</code></pre>
+        if (children && typeof children === "object" && "props" in children) {
+          const codeProps = children.props as {
+            className?: string;
+            children?: React.ReactNode;
+          };
+          const className = codeProps.className ?? "";
+
+          // Extract language from className (e.g., "language-sql" -> "sql")
+          const langMatch = className.match(/language-(\w+)/);
+          const language = langMatch?.[1]?.toLowerCase() ?? "";
+
+          // If it's a query language, render as QueryBlock
+          if (QUERY_LANGUAGES.has(language)) {
+            // Extract the code content - handle string, array, or other React children
+            let codeContent = "";
+            const childContent = codeProps.children;
+            if (typeof childContent === "string") {
+              codeContent = childContent;
+            } else if (typeof childContent === "number") {
+              codeContent = childContent.toString();
+            } else if (Array.isArray(childContent)) {
+              // Join array elements, filtering to strings/numbers
+              codeContent = childContent
+                .filter(
+                  (c): c is string | number =>
+                    typeof c === "string" || typeof c === "number",
+                )
+                .map((c) => (typeof c === "number" ? c.toString() : c))
+                .join("");
+            }
+
+            return (
+              <QueryBlock
+                query={codeContent}
+                language={language}
+                connectionId={resolvedConnection?.id}
+                connectionName={resolvedConnection?.name}
+                onRun={handleQueryRun}
+              />
+            );
+          }
+        }
+
+        // For non-query code blocks, render the default pre
+        return <pre {...props}>{children}</pre>;
+      },
+    }),
+    [resolvedConnection, handleQueryRun],
+  );
+
   return (
     <div
       className={cn(
@@ -584,7 +832,7 @@ function MessageBubble({
         isUser && "bg-primary/5 border-l-3 border-primary",
       )}
     >
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-full mx-auto">
         {/* Content */}
         <div className="space-y-2">
           {/* Thinking Block */}
@@ -618,7 +866,12 @@ function MessageBubble({
                 "text-[12px] leading-normal",
               )}
             >
-              <Streamdown className="select-text">{displayContent}</Streamdown>
+              <Streamdown
+                className="select-text"
+                components={streamdownComponents}
+              >
+                {displayContent}
+              </Streamdown>
             </div>
           ) : isStreaming &&
             !thinking &&
@@ -821,7 +1074,8 @@ function EmptyState({
       </div>
       <h3 className="text-sm font-medium mb-2">How can I help?</h3>
       <p className="text-[12px] text-muted-foreground max-w-[260px] mb-6">
-        I can write queries, explain schemas, optimize SQL, and help you understand your data.
+        I can write queries, explain schemas, optimize SQL, and help you
+        understand your data.
       </p>
 
       {/* Example prompts */}
@@ -923,7 +1177,9 @@ const InputArea = ({
       conn.schemas.forEach((schema) => {
         // For DBs without schema support (MySQL, MariaDB, SQLite), show just connection name
         // For PostgreSQL, SQL Server - show connName › schema
-        const hasSchemaSupport = ["PostgreSQL", "SQLServer"].includes(conn.dbType);
+        const hasSchemaSupport = ["PostgreSQL", "SQLServer"].includes(
+          conn.dbType,
+        );
         const breadcrumb = hasSchemaSupport
           ? `${conn.name} › ${schema.name}`
           : conn.name;
@@ -1021,7 +1277,7 @@ const InputArea = ({
         setMentionFilter("");
       }
     },
-    [value, onChange, onStartTyping]
+    [value, onChange, onStartTyping],
   );
 
   // Insert selected mention
@@ -1030,7 +1286,7 @@ const InputArea = ({
       const mention = formatMention(
         suggestion.type,
         suggestion.name,
-        suggestion.schema
+        suggestion.schema,
       );
       const before = value.slice(0, mentionStart);
       const cursorPos = inputRef.current?.selectionStart ?? value.length;
@@ -1047,7 +1303,7 @@ const InputArea = ({
         inputRef.current?.focus();
       });
     },
-    [value, mentionStart, onChange]
+    [value, mentionStart, onChange],
   );
 
   // Handle keyboard navigation in mentions
@@ -1082,7 +1338,7 @@ const InputArea = ({
       // Pass to parent handler
       parentOnKeyDown(e);
     },
-    [showMentions, suggestions, selectedIndex, insertMention, parentOnKeyDown]
+    [showMentions, suggestions, selectedIndex, insertMention, parentOnKeyDown],
   );
 
   const placeholder = disabled
@@ -1132,13 +1388,19 @@ const InputArea = ({
                     "transition-colors",
                     index === selectedIndex
                       ? "bg-accent text-accent-foreground"
-                      : "hover:bg-accent/50"
+                      : "hover:bg-accent/50",
                   )}
-                  onClick={() => { insertMention(suggestion); }}
-                  onMouseEnter={() => { setSelectedIndex(index); }}
+                  onClick={() => {
+                    insertMention(suggestion);
+                  }}
+                  onMouseEnter={() => {
+                    setSelectedIndex(index);
+                  }}
                 >
                   {getMentionIcon(suggestion.type)}
-                  <span className="font-medium truncate">{suggestion.name}</span>
+                  <span className="font-medium truncate">
+                    {suggestion.name}
+                  </span>
                   <span className="flex-1" />
                   <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">
                     {suggestion.breadcrumb}
@@ -1155,8 +1417,12 @@ const InputArea = ({
           value={value}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          onFocus={() => { setIsFocused(true); }}
-          onBlur={() => { setIsFocused(false); }}
+          onFocus={() => {
+            setIsFocused(true);
+          }}
+          onBlur={() => {
+            setIsFocused(false);
+          }}
           placeholder={placeholder}
           disabled={disabled || isStreaming}
           className={cn(

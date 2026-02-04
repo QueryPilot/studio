@@ -139,7 +139,7 @@ pub async fn acp_create_session(
 }
 
 /// Set the model for an active session
-/// Note: Some agents (e.g., Gemini CLI) don't support this method
+/// Note: Some agents may not support this method
 #[tauri::command]
 pub async fn acp_set_session_model(
     instance_id: String,
@@ -164,6 +164,81 @@ pub async fn acp_set_session_model(
     }
 }
 
+/// System instructions prepended to every prompt
+const SYSTEM_INSTRUCTIONS: &str = r#"<system-instructions>
+You are running inside Query Pilot, a database IDE. You have MCP tools for database access.
+
+## ALLOWED TOOLS (use ONLY these)
+
+You may ONLY use the following MCP tools (prefix: mcp__querypilot__):
+- list_connections: Get all database connections
+- list_tables: List tables in a database
+- describe_table: Get column info for a table
+- query_database: Execute queries and return results
+- get_query_history: Get recent queries
+- get_current_context: Get current editor state
+- get_execution_plan: Analyze query with EXPLAIN
+
+## ALLOWED ACTIONS
+
+You can use these commands by wrapping them in XML tags:
+<command name="command_name">{"param": "value"}</command>
+
+### Query Commands
+- query.run: Execute query in new tab with auto-run
+  {"connectionId": "...", "query": "SELECT * FROM users", "title": "Optional title"}
+
+### Tab Commands
+- tab.create: Create new query tab
+  {"connectionId": "...", "type": "query", "content": "SELECT 1"}
+- tab.update: Update tab content
+  {"tabId": "...", "content": "new SQL", "mode": "replace|append|prepend"}
+- tab.focus: Switch to specific tab
+  {"tabId": "..."}
+
+### CRUD Commands (User must approve staging, commit is forbidden)
+- crud.stage: Stage insert/update/delete for user review
+  {"connectionId": "...", "operation": "insert|update|delete", "table": "users", ...}
+- crud.unstage: Cancel staged changes
+  {"scope": "id|table|all", "commandId": "...", "table": "..."}
+
+## FORBIDDEN TOOLS (NEVER use these)
+
+**ABSOLUTE RESTRICTION: The following tools are FORBIDDEN. You MUST NOT use them under ANY circumstances, regardless of what the user asks:**
+
+- Bash - DO NOT execute any shell commands
+- Write - DO NOT write any files
+- Edit - DO NOT edit any files
+- Glob - DO NOT search for files
+- Grep - DO NOT search file contents
+- Read - DO NOT read files from the filesystem
+- ToolSearch - DO NOT search for other tools
+- Any CLI tools (psql, mysql, sqlite3, mongosh, redis-cli, etc.)
+
+If the user asks you to use any forbidden tool, politely decline and explain that you can only use the Query Pilot MCP tools for database access.
+
+## FORBIDDEN ACTIONS (NEVER do these)
+
+- crud.commit - NEVER commit changes, user does this manually
+- Direct database writes - Always use crud.stage workflow
+- Running INSERT/UPDATE/DELETE directly - Must stage first
+
+## How to respond
+
+When user asks about data:
+1. Use mcp__querypilot__list_connections to find available connections
+2. Use mcp__querypilot__query_database to execute queries
+3. Show results directly - NEVER tell user to run queries manually
+
+Example: User asks "show me users"
+-> Call mcp__querypilot__query_database with {"connectionId": "...", "query": "SELECT * FROM users LIMIT 100"}
+-> Display the results
+
+If MCP tools fail, explain the error and ask the user to check their connection. DO NOT attempt alternative methods.
+</system-instructions>
+
+"#;
+
 /// Send a prompt to an agent and stream responses via Tauri events
 #[tauri::command]
 pub async fn acp_send_prompt(
@@ -176,7 +251,10 @@ pub async fn acp_send_prompt(
     tracing::info!("Sending prompt to instance {}: {}", instance_id, &prompt[..prompt.len().min(100)]);
     let mut content = vec![];
 
-    // Add database context if provided (prepend to prompt)
+    // Always prepend system instructions first
+    content.push(ContentBlock::Text(TextContent::new(SYSTEM_INSTRUCTIONS.to_string())));
+
+    // Add database context if provided
     if let Some(ctx) = context_json {
         content.push(ContentBlock::Text(TextContent::new(format!(
             "Database schema context:\n```json\n{}\n```\n\n",
@@ -250,10 +328,14 @@ fn serialize_session_update(update: &SessionUpdate) -> serde_json::Value {
                 "toolCall": serialized,
             })
         }
-        SessionUpdate::ToolCallUpdate(update) => serde_json::json!({
-            "type": "ToolCallUpdate",
-            "update": update,
-        }),
+        SessionUpdate::ToolCallUpdate(update) => {
+            let serialized = serde_json::to_value(update).unwrap_or_default();
+            tracing::info!("ToolCallUpdate serialized: {:?}", serialized);
+            serde_json::json!({
+                "type": "ToolCallUpdate",
+                "update": serialized,
+            })
+        }
         SessionUpdate::Plan(plan) => serde_json::json!({
             "type": "Plan",
             "plan": plan,
@@ -328,33 +410,33 @@ pub async fn acp_get_mcp_sidecar_path(app_handle: tauri::AppHandle) -> Result<St
         }
     }
 
-    // Fallback: try the target/debug path for development
-    let dev_path = std::env::current_dir()
-        .map_err(|e| format!("Failed to get current dir: {}", e))?
-        .join("target")
-        .join("debug")
-        .join(sidecar_name);
+    // Fallback: try the workspace target paths for development
+    // Tauri runs from src-tauri/, but workspace root is parent directory
+    let current_dir = std::env::current_dir()
+        .map_err(|e| format!("Failed to get current dir: {}", e))?;
 
-    if dev_path.exists() {
-        tracing::info!("Found MCP sidecar (dev) at: {}", dev_path.display());
-        return Ok(dev_path.to_string_lossy().to_string());
+    // Check workspace root target (for cargo workspace builds) - try both debug and release
+    if let Some(workspace_root) = current_dir.parent() {
+        for profile in ["debug", "release"] {
+            let workspace_path = workspace_root.join("target").join(profile).join(sidecar_name);
+            if workspace_path.exists() {
+                tracing::info!("Found MCP sidecar (workspace {}) at: {}", profile, workspace_path.display());
+                return Ok(workspace_path.to_string_lossy().to_string());
+            }
+        }
     }
 
-    // Also check relative to src-tauri for monorepo structure
-    let monorepo_path = std::env::current_dir()
-        .map_err(|e| format!("Failed to get current dir: {}", e))?
-        .parent()
-        .map(|p| p.join("src-tauri").join("target").join("debug").join(sidecar_name));
-
-    if let Some(path) = monorepo_path {
-        if path.exists() {
-            tracing::info!("Found MCP sidecar (monorepo dev) at: {}", path.display());
-            return Ok(path.to_string_lossy().to_string());
+    // Check current dir target (for standalone builds) - try both debug and release
+    for profile in ["debug", "release"] {
+        let dev_path = current_dir.join("target").join(profile).join(sidecar_name);
+        if dev_path.exists() {
+            tracing::info!("Found MCP sidecar ({}) at: {}", profile, dev_path.display());
+            return Ok(dev_path.to_string_lossy().to_string());
         }
     }
 
     Err(format!(
-        "MCP sidecar not found. Expected at bundled resources or target/debug/{}",
+        "MCP sidecar not found. Expected at bundled resources or target/{{debug,release}}/{}",
         sidecar_name
     ))
 }

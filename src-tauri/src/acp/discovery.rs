@@ -110,7 +110,8 @@ const KNOWN_AGENTS: &[AgentDefinition] = &[
     AgentDefinition {
         binary: "opencode",
         name: "OpenCode",
-        acp_args: &["acp"],
+        // Use --log-level ERROR to suppress benign "NotFoundError" warnings from session storage
+        acp_args: &["acp", "--log-level", "ERROR"],
         install_url: "https://opencode.ai",
         packages: &[PackageDef {
             name: "opencode-ai/tap/opencode",
@@ -128,50 +129,6 @@ const KNOWN_AGENTS: &[AgentDefinition] = &[
                 id: "claude-sonnet-4-20250514",
                 name: "Claude Sonnet 4",
                 description: "Anthropic's balanced model",
-            },
-            ModelDef {
-                id: "gemini-2.5-pro",
-                name: "Gemini 2.5 Pro",
-                description: "Google's advanced model",
-            },
-        ],
-    },
-    AgentDefinition {
-        binary: "gemini",
-        name: "Gemini CLI",
-        acp_args: &["--experimental-acp"],
-        install_url: "https://github.com/google-gemini/gemini-cli",
-        packages: &[PackageDef {
-            name: "@google/gemini-cli",
-            description: "Gemini CLI",
-            manager_type: "npm",
-            binary: "gemini",
-        }],
-        models: &[
-            ModelDef {
-                id: "gemini-3-pro-preview",
-                name: "Gemini 3 Pro",
-                description: "Latest preview model",
-            },
-            ModelDef {
-                id: "gemini-3-flash-preview",
-                name: "Gemini 3 Flash",
-                description: "Fast preview model",
-            },
-            ModelDef {
-                id: "gemini-2.5-pro",
-                name: "Gemini 2.5 Pro",
-                description: "Most capable reasoning",
-            },
-            ModelDef {
-                id: "gemini-2.5-flash",
-                name: "Gemini 2.5 Flash",
-                description: "Fast and efficient",
-            },
-            ModelDef {
-                id: "gemini-2.5-flash-lite",
-                name: "Gemini 2.5 Flash Lite",
-                description: "Lightweight and fast",
             },
         ],
     },

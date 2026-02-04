@@ -19,9 +19,13 @@
 export type AiCommandName =
   // Universal mutation commands
   | "crud.stage"
+  | "crud.unstage"
+  // Query execution
+  | "query.run"
   // UI/Editor commands
   | "tab.update"
   | "tab.create"
+  | "tab.focus"
   | "editor.insert";
 
 export type CommandApprovalLevel = "auto" | "approve" | "dangerous";
@@ -76,6 +80,7 @@ export const COMMAND_META: Record<AiCommandName, AiCommandMeta> = {
       { name: "tabId", type: "string", required: false, description: "Tab ID (defaults to active tab)" },
       { name: "content", type: "string", required: false, description: "New content" },
       { name: "title", type: "string", required: false, description: "New title" },
+      { name: "mode", type: "string", required: false, description: "How to apply content: replace, append, or prepend (default: replace)" },
     ],
   },
   "tab.create": {
@@ -98,6 +103,40 @@ export const COMMAND_META: Record<AiCommandName, AiCommandMeta> = {
     params: [
       { name: "text", type: "string", required: true, description: "Text to insert" },
       { name: "position", type: "string", required: false, description: "Position: cursor, end, or replace" },
+    ],
+  },
+  "tab.focus": {
+    name: "tab.focus",
+    paradigm: "universal",
+    approvalLevel: "auto",
+    description: "Focus/switch to a specific tab",
+    params: [
+      { name: "tabId", type: "string", required: true, description: "Tab ID to focus" },
+    ],
+  },
+  "crud.unstage": {
+    name: "crud.unstage",
+    paradigm: "universal",
+    approvalLevel: "auto",
+    description: "Remove staged CRUD changes",
+    params: [
+      { name: "scope", type: "string", required: true, description: "Scope of unstaging: id, table, or all" },
+      { name: "commandId", type: "string", required: false, description: "Command ID to unstage (when scope = id)" },
+      { name: "table", type: "string", required: false, description: "Table name to unstage all commands for (when scope = table)" },
+      { name: "connectionId", type: "string", required: false, description: "Filter by connection ID" },
+    ],
+  },
+  "query.run": {
+    name: "query.run",
+    paradigm: "universal",
+    approvalLevel: "auto",
+    description: "Execute a query and display results",
+    params: [
+      { name: "connectionId", type: "string", required: true, description: "Database connection ID" },
+      { name: "query", type: "string", required: true, description: "Query to execute" },
+      { name: "title", type: "string", required: false, description: "Result panel title" },
+      { name: "database", type: "string", required: false, description: "Database name" },
+      { name: "schema", type: "string", required: false, description: "Schema name" },
     ],
   },
 };
@@ -131,6 +170,7 @@ export interface TabUpdateParams {
   tabId?: string; // Optional, defaults to active tab
   content?: string; // New content (SQL, MongoDB query, etc.)
   title?: string;
+  mode?: "replace" | "append" | "prepend"; // How to apply content update (default: replace)
 }
 
 export interface TabCreateParams {
@@ -143,6 +183,25 @@ export interface TabCreateParams {
 export interface EditorInsertParams {
   text: string;
   position?: "cursor" | "end" | "replace";
+}
+
+export interface TabFocusParams {
+  tabId: string;
+}
+
+export interface CrudUnstageParams {
+  scope: "id" | "table" | "all";
+  commandId?: string; // When scope = "id"
+  table?: string; // When scope = "table"
+  connectionId?: string; // Filter by connection
+}
+
+export interface QueryRunParams {
+  connectionId: string;
+  query: string;
+  title?: string;
+  database?: string;
+  schema?: string;
 }
 
 // ============================================================================
@@ -172,6 +231,23 @@ export interface EditorInsertResult {
   success: boolean;
 }
 
+export interface TabFocusResult {
+  success: boolean;
+  tabId: string;
+  panelId: string;
+}
+
+export interface CrudUnstageResult {
+  unstaged: boolean;
+  count: number; // Number of commands unstaged
+}
+
+export interface QueryRunResult {
+  success: boolean;
+  tabId: string;
+  rowCount?: number;
+}
+
 // ============================================================================
 // Parsed Command Type
 // ============================================================================
@@ -188,6 +264,9 @@ export interface ParsedCommand<T = unknown> {
 
 export type AnyParsedCommand =
   | ParsedCommand<CrudStageParams>
+  | ParsedCommand<CrudUnstageParams>
+  | ParsedCommand<QueryRunParams>
   | ParsedCommand<TabUpdateParams>
   | ParsedCommand<TabCreateParams>
+  | ParsedCommand<TabFocusParams>
   | ParsedCommand<EditorInsertParams>;
