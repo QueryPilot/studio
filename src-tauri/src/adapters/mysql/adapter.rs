@@ -190,11 +190,18 @@ impl BaseCapability for MySqlAdapter {
         let opts = Self::build_opts(profile)?;
         let pool = Pool::new(opts);
 
-        // Test the connection
-        let conn = pool.get_conn().await.map_err(|e| {
-            tracing::error!("MySQL connection failed: {}", e);
-            AppError::Internal(format!("Failed to connect: {}", e))
-        })?;
+        // Test the connection with timeout to prevent indefinite hangs on unreachable hosts
+        let connect_timeout = std::time::Duration::from_secs(15);
+        let conn = tokio::time::timeout(connect_timeout, pool.get_conn())
+            .await
+            .map_err(|_| AppError::ConnectionClosed(format!(
+                "Connection timed out after {} seconds - host may be unreachable",
+                connect_timeout.as_secs()
+            )))?
+            .map_err(|e| {
+                tracing::error!("MySQL connection failed: {}", e);
+                AppError::Internal(format!("Failed to connect: {}", e))
+            })?;
 
         // Drop connection back to pool
         drop(conn);

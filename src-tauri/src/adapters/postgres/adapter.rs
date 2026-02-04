@@ -76,10 +76,14 @@ impl BaseCapability for PostgresAdapter {
             .create_pool(Some(Runtime::Tokio1), NoTls)
             .map_err(|e| AppError::Internal(format!("Failed to create pool: {}", e)))?;
 
-        // Test connection
-        let _ = pool
-            .get()
+        // Test connection with timeout to prevent indefinite hangs on unreachable hosts
+        let connect_timeout = std::time::Duration::from_secs(15);
+        let _ = tokio::time::timeout(connect_timeout, pool.get())
             .await
+            .map_err(|_| AppError::ConnectionClosed(format!(
+                "Connection timed out after {} seconds - host may be unreachable",
+                connect_timeout.as_secs()
+            )))?
             .map_err(|e| AppError::Internal(format!("Failed to connect: {}", e)))?;
 
         *self.pool.write().await = Some(pool);
