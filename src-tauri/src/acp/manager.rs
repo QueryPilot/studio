@@ -93,13 +93,16 @@ impl Client for QueryPilotClient {
         let tool_title = args.tool_call.fields.title.as_deref().unwrap_or("unknown");
 
         tracing::info!(
-            "Permission request for tool: {:?} ({})",
+            "Permission request for tool: {:?} ({}) - is_mcp: {}",
             tool_kind,
-            tool_title
+            tool_title,
+            tool_title.starts_with("mcp__")
         );
 
         // Determine if we should allow this tool
-        let should_allow = matches!(
+        // Allow safe operations and MCP tools (prefixed with mcp__)
+        let is_mcp_tool = tool_title.starts_with("mcp__");
+        let should_allow = is_mcp_tool || matches!(
             tool_kind,
             // Safe operations - auto-approve
             ToolKind::Read | ToolKind::Search | ToolKind::Think | ToolKind::Fetch | ToolKind::SwitchMode
@@ -360,29 +363,9 @@ impl AcpWorker {
     }
 
     /// Fallback method to set model for agents that don't support ACP session/set_model
-    async fn set_model_fallback(&self, binary_name: &str, model_id: &str) -> Result<(), String> {
-        match binary_name {
-            "gemini" => {
-                // Use gemini config command to set the model
-                tracing::info!("Using gemini config fallback to set model: {}", model_id);
-                let output = std::process::Command::new("gemini")
-                    .args(["config", "set", "model", model_id])
-                    .output()
-                    .map_err(|e| format!("Failed to run gemini config: {}", e))?;
-
-                if output.status.success() {
-                    tracing::info!("Gemini model set successfully via config");
-                    Ok(())
-                } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    Err(format!("Failed to set gemini model: {}", stderr))
-                }
-            }
-            _ => {
-                // No fallback available for this agent
-                Err(format!("Agent '{}' doesn't support model selection", binary_name))
-            }
-        }
+    async fn set_model_fallback(&self, binary_name: &str, _model_id: &str) -> Result<(), String> {
+        // No fallback available for supported agents (Claude Code, OpenCode, Codex)
+        Err(format!("Agent '{}' doesn't support model selection fallback", binary_name))
     }
 
     async fn send_prompt(

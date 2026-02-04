@@ -180,7 +180,12 @@ impl MongoDbAdapter {
 
     /// Disconnect from MongoDB
     pub async fn disconnect(&self) -> Result<(), AppError> {
-        *self.client.write().await = None;
+        // Take the client to properly shut it down
+        let client = self.client.write().await.take();
+        if let Some(c) = client {
+            // shutdown() closes all idle sockets and waits for in-use sockets to be returned
+            c.shutdown().await;
+        }
         *self.database.write().await = None;
         *self.connected.write().await = false;
         Ok(())

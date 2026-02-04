@@ -277,8 +277,12 @@ export async function enrichMentionsFromMessage(
 /**
  * Find which connection a mentioned table/collection belongs to.
  * Supports all database paradigms: SQL (tables/views), MongoDB (collections), Redis (keys).
+ *
+ * @param ref - The mention reference parsed from user input
+ * @param context - The AI context with all connections
+ * @returns Connection ID and schema if found, null otherwise
  */
-function findConnectionForMention(
+export function findConnectionForMention(
   ref: MentionReference,
   context: AIContext
 ): { connectionId: string; schema: string } | null {
@@ -332,6 +336,39 @@ function findConnectionForMention(
     const schema = hasEntity(conn);
     if (schema !== null) {
       return { connectionId: conn.id, schema };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Find connection from @ mentions in a message text.
+ * Parses mentions from the text and returns the first matching connection.
+ *
+ * @param messageText - Text potentially containing @ mentions (e.g., "@users" or "@public.users")
+ * @param context - The AI context with all connections
+ * @returns Connection info if a mention matches a known table/view, null otherwise
+ */
+export function findConnectionFromMentions(
+  messageText: string,
+  context: AIContext
+): { connectionId: string; connectionName: string; schema: string } | null {
+  const mentions = parseMentions(messageText);
+
+  for (const mention of mentions) {
+    // Skip tab mentions
+    if (mention.type === "tab") continue;
+
+    const match = findConnectionForMention(mention, context);
+    if (match) {
+      // Find the connection name
+      const conn = context.connections.find((c) => c.id === match.connectionId);
+      return {
+        connectionId: match.connectionId,
+        connectionName: conn?.name ?? "Unknown",
+        schema: match.schema,
+      };
     }
   }
 
@@ -423,6 +460,43 @@ const COMMAND_SCHEMAS: Record<AiCommandName, CommandSchema> = {
       position: "cursor",
     },
     guidelines: "Insert snippets at cursor, append to end, or replace entire content.",
+  },
+  "tab.focus": {
+    params: {
+      tabId: { type: "string", required: true, description: "Tab ID to focus" },
+    },
+    example: {
+      tabId: "tab-123",
+    },
+    guidelines: "Switches to the specified tab. Use to navigate between open tabs.",
+  },
+  "crud.unstage": {
+    params: {
+      scope: { type: '"id" | "table" | "all"', required: true, description: "Scope of unstaging" },
+      commandId: { type: "string", required: false, description: "Command ID to unstage (when scope = id)" },
+      table: { type: "string", required: false, description: "Table name to unstage all commands for (when scope = table)" },
+      connectionId: { type: "string", required: false, description: "Filter by connection ID" },
+    },
+    example: {
+      scope: "id",
+      commandId: "cmd-abc123",
+    },
+    guidelines: "Removes staged CRUD changes. Use 'id' to unstage a specific command, 'table' to unstage all commands for a table, or 'all' to clear all staged changes.",
+  },
+  "query.run": {
+    params: {
+      connectionId: { type: "string", required: true, description: "Connection ID from context" },
+      query: { type: "string", required: true, description: "Query to execute" },
+      title: { type: "string", required: false, description: "Result panel title" },
+      database: { type: "string", required: false, description: "Database name" },
+      schema: { type: "string", required: false, description: "Schema name" },
+    },
+    example: {
+      connectionId: "conn-123",
+      query: "SELECT * FROM users WHERE active = true LIMIT 10",
+      title: "Active Users",
+    },
+    guidelines: "Executes a query and displays results in a new tab. Use for showing query results directly.",
   },
 };
 

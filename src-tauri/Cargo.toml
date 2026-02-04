@@ -5,11 +5,11 @@ edition = "2021"
 default-run = "query-pilot"
 
 [build-dependencies]
-tauri-build = { version = "2.5.2", features = [] }
+tauri-build = { version = "2.5", features = [] }
 
 [dependencies]
 # Tauri
-tauri = { version = "2.9.3", features = [ "macos-private-api"] }
+tauri = { version = "2.10", features = [ "macos-private-api"] }
 tauri-plugin-shell = "2.3"
 tauri-plugin-opener = "2.5"
 tauri-plugin-clipboard-manager = "2.3"

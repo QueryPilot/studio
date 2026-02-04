@@ -150,12 +150,18 @@ export function getCommandDescription(command: ParsedCommand): string {
   switch (command.name) {
     case "crud.stage":
       return `Stage ${(command.params as { operation?: string }).operation ?? "change"}`;
+    case "crud.unstage":
+      return "Unstage Changes";
+    case "query.run":
+      return "Run Query";
     case "tab.update":
-      return `Update tab content`;
+      return "Update tab content";
     case "tab.create":
-      return `Create new tab`;
+      return "Create new tab";
+    case "tab.focus":
+      return "Focus Tab";
     case "editor.insert":
-      return `Insert at cursor`;
+      return "Insert at cursor";
     default:
       return `Unknown command: ${command.name}`;
   }
@@ -174,8 +180,8 @@ export function validateCommand(command: ParsedCommand): string | null {
 
   const params = command.params as Record<string, unknown>;
 
-  // Only tab.update and editor.insert don't need connectionId
-  const noConnectionNeeded = ["tab.update", "editor.insert"];
+  // Commands that don't require connectionId
+  const noConnectionNeeded = ["tab.update", "tab.focus", "editor.insert", "crud.unstage"];
   if (!noConnectionNeeded.includes(command.name) && !params.connectionId) {
     return "Missing required parameter: connectionId";
   }
@@ -183,6 +189,28 @@ export function validateCommand(command: ParsedCommand): string | null {
   switch (command.name) {
     case "crud.stage":
       if (!params.operation) return "Missing required parameter: operation";
+      if (!params.table && !params.collection) return "Missing required parameter: table or collection";
+      break;
+    case "crud.unstage":
+      if (!params.scope) return "Missing required parameter: scope";
+      // Validate scope value
+      if (!["id", "table", "all"].includes(params.scope as string)) {
+        return "Invalid scope: must be 'id', 'table', or 'all'";
+      }
+      // commandId required when scope is "id"
+      if (params.scope === "id" && !params.commandId) {
+        return "Missing required parameter: commandId (required when scope is 'id')";
+      }
+      // table required when scope is "table"
+      if (params.scope === "table" && !params.table) {
+        return "Missing required parameter: table (required when scope is 'table')";
+      }
+      break;
+    case "query.run":
+      if (!params.query) return "Missing required parameter: query";
+      break;
+    case "tab.focus":
+      if (!params.tabId) return "Missing required parameter: tabId";
       break;
     case "editor.insert":
       if (!params.text) return "Missing required parameter: text";

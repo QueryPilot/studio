@@ -215,6 +215,12 @@ export const AcpService = {
             update.update.id;
           // Status can be in different fields
           const status = update.update.status ?? update.update.state ?? "completed";
+          // Log any error information
+          const error = update.update.error ?? update.update.errorMessage ?? update.update.message;
+          if (error) {
+            console.error("[ACP] Tool call error:", toolCallId, error);
+          }
+          console.log("[ACP] Tool status update:", toolCallId, "->", status);
           if (toolCallId) {
             callbacks?.onToolCallUpdate?.(toolCallId, status);
           }

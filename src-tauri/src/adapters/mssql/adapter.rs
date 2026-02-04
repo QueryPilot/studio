@@ -439,7 +439,9 @@ impl BaseCapability for MssqlAdapter {
     }
 
     async fn disconnect(&self) -> Result<(), AppError> {
-        *self.pool.write().await = None;
+        // Take the pool and drop it - bb8 doesn't have an explicit close method
+        // but dropping the pool will close all connections
+        let _ = self.pool.write().await.take();
         Ok(())
     }
 
