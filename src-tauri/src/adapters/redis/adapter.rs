@@ -135,14 +135,25 @@ impl RedisAdapter {
             .build()
             .map_err(|e| AppError::DatabaseError(format!("Failed to build Redis client: {}", e)))?;
 
-        client.init().await.map_err(|e| {
-            AppError::DatabaseError(format!("Failed to connect to Redis: {}", e))
-        })?;
+        // Initialize with timeout to prevent indefinite hangs on unreachable hosts
+        let connect_timeout = std::time::Duration::from_secs(15);
+        tokio::time::timeout(connect_timeout, client.init())
+            .await
+            .map_err(|_| AppError::ConnectionClosed(format!(
+                "Connection timed out after {} seconds - host may be unreachable",
+                connect_timeout.as_secs()
+            )))?
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to connect to Redis: {}", e))
+            })?;
 
-        // Verify with PING
-        let _: String = client.ping(None).await.map_err(|e| {
-            AppError::DatabaseError(format!("Redis PING failed: {}", e))
-        })?;
+        // Verify with PING (also with timeout)
+        let _: String = tokio::time::timeout(connect_timeout, client.ping(None))
+            .await
+            .map_err(|_| AppError::ConnectionClosed("PING timed out".into()))?
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Redis PING failed: {}", e))
+            })?;
 
         let db_num: u8 = profile
             .database
