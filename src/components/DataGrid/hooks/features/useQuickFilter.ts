@@ -32,6 +32,7 @@ export interface UseQuickFilterResult {
   error: string | null;
   aiExplanation: string | null;
   activeFilter: FilterConfig | undefined;
+  isLoading: boolean;
 
   // Actions
   setValue: (value: string) => void;
@@ -63,6 +64,7 @@ export function useQuickFilter({
   const [activeFilter, setActiveFilter] = useState<FilterConfig | undefined>(
     undefined
   );
+  const [isLoading, setIsLoading] = useState(false);
 
   // Ref for input focus
   const inputRef = useRef<{ focus: () => void } | null>(null);
@@ -87,10 +89,16 @@ export function useQuickFilter({
     setError(null);
     setAiExplanation(null);
 
-    // Auto-detect mode from prefix
+    // Auto-detect mode from prefix, but preserve AI mode unless explicitly changed
+    // This allows users to type naturally in AI mode without needing # prefix
     const detectedMode = detectFilterMode(newValue);
     if (detectedMode !== mode) {
-      setMode(detectedMode);
+      // Only switch away from AI mode if user explicitly typed a different prefix
+      // (? for where mode, or \ for escaped search)
+      const hasExplicitPrefix = newValue.trim().startsWith("?") || newValue.trim().startsWith("\\");
+      if (mode !== "ai" || hasExplicitPrefix) {
+        setMode(detectedMode);
+      }
     }
 
     // Clear filter immediately when input is empty (instant feedback)
@@ -132,11 +140,14 @@ export function useQuickFilter({
           return;
         }
 
-        const outputType = clientSideFiltering ? "search_pattern" : "sql";
-        const result = await generateAIFilter(sanitized, { outputType });
-        if ("error" in result) {
-          setError(result.error);
-        } else {
+        setIsLoading(true);
+        try {
+          const outputType = clientSideFiltering ? "search_pattern" : "sql";
+          const result = await generateAIFilter(sanitized, { outputType });
+          if ("error" in result) {
+            setError(result.error);
+            return;
+          }
           if (clientSideFiltering) {
             // In client-side mode, the clause is a search pattern
             // Parse it to set activeFilter
@@ -175,6 +186,8 @@ export function useQuickFilter({
             setValue(`?${result.clause}`);
             setMode("where");
           }
+        } finally {
+          setIsLoading(false);
         }
         break;
       }
@@ -221,6 +234,7 @@ export function useQuickFilter({
     error,
     aiExplanation,
     activeFilter,
+    isLoading,
     setValue: handleSetValue,
     setMode,
     submit,

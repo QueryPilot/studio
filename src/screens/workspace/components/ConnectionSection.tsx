@@ -1375,7 +1375,7 @@ export const ConnectionSection = forwardRef<
                   isActive={
                     !!focusedPanelId &&
                     panelContents.get(focusedPanelId)?.activeTabId ===
-                      `redis-keys-${connectionId}`
+                      `redis-key-${connectionId}`
                   }
                   onClick={() => {
                     setFocusedConnection(connectionId);
@@ -1394,9 +1394,9 @@ export const ConnectionSection = forwardRef<
                       }
                     }
                     if (targetPanelId) {
-                      const tabId = `redis-keys-${connectionId}`;
+                      const tabId = `redis-key-${connectionId}`;
                       addTab(targetPanelId, tabId, {
-                        type: "redis-keys",
+                        type: "redis-key",
                         title: "Key Browser",
                         connectionId,
                         database,
