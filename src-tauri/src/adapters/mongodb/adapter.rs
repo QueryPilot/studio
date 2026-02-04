@@ -148,15 +148,20 @@ impl MongoDbAdapter {
     pub async fn connect(&self, profile: &ConnectionProfile) -> Result<(), AppError> {
         let conn_str = Self::build_connection_string(profile);
 
-        let client_options = ClientOptions::parse(&conn_str).await.map_err(|e| {
+        // Add connection timeout to prevent indefinite hangs
+        let mut client_options = ClientOptions::parse(&conn_str).await.map_err(|e| {
             AppError::DatabaseError(format!("Failed to parse MongoDB URI: {}", e))
         })?;
+
+        // Set server selection and connection timeouts
+        client_options.connect_timeout = Some(std::time::Duration::from_secs(15));
+        client_options.server_selection_timeout = Some(std::time::Duration::from_secs(15));
 
         let client = Client::with_options(client_options).map_err(|e| {
             AppError::DatabaseError(format!("Failed to create MongoDB client: {}", e))
         })?;
 
-        // Verify connection with ping
+        // Verify connection with ping (timeout already configured above)
         client
             .database("admin")
             .run_command(bson::doc! { "ping": 1 })
