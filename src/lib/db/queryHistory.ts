@@ -102,20 +102,33 @@ export async function addHistoryEntry(
 
 export async function getHistory(options?: {
   profileId?: string;
+  profileIds?: string[];
   limit?: number;
   offset?: number;
   since?: number;
 }): Promise<QueryHistoryEntry[]> {
-  let collection = queryHistoryDB.history.orderBy("executedAt").reverse();
+  let results: QueryHistoryEntry[];
 
-  if (options?.profileId) {
-    collection = queryHistoryDB.history
+  if (options?.profileIds && options.profileIds.length > 0) {
+    results = await queryHistoryDB.history
+      .where("profileId")
+      .anyOf(options.profileIds)
+      .reverse()
+      .sortBy("executedAt");
+    results.reverse();
+  } else if (options?.profileId) {
+    results = await queryHistoryDB.history
       .where("profileId")
       .equals(options.profileId)
-      .reverse();
+      .reverse()
+      .sortBy("executedAt");
+    results.reverse();
+  } else {
+    results = await queryHistoryDB.history
+      .orderBy("executedAt")
+      .reverse()
+      .toArray();
   }
-
-  let results = await collection.toArray();
 
   const sinceTime = options?.since;
   if (sinceTime !== undefined) {
@@ -161,9 +174,16 @@ export async function deleteSavedQuery(id: string): Promise<void> {
 
 export async function getSavedQueries(options?: {
   profileId?: string;
+  profileIds?: string[];
   tag?: string;
 }): Promise<SavedQuery[]> {
-  const collection = queryHistoryDB.saved.orderBy("updatedAt").reverse();
+  if (options?.profileIds && options.profileIds.length > 0) {
+    const results = await queryHistoryDB.saved
+      .where("profileId")
+      .anyOf(options.profileIds)
+      .toArray();
+    return results.sort((a, b) => b.updatedAt - a.updatedAt);
+  }
 
   if (options?.profileId) {
     const results = await queryHistoryDB.saved
@@ -181,5 +201,5 @@ export async function getSavedQueries(options?: {
     return results.sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
-  return collection.toArray();
+  return queryHistoryDB.saved.orderBy("updatedAt").reverse().toArray();
 }

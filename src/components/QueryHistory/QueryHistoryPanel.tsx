@@ -9,6 +9,7 @@ import { useRef, useEffect } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { useQueryHistoryStore } from "@/stores/queryHistoryStore";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { QueryHistoryList } from "./QueryHistoryList";
 import { SavedQueriesList } from "./SavedQueriesList";
 import { IconSearch, IconHistory, IconBookmark } from "@tabler/icons-react";
@@ -16,8 +17,16 @@ import { eventBus } from "@/services/eventBus";
 
 export function QueryHistoryPanel() {
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const { activeTab, setActiveTab, searchQuery, setSearchQuery } =
+  const { activeTab, setActiveTab, searchQuery, setSearchQuery, setFilterProfileIds } =
     useQueryHistoryStore();
+  const connectionIds = useWorkspaceBundleStore(
+    (s) => s.activeWorkspace?.config.connectionIds ?? null,
+  );
+
+  // Filter history by workspace connections
+  useEffect(() => {
+    setFilterProfileIds(connectionIds);
+  }, [connectionIds, setFilterProfileIds]);
 
   useEffect(() => {
     const handleFocusSearch = () => {
