@@ -567,6 +567,20 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
         };
       }
 
+      // Debug logging for key view mode cell content
+      logger.info('keyvalue-data', 'getCellContent (key view mode)', {
+        cell: [colIndex, rowIndex],
+        columnField: column.field,
+        columnTitle: column.title,
+        keyType: currentKey?.type,
+        cellValueType: typeof cellValue,
+        cellValueIsObject: typeof cellValue === 'object' && cellValue !== null,
+        cellValueHasValue: cellValue && typeof cellValue === 'object' && 'value' in cellValue,
+        actualValue: cellValue && typeof cellValue === 'object' && 'value' in cellValue
+          ? String((cellValue as { value: unknown }).value).slice(0, 100)
+          : String(cellValue).slice(0, 100),
+      });
+
       return buildKeyValueCell({
         value: cellValue,
         column,

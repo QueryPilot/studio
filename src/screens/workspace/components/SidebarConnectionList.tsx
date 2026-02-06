@@ -16,6 +16,9 @@ import {
   IconLoader2,
   IconDatabase,
   IconHistory,
+  IconSitemap,
+  IconChevronRight,
+  IconLayoutDashboard,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { eventBus } from "@/services/eventBus";
@@ -23,6 +26,16 @@ import { QueryHistoryPanel } from "@/components/QueryHistory";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { ConnectionSection } from "./ConnectionSection";
 import type { OpenConnection } from "@/types/workspace";
+import { getParadigm } from "@/types/connection";
+import { getDatabaseLogo } from "@/utils/databaseLogos";
+import { openErdView, openErdInSplitRight } from "@/utils/workbench/openers";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { IconColumns } from "@tabler/icons-react";
 import { type TableMeta, type FunctionMeta } from "@/services/databaseService";
 import {
   Tooltip,
@@ -52,15 +65,16 @@ export function SidebarConnectionList({
   onTableClick,
   onFunctionClick,
 }: SidebarConnectionListProps) {
-  const [sidebarView, setSidebarView] = useState<"objects" | "queries">(
+  const [sidebarView, setSidebarView] = useState<"objects" | "queries" | "erd">(
     "objects",
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [isRefreshingAll, setIsRefreshingAll] = useState(false);
+  const [expandedErdDbs, setExpandedErdDbs] = useState<Set<string>>(new Set());
 
   // Listen for sidebar view switch commands from command palette
   useEffect(() => {
-    const handleSwitchView = (event: { view: "objects" | "queries" }) => {
+    const handleSwitchView = (event: { view: "objects" | "queries" | "erd" }) => {
       setSidebarView(event.view);
     };
     eventBus.on("sidebar:switch-view", handleSwitchView);
@@ -228,6 +242,20 @@ export function SidebarConnectionList({
               <IconHistory className="h-3.5 w-3.5" />
               <span>History</span>
             </button>
+            <button
+              onClick={() => {
+                setSidebarView("erd");
+              }}
+              className={cn(
+                "flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors",
+                sidebarView === "erd"
+                  ? "text-foreground bg-muted rounded-md"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+              )}
+            >
+              <IconSitemap className="h-3.5 w-3.5" />
+              <span>ERD</span>
+            </button>
           </div>
 
           {/* Action buttons */}
@@ -291,6 +319,117 @@ export function SidebarConnectionList({
       {sidebarView === "queries" ? (
         <div className="flex-1 min-w-0 overflow-auto">
           <QueryHistoryPanel />
+        </div>
+      ) : sidebarView === "erd" ? (
+        <div className="flex-1 overflow-auto">
+          {connections.filter((c) => getParadigm(c.profile.db_type) === "sql").length === 0 ? (
+            <div className="p-4 text-center">
+              <p className="text-xs text-muted-foreground">
+                No SQL databases in workspace
+              </p>
+            </div>
+          ) : (
+            <div className="py-1">
+              {connections
+                .filter((c) => getParadigm(c.profile.db_type) === "sql")
+                .map((connection) => {
+                  const isExpanded = expandedErdDbs.has(connection.id);
+                  return (
+                    <div key={connection.id}>
+                      {/* Database header - collapsible */}
+                      <button
+                        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs hover:bg-muted/50 transition-colors text-left"
+                        onClick={() => {
+                          setExpandedErdDbs((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(connection.id)) {
+                              next.delete(connection.id);
+                            } else {
+                              next.add(connection.id);
+                            }
+                            return next;
+                          });
+                        }}
+                      >
+                        <IconChevronRight
+                          className={cn(
+                            "h-3 w-3 text-muted-foreground transition-transform shrink-0",
+                            isExpanded && "rotate-90"
+                          )}
+                        />
+                        <img
+                          src={getDatabaseLogo(connection.profile.db_type)}
+                          alt={connection.profile.db_type}
+                          className="h-3.5 w-3.5 shrink-0"
+                        />
+                        <span className="truncate flex-1">{connection.profile.name}</span>
+                        <span
+                          className={cn(
+                            "h-2 w-2 rounded-full shrink-0",
+                            connection.status === "connected"
+                              ? "bg-green-500"
+                              : connection.status === "connecting"
+                                ? "bg-yellow-500"
+                                : "bg-red-500"
+                          )}
+                        />
+                      </button>
+
+                      {/* ERD Views - shown when expanded */}
+                      {isExpanded && (
+                        <div className="ml-5">
+                          {/* Main view (default) — right-click for "Open in Split Right" */}
+                          <ContextMenu>
+                            <ContextMenuTrigger
+                              className="w-full flex items-center gap-1.5 px-2 py-1 text-xs hover:bg-muted/50 transition-colors text-left rounded"
+                              onClick={() => {
+                                openErdView({
+                                  connectionId: connection.id,
+                                  connectionName: connection.profile.name,
+                                  database: connection.database,
+                                  schema: connection.schema,
+                                });
+                              }}
+                            >
+                              <IconLayoutDashboard className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                              <span className="truncate">main</span>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent>
+                              <ContextMenuItem
+                                onClick={() => {
+                                  openErdView({
+                                    connectionId: connection.id,
+                                    connectionName: connection.profile.name,
+                                    database: connection.database,
+                                    schema: connection.schema,
+                                  });
+                                }}
+                              >
+                                <IconSitemap className="h-4 w-4 mr-2" />
+                                Open ERD
+                              </ContextMenuItem>
+                              <ContextMenuItem
+                                onClick={() => {
+                                  openErdInSplitRight({
+                                    connectionId: connection.id,
+                                    connectionName: connection.profile.name,
+                                    database: connection.database,
+                                    schema: connection.schema,
+                                  });
+                                }}
+                              >
+                                <IconColumns className="h-4 w-4 mr-2" />
+                                Open in Split Right
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex-1 overflow-auto">

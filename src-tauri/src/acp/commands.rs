@@ -27,7 +27,7 @@ pub async fn acp_list_agents() -> Result<Vec<AgentInfo>, String> {
 #[tauri::command]
 pub async fn acp_fetch_agent_models(agent_id: String) -> Result<Option<Vec<super::discovery::ModelInfo>>, String> {
     tracing::info!("Fetching models for agent: {}", agent_id);
-    let models = super::discovery::fetch_agent_models(&agent_id);
+    let models = super::discovery::fetch_agent_models(&agent_id).await;
     if let Some(ref m) = models {
         tracing::info!("Found {} models dynamically", m.len());
     } else {
