@@ -630,3 +630,109 @@ export function openFunctionInSplitRight({
   // Focus the new panel
   focusPanel(newPanelId);
 }
+
+// ---------------------------------------------------------------------------
+// ERD openers
+// ---------------------------------------------------------------------------
+
+interface OpenErdParams {
+  connectionId: string;
+  connectionName: string;
+  database?: string;
+  schema?: string;
+}
+
+/**
+ * Open an ERD tab for the given connection. Reuses an existing tab if one
+ * is already open in any panel (global dedup). Otherwise creates a new tab
+ * in the focused panel.
+ */
+export function openErdView({
+  connectionId,
+  connectionName,
+  database,
+  schema,
+}: OpenErdParams): void {
+  const {
+    focusedPanelId,
+    addTab,
+    panelContents,
+    focusPanel,
+    setActiveTab,
+  } = useWorkbenchStore.getState();
+
+  const tabId = `erd-${connectionId}-main`;
+
+  // Global dedup: search ALL panels for existing ERD tab
+  for (const [panelId, content] of panelContents.entries()) {
+    if (content.tabIds.includes(tabId)) {
+      setActiveTab(panelId, tabId);
+      focusPanel(panelId);
+      return;
+    }
+  }
+
+  // Not found — create in focused panel
+  let targetPanelId = focusedPanelId;
+  if (!targetPanelId && panelContents.size > 0) {
+    const firstPanelId = Array.from(panelContents.keys())[0];
+    if (firstPanelId) {
+      targetPanelId = firstPanelId;
+      focusPanel(firstPanelId);
+    }
+  }
+  if (!targetPanelId) return;
+
+  addTab(targetPanelId, tabId, {
+    type: 'erd',
+    title: `${connectionName} ERD`,
+    connectionId,
+    database,
+    schema,
+  });
+}
+
+/**
+ * Open an ERD in a new split panel to the right. Always creates a new tab
+ * with a unique ID so it does not conflict with existing ERD tabs.
+ */
+export function openErdInSplitRight({
+  connectionId,
+  connectionName,
+  database,
+  schema,
+}: OpenErdParams): void {
+  const { focusedPanelId, splitPanelAction, panelContents, focusPanel } =
+    useWorkbenchStore.getState();
+
+  let targetPanelId = focusedPanelId;
+  if (!targetPanelId && panelContents.size > 0) {
+    targetPanelId = Array.from(panelContents.keys())[0] ?? null;
+  }
+  if (!targetPanelId) return;
+
+  const tabId = `erd-${connectionId}-${nanoid(8)}`;
+  const newPanelId = nanoid(8);
+
+  splitPanelAction({
+    targetPanelId,
+    direction: 'right',
+    newPanelContent: {
+      id: newPanelId,
+      type: 'editor',
+      tabIds: [tabId],
+      activeTabId: tabId,
+      metadata: {
+        [tabId]: {
+          type: 'erd',
+          title: `${connectionName} ERD`,
+          connectionId,
+          database,
+          schema,
+        },
+      },
+    },
+  });
+
+  focusPanel(newPanelId);
+}

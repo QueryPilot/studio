@@ -303,13 +303,15 @@ export function buildKeyValueCell(opts: KeyValueCellOptions): GridCell {
   const isReadOnly = readOnly || isPrimaryKey || isTypeReadOnly || isZsetReadOnly;
 
   // Debug logging for cell editability
-  logger.debug('keyvalue-cell', 'buildKeyValueCell', {
+  logger.info('keyvalue-cell', 'buildKeyValueCell', {
     columnField: column.field,
     keyType,
+    rawValue: rawValue === undefined ? '(undefined)' : rawValue === null ? '(null)' : String(rawValue).slice(0, 100),
+    valueType: typeof value,
+    cellValueType: typeof cellValue,
+    hasCellValueProperty: cellValue && typeof cellValue === 'object' && 'value' in cellValue,
     readOnly,
     isPrimaryKey,
-    isTypeReadOnly,
-    isZsetReadOnly,
     isReadOnly,
     willBeEditable: !isReadOnly,
   });
@@ -411,7 +413,7 @@ export function buildKeyValueCell(opts: KeyValueCellOptions): GridCell {
   const strValue = String(rawValue);
   const isMultiLine = strValue.length > 200 || strValue.includes('\n');
 
-  return {
+  const cell = {
     kind: GridCellKind.Custom,
     data: {
       kind: isMultiLine ? 'text-multi-cell' : 'text-single-cell',
@@ -425,6 +427,16 @@ export function buildKeyValueCell(opts: KeyValueCellOptions): GridCell {
     allowOverlay: !isReadOnly,
     readonly: isReadOnly,
   };
+
+  logger.info('keyvalue-cell', 'buildKeyValueCell result (text)', {
+    columnField: column.field,
+    cellKind: cell.data.kind,
+    cellValue: strValue.slice(0, 100),
+    readonly: cell.readonly,
+    allowOverlay: cell.allowOverlay,
+  });
+
+  return cell;
 }
 
 // ============================================================================

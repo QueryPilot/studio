@@ -49,6 +49,7 @@ import {
   openTableObject,
   openTableDesigner,
   openQueryWithTemplate,
+  openErdView,
 } from "@/utils/workbench/openers";
 import {
   useStarredItemsStore,
@@ -526,30 +527,12 @@ export const ConnectionSection = forwardRef<
   // Handle open ERD
   const handleOpenErd = () => {
     setFocusedConnection(connectionId);
-    const { focusedPanelId, addTab, panelContents, focusPanel } =
-      useWorkbenchStore.getState();
-
-    const erdTabId = `erd-${connectionId}`;
-    const erdMetadata = {
-      type: "erd" as const,
-      title: "ERD",
+    openErdView({
       connectionId,
+      connectionName: profile.name,
       database,
       schema: schema || "public",
-    };
-
-    let targetPanelId = focusedPanelId;
-    if (!targetPanelId && panelContents.size > 0) {
-      const firstPanelId = Array.from(panelContents.keys())[0];
-      if (firstPanelId) {
-        targetPanelId = firstPanelId;
-        focusPanel(firstPanelId);
-      }
-    }
-
-    if (targetPanelId) {
-      addTab(targetPanelId, erdTabId, erdMetadata);
-    }
+    });
   };
 
   // Context menu handlers

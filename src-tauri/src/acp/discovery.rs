@@ -249,12 +249,14 @@ fn shell_which(binary: &str) -> Option<std::path::PathBuf> {
         })
 }
 
-/// Fetch available models for an agent dynamically via shell command
-/// Returns None if the agent doesn't support dynamic model listing
-pub fn fetch_agent_models(agent_id: &str) -> Option<Vec<ModelInfo>> {
+/// Fetch available models for an agent dynamically
+/// Returns None if the agent doesn't support dynamic model listing or fetch fails
+pub async fn fetch_agent_models(agent_id: &str) -> Option<Vec<ModelInfo>> {
     match agent_id {
         "opencode" => fetch_opencode_models(),
-        _ => None, // Other agents use static model lists
+        "codex-acp" => fetch_codex_models(),
+        "claude-code-acp" => fetch_claude_code_models().await,
+        _ => None,
     }
 }
 
@@ -350,5 +352,123 @@ fn format_provider_name(provider_id: &str) -> String {
         "xai" => "xAI".to_string(),
         "ollama" => "Ollama".to_string(),
         _ => format_model_name(provider_id),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Codex: read ~/.codex/models_cache.json (populated by the Codex CLI)
+// ---------------------------------------------------------------------------
+
+fn fetch_codex_models() -> Option<Vec<ModelInfo>> {
+    let home = dirs::home_dir()?;
+    let cache_path = home.join(".codex").join("models_cache.json");
+    let content = std::fs::read_to_string(&cache_path).ok()?;
+
+    #[derive(serde::Deserialize)]
+    struct CodexModelsCache {
+        models: Vec<CodexModel>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct CodexModel {
+        slug: String,
+        display_name: String,
+        description: String,
+        visibility: String,
+        #[allow(dead_code)]
+        priority: u32,
+    }
+
+    let cache: CodexModelsCache = serde_json::from_str(&content).ok()?;
+
+    let models: Vec<ModelInfo> = cache
+        .models
+        .into_iter()
+        .filter(|m| m.visibility == "list")
+        .map(|m| ModelInfo {
+            id: m.slug,
+            name: m.display_name,
+            description: m.description,
+        })
+        .collect();
+
+    if models.is_empty() {
+        None
+    } else {
+        tracing::info!("Fetched {} Codex models from cache", models.len());
+        Some(models)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Claude Code: call Anthropic GET /v1/models (requires ANTHROPIC_API_KEY)
+// ---------------------------------------------------------------------------
+
+async fn fetch_claude_code_models() -> Option<Vec<ModelInfo>> {
+    let api_key = std::env::var("ANTHROPIC_API_KEY").ok().or_else(|| {
+        // Fallback: read from ~/.anthropic/api_key if it exists
+        dirs::home_dir()
+            .map(|h| h.join(".anthropic").join("api_key"))
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    })?;
+
+    tracing::info!("Fetching Claude models from Anthropic API");
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get("https://api.anthropic.com/v1/models")
+        .query(&[("limit", "1000")])
+        .header("x-api-key", &api_key)
+        .header("anthropic-version", "2023-06-01")
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .ok()?;
+
+    if !response.status().is_success() {
+        tracing::warn!(
+            "Anthropic models API returned status {}",
+            response.status()
+        );
+        return None;
+    }
+
+    #[derive(serde::Deserialize)]
+    struct AnthropicModelsResponse {
+        data: Vec<AnthropicModel>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct AnthropicModel {
+        id: String,
+        display_name: String,
+    }
+
+    let body: AnthropicModelsResponse = response.json().await.ok()?;
+
+    let models: Vec<ModelInfo> = body
+        .data
+        .into_iter()
+        // Keep only current-generation Claude models
+        .filter(|m| {
+            m.id.starts_with("claude-")
+                && !m.id.starts_with("claude-2")
+                && !m.id.starts_with("claude-3-")
+                && !m.id.contains("claude-instant")
+        })
+        .map(|m| ModelInfo {
+            name: m.display_name,
+            description: format!("Anthropic {}", m.id),
+            id: m.id,
+        })
+        .collect();
+
+    if models.is_empty() {
+        None
+    } else {
+        tracing::info!("Fetched {} Claude models from API", models.len());
+        Some(models)
     }
 }
