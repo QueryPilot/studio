@@ -335,8 +335,8 @@ export function WorkspaceTitleBar({
           });
 
           // Complete progress to 100%
-          if (commitProgressRef.current)
-            clearInterval(commitProgressRef.current);
+
+          clearInterval(commitProgressRef.current);
           setCommitProgress(100);
 
           toast.success("All changes committed", {
@@ -349,8 +349,8 @@ export function WorkspaceTitleBar({
           await new Promise((resolve) => setTimeout(resolve, 200));
         } catch (error) {
           // Stop progress on error
-          if (commitProgressRef.current)
-            clearInterval(commitProgressRef.current);
+
+          clearInterval(commitProgressRef.current);
           setCommitProgress(0);
 
           toast.error("Commit failed", {
@@ -362,10 +362,9 @@ export function WorkspaceTitleBar({
         } finally {
           setIsCommittingAll(false);
           setCommitProgress(0);
-          if (commitProgressRef.current) {
-            clearInterval(commitProgressRef.current);
-            commitProgressRef.current = null;
-          }
+
+          clearInterval(commitProgressRef.current);
+          commitProgressRef.current = null;
         }
       }
     },
@@ -892,7 +891,7 @@ export function WorkspaceTitleBar({
           onClick={handleGoHome}
           title="Go to home"
         >
-          <IconHome className="!size-4" />
+          <IconHome className="size-4!" />
         </Button>
 
         <Button
@@ -901,11 +900,11 @@ export function WorkspaceTitleBar({
           onClick={handleReload}
           title="Reload workspace"
         >
-          <IconRefresh className="!size-4" />
+          <IconRefresh className="size-4!" />
         </Button>
 
         <Button variant="ghost" size="icon-sm" title="Connection security">
-          <IconLock className="!size-4" />
+          <IconLock className="size-4!" />
         </Button>
 
         <Popover

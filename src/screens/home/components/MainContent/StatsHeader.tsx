@@ -104,9 +104,11 @@ export function StatsHeader() {
   };
 
   // Build the full query string from filters + text
+  // Each filter token is followed by a space so parseSearchFilters recognises it as complete
   const buildQuery = (newText: string, currentFilters: { key: string; value: string }[]) => {
     const filterParts = currentFilters.map((f) => `${f.key}:${f.value}`);
-    return [...filterParts, newText].join(" ").trim();
+    if (filterParts.length === 0) return newText;
+    return filterParts.join(" ") + " " + newText;
   };
 
   const addFilter = (keyword: string, value: string) => {

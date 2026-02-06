@@ -12,13 +12,14 @@ import type {
 } from './types';
 
 type RedisOperation = {
-  type: 'set' | 'delete' | 'hset' | 'hdel' | 'lpush' | 'rpush' | 'sadd' | 'srem' | 'zadd';
+  type: 'set' | 'delete' | 'hset' | 'hdel' | 'lpush' | 'rpush' | 'sadd' | 'srem' | 'zadd' | 'expire' | 'persist';
   key: string;
   value?: RedisValue;
   field?: string;
   fields?: Record<string, string>;
   members?: string[];
   zsetMembers?: ZSetMember[];
+  seconds?: number;
 };
 
 export class KeyValueOperationExecutor implements KeyValueOperationExecutorInterface {
@@ -113,9 +114,6 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
   }
 
   private commandToOperation(command: CrudCommand): RedisOperation | null {
-    const key = command.target.table;
-    if (!key) return null;
-
     const payload = command.payload as {
       values?: Record<string, unknown>;
       primaryKeys?: Record<string, unknown>;
@@ -123,6 +121,12 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
       newValue?: unknown;
       redisType?: string;
     };
+
+    // Prefer primaryKeys.key (browser mode stores actual key there),
+    // fall back to target.table (key view mode uses table as key name)
+    const pkKey = payload.primaryKeys?.key;
+    const key = (pkKey != null && String(pkKey) !== '') ? String(pkKey) : command.target.table;
+    if (!key) return null;
 
     switch (command.type) {
       case 'data.insert': {
@@ -204,6 +208,16 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
     },
     redisType: string
   ): RedisOperation {
+    // TTL update — EXPIRE or PERSIST
+    if (payload.column === 'ttl') {
+      const rawValue = payload.newValue;
+      const seconds = typeof rawValue === 'number' ? rawValue : parseInt(String(rawValue), 10);
+      if (Number.isFinite(seconds) && seconds > 0) {
+        return { type: 'expire', key, seconds };
+      }
+      return { type: 'persist', key };
+    }
+
     switch (redisType) {
       case 'hash':
         if (payload.column) {
@@ -305,6 +319,14 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
       case 'zadd':
         await this.adapter.zsetAdd(op.key, op.zsetMembers ?? []);
         break;
+
+      case 'expire':
+        await this.adapter.setKeyTTL(op.key, op.seconds ?? 0);
+        break;
+
+      case 'persist':
+        await this.adapter.executeRaw('PERSIST', [op.key]);
+        break;
     }
   }
 
@@ -328,6 +350,10 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
         return `SREM ${op.key} <members>`;
       case 'zadd':
         return `ZADD ${op.key} <score> <member>`;
+      case 'expire':
+        return `EXPIRE ${op.key} ${op.seconds}`;
+      case 'persist':
+        return `PERSIST ${op.key}`;
     }
   }
 
@@ -364,6 +390,10 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
             .join(' ');
           return `ZADD "${op.key}" ${members}`;
         }
+        case 'expire':
+          return `EXPIRE "${op.key}" ${op.seconds}`;
+        case 'persist':
+          return `PERSIST "${op.key}"`;
       }
     }).join('\n');
   }

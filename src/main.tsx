@@ -72,7 +72,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
             <ThemeSync />
             <TooltipProvider delay={300}>
               <App />
-              <Toaster richColors closeButton />
+              <Toaster richColors closeButton position="top-right" />
               <CommandPalette />
             </TooltipProvider>
           </ThemeProvider>

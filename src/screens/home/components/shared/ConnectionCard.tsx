@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import {
   IconDotsVertical,
   IconStar,
@@ -52,22 +51,6 @@ export function ConnectionCard({
   const deleteConnection = useConnectionStore((s) => s.deleteConnection);
 
   const { profile, metadata } = connection;
-
-  const lastUsedText = useMemo(() => {
-    if (!metadata.last_used) return "Never used";
-    const date = new Date(metadata.last_used);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-
-    if (minutes < 1) return "Just now";
-    if (minutes < 60) return `${minutes}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    if (days < 7) return `${days}d ago`;
-    return date.toLocaleDateString();
-  }, [metadata.last_used]);
 
   const handleConnect = async () => {
     try {
@@ -289,17 +272,14 @@ export function ConnectionCard({
                   )}
                 </div>
 
-                {/* Bottom row: timestamp + group tag */}
-                <div className="mt-1.5 flex items-center gap-2">
-                  <span className="text-[10px] text-muted-foreground/70">
-                    {lastUsedText}
-                  </span>
-                  {profile.group && (
+                {/* Bottom row: group tag */}
+                {profile.group && (
+                  <div className="mt-1.5 flex items-center gap-2">
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
                       {profile.group}
                     </span>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </div>
           }
@@ -366,10 +346,6 @@ export function ConnectionCard({
                 {profile.group}
               </span>
             )}
-
-            <span className="text-[10px] text-muted-foreground shrink-0">
-              {lastUsedText}
-            </span>
 
             <DropdownMenu>
               <DropdownMenuTrigger

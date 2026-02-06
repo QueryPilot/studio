@@ -122,11 +122,13 @@ function formatIndexes(
 ): string[] {
   if (!includeIndexes || table.indexes.length === 0) return [];
 
-  // Filter out primary key indexes if we already have primaryKeys defined
-  // to avoid duplicate primary key definitions
+  // Filter out primary key indexes and indexes with no columns (expression indexes)
   return table.indexes
     .filter((idx) => {
-      // Skip if this is a primary key index and we already have primary keys defined
+      // Skip expression-based indexes with no extractable columns (e.g. GIN/JSON)
+      if (idx.columns.length === 0) return false;
+
+      // Skip if this is a primary key index and we already have primaryKeys defined
       if (idx.is_primary && table.primaryKeys.length > 0) {
         // Check if this index matches the primary key columns
         const pkSet = new Set(table.primaryKeys);

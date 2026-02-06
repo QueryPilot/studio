@@ -98,9 +98,11 @@ export class RedisAdapter implements BaseAdapter, RichKeyValueOperable {
       cursor: cursor ? parseInt(cursor, 10) : 0,
       count: count ?? 200,
     });
-    return result.type === 'scanWithPreviews'
-      ? result.data
-      : { cursor: '0', keys: [] };
+    if (result.type !== 'scanWithPreviews') {
+      return { cursor: '0', keys: [] };
+    }
+    // Rust sends cursor as u64 (JSON number), coerce to string for TS/frontend
+    return { ...result.data, cursor: String(result.data.cursor) };
   }
 
   async getKeyType(key: string): Promise<RedisType> {
