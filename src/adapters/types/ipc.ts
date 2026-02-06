@@ -3,7 +3,7 @@
  */
 
 import type { InsertResult, InsertManyResult, UpdateResult, DeleteResult, CollectionInfo } from './mongodb';
-import type { RedisValue, RedisType, ScanResult, ZSetMember, StreamEntry } from './redis';
+import type { RedisValue, RedisType, ScanResult, ScanResultWithPreviews, ZSetMember, StreamEntry } from './redis';
 import type { SetOptions } from '../capabilities';
 
 export type DocumentOperation =
@@ -33,6 +33,7 @@ export type KeyValueOperation =
   | { type: 'delete'; keys: string[] }
   | { type: 'exists'; keys: string[] }
   | { type: 'scan'; pattern: string; cursor: number; count: number }
+  | { type: 'scanWithPreviews'; pattern: string; cursor: number; count: number }
   | { type: 'type'; key: string }
   | { type: 'ttl'; key: string }
   | { type: 'setTtl'; key: string; seconds: number }
@@ -60,6 +61,7 @@ export type KeyValueResult =
   | { type: 'count'; data: number }
   | { type: 'bool'; data: boolean }
   | { type: 'scan'; data: ScanResult }
+  | { type: 'scanWithPreviews'; data: ScanResultWithPreviews }
   | { type: 'key_type'; data: RedisType }
   | { type: 'ttl'; data: number }
   | { type: 'server_info'; data: Record<string, string> }

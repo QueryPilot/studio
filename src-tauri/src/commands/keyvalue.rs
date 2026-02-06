@@ -406,6 +406,11 @@ pub enum KeyValueOperation {
         cursor: u64,
         count: u32,
     },
+    ScanWithPreviews {
+        pattern: String,
+        cursor: u64,
+        count: u32,
+    },
     Type {
         key: String,
     },
@@ -497,6 +502,7 @@ pub enum KeyValueResult {
     Count(u64),
     Bool(bool),
     Scan(crate::core::capabilities::ScanResult),
+    ScanWithPreviews(crate::core::capabilities::ScanResultWithPreviews),
     KeyType(crate::core::capabilities::RedisType),
     Ttl(i64),
     ServerInfo(HashMap<String, String>),
@@ -565,6 +571,17 @@ pub async fn keyvalue_execute(
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Scan(result))
+        }
+        KeyValueOperation::ScanWithPreviews {
+            pattern,
+            cursor,
+            count,
+        } => {
+            let result = adapter
+                .scan_keys_with_previews(&pattern, cursor, count)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(KeyValueResult::ScanWithPreviews(result))
         }
         KeyValueOperation::Type { key } => {
             let key_type = adapter
