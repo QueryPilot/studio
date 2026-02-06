@@ -9,7 +9,7 @@
  */
 
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import type { GridCell, Item } from '@glideapps/glide-data-grid';
 import { GridCellKind } from '@glideapps/glide-data-grid';
 import { nanoid } from 'nanoid';
@@ -112,43 +112,55 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     return adapter;
   }, [getAdapter, database]);
 
-  // Browser mode: fetch list of keys
+  // Browser mode page size for SCAN
+  const BROWSER_PAGE_SIZE = 200;
+
+  // Browser mode: fetch list of keys with infinite scroll
   const browserQueryKey = useMemo(
     () => ['redis-keys-browser', connectionId, database, pattern],
     [connectionId, database, pattern]
   );
 
+  // Type for browser page data
+  type BrowserKeyInfo = { key: string; type: string; ttl: number; value: string };
+  type BrowserPage = { keys: BrowserKeyInfo[]; nextCursor: string };
+
   const {
-    data: browserKeys,
+    data: browserData,
     isLoading: isLoadingBrowser,
+    isFetchingNextPage: isFetchingNextBrowserPage,
     error: browserError,
     refetch: refetchBrowser,
-  } = useQuery({
+    fetchNextPage: fetchNextBrowserPage,
+    hasNextPage: hasNextBrowserPage,
+  } = useInfiniteQuery<BrowserPage, Error>({
     queryKey: browserQueryKey,
-    queryFn: async (): Promise<Array<{ key: string; type: string; ttl: number; value: string }>> => {
+    queryFn: async ({ pageParam }): Promise<BrowserPage> => {
+      const cursor = pageParam as string;
       const startTime = performance.now();
       try {
         // Ensure database is selected before scanning
         const adapter = await getAdapterWithDb();
 
-        // Get total key count for this database
-        const dbSize = await adapter.getDatabaseSize();
-        setTotalKeyCount(dbSize);
-
-        // Scan keys with pattern (fetch more for better UX)
-        const result = await adapter.scanKeys(pattern, '0', 500);
-
-        if (!result.keys || result.keys.length === 0) {
-          return [];
+        // Get total key count for this database (only on first page)
+        if (cursor === '0') {
+          const dbSize = await adapter.getDatabaseSize();
+          setTotalKeyCount(dbSize);
         }
 
-        logger.info('redis-browser', `Scanned ${result.keys.length} keys, fetching values...`);
+        // Scan keys with pattern using cursor
+        const result = await adapter.scanKeys(pattern, cursor, BROWSER_PAGE_SIZE);
+
+        if (!result.keys || result.keys.length === 0) {
+          return { keys: [], nextCursor: result.cursor };
+        }
+
+        logger.info('redis-browser', `Scanned ${result.keys.length} keys (cursor: ${cursor} → ${result.cursor}), fetching values...`);
 
         // Fetch values for each key with proper error handling
         const keysWithValues = await Promise.all(
           result.keys.map(async (keyInfo) => {
-            let fullValue = '';
-            let displayValue = '';
+            let valuePreview = '';
 
             try {
               const keyType = keyInfo.keyType || 'unknown';
@@ -156,124 +168,94 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
               switch (keyType) {
                 case 'string': {
                   const val = await adapter.getKey(keyInfo.key);
-
                   if (!val || val.type === 'nil') {
-                    fullValue = '(nil)';
-                    displayValue = '(nil)';
+                    valuePreview = '(nil)';
                   } else if (val.type === 'string') {
-                    const str = val.value;
-                    fullValue = str; // Store FULL value for copy
-                    displayValue = str.length > 50 ? str.substring(0, 50) + '...' : str;
+                    valuePreview = val.value;
                   } else if (val.type === 'integer' || val.type === 'float') {
-                    fullValue = String(val.value);
-                    displayValue = String(val.value);
+                    valuePreview = String(val.value);
                   } else if (val.type === 'boolean') {
-                    fullValue = String(val.value);
-                    displayValue = String(val.value);
+                    valuePreview = String(val.value);
                   } else if (val.type === 'bytes') {
-                    fullValue = `(binary ${val.value.length} bytes)`;
-                    displayValue = `(binary ${val.value.length} bytes)`;
+                    valuePreview = `(binary ${val.value.length} bytes)`;
                   } else if (val.type === 'array') {
-                    fullValue = JSON.stringify(val.value);
-                    displayValue = `[${val.value.length} items]`;
+                    valuePreview = JSON.stringify(val.value);
                   } else if (val.type === 'map') {
-                    fullValue = JSON.stringify(val.value);
-                    const fieldCount = Object.keys(val.value).length;
-                    displayValue = `{${fieldCount} fields}`;
+                    valuePreview = JSON.stringify(val.value);
                   } else {
-                    fullValue = '(unknown type)';
-                    displayValue = '(unknown type)';
+                    valuePreview = '(unknown type)';
                   }
                   break;
                 }
-
                 case 'hash': {
                   const hash = await adapter.hashGetAll(keyInfo.key);
-                  fullValue = JSON.stringify(hash); // Store full hash as JSON
-                  // Show full JSON, truncate if too long
-                  displayValue = fullValue.length > 80
-                    ? fullValue.substring(0, 80) + '...'
-                    : fullValue;
+                  valuePreview = JSON.stringify(hash);
                   break;
                 }
-
                 case 'list': {
                   const len = await adapter.listLen(keyInfo.key);
                   if (len > 0) {
-                    const items = await adapter.listRange(keyInfo.key, 0, Math.min(len, 100)); // Fetch up to 100 items for copy
-                    fullValue = JSON.stringify(items);
-                    // Show full JSON, truncate if too long
-                    displayValue = fullValue.length > 80
-                      ? fullValue.substring(0, 80) + '...'
-                      : fullValue;
+                    const items = await adapter.listRange(keyInfo.key, 0, Math.min(len - 1, 99));
+                    valuePreview = JSON.stringify(items);
                   } else {
-                    fullValue = '[]';
-                    displayValue = '[]';
+                    valuePreview = '[]';
                   }
                   break;
                 }
-
                 case 'set': {
                   const members = await adapter.setMembers(keyInfo.key);
-                  fullValue = JSON.stringify(members); // Store full set as JSON array
-                  // Show full JSON, truncate if too long
-                  displayValue = fullValue.length > 80
-                    ? fullValue.substring(0, 80) + '...'
-                    : fullValue;
+                  valuePreview = JSON.stringify(members);
                   break;
                 }
-
                 case 'zset': {
-                  const members = await adapter.zsetRange(keyInfo.key, 0, -1, true); // Fetch all members
-                  fullValue = JSON.stringify(members); // Store full zset as JSON
-                  // Show full JSON, truncate if too long
-                  displayValue = fullValue.length > 80
-                    ? fullValue.substring(0, 80) + '...'
-                    : fullValue;
+                  const members = await adapter.zsetRange(keyInfo.key, 0, -1, true);
+                  valuePreview = JSON.stringify(members);
                   break;
                 }
-
                 case 'stream': {
                   const len = await adapter.streamLen(keyInfo.key);
-                  const entries = await adapter.streamRange(keyInfo.key, '-', '+', Math.min(len, 100)); // Fetch up to 100 entries
-                  fullValue = JSON.stringify(entries);
-                  // Show full JSON, truncate if too long
-                  displayValue = fullValue.length > 80
-                    ? fullValue.substring(0, 80) + '...'
-                    : fullValue;
+                  const entries = await adapter.streamRange(keyInfo.key, '-', '+', Math.min(len, 100));
+                  valuePreview = JSON.stringify(entries);
                   break;
                 }
-
                 default:
-                  fullValue = `(${keyType})`;
-                  displayValue = `(${keyType})`;
+                  valuePreview = `(${keyType})`;
               }
             } catch (err) {
               logger.error('redis-browser', `Failed to fetch value for ${keyInfo.key}:`, err);
-              fullValue = '(error)';
-              displayValue = '(error)';
+              valuePreview = '(error)';
             }
 
             return {
               key: keyInfo.key,
               type: keyInfo.keyType || 'unknown',
               ttl: keyInfo.ttl ?? -1,
-              value: fullValue, // Full value for copy
-              displayValue, // Truncated value for display
+              value: valuePreview,
             };
           })
         );
 
         logger.info('redis-browser', `Fetched values for ${keysWithValues.length} keys`);
-        return keysWithValues;
+        return { keys: keysWithValues, nextCursor: result.cursor };
       } finally {
         const endTime = performance.now();
         setExecutionTime(Math.round(endTime - startTime));
       }
     },
+    initialPageParam: '0',
+    getNextPageParam: (lastPage) => {
+      // Redis SCAN returns '0' when iteration is complete
+      return lastPage.nextCursor !== '0' ? lastPage.nextCursor : undefined;
+    },
     enabled: enabled && !!connectionId && isBrowserMode,
     staleTime: 10000, // 10 seconds
   });
+
+  // Flatten browser pages into single array
+  const browserKeys = useMemo(() => {
+    if (!browserData?.pages) return undefined;
+    return browserData.pages.flatMap(page => page.keys);
+  }, [browserData]);
 
   // Query key for key metadata
   const metadataQueryKey = useMemo(
@@ -643,13 +625,16 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     logger.info('keyvalue-data', `Deleted key: ${selectedKeyName}`);
   }, [selectedKeyName, getAdapter, clearSelection]);
 
-  // Pagination (not applicable for most Redis types, but included for interface)
-  const hasMore = false;
+  // Pagination - browser mode uses cursor-based SCAN pagination
+  const hasMore = isBrowserMode ? (hasNextBrowserPage ?? false) : false;
 
   const fetchNextPage = useCallback(async (): Promise<void> => {
-    // Redis types are typically fetched all at once
-    // Could implement cursor-based pagination for large lists/streams
-  }, []);
+    if (isBrowserMode && hasNextBrowserPage) {
+      await fetchNextBrowserPage();
+    }
+    // Key view mode: Redis types are typically fetched all at once
+    // Could implement cursor-based pagination for large lists/streams in future
+  }, [isBrowserMode, hasNextBrowserPage, fetchNextBrowserPage]);
 
   const refetch = useCallback(async (): Promise<void> => {
     if (isBrowserMode) {
@@ -952,8 +937,9 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
   ]);
 
   // Compute loading and error states based on mode
+  // For browser mode, isLoading is true during initial load or when fetching next page
   const isLoading = isBrowserMode
-    ? isLoadingBrowser
+    ? isLoadingBrowser || isFetchingNextBrowserPage
     : isLoadingMetadata || isLoadingData;
   const error = isBrowserMode
     ? (browserError as Error | null)

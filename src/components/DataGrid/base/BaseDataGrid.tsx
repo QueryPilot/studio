@@ -2372,6 +2372,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
             tableName={tableName}
             schema={schema}
             databaseType={databaseType as any}
+            paradigm={paradigm}
             onPinRows={handlePinRowsFromMenu}
             onUnpinRows={handleUnpinRowsFromMenu}
             // CRUD operations (internally managed)

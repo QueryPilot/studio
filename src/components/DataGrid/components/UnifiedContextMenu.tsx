@@ -6,6 +6,7 @@ import {
 } from "@/components/ui/context-menu";
 import type { GridColumnV2, GridRowModel } from "../types";
 import type { DatabaseType } from "@/types";
+import type { DataParadigm } from "../utils/copyUtils";
 import { RowDetailsSheet } from "./RowDetailsSheet";
 import { GridContextMenuItems } from "./GridContextMenuItems";
 import { ColumnHeaderContextMenuItems } from "./ColumnHeaderContextMenuItems";
@@ -30,6 +31,8 @@ export interface UnifiedContextMenuProps {
   tableName?: string;
   schema?: string;
   databaseType?: DatabaseType;
+  /** Data paradigm for context-aware copy options */
+  paradigm?: DataParadigm;
   onPinRows?: (rowKeys: string[]) => void;
   onUnpinRows?: (rowKeys: string[]) => void;
   onAddRow?: () => void;
@@ -74,6 +77,7 @@ export function UnifiedContextMenu({
   tableName = "table",
   schema,
   databaseType = "postgresql",
+  paradigm = "sql",
   onPinRows,
   onUnpinRows,
   onAddRow,
@@ -210,6 +214,7 @@ export function UnifiedContextMenu({
               tableName={tableName}
               schema={schema}
               databaseType={databaseType}
+              paradigm={paradigm}
               onViewDetails={handleViewDetails}
               onPinRows={onPinRows}
               onUnpinRows={onUnpinRows}

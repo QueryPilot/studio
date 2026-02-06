@@ -79,6 +79,7 @@ import { useAiCommandPermissionStore } from "@/stores/aiCommandPermissionStore";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { tableStreamingService } from "@/services/tableStreamingService";
+import { Kbd } from "../ui/kbd";
 
 // ============================================================================
 // Types
@@ -167,7 +168,14 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     if (agent?.installed && !activeSession && !isWarmingUp) {
       void warmupAgent(connectionId);
     }
-  }, [selectedAgentId, availableAgents, activeSession, isWarmingUp, warmupAgent, connectionId]);
+  }, [
+    selectedAgentId,
+    availableAgents,
+    activeSession,
+    isWarmingUp,
+    warmupAgent,
+    connectionId,
+  ]);
 
   // Warmup when user starts typing (if no active session)
   const handleStartTyping = useCallback(() => {
@@ -692,37 +700,22 @@ function MessageBubble({
   // Handle query execution from QueryBlock
   const handleQueryRun = useCallback(
     async (query: string, connectionId: string) => {
-      console.log("[QueryBlock] handleQueryRun called", {
-        query: query.slice(0, 50),
-        connectionId,
-      });
       try {
         const store = useWorkspaceScreenStore.getState();
 
         // Set active connection and ensure workspace is initialized
-        console.log(
-          "[QueryBlock] Current activeConnectionId:",
-          store.activeConnectionId,
-        );
         let activeConnectionId = store.activeConnectionId;
         if (!activeConnectionId || activeConnectionId !== connectionId) {
-          console.log("[QueryBlock] Switching connection to:", connectionId);
           store.setActiveConnection(connectionId);
           activeConnectionId = connectionId;
         }
 
         if (!store.workspaces.has(activeConnectionId)) {
-          console.log(
-            "[QueryBlock] Initializing workspace for:",
-            activeConnectionId,
-          );
           store.initWorkspace(activeConnectionId);
         }
 
         const panelId = store.getActivePanelId();
-        console.log("[QueryBlock] Active panel ID:", panelId);
         if (!panelId) {
-          console.error("[QueryBlock] No panel found for query execution");
           return;
         }
 
@@ -732,7 +725,6 @@ function MessageBubble({
           cleanedQuery.slice(0, 30) + (cleanedQuery.length > 30 ? "..." : "");
 
         // Create the tab with the query content
-        console.log("[QueryBlock] Creating tab in panel:", panelId);
         const tabId = store.addTab(panelId, {
           type: "query",
           connectionId,
@@ -740,9 +732,7 @@ function MessageBubble({
           payload: { sql: cleanedQuery },
         });
 
-        console.log("[QueryBlock] Tab created:", tabId);
         if (!tabId) {
-          console.error("[QueryBlock] Failed to create tab");
           return;
         }
 
@@ -752,23 +742,16 @@ function MessageBubble({
 
         // Execute the query using streaming service
         const queryToExecute = cleanedQuery.replace(/;\s*$/, "");
-        console.log(
-          "[QueryBlock] Executing query:",
-          queryToExecute.slice(0, 50),
-        );
         await tableStreamingService.streamQuery(
           connectionId,
           tabId,
           queryToExecute,
           2500, // pageSize
           () => {}, // Progress callback
-          (error) => {
-            console.error("[QueryBlock] Query execution error:", error);
-          },
+          () => {}, // Error callback (errors handled by streaming service)
         );
-        console.log("[QueryBlock] Query execution complete");
-      } catch (err) {
-        console.error("[QueryBlock] Failed to execute query:", err);
+      } catch {
+        // Error handling - errors are already shown by the streaming service
       }
     },
     [],
@@ -1376,7 +1359,7 @@ const InputArea = ({
       {/* Unified Input Container */}
       <div
         className={cn(
-          "relative rounded-xl border-2 bg-background transition-all duration-200",
+          "relative rounded-lg border-2 bg-background transition-all duration-200",
           isFocused
             ? "border-primary shadow-[0_0_0_3px_rgba(var(--primary-rgb),0.1)]"
             : "border-border hover:border-border/80",
@@ -1445,7 +1428,7 @@ const InputArea = ({
         />
 
         {/* Footer inside the input container */}
-        <div className="flex items-center gap-1 px-2 pb-2">
+        <div className="flex items-center gap-1 p-1 px-1.5">
           <AgentSelector />
           <ModelSelector />
           <div className="flex-1" />
@@ -1453,7 +1436,7 @@ const InputArea = ({
           {/* Keyboard hint */}
           {!isStreaming && canSend && (
             <span className="text-[10px] text-muted-foreground/50 mr-2 hidden sm:inline">
-              ↵ to send
+              <Kbd className="font-mono">↵</Kbd> to send
             </span>
           )}
 
@@ -1462,7 +1445,7 @@ const InputArea = ({
               variant="ghost"
               size="sm"
               onClick={onCancel}
-              className="h-8 px-3 text-[11px] gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10"
+              className="h-6 px-2 text-[11px] gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10"
             >
               <IconPlayerStop className="h-3.5 w-3.5" />
               Stop
@@ -1474,7 +1457,7 @@ const InputArea = ({
               disabled={!canSend}
               onClick={onSubmit}
               className={cn(
-                "h-8 w-8 rounded-lg transition-all",
+                "h-6 w-6 rounded-md transition-all",
                 canSend
                   ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
                   : "text-muted-foreground",
