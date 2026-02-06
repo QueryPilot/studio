@@ -8,6 +8,7 @@ import {
   ValidationCode,
 } from "./dbml-validator";
 import { DBMLSchema } from "./dbml-schema";
+import { attachQuickFixes } from "./dbml-quickfix";
 
 export interface DBMLDiagnostic extends Diagnostic {
   code?: string;
@@ -43,8 +44,10 @@ class DBMLLinter {
     }
 
     if (!parseResult.success || !parseResult.ast) {
-      this.diagnosticsCache.set(doc, diagnostics);
-      return diagnostics;
+      // Attach quick fixes even for parse-error-only diagnostics
+      const withFixes = attachQuickFixes(diagnostics, view);
+      this.diagnosticsCache.set(doc, withFixes);
+      return withFixes;
     }
 
     // Build schema from AST
@@ -57,9 +60,12 @@ class DBMLLinter {
     // Run best practice checks
     diagnostics.push(...this.validateBestPractices(schema, doc));
 
+    // Attach quick fixes to all diagnostics
+    const withFixes = attachQuickFixes(diagnostics, view);
+
     // Cache results
-    this.diagnosticsCache.set(doc, diagnostics);
-    return diagnostics;
+    this.diagnosticsCache.set(doc, withFixes);
+    return withFixes;
   }
 
   private validateSemantics(schema: DBMLSchema, _doc: Text): DBMLDiagnostic[] {

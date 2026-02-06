@@ -51,50 +51,84 @@ export interface KeyValueDataGridProps {
 // ============================================================================
 
 interface KeyBrowserToolbarProps {
+  /** Server-side SCAN pattern (key filter mode) */
   pattern: string;
   onPatternChange: (pattern: string) => void;
+  /** Client-side value search filter */
+  valueFilter: string;
+  onValueFilterChange: (filter: string) => void;
   onRefresh: () => void;
   totalKeyCount?: number;
+  /** Number of keys loaded from server */
+  loadedCount: number;
+  /** Number of keys displayed after client-side filtering */
   displayedCount: number;
   isLoading?: boolean;
+  /** Whether all keys have been loaded */
+  allKeysLoaded: boolean;
+  /** Whether to show "Load all" button */
+  showLoadAll: boolean;
+  /** Trigger loading all remaining keys */
+  onLoadAll: () => void;
 }
 
 const KeyBrowserToolbar = memo(function KeyBrowserToolbar({
-  pattern,
   onPatternChange,
+  valueFilter,
+  onValueFilterChange,
   onRefresh,
   totalKeyCount,
+  loadedCount,
   displayedCount,
   isLoading,
+  allKeysLoaded,
+  showLoadAll,
+  onLoadAll,
 }: KeyBrowserToolbarProps) {
-  const [inputValue, setInputValue] = useState(pattern === '*' ? '' : pattern);
+  const [inputValue, setInputValue] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Sync input when external pattern changes
-  useEffect(() => {
-    setInputValue(pattern === '*' ? '' : pattern);
-  }, [pattern]);
+  // Whether currently in key filter mode (# prefix)
+  const isKeyMode = inputValue.startsWith('#');
+
+  const applyFilter = useCallback((value: string) => {
+    const trimmed = value.trim();
+
+    if (!trimmed) {
+      // Clear both modes
+      onPatternChange('*');
+      onValueFilterChange('');
+      return;
+    }
+
+    if (trimmed.startsWith('#')) {
+      // Key filter mode: strip # prefix, apply as SCAN pattern
+      let keyPattern = trimmed.slice(1).trim();
+      if (!keyPattern) {
+        keyPattern = '*';
+      } else if (!keyPattern.includes('*') && !keyPattern.includes('?')) {
+        keyPattern = `${keyPattern}*`;
+      }
+      onValueFilterChange(''); // Clear value filter
+      onPatternChange(keyPattern);
+    } else {
+      // Value search mode: client-side filter
+      onPatternChange('*'); // Reset to scan all keys
+      onValueFilterChange(trimmed);
+    }
+  }, [onPatternChange, onValueFilterChange]);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setInputValue(value);
 
-    // Debounce pattern change
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
     }
     debounceRef.current = setTimeout(() => {
-      // Convert empty to '*', add '*' suffix if not present for prefix search
-      let newPattern = value.trim();
-      if (!newPattern) {
-        newPattern = '*';
-      } else if (!newPattern.includes('*') && !newPattern.includes('?')) {
-        // If no wildcards, treat as prefix search
-        newPattern = `${newPattern}*`;
-      }
-      onPatternChange(newPattern);
-    }, 500);
-  }, [onPatternChange]);
+      applyFilter(value);
+    }, 300);
+  }, [applyFilter]);
 
   const handleClear = useCallback(() => {
     setInputValue('');
@@ -102,25 +136,19 @@ const KeyBrowserToolbar = memo(function KeyBrowserToolbar({
       clearTimeout(debounceRef.current);
     }
     onPatternChange('*');
-  }, [onPatternChange]);
+    onValueFilterChange('');
+  }, [onPatternChange, onValueFilterChange]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
-      // Immediate search on Enter
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
-      let newPattern = inputValue.trim();
-      if (!newPattern) {
-        newPattern = '*';
-      } else if (!newPattern.includes('*') && !newPattern.includes('?')) {
-        newPattern = `${newPattern}*`;
-      }
-      onPatternChange(newPattern);
+      applyFilter(inputValue);
     } else if (e.key === 'Escape') {
       handleClear();
     }
-  }, [inputValue, onPatternChange, handleClear]);
+  }, [inputValue, applyFilter, handleClear]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -133,14 +161,14 @@ const KeyBrowserToolbar = memo(function KeyBrowserToolbar({
 
   return (
     <div className="flex items-center gap-2 px-2 py-1.5 border-b bg-background">
-      {/* Pattern search input */}
+      {/* Unified search input */}
       <div className="relative flex-1 max-w-md">
         <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
         <Input
           value={inputValue}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
-          placeholder="Filter keys: user:*, *:session:*, cache:user:?"
+          placeholder="Search keys & values, or #pattern to filter by key"
           className="h-7 pl-7 pr-7 text-xs"
         />
         {inputValue && (
@@ -155,12 +183,45 @@ const KeyBrowserToolbar = memo(function KeyBrowserToolbar({
         )}
       </div>
 
+      {/* Mode indicator */}
+      {isKeyMode && (
+        <span className="text-[10px] font-medium text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded">
+          KEY
+        </span>
+      )}
+
+      {/* Auto-loading indicator when fetching all pages for value search */}
+      {valueFilter && !allKeysLoaded && !showLoadAll && isLoading && (
+        <span className="text-[10px] text-muted-foreground animate-pulse">
+          Loading all keys...
+        </span>
+      )}
+
+      {/* "Search all" button for large databases */}
+      {showLoadAll && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-6 text-[10px] px-2"
+          onClick={onLoadAll}
+        >
+          Search all {totalKeyCount?.toLocaleString()} keys
+        </Button>
+      )}
+
       {/* Key count info */}
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <IconDatabase className="h-3.5 w-3.5" />
         <span>
-          {displayedCount}
-          {totalKeyCount !== undefined && totalKeyCount > displayedCount && (
+          {valueFilter ? (
+            <>
+              {displayedCount}
+              <span className="text-muted-foreground/70"> / {loadedCount}</span>
+            </>
+          ) : (
+            displayedCount
+          )}
+          {totalKeyCount !== undefined && totalKeyCount > loadedCount && (
             <span className="text-muted-foreground/70"> / {totalKeyCount}</span>
           )}
           {' keys'}
@@ -246,23 +307,18 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
   }, [currentKeyId]);
 
   // Handle cell edit commit
+  // When commandFactory is provided, BaseDataGrid stages via factory.createEditCommand
+  // and calls this callback for post-processing only. When no factory, this handles staging.
   const handleCellEditCommit = useCallback(
     (event: GridEditCommitEvent) => {
-      logger.info('keyvalue-grid', 'handleCellEditCommit called', {
-        column: event.column?.field,
-        rowIndex: event.rowIndex,
-        hasRow: !!event.row,
-        newValue: event.newValue,
-        isBrowserMode: data.isBrowserMode,
-        currentKey: data.currentKey,
-      });
-      const cmd = data.createEditCommand(event);
-      logger.info('keyvalue-grid', 'createEditCommand result', { cmd: cmd ? 'created' : 'null' });
-      if (cmd) {
-        stageCommand(cmd);
-        logger.info('keyvalue-grid', 'Staged edit command', cmd);
-      } else {
-        logger.warn('keyvalue-grid', 'No command created - edit not staged');
+      // If commandFactory exists, BaseDataGrid already staged the command via factory
+      // Only stage directly when there's no commandFactory (e.g., string type in key view)
+      if (!data.commandFactory) {
+        const cmd = data.createEditCommand(event);
+        if (cmd) {
+          stageCommand(cmd);
+          logger.info('keyvalue-grid', 'Staged edit command via callback', { id: cmd.id });
+        }
       }
       return undefined;
     },
@@ -303,10 +359,16 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
         <KeyBrowserToolbar
           pattern={data.pattern}
           onPatternChange={data.setPattern}
+          valueFilter={data.valueFilter}
+          onValueFilterChange={data.setValueFilter}
           onRefresh={handleRefresh}
           totalKeyCount={data.totalKeyCount}
+          loadedCount={data.loadedKeyCount}
           displayedCount={data.rows.length}
           isLoading={data.isLoading}
+          allKeysLoaded={data.allKeysLoaded}
+          showLoadAll={data.showLoadAll}
+          onLoadAll={data.loadAllKeys}
         />
       );
     }
@@ -362,15 +424,13 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
         )}
       </div>
     );
-  }, [isBrowserMode, data.currentKey, data.pattern, data.setPattern, data.totalKeyCount, data.rows.length, data.isLoading, handleRefresh, filterValue, filterPlaceholder, filterError, kvFilter, handleFilterSubmit]);
+  }, [isBrowserMode, data.currentKey, data.pattern, data.setPattern, data.valueFilter, data.setValueFilter, data.totalKeyCount, data.loadedKeyCount, data.rows.length, data.isLoading, data.allKeysLoaded, data.showLoadAll, data.loadAllKeys, handleRefresh, filterValue, filterPlaceholder, filterError, kvFilter, handleFilterSubmit]);
 
   // Determine read-only state and reason
-  const readOnly = isBrowserMode || data.currentKey?.type === 'stream';
-  const readOnlyReason = isBrowserMode
-    ? "Read-only: Key browser mode"
-    : data.currentKey?.type === 'stream'
-      ? "Read-only: Stream type"
-      : undefined;
+  const readOnly = data.currentKey?.type === 'stream';
+  const readOnlyReason = data.currentKey?.type === 'stream'
+    ? "Read-only: Stream type"
+    : undefined;
 
   // Loading and error states
   // Show loading skeleton only on initial load (no rows yet)
@@ -406,14 +466,14 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
       estimatedTotal={isBrowserMode ? (data.totalKeyCount ?? data.rows.length) : data.rows.length}
       isEstimatedCount={isBrowserMode}
       executionTime={data.executionTime}
-      onCellEditCommit={isBrowserMode ? undefined : handleCellEditCommit}
+      onCellEditCommit={handleCellEditCommit}
       // Command factory for CRUD operations (add/delete rows in hash, list, set, zset)
       // Returns undefined in browser mode or for unsupported types (string, stream)
       commandFactory={data.commandFactory}
       topToolbar={topToolbar}
       connectionId={connectionId}
       database={String(database)}
-      tableName={isBrowserMode ? `db${database}:keys` : (data.currentKey?.key || 'redis')}
+      tableName={isBrowserMode ? `db${database}_keys` : (data.currentKey?.key || 'redis')}
       paradigm="keyvalue"
       enableFiltering={false} // Keep false - has custom pattern filter
       enableSorting={true} // ✅ ENABLE - Hash fields, zset scores, list indices can all be sorted

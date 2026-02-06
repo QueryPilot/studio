@@ -10,8 +10,13 @@ import { CodeEditor, type CodeEditorRef } from "@/components/CodeEditor";
 import { ERDToolbar, type LayoutDirection } from "./ERDToolbar";
 import { ERDVisualizerPlaceholder } from "./ERDVisualizerPlaceholder";
 import { ERDVisualizer, type ERDVisualizerRef } from "./ERDVisualizer";
-import { ReactFlowProvider } from "@xyflow/react";
-import { Parser } from "@dbml/core";
+import { ReactFlowProvider, getNodesBounds, getViewportForBounds } from "@xyflow/react";
+import { Parser, exporter as dbmlExporter } from "@dbml/core";
+import { toPng, toSvg } from "html-to-image";
+import { save } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
+import { isTauri } from "@/utils/tauri";
+import { toast } from "sonner";
 
 import {
   dbmlService,
@@ -78,12 +83,15 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const [selectedSchema, setSelectedSchema] = useState<string>(
     schema ?? DEFAULT_SCHEMA,
   );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
   const lastConnectionRef = useRef<string | null>(connectionId);
   const skipParseNextRef = useRef<boolean>(false);
   const parseTimerRef = useRef<number | undefined>(undefined);
   const erdVisualizerRef = useRef<ERDVisualizerRef | null>(null);
   const editorRef = useRef<CodeEditorRef>(null);
   const dbmlWorkerRef = useRef<Worker | null>(null);
+  const diagramContainerRef = useRef<HTMLDivElement>(null);
 
   // Local view ID - each ERD tab tracks its own view instead of global activeViewId
   const [localViewId, setLocalViewId] = useState<string | null>(null);
@@ -341,6 +349,138 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const handleRefresh = () => {
     void loadSchemaData(selectedSchema, { force: true });
   };
+
+  const handleExportImage = useCallback(async (format: "png" | "svg") => {
+    const viewportEl = diagramContainerRef.current?.querySelector(
+      ".react-flow__viewport",
+    ) as HTMLElement | null;
+    const instance = erdVisualizerRef.current;
+    if (!viewportEl || !instance) {
+      toast.error("No diagram to export");
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      // Calculate bounds of all nodes to export full content (not just visible area)
+      const allNodes = instance.getNodes();
+      const nodesBounds = getNodesBounds(allNodes);
+
+      const PADDING = 50;
+      const imageWidth = Math.ceil(nodesBounds.width + PADDING * 2);
+      const imageHeight = Math.ceil(nodesBounds.height + PADDING * 2);
+
+      const viewport = getViewportForBounds(
+        nodesBounds,
+        imageWidth,
+        imageHeight,
+        1, // minZoom - export at 1:1
+        1, // maxZoom - export at 1:1
+        PADDING,
+      );
+
+      const exportFn = format === "png" ? toPng : toSvg;
+      const dataUrl = await exportFn(viewportEl, {
+        backgroundColor: "white",
+        quality: 1,
+        pixelRatio: 2,
+        width: imageWidth,
+        height: imageHeight,
+        style: {
+          width: `${imageWidth}px`,
+          height: `${imageHeight}px`,
+          transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+        },
+        filter: (node) => {
+          if (!(node instanceof HTMLElement)) return true;
+          if (node.classList.contains("react-flow__minimap")) return false;
+          if (node.classList.contains("react-flow__controls")) return false;
+          return true;
+        },
+      });
+
+      const filename = `erd-${selectedSchema}.${format}`;
+
+      if (isTauri()) {
+        const filePath = await save({
+          defaultPath: filename,
+          filters: [
+            {
+              name: format === "png" ? "PNG Image" : "SVG Image",
+              extensions: [format],
+            },
+            { name: "All Files", extensions: ["*"] },
+          ],
+        });
+
+        if (filePath) {
+          // Convert data URL to binary and write via Tauri
+          const response = await fetch(dataUrl);
+          const blob = await response.blob();
+          const arrayBuffer = await blob.arrayBuffer();
+          await invoke("plugin:fs|write_file", {
+            path: filePath,
+            contents: Array.from(new Uint8Array(arrayBuffer)),
+          });
+          toast.success(`ERD exported as ${format.toUpperCase()}`);
+        }
+      } else {
+        const link = document.createElement("a");
+        link.download = filename;
+        link.href = dataUrl;
+        link.click();
+        toast.success(`ERD exported as ${format.toUpperCase()}`);
+      }
+    } catch (err) {
+      logger.error("Failed to export ERD", err);
+      toast.error("Failed to export diagram");
+    } finally {
+      setIsExporting(false);
+    }
+  }, [selectedSchema]);
+
+  const handleExportSQL = useCallback(async (format: "postgres" | "mysql" | "mssql" | "oracle") => {
+    if (!dbmlDocument.trim()) {
+      toast.error("No DBML to export");
+      return;
+    }
+
+    const formatLabels: Record<string, string> = {
+      postgres: "PostgreSQL",
+      mysql: "MySQL",
+      mssql: "SQL Server",
+      oracle: "Oracle",
+    };
+
+    try {
+      const sql = dbmlExporter.export(dbmlDocument, format);
+
+      if (isTauri()) {
+        const filePath = await save({
+          defaultPath: `erd-${selectedSchema}.sql`,
+          filters: [
+            { name: "SQL Files", extensions: ["sql"] },
+            { name: "All Files", extensions: ["*"] },
+          ],
+        });
+
+        if (filePath) {
+          await invoke("plugin:fs|write_text_file", {
+            path: filePath,
+            contents: sql,
+          });
+          toast.success(`${formatLabels[format]} SQL exported`);
+        }
+      } else {
+        void navigator.clipboard.writeText(sql).then(() => {
+          toast.success(`${formatLabels[format]} SQL copied to clipboard`);
+        });
+      }
+    } catch (err) {
+      logger.error("Failed to export SQL", err);
+      toast.error(`Failed to export ${formatLabels[format]} SQL - check DBML syntax`);
+    }
+  }, [dbmlDocument, selectedSchema]);
 
   const handleNodePositionsChange = useCallback(
     (positions: Record<string, NodePosition>) => {
@@ -908,12 +1048,21 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
                       updateView(localViewId, { layoutDirection: direction });
                     }
                   }}
+                  searchQuery={searchQuery}
+                  onSearchChange={setSearchQuery}
+                  onExportPNG={() => { void handleExportImage("png"); }}
+                  onExportSVG={() => { void handleExportImage("svg"); }}
+                  onExportSQL={(fmt) => { void handleExportSQL(fmt); }}
+                  isExporting={isExporting}
                 />
               </div>
             )}
 
             {/* ERDVisualizer - always mounted to preserve state, hidden when no data */}
-            <div className={tables.length > 0 && !loading && !error ? "h-full w-full" : "hidden"}>
+            <div
+              ref={diagramContainerRef}
+              className={tables.length > 0 && !loading && !error ? "h-full w-full" : "hidden"}
+            >
               <ERDVisualizer
                 ref={erdVisualizerRef}
                 tables={tables}
@@ -925,6 +1074,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
                 onNodePositionsChange={handleNodePositionsChange}
                 onNodePositionChange={handleNodePositionChange}
                 onViewportChange={handleViewportChange}
+                searchQuery={searchQuery}
                 onColumnDoubleClick={handleColumnDoubleClick}
                 onLayoutDirectionChange={(direction) => {
                   setLayoutDirection(direction);

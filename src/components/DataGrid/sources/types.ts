@@ -87,10 +87,22 @@ export interface KeyValueDataHookResult extends BaseDataHookResult {
   // Browser mode (showing list of keys instead of key contents)
   isBrowserMode?: boolean;
 
-  // Pattern filtering (browser mode)
+  // Pattern filtering (browser mode, key filter via SCAN MATCH)
   pattern: string;
   setPattern: (pattern: string) => void;
   totalKeyCount?: number;
+  /** Number of keys loaded from server (before client-side value filter) */
+  loadedKeyCount: number;
+
+  // Value search (browser mode, client-side filter on loaded previews)
+  valueFilter: string;
+  setValueFilter: (filter: string) => void;
+  /** Whether all keys have been loaded from server */
+  allKeysLoaded: boolean;
+  /** Whether to show "Load all keys" button (totalKeyCount >= threshold) */
+  showLoadAll: boolean;
+  /** Trigger loading all remaining keys */
+  loadAllKeys: () => void;
 }
 
 // ============================================================================

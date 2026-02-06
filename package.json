@@ -72,6 +72,7 @@
     "dexie-react-hooks": "^4.2.0",
     "embla-carousel-react": "^8.6.0",
     "fuse.js": "^7.1.0",
+    "html-to-image": "^1.11.13",
     "immer": "^10.2.0",
     "lodash": "^4.17.23",
     "lucide-react": "^0.561.0",

@@ -91,9 +91,16 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
   // Browser mode: when no initialKey, show list of keys
   const isBrowserMode = !initialKey && !selectedKeyName;
 
+  // Browser mode value search (client-side filter on loaded previews)
+  const [valueFilter, setValueFilterState] = useState<string>('');
+
   // Pattern setter with refetch
   const setPattern = useCallback((newPattern: string) => {
     setPatternState(newPattern || '*');
+  }, []);
+
+  const setValueFilter = useCallback((filter: string) => {
+    setValueFilterState(filter);
   }, []);
 
   // Get or create adapter
@@ -184,6 +191,9 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     if (!browserData?.pages) return undefined;
     return browserData.pages.flatMap(page => page.keys);
   }, [browserData]);
+
+  // Number of keys loaded from server (before client-side value filter)
+  const loadedKeyCount = browserKeys?.length ?? 0;
 
   // Query key for key metadata
   const metadataQueryKey = useMemo(
@@ -324,14 +334,21 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
 
     // Browser mode: show list of keys (Key, Type, Value, TTL)
     if (isBrowserMode && browserKeys) {
-      result = browserKeys.map((keyInfo) => ({
+      // Apply client-side value filter before mapping to rows
+      let filteredKeys = browserKeys;
+      if (valueFilter) {
+        const search = valueFilter.toLowerCase();
+        filteredKeys = browserKeys.filter((keyInfo) =>
+          keyInfo.key.toLowerCase().includes(search) ||
+          keyInfo.value.toLowerCase().includes(search)
+        );
+      }
+
+      result = filteredKeys.map((keyInfo) => ({
         col_0: createBrowserCellValue(keyInfo.key, 'text'),
         col_1: createBrowserCellValue(keyInfo.type, 'text'),
         col_2: createBrowserCellValue(keyInfo.value, 'json', keyInfo.type),
-        col_3: createBrowserCellValue(
-          keyInfo.ttl === -1 ? 'No TTL' : keyInfo.ttl === -2 ? 'N/A' : `${keyInfo.ttl}s`,
-          'text'
-        ),
+        col_3: createBrowserCellValue(keyInfo.ttl, 'integer'),
       }));
     } else if (!currentKey || rawData === null || rawData === undefined) {
       return [];
@@ -357,7 +374,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     }
 
     return result;
-  }, [currentKey, rawData, isBrowserMode, browserKeys, filter]);
+  }, [currentKey, rawData, isBrowserMode, browserKeys, filter, valueFilter]);
 
   // Get cell content for grid
   const getCellContent = useCallback(
@@ -384,6 +401,12 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
           ? (cellValue as { value: unknown }).value
           : cellValue;
         const strValue = rawValue === null || rawValue === undefined ? '' : String(rawValue);
+
+        // Get row type for editability decisions
+        const typeCell = row['col_1'];
+        const rowType = typeCell && typeof typeCell === 'object' && 'value' in typeCell
+          ? String((typeCell as { value: unknown }).value)
+          : 'unknown';
 
         // Key column (col_0): text-single-cell
         if (column.field === 'col_0') {
@@ -458,24 +481,26 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
             },
             copyData: strValue,
             allowOverlay: true,
-            readonly: true,
+            readonly: rowType !== 'string',
           };
         }
 
-        // TTL column (col_3): text-single-cell
+        // TTL column (col_3): editable, shows raw seconds (-1 = no expiry)
         if (column.field === 'col_3') {
+          const ttlNum = typeof rawValue === 'number' ? rawValue : parseInt(String(rawValue), 10);
+          const displayStr = ttlNum === -1 ? '-1' : ttlNum === -2 ? 'N/A' : String(ttlNum);
           return {
             kind: GridCellKind.Custom,
             data: {
               kind: 'text-single-cell',
-              value: strValue,
+              value: displayStr,
               nullable: false,
-              columnName: 'TTL',
-              dbType: 'text',
+              columnName: 'TTL (seconds)',
+              dbType: 'integer',
             },
-            copyData: strValue,
+            copyData: displayStr,
             allowOverlay: true,
-            readonly: true,
+            readonly: false,
           };
         }
 
@@ -585,6 +610,53 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
       await Promise.all([refetchMetadata(), refetchData()]);
     }
   }, [refetchMetadata, refetchData, refetchBrowser, isBrowserMode]);
+
+  // Auto-load all keys when value filter is active
+  // If totalKeyCount < 5000: auto-load remaining pages
+  // If >= 5000: user must trigger loadAllKeys manually
+  const AUTO_LOAD_THRESHOLD = 5000;
+  const [loadAllRequested, setLoadAllRequested] = useState(false);
+
+  const shouldAutoLoad = isBrowserMode
+    && !!valueFilter
+    && hasMore
+    && !isFetchingNextBrowserPage
+    && (
+      (totalKeyCount !== undefined && totalKeyCount < AUTO_LOAD_THRESHOLD)
+      || loadAllRequested
+    );
+
+  // Whether all keys are loaded (no more pages to fetch)
+  const allKeysLoaded = isBrowserMode && !hasMore;
+  // Whether we should show "Search all" button
+  const showLoadAll = isBrowserMode
+    && !!valueFilter
+    && hasMore
+    && !loadAllRequested
+    && totalKeyCount !== undefined
+    && totalKeyCount >= AUTO_LOAD_THRESHOLD;
+
+  const loadAllKeys = useCallback(() => {
+    setLoadAllRequested(true);
+  }, []);
+
+  // Reset loadAllRequested when value filter is cleared or pattern changes
+  const prevValueFilterRef = useRef(valueFilter);
+  const prevPatternRef = useRef(pattern);
+  if (valueFilter !== prevValueFilterRef.current || pattern !== prevPatternRef.current) {
+    prevValueFilterRef.current = valueFilter;
+    prevPatternRef.current = pattern;
+    if (!valueFilter) {
+      setLoadAllRequested(false);
+    }
+  }
+
+  // Progressive auto-load effect
+  useEffect(() => {
+    if (shouldAutoLoad) {
+      fetchNextBrowserPage();
+    }
+  }, [shouldAutoLoad, fetchNextBrowserPage]);
 
   // CRUD helpers
   const createEditCommand = useCallback(
@@ -817,16 +889,129 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     [currentKey, selectedKeyName]
   );
 
+  // Helper to extract raw value from a CellValue wrapper
+  const extractCellRaw = useCallback((cell: unknown): unknown => {
+    return cell && typeof cell === 'object' && 'value' in cell
+      ? (cell as { value: unknown }).value
+      : cell;
+  }, []);
+
   // CrudCommandFactory for BaseDataGrid integration
-  // Only available when viewing a key's contents (not browser mode)
-  // and the key type supports row-level operations (hash, list, set, zset)
   const commandFactory = useMemo<CrudCommandFactory | undefined>(() => {
-    // Disable in browser mode
-    if (isBrowserMode) return undefined;
-    // Disable if no key selected
+    // ===== Browser mode factory: edit string values, TTL, delete keys =====
+    if (isBrowserMode) {
+      const browserTable = `db${database}_keys`;
+      return {
+        connectionId,
+        database: String(database),
+        schema: '',
+        table: browserTable,
+        primaryKeyColumns: ['key'],
+        columnNameToFieldMap,
+        columnByFieldMap,
+        getRowKey: (row: GridRowModel | undefined, index: number): string => {
+          if (!row) return `browser-row-${index}`;
+          const keyName = extractCellRaw(row['col_0']);
+          return keyName ? `browser:${String(keyName)}` : `browser-row-${index}`;
+        },
+
+        createEditCommand: (event: GridEditCommitEvent): CrudCommand | null => {
+          const { column, row: rowData, newValue } = event;
+          if (!rowData) return null;
+
+          const keyName = String(extractCellRaw(rowData['col_0']) ?? '');
+          if (!keyName) return null;
+          const rowType = String(extractCellRaw(rowData['col_1']) ?? 'unknown');
+
+          // Extract new value from GridCell
+          let newValueRaw: unknown = null;
+          if ('data' in newValue) {
+            const d = newValue.data;
+            if (typeof d === 'object' && d !== null && 'value' in d) {
+              newValueRaw = (d as { value: unknown }).value;
+            } else if (typeof d === 'string' || typeof d === 'number' || typeof d === 'boolean' || d === null) {
+              newValueRaw = d;
+            }
+          }
+
+          // Value edit (col_2) — only for string-type keys
+          if (column.field === 'col_2') {
+            if (rowType !== 'string') return null;
+            const oldValue = extractCellRaw(rowData['col_2']);
+            return {
+              id: nanoid(),
+              type: 'data.update',
+              target: { connectionId, database: String(database), table: browserTable },
+              payload: {
+                column: 'value',
+                primaryKeys: { key: keyName },
+                oldValue: (oldValue ?? null) as JsonValue,
+                newValue: (newValueRaw ?? null) as JsonValue,
+                redisType: 'string',
+              },
+              metadata: { timestamp: new Date().toISOString(), description: `SET ${keyName}` },
+              state: 'staged',
+            };
+          }
+
+          // TTL edit (col_3)
+          if (column.field === 'col_3') {
+            const oldTtl = extractCellRaw(rowData['col_3']);
+            const ttlStr = String(newValueRaw ?? '');
+            const seconds = parseInt(ttlStr, 10);
+            return {
+              id: nanoid(),
+              type: 'data.update',
+              target: { connectionId, database: String(database), table: browserTable },
+              payload: {
+                column: 'ttl',
+                primaryKeys: { key: keyName },
+                oldValue: (oldTtl ?? null) as JsonValue,
+                newValue: (Number.isFinite(seconds) ? seconds : -1) as JsonValue,
+                redisType: rowType,
+              },
+              metadata: {
+                timestamp: new Date().toISOString(),
+                description: Number.isFinite(seconds) && seconds > 0
+                  ? `EXPIRE ${keyName} ${seconds}`
+                  : `PERSIST ${keyName}`,
+              },
+              state: 'staged',
+            };
+          }
+
+          return null;
+        },
+
+        createInsertCommand: (_data?: Record<string, unknown>): CrudCommand => {
+          // New key creation from browser grid is not supported
+          return {
+            id: nanoid(),
+            type: 'data.insert',
+            target: { connectionId, database: String(database), table: '' },
+            payload: { values: {} },
+            metadata: { timestamp: new Date().toISOString(), description: 'New key' },
+            state: 'staged',
+          };
+        },
+
+        createDeleteCommand: (row: GridRowModel, _rowKey: string): CrudCommand => {
+          const keyName = String(extractCellRaw(row['col_0']) ?? '');
+          return {
+            id: nanoid(),
+            type: 'data.delete',
+            target: { connectionId, database: String(database), table: browserTable },
+            payload: { primaryKeys: { key: keyName } },
+            metadata: { timestamp: new Date().toISOString(), description: `DEL ${keyName}` },
+            state: 'staged',
+          };
+        },
+      };
+    }
+
+    // ===== Key view mode factory: hash, list, set, zset =====
     if (!currentKey || !selectedKeyName) return undefined;
-    // Only support types that have row-level data
-    // Streams are read-only, strings are single-value
+    // Streams are read-only, strings are single-value (no row-level CRUD)
     if (currentKey.type === 'string' || currentKey.type === 'stream' || currentKey.type === 'unknown') {
       return undefined;
     }
@@ -844,7 +1029,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     return {
       connectionId,
       database: String(database),
-      schema: undefined, // Redis doesn't use schemas
+      schema: '',
       table: selectedKeyName,
       primaryKeyColumns,
       columnNameToFieldMap,
@@ -856,7 +1041,6 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
       },
 
       createInsertCommand: (_data?: Record<string, unknown>) => {
-        // Create empty row - user will fill in values
         return createInsertCommand({});
       },
 
@@ -876,6 +1060,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     createEditCommand,
     createInsertCommand,
     createDeleteCommand,
+    extractCellRaw,
   ]);
 
   // Compute loading and error states based on mode
@@ -911,5 +1096,11 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     pattern,
     setPattern,
     totalKeyCount,
+    loadedKeyCount,
+    valueFilter,
+    setValueFilter,
+    allKeysLoaded,
+    showLoadAll,
+    loadAllKeys,
   };
 }
