@@ -32,6 +32,12 @@ export interface PackageInfo {
   managerType: "npm" | "brew";
   /** Whether this package is already installed */
   installed: boolean;
+  /** Currently installed version (e.g. "0.13.2") */
+  installedVersion: string | null;
+  /** Latest available version from registry */
+  latestVersion: string | null;
+  /** True when an update is available */
+  updateAvailable: boolean;
 }
 
 /** Available package managers for npm-type packages */

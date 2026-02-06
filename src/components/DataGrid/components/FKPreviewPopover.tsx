@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useFKPreviewData } from "@/hooks/useFKPreviewData";
+import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import {
   IconX,
   IconCopy,
@@ -9,6 +10,7 @@ import {
   IconPlus,
 } from "@tabler/icons-react";
 import type { RawCellValue } from "@/services/backend";
+import type { EmbeddedFKConfig } from "@/adapters/types";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
@@ -39,7 +41,11 @@ interface FKPreviewPopoverProps {
   sourceSchema?: string;
 }
 
+/** Regex matching backend type placeholders like <tsvector>, <tsquery>, etc. */
+const TYPE_PLACEHOLDER_RE = /^<[a-z_]+>$/;
+
 function formatCellValue(value: RawCellValue): string {
+  if (value === null || value === undefined) return "NULL";
   if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number") return String(value);
   if (typeof value === "bigint") return String(value);
@@ -50,6 +56,10 @@ function formatCellValue(value: RawCellValue): string {
   if (Array.isArray(value)) return JSON.stringify(value);
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+}
+
+function isTypePlaceholder(value: string): boolean {
+  return TYPE_PLACEHOLDER_RE.test(value);
 }
 
 const POPOVER_WIDTH = 400;
@@ -97,6 +107,62 @@ export function FKPreviewPopover({
     }),
   );
 
+  // Fetch referenced table structure for proper db_type and FK info
+  const { structure: refTableStructure } = useTableFullStructure({
+    connectionId,
+    database,
+    schema: fkReference.referenced_schema,
+    table: fkReference.referenced_table,
+    options: {
+      includeConstraints: true,
+      includeForeignKeys: true,
+    },
+    enabled: open,
+  });
+
+  // Build embedded FK config for the referenced table's own FK columns
+  const refTableStorageKey = useMemo(
+    () =>
+      connectionId
+        ? `${connectionId}:${fkReference.referenced_schema}.${fkReference.referenced_table}`
+        : "",
+    [connectionId, fkReference.referenced_schema, fkReference.referenced_table],
+  );
+
+  const refTableEmbeddedPrefs = useEmbeddedFKPreferencesStore(
+    (state) => state.preferences[refTableStorageKey],
+  );
+
+  const refTableForeignKeys = refTableStructure?.foreignKeys;
+  const refTableEmbeddedFKs = useMemo<EmbeddedFKConfig[]>(() => {
+    if (!refTableEmbeddedPrefs?.embeddedColumns || !refTableForeignKeys)
+      return [];
+
+    const configs: EmbeddedFKConfig[] = [];
+    const seen = new Set<string>();
+    for (const fk of refTableForeignKeys) {
+      for (let i = 0; i < fk.columns.length; i++) {
+        const colName = fk.columns[i];
+        const refCol = fk.foreignColumns[i];
+        if (!colName || !refCol) continue;
+        if (seen.has(colName)) continue;
+
+        const refDisplayColumns = refTableEmbeddedPrefs.embeddedColumns[colName];
+        if (refDisplayColumns && refDisplayColumns.length > 0) {
+          seen.add(colName);
+          configs.push({
+            fkColumn: colName,
+            refSchema: fk.foreignSchema ?? "public",
+            refTable: fk.foreignTable,
+            refPkColumn: refCol,
+            refDisplayColumns,
+          });
+        }
+      }
+    }
+    return configs;
+  }, [refTableEmbeddedPrefs, refTableForeignKeys]);
+
   const handleToggleEmbed = (columnName: string) => {
     if (!storageKey || !sourceColumnName) return;
     const isCurrentlyEmbedded = embeddedColumns.includes(columnName);
@@ -112,8 +178,9 @@ export function FKPreviewPopover({
         description: "Reload to see the change",
       });
     } else {
-      // Replace with this column (single embedded value)
-      setEmbeddedColumns(storageKey, sourceColumnName, [columnName]);
+      // Add this column to embedded list (supports multiple)
+      const updated = [...embeddedColumns, columnName];
+      setEmbeddedColumns(storageKey, sourceColumnName, updated);
       toast.success(`Embedding "${columnName}" for ${sourceColumnName}`, {
         description: "Reload to see the embedded value",
       });
@@ -128,7 +195,46 @@ export function FKPreviewPopover({
     pkColumn: fkReference.referenced_column,
     pkValue: fkValue,
     enabled: open,
+    embeddedFKs: refTableEmbeddedFKs.length > 0 ? refTableEmbeddedFKs : undefined,
   });
+
+  // Build a map of embedded FK values: fkColumn → embeddedDisplayValues[]
+  const embeddedFKValueMap = useMemo(() => {
+    if (!data || refTableEmbeddedFKs.length === 0) return new Map<string, string[]>();
+    const map = new Map<string, string[]>();
+    for (const fk of refTableEmbeddedFKs) {
+      const values: string[] = [];
+      for (const displayCol of fk.refDisplayColumns) {
+        const key = `__qp_fk__${fk.fkColumn}__${displayCol}`;
+        const value = data[key];
+        if (value != null) {
+          values.push(formatCellValue(value as RawCellValue));
+        }
+      }
+      if (values.length > 0) {
+        map.set(fk.fkColumn, values);
+      }
+    }
+    return map;
+  }, [data, refTableEmbeddedFKs]);
+
+  // Use table structure columns for display (proper db_type), falling back to query columns
+  const refTableColumns = refTableStructure?.columns;
+  const displayColumns = useMemo(() => {
+    if (refTableColumns) {
+      return refTableColumns.map((col) => ({
+        name: col.name,
+        db_type: col.db_type,
+      }));
+    }
+    // Fallback: use query result columns, filtering out __qp_fk__ columns
+    return columns
+      .filter((col) => !col.name.startsWith("__qp_fk__"))
+      .map((col) => ({
+        name: col.name,
+        db_type: col.db_type || "",
+      }));
+  }, [refTableColumns, columns]);
 
   const handleCopy = (columnName: string, value: string) => {
     writeClipboardText(value)
@@ -322,8 +428,10 @@ export function FKPreviewPopover({
 
         {!isLoading && !error && data && (
           <div className="space-y-2">
-            {columns.map((col) => {
+            {displayColumns.map((col) => {
               const isEmbedded = embeddedColumns.includes(col.name);
+              const embeddedFKValues = embeddedFKValueMap.get(col.name);
+              const rawValue = formatCellValue(data[col.name] ?? null);
               return (
                 <div key={col.name} className="space-y-1">
                   <div className="flex items-center justify-between px-2">
@@ -359,17 +467,30 @@ export function FKPreviewPopover({
                   </div>
                   <div className="relative group rounded bg-background">
                     <div className="text-xs font-mono break-all line-clamp-5 p-2 pr-8">
-                      {formatCellValue(data[col.name] ?? null)}
+                      {rawValue === "NULL" ? (
+                        <span className="text-muted-foreground/50 italic">NULL</span>
+                      ) : isTypePlaceholder(rawValue) ? (
+                        <span className="text-muted-foreground/50 italic">{rawValue}</span>
+                      ) : (
+                        rawValue
+                      )}
+                      {embeddedFKValues && embeddedFKValues.length > 0 && (
+                        <>
+                          <span className="text-muted-foreground/50">{" → "}</span>
+                          {embeddedFKValues.map((val, i) => (
+                            <span key={i} className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] bg-muted text-muted-foreground mr-1">
+                              {val}
+                            </span>
+                          ))}
+                        </>
+                      )}
                     </div>
                     <Button
                       variant="ghost"
                       size="icon-sm"
                       className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={() => {
-                        handleCopy(
-                          col.name,
-                          formatCellValue(data[col.name] ?? null),
-                        );
+                        handleCopy(col.name, rawValue);
                       }}
                     >
                       {copiedColumn === col.name ? (

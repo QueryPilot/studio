@@ -40,6 +40,12 @@ pub struct PackageInfo {
     pub manager_type: String,
     /// Whether this package is already installed
     pub installed: bool,
+    /// Currently installed version (e.g. "0.13.2")
+    pub installed_version: Option<String>,
+    /// Latest available version from registry (e.g. "0.15.0")
+    pub latest_version: Option<String>,
+    /// True when installed_version < latest_version
+    pub update_available: bool,
 }
 
 /// Model definition for static configuration
@@ -197,11 +203,21 @@ pub fn discover_agents() -> Vec<AgentInfo> {
                 packages: def
                     .packages
                     .iter()
-                    .map(|p| PackageInfo {
-                        name: p.name.to_string(),
-                        description: p.description.to_string(),
-                        manager_type: p.manager_type.to_string(),
-                        installed: shell_which(p.binary).is_some(),
+                    .map(|p| {
+                        let bin_path = shell_which(p.binary);
+                        let installed = bin_path.is_some();
+                        let installed_version = bin_path
+                            .as_ref()
+                            .and_then(|path| get_installed_package_version(path));
+                        PackageInfo {
+                            name: p.name.to_string(),
+                            description: p.description.to_string(),
+                            manager_type: p.manager_type.to_string(),
+                            installed,
+                            installed_version,
+                            latest_version: None,    // populated by check_updates
+                            update_available: false,  // populated by check_updates
+                        }
                     })
                     .collect(),
                 models: def
@@ -228,6 +244,11 @@ fn get_agent_version(path: &std::path::Path) -> Option<String> {
         .map(|s| s.trim().to_string())
 }
 
+/// Public wrapper for shell_which (used by commands module)
+pub fn shell_which_public(binary: &str) -> Option<std::path::PathBuf> {
+    shell_which(binary)
+}
+
 /// Find a binary using the shell's `which` command
 /// This ensures we use the current shell's PATH, including recent additions
 fn shell_which(binary: &str) -> Option<std::path::PathBuf> {
@@ -249,13 +270,135 @@ fn shell_which(binary: &str) -> Option<std::path::PathBuf> {
         })
 }
 
+/// Get the installed version of an npm package by resolving the binary's symlink
+/// to find its package.json.
+fn get_installed_package_version(bin_path: &std::path::Path) -> Option<String> {
+    // Resolve the symlink to get the actual file location
+    let resolved = std::fs::read_link(bin_path)
+        .ok()
+        .map(|target| {
+            if target.is_relative() {
+                bin_path.parent().unwrap_or(bin_path).join(&target)
+            } else {
+                target
+            }
+        })
+        .unwrap_or_else(|| bin_path.to_path_buf());
+
+    // Walk up from the resolved path looking for package.json
+    let mut dir = resolved.parent();
+    for _ in 0..6 {
+        let d = dir?;
+        let pkg_json = d.join("package.json");
+        if pkg_json.exists() {
+            let content = std::fs::read_to_string(&pkg_json).ok()?;
+            let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
+            return parsed.get("version")?.as_str().map(|s| s.to_string());
+        }
+        dir = d.parent();
+    }
+    None
+}
+
+/// Get the latest version of a package from the npm registry.
+fn get_latest_npm_version(package_name: &str) -> Option<String> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+    let cmd = format!("npm view {} version 2>/dev/null", package_name);
+
+    let output = Command::new(&shell)
+        .args(["-l", "-c", &cmd])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let version = String::from_utf8(output.stdout).ok()?;
+    let version = version.trim().to_string();
+    if version.is_empty() {
+        None
+    } else {
+        Some(version)
+    }
+}
+
+/// Get the latest version of a brew package.
+fn get_latest_brew_version(package_name: &str) -> Option<String> {
+    let output = Command::new("brew")
+        .args(["info", "--json=v1", package_name])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).ok()?;
+    parsed
+        .as_array()?
+        .first()?
+        .get("versions")?
+        .get("stable")?
+        .as_str()
+        .map(|s| s.to_string())
+}
+
+/// Detect which npm-compatible package manager installed a binary.
+/// Returns "bun", "pnpm", "yarn", or "npm" (default).
+pub fn detect_package_manager(bin_path: &std::path::Path) -> String {
+    let path_str = bin_path.to_string_lossy();
+    if path_str.contains(".bun/") || path_str.contains("/bun/") {
+        "bun".to_string()
+    } else if path_str.contains(".pnpm/") || path_str.contains("/pnpm/") {
+        "pnpm".to_string()
+    } else if path_str.contains(".yarn/") || path_str.contains("/yarn/") {
+        "yarn".to_string()
+    } else {
+        "npm".to_string()
+    }
+}
+
+/// Check for updates across all known agents' packages.
+/// Returns agents whose packages have updates available.
+pub fn check_package_updates() -> Vec<AgentInfo> {
+    let mut agents = discover_agents();
+
+    for agent in &mut agents {
+        for pkg in &mut agent.packages {
+            if !pkg.installed {
+                continue;
+            }
+
+            let latest = match pkg.manager_type.as_str() {
+                "brew" => get_latest_brew_version(&pkg.name),
+                _ => get_latest_npm_version(&pkg.name),
+            };
+
+            if let Some(ref latest_ver) = latest {
+                if let Some(ref installed_ver) = pkg.installed_version {
+                    pkg.update_available = installed_ver != latest_ver;
+                }
+            }
+            pkg.latest_version = latest;
+        }
+    }
+
+    // Only return agents that have at least one updatable package
+    agents
+        .into_iter()
+        .filter(|a| a.packages.iter().any(|p| p.update_available))
+        .collect()
+}
+
 /// Fetch available models for an agent dynamically
 /// Returns None if the agent doesn't support dynamic model listing or fetch fails
-pub async fn fetch_agent_models(agent_id: &str) -> Option<Vec<ModelInfo>> {
+pub fn fetch_agent_models(agent_id: &str) -> Option<Vec<ModelInfo>> {
     match agent_id {
         "opencode" => fetch_opencode_models(),
         "codex-acp" => fetch_codex_models(),
-        "claude-code-acp" => fetch_claude_code_models().await,
+        "claude-code-acp" => fetch_claude_code_models(),
         _ => None,
     }
 }
@@ -401,74 +544,108 @@ fn fetch_codex_models() -> Option<Vec<ModelInfo>> {
 }
 
 // ---------------------------------------------------------------------------
-// Claude Code: call Anthropic GET /v1/models (requires ANTHROPIC_API_KEY)
+// Claude Code: extract the alias→model mapping from the `claude` binary.
+//
+// The compiled binary embeds a JS object like:
+//   {opus:"claude-opus-4-6",sonnet:"claude-sonnet-4-5-20250929",haiku:"claude-haiku-4-5-20251001"}
+//
+// We pipe `strings <binary> | grep …` to extract just that one line, then
+// return three clean aliases (opus / sonnet / haiku) with the resolved
+// version shown only in the description text.
 // ---------------------------------------------------------------------------
 
-async fn fetch_claude_code_models() -> Option<Vec<ModelInfo>> {
-    let api_key = std::env::var("ANTHROPIC_API_KEY").ok().or_else(|| {
-        // Fallback: read from ~/.anthropic/api_key if it exists
-        dirs::home_dir()
-            .map(|h| h.join(".anthropic").join("api_key"))
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-    })?;
+fn fetch_claude_code_models() -> Option<Vec<ModelInfo>> {
+    // Locate the `claude` binary and resolve symlinks
+    let claude_path = shell_which("claude")?;
+    let resolved = std::fs::canonicalize(&claude_path).unwrap_or(claude_path);
 
-    tracing::info!("Fetching Claude models from Anthropic API");
+    // Run: strings <binary> | grep -oE '{opus:"claude-...",...}' | head -1
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+    let cmd = format!(
+        r#"strings "{}" | grep -oE '\{{opus:"claude-[^"]+",sonnet:"claude-[^"]+",haiku:"claude-[^"]+"\}}' | head -1"#,
+        resolved.display()
+    );
 
-    let client = reqwest::Client::new();
-    let response = client
-        .get("https://api.anthropic.com/v1/models")
-        .query(&[("limit", "1000")])
-        .header("x-api-key", &api_key)
-        .header("anthropic-version", "2023-06-01")
-        .timeout(std::time::Duration::from_secs(10))
-        .send()
-        .await
+    let output = Command::new(&shell)
+        .args(["-c", &cmd])
+        .output()
         .ok()?;
 
-    if !response.status().is_success() {
-        tracing::warn!(
-            "Anthropic models API returned status {}",
-            response.status()
-        );
+    if !output.status.success() {
         return None;
     }
 
-    #[derive(serde::Deserialize)]
-    struct AnthropicModelsResponse {
-        data: Vec<AnthropicModel>,
+    let line = String::from_utf8(output.stdout).ok()?;
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
     }
 
-    #[derive(serde::Deserialize)]
-    struct AnthropicModel {
-        id: String,
-        display_name: String,
-    }
+    // Parse: {opus:"claude-opus-4-6",sonnet:"claude-sonnet-4-5-20250929",haiku:"..."}
+    let re = regex::Regex::new(
+        r#"\{opus:"(claude-[^"]+)",sonnet:"(claude-[^"]+)",haiku:"(claude-[^"]+)"\}"#,
+    )
+    .ok()?;
 
-    let body: AnthropicModelsResponse = response.json().await.ok()?;
+    let caps = re.captures(line)?;
+    let opus_id = caps.get(1)?.as_str();
+    let sonnet_id = caps.get(2)?.as_str();
+    let haiku_id = caps.get(3)?.as_str();
 
-    let models: Vec<ModelInfo> = body
-        .data
-        .into_iter()
-        // Keep only current-generation Claude models
-        .filter(|m| {
-            m.id.starts_with("claude-")
-                && !m.id.starts_with("claude-2")
-                && !m.id.starts_with("claude-3-")
-                && !m.id.contains("claude-instant")
-        })
-        .map(|m| ModelInfo {
-            name: m.display_name,
-            description: format!("Anthropic {}", m.id),
-            id: m.id,
-        })
-        .collect();
+    let models = vec![
+        ModelInfo {
+            id: "opus".to_string(),
+            name: "Opus".to_string(),
+            description: format!(
+                "{} · Most capable for complex work",
+                format_claude_version(opus_id)
+            ),
+        },
+        ModelInfo {
+            id: "sonnet".to_string(),
+            name: "Sonnet".to_string(),
+            description: format!(
+                "{} · Best for everyday tasks",
+                format_claude_version(sonnet_id)
+            ),
+        },
+        ModelInfo {
+            id: "haiku".to_string(),
+            name: "Haiku".to_string(),
+            description: format!(
+                "{} · Fastest for quick answers",
+                format_claude_version(haiku_id)
+            ),
+        },
+    ];
 
-    if models.is_empty() {
-        None
+    tracing::info!("Extracted Claude Code model aliases from binary");
+    Some(models)
+}
+
+/// "claude-opus-4-6" → "Claude Opus 4.6"
+fn format_claude_version(model_id: &str) -> String {
+    let s = model_id.strip_prefix("claude-").unwrap_or(model_id);
+
+    // Strip the date suffix (e.g. -20250929)
+    let base = regex::Regex::new(r"-\d{8}$")
+        .ok()
+        .map(|re| re.replace(s, "").to_string())
+        .unwrap_or_else(|| s.to_string());
+
+    // "opus-4-6" → "Opus 4.6"
+    let parts: Vec<&str> = base.splitn(2, '-').collect();
+    if parts.len() == 2 {
+        let family = {
+            let mut c = parts[0].chars();
+            match c.next() {
+                None => String::new(),
+                Some(f) => f.to_uppercase().chain(c).collect(),
+            }
+        };
+        let version = parts[1].replace('-', ".");
+        format!("Claude {} {}", family, version)
     } else {
-        tracing::info!("Fetched {} Claude models from API", models.len());
-        Some(models)
+        format!("Claude {}", format_model_name(&base))
     }
 }

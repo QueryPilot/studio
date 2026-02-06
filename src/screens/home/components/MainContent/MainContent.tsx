@@ -2,6 +2,7 @@ import { useMemo, useEffect } from "react";
 import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { WelcomeSection } from "./WelcomeSection";
 import { ConnectionsSection } from "./ConnectionsSection";
+import { StatsHeader } from "./StatsHeader";
 import { ConnectionForm } from "./ConnectionForm";
 import { WorkspaceForm } from "./WorkspaceForm";
 import { WorkspaceCreationForm } from "./WorkspaceCreationForm";
@@ -163,24 +164,21 @@ export function MainContent() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
+      {/* Search bar - always visible */}
+      {connections.length > 0 && (
+        <div className="px-6 pt-6 pb-3 bg-background">
+          <StatsHeader />
+        </div>
+      )}
+
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto">
-        <div className="p-6 space-y-6">
-          {/* Search Results */}
+        <div className="p-6 pt-0 space-y-6">
           {isSearching ? (
             <div>
               <div className="text-xs text-muted-foreground mb-3">
                 {searchResults.length} result
                 {searchResults.length !== 1 ? "s" : ""} found
-                {searchQuery && (
-                  <span className="ml-1">
-                    for "
-                    <span className="font-medium text-foreground">
-                      {searchQuery}
-                    </span>
-                    "
-                  </span>
-                )}
               </div>
               {searchResults.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
@@ -200,10 +198,7 @@ export function MainContent() {
           ) : connections.length === 0 ? (
             <WelcomeSection />
           ) : (
-            <>
-              {/* All Connections grouped by tag */}
-              <ConnectionsSection />
-            </>
+            <ConnectionsSection />
           )}
         </div>
       </div>

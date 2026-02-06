@@ -70,10 +70,7 @@ function AppContent() {
         <Routes>
           <Route path="/" element={<HomeScreen />} />
           {/* New workspace routes */}
-          <Route
-            path="/workspace/:workspaceId"
-            element={<WorkspaceScreen />}
-          />
+          <Route path="/workspace/:workspaceId" element={<WorkspaceScreen />} />
           <Route path="/workspace" element={<WorkspacePickerScreen />} />
           {/* Legacy route - backwards compat */}
           <Route
@@ -193,7 +190,10 @@ function App() {
               try {
                 await AcpService.initializeLlmHome();
               } catch (error) {
-                logger.error("LLM home initialization failed (continuing with agent load)", error);
+                logger.error(
+                  "LLM home initialization failed (continuing with agent load)",
+                  error,
+                );
               }
               // Always try to load agents, even if LLM home init failed
               try {
@@ -214,7 +214,10 @@ function App() {
               await vaultStorage.initialize();
               await vaultStorage.preloadAll();
             } catch (error) {
-              logger.error("Background vault load for workspace window failed", error);
+              logger.error(
+                "Background vault load for workspace window failed",
+                error,
+              );
             }
             // Also load agents for workspace windows
             try {

@@ -1028,9 +1028,10 @@ class DatabaseService {
             .filter((c) => c.constraint_type === ConstraintType.ForeignKey)
             .map((c) => {
               // Parse foreign key constraint definition
-              // Example: "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+              // Example: "FOREIGN KEY (user_id) REFERENCES schema.users (id) ON DELETE CASCADE"
+              // Note: [^\s(]+ handles schema/table names with hyphens (e.g. "lvcet-lms.users")
               const fkMatch = c.definition.match(
-                /FOREIGN KEY\s*\((.*?)\)\s*REFERENCES\s*([\w.]+)\s*\((.*?)\)/i,
+                /FOREIGN KEY\s*\((.*?)\)\s*REFERENCES\s+([^\s(]+)\s*\((.*?)\)/i,
               );
               const onDeleteMatch = c.definition.match(
                 /ON DELETE\s+(NO ACTION|CASCADE|SET NULL|SET DEFAULT|RESTRICT)/i,

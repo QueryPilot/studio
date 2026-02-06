@@ -19,6 +19,7 @@ import {
   IconSitemap,
   IconChevronRight,
   IconLayoutDashboard,
+  IconColumns,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { eventBus } from "@/services/eventBus";
@@ -35,7 +36,6 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { IconColumns } from "@tabler/icons-react";
 import { type TableMeta, type FunctionMeta } from "@/services/databaseService";
 import {
   Tooltip,
@@ -103,6 +103,20 @@ export function SidebarConnectionList({
 
     return orderedConnections;
   }, [activeWorkspace]);
+
+  // Default all SQL connections to expanded in ERD view.
+  // Uses a ref to track which connections we've already seen so we don't
+  // re-expand ones the user manually collapsed.
+  const seenErdDbsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const sqlIds = connections
+      .filter((c) => getParadigm(c.profile.db_type) === "sql")
+      .map((c) => c.id);
+    const newIds = sqlIds.filter((id) => !seenErdDbsRef.current.has(id));
+    if (newIds.length === 0) return;
+    for (const id of newIds) seenErdDbsRef.current.add(id);
+    setExpandedErdDbs((prev) => new Set([...prev, ...newIds]));
+  }, [connections]);
 
   // Track expanded connections - auto-expand focused connection
   const [expandedConnections, setExpandedConnections] = useState<Set<string>>(
@@ -387,7 +401,7 @@ export function SidebarConnectionList({
                                   connectionId: connection.id,
                                   connectionName: connection.profile.name,
                                   database: connection.database,
-                                  schema: connection.schema,
+                                  schema: connection.schema || "public",
                                 });
                               }}
                             >
@@ -401,7 +415,7 @@ export function SidebarConnectionList({
                                     connectionId: connection.id,
                                     connectionName: connection.profile.name,
                                     database: connection.database,
-                                    schema: connection.schema,
+                                    schema: connection.schema || "public",
                                   });
                                 }}
                               >
@@ -414,7 +428,7 @@ export function SidebarConnectionList({
                                     connectionId: connection.id,
                                     connectionName: connection.profile.name,
                                     database: connection.database,
-                                    schema: connection.schema,
+                                    schema: connection.schema || "public",
                                   });
                                 }}
                               >

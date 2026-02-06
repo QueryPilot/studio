@@ -6,23 +6,30 @@ import type { GridCellValue, GridCellValueType } from "@/types/cellValue";
 export function mapBackendColumnsToColumnMeta(
   columns: QueryColumnMeta[],
 ): ColumnMeta[] {
-  return columns.map((col, index) => ({
-    name: col.name,
-    db_type: col.db_type,
-    nullable: col.nullable,
-    default:
-      (col as unknown as { default_value?: string | null }).default_value ??
-      null,
-    is_pk: col.primary_key,
-    is_fk: false,
-    ordinal: index,
-    precision: null,
-    scale: null,
-    comment: (col as unknown as { comment?: string | null }).comment ?? null,
-    enum_values: (col as unknown as { enum_values?: string[] }).enum_values,
-    set_values: (col as unknown as { set_values?: string[] }).set_values,
-    type_category: (col as unknown as { type_category?: string }).type_category,
-  }));
+  // The backend (Rust) serializes with serde(rename_all = "camelCase"),
+  // so JSON keys are camelCase (dbType, primaryKey, etc.) while the TS
+  // interface uses snake_case. Access both to handle the mismatch.
+  return columns.map((col, index) => {
+    const raw = col as unknown as Record<string, unknown>;
+    return {
+      name: col.name,
+      db_type: col.db_type || (raw.dbType as string) || "",
+      nullable: col.nullable ?? (raw.nullable as boolean) ?? true,
+      default:
+        (raw.default_value as string | null) ??
+        (raw.defaultValue as string | null) ??
+        null,
+      is_pk: col.primary_key ?? (raw.primaryKey as boolean) ?? false,
+      is_fk: false,
+      ordinal: index,
+      precision: null,
+      scale: null,
+      comment: (raw.comment as string | null) ?? null,
+      enum_values: (raw.enum_values as string[]) ?? (raw.enumValues as string[]),
+      set_values: (raw.set_values as string[]) ?? (raw.setValues as string[]),
+      type_category: (raw.type_category as string) ?? (raw.typeCategory as string),
+    };
+  });
 }
 
 export function deriveValueType(
@@ -38,7 +45,7 @@ export function deriveValueType(
   }
 
   if (typeof rawValue === "number" || typeof rawValue === "bigint") {
-    const normalizedType = dbType.toLowerCase();
+    const normalizedType = (dbType || "").toLowerCase();
     if (
       normalizedType.includes("int") ||
       normalizedType.includes("serial") ||
@@ -64,7 +71,7 @@ export function deriveValueType(
   }
 
   if (Array.isArray(rawValue)) {
-    const normalizedType = dbType.toLowerCase();
+    const normalizedType = (dbType || "").toLowerCase();
     if (
       normalizedType.includes("bytea") ||
       normalizedType.includes("blob") ||

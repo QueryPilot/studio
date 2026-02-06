@@ -4,6 +4,7 @@ import { logger } from "@/lib/logger";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { formatTableName, quoteIdentifier, formatValue } from "@/adapters/formatting";
 import { DbType } from "@/types/connection";
+import type { EmbeddedFKConfig } from "@/adapters/types";
 
 interface FKPreviewDataParams {
   connectionId: string;
@@ -13,6 +14,7 @@ interface FKPreviewDataParams {
   pkColumn: string;
   pkValue: unknown;
   enabled?: boolean;
+  embeddedFKs?: EmbeddedFKConfig[];
 }
 
 interface FKPreviewDataResult {
@@ -68,8 +70,45 @@ function buildCacheKey(
   table: string,
   pkColumn: string,
   pkValue: unknown,
+  embeddedFKs?: EmbeddedFKConfig[],
 ): string {
-  return `${connectionId}:${schema}.${table}.${pkColumn}=${JSON.stringify(pkValue)}`;
+  const base = `${connectionId}:${schema}.${table}.${pkColumn}=${JSON.stringify(pkValue)}`;
+  if (!embeddedFKs || embeddedFKs.length === 0) return base;
+  const fkSuffix = embeddedFKs
+    .map((fk) => `${fk.fkColumn}:${fk.refDisplayColumns.join(",")}`)
+    .join("|");
+  return `${base}[${fkSuffix}]`;
+}
+
+function buildEmbeddedFKSql(
+  tableName: string,
+  pkColumn: string,
+  pkValue: string,
+  embeddedFKs: EmbeddedFKConfig[],
+  dbType: DbType,
+): string {
+  // Build SELECT columns: main_table.*, t1.col AS "__qp_fk__fk_col__ref_col", ...
+  const selectParts = [`${tableName}.*`];
+  const joinParts: string[] = [];
+
+  embeddedFKs.forEach((fk, i) => {
+    const alias = `t${i + 1}`;
+    const refTable = formatTableName(fk.refSchema, fk.refTable, dbType);
+
+    for (const displayCol of fk.refDisplayColumns) {
+      const aliasName = `__qp_fk__${fk.fkColumn}__${displayCol}`;
+      selectParts.push(
+        `${alias}.${quoteIdentifier(displayCol, dbType)} AS ${quoteIdentifier(aliasName, dbType)}`,
+      );
+    }
+
+    joinParts.push(
+      `LEFT JOIN ${refTable} AS ${alias} ON ${tableName}.${quoteIdentifier(fk.fkColumn, dbType)} = ${alias}.${quoteIdentifier(fk.refPkColumn, dbType)}`,
+    );
+  });
+
+  const colName = quoteIdentifier(pkColumn, dbType);
+  return `SELECT ${selectParts.join(", ")} FROM ${tableName} ${joinParts.join(" ")} WHERE ${tableName}.${colName} = ${pkValue} LIMIT 1`;
 }
 
 export function useFKPreviewData(params: FKPreviewDataParams): FKPreviewDataResult {
@@ -81,6 +120,7 @@ export function useFKPreviewData(params: FKPreviewDataParams): FKPreviewDataResu
     pkColumn,
     pkValue,
     enabled = true,
+    embeddedFKs,
   } = params;
 
   const [data, setData] = useState<Record<string, CellValue> | null>(null);
@@ -99,7 +139,7 @@ export function useFKPreviewData(params: FKPreviewDataParams): FKPreviewDataResu
       return;
     }
 
-    const cacheKey = buildCacheKey(connectionId, schema, table, pkColumn, pkValue);
+    const cacheKey = buildCacheKey(connectionId, schema, table, pkColumn, pkValue, embeddedFKs);
 
     if (fkPreviewCache.has(cacheKey)) {
       const cached = fkPreviewCache.get(cacheKey);
@@ -125,10 +165,15 @@ export function useFKPreviewData(params: FKPreviewDataParams): FKPreviewDataResu
         const dbType = connection?.profile.db_type || DbType.PostgreSQL;
 
         const tableName = formatTableName(schema, table, dbType);
-        const colName = quoteIdentifier(pkColumn, dbType);
         const val = formatValue(pkValue, dbType);
-        
-        const sql = `SELECT * FROM ${tableName} WHERE ${colName} = ${val} LIMIT 1`;
+
+        let sql: string;
+        if (embeddedFKs && embeddedFKs.length > 0) {
+          sql = buildEmbeddedFKSql(tableName, pkColumn, val, embeddedFKs, dbType);
+        } else {
+          const colName = quoteIdentifier(pkColumn, dbType);
+          sql = `SELECT * FROM ${tableName} WHERE ${colName} = ${val} LIMIT 1`;
+        }
 
         logger.debug(`[useFKPreviewData] Fetching FK preview:`, { schema, table, pkColumn, pkValue, sql });
 
@@ -187,7 +232,7 @@ export function useFKPreviewData(params: FKPreviewDataParams): FKPreviewDataResu
     return () => {
       abortControllerRef.current?.abort();
     };
-  }, [enabled, connectionId, database, schema, table, pkColumn, pkValue]);
+  }, [enabled, connectionId, database, schema, table, pkColumn, pkValue, embeddedFKs]);
 
   return {
     data,

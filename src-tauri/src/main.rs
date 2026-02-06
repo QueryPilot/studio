@@ -201,6 +201,8 @@ fn main() {
             acp::commands::acp_send_prompt,
             acp::commands::acp_cancel_session,
             acp::commands::acp_install_package,
+            acp::commands::acp_check_package_updates,
+            acp::commands::acp_upgrade_package,
             acp::commands::acp_initialize_llm_home,
             acp::commands::acp_get_llm_home,
             acp::commands::acp_get_mcp_sidecar_path,

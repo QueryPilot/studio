@@ -295,6 +295,37 @@ export const AcpService = {
   },
 
   /**
+   * Check for package updates across all agents
+   * Returns agents that have at least one package with an available update
+   */
+  async checkPackageUpdates(): Promise<AgentInfo[]> {
+    return invoke<AgentInfo[]>("acp_check_package_updates");
+  },
+
+  /**
+   * Upgrade a package to its latest version
+   * Auto-detects the package manager from the binary path
+   * @param packageName The package name to upgrade
+   * @param managerType The type of package manager ("npm" or "brew")
+   * @param binaryName The binary name for detecting the package manager
+   * @param packageManager Optional explicit package manager override
+   * @returns Upgrade output
+   */
+  async upgradePackage(
+    packageName: string,
+    managerType: "npm" | "brew",
+    binaryName: string,
+    packageManager?: NpmPackageManager
+  ): Promise<string> {
+    return invoke<string>("acp_upgrade_package", {
+      packageName,
+      managerType,
+      binaryName,
+      packageManager: packageManager ?? null,
+    });
+  },
+
+  /**
    * Send a silent prompt that doesn't go through the conversation store.
    * Used for background AI tasks like filter generation.
    * Reuses a cached agent instance when possible for faster responses.

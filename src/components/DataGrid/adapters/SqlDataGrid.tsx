@@ -134,14 +134,18 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
       return [];
 
     const configs: EmbeddedFKConfig[] = [];
+    const seen = new Set<string>();
     for (const fk of tableStructure.foreignKeys) {
       for (let i = 0; i < fk.columns.length; i++) {
         const colName = fk.columns[i];
         const refCol = fk.foreignColumns[i];
         if (!colName || !refCol) continue;
+        // Skip duplicate FK columns (introspection may return the same FK twice)
+        if (seen.has(colName)) continue;
 
         const refDisplayColumns = embeddedFKPrefs.embeddedColumns[colName];
         if (refDisplayColumns && refDisplayColumns.length > 0) {
+          seen.add(colName);
           configs.push({
             fkColumn: colName,
             refSchema: fk.foreignSchema ?? "public",
@@ -656,15 +660,17 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
 
   // Build embedded FK field map from columnMeta
   // The backend returns embedded FK values as columns named __qp_fk__{fkColumn}__{refColumn}
-  // Map: fkColumn -> col_N (the field to access the embedded value)
+  // Map: fkColumn -> col_N[] (fields to access embedded values, supports multiple)
   const embeddedFKFieldMap = useMemo(() => {
-    const map = new Map<string, string>();
+    const map = new Map<string, string[]>();
     columnMeta.forEach((col, index) => {
       // Parse __qp_fk__{fkColumn}__{refColumn}
       if (col.name.startsWith("__qp_fk__")) {
         const match = col.name.match(/^__qp_fk__(.+?)__(.+)$/);
         if (match && match[1]) {
-          map.set(match[1], `col_${index}`);
+          const existing = map.get(match[1]) ?? [];
+          existing.push(`col_${index}`);
+          map.set(match[1], existing);
         }
       }
     });
@@ -727,15 +733,21 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
         if (stagedEmbedded !== undefined) {
           embeddedValue = stagedEmbedded;
         } else {
-          // Fall back to embedded FK field from row data
-          const embeddedField = embeddedFKFieldMapRef.current.get(columnName);
-          if (embeddedField) {
-            const embeddedCell = row[embeddedField] as
-              | GridCellValue
-              | null
-              | undefined;
-            if (embeddedCell?.value != null) {
-              embeddedValue = String(embeddedCell.value);
+          // Fall back to embedded FK fields from row data (supports multiple)
+          const embeddedFields = embeddedFKFieldMapRef.current.get(columnName);
+          if (embeddedFields) {
+            const parts: string[] = [];
+            for (const field of embeddedFields) {
+              const embeddedCell = row[field] as
+                | GridCellValue
+                | null
+                | undefined;
+              if (embeddedCell?.value != null) {
+                parts.push(String(embeddedCell.value));
+              }
+            }
+            if (parts.length > 0) {
+              embeddedValue = parts.join(" · ");
             }
           }
         }
