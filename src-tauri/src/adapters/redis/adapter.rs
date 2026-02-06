@@ -16,8 +16,9 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 
 use crate::core::capabilities::{
-    AdapterCapability, BaseCapability, CapabilityTestResult, KeyInfo, KeyValueOperable, ListSide,
-    RedisType, RedisValue, RichKeyValueOperable, ScanResult, SetOptions, StreamEntry, ZSetMember,
+    AdapterCapability, BaseCapability, CapabilityTestResult, KeyInfo, KeyInfoWithPreview,
+    KeyValueOperable, ListSide, RedisType, RedisValue, RichKeyValueOperable, ScanResult,
+    ScanResultWithPreviews, SetOptions, StreamEntry, ZSetMember,
 };
 use crate::error::AppError;
 use crate::types::ConnectionProfile;
@@ -787,14 +788,43 @@ impl KeyValueOperable for RedisAdapter {
                     .await
                     .map_err(|e| AppError::DatabaseError(format!("SCAN failed: {}", e)))?;
 
+                if scanned_keys.is_empty() {
+                    let new_cursor_u64 = new_cursor.parse().unwrap_or(0);
+                    return Ok(ScanResult {
+                        cursor: new_cursor_u64,
+                        keys: vec![],
+                    });
+                }
+
+                // Pipeline TYPE + TTL for all keys in a single round-trip
+                let pipeline = c.pipeline();
+                for key in &scanned_keys {
+                    let key_str = key.as_str_lossy();
+                    let _: () = pipeline.r#type(key_str.as_ref()).await.map_err(|e| {
+                        AppError::DatabaseError(format!("Pipeline TYPE failed: {}", e))
+                    })?;
+                    let _: () = pipeline.ttl(key_str.as_ref()).await.map_err(|e| {
+                        AppError::DatabaseError(format!("Pipeline TTL failed: {}", e))
+                    })?;
+                }
+                let results: Vec<fred::types::Value> = pipeline.all().await.map_err(|e| {
+                    AppError::DatabaseError(format!("Pipeline execute failed: {}", e))
+                })?;
+
+                // Results alternate: [type0, ttl0, type1, ttl1, ...]
                 let mut keys = Vec::with_capacity(scanned_keys.len());
-                for key in scanned_keys {
+                for (i, key) in scanned_keys.iter().enumerate() {
                     let key_str = key.as_str_lossy().to_string();
-                    let key_type_str: String = c
-                        .r#type(key_str.as_str())
-                        .await
-                        .unwrap_or_else(|_| "unknown".to_string());
-                    let ttl: i64 = c.ttl(key_str.as_str()).await.unwrap_or(-1);
+                    let type_val = results.get(i * 2);
+                    let ttl_val = results.get(i * 2 + 1);
+
+                    let key_type_str = type_val
+                        .and_then(|v| v.as_str().map(|s| s.to_string()))
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let ttl = ttl_val
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(-1);
+
                     keys.push(KeyInfo {
                         key: key_str,
                         key_type: Self::string_to_redis_type(&key_type_str),
@@ -856,6 +886,220 @@ impl KeyValueOperable for RedisAdapter {
         let info_str = self.get_server_info_raw().await?;
         Ok(Self::parse_redis_info(&info_str, section))
     }
+
+    async fn scan_keys_with_previews(
+        &self,
+        pattern: &str,
+        cursor: u64,
+        count: u32,
+    ) -> Result<ScanResultWithPreviews, AppError> {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                let cursor_str = cursor.to_string();
+                let (new_cursor, scanned_keys): (String, Vec<fred::types::Key>) = c
+                    .scan_page(cursor_str, pattern, Some(count), None)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("SCAN failed: {}", e)))?;
+
+                if scanned_keys.is_empty() {
+                    let new_cursor_u64 = new_cursor.parse().unwrap_or(0);
+                    return Ok(ScanResultWithPreviews {
+                        cursor: new_cursor_u64,
+                        keys: vec![],
+                    });
+                }
+
+                // Phase 1: Pipeline TYPE + TTL for all keys
+                let pipeline = c.pipeline();
+                for key in &scanned_keys {
+                    let key_str = key.as_str_lossy();
+                    let _: () = pipeline.r#type(key_str.as_ref()).await.map_err(|e| {
+                        AppError::DatabaseError(format!("Pipeline TYPE failed: {}", e))
+                    })?;
+                    let _: () = pipeline.ttl(key_str.as_ref()).await.map_err(|e| {
+                        AppError::DatabaseError(format!("Pipeline TTL failed: {}", e))
+                    })?;
+                }
+                let meta_results: Vec<fred::types::Value> =
+                    pipeline.all().await.map_err(|e| {
+                        AppError::DatabaseError(format!("Pipeline execute failed: {}", e))
+                    })?;
+
+                // Parse metadata and group keys by type
+                let mut key_metas: Vec<(String, RedisType, i64)> =
+                    Vec::with_capacity(scanned_keys.len());
+                let mut string_indices = Vec::new();
+                let mut hash_indices = Vec::new();
+                let mut list_indices = Vec::new();
+                let mut set_indices = Vec::new();
+                let mut zset_indices = Vec::new();
+                let mut stream_indices = Vec::new();
+
+                for (i, key) in scanned_keys.iter().enumerate() {
+                    let key_str = key.as_str_lossy().to_string();
+                    let type_val = meta_results.get(i * 2);
+                    let ttl_val = meta_results.get(i * 2 + 1);
+
+                    let key_type_str = type_val
+                        .and_then(|v| v.as_str().map(|s| s.to_string()))
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let ttl = ttl_val.and_then(|v| v.as_i64()).unwrap_or(-1);
+                    let key_type = Self::string_to_redis_type(&key_type_str);
+
+                    match key_type {
+                        RedisType::String => string_indices.push(i),
+                        RedisType::Hash => hash_indices.push(i),
+                        RedisType::List => list_indices.push(i),
+                        RedisType::Set => set_indices.push(i),
+                        RedisType::ZSet => zset_indices.push(i),
+                        RedisType::Stream => stream_indices.push(i),
+                        RedisType::Unknown => {}
+                    }
+
+                    key_metas.push((key_str, key_type, ttl));
+                }
+
+                // Phase 2: Pipeline value previews grouped by type
+                let mut previews: Vec<String> = vec![String::new(); scanned_keys.len()];
+
+                // String keys: GET
+                if !string_indices.is_empty() {
+                    let pipeline = c.pipeline();
+                    for &idx in &string_indices {
+                        let _: () = pipeline.get(key_metas[idx].0.as_str()).await.map_err(|e| {
+                            AppError::DatabaseError(format!("Pipeline GET failed: {}", e))
+                        })?;
+                    }
+                    let results: Vec<fred::types::Value> =
+                        pipeline.all().await.map_err(|e| {
+                            AppError::DatabaseError(format!("Pipeline execute failed: {}", e))
+                        })?;
+                    for (j, &idx) in string_indices.iter().enumerate() {
+                        previews[idx] = Self::fred_value_to_preview(&results[j]);
+                    }
+                }
+
+                // Hash keys: HGETALL
+                if !hash_indices.is_empty() {
+                    let pipeline = c.pipeline();
+                    for &idx in &hash_indices {
+                        let _: () =
+                            pipeline.hgetall(key_metas[idx].0.as_str()).await.map_err(|e| {
+                                AppError::DatabaseError(format!("Pipeline HGETALL failed: {}", e))
+                            })?;
+                    }
+                    let results: Vec<fred::types::Value> =
+                        pipeline.all().await.map_err(|e| {
+                            AppError::DatabaseError(format!("Pipeline execute failed: {}", e))
+                        })?;
+                    for (j, &idx) in hash_indices.iter().enumerate() {
+                        previews[idx] = Self::fred_value_to_json_string(&results[j]);
+                    }
+                }
+
+                // List keys: LRANGE 0 99
+                if !list_indices.is_empty() {
+                    let pipeline = c.pipeline();
+                    for &idx in &list_indices {
+                        let _: () = pipeline
+                            .lrange(key_metas[idx].0.as_str(), 0, 99)
+                            .await
+                            .map_err(|e| {
+                                AppError::DatabaseError(format!("Pipeline LRANGE failed: {}", e))
+                            })?;
+                    }
+                    let results: Vec<fred::types::Value> =
+                        pipeline.all().await.map_err(|e| {
+                            AppError::DatabaseError(format!("Pipeline execute failed: {}", e))
+                        })?;
+                    for (j, &idx) in list_indices.iter().enumerate() {
+                        previews[idx] = Self::fred_value_to_json_string(&results[j]);
+                    }
+                }
+
+                // Set keys: SMEMBERS
+                if !set_indices.is_empty() {
+                    let pipeline = c.pipeline();
+                    for &idx in &set_indices {
+                        let _: () = pipeline
+                            .smembers(key_metas[idx].0.as_str())
+                            .await
+                            .map_err(|e| {
+                                AppError::DatabaseError(format!("Pipeline SMEMBERS failed: {}", e))
+                            })?;
+                    }
+                    let results: Vec<fred::types::Value> =
+                        pipeline.all().await.map_err(|e| {
+                            AppError::DatabaseError(format!("Pipeline execute failed: {}", e))
+                        })?;
+                    for (j, &idx) in set_indices.iter().enumerate() {
+                        previews[idx] = Self::fred_value_to_json_string(&results[j]);
+                    }
+                }
+
+                // ZSet keys: ZRANGE 0 -1 WITHSCORES
+                if !zset_indices.is_empty() {
+                    let pipeline = c.pipeline();
+                    for &idx in &zset_indices {
+                        let _: () = pipeline
+                            .zrange(key_metas[idx].0.as_str(), 0_i64, -1_i64, None, false, None, true)
+                            .await
+                            .map_err(|e| {
+                                AppError::DatabaseError(format!("Pipeline ZRANGE failed: {}", e))
+                            })?;
+                    }
+                    let results: Vec<fred::types::Value> =
+                        pipeline.all().await.map_err(|e| {
+                            AppError::DatabaseError(format!("Pipeline execute failed: {}", e))
+                        })?;
+                    for (j, &idx) in zset_indices.iter().enumerate() {
+                        previews[idx] = Self::fred_zset_value_to_json_string(&results[j]);
+                    }
+                }
+
+                // Stream keys: XRANGE - + COUNT 100
+                if !stream_indices.is_empty() {
+                    let pipeline = c.pipeline();
+                    for &idx in &stream_indices {
+                        let _: () = pipeline
+                            .xrange(key_metas[idx].0.as_str(), "-", "+", Some(100u64))
+                            .await
+                            .map_err(|e| {
+                                AppError::DatabaseError(format!("Pipeline XRANGE failed: {}", e))
+                            })?;
+                    }
+                    let results: Vec<fred::types::Value> =
+                        pipeline.all().await.map_err(|e| {
+                            AppError::DatabaseError(format!("Pipeline execute failed: {}", e))
+                        })?;
+                    for (j, &idx) in stream_indices.iter().enumerate() {
+                        previews[idx] = Self::fred_stream_value_to_json_string(&results[j]);
+                    }
+                }
+
+                // Build final result
+                let keys = key_metas
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, (key, key_type, ttl))| KeyInfoWithPreview {
+                        key,
+                        key_type,
+                        ttl,
+                        size_bytes: None,
+                        preview: std::mem::take(&mut previews[i]),
+                    })
+                    .collect();
+
+                let new_cursor_u64 = new_cursor.parse().unwrap_or(0);
+                Ok(ScanResultWithPreviews {
+                    cursor: new_cursor_u64,
+                    keys,
+                })
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
 }
 
 impl RedisAdapter {
@@ -879,6 +1123,156 @@ impl RedisAdapter {
                 RedisValue::Map(result)
             }
             fred::types::Value::Queued => RedisValue::String("QUEUED".to_string()),
+        }
+    }
+
+    /// Convert a fred Value to a preview string (for string-type keys)
+    fn fred_value_to_preview(value: &fred::types::Value) -> String {
+        match value {
+            fred::types::Value::Null => "(nil)".to_string(),
+            fred::types::Value::String(s) => s.to_string(),
+            fred::types::Value::Integer(i) => i.to_string(),
+            fred::types::Value::Double(f) => f.to_string(),
+            fred::types::Value::Boolean(b) => b.to_string(),
+            fred::types::Value::Bytes(b) => format!("(binary {} bytes)", b.len()),
+            fred::types::Value::Array(_) | fred::types::Value::Map(_) => {
+                Self::fred_value_to_json_string(value)
+            }
+            fred::types::Value::Queued => "QUEUED".to_string(),
+        }
+    }
+
+    /// Convert a fred Value to a JSON string representation
+    fn fred_value_to_json_string(value: &fred::types::Value) -> String {
+        match value {
+            fred::types::Value::Null => "null".to_string(),
+            fred::types::Value::String(s) => {
+                serde_json::to_string(&s.to_string()).unwrap_or_else(|_| s.to_string())
+            }
+            fred::types::Value::Integer(i) => i.to_string(),
+            fred::types::Value::Double(f) => f.to_string(),
+            fred::types::Value::Boolean(b) => b.to_string(),
+            fred::types::Value::Bytes(b) => {
+                format!("(binary {} bytes)", b.len())
+            }
+            fred::types::Value::Array(arr) => {
+                let items: Vec<String> = arr.iter().map(Self::fred_value_to_json_string).collect();
+                format!("[{}]", items.join(","))
+            }
+            fred::types::Value::Map(map) => {
+                let mut obj = serde_json::Map::new();
+                for (k, v) in map.iter() {
+                    let key = k.as_str_lossy().to_string();
+                    let val = Self::fred_value_to_serde_json(v);
+                    obj.insert(key, val);
+                }
+                serde_json::Value::Object(obj).to_string()
+            }
+            fred::types::Value::Queued => "\"QUEUED\"".to_string(),
+        }
+    }
+
+    /// Convert a fred Value to a serde_json::Value
+    fn fred_value_to_serde_json(value: &fred::types::Value) -> serde_json::Value {
+        match value {
+            fred::types::Value::Null => serde_json::Value::Null,
+            fred::types::Value::String(s) => {
+                serde_json::Value::String(s.to_string())
+            }
+            fred::types::Value::Integer(i) => {
+                serde_json::Value::Number(serde_json::Number::from(*i))
+            }
+            fred::types::Value::Double(f) => serde_json::Number::from_f64(*f)
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null),
+            fred::types::Value::Boolean(b) => serde_json::Value::Bool(*b),
+            fred::types::Value::Bytes(b) => {
+                serde_json::Value::String(format!("(binary {} bytes)", b.len()))
+            }
+            fred::types::Value::Array(arr) => {
+                serde_json::Value::Array(arr.iter().map(Self::fred_value_to_serde_json).collect())
+            }
+            fred::types::Value::Map(map) => {
+                let mut obj = serde_json::Map::new();
+                for (k, v) in map.iter() {
+                    obj.insert(
+                        k.as_str_lossy().to_string(),
+                        Self::fred_value_to_serde_json(v),
+                    );
+                }
+                serde_json::Value::Object(obj)
+            }
+            fred::types::Value::Queued => serde_json::Value::String("QUEUED".to_string()),
+        }
+    }
+
+    /// Convert zset pipeline result (ZRANGE WITHSCORES) to JSON string
+    /// The result is an array of alternating [member, score, member, score, ...]
+    fn fred_zset_value_to_json_string(value: &fred::types::Value) -> String {
+        match value {
+            fred::types::Value::Array(arr) => {
+                // ZRANGE WITHSCORES returns alternating member, score pairs
+                let mut members = Vec::new();
+                let mut i = 0;
+                while i + 1 < arr.len() {
+                    let member = match &arr[i] {
+                        fred::types::Value::String(s) => s.to_string(),
+                        other => Self::fred_value_to_json_string(other),
+                    };
+                    let score = match &arr[i + 1] {
+                        fred::types::Value::Double(f) => *f,
+                        fred::types::Value::Integer(n) => *n as f64,
+                        fred::types::Value::String(s) => {
+                            s.to_string().parse::<f64>().unwrap_or(0.0)
+                        }
+                        _ => 0.0,
+                    };
+                    members.push(serde_json::json!({"member": member, "score": score}));
+                    i += 2;
+                }
+                serde_json::Value::Array(members).to_string()
+            }
+            fred::types::Value::Map(map) => {
+                // Some Redis versions return map format for WITHSCORES
+                let mut members = Vec::new();
+                for (k, v) in map.iter() {
+                    let member = k.as_str_lossy().to_string();
+                    let score = match v {
+                        fred::types::Value::Double(f) => *f,
+                        fred::types::Value::Integer(n) => *n as f64,
+                        fred::types::Value::String(s) => {
+                            s.to_string().parse::<f64>().unwrap_or(0.0)
+                        }
+                        _ => 0.0,
+                    };
+                    members.push(serde_json::json!({"member": member, "score": score}));
+                }
+                serde_json::Value::Array(members).to_string()
+            }
+            _ => Self::fred_value_to_json_string(value),
+        }
+    }
+
+    /// Convert stream pipeline result (XRANGE) to JSON string
+    fn fred_stream_value_to_json_string(value: &fred::types::Value) -> String {
+        match value {
+            fred::types::Value::Array(entries) => {
+                let mut result = Vec::new();
+                for entry in entries {
+                    if let fred::types::Value::Array(parts) = entry {
+                        if parts.len() >= 2 {
+                            let id = match &parts[0] {
+                                fred::types::Value::String(s) => s.to_string(),
+                                other => Self::fred_value_to_json_string(other),
+                            };
+                            let fields = Self::fred_value_to_serde_json(&parts[1]);
+                            result.push(serde_json::json!({"id": id, "fields": fields}));
+                        }
+                    }
+                }
+                serde_json::Value::Array(result).to_string()
+            }
+            _ => Self::fred_value_to_json_string(value),
         }
     }
 }

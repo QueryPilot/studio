@@ -26,6 +26,19 @@ export interface KeyInfo {
   sizeBytes?: number;
 }
 
+export interface KeyInfoWithPreview {
+  key: string;
+  keyType: RedisType;
+  ttl: number;
+  sizeBytes?: number;
+  preview: string;
+}
+
+export interface ScanResultWithPreviews {
+  cursor: string;
+  keys: KeyInfoWithPreview[];
+}
+
 export interface ZSetMember {
   member: string;
   score: number;

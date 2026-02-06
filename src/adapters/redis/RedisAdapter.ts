@@ -11,6 +11,7 @@ import type {
   RedisValue,
   RedisType,
   ScanResult,
+  ScanResultWithPreviews,
   ZSetMember,
   StreamEntry,
 } from '../types/redis';
@@ -84,6 +85,22 @@ export class RedisAdapter implements BaseAdapter, RichKeyValueOperable {
       count: count ?? 10,
     });
     return result.type === 'scan' ? result.data : { cursor: '0', keys: [] };
+  }
+
+  async scanKeysWithPreviews(
+    pattern: string,
+    cursor?: string,
+    count?: number,
+  ): Promise<ScanResultWithPreviews> {
+    const result = await this.execute({
+      type: 'scanWithPreviews',
+      pattern,
+      cursor: cursor ? parseInt(cursor, 10) : 0,
+      count: count ?? 200,
+    });
+    return result.type === 'scanWithPreviews'
+      ? result.data
+      : { cursor: '0', keys: [] };
   }
 
   async getKeyType(key: string): Promise<RedisType> {
