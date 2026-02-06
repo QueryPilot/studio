@@ -120,6 +120,12 @@ pub trait KeyValueOperable: BaseCapability {
         &self,
         section: Option<&str>,
     ) -> Result<HashMap<String, String>, AppError>;
+    async fn scan_keys_with_previews(
+        &self,
+        pattern: &str,
+        cursor: u64,
+        count: u32,
+    ) -> Result<ScanResultWithPreviews, AppError>;
 }
 
 /// Rich key-value (Redis, Valkey, KeyDB) - extends basic KV
@@ -354,6 +360,23 @@ pub struct KeyInfo {
     pub key_type: RedisType,
     pub ttl: i64,
     pub size_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyInfoWithPreview {
+    pub key: String,
+    pub key_type: RedisType,
+    pub ttl: i64,
+    pub size_bytes: Option<u64>,
+    pub preview: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanResultWithPreviews {
+    pub cursor: u64,
+    pub keys: Vec<KeyInfoWithPreview>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

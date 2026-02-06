@@ -148,94 +148,22 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
           setTotalKeyCount(dbSize);
         }
 
-        // Scan keys with pattern using cursor
-        const result = await adapter.scanKeys(pattern, cursor, BROWSER_PAGE_SIZE);
+        // Scan keys with pattern and fetch value previews in a single IPC call
+        const result = await adapter.scanKeysWithPreviews(pattern, cursor, BROWSER_PAGE_SIZE);
 
-        if (!result.keys || result.keys.length === 0) {
+        if (result.keys.length === 0) {
           return { keys: [], nextCursor: result.cursor };
         }
 
-        logger.info('redis-browser', `Scanned ${result.keys.length} keys (cursor: ${cursor} → ${result.cursor}), fetching values...`);
+        logger.info('redis-browser', `Scanned ${result.keys.length} keys with previews (cursor: ${cursor} → ${result.cursor})`);
 
-        // Fetch values for each key with proper error handling
-        const keysWithValues = await Promise.all(
-          result.keys.map(async (keyInfo) => {
-            let valuePreview = '';
+        const keysWithValues = result.keys.map((keyInfo) => ({
+          key: keyInfo.key,
+          type: keyInfo.keyType || 'unknown',
+          ttl: keyInfo.ttl ?? -1,
+          value: keyInfo.preview,
+        }));
 
-            try {
-              const keyType = keyInfo.keyType || 'unknown';
-
-              switch (keyType) {
-                case 'string': {
-                  const val = await adapter.getKey(keyInfo.key);
-                  if (!val || val.type === 'nil') {
-                    valuePreview = '(nil)';
-                  } else if (val.type === 'string') {
-                    valuePreview = val.value;
-                  } else if (val.type === 'integer' || val.type === 'float') {
-                    valuePreview = String(val.value);
-                  } else if (val.type === 'boolean') {
-                    valuePreview = String(val.value);
-                  } else if (val.type === 'bytes') {
-                    valuePreview = `(binary ${val.value.length} bytes)`;
-                  } else if (val.type === 'array') {
-                    valuePreview = JSON.stringify(val.value);
-                  } else if (val.type === 'map') {
-                    valuePreview = JSON.stringify(val.value);
-                  } else {
-                    valuePreview = '(unknown type)';
-                  }
-                  break;
-                }
-                case 'hash': {
-                  const hash = await adapter.hashGetAll(keyInfo.key);
-                  valuePreview = JSON.stringify(hash);
-                  break;
-                }
-                case 'list': {
-                  const len = await adapter.listLen(keyInfo.key);
-                  if (len > 0) {
-                    const items = await adapter.listRange(keyInfo.key, 0, Math.min(len - 1, 99));
-                    valuePreview = JSON.stringify(items);
-                  } else {
-                    valuePreview = '[]';
-                  }
-                  break;
-                }
-                case 'set': {
-                  const members = await adapter.setMembers(keyInfo.key);
-                  valuePreview = JSON.stringify(members);
-                  break;
-                }
-                case 'zset': {
-                  const members = await adapter.zsetRange(keyInfo.key, 0, -1, true);
-                  valuePreview = JSON.stringify(members);
-                  break;
-                }
-                case 'stream': {
-                  const len = await adapter.streamLen(keyInfo.key);
-                  const entries = await adapter.streamRange(keyInfo.key, '-', '+', Math.min(len, 100));
-                  valuePreview = JSON.stringify(entries);
-                  break;
-                }
-                default:
-                  valuePreview = `(${keyType})`;
-              }
-            } catch (err) {
-              logger.error('redis-browser', `Failed to fetch value for ${keyInfo.key}:`, err);
-              valuePreview = '(error)';
-            }
-
-            return {
-              key: keyInfo.key,
-              type: keyInfo.keyType || 'unknown',
-              ttl: keyInfo.ttl ?? -1,
-              value: valuePreview,
-            };
-          })
-        );
-
-        logger.info('redis-browser', `Fetched values for ${keysWithValues.length} keys`);
         return { keys: keysWithValues, nextCursor: result.cursor };
       } finally {
         const endTime = performance.now();
