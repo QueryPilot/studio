@@ -58,17 +58,15 @@ export function FKEmbedSubmenu({
   const fkRef = metaWithFk?.fk_reference;
   if (!fkRef) return null;
 
-  const suggestedColumns = referencedTableColumns?.filter(
-    col => SUGGESTED_COLUMN_NAMES.some(name =>
+  // Promote selected columns and name-matched columns into the suggested section
+  const isSuggested = (col: { name: string }) =>
+    embeddedColumns.includes(col.name) ||
+    SUGGESTED_COLUMN_NAMES.some(name =>
       col.name.toLowerCase().includes(name.toLowerCase())
-    )
-  ) ?? [];
+    );
 
-  const otherColumns = referencedTableColumns?.filter(
-    col => !SUGGESTED_COLUMN_NAMES.some(name =>
-      col.name.toLowerCase().includes(name.toLowerCase())
-    )
-  ) ?? [];
+  const suggestedColumns = referencedTableColumns?.filter(isSuggested) ?? [];
+  const otherColumns = referencedTableColumns?.filter(col => !isSuggested(col)) ?? [];
 
   const handleToggleColumn = (refColumnName: string) => {
     const current = embeddedColumns;
@@ -80,7 +78,7 @@ export function FKEmbedSubmenu({
         setEmbeddedColumns(storageKey, columnName, updated);
       }
     } else {
-      setEmbeddedColumns(storageKey, columnName, [refColumnName]);
+      setEmbeddedColumns(storageKey, columnName, [...current, refColumnName]);
     }
   };
 
@@ -97,7 +95,7 @@ export function FKEmbedSubmenu({
         <span>Embed Reference Value</span>
       </ContextMenuSubTrigger>
       <ContextMenuSubContent className="min-w-56 w-auto max-w-80 !text-xs p-1.5">
-        {suggestedColumns.length > 0 && (
+        {suggestedColumns.length > 0 ? (
           <>
             <ContextMenuGroup>
               <ContextMenuLabel className="text-xs text-muted-foreground py-1 px-2">
@@ -118,32 +116,51 @@ export function FKEmbedSubmenu({
                 </ContextMenuCheckboxItem>
               ))}
             </ContextMenuGroup>
-            {otherColumns.length > 0 && <ContextMenuSeparator />}
+            {otherColumns.length > 0 && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger className="py-1.5 px-2">
+                    More columns...
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent className="max-h-60 overflow-y-auto min-w-56 w-auto max-w-80 !text-xs p-1.5">
+                    {otherColumns.map((col) => (
+                      <ContextMenuCheckboxItem
+                        key={col.name}
+                        checked={embeddedColumns.includes(col.name)}
+                        onCheckedChange={() => { handleToggleColumn(col.name); }}
+                        onSelect={(e) => { e.preventDefault(); }}
+                        className="py-1.5 flex justify-between w-full"
+                      >
+                        <span className="shrink-0">{col.name}</span>
+                        <span className="ml-auto text-muted-foreground/60 font-mono text-[10px] truncate max-w-[140px] text-right">
+                          {col.db_type}
+                        </span>
+                      </ContextMenuCheckboxItem>
+                    ))}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+              </>
+            )}
           </>
-        )}
-
-        {otherColumns.length > 0 && (
-          <ContextMenuSub>
-            <ContextMenuSubTrigger className="py-1.5 px-2">
-              More columns...
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent className="max-h-60 overflow-y-auto min-w-56 w-auto max-w-80 !text-xs p-1.5">
-              {otherColumns.map((col) => (
-                <ContextMenuCheckboxItem
-                  key={col.name}
-                  checked={embeddedColumns.includes(col.name)}
-                  onCheckedChange={() => { handleToggleColumn(col.name); }}
-                  onSelect={(e) => { e.preventDefault(); }}
-                  className="py-1.5 flex justify-between w-full"
-                >
-                  <span className="shrink-0">{col.name}</span>
-                  <span className="ml-auto text-muted-foreground/60 font-mono text-[10px] truncate max-w-[140px] text-right">
-                    {col.db_type}
-                  </span>
-                </ContextMenuCheckboxItem>
-              ))}
-            </ContextMenuSubContent>
-          </ContextMenuSub>
+        ) : (
+          /* No suggestions — show all columns directly in a flat scrollable list */
+          <div className="max-h-60 overflow-y-auto">
+            {otherColumns.map((col) => (
+              <ContextMenuCheckboxItem
+                key={col.name}
+                checked={embeddedColumns.includes(col.name)}
+                onCheckedChange={() => { handleToggleColumn(col.name); }}
+                onSelect={(e) => { e.preventDefault(); }}
+                className="py-1.5 flex justify-between w-full"
+              >
+                <span className="shrink-0">{col.name}</span>
+                <span className="ml-auto text-muted-foreground/60 font-mono text-[10px] truncate max-w-[140px] text-right">
+                  {col.db_type}
+                </span>
+              </ContextMenuCheckboxItem>
+            ))}
+          </div>
         )}
 
         {hasEmbedded && (

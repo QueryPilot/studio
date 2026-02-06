@@ -151,7 +151,7 @@ describe("acpStore", () => {
           acpArgs: [],
           installed: false,
           installUrl: "https://example.com/install",
-          packages: [{ name: "agent", description: "Agent CLI", managerType: "brew", installed: false }],
+          packages: [{ name: "agent", description: "Agent CLI", managerType: "brew", installed: false, installedVersion: null, latestVersion: null, updateAvailable: false }],
           models: [],
         },
         {

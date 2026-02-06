@@ -8,9 +8,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
-import type { AgentInfo, AcpSession, AcpMessage, ToolCall, ModelInfo } from "@/types/acp";
+import type { AgentInfo, AcpSession, AcpMessage, ToolCall, ModelInfo, NpmPackageManager } from "@/types/acp";
 import * as db from "@/lib/db/aiConversations";
 import { AcpService } from "@/services/acpService";
+import { toast } from "sonner";
 
 // Module-level variable to track warmup promise (avoids Zustand serialization issues)
 let currentWarmupPromise: Promise<string> | null = null;
@@ -87,9 +88,21 @@ interface AcpState {
   // Per-agent model preferences (agentId -> modelId)
   modelPreferences: Record<string, string>;
 
+  // Preferred package manager for installs/upgrades
+  preferredPackageManager: NpmPackageManager;
+
+  // Auto-upgrade: true = upgrade silently, false = show toast for confirmation
+  autoUpgradePackages: boolean;
+
+  // Skipped versions: packageName -> version (don't nag about these)
+  skippedPackageVersions: Record<string, string>;
+
   // Dynamic models fetched from agents (keyed by agentId)
   dynamicModels: Record<string, ModelInfo[]>;
   isLoadingModels: boolean;
+
+  // Package updates (agents with outdated packages)
+  agentsWithUpdates: AgentInfo[];
 
   // Active session
   activeSession: AcpSession | null;
@@ -122,6 +135,7 @@ interface AcpState {
 
   // Actions
   loadAgents: () => Promise<void>;
+  checkForUpdates: () => Promise<void>;
   loadRecentSessions: (connectionId?: string) => Promise<void>;
   selectAgent: (agentId: string) => void;
   fetchModelsForAgent: (agentId: string) => Promise<void>;
@@ -139,6 +153,10 @@ interface AcpState {
   updateToolCall: (toolCallId: string, status: ToolCall["status"]) => void;
   finalizeMessage: () => void;
   togglePanel: () => void;
+  setPreferredPackageManager: (pm: NpmPackageManager) => void;
+  setAutoUpgradePackages: (auto: boolean) => void;
+  skipPackageVersion: (packageName: string, version: string) => void;
+  upgradePackages: (agents: AgentInfo[]) => Promise<void>;
 }
 
 export const useAcpStore = create<AcpState>()(
@@ -150,8 +168,12 @@ export const useAcpStore = create<AcpState>()(
     selectedModel: null,
     isLoadingAgents: false,
     modelPreferences: {},
+    preferredPackageManager: "npm" as NpmPackageManager,
+    autoUpgradePackages: true,
+    skippedPackageVersions: {},
     dynamicModels: {},
     isLoadingModels: false,
+    agentsWithUpdates: [],
     activeSession: null,
     activeInstanceId: null,
     messages: [],
@@ -201,6 +223,68 @@ export const useAcpStore = create<AcpState>()(
         }
       } finally {
         set({ isLoadingAgents: false });
+      }
+
+      // Check for package updates in the background (non-blocking)
+      void get().checkForUpdates();
+    },
+
+    checkForUpdates: async () => {
+      try {
+        const agentsWithUpdates = await AcpService.checkPackageUpdates();
+        const { skippedPackageVersions, autoUpgradePackages } = get();
+
+        // Filter out packages whose latest version was skipped by the user
+        const filteredAgents = agentsWithUpdates
+          .map((agent) => ({
+            ...agent,
+            packages: agent.packages.filter((pkg) => {
+              if (!pkg.updateAvailable || !pkg.latestVersion) return false;
+              return skippedPackageVersions[pkg.name] !== pkg.latestVersion;
+            }),
+          }))
+          .filter((agent) => agent.packages.some((p) => p.updateAvailable));
+
+        set({ agentsWithUpdates: filteredAgents });
+
+        if (filteredAgents.length === 0) return;
+
+        if (autoUpgradePackages) {
+          // Auto mode: upgrade silently, show toast when done
+          await get().upgradePackages(filteredAgents);
+        } else {
+          // Manual mode: show toast for each agent with updates
+          for (const agent of filteredAgents) {
+            const outdated = agent.packages.filter((p) => p.updateAvailable);
+            const summary = outdated
+              .map((p) => `${p.name} ${p.installedVersion} → ${p.latestVersion}`)
+              .join(", ");
+
+            toast(`${agent.name} update available`, {
+              description: summary,
+              duration: 30000,
+              action: {
+                label: "Update",
+                onClick: () => {
+                  void get().upgradePackages([agent]);
+                },
+              },
+              cancel: {
+                label: "Skip",
+                onClick: () => {
+                  // Skip these versions so we don't nag again
+                  for (const pkg of outdated) {
+                    if (pkg.latestVersion) {
+                      get().skipPackageVersion(pkg.name, pkg.latestVersion);
+                    }
+                  }
+                },
+              },
+            });
+          }
+        }
+      } catch (error) {
+        console.warn("Failed to check for package updates:", error);
       }
     },
 
@@ -717,6 +801,71 @@ export const useAcpStore = create<AcpState>()(
     togglePanel: () => {
       set((state) => ({ isPanelOpen: !state.isPanelOpen }));
     },
+
+    setPreferredPackageManager: (pm: NpmPackageManager) => {
+      set({ preferredPackageManager: pm });
+    },
+
+    setAutoUpgradePackages: (auto: boolean) => {
+      set({ autoUpgradePackages: auto });
+    },
+
+    skipPackageVersion: (packageName: string, version: string) => {
+      set((state) => ({
+        skippedPackageVersions: {
+          ...state.skippedPackageVersions,
+          [packageName]: version,
+        },
+        // Also remove from agentsWithUpdates so the badge disappears
+        agentsWithUpdates: state.agentsWithUpdates
+          .map((a) => ({
+            ...a,
+            packages: a.packages.map((p) =>
+              p.name === packageName && p.latestVersion === version
+                ? { ...p, updateAvailable: false }
+                : p
+            ),
+          }))
+          .filter((a) => a.packages.some((p) => p.updateAvailable)),
+      }));
+    },
+
+    upgradePackages: async (agents: AgentInfo[]) => {
+      const outdatedPackages = agents.flatMap((agent) =>
+        agent.packages
+          .filter((p) => p.updateAvailable)
+          .map((p) => ({ pkg: p, agentId: agent.id }))
+      );
+
+      if (outdatedPackages.length === 0) return;
+
+      let successCount = 0;
+      const results: string[] = [];
+
+      for (const { pkg, agentId } of outdatedPackages) {
+        try {
+          const binaryName = agentId === "codex-acp" ? "codex" : "claude";
+          await AcpService.upgradePackage(pkg.name, pkg.managerType as "npm" | "brew", binaryName);
+          successCount++;
+          results.push(`${pkg.name} → v${pkg.latestVersion}`);
+        } catch (err) {
+          console.error(`Failed to upgrade ${pkg.name}:`, err);
+          results.push(`${pkg.name} failed`);
+        }
+      }
+
+      if (successCount > 0) {
+        toast.success(`Updated ${successCount} package${successCount > 1 ? "s" : ""}`, {
+          description: results.join(", "),
+        });
+        // Refresh agents to pick up new versions
+        void get().loadAgents();
+      } else {
+        toast.error("Package upgrade failed", {
+          description: results.join(", "),
+        });
+      }
+    },
   }),
     {
       name: STORAGE_KEY,
@@ -725,6 +874,9 @@ export const useAcpStore = create<AcpState>()(
         selectedAgentId: state.selectedAgentId,
         selectedModel: state.selectedModel,
         modelPreferences: state.modelPreferences,
+        preferredPackageManager: state.preferredPackageManager,
+        autoUpgradePackages: state.autoUpgradePackages,
+        skippedPackageVersions: state.skippedPackageVersions,
       }),
     },
   ),

@@ -27,7 +27,7 @@ pub async fn acp_list_agents() -> Result<Vec<AgentInfo>, String> {
 #[tauri::command]
 pub async fn acp_fetch_agent_models(agent_id: String) -> Result<Option<Vec<super::discovery::ModelInfo>>, String> {
     tracing::info!("Fetching models for agent: {}", agent_id);
-    let models = super::discovery::fetch_agent_models(&agent_id).await;
+    let models = super::discovery::fetch_agent_models(&agent_id);
     if let Some(ref m) = models {
         tracing::info!("Found {} models dynamically", m.len());
     } else {
@@ -475,5 +475,75 @@ pub async fn acp_install_package(
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         Err(format!("Installation failed: {}", stderr))
+    }
+}
+
+/// Check for package updates across all agents.
+/// Returns agents that have at least one package with an available update.
+#[tauri::command]
+pub async fn acp_check_package_updates() -> Result<Vec<super::discovery::AgentInfo>, String> {
+    tracing::info!("Checking for ACP package updates");
+    let agents_with_updates = super::discovery::check_package_updates();
+    tracing::info!(
+        "{} agent(s) have package updates available",
+        agents_with_updates.len()
+    );
+    Ok(agents_with_updates)
+}
+
+/// Upgrade a package to its latest version.
+/// Auto-detects the package manager from the binary path, or uses the provided one.
+#[tauri::command]
+pub async fn acp_upgrade_package(
+    package_name: String,
+    manager_type: String,
+    binary_name: String,
+    package_manager: Option<String>,
+) -> Result<String, String> {
+    use std::process::Command;
+
+    // Auto-detect package manager from binary path if not explicitly provided
+    let detected_pm = package_manager.unwrap_or_else(|| {
+        super::discovery::shell_which_public(&binary_name)
+            .map(|p| super::discovery::detect_package_manager(&p))
+            .unwrap_or_else(|| "npm".to_string())
+    });
+
+    tracing::info!(
+        "Upgrading {} via {} (detected pm: {})",
+        package_name,
+        manager_type,
+        detected_pm
+    );
+
+    let pkg_with_latest = format!("{}@latest", package_name);
+
+    let (cmd, args): (&str, Vec<&str>) = match manager_type.as_str() {
+        "npm" => {
+            let pm = detected_pm.as_str();
+            match pm {
+                "bun" => ("bun", vec!["install", "-g", &pkg_with_latest]),
+                "pnpm" => ("pnpm", vec!["install", "-g", &pkg_with_latest]),
+                "yarn" => ("yarn", vec!["global", "add", &pkg_with_latest]),
+                _ => ("npm", vec!["install", "-g", &pkg_with_latest]),
+            }
+        }
+        "brew" => ("brew", vec!["upgrade", &package_name]),
+        _ => return Err(format!("Unknown manager type: {}", manager_type)),
+    };
+
+    let output = Command::new(cmd)
+        .args(&args)
+        .output()
+        .map_err(|e| format!("Failed to run {} {}: {}", cmd, args.join(" "), e))?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        tracing::info!("Upgrade successful for {}", package_name);
+        Ok(stdout)
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        tracing::error!("Upgrade failed for {}: {}", package_name, stderr);
+        Err(format!("Upgrade failed: {}", stderr))
     }
 }

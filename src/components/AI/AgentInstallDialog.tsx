@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  IconArrowUp,
   IconDownload,
   IconCheck,
   IconExternalLink,
@@ -62,8 +63,8 @@ export function AgentInstallDialog({
   open,
   onOpenChange,
 }: AgentInstallDialogProps) {
-  const { loadAgents } = useAcpStore();
-  const [packageManager, setPackageManager] = useState<NpmPackageManager>("npm");
+  const { loadAgents, preferredPackageManager, setPreferredPackageManager } = useAcpStore();
+  const packageManager = preferredPackageManager;
   const [packageStates, setPackageStates] = useState<
     Record<string, PackageInstallState>
   >({});
@@ -78,7 +79,19 @@ export function AgentInstallDialog({
 
       try {
         const pm = pkg.managerType === "brew" ? "brew" : packageManager;
-        await AcpService.installPackage(pkg.name, pkg.managerType, pm);
+
+        if (pkg.updateAvailable) {
+          // Upgrade mode: use the upgrade endpoint
+          const binaryName = agent?.id === "codex-acp" ? "codex" : "claude";
+          await AcpService.upgradePackage(
+            pkg.name,
+            pkg.managerType,
+            binaryName,
+            pkg.managerType === "npm" ? pm as NpmPackageManager : undefined
+          );
+        } else {
+          await AcpService.installPackage(pkg.name, pkg.managerType, pm);
+        }
 
         setPackageStates((prev) => ({
           ...prev,
@@ -94,7 +107,7 @@ export function AgentInstallDialog({
         }));
       }
     },
-    [packageManager]
+    [packageManager, agent?.id]
   );
 
   const handleOpenDocs = useCallback(async () => {
@@ -131,18 +144,23 @@ export function AgentInstallDialog({
   const isClaudeCode = agent.id === "claude-code-acp";
   const isCodex = agent.id === "codex-acp";
   const hasNpmPackages = agent.packages.some((p) => p.managerType === "npm");
+  const isUpgradeMode = agent.installed && agent.packages.some((p) => p.updateAvailable);
   const allInstalled = agent.packages.every(
     (p) => p.installed || packageStates[p.name]?.status === "success"
+  );
+  const allUpToDate = !agent.packages.some(
+    (p) => p.updateAvailable && packageStates[p.name]?.status !== "success"
   );
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Install {agent.name}</DialogTitle>
+          <DialogTitle>{isUpgradeMode ? `Update ${agent.name}` : `Install ${agent.name}`}</DialogTitle>
           <DialogDescription>
-            {agent.name} is not installed on your system. Install the required
-            packages below.
+            {isUpgradeMode
+              ? `Updates are available for ${agent.name} packages.`
+              : `${agent.name} is not installed on your system. Install the required packages below.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -153,7 +171,7 @@ export function AgentInstallDialog({
               <Label className="text-xs font-medium">Package Manager</Label>
               <Select
                 value={packageManager}
-                onValueChange={(v) => { setPackageManager(v as NpmPackageManager); }}
+                onValueChange={(v) => { setPreferredPackageManager(v as NpmPackageManager); }}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue />
@@ -171,7 +189,7 @@ export function AgentInstallDialog({
 
           {/* Package List */}
           <div className="space-y-3">
-            <Label className="text-xs font-medium">Required Packages</Label>
+            <Label className="text-xs font-medium">{isUpgradeMode ? "Packages" : "Required Packages"}</Label>
             {agent.packages.map((pkg) => {
               const state = packageStates[pkg.name] || { status: "idle" };
               const installCmd =
@@ -180,13 +198,16 @@ export function AgentInstallDialog({
                   : `${packageManager} install -g ${pkg.name}`;
 
               const isInstalled = pkg.installed || state.status === "success";
+              const needsUpdate = pkg.updateAvailable && state.status !== "success";
+              const isDone = isInstalled && !needsUpdate;
 
               return (
                 <div
                   key={pkg.name}
                   className={cn(
                     "flex items-center gap-2 rounded-md border p-3",
-                    isInstalled && "border-green-500/50 bg-green-500/5",
+                    isDone && "border-green-500/50 bg-green-500/5",
+                    needsUpdate && "border-amber-500/50 bg-amber-500/5",
                     state.status === "error" && "border-destructive/50 bg-destructive/5"
                   )}
                 >
@@ -199,7 +220,12 @@ export function AgentInstallDialog({
                         ({pkg.description})
                       </span>
                     </div>
-                    {!isInstalled && (
+                    {needsUpdate && pkg.installedVersion && pkg.latestVersion && (
+                      <p className="text-[11px] text-amber-500 mt-0.5 font-mono">
+                        v{pkg.installedVersion} → v{pkg.latestVersion}
+                      </p>
+                    )}
+                    {!isInstalled && !needsUpdate && (
                       <code className="text-[10px] text-muted-foreground font-mono">
                         {installCmd}
                       </code>
@@ -211,29 +237,33 @@ export function AgentInstallDialog({
                     )}
                   </div>
                   <Button
-                    variant={isInstalled ? "ghost" : "outline"}
+                    variant={isDone ? "ghost" : "outline"}
                     size="sm"
                     onClick={() => void handleInstall(pkg)}
-                    disabled={isInstalled || state.status === "installing"}
+                    disabled={isDone || state.status === "installing"}
                     className="shrink-0"
                   >
                     {state.status === "installing" ? (
                       <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : isInstalled ? (
+                    ) : isDone ? (
                       <IconCheck className="h-3.5 w-3.5 text-green-500" />
                     ) : state.status === "error" ? (
                       <IconX className="h-3.5 w-3.5 text-destructive" />
+                    ) : needsUpdate ? (
+                      <IconArrowUp className="h-3.5 w-3.5 text-amber-500" />
                     ) : (
                       <IconDownload className="h-3.5 w-3.5" />
                     )}
                     <span className="ml-1.5">
                       {state.status === "installing"
-                        ? "Installing..."
-                        : isInstalled
-                          ? "Installed"
+                        ? needsUpdate ? "Updating..." : "Installing..."
+                        : isDone
+                          ? needsUpdate ? "Updated" : "Installed"
                           : state.status === "error"
                             ? "Retry"
-                            : "Install"}
+                            : needsUpdate
+                              ? "Update"
+                              : "Install"}
                     </span>
                   </Button>
                 </div>
@@ -295,12 +325,14 @@ export function AgentInstallDialog({
           </Button>
           <Button
             onClick={() => void handleRefresh()}
-            disabled={isRefreshing || !allInstalled}
+            disabled={isRefreshing || (isUpgradeMode ? !allUpToDate : !allInstalled)}
           >
             {isRefreshing && (
               <IconLoader2 className="h-3.5 w-3.5 mr-2 animate-spin" />
             )}
-            {allInstalled ? "Done" : "Install All First"}
+            {isUpgradeMode
+              ? allUpToDate ? "Done" : "Update All First"
+              : allInstalled ? "Done" : "Install All First"}
           </Button>
         </DialogFooter>
       </DialogContent>

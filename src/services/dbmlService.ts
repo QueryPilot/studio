@@ -62,6 +62,17 @@ const DEFAULT_OPTIONS: Required<
   excludeSystemTables: true,
 };
 
+/**
+ * Quote a DBML identifier if it contains characters that aren't
+ * alphanumeric or underscore (e.g. hyphens in database/schema names).
+ */
+function quoteIdent(name: string): string {
+  if (/[^a-zA-Z0-9_]/.test(name)) {
+    return `"${name}"`;
+  }
+  return name;
+}
+
 function shouldIncludeTable(
   table: TableStructure,
   options: DBMLConversionOptions,
@@ -100,7 +111,7 @@ function formatColumn(column: ColumnMeta): string {
     ? `"${column.db_type}"`
     : column.db_type;
 
-  return `  ${column.name} ${dbType}${formatColumnAttributes(
+  return `  ${quoteIdent(column.name)} ${dbType}${formatColumnAttributes(
     column,
   )}${commentSuffix}`;
 }
@@ -130,7 +141,7 @@ function formatIndexes(
       return true;
     })
     .map((idx) => {
-      const columns = idx.columns.join(", ");
+      const columns = idx.columns.map(quoteIdent).join(", ");
       const settings: string[] = [];
 
       // Add index name if available
@@ -159,7 +170,7 @@ function formatTable(
   options: DBMLConversionOptions,
 ): string {
   const lines: string[] = [];
-  lines.push(`Table ${table.schema}.${table.name} {`);
+  lines.push(`Table ${quoteIdent(table.schema)}.${quoteIdent(table.name)} {`);
 
   table.columns.forEach((column) => {
     lines.push(formatColumn(column));
@@ -174,7 +185,7 @@ function formatTable(
   if (table.primaryKeys.length > 0 || indexLines.length > 0) {
     lines.push("", "  indexes {");
     if (table.primaryKeys.length > 0) {
-      const pkCols = table.primaryKeys.join(", ");
+      const pkCols = table.primaryKeys.map(quoteIdent).join(", ");
       // Single column: no parentheses; Multi-column: wrap in parentheses
       const pkPart = table.primaryKeys.length === 1 ? pkCols : `(${pkCols})`;
       lines.push(`    ${pkPart} [pk]`);
@@ -227,11 +238,13 @@ class DBMLService {
     const relationships = this.extractRelationships(filteredTables);
     const relationshipBlocks = relationships.map((rel) => {
       const from = rel.fromSchema
-        ? `${rel.fromSchema}.${rel.fromTable}`
-        : rel.fromTable;
-      const to = rel.toSchema ? `${rel.toSchema}.${rel.toTable}` : rel.toTable;
-      const fromCols = rel.fromColumns.join(", ");
-      const toCols = rel.toColumns.join(", ");
+        ? `${quoteIdent(rel.fromSchema)}.${quoteIdent(rel.fromTable)}`
+        : quoteIdent(rel.fromTable);
+      const to = rel.toSchema
+        ? `${quoteIdent(rel.toSchema)}.${quoteIdent(rel.toTable)}`
+        : quoteIdent(rel.toTable);
+      const fromCols = rel.fromColumns.map(quoteIdent).join(", ");
+      const toCols = rel.toColumns.map(quoteIdent).join(", ");
       const actions: string[] = [];
 
       // Map database action names to DBML format
@@ -274,7 +287,7 @@ class DBMLService {
       if (updateAction) actions.push(`update: ${updateAction}`);
       const actionSection =
         actions.length > 0 ? ` [${actions.join(", ")}]` : "";
-      return `Ref ${rel.name} {
+      return `Ref ${quoteIdent(rel.name)} {
   ${from}.${fromCols} > ${to}.${toCols}${actionSection}
 }`;
     });

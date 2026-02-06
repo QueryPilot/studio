@@ -103,7 +103,6 @@ interface ForeignEdgeData {
   targetCardinality?: "1" | "n";
   highlighted?: boolean;
   isHovered?: boolean;
-  isDragging?: boolean;
   dimmed?: boolean;
   onHover?: (relationshipId: string) => void;
   onLeave?: () => void;
@@ -721,20 +720,6 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
   markerEnd,
 }) => {
   const edgeData = data as ForeignEdgeData | undefined;
-  const isDragging = Boolean(edgeData?.isDragging);
-
-  // PERFORMANCE: Use simple straight line during drag for maximum performance
-  if (isDragging) {
-    return (
-      <path
-        d={`M ${sourceX} ${sourceY} L ${targetX} ${targetY}`}
-        stroke="var(--muted-foreground)"
-        strokeWidth={1}
-        fill="none"
-        opacity={0.4}
-      />
-    );
-  }
 
   const relationshipType = `${edgeData?.sourceCardinality || "1"}-${edgeData?.targetCardinality || "1"}`;
   const highlighted = Boolean(selected || edgeData?.highlighted);
@@ -917,7 +902,7 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
         markerStart={sourceMarkerStyle ? `url(#${sourceMarkerId})` : undefined}
         markerEnd={targetMarkerStyle ? `url(#${targetMarkerId})` : markerEnd}
         pointerEvents="none"
-        className={highlighted && !edgeData?.isDragging ? "erd-edge-animated" : ""}
+        className={highlighted ? "erd-edge-animated" : ""}
         style={{
           ...style,
           ...lineStyle,
@@ -926,9 +911,8 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
         }}
       />
 
-      {/* Cardinality indicators only show when line is hovered or highlighted - skip during drag */}
-      {!edgeData?.isDragging &&
-        edgeData?.sourceCardinality &&
+      {/* Cardinality indicators only show when line is hovered or highlighted */}
+      {edgeData?.sourceCardinality &&
         (edgeData.isHovered || edgeData.highlighted) && (
           <EdgeLabelRenderer>
             <div
@@ -947,8 +931,7 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
             </div>
           </EdgeLabelRenderer>
         )}
-      {!edgeData?.isDragging &&
-        edgeData?.targetCardinality &&
+      {edgeData?.targetCardinality &&
         (edgeData.isHovered || edgeData.highlighted) && (
           <EdgeLabelRenderer>
             <div
@@ -968,13 +951,14 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
           </EdgeLabelRenderer>
         )}
 
-      {!edgeData?.isDragging && edgeData?.label && edgeData.isHovered && (
+      {edgeData?.label && edgeData.isHovered && (
         <EdgeLabelRenderer>
           <div
             style={{
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
               pointerEvents: "none",
+              zIndex: 1000,
             }}
             className="rounded bg-background px-2 py-0.5 text-xs font-medium text-foreground shadow-md border border-primary/50"
           >
@@ -1015,7 +999,6 @@ const areForeignKeyEdgesEqual = (
   if (prevData.relationshipId !== nextData.relationshipId) return false;
   if (prevData.highlighted !== nextData.highlighted) return false;
   if (prevData.isHovered !== nextData.isHovered) return false;
-  if (prevData.isDragging !== nextData.isDragging) return false;
   if (prevData.dimmed !== nextData.dimmed) return false;
 
   return true;
@@ -1793,21 +1776,9 @@ export const ERDVisualizer = React.forwardRef<
         clearTimeout(interactionTimeoutRef.current);
         interactionTimeoutRef.current = null;
       }
-      // Set interacting immediately for smooth edge simplification
+      // Set interacting immediately for CSS-based performance optimizations
       setIsInteracting(true);
-      // Set edges to dragging mode for simplified rendering
-      setEdges((eds) => {
-        const needsUpdate = eds.some(
-          (edge) => (edge.data as ForeignEdgeData).isDragging !== true,
-        );
-        if (!needsUpdate) return eds;
-        return eds.map((edge) => {
-          const currentData = edge.data as ForeignEdgeData;
-          if (currentData.isDragging === true) return edge;
-          return { ...edge, data: { ...currentData, isDragging: true } };
-        });
-      });
-    }, [setEdges]);
+    }, []);
 
     const handleMoveEnd = useCallback(
       (
@@ -1833,17 +1804,9 @@ export const ERDVisualizer = React.forwardRef<
         }
         interactionTimeoutRef.current = setTimeout(() => {
           setIsInteracting(false);
-          // Restore full edge rendering
-          setEdges((eds) =>
-            eds.map((edge) => {
-              const currentData = edge.data as ForeignEdgeData;
-              if (currentData.isDragging === false) return edge;
-              return { ...edge, data: { ...currentData, isDragging: false } };
-            }),
-          );
         }, 100);
       },
-      [onViewportChange, setEdges],
+      [onViewportChange],
     );
 
     // Memoized MiniMap node color callback to prevent re-creation on every render
@@ -1856,25 +1819,8 @@ export const ERDVisualizer = React.forwardRef<
     // PERFORMANCE: Uses selectedNodeIds from useStore selector instead of filtering nodes array
     // This prevents re-renders during drag when node positions change
     useEffect(() => {
-      // Skip edge updates during active drag for maximum performance
-      // Only update isDragging flag on edges, nothing else
+      // Skip edge highlight updates during active drag for better performance
       if (draggingNodeId) {
-        setEdges((eds) => {
-          // Check if any edge needs updating to avoid unnecessary state changes
-          const needsUpdate = eds.some(
-            (edge) => (edge.data as ForeignEdgeData).isDragging !== true,
-          );
-          if (!needsUpdate) return eds;
-
-          return eds.map((edge) => {
-            const currentData = edge.data as ForeignEdgeData;
-            if (currentData.isDragging === true) return edge;
-            return {
-              ...edge,
-              data: { ...currentData, isDragging: true },
-            };
-          });
-        });
         return;
       }
 
@@ -1920,7 +1866,6 @@ export const ERDVisualizer = React.forwardRef<
 
             const highlighted = isRelatedToSelected || isTemporarilyHighlighted;
             const isHovered = isEdgeHovered;
-            const isDragging = false; // Not dragging anymore
             const dimmed = hasActiveHighlight && !highlighted;
             const zIndex = highlighted ? 2 : 0;
 
@@ -1929,7 +1874,6 @@ export const ERDVisualizer = React.forwardRef<
             if (
               currentData.highlighted === highlighted &&
               currentData.isHovered === isHovered &&
-              currentData.isDragging === isDragging &&
               currentData.dimmed === dimmed &&
               edge.zIndex === zIndex
             ) {
@@ -1943,7 +1887,6 @@ export const ERDVisualizer = React.forwardRef<
                 ...currentData,
                 highlighted,
                 isHovered,
-                isDragging,
                 dimmed,
               },
             };

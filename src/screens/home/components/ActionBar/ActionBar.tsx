@@ -1,6 +1,5 @@
 import { ActionBarLogo } from "./ActionBarLogo";
 import { ActionBarActions } from "./ActionBarActions";
-import { SidebarSearch } from "./SidebarSearch";
 import { SidebarFavorites } from "./SidebarFavorites";
 import { EnvFilter } from "./EnvFilter";
 import { ActionBarFooter } from "./ActionBarFooter";
@@ -10,9 +9,6 @@ export function ActionBar() {
     <div className="h-full flex flex-col bg-sidebar border-sidebar-border">
       {/* Logo */}
       <ActionBarLogo />
-
-      {/* Search */}
-      <SidebarSearch />
 
       {/* Actions */}
       <ActionBarActions />
