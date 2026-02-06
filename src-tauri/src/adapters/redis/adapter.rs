@@ -5,8 +5,8 @@
 use async_trait::async_trait;
 use fred::clients::Client;
 use fred::interfaces::{
-    ClientLike, HashesInterface, KeysInterface, ListInterface, ServerInterface, SetsInterface,
-    SortedSetsInterface, StreamsInterface,
+    ClientLike, HashesInterface, KeysInterface, ListInterface, LuaInterface, ServerInterface,
+    SetsInterface, SortedSetsInterface, StreamsInterface,
 };
 use fred::prelude::{Builder, Config, Expiration, Server, ServerConfig};
 use fred::types::SetOptions as FredSetOptions;
@@ -896,206 +896,70 @@ impl KeyValueOperable for RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let cursor_str = cursor.to_string();
-                let (new_cursor, scanned_keys): (String, Vec<fred::types::Key>) = c
-                    .scan_page(cursor_str, pattern, Some(count), None)
+                // Lua script: SCAN + TYPE + TTL + value preview in a single round-trip.
+                // Returns: { cursor, { {key, type, ttl, preview}, ... } }
+                //
+                // For complex types, the preview is cjson-encoded on the server so we
+                // get a ready-to-use JSON string without extra parsing round-trips.
+                let script = r#"
+local cursor, keys = unpack(redis.call('SCAN', ARGV[1], 'MATCH', ARGV[2], 'COUNT', ARGV[3]))
+local results = {}
+for i, key in ipairs(keys) do
+    local t = redis.call('TYPE', key)['ok']
+    local ttl = redis.call('TTL', key)
+    local preview
+    if t == 'string' then
+        local v = redis.call('GET', key)
+        if v == false then preview = '(nil)' else preview = tostring(v) end
+    elseif t == 'hash' then
+        local h = redis.call('HGETALL', key)
+        local obj = {}
+        for j = 1, #h, 2 do obj[h[j]] = h[j+1] end
+        preview = cjson.encode(obj)
+    elseif t == 'list' then
+        preview = cjson.encode(redis.call('LRANGE', key, 0, 99))
+    elseif t == 'set' then
+        preview = cjson.encode(redis.call('SMEMBERS', key))
+    elseif t == 'zset' then
+        local raw = redis.call('ZRANGE', key, 0, -1, 'WITHSCORES')
+        local arr = {}
+        for j = 1, #raw, 2 do
+            arr[#arr+1] = {member = raw[j], score = tonumber(raw[j+1])}
+        end
+        preview = cjson.encode(arr)
+    elseif t == 'stream' then
+        local raw = redis.call('XRANGE', key, '-', '+', 'COUNT', 100)
+        local arr = {}
+        for j, entry in ipairs(raw) do
+            local fields = {}
+            for k = 1, #entry[2], 2 do fields[entry[2][k]] = entry[2][k+1] end
+            arr[j] = {id = entry[1], fields = fields}
+        end
+        preview = cjson.encode(arr)
+    else
+        preview = '(' .. t .. ')'
+    end
+    results[i] = {key, t, ttl, preview}
+end
+return {cursor, results}
+"#;
+
+                let result: fred::types::Value = c
+                    .eval(
+                        script,
+                        Vec::<String>::new(), // no KEYS - SCAN uses ARGV
+                        vec![
+                            cursor.to_string(),
+                            pattern.to_string(),
+                            count.to_string(),
+                        ],
+                    )
                     .await
-                    .map_err(|e| AppError::DatabaseError(format!("SCAN failed: {}", e)))?;
-
-                if scanned_keys.is_empty() {
-                    let new_cursor_u64 = new_cursor.parse().unwrap_or(0);
-                    return Ok(ScanResultWithPreviews {
-                        cursor: new_cursor_u64,
-                        keys: vec![],
-                    });
-                }
-
-                // Phase 1: Pipeline TYPE + TTL for all keys
-                let pipeline = c.pipeline();
-                for key in &scanned_keys {
-                    let key_str = key.as_str_lossy();
-                    let _: () = pipeline.r#type(key_str.as_ref()).await.map_err(|e| {
-                        AppError::DatabaseError(format!("Pipeline TYPE failed: {}", e))
-                    })?;
-                    let _: () = pipeline.ttl(key_str.as_ref()).await.map_err(|e| {
-                        AppError::DatabaseError(format!("Pipeline TTL failed: {}", e))
-                    })?;
-                }
-                let meta_results: Vec<fred::types::Value> =
-                    pipeline.all().await.map_err(|e| {
-                        AppError::DatabaseError(format!("Pipeline execute failed: {}", e))
+                    .map_err(|e| {
+                        AppError::DatabaseError(format!("EVAL scan_with_previews failed: {}", e))
                     })?;
 
-                // Parse metadata and group keys by type
-                let mut key_metas: Vec<(String, RedisType, i64)> =
-                    Vec::with_capacity(scanned_keys.len());
-                let mut string_indices = Vec::new();
-                let mut hash_indices = Vec::new();
-                let mut list_indices = Vec::new();
-                let mut set_indices = Vec::new();
-                let mut zset_indices = Vec::new();
-                let mut stream_indices = Vec::new();
-
-                for (i, key) in scanned_keys.iter().enumerate() {
-                    let key_str = key.as_str_lossy().to_string();
-                    let type_val = meta_results.get(i * 2);
-                    let ttl_val = meta_results.get(i * 2 + 1);
-
-                    let key_type_str = type_val
-                        .and_then(|v| v.as_str().map(|s| s.to_string()))
-                        .unwrap_or_else(|| "unknown".to_string());
-                    let ttl = ttl_val.and_then(|v| v.as_i64()).unwrap_or(-1);
-                    let key_type = Self::string_to_redis_type(&key_type_str);
-
-                    match key_type {
-                        RedisType::String => string_indices.push(i),
-                        RedisType::Hash => hash_indices.push(i),
-                        RedisType::List => list_indices.push(i),
-                        RedisType::Set => set_indices.push(i),
-                        RedisType::ZSet => zset_indices.push(i),
-                        RedisType::Stream => stream_indices.push(i),
-                        RedisType::Unknown => {}
-                    }
-
-                    key_metas.push((key_str, key_type, ttl));
-                }
-
-                // Phase 2: Pipeline value previews grouped by type
-                let mut previews: Vec<String> = vec![String::new(); scanned_keys.len()];
-
-                // String keys: GET
-                if !string_indices.is_empty() {
-                    let pipeline = c.pipeline();
-                    for &idx in &string_indices {
-                        let _: () = pipeline.get(key_metas[idx].0.as_str()).await.map_err(|e| {
-                            AppError::DatabaseError(format!("Pipeline GET failed: {}", e))
-                        })?;
-                    }
-                    let results: Vec<fred::types::Value> =
-                        pipeline.all().await.map_err(|e| {
-                            AppError::DatabaseError(format!("Pipeline execute failed: {}", e))
-                        })?;
-                    for (j, &idx) in string_indices.iter().enumerate() {
-                        previews[idx] = Self::fred_value_to_preview(&results[j]);
-                    }
-                }
-
-                // Hash keys: HGETALL
-                if !hash_indices.is_empty() {
-                    let pipeline = c.pipeline();
-                    for &idx in &hash_indices {
-                        let _: () =
-                            pipeline.hgetall(key_metas[idx].0.as_str()).await.map_err(|e| {
-                                AppError::DatabaseError(format!("Pipeline HGETALL failed: {}", e))
-                            })?;
-                    }
-                    let results: Vec<fred::types::Value> =
-                        pipeline.all().await.map_err(|e| {
-                            AppError::DatabaseError(format!("Pipeline execute failed: {}", e))
-                        })?;
-                    for (j, &idx) in hash_indices.iter().enumerate() {
-                        previews[idx] = Self::fred_value_to_json_string(&results[j]);
-                    }
-                }
-
-                // List keys: LRANGE 0 99
-                if !list_indices.is_empty() {
-                    let pipeline = c.pipeline();
-                    for &idx in &list_indices {
-                        let _: () = pipeline
-                            .lrange(key_metas[idx].0.as_str(), 0, 99)
-                            .await
-                            .map_err(|e| {
-                                AppError::DatabaseError(format!("Pipeline LRANGE failed: {}", e))
-                            })?;
-                    }
-                    let results: Vec<fred::types::Value> =
-                        pipeline.all().await.map_err(|e| {
-                            AppError::DatabaseError(format!("Pipeline execute failed: {}", e))
-                        })?;
-                    for (j, &idx) in list_indices.iter().enumerate() {
-                        previews[idx] = Self::fred_value_to_json_string(&results[j]);
-                    }
-                }
-
-                // Set keys: SMEMBERS
-                if !set_indices.is_empty() {
-                    let pipeline = c.pipeline();
-                    for &idx in &set_indices {
-                        let _: () = pipeline
-                            .smembers(key_metas[idx].0.as_str())
-                            .await
-                            .map_err(|e| {
-                                AppError::DatabaseError(format!("Pipeline SMEMBERS failed: {}", e))
-                            })?;
-                    }
-                    let results: Vec<fred::types::Value> =
-                        pipeline.all().await.map_err(|e| {
-                            AppError::DatabaseError(format!("Pipeline execute failed: {}", e))
-                        })?;
-                    for (j, &idx) in set_indices.iter().enumerate() {
-                        previews[idx] = Self::fred_value_to_json_string(&results[j]);
-                    }
-                }
-
-                // ZSet keys: ZRANGE 0 -1 WITHSCORES
-                if !zset_indices.is_empty() {
-                    let pipeline = c.pipeline();
-                    for &idx in &zset_indices {
-                        let _: () = pipeline
-                            .zrange(key_metas[idx].0.as_str(), 0_i64, -1_i64, None, false, None, true)
-                            .await
-                            .map_err(|e| {
-                                AppError::DatabaseError(format!("Pipeline ZRANGE failed: {}", e))
-                            })?;
-                    }
-                    let results: Vec<fred::types::Value> =
-                        pipeline.all().await.map_err(|e| {
-                            AppError::DatabaseError(format!("Pipeline execute failed: {}", e))
-                        })?;
-                    for (j, &idx) in zset_indices.iter().enumerate() {
-                        previews[idx] = Self::fred_zset_value_to_json_string(&results[j]);
-                    }
-                }
-
-                // Stream keys: XRANGE - + COUNT 100
-                if !stream_indices.is_empty() {
-                    let pipeline = c.pipeline();
-                    for &idx in &stream_indices {
-                        let _: () = pipeline
-                            .xrange(key_metas[idx].0.as_str(), "-", "+", Some(100u64))
-                            .await
-                            .map_err(|e| {
-                                AppError::DatabaseError(format!("Pipeline XRANGE failed: {}", e))
-                            })?;
-                    }
-                    let results: Vec<fred::types::Value> =
-                        pipeline.all().await.map_err(|e| {
-                            AppError::DatabaseError(format!("Pipeline execute failed: {}", e))
-                        })?;
-                    for (j, &idx) in stream_indices.iter().enumerate() {
-                        previews[idx] = Self::fred_stream_value_to_json_string(&results[j]);
-                    }
-                }
-
-                // Build final result
-                let keys = key_metas
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, (key, key_type, ttl))| KeyInfoWithPreview {
-                        key,
-                        key_type,
-                        ttl,
-                        size_bytes: None,
-                        preview: std::mem::take(&mut previews[i]),
-                    })
-                    .collect();
-
-                let new_cursor_u64 = new_cursor.parse().unwrap_or(0);
-                Ok(ScanResultWithPreviews {
-                    cursor: new_cursor_u64,
-                    keys,
-                })
+                Self::parse_lua_scan_result(result)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
         }
@@ -1103,6 +967,69 @@ impl KeyValueOperable for RedisAdapter {
 }
 
 impl RedisAdapter {
+    /// Parse the Lua script result: [cursor, [[key, type, ttl, preview], ...]]
+    fn parse_lua_scan_result(
+        value: fred::types::Value,
+    ) -> Result<ScanResultWithPreviews, AppError> {
+        let arr = match value {
+            fred::types::Value::Array(a) => a,
+            _ => {
+                return Err(AppError::DatabaseError(
+                    "Unexpected EVAL result format".to_string(),
+                ))
+            }
+        };
+
+        if arr.len() < 2 {
+            return Err(AppError::DatabaseError(
+                "EVAL result too short".to_string(),
+            ));
+        }
+
+        let cursor = arr[0].as_u64().unwrap_or(0);
+
+        let key_entries = match &arr[1] {
+            fred::types::Value::Array(entries) => entries,
+            _ => {
+                return Ok(ScanResultWithPreviews {
+                    cursor,
+                    keys: vec![],
+                })
+            }
+        };
+
+        let mut keys = Vec::with_capacity(key_entries.len());
+        for entry in key_entries {
+            if let fred::types::Value::Array(fields) = entry {
+                if fields.len() >= 4 {
+                    let key = fields[0]
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_default();
+                    let type_str = fields[1]
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let ttl = fields[2].as_i64().unwrap_or(-1);
+                    let preview = fields[3]
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_default();
+
+                    keys.push(KeyInfoWithPreview {
+                        key,
+                        key_type: Self::string_to_redis_type(&type_str),
+                        ttl,
+                        size_bytes: None,
+                        preview,
+                    });
+                }
+            }
+        }
+
+        Ok(ScanResultWithPreviews { cursor, keys })
+    }
+
     fn fred_value_to_redis_value(value: fred::types::Value) -> RedisValue {
         match value {
             fred::types::Value::Null => RedisValue::Nil,

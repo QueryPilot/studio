@@ -20,7 +20,8 @@ export function parseSearchFilters(query: string): {
   let text = query;
 
   // Match patterns like type:value or tag:value
-  const filterPattern = /\b(type|tag|db|env):(\S+)/gi;
+  // Only match when followed by whitespace — prevents matching while the user is still typing the value
+  const filterPattern = /\b(type|tag|db|env):(\S+)(?=\s)/gi;
   let match;
 
   while ((match = filterPattern.exec(query)) !== null) {
@@ -125,7 +126,8 @@ export function SidebarSearch() {
     );
 
     if (!exists) {
-      setSearchQuery((currentParsed.text + " " + newFilter).trim());
+      // Trailing space ensures the filter is recognized as complete by parseSearchFilters
+      setSearchQuery((currentParsed.text + " " + newFilter + " ").trimStart());
     }
     setShowSuggestions(false);
     inputRef.current?.focus();

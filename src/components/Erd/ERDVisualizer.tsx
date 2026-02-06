@@ -57,6 +57,7 @@ interface ERDVisualizerProps {
   initialViewport?: ViewportState;
   layoutDirection?: LayoutDirection;
   hasManualPositions?: boolean;
+  searchQuery?: string;
   onNodePositionsChange?: (positions: Record<string, NodePosition>) => void;
   onNodePositionChange?: (nodeId: string, position: NodePosition) => void;
   onViewportChange?: (viewport: ViewportState) => void;
@@ -181,6 +182,19 @@ const edgeStylesInjected = (() => {
         border-radius: 4px;
         background: var(--primary);
         color: var(--primary-foreground);
+      }
+      /* Search highlight styles */
+      .erd-search-dim {
+        opacity: 0.2;
+        transition: opacity 0.2s ease;
+      }
+      .erd-search-match {
+        opacity: 1;
+        transition: opacity 0.2s ease;
+      }
+      .erd-search-match .erd-table-card {
+        box-shadow: 0 0 0 2px var(--primary);
+        border-color: var(--primary);
       }
     `;
     document.head.appendChild(style);
@@ -1022,6 +1036,7 @@ export interface ERDVisualizerRef {
   zoomIn: () => void;
   zoomOut: () => void;
   fitView: () => void;
+  getNodes: () => Node[];
 }
 
 export const ERDVisualizer = React.forwardRef<
@@ -1036,6 +1051,7 @@ export const ERDVisualizer = React.forwardRef<
       initialViewport,
       layoutDirection = "LR",
       hasManualPositions = false,
+      searchQuery = "",
       onNodePositionsChange,
       onNodePositionChange,
       onViewportChange,
@@ -1622,6 +1638,9 @@ export const ERDVisualizer = React.forwardRef<
             void instance.fitView({ padding: FIT_VIEW_PADDING, duration: 400 });
           }
         },
+        getNodes: () => {
+          return flowInstanceRef.current?.getNodes() ?? [];
+        },
       }),
       [layoutWithDagre],
     );
@@ -1922,6 +1941,53 @@ export const ERDVisualizer = React.forwardRef<
         }
       };
     }, []);
+
+    // Search highlight: dim non-matching nodes via CSS and fit view to matches
+    useEffect(() => {
+      const instance = flowInstanceRef.current;
+      if (!instance) return;
+
+      const allNodeEls = document.querySelectorAll(".react-flow__node");
+
+      if (!searchQuery.trim()) {
+        // Clear all search dimming
+        allNodeEls.forEach((el) => {
+          el.classList.remove("erd-search-dim", "erd-search-match");
+        });
+        return;
+      }
+
+      const query = searchQuery.toLowerCase();
+      const matchingNodeIds: string[] = [];
+
+      for (const node of nodes) {
+        const tableName = (node.data?.table?.name ?? "").toLowerCase();
+        if (tableName.includes(query)) {
+          matchingNodeIds.push(node.id);
+        }
+      }
+
+      const matchSet = new Set(matchingNodeIds);
+      allNodeEls.forEach((el) => {
+        const nodeId = el.getAttribute("data-id");
+        if (nodeId && matchSet.has(nodeId)) {
+          el.classList.add("erd-search-match");
+          el.classList.remove("erd-search-dim");
+        } else {
+          el.classList.add("erd-search-dim");
+          el.classList.remove("erd-search-match");
+        }
+      });
+
+      // Fit view to matching nodes
+      if (matchingNodeIds.length > 0) {
+        void instance.fitView({
+          nodes: matchingNodeIds.map((id) => ({ id })),
+          padding: 0.3,
+          duration: 300,
+        });
+      }
+    }, [searchQuery, nodes]);
 
     // Determine if we're in a performance-critical interaction
     const isInPerformanceMode = Boolean(draggingNodeId) || isInteracting;
