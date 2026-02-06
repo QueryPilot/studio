@@ -22,7 +22,7 @@ import {
 import CodeMirror, { EditorView } from "@uiw/react-codemirror";
 import { sql, PostgreSQL } from "@codemirror/lang-sql";
 import { keymap } from "@codemirror/view";
-import { Prec } from "@codemirror/state";
+import { Prec, Compartment } from "@codemirror/state";
 import { history, historyKeymap } from "@codemirror/commands";
 import { getThemeExtensions } from "@/components/CodeEditor/themes";
 import { useTheme } from "@/components/theme-provider";
@@ -205,7 +205,7 @@ interface QuickFilterModeMenuProps {
   onFocusEditor: () => void;
 }
 
-function QuickFilterModeMenu({
+const QuickFilterModeMenu = memo(function QuickFilterModeMenu({
   mode,
   value,
   clientSideFiltering,
@@ -357,7 +357,7 @@ function QuickFilterModeMenu({
       </DropdownMenuSub>
     </DropdownMenuContent>
   );
-}
+});
 
 export const QuickFilter = memo(
   forwardRef<QuickFilterRef, QuickFilterProps>(function QuickFilter(
@@ -470,59 +470,15 @@ export const QuickFilter = memo(
 
     const config = modeConfig[mode];
 
-    // CodeMirror extensions for SQL highlighting
-    const sqlExtensions = useMemo(() => {
-      const actualTheme = resolvedTheme === "dark" ? "dark" : "light";
+    // Compartment for mode-specific extensions (SQL highlighting + linter)
+    // Using useState ensures the compartment persists across renders
+    const [modeCompartment] = useState(() => new Compartment());
 
-      // Get syntax highlighting styles only (we'll override backgrounds)
-      const themeExts = getThemeExtensions(actualTheme);
-
+    // SQL-specific extensions (highlighting + linter) - extracted for reuse
+    const sqlModeExtensions = useMemo(() => {
       return [
         sql({ dialect: PostgreSQL }),
-        history(),
-        keymap.of(historyKeymap),
-        ...themeExts,
-        // Override theme backgrounds - must come after theme extensions
-        EditorView.theme(
-          {
-            "&.cm-editor": {
-              fontSize: "12px",
-              backgroundColor: "transparent !important",
-            },
-            ".cm-scroller": {
-              overflow: "hidden",
-              fontFamily:
-                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-            },
-            ".cm-content": {
-              padding: "6px 0",
-              minHeight: "auto",
-              caretColor: actualTheme === "dark" ? "#D4A52B" : "#B8911F",
-            },
-            ".cm-line": {
-              padding: "0",
-            },
-            ".cm-gutters": {
-              display: "none !important",
-            },
-            ".cm-activeLineGutter": {
-              backgroundColor: "transparent !important",
-            },
-            ".cm-activeLine": {
-              backgroundColor: "transparent !important",
-            },
-            "&.cm-focused": {
-              outline: "none",
-            },
-            ".cm-placeholder": {
-              color: "hsl(var(--muted-foreground))",
-              fontStyle: "normal",
-            },
-          },
-          { dark: actualTheme === "dark" },
-        ),
-        EditorView.lineWrapping,
-        // SQL linter for WHERE clause validation (runs in Web Worker)
+        // SQL linter for WHERE clause validation
         linter(
           async (view: EditorView): Promise<Diagnostic[]> => {
             const content = view.state.doc.toString().trim();
@@ -572,18 +528,20 @@ export const QuickFilter = memo(
               return [];
             }
           },
-          { delay: 300 }, // Shorter delay since parsing is off-thread
+          { delay: 300 },
         ),
       ];
-    }, [resolvedTheme]);
+    }, []);
 
-    // Memoized non-SQL extensions for search/AI modes (avoids recreation on every render)
-    const basicExtensions = useMemo(() => {
+    // Base extensions shared by all modes (theme, history, styling)
+    const baseExtensions = useMemo(() => {
       const actualTheme = resolvedTheme === "dark" ? "dark" : "light";
+      const themeExts = getThemeExtensions(actualTheme);
+
       return [
         history(),
         keymap.of(historyKeymap),
-        ...getThemeExtensions(actualTheme),
+        ...themeExts,
         EditorView.theme(
           {
             "&.cm-editor": {
@@ -598,6 +556,7 @@ export const QuickFilter = memo(
             ".cm-content": {
               padding: "6px 0",
               minHeight: "auto",
+              caretColor: actualTheme === "dark" ? "#D4A52B" : "#B8911F",
             },
             ".cm-line": {
               padding: "0",
@@ -624,6 +583,17 @@ export const QuickFilter = memo(
         EditorView.lineWrapping,
       ];
     }, [resolvedTheme]);
+
+    // Reconfigure mode compartment when mode changes (avoids full extension replacement)
+    useEffect(() => {
+      const view = editorViewRef.current;
+      if (!view) return;
+
+      const newModeExtensions = mode === "where" ? sqlModeExtensions : [];
+      view.dispatch({
+        effects: modeCompartment.reconfigure(newModeExtensions),
+      });
+    }, [mode, modeCompartment, sqlModeExtensions]);
 
     // Debounce value and cursor position TOGETHER to avoid double effect runs
     // When both change, we only want one effect execution, not two
@@ -877,6 +847,8 @@ export const QuickFilter = memo(
                 }
               }
               if (s.mode === "where" && s.hasLintError) return true;
+              // Update lastSubmittedValue to prevent duplicate auto-submit
+              lastSubmittedValue.current = s.value;
               onSubmit();
               return true;
             },
@@ -885,6 +857,7 @@ export const QuickFilter = memo(
             // Block Shift+Enter from inserting newlines (this is a single-line filter)
             key: "Shift-Enter",
             run: () => {
+              lastSubmittedValue.current = stateRefs.current.value;
               onSubmit();
               return true;
             },
@@ -893,6 +866,7 @@ export const QuickFilter = memo(
             // Cmd/Ctrl+Enter also submits
             key: "Mod-Enter",
             run: () => {
+              lastSubmittedValue.current = stateRefs.current.value;
               onSubmit();
               return true;
             },
@@ -1015,13 +989,18 @@ export const QuickFilter = memo(
       );
     }, [insertSuggestion, onSubmit, onValueChange, onModeChange]);
 
-    // Stable combined extensions array - prevents CodeMirror re-initialization
+    // Stable combined extensions array - uses Compartment for mode-specific extensions
+    // This prevents CodeMirror re-initialization when switching between modes
+    // Mode changes are handled via compartment.reconfigure() in the useEffect above
+    // IMPORTANT: Do not include 'mode' in deps - compartment handles mode changes
     const combinedExtensions = useMemo(() => {
-      if (mode === "where") {
-        return [...sqlExtensions, keymapExtension];
-      }
-      return [...basicExtensions, keymapExtension];
-    }, [mode, sqlExtensions, basicExtensions, keymapExtension]);
+      // Start with empty compartment - will be reconfigured on mount via effect
+      return [
+        ...baseExtensions,
+        modeCompartment.of([]),
+        keymapExtension,
+      ];
+    }, [baseExtensions, modeCompartment, keymapExtension]);
 
     // Clear button handler (Phase 1.4)
     const handleClearClick = useCallback(() => {

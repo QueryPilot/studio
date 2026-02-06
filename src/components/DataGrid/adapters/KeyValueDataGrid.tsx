@@ -237,12 +237,13 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
     }
   }, [filterValue]);
 
-  // Clear filter when key changes
+  // Clear filter when key changes - use JSON.stringify to detect object changes properly
+  const currentKeyId = data.currentKey ? `${data.currentKey.key}:${data.currentKey.type}` : null;
   useEffect(() => {
     setKvFilter(undefined);
     setFilterValue('');
     setFilterError(null);
-  }, [data.currentKey?.key]);
+  }, [currentKeyId]);
 
   // Handle cell edit commit
   const handleCellEditCommit = useCallback(
@@ -367,7 +368,10 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
   const readOnly = isBrowserMode || data.currentKey?.type === 'stream';
 
   // Loading and error states
-  const isLoading = data.isLoading && data.rows.length === 0;
+  // Show loading skeleton only on initial load (no rows yet)
+  // When fetching more pages, the grid stays visible with existing data
+  const isInitialLoading = data.isLoading && data.rows.length === 0;
+  const isFetchingMore = data.isLoading && data.rows.length > 0;
   const errorMessage = data.error ? data.error.message : null;
 
   // Reconnection handler
@@ -389,12 +393,13 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
       rows={data.rows}
       columns={data.columns}
       getCellContent={data.getCellContent}
-      isLoading={isLoading}
+      isLoading={isInitialLoading}
+      isLoadingMore={isFetchingMore}
       error={errorMessage}
       hasMore={data.hasMore}
       onLoadMore={data.fetchNextPage}
-      estimatedTotal={data.rows.length}
-      isEstimatedCount={false}
+      estimatedTotal={isBrowserMode ? (data.totalKeyCount ?? data.rows.length) : data.rows.length}
+      isEstimatedCount={isBrowserMode}
       executionTime={data.executionTime}
       onCellEditCommit={isBrowserMode ? undefined : handleCellEditCommit}
       // Command factory for CRUD operations (add/delete rows in hash, list, set, zset)

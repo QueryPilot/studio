@@ -25,10 +25,13 @@ import {
   IconKey,
   IconSitemap,
   IconDatabaseExport,
+  IconCopy,
+  IconDatabase,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useQuery } from "@tanstack/react-query";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
+import { buildConnectionUri } from "@/utils/connectionParser";
 import { useSchemaData } from "@/hooks/useSchemaData";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { isMySQLCompatible, getParadigm } from "@/types/connection";
@@ -162,14 +165,34 @@ export const ConnectionSection = forwardRef<
     staleTime: 60_000,
   });
 
-  // Get keys summary for Redis
-  const { data: redisKeyCount = 0, isLoading: isLoadingKeys } = useQuery({
-    queryKey: ["redis-dbsize", connectionId],
+  // Get Redis databases info from keyspace
+  type RedisDatabaseInfo = { db: number; keys: number; expires: number };
+  const { data: redisDatabases = [], isLoading: isLoadingKeys } = useQuery({
+    queryKey: ["redis-databases", connectionId],
     queryFn: async () => {
-      const result = await invoke<number>("redis_dbsize", {
+      const infoStr = await invoke<string>("redis_info", {
         connId: connectionId,
       });
-      return result;
+      // Parse keyspace section: db0:keys=237,expires=0,avg_ttl=0
+      const databases: RedisDatabaseInfo[] = [];
+      const lines = infoStr.split('\n');
+      for (const line of lines) {
+        const match = line.match(/^db(\d+):keys=(\d+),expires=(\d+)/);
+        if (match) {
+          databases.push({
+            db: parseInt(match[1], 10),
+            keys: parseInt(match[2], 10),
+            expires: parseInt(match[3], 10),
+          });
+        }
+      }
+      // Sort by database number
+      databases.sort((a, b) => a.db - b.db);
+      // If no databases have keys, show db0 with 0 keys
+      if (databases.length === 0) {
+        databases.push({ db: 0, keys: 0, expires: 0 });
+      }
+      return databases;
     },
     enabled: isKeyValueDb && status === "connected",
     staleTime: 30_000,
@@ -266,6 +289,29 @@ export const ConnectionSection = forwardRef<
     }
     setExpandedNodes(newExpanded);
   };
+
+  // Toggle all sections - collapse all if any expanded, expand all if all collapsed
+  const toggleAllSections = useCallback(() => {
+    const allSections = isSqlDb
+      ? ["starred", "tables", "views", "functions"]
+      : isDocumentDb
+        ? ["collections"]
+        : []; // Redis has no collapsible sections
+
+    if (allSections.length === 0) return;
+
+    // Check if any section is currently expanded
+    const anyExpanded = allSections.some((s) => expandedNodes.has(s));
+
+    if (anyExpanded) {
+      // Collapse all
+      setExpandedNodes(new Set());
+      setExpandedPartitionedTables(new Set());
+    } else {
+      // Expand all
+      setExpandedNodes(new Set(allSections));
+    }
+  }, [expandedNodes, isSqlDb, isDocumentDb]);
 
   const togglePartitionedTable = (tableKey: string) => {
     setExpandedPartitionedTables((prev) => {
@@ -765,9 +811,10 @@ export const ConnectionSection = forwardRef<
       <ContextMenu>
         <ContextMenuTrigger
           className={cn(
-            "w-full flex items-center gap-2 p-2 hover:bg-muted/50 transition-colors text-left",
+            "w-full flex items-center gap-2 p-2 hover:bg-muted/50 transition-colors text-left cursor-pointer",
             "sticky top-0 z-10 bg-background",
           )}
+          onClick={toggleAllSections}
         >
           {/* Database icon */}
           <img
@@ -821,6 +868,16 @@ export const ConnectionSection = forwardRef<
           >
             <IconExternalLink className="h-4 w-4 mr-2" />
             Open in New Window
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              const uri = buildConnectionUri(profile, false);
+              void writeClipboardText(uri);
+              toast.success("Connection URI copied to clipboard");
+            }}
+          >
+            <IconCopy className="h-4 w-4 mr-2" />
+            Copy Connection URI
           </ContextMenuItem>
           {isSqlDb && (
             <>
@@ -1358,52 +1415,60 @@ export const ConnectionSection = forwardRef<
             </div>
           )}
 
-          {/* Object tree - Redis */}
+          {/* Object tree - Redis databases */}
           {isKeyValueDb && !showLoadingSkeleton && (
             <div className="pb-2">
               {isLoadingKeys ? (
-                <div className="pl-2 pr-1 py-2">
+                <div className="pl-2 pr-1 py-2 space-y-1">
                   <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-3/4" />
                 </div>
               ) : (
-                <SidebarItem
-                  icon={
-                    <IconKey className="h-3.5 w-4 min-w-4 text-primary shrink-0" />
-                  }
-                  name="Keys"
-                  rowCount={redisKeyCount}
-                  isActive={
+                redisDatabases.map((dbInfo) => {
+                  const dbTabId = `redis-key-${connectionId}-db${dbInfo.db}`;
+                  const isActive =
                     !!focusedPanelId &&
-                    panelContents.get(focusedPanelId)?.activeTabId ===
-                      `redis-key-${connectionId}`
-                  }
-                  onClick={() => {
-                    setFocusedConnection(connectionId);
-                    const {
-                      focusedPanelId,
-                      addTab,
-                      panelContents,
-                      focusPanel,
-                    } = useWorkbenchStore.getState();
-                    let targetPanelId = focusedPanelId;
-                    if (!targetPanelId && panelContents.size > 0) {
-                      const firstPanelId = Array.from(panelContents.keys())[0];
-                      if (firstPanelId) {
-                        targetPanelId = firstPanelId;
-                        focusPanel(firstPanelId);
+                    panelContents.get(focusedPanelId)?.activeTabId === dbTabId;
+
+                  return (
+                    <SidebarItem
+                      key={dbInfo.db}
+                      icon={
+                        <IconDatabase className="h-3.5 w-4 min-w-4 text-orange-500 shrink-0" />
                       }
-                    }
-                    if (targetPanelId) {
-                      const tabId = `redis-key-${connectionId}`;
-                      addTab(targetPanelId, tabId, {
-                        type: "redis-key",
-                        title: "Key Browser",
-                        connectionId,
-                        database,
-                      });
-                    }
-                  }}
-                />
+                      name={`db${dbInfo.db}`}
+                      rowCount={dbInfo.keys}
+                      isActive={isActive}
+                      onClick={() => {
+                        setFocusedConnection(connectionId);
+                        const {
+                          focusedPanelId,
+                          addTab,
+                          panelContents,
+                          focusPanel,
+                        } = useWorkbenchStore.getState();
+                        let targetPanelId = focusedPanelId;
+                        if (!targetPanelId && panelContents.size > 0) {
+                          const firstPanelId = Array.from(
+                            panelContents.keys()
+                          )[0];
+                          if (firstPanelId) {
+                            targetPanelId = firstPanelId;
+                            focusPanel(firstPanelId);
+                          }
+                        }
+                        if (targetPanelId) {
+                          addTab(targetPanelId, dbTabId, {
+                            type: "redis-key",
+                            title: `db${dbInfo.db}`,
+                            connectionId,
+                            database: dbInfo.db,
+                          });
+                        }
+                      }}
+                    />
+                  );
+                })
               )}
             </div>
           )}
