@@ -364,8 +364,13 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
     );
   }, [isBrowserMode, data.currentKey, data.pattern, data.setPattern, data.totalKeyCount, data.rows.length, data.isLoading, handleRefresh, filterValue, filterPlaceholder, filterError, kvFilter, handleFilterSubmit]);
 
-  // Determine read-only state (streams are read-only, browser mode is always read-only)
+  // Determine read-only state and reason
   const readOnly = isBrowserMode || data.currentKey?.type === 'stream';
+  const readOnlyReason = isBrowserMode
+    ? "Read-only: Key browser mode"
+    : data.currentKey?.type === 'stream'
+      ? "Read-only: Stream type"
+      : undefined;
 
   // Loading and error states
   // Show loading skeleton only on initial load (no rows yet)
@@ -417,7 +422,9 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
       enableColumnManagement={true} // ✅ ENABLE - Useful for hash/zset 2-column views
       enableClipboard={true} // ✅ ENABLE - Copy Redis data for external use
       enableFillOperations={!readOnly} // ✅ ENABLE - Bulk updates (disabled for streams/browser mode)
+      enableStagedChanges={!readOnly} // ✅ ENABLE - Show staged changes and allow commit
       readOnly={readOnly}
+      readOnlyReason={readOnlyReason}
       onRefetch={data.refetch}
       onReconnect={handleReconnect}
       focused={focused}

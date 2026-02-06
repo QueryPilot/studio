@@ -33,6 +33,15 @@ export function TextCellEditor<T extends TextCellEditorValue>({
   value,
   onFinishedEditing,
 }: TextCellEditorProps<T>) {
+  // Debug: Log what the editor receives
+  console.log('[TextCellEditor] Received cell:', {
+    kind: value.kind,
+    dataKind: value.data?.kind,
+    dataValue: value.data?.value,
+    hasDataValue: 'value' in (value.data || {}),
+    fullData: value.data,
+  });
+
   // Get navigation state for type-to-edit support
   const editTrigger = useNavigationStore((s) => s.editTrigger);
   const initialChar = useNavigationStore((s) => s.initialChar);
@@ -41,6 +50,13 @@ export function TextCellEditor<T extends TextCellEditorValue>({
   const isTypeReplace = editTrigger === "type-replace" && initialChar;
   const initialValue = isTypeReplace ? initialChar : value.data.value ?? "";
   const originalValue = value.data.value ?? "";
+
+  console.log('[TextCellEditor] Computed values:', {
+    isTypeReplace,
+    initialChar,
+    initialValue,
+    originalValue,
+  });
 
   const finishedRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -190,6 +206,12 @@ export function TextCellEditor<T extends TextCellEditorValue>({
   );
 
   useCommitOnUnmount(finishedRef, commitCurrentText);
+
+  // Debug: log what's being rendered
+  console.log('[TextCellEditor] Rendering textarea with:', {
+    defaultValue: initialValue,
+    valueLength: initialValue.length,
+  });
 
   const handleClear = useCallback(() => {
     if (nullable) {
