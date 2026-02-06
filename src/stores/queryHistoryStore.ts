@@ -29,11 +29,11 @@ interface QueryHistoryState {
   isLoading: boolean;
   activeTab: "history" | "saved";
   searchQuery: string;
-  filterProfileId: string | null;
+  filterProfileIds: string[] | null;
 
   // Actions - History
   loadHistory: (options?: {
-    profileId?: string;
+    profileIds?: string[];
     limit?: number;
   }) => Promise<void>;
   trackExecution: (params: {
@@ -51,7 +51,7 @@ interface QueryHistoryState {
   clearHistory: (profileId?: string) => Promise<void>;
 
   // Actions - Saved Queries
-  loadSavedQueries: (profileId?: string) => Promise<void>;
+  loadSavedQueries: (profileIds?: string[]) => Promise<void>;
   saveCurrentQuery: (params: {
     name: string;
     query: string;
@@ -68,7 +68,7 @@ interface QueryHistoryState {
   // UI Actions
   setActiveTab: (tab: "history" | "saved") => void;
   setSearchQuery: (query: string) => void;
-  setFilterProfileId: (profileId: string | null) => void;
+  setFilterProfileIds: (profileIds: string[] | null) => void;
 }
 
 export const useQueryHistoryStore = create<QueryHistoryState>()(
@@ -79,14 +79,15 @@ export const useQueryHistoryStore = create<QueryHistoryState>()(
     isLoading: false,
     activeTab: "history",
     searchQuery: "",
-    filterProfileId: null,
+    filterProfileIds: null,
 
     // Load history from IndexedDB
     loadHistory: async (options) => {
       set({ isLoading: true });
       try {
+        const profileIds = options?.profileIds ?? get().filterProfileIds ?? undefined;
         const history = await getHistory({
-          profileId: options?.profileId ?? get().filterProfileId ?? undefined,
+          profileIds,
           limit: options?.limit ?? 100,
         });
         set({ recentHistory: history });
@@ -103,6 +104,10 @@ export const useQueryHistoryStore = create<QueryHistoryState>()(
       });
 
       // Prepend to in-memory cache for instant UI update
+      // Only add if it matches the current workspace filter
+      const filterIds = get().filterProfileIds;
+      if (filterIds && !filterIds.includes(params.profileId)) return;
+
       const newEntry: QueryHistoryEntry = {
         id,
         ...params,
@@ -120,10 +125,11 @@ export const useQueryHistoryStore = create<QueryHistoryState>()(
     },
 
     // Saved queries
-    loadSavedQueries: async (profileId) => {
+    loadSavedQueries: async (profileIds) => {
       set({ isLoading: true });
       try {
-        const saved = await getSavedQueries({ profileId });
+        const ids = profileIds ?? get().filterProfileIds ?? undefined;
+        const saved = await getSavedQueries({ profileIds: ids });
         set({ savedQueries: saved });
       } finally {
         set({ isLoading: false });
@@ -138,7 +144,7 @@ export const useQueryHistoryStore = create<QueryHistoryState>()(
         updatedAt: Date.now(),
         starred: false,
       });
-      await get().loadSavedQueries(get().filterProfileId ?? undefined);
+      await get().loadSavedQueries(get().filterProfileIds ?? undefined);
       return id;
     },
 
@@ -168,10 +174,10 @@ export const useQueryHistoryStore = create<QueryHistoryState>()(
     // UI state
     setActiveTab: (tab) => { set({ activeTab: tab }); },
     setSearchQuery: (query) => { set({ searchQuery: query }); },
-    setFilterProfileId: (profileId) => {
-      set({ filterProfileId: profileId });
-      void get().loadHistory({ profileId: profileId ?? undefined });
-      void get().loadSavedQueries(profileId ?? undefined);
+    setFilterProfileIds: (profileIds) => {
+      set({ filterProfileIds: profileIds });
+      void get().loadHistory({ profileIds: profileIds ?? undefined });
+      void get().loadSavedQueries(profileIds ?? undefined);
     },
   }))
 );
