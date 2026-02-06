@@ -65,6 +65,7 @@ import {
   type GroupTag,
 } from "@/types/connection";
 import { vaultStorage } from "@/services/vaultStorage";
+import { windowManager } from "@/services/windowManager";
 
 const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
 const { open } = await import("@tauri-apps/plugin-dialog");
@@ -701,10 +702,11 @@ export function ConnectionForm() {
 
       await syncWorkspaceMemberships(profile.id);
 
-      // TODO: Implement actual connection
-      logger.info("Connect to", profile.id);
-
       closeForm();
+
+      await windowManager.openWorkspace(profile.id, profile.name, {
+        database: profile.database,
+      });
     } catch (error) {
       toast.error("Error", {
         description:
@@ -747,16 +749,13 @@ export function ConnectionForm() {
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={closeForm}
-          >
-            <IconArrowLeft className="h-4 w-4" />
-          </Button>
-
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 gap-2"
+          onClick={closeForm}
+        >
+          <IconArrowLeft className="h-4 w-4" />
           <span className="text-xs font-semibold">
             {isEditMode
               ? "Edit Connection"
@@ -764,7 +763,7 @@ export function ConnectionForm() {
                 ? "Import Connection"
                 : "New Connection"}
           </span>
-        </div>
+        </Button>
 
         <Select
           value={dbType}

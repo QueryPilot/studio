@@ -86,8 +86,23 @@ impl SimpleConverter {
                     return JsonValue::String(v.to_string());
                 }
 
-                // Fallback to null
-                JsonValue::Null
+                // Check if the value is actually NULL before falling back to a placeholder
+                // tiberius returns None for NULL, so if we got here the value exists but
+                // couldn't be converted via any of the above type attempts
+                // Try to detect NULL by attempting the most basic type
+                if row.try_get::<&str, _>(i).ok().flatten().is_none()
+                    && row.try_get::<&[u8], _>(i).ok().flatten().is_none()
+                {
+                    // Likely actually NULL
+                    return JsonValue::Null;
+                }
+
+                // Non-null value that couldn't be converted - return type placeholder
+                let col_type = row.columns().get(i).map(|c| {
+                    format!("{:?}", c.column_type())
+                }).unwrap_or_else(|| "unknown".to_string());
+                tracing::warn!("SimpleConverter: MSSQL column {} type {} could not be converted", i, col_type);
+                JsonValue::String(format!("<{}>", col_type.to_lowercase()))
             })
             .collect()
     }

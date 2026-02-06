@@ -27,9 +27,39 @@ pub struct IpcClient {
 }
 
 impl IpcClient {
-    /// Create a new IPC client and connect to the bridge socket
+    /// Create a new IPC client and connect to the bridge socket.
+    /// Retries up to 5 times with 500ms delay to handle the race condition
+    /// where the sidecar starts before the bridge socket is ready.
     pub async fn connect() -> Result<Self> {
-        Self::connect_to(default_socket_path()).await
+        Self::connect_with_retry(default_socket_path(), 5, std::time::Duration::from_millis(500)).await
+    }
+
+    /// Connect with retry logic
+    async fn connect_with_retry(socket_path: PathBuf, max_attempts: u32, delay: std::time::Duration) -> Result<Self> {
+        let mut last_error = None;
+
+        for attempt in 1..=max_attempts {
+            match Self::connect_to(socket_path.clone()).await {
+                Ok(client) => {
+                    if attempt > 1 {
+                        tracing::info!("Connected to bridge on attempt {}/{}", attempt, max_attempts);
+                    }
+                    return Ok(client);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Bridge connection attempt {}/{} failed: {}",
+                        attempt, max_attempts, e
+                    );
+                    last_error = Some(e);
+                    if attempt < max_attempts {
+                        tokio::time::sleep(delay).await;
+                    }
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Failed to connect after {} attempts", max_attempts)))
     }
 
     /// Connect to a specific socket path

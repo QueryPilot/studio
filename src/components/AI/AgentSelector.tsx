@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import {
+  IconArrowUp,
   IconCheck,
   IconDownload,
   IconLoader2,
@@ -77,13 +78,17 @@ function AgentLogo({ agentId, className }: { agentId: string; className?: string
 }
 
 export function AgentSelector() {
-  const { availableAgents, selectedAgentId, selectAgent, isLoadingAgents } =
+  const { availableAgents, selectedAgentId, selectAgent, isLoadingAgents, agentsWithUpdates } =
     useAcpStore();
 
   const [showInstallDialog, setShowInstallDialog] = useState(false);
   const [selectedForInstall, setSelectedForInstall] = useState<AgentInfo | null>(
     null
   );
+
+  // Check if an agent has package updates available
+  const hasUpdates = (agentId: string) =>
+    agentsWithUpdates.some((a) => a.id === agentId);
 
   // Group agents
   const { installedAgents, availableToInstall } = useMemo(() => {
@@ -137,6 +142,13 @@ export function AgentSelector() {
     selectAgent(agent.id);
   };
 
+  const handleShowUpdates = (agent: AgentInfo) => {
+    // Find the agent with update info from agentsWithUpdates
+    const agentWithUpdateInfo = agentsWithUpdates.find((a) => a.id === agent.id);
+    setSelectedForInstall(agentWithUpdateInfo ?? agent);
+    setShowInstallDialog(true);
+  };
+
   return (
     <>
       <DropdownMenu>
@@ -172,6 +184,18 @@ export function AgentSelector() {
                 >
                   <AgentLogo agentId={agent.id} className="h-4 w-4" />
                   <span className="flex-1 text-[12px]">{agent.name}</span>
+                  {hasUpdates(agent.id) && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleShowUpdates(agent);
+                      }}
+                      className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-amber-500 hover:bg-amber-500/10"
+                      title="Update available"
+                    >
+                      <IconArrowUp className="h-3 w-3" />
+                    </button>
+                  )}
                   {agent.id === selectedAgentId && (
                     <IconCheck className="h-3 w-3 text-primary" />
                   )}

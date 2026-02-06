@@ -885,7 +885,7 @@ export function WorkspaceTitleBar({
       )}
 
       {/* Left Section - Add padding for macOS traffic lights */}
-      <div className="flex items-center gap-2.5 pl-20">
+      <div className="flex items-center gap-2.5 pl-26">
         <Button
           variant="ghost"
           size="icon-sm"

@@ -25,7 +25,6 @@ import {
 } from "@tabler/icons-react";
 import { Kbd } from "@/components/ui/kbd";
 import { Button } from "@/components/ui/button";
-import { StatsHeader } from "./StatsHeader";
 import {
   Dialog,
   DialogContent,
@@ -569,12 +568,7 @@ export function ConnectionsSection() {
       onDragEnd={handleDragEnd}
     >
       <div>
-        <div className="sticky top-0 z-10 bg-background pb-4 -mx-6 px-6 pt-6 -mt-6">
-          {/* Stats Header */}
-          <div className="mb-4">
-            <StatsHeader />
-          </div>
-
+        <div className="sticky top-0 z-10 bg-background pb-2 -mx-6 px-6 pt-0">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
               <span className="inline-flex items-center gap-1">
