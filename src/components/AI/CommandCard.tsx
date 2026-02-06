@@ -381,47 +381,24 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
 
   // Handle command approval with proper error handling
   const handleApprove = useCallback(async () => {
-    console.log("[CommandCard] handleApprove START", {
-      hasMeta: !!meta,
-      commandId: command.id,
-      commandName: command.name,
-    });
-
     if (!meta) {
-      console.log("[CommandCard] Blocked: no meta");
       return; // Guard for unknown commands
     }
 
-    console.log("[CommandCard] handleApprove checking conditions", {
-      commandId: command.id,
-      commandName: command.name,
-      commandError: command.error,
-      validationError,
-      localState,
-    });
-
     if (command.error || validationError) {
-      console.log("[CommandCard] Blocked by error/validation", { error: command.error, validationError });
       return;
     }
     // Allow re-execution if failed, but not if already executing or completed
-    if (localState === "executing") {
-      console.log("[CommandCard] Blocked: already executing", { localState });
-      return;
-    }
-    if (localState === "completed") {
-      console.log("[CommandCard] Blocked: already completed", { localState });
+    if (localState === "executing" || localState === "completed") {
       return;
     }
 
-    console.log("[CommandCard] Executing command...");
     setLocalState("executing");
     setCommandState(command.id, "executing");
 
     try {
       // Use 30s timeout for all command executions
       const execResult = await executeCommandWithTimeout(command, 30_000);
-      console.log("[CommandCard] Execution result:", execResult);
       const formatted = formatResultForConversation(command, execResult);
 
       setResult(formatted);
@@ -433,13 +410,11 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
       }
 
       const finalState = execResult.success ? "completed" : "failed";
-      console.log("[CommandCard] Final state:", finalState);
       setLocalState(finalState);
       setCommandState(command.id, finalState);
       approveCommand(command.id);
       onResult?.(formatted);
     } catch (error) {
-      console.error("[CommandCard] Execution error:", error);
       // Handle unexpected errors (network issues, etc.)
       const errorMessage = error instanceof Error ? error.message : String(error);
       setResult(`**Error:** ${errorMessage}`);
@@ -466,20 +441,11 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
   // Handle auto-approval (separate effect)
   // Skip if batchResult exists - means batch execution already handled this command
   useEffect(() => {
-    console.log("[CommandCard] Auto-approve effect running", {
-      commandName: command.name,
-      hasMeta: !!meta,
-      autoApproveAttempted: autoApproveAttempted.current,
-      hasBatchResult: !!batchResult,
-      localState,
-    });
-
     if (!meta) return; // Skip for unknown commands
 
     // Auto-approve if eligible (only once per command)
     // Skip if batch execution already handled this command
     if (autoApproveAttempted.current || batchResult) {
-      console.log("[CommandCard] Auto-approve skipped (already attempted or has batch result)");
       return;
     }
 
@@ -488,14 +454,6 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
       !command.error &&
       !validationError &&
       localState === "pending";
-
-    console.log("[CommandCard] Can auto-approve?", {
-      canAutoApprove,
-      shouldAutoApprove: shouldAutoApprove(command.name),
-      hasError: !!command.error,
-      hasValidationError: !!validationError,
-      isPending: localState === "pending",
-    });
 
     if (canAutoApprove) {
       autoApproveAttempted.current = true;
@@ -696,7 +654,6 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
               className="h-6 px-2 text-xs"
               onClick={(e) => {
                 e.stopPropagation();
-                console.log("[CommandCard] Run button clicked for:", command.name);
                 void handleApprove();
               }}
             >

@@ -507,7 +507,6 @@ function executeTabUpdate(params: TabUpdateParams): CommandResult {
 }
 
 function executeTabCreate(params: TabCreateParams): CommandResult {
-  console.log("[executeTabCreate] Called with params:", params);
   const { connectionId, type, title, content } = params;
 
   // Validate connectionId is provided (required for tab creation)
@@ -517,10 +516,8 @@ function executeTabCreate(params: TabCreateParams): CommandResult {
 
   // Validate connectionId exists in the connection store
   const connections = useConnectionStore.getState().connections;
-  console.log("[executeTabCreate] Checking connection exists:", connectionId, "Available:", connections.map(c => c.profile.id));
   const connectionExists = connections.some((conn) => conn.profile.id === connectionId);
   if (!connectionExists) {
-    console.log("[executeTabCreate] Connection not found!");
     return { success: false, error: `Connection not found: ${connectionId}` };
   }
 
@@ -533,20 +530,17 @@ function executeTabCreate(params: TabCreateParams): CommandResult {
 
   // If no active connection or different connection, set it to the provided connectionId
   if (!activeConnectionId || activeConnectionId !== connectionId) {
-    console.log("[executeTabCreate] Setting active connection to:", connectionId);
     store.setActiveConnection(connectionId);
     activeConnectionId = connectionId;
   }
 
   // Ensure workspace is initialized (setActiveConnection should do this, but double-check)
   if (!store.workspaces.has(activeConnectionId)) {
-    console.log("[executeTabCreate] Initializing workspace for:", activeConnectionId);
     store.initWorkspace(activeConnectionId);
   }
 
   // Now get the panel ID from the (possibly newly initialized) workspace
   const panelId = store.getActivePanelId();
-  console.log("[executeTabCreate] Adding tab to panel:", panelId);
 
   if (!panelId) {
     return { success: false, error: "No panel found in workspace. This should not happen." };
@@ -558,7 +552,6 @@ function executeTabCreate(params: TabCreateParams): CommandResult {
     title: title ?? "New Query",
     payload: { sql: content ?? "" },
   });
-  console.log("[executeTabCreate] Tab created:", tabId);
 
   if (!tabId) {
     return { success: false, error: "Failed to create tab. addTab returned empty." };
@@ -673,26 +666,21 @@ function executeTabFocus(params: TabFocusParams): CommandResult {
  * The execution happens via the tableStreamingService for real-time results.
  */
 async function executeQueryRun(params: QueryRunParams): Promise<CommandResult> {
-  console.log("[executeQueryRun] Starting with params:", params);
   const { connectionId, query, title, database: _database, schema: _schema } = params;
 
   // Validate required parameters
   if (!connectionId) {
-    console.log("[executeQueryRun] Missing connectionId");
     return { success: false, error: "Missing required parameter: connectionId" };
   }
 
   if (!query) {
-    console.log("[executeQueryRun] Missing query");
     return { success: false, error: "Missing required parameter: query" };
   }
 
   // Validate connectionId exists
   const connections = useConnectionStore.getState().connections;
-  console.log("[executeQueryRun] Available connections:", connections.map(c => c.profile.id));
   const connectionExists = connections.some((conn) => conn.profile.id === connectionId);
   if (!connectionExists) {
-    console.log("[executeQueryRun] Connection not found:", connectionId);
     return { success: false, error: `Connection not found: ${connectionId}` };
   }
 
@@ -720,7 +708,6 @@ async function executeQueryRun(params: QueryRunParams): Promise<CommandResult> {
   const tabTitle = title ?? query.trim().slice(0, 30) + (query.trim().length > 30 ? "..." : "");
 
   // Create the tab with the query content
-  console.log("[executeQueryRun] Creating tab in panel:", panelId);
   const tabId = store.addTab(panelId, {
     type: "query",
     connectionId,
@@ -728,11 +715,13 @@ async function executeQueryRun(params: QueryRunParams): Promise<CommandResult> {
     payload: { sql: query },
   });
 
-  console.log("[executeQueryRun] Tab created:", tabId);
   if (!tabId) {
-    console.log("[executeQueryRun] Failed to create tab");
     return { success: false, error: "Failed to create tab for query execution." };
   }
+
+  // Focus the panel and tab to make sure they're visible
+  store.setActivePanel(panelId);
+  store.setActiveTab(panelId, tabId);
 
   // Now execute the query using tableStreamingService
   // Clean up the SQL - remove trailing semicolons
@@ -749,9 +738,8 @@ async function executeQueryRun(params: QueryRunParams): Promise<CommandResult> {
         // Progress callback - we don't need to do anything here
         // The QueryPanel component will pick up the state from tabStateStore
       },
-      (error) => {
-        // Error callback
-        console.error("[executeQueryRun] Query execution error:", error);
+      () => {
+        // Error callback - errors are handled by the streaming service
       }
     );
 

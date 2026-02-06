@@ -161,16 +161,13 @@ export function SidebarConnectionList({
     toast.info("Add connection - coming soon");
   }, []);
 
-  // Filter connections by search query (by name)
+  // When searching, show all connections and let ConnectionSection filter items within
+  // This allows finding tables/views/functions even if connection name doesn't match
   const filteredConnections = useMemo(() => {
-    if (!searchQuery) return connections;
-
-    const query = searchQuery.toLowerCase();
-    return connections.filter(
-      (conn) =>
-        conn.profile.name.toLowerCase().includes(query) ||
-        conn.database.toLowerCase().includes(query),
-    );
+    // When there's a search query, show all connections
+    // ConnectionSection will filter and show only matching tables/views/functions
+    if (searchQuery) return connections;
+    return connections;
   }, [connections, searchQuery]);
 
   if (!activeWorkspace) {
@@ -297,10 +294,10 @@ export function SidebarConnectionList({
         </div>
       ) : (
         <div className="flex-1 overflow-auto">
-          {filteredConnections.length === 0 ? (
+          {connections.length === 0 ? (
             <div className="p-4 text-center">
               <p className="text-xs text-muted-foreground">
-                No connections match "{searchQuery}"
+                No connections in workspace
               </p>
             </div>
           ) : (

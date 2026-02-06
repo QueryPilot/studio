@@ -392,7 +392,6 @@ export const useAcpStore = create<AcpState>()(
               },
             ];
             mcpAvailable = true;
-            console.log("[ACP] MCP sidecar found:", sidecarPath);
           } catch (err) {
             // MCP sidecar not available - agent will have limited functionality
             console.error("[ACP] ⚠️ MCP sidecar NOT available - database tools disabled:", err);

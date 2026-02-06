@@ -835,7 +835,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
         schema={schema}
         tableName={tableName}
         paradigm="sql"
-        dialect={dbType}
+        dialect={dialect}
         estimatedTotal={estimatedTotal}
         isEstimatedCount={isEstimatedCount}
         hasMore={hasNextPage}

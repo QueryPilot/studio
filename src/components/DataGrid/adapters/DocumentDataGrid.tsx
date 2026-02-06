@@ -261,6 +261,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       enableColumnManagement={true} // ✅ ENABLE - Hide/show/reorder columns for wide documents
       enableClipboard={true} // ✅ ENABLE - Copy/paste document data
       enableFillOperations={!readOnly} // ✅ ENABLE - Bulk cell updates (disabled in nested paths)
+      enableStagedChanges={!readOnly} // Disable staging toolbar for read-only nested views
       readOnly={readOnly}
       onRefetch={data.refetch}
       onReconnect={handleReconnect}

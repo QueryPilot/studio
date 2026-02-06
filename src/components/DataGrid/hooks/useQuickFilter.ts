@@ -267,6 +267,8 @@ export function useQuickFilter({
       columns.length > 0
     ) {
       lastAppliedFilterRef.current = initialFilter;
+      // Mark as restored to prevent persisted filter from overwriting
+      hasRestoredPersistedFilterRef.current = true;
       // Update the quick filter UI state
       setValue(`?${initialFilter}`);
       setMode("where");
