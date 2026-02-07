@@ -28,7 +28,7 @@ make seed-all       # Seed all databases
 |----------|------|------|------|----------|----------|
 | PostgreSQL | localhost | 15432 | devuser | devpass123 | todoapp |
 | MySQL | localhost | 13306 | devuser | devpass123 | todoapp |
-| SQLite | - | - | - | - | seeds/sqlite/todoapp.db |
+| SQLite | - | - | - | - | seeds/sqlite/query_pilot_test.db |
 | SQL Server | localhost | 11434 | sa | DevPass123 | todoapp |
 | Oracle | localhost | 11521 | todoapp | DevPass123 | XE (service) |
 

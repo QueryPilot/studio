@@ -3,6 +3,10 @@
 Query Pilot - SQLite Comprehensive Test Database Seeder
 Domains: ecommerce (realistic), edge_cases (data types), scale_test (performance)
 Features: Views, Triggers, FTS5, JSON functions, comprehensive data types
+
+SECURITY NOTE: All credentials in this file are for DEVELOPMENT ONLY.
+The password hash '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4.VTtYA' is a placeholder.
+NEVER use these values in production environments.
 """
 
 import sqlite3

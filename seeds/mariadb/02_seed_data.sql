@@ -1,3 +1,11 @@
+-- ============================================================================
+-- Query Pilot - MariaDB Seed Data
+-- ============================================================================
+-- SECURITY NOTE: All credentials in this file are for DEVELOPMENT ONLY.
+-- The password hash '$2b$12$LQv3c1yqBwEHbNkZxK7Uru' is a bcrypt placeholder.
+-- NEVER use these values in production environments.
+-- ============================================================================
+
 USE todoapp;
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
