@@ -350,7 +350,7 @@ function RedisValueDisplay({
           onClick={() => {
             setIsExpanded(!isExpanded);
           }}
-          className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors bg-muted/30 rounded px-2 py-1 sticky bottom-0"
         >
           {isExpanded ? (
             <>

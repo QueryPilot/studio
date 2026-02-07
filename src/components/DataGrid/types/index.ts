@@ -109,6 +109,8 @@ export interface GridEditCoordinates {
   row: GridRowModel | undefined;
 }
 
+export interface GridActivationEvent extends GridEditCoordinates {}
+
 export interface GridEditCommitEvent extends GridEditCoordinates {
   newValue: GridCell;
   previousValue: CellValue | null | undefined;

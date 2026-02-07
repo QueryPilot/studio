@@ -7,7 +7,9 @@ use std::sync::Arc;
 use std::time::Instant;
 use tauri::State;
 
-use crate::adapters::mongodb::BsonMsgPackEncoder;
+use crate::adapters::mongodb::{
+    BsonMsgPackEncoder, MongoCursorToken, MongoDocumentPage, MongoSchemaSample,
+};
 use crate::core::capabilities::FindOptions;
 use crate::core::ConnectionManager;
 use crate::types::*;
@@ -401,6 +403,14 @@ pub enum DocumentOperation {
         #[serde(flatten)]
         options: FindOptions,
     },
+    #[serde(alias = "find_page")]
+    FindPage {
+        collection: String,
+        filter: serde_json::Value,
+        #[serde(flatten)]
+        options: FindOptions,
+        cursor: Option<MongoCursorToken>,
+    },
     Insert {
         collection: String,
         document: serde_json::Value,
@@ -426,6 +436,13 @@ pub enum DocumentOperation {
         collection: String,
         filter: Option<serde_json::Value>,
     },
+    #[serde(alias = "sample_schema")]
+    SampleSchema {
+        collection: String,
+        filter: Option<serde_json::Value>,
+        sample_size: Option<u64>,
+        max_depth: Option<u8>,
+    },
     ListCollections,
     RunCommand {
         command: serde_json::Value,
@@ -437,11 +454,13 @@ pub enum DocumentOperation {
 #[serde(tag = "type", content = "data", rename_all = "camelCase")]
 pub enum DocumentResult {
     Documents(Vec<serde_json::Value>),
+    DocumentPage(MongoDocumentPage),
     Insert(crate::core::capabilities::InsertResult),
     InsertMany(crate::core::capabilities::InsertManyResult),
     Update(crate::core::capabilities::UpdateResult),
     Delete(crate::core::capabilities::DeleteResult),
     Count(u64),
+    SchemaSample(MongoSchemaSample),
     Collections(Vec<crate::core::capabilities::CollectionInfo>),
     Command(serde_json::Value),
 }
@@ -477,6 +496,18 @@ pub async fn document_execute(
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(DocumentResult::Documents(docs))
+        }
+        DocumentOperation::FindPage {
+            collection,
+            filter,
+            options,
+            cursor,
+        } => {
+            let page = adapter
+                .find_documents_page(&collection, filter, options, cursor)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(DocumentResult::DocumentPage(page))
         }
         DocumentOperation::Insert {
             collection,
@@ -532,6 +563,23 @@ pub async fn document_execute(
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(DocumentResult::Count(count))
+        }
+        DocumentOperation::SampleSchema {
+            collection,
+            filter,
+            sample_size,
+            max_depth,
+        } => {
+            let result = adapter
+                .sample_collection_schema(
+                    &collection,
+                    filter,
+                    sample_size.unwrap_or(500),
+                    max_depth.unwrap_or(3),
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(DocumentResult::SchemaSample(result))
         }
         DocumentOperation::ListCollections => {
             let collections = adapter

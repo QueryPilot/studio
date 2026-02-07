@@ -20,7 +20,7 @@ import {
   useCallback,
   memo,
 } from "react";
-import { EditorState, Compartment, Prec } from "@codemirror/state";
+import { EditorState, Prec } from "@codemirror/state";
 import {
   EditorView,
   keymap,
@@ -49,12 +49,13 @@ import {
   searchKeymap,
   highlightSelectionMatches,
   search,
-  openSearchPanel,
 } from "@codemirror/search";
 import {
   autocompletion,
   acceptCompletion,
   completionKeymap,
+  closeBrackets,
+  closeBracketsKeymap,
 } from "@codemirror/autocomplete";
 import {
   sql,
@@ -68,16 +69,9 @@ import { lintGutter } from "@codemirror/lint";
 
 import { useTheme } from "@/components/theme-provider";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
-import { eventBus } from "@/services/eventBus";
-import { debounce } from "@/utils/debounce";
-import { detectSqlDialect } from "@/utils/dialectDetector";
 import { logger } from "@/lib/logger";
 import { getThemeExtensions } from "./themes";
-import {
-  getQueryAtCursor,
-  getStatementAtPosition,
-  isDestructiveQuery,
-} from "./core";
+import { getQueryAtCursor } from "./core";
 import { sqlFoldService, preInitSqlWorkers } from "./extensions";
 
 // Extensions
@@ -93,17 +87,25 @@ import { createSemanticHighlightingExtension } from "./extensions/semantic-highl
 import { createStatementHighlightExtension } from "./extensions/statement-highlight";
 import { createRunGutterExtension } from "./extensions/run-gutter";
 import { createRefactoringExtension } from "./extensions/sql-refactoring";
+import { createScrollbarMarkersExtension } from "./extensions/scrollbar-markers";
+import { createFormatOnPasteExtension } from "./extensions/format-on-paste";
+import { createQueryHistoryNavExtension } from "./extensions/query-history-navigation";
 import { ExtractCteDialog } from "./components/ExtractCteDialog";
 import { EditorContextMenu } from "./components/EditorContextMenu";
 
 // SQL language support
 import { createDialectLinter } from "./languages/sql/linter-strategy";
-// NOTE: Legacy linters removed - unified-linter via Rust handles all validation
 import { createSqlHoverExtension } from "./languages/sql/hover";
 import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";
 import { createExpandStarExtension } from "./languages/sql/code-actions";
 import { createOptimizedCompletionSource } from "./languages/sql/optimized-completion";
 import { useRustSchemaSync } from "@/hooks/useRustSchemaSync";
+import { useQueryHistoryStore } from "@/stores/queryHistoryStore";
+
+// Extracted hooks
+import { useSqlEditorSetup } from "./hooks/useSqlEditorSetup";
+import { useSqlEditorEffects } from "./hooks/useSqlEditorEffects";
+import { useSqlEditorCompartments } from "./hooks/useSqlEditorCompartments";
 
 import type { SqlDialect } from "./types";
 
@@ -166,27 +168,6 @@ export interface SqlEditorProps {
   extraBottomPadding?: number;
 }
 
-// Compartment factory - creates instance-level compartments
-// This fixes the critical bug where module-level singletons caused state corruption
-// across multiple editor instances
-interface EditorCompartments {
-  theme: Compartment;
-  dialect: Compartment;
-  completion: Compartment;
-  readOnly: Compartment;
-  placeholder: Compartment;
-}
-
-function createCompartments(): EditorCompartments {
-  return {
-    theme: new Compartment(),
-    dialect: new Compartment(),
-    completion: new Compartment(),
-    readOnly: new Compartment(),
-    placeholder: new Compartment(),
-  };
-}
-
 // SQL dialect mapping
 const getDialectExtension = (dialect: SqlDialect) => {
   switch (dialect) {
@@ -214,7 +195,7 @@ const baseTheme = EditorView.theme({
     height: "100%",
   },
   ".cm-scroller": {
-    overflow: "auto", // Allow both horizontal and vertical scrolling
+    overflow: "auto",
     flex: "1",
     fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
     fontSize: "12px",
@@ -231,8 +212,6 @@ const baseTheme = EditorView.theme({
   ".cm-cursor": {
     borderLeftWidth: "2px",
   },
-  // Fix multi-line selection to have consistent left edge
-  // Reserve space for statement highlight border to prevent layout shift
   ".cm-line": {
     paddingLeft: "4px",
     borderLeft: "2px solid transparent",
@@ -265,13 +244,14 @@ export const SqlEditor = memo(
   ) {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
-    const onChangeRef = useRef(onChange);
-    const onExecuteRef = useRef(onExecute);
-    const onGotoDefinitionRef = useRef(onGotoDefinition);
-    const onDialectDetectedRef = useRef(onDialectDetected);
     const { resolvedTheme } = useTheme();
     const keyboardServices = useKeyboardServicesOptional();
     const contextServiceRef = useRef(keyboardServices?.contextService);
+
+    // Keep context service ref updated
+    useEffect(() => {
+      contextServiceRef.current = keyboardServices?.contextService;
+    }, [keyboardServices]);
 
     // Extract CTE dialog state
     const [extractCteDialogOpen, setExtractCteDialogOpen] = useState(false);
@@ -280,34 +260,39 @@ export const SqlEditor = memo(
       end: number;
     } | null>(null);
 
-    // Determine startup value: value prop takes precedence over initialValue
-    const startValue = value !== undefined ? value : initialValue;
+    // --- Setup hook: compartments, dialect detection, initial doc ---
+    const { initialDoc, compartments, effectiveDialect, detectDialect } =
+      useSqlEditorSetup({
+        initialValue,
+        value,
+        dbType,
+        dialectOverride,
+        onDialectDetected,
+      });
 
-    const [currentDialect, setCurrentDialect] = useState<SqlDialect>(() =>
-      detectSqlDialect(dbType, startValue),
-    );
-
-    // Instance-level compartments - fixes state corruption across multiple editors
-    // Using useState initializer ensures these are created exactly once per instance
-    const [compartments] = useState<EditorCompartments>(() =>
-      createCompartments(),
-    );
-
-    // FIX: Use uncontrolled mode to avoid "typing latch" bug
-    // We only pass the initial value to the editor, and handle subsequent updates manually
-    const [initialDoc] = useState(startValue);
+    // --- Effects hook: onChange, execute, event bus ---
+    const {
+      onGotoDefinitionRef,
+      debouncedOnChange,
+      executeQuery,
+      executeKeymap,
+    } = useSqlEditorEffects({
+      onChange,
+      onChangeDelay,
+      onExecute,
+      onGotoDefinition,
+      onDialectDetected,
+      detectDialect,
+      viewRef,
+    });
 
     // Manual synchronization for external value changes
     useEffect(() => {
       const view = viewRef.current;
       if (!view) return;
-
-      // If value is undefined, we don't sync (uncontrolled mode)
       if (value === undefined) return;
 
       const currentValue = view.state.doc.toString();
-
-      // Only dispatch update if value is effectively different
       if (value !== currentValue) {
         view.dispatch({
           changes: { from: 0, to: view.state.doc.length, insert: value },
@@ -315,190 +300,17 @@ export const SqlEditor = memo(
       }
     }, [value]);
 
-    // Keep refs updated
-    useEffect(() => {
-      onChangeRef.current = onChange;
-      onExecuteRef.current = onExecute;
-      onGotoDefinitionRef.current = onGotoDefinition;
-      onDialectDetectedRef.current = onDialectDetected;
-      contextServiceRef.current = keyboardServices?.contextService;
-    }, [
-      onChange,
-      onExecute,
-      onGotoDefinition,
-      onDialectDetected,
-      keyboardServices,
-    ]);
-
-    // Debounced dialect detection
-    const handleDialectDetection = useCallback(
-      (value: string) => {
-        const detected = detectSqlDialect(dbType, value);
-        setCurrentDialect(detected);
-        onDialectDetectedRef.current?.(detected);
-      },
-      [dbType],
-    );
-
-    const detectDialect = useMemo(
-      () => debounce(handleDialectDetection, 500),
-      [handleDialectDetection],
-    );
-
-    // Use override or detected dialect
-    const effectiveDialect = dialectOverride ?? currentDialect;
-
-    // Note: Worker lifecycle removed - Tauri-only app uses Rust backend directly
-
-    // Create debounced onChange
-    const handleChange = useCallback((value: string) => {
-      onChangeRef.current?.(value);
-    }, []);
-
-    const debouncedOnChange = useMemo(
-      () =>
-        onChangeDelay > 0
-          ? debounce(handleChange, onChangeDelay)
-          : handleChange,
-      [onChangeDelay, handleChange],
-    );
-
-    // Execute query with safety check
-    const executeQuery = useCallback((query: string) => {
-      if (!onExecuteRef.current) return;
-
-      const check = isDestructiveQuery(query);
-      if (check.isDestructive) {
-        const message =
-          check.type === "TRUNCATE"
-            ? `⚠️ Warning: You are running a TRUNCATE command. This will delete ALL rows in the table. Proceed?`
-            : check.type === "DROP"
-              ? `⚠️ Warning: You are running a DROP command. This will permanently delete the database object. Proceed?`
-              : `⚠️ Warning: You are running a ${check.type} without a WHERE clause. This will affect ALL rows. Proceed?`;
-
-        if (!window.confirm(message)) {
-          return;
-        }
-      }
-
-      onExecuteRef.current(query);
-    }, []);
-
-    // Create execute keymap
-    const executeKeymap = useMemo(() => {
-      if (!onExecute) return [];
-
-      return Prec.highest(
-        keymap.of([
-          {
-            key: "Mod-Enter",
-            run: (view) => {
-              const selection = view.state.selection.main;
-
-              // Priority 1: If text is selected, execute the selection
-              if (selection.from !== selection.to) {
-                const selectedText = view.state.doc
-                  .sliceString(selection.from, selection.to)
-                  .trim();
-                if (selectedText) {
-                  executeQuery(selectedText);
-                  return true;
-                }
-              }
-
-              // Priority 2: Execute statement at cursor (current active block)
-              const statementAtCursor = getStatementAtPosition(
-                view.state,
-                selection.head,
-              );
-              if (statementAtCursor) {
-                executeQuery(statementAtCursor.text);
-                return true;
-              }
-
-              // No statement found -> do nothing
-              return false;
-            },
-          },
-        ]),
-      );
-    }, [onExecute, executeQuery]);
-
-    // Handle external execute events (e.g. from Command Palette)
-    useEffect(() => {
-      const handleExecute = () => {
-        if (!viewRef.current || !onExecuteRef.current) return;
-        const view = viewRef.current;
-
-        // CRITICAL: Only execute if THIS editor has focus
-        // This prevents the event bus from triggering all editors when Cmd+Enter is pressed
-        if (!view.hasFocus) {
-          return;
-        }
-
-        // Use exact same logic as keymap
-        const selection = view.state.selection.main;
-
-        // Priority 1: If text is selected, execute the selection
-        if (selection.from !== selection.to) {
-          const selectedText = view.state.doc
-            .sliceString(selection.from, selection.to)
-            .trim();
-          if (selectedText) {
-            executeQuery(selectedText);
-            return;
-          }
-        }
-
-        // Priority 2: Execute statement at cursor (current active block)
-        const statementAtCursor = getStatementAtPosition(
-          view.state,
-          selection.head,
-        );
-        if (statementAtCursor) {
-          executeQuery(statementAtCursor.text);
-        }
-      };
-
-      const handleFind = () => {
-        if (viewRef.current && viewRef.current.hasFocus) {
-          openSearchPanel(viewRef.current);
-        }
-      };
-
-      const handleReplace = () => {
-        // CodeMirror search panel includes replace
-        if (viewRef.current && viewRef.current.hasFocus) {
-          openSearchPanel(viewRef.current);
-        }
-      };
-
-      eventBus.on("query-editor:execute", handleExecute);
-      eventBus.on("query-editor:execute-background", handleExecute);
-      eventBus.on("query-editor:find", handleFind);
-      eventBus.on("query-editor:replace", handleReplace);
-
-      return () => {
-        eventBus.off("query-editor:execute", handleExecute);
-        eventBus.off("query-editor:execute-background", handleExecute);
-        eventBus.off("query-editor:find", handleFind);
-        eventBus.off("query-editor:replace", handleReplace);
-      };
-    }, [executeQuery]);
-
     // Stable reference for schema
     const defaultSchema = schema || "public";
 
-    // Sync schema to Rust for completion/validation (Tauri environment only)
-    // TypeScript adapters are the source of truth, this pushes data to Rust's SchemaStore
+    // Sync schema to Rust for completion/validation
     useRustSchemaSync({
       connectionId,
       schema: defaultSchema,
       enabled: !!connectionId && !!database,
     });
 
-    // Create completion source - this is the only extension that needs connection context
-    // Memoize to prevent unnecessary recreations
+    // Create completion source
     const completionSource = useMemo(
       () =>
         createOptimizedCompletionSource({
@@ -510,7 +322,7 @@ export const SqlEditor = memo(
       [connectionId, database, defaultSchema, effectiveDialect],
     );
 
-    // SQL language instance - stable reference, only changes with dialect
+    // SQL language instance
     const sqlLang = useMemo(() => {
       const dialectLang = getDialectExtension(effectiveDialect);
       return sql({
@@ -519,37 +331,43 @@ export const SqlEditor = memo(
       });
     }, [effectiveDialect]);
 
-    // Dialect extensions - only recreates when dialect changes (expensive operations)
+    // Dialect extensions
     const dialectExtensions = useMemo(() => {
       const provider = createSqlMetadataProvider(connectionId, defaultSchema);
       return [
-        // SQL language support with built-in keyword completion
         sqlLang,
-        // Mount tooltips to document.body to prevent clipping by editor boundaries
         tooltips({ parent: document.body }),
-        // Autocompletion UI settings - debounced to reduce cursor lag
         autocompletion({
           activateOnTyping: true,
-          activateOnTypingDelay: 150, // Debounce to prevent lag on every keystroke
+          activateOnTypingDelay: 150,
           maxRenderedOptions: 50,
           defaultKeymap: true,
         }),
-        // Hover tooltips
         createSqlHoverExtension(provider, defaultSchema),
-        // NOTE: Legacy semantic/version linters removed.
-        // Validation is now handled by unified-linter which uses Rust sql_validate
-        // (with schema synced via useRustSchemaSync) and falls back to worker-based linting.
-        // Code actions
         createExpandStarExtension(provider, defaultSchema, effectiveDialect),
       ];
     }, [connectionId, defaultSchema, effectiveDialect, sqlLang]);
 
-    // Completion extension - lightweight, separate compartment for fast updates
+    // Completion extension
     const completionExtension = useMemo(() => {
       return sqlLang.language.data.of({
         autocomplete: completionSource,
       });
     }, [sqlLang, completionSource]);
+
+    // --- Compartments hook: dynamic reconfiguration ---
+    useSqlEditorCompartments({
+      viewRef,
+      compartments,
+      resolvedTheme,
+      effectiveDialect,
+      dialectExtensions,
+      completionExtension,
+      readOnly,
+      placeholder,
+      connectionId,
+      schema,
+    });
 
     // Imperative handle
     useImperativeHandle(
@@ -559,11 +377,11 @@ export const SqlEditor = memo(
         focus: () => viewRef.current?.focus(),
         blur: () => viewRef.current?.contentDOM.blur(),
         getValue: () => viewRef.current?.state.doc.toString() || "",
-        setValue: (value: string) => {
+        setValue: (val: string) => {
           const view = viewRef.current;
           if (!view) return;
           view.dispatch({
-            changes: { from: 0, to: view.state.doc.length, insert: value },
+            changes: { from: 0, to: view.state.doc.length, insert: val },
           });
         },
         getSelection: () => {
@@ -614,19 +432,17 @@ export const SqlEditor = memo(
     useEffect(() => {
       if (!containerRef.current || viewRef.current) return;
 
-      // Lazily pre-initialize SQL workers on first SQL editor mount
-      // This avoids blocking module load for JSON-only editors (MongoDB panel)
       preInitSqlWorkers();
 
       const actualTheme = resolvedTheme === "dark" ? "dark" : "light";
 
-      // Update listener for changes - uses RAF to avoid blocking cursor rendering
+      // Update listener - uses RAF to avoid blocking cursor rendering
       let pendingUpdate: EditorView | null = null;
       const flushUpdate = () => {
         if (pendingUpdate) {
-          const value = pendingUpdate.state.doc.toString();
-          debouncedOnChange(value);
-          detectDialect(value);
+          const val = pendingUpdate.state.doc.toString();
+          debouncedOnChange(val);
+          detectDialect(val);
           pendingUpdate = null;
         }
       };
@@ -641,13 +457,10 @@ export const SqlEditor = memo(
       const state = EditorState.create({
         doc: initialDoc,
         extensions: [
-          // Base setup
           baseTheme,
-
-          // History MUST come first to ensure undo/redo works properly
           history(),
-
           bracketMatching(),
+          closeBrackets(),
           highlightSelectionMatches({
             minSelectionLength: 3,
             maxMatches: 50,
@@ -658,32 +471,25 @@ export const SqlEditor = memo(
           codeFolding({ placeholderText: "..." }),
           sqlFoldService,
 
-          // Line numbers and gutter
           lineNumbers(),
           highlightActiveLineGutter(),
           highlightActiveLine(),
           foldGutter(),
-          // Note: lintGutter() is added by run-gutter extension if onExecute is provided
 
-          // Allow scrolling past the end of the document
           scrollPastEnd(),
-
-          // Search
           search({ top: true }),
 
-          // Keymaps - history keymap with high precedence to prevent override
           Prec.high(keymap.of(historyKeymap)),
           keymap.of([
+            ...closeBracketsKeymap,
             ...completionKeymap,
             ...defaultKeymap,
             ...searchKeymap,
             ...foldKeymap,
           ]),
 
-          // Execute keymap
           executeKeymap,
 
-          // Tab handling - accept completion first, then indent
           Prec.high(
             keymap.of([
               {
@@ -696,7 +502,6 @@ export const SqlEditor = memo(
             ]),
           ),
 
-          // Dynamic compartments (instance-level to prevent state corruption)
           compartments.theme.of(getThemeExtensions(actualTheme)),
           compartments.dialect.of([
             ...createDialectLinter(effectiveDialect, { connectionId, schema }),
@@ -708,16 +513,13 @@ export const SqlEditor = memo(
             placeholder ? placeholderExt(placeholder) : [],
           ),
 
-          // Smart features
           createMultiCursorExtension(),
           createSnippetExtension(),
           createParameterHintsExtension(),
           createFormatterExtension(effectiveDialect),
           createGotoDefinitionExtension(),
           createSemanticHighlightingExtension(),
-          // Context menu is now handled by EditorContextMenu wrapper component
 
-          // SQL Refactoring - F2 rename, Cmd+Shift+E extract CTE, Cmd+. code actions
           createRefactoringExtension({
             dialect: effectiveDialect,
             onExtractCte: (selectionSpan) => {
@@ -726,10 +528,17 @@ export const SqlEditor = memo(
             },
           }),
 
-          // Statement highlighting - highlight active statement block
           createStatementHighlightExtension(),
+          createScrollbarMarkersExtension(),
+          createFormatOnPasteExtension(effectiveDialect),
 
-          // Run gutter - play button for each statement (includes lintGutter)
+          createQueryHistoryNavExtension({
+            getHistory: () =>
+              useQueryHistoryStore
+                .getState()
+                .recentHistory.map((h) => h.query),
+          }),
+
           ...(onExecute
             ? [
                 createRunGutterExtension((query) => {
@@ -738,11 +547,10 @@ export const SqlEditor = memo(
               ]
             : [
                 lintGutter({
-                  hoverTime: 300, // Wait 300ms before showing tooltip (reduces accidental popups)
+                  hoverTime: 300,
                 }),
               ]),
 
-          // Update listener
           updateListener,
         ],
       });
@@ -766,22 +574,17 @@ export const SqlEditor = memo(
       };
       view.dom.addEventListener("goto-definition", handleGotoDefinition);
 
-      // Track focus state for keyboard shortcuts using CodeMirror's focus tracking
-      // This allows global shortcuts like Cmd+Z to know when editor has focus
-      // Using DOM events on view.dom (not contentDOM) for more reliable focus detection
+      // Track focus state for keyboard shortcuts
       const handleFocus = () => {
         contextServiceRef.current?.setValue("editorTextFocus", true);
         contextServiceRef.current?.setValue("queryEditor", true);
       };
       const handleBlur = (e: FocusEvent) => {
-        // Only clear focus if focus is leaving the editor entirely
-        // (not moving to another element within the editor like scrollbar)
         if (!view.dom.contains(e.relatedTarget as Node)) {
           contextServiceRef.current?.setValue("editorTextFocus", false);
           contextServiceRef.current?.setValue("queryEditor", false);
         }
       };
-      // Use focusin/focusout on the editor container for bubble-phase capture
       view.dom.addEventListener("focusin", handleFocus);
       view.dom.addEventListener("focusout", handleBlur);
 
@@ -795,7 +598,6 @@ export const SqlEditor = memo(
         view.dom.removeEventListener("goto-definition", handleGotoDefinition);
         view.dom.removeEventListener("focusin", handleFocus);
         view.dom.removeEventListener("focusout", handleBlur);
-        // Reset context on unmount
         contextServiceRef.current?.setValue("editorTextFocus", false);
         contextServiceRef.current?.setValue("queryEditor", false);
         view.destroy();
@@ -804,62 +606,13 @@ export const SqlEditor = memo(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); // Empty deps - only mount once
 
-    // Update theme
-    useEffect(() => {
-      const actualTheme = resolvedTheme === "dark" ? "dark" : "light";
-      viewRef.current?.dispatch({
-        effects: compartments.theme.reconfigure(
-          getThemeExtensions(actualTheme),
-        ),
-      });
-    }, [resolvedTheme, compartments]);
-
-    // Update dialect extensions (heavy - only when dialect changes)
-    useEffect(() => {
-      viewRef.current?.dispatch({
-        effects: compartments.dialect.reconfigure([
-          ...createDialectLinter(effectiveDialect, { connectionId, schema }),
-          ...dialectExtensions,
-        ]),
-      });
-    }, [
-      effectiveDialect,
-      dialectExtensions,
-      compartments,
-      connectionId,
-      schema,
-    ]);
-
-    // Update completion extension (lightweight - separate from dialect)
-    useEffect(() => {
-      viewRef.current?.dispatch({
-        effects: compartments.completion.reconfigure(completionExtension),
-      });
-    }, [completionExtension, compartments]);
-
-    // Update read-only
-    useEffect(() => {
-      viewRef.current?.dispatch({
-        effects: compartments.readOnly.reconfigure(
-          EditorView.editable.of(!readOnly),
-        ),
-      });
-    }, [readOnly, compartments]);
-
-    // Update placeholder
-    useEffect(() => {
-      viewRef.current?.dispatch({
-        effects: compartments.placeholder.reconfigure(
-          placeholder ? placeholderExt(placeholder) : [],
-        ),
-      });
-    }, [placeholder, compartments]);
-
     // Rename handler for context menu
     const handleRenameFromContextMenu = useCallback(() => {
       if (viewRef.current) {
-        import("./extensions/inline-rename").then(({ startRename }) => {
-          startRename(viewRef.current!, effectiveDialect);
+        void import("./extensions/inline-rename").then(({ startRename }) => {
+          if (viewRef.current) {
+            void startRename(viewRef.current, effectiveDialect);
+          }
         });
       }
     }, [effectiveDialect]);
@@ -873,11 +626,11 @@ export const SqlEditor = memo(
             setExtractCteSelection(span);
             setExtractCteDialogOpen(true);
           }}
-          onGotoTableStructure={(table, schema) => {
+          onGotoTableStructure={(table, tableSchema) => {
             onGotoDefinitionRef.current?.({
               type: "table",
               name: table,
-              schema,
+              schema: tableSchema,
             });
           }}
         >
@@ -894,17 +647,16 @@ export const SqlEditor = memo(
             if (!viewRef.current || !extractCteSelection) return;
 
             try {
-              const sql = viewRef.current.state.doc.toString();
+              const sqlText = viewRef.current.state.doc.toString();
               const { applyRefactor } =
                 await import("./languages/sql/refactor-service");
 
-              const result = await applyRefactor(sql, effectiveDialect, {
+              const result = await applyRefactor(sqlText, effectiveDialect, {
                 kind: "extract_cte",
                 selection_span: extractCteSelection,
                 cte_name: cteName,
               });
 
-              // Apply the new SQL
               viewRef.current.dispatch({
                 changes: {
                   from: 0,
@@ -913,7 +665,6 @@ export const SqlEditor = memo(
                 },
               });
 
-              // Set cursor to CTE definition
               viewRef.current.dispatch({
                 selection: { anchor: result.cursor_position },
               });
@@ -921,7 +672,7 @@ export const SqlEditor = memo(
               viewRef.current.focus();
             } catch (error) {
               logger.error("[ExtractCTE] Failed:", error);
-              throw error; // Let dialog handle error display
+              throw error;
             }
           }}
         />

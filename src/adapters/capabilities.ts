@@ -16,6 +16,9 @@ import type {
 } from './types/redis';
 import type { 
   FindOptions, 
+  FindPageOptions,
+  DocumentPageResult,
+  DocumentSchemaSample,
   InsertResult, 
   InsertManyResult, 
   UpdateResult, 
@@ -121,6 +124,21 @@ export interface DocumentQueryable extends BaseAdapter {
     filter: object,
     options?: FindOptions
   ): Promise<object[]>;
+
+  findDocumentsPage(
+    collection: string,
+    filter: object,
+    options?: FindPageOptions
+  ): Promise<DocumentPageResult<object>>;
+
+  sampleCollectionSchema(
+    collection: string,
+    filter?: object,
+    options?: {
+      sampleSize?: number;
+      maxDepth?: number;
+    }
+  ): Promise<DocumentSchemaSample>;
   
   insertDocument(collection: string, doc: object): Promise<InsertResult>;
   insertDocuments(collection: string, docs: object[]): Promise<InsertManyResult>;

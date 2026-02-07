@@ -8,6 +8,8 @@ mod backup;
 mod msgpack_converter;
 mod types;
 
-pub use adapter::MongoDbAdapter;
+pub use adapter::{
+    MongoCursorToken, MongoDbAdapter, MongoDocumentPage, MongoFieldStat, MongoSchemaSample,
+};
 pub use msgpack_converter::BsonMsgPackEncoder;
 pub use types::*;

@@ -1,18 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
+import { GridCellKind, type GridCell, type Item } from '@glideapps/glide-data-grid';
 import { BaseDataGrid } from '../BaseDataGrid';
 import type { GridRowModel, GridColumnV2 } from '@/components/DataGrid/types';
 
 const mockRows: GridRowModel[] = [
-  { col_0: { value: 'A', db_type: 'text', value_type: 'String', is_truncated: false } },
+  { col_0: { value: 'A', db_type: 'text', value_type: 'Text', is_truncated: false } },
 ];
 
 const mockColumns: GridColumnV2[] = [
   { id: 'col_0', field: 'col_0', title: 'Column 1', name: 'col1', width: 100, type: 'text' },
 ];
 
-const mockGetCellContent = () => ({
-  kind: 'text' as const,
+const mockGetCellContent = (_cell: Item): GridCell => ({
+  kind: GridCellKind.Text,
   data: '',
   displayData: '',
   allowOverlay: false,
@@ -27,6 +28,7 @@ describe('BaseDataGrid', () => {
         rows={mockRows}
         columns={mockColumns}
         getCellContent={mockGetCellContent}
+        connectionId="test-connection"
         paradigm="sql"
         enableFiltering={true}
         enableSorting={true}
@@ -43,6 +45,7 @@ describe('BaseDataGrid', () => {
         rows={mockRows}
         columns={mockColumns}
         getCellContent={mockGetCellContent}
+        connectionId="test-connection"
         paradigm="document"
         topToolbar={<div data-testid="breadcrumb-nav">Breadcrumb</div>}
       />

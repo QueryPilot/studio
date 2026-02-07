@@ -21,6 +21,7 @@ import type {
   GridRowModel,
   GridColumnV2,
   GridEditCommitEvent,
+  GridActivationEvent,
   GridRowInsertEvent,
   CrudCommandFactory,
 } from "../types";
@@ -106,7 +107,8 @@ export interface BaseDataGridProps {
   onCellEditCommit?: (event: GridEditCommitEvent) => void;
 
   // Optional capabilities (paradigm-specific)
-  onCellActivated?: (cell: Item) => boolean; // MongoDB drill-down
+  onCellActivated?: (event: GridActivationEvent) => boolean; // MongoDB drill-down
+  onCellClicked?: (event: GridActivationEvent) => void;
 
   // Slots for paradigm-specific UI
   topToolbar?: React.ReactNode; // BreadcrumbNav | KeyHeader | null
@@ -150,6 +152,9 @@ export interface BaseDataGridProps {
   enableClipboard?: boolean;
   enableFillOperations?: boolean;
   enableStagedChanges?: boolean;
+
+  /** Minimum rendered rows before infinite load trigger can fire */
+  loadMoreMinRows?: number;
   readOnly?: boolean;
 
   // Styling
@@ -240,7 +245,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     schema,
     tableName,
     paradigm,
-    dialect,
+    dialect: _dialect,
     enableFiltering = true,
     enableSorting = true,
     enableExport: _enableExport = true,
@@ -260,6 +265,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     isRefreshingMatView,
     // Paradigm-specific
     onCellActivated,
+    onCellClicked,
     topToolbar,
     bottomToolbar,
     toolbarActions,
@@ -280,6 +286,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     autoFocus = true,
     // External QuickFilter ref (for parent-managed QuickFilter)
     externalQuickFilterRef,
+    loadMoreMinRows = 100,
   } = props;
 
   // --- CRUD Store Integration ---
@@ -337,6 +344,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const quickFilterRef = useRef<QuickFilterRef>(null);
   const scrollDebounceRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const loadingMoreRef = useRef(false); // Ref-based guard to prevent duplicate fetches
+  // Use external ref if provided (parent-managed QuickFilter), otherwise use internal ref
+  const effectiveQuickFilterRef = externalQuickFilterRef ?? quickFilterRef;
 
   // Ref-based focus tracking for synchronous checks in keyboard handlers
   // This is critical for multi-panel scenarios where state updates are async
@@ -360,6 +369,18 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     // Delay to ensure the grid is fully mounted and visible
     // The ref might not be ready during initial mount, so check inside timeout
     const timeoutId = setTimeout(() => {
+      // Do not steal focus from QuickFilter or any active text editor/input.
+      if (effectiveQuickFilterRef.current?.isFocusWithin?.()) return;
+      const activeElement = document.activeElement as HTMLElement | null;
+      if (
+        activeElement &&
+        (activeElement.tagName === "INPUT" ||
+          activeElement.tagName === "TEXTAREA" ||
+          activeElement.isContentEditable)
+      ) {
+        return;
+      }
+
       if (gridRef.current) {
         gridRef.current.focus();
         // Also update our focus tracking state
@@ -370,7 +391,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [focused, autoFocus]);
+  }, [focused, autoFocus, effectiveQuickFilterRef]);
 
   // --- State ---
   const [isGridFocused, setIsGridFocused] = useState(false);
@@ -526,9 +547,6 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
   // --- Keyboard Shortcuts for Quick Filter ---
   // Only respond if THIS grid instance is focused (critical for multi-panel)
-  // Use external ref if provided (parent-managed QuickFilter), otherwise use internal ref
-  const effectiveQuickFilterRef = externalQuickFilterRef ?? quickFilterRef;
-
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Check if THIS grid is focused using refs for synchronous, accurate state
@@ -907,7 +925,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       // Trigger loading when within 20 rows of the end (or immediately if fewer rows)
       const threshold = Math.max(0, rowsRef.current.length - 20);
       const nearEnd = region.y + region.height >= threshold;
-      const hasFirstPage = rowsRef.current.length >= 100; // DEFAULT_PAGE_SIZE equivalent
+      const hasFirstPage = rowsRef.current.length >= loadMoreMinRows;
 
       // Use both state and ref guards to prevent duplicate fetches
       if (
@@ -925,7 +943,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         });
       }
     },
-    [props.hasMore, props.isLoadingMore, props.onLoadMore],
+    [props.hasMore, props.isLoadingMore, props.onLoadMore, loadMoreMinRows],
   );
 
   // Cleanup scroll debounce on unmount
@@ -2426,6 +2444,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
               gridSelection={gridSelection}
               onSelectionChange={handleGridSelectionChange}
               onCellActivated={onCellActivated}
+              onCellClicked={onCellClicked}
               onCellEditStart={handleCellEditStart}
               onCellEditCancel={handleCellEditCancel}
               onCellEditCommit={

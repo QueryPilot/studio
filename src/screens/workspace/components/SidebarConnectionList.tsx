@@ -135,26 +135,41 @@ export function SidebarConnectionList({
 
   // Track connection section DOM elements for scrolling
   const connectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // When focused connection changes, auto-expand it and scroll to it
   useEffect(() => {
+    if (scrollTimeoutRef.current !== null) {
+      clearTimeout(scrollTimeoutRef.current);
+      scrollTimeoutRef.current = null;
+    }
+
     if (
       focusedConnectionId &&
       focusedConnectionId !== prevFocusedIdRef.current
     ) {
       setExpandedConnections((prev) => {
+        if (prev.has(focusedConnectionId)) return prev;
         const next = new Set(prev);
         next.add(focusedConnectionId);
         return next;
       });
 
       // Scroll to the connection section after a short delay (to allow expand animation)
-      setTimeout(() => {
+      scrollTimeoutRef.current = setTimeout(() => {
         const element = connectionRefs.current.get(focusedConnectionId);
         element?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        scrollTimeoutRef.current = null;
       }, 100);
     }
     prevFocusedIdRef.current = focusedConnectionId;
+
+    return () => {
+      if (scrollTimeoutRef.current !== null) {
+        clearTimeout(scrollTimeoutRef.current);
+        scrollTimeoutRef.current = null;
+      }
+    };
   }, [focusedConnectionId]);
 
   const toggleConnection = useCallback((connectionId: string) => {

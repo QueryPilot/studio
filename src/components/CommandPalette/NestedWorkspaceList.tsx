@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import Fuse, { type IFuseOptions } from "fuse.js";
+import { matchSorter, rankings } from "match-sorter";
 
 import {
   CommandEmpty,
@@ -15,13 +15,6 @@ interface WorkspaceItem {
   name: string;
   connectionCount: number;
 }
-
-const WORKSPACE_FUSE_OPTIONS: IFuseOptions<WorkspaceItem> = {
-  keys: ["name"],
-  threshold: 0.4,
-  includeScore: true,
-  minMatchCharLength: 1,
-};
 
 interface NestedWorkspaceListProps {
   listRef?: React.RefObject<HTMLDivElement | null>;
@@ -44,17 +37,16 @@ export function NestedWorkspaceList({
     }));
   }, [savedWorkspaces]);
 
-  const fuse = useMemo(
-    () => new Fuse(workspaceItems, WORKSPACE_FUSE_OPTIONS),
-    [workspaceItems],
-  );
-
   const filteredWorkspaces = useMemo(() => {
-    if (!query.trim()) {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
       return workspaceItems;
     }
-    return fuse.search(query).map((r) => r.item);
-  }, [workspaceItems, fuse, query]);
+    return matchSorter(workspaceItems, trimmedQuery, {
+      keys: [{ key: "name", maxRanking: rankings.STARTS_WITH }],
+      threshold: rankings.MATCHES,
+    });
+  }, [workspaceItems, query]);
 
   return (
     <CommandList ref={listRef} className="h-[300px]">

@@ -1,6 +1,6 @@
 import { logger } from "@/lib/logger";
 import { useState, useMemo, useRef, useEffect } from 'react';
-import Fuse from 'fuse.js';
+import { matchSorter, rankings } from "match-sorter";
 import { IconSearch } from '@tabler/icons-react';
 import { Input } from '@/components/ui/input';
 import { useConnectionStore } from '@/stores/connectionStoreNew';
@@ -23,28 +23,23 @@ export function SearchBar({
   const connections = useConnectionStore((s) => s.connections);
   const setSearchQuery = useHomeScreenStore((s) => s.setSearchQuery);
 
-  // Create Fuse instance for fuzzy search
-  const fuse = useMemo(() => {
-    return new Fuse(connections, {
-      keys: [
-        { name: 'profile.name', weight: 2 },
-        { name: 'profile.host', weight: 1 },
-        { name: 'profile.database', weight: 1 },
-        { name: 'metadata.tags', weight: 0.5 },
-      ],
-      threshold: 0.4,
-      includeScore: true,
-    });
-  }, [connections]);
-
   // Perform search
   const searchResults = useMemo(() => {
-    if (!query.trim()) {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
       return null;
     }
-    const results = fuse.search(query);
-    return results.map((r) => r.item);
-  }, [fuse, query]);
+
+    return matchSorter(connections, trimmedQuery, {
+      keys: [
+        { key: "profile.name", maxRanking: rankings.STARTS_WITH },
+        { key: "profile.host", maxRanking: rankings.WORD_STARTS_WITH },
+        { key: "profile.database", maxRanking: rankings.WORD_STARTS_WITH },
+        { key: "metadata.tags", maxRanking: rankings.CONTAINS },
+      ],
+      threshold: rankings.MATCHES,
+    });
+  }, [connections, query]);
 
   // Update parent with results
   useEffect(() => {

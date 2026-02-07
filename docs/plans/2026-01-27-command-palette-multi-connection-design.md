@@ -199,7 +199,7 @@ const tabId = `function-${connectionId}-${func.schema}-${func.name}`;
 ## Not Changing
 
 - `useSchemaData.ts` - Sidebar continues using single-connection hook
-- Search/filter logic - Fuse.js config unchanged
+- Search/filter logic - match-sorter config unchanged
 
 ## Migration Note
 
