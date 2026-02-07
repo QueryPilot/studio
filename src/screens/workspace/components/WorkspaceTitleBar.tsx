@@ -43,7 +43,7 @@ import { useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
-import Fuse, { type IFuseOptions } from "fuse.js";
+import { matchSorter, rankings } from "match-sorter";
 import { useCommand } from "@/hooks/useCommand";
 import { windowManager } from "@/services/windowManager";
 import {
@@ -93,14 +93,6 @@ interface SavedProfileItem {
   port: number;
   db_type: DbType;
 }
-
-// Fuse.js configuration for database fuzzy search
-const DATABASE_FUSE_OPTIONS: IFuseOptions<DatabaseItem> = {
-  keys: ["name"],
-  threshold: 0.3, // Lower = more strict matching
-  includeScore: true,
-  minMatchCharLength: 1,
-};
 
 export function WorkspaceTitleBar({
   connectionId,
@@ -183,21 +175,6 @@ export function WorkspaceTitleBar({
       }));
   }, [connections, connection]);
 
-  // Create Fuse indexes only when data changes (not on every search)
-  const dbFuse = useMemo(
-    () => new Fuse(databaseItems, DATABASE_FUSE_OPTIONS),
-    [databaseItems],
-  );
-  const profileFuse = useMemo(
-    () =>
-      new Fuse(otherProfileItems, {
-        keys: ["name", "database"],
-        threshold: 0.3,
-        includeScore: true,
-      }),
-    [otherProfileItems],
-  );
-
   // Filter results based on search query
   const groupedDatabases = useMemo(() => {
     if (!connection) {
@@ -207,11 +184,19 @@ export function WorkspaceTitleBar({
     let filteredDatabases = databaseItems;
     let filteredOtherProfiles = otherProfileItems;
 
-    if (searchQuery.trim()) {
-      filteredDatabases = dbFuse.search(searchQuery).map((r) => r.item);
-      filteredOtherProfiles = profileFuse
-        .search(searchQuery)
-        .map((r) => r.item);
+    const trimmedQuery = searchQuery.trim();
+    if (trimmedQuery) {
+      filteredDatabases = matchSorter(databaseItems, trimmedQuery, {
+        keys: [{ key: "name", maxRanking: rankings.STARTS_WITH }],
+        threshold: rankings.MATCHES,
+      });
+      filteredOtherProfiles = matchSorter(otherProfileItems, trimmedQuery, {
+        keys: [
+          { key: "name", maxRanking: rankings.STARTS_WITH },
+          { key: "database", maxRanking: rankings.WORD_STARTS_WITH },
+        ],
+        threshold: rankings.MATCHES,
+      });
     }
 
     const current = filteredDatabases.find((db) => db.isCurrent) || null;
@@ -222,8 +207,6 @@ export function WorkspaceTitleBar({
     connection,
     databaseItems,
     otherProfileItems,
-    dbFuse,
-    profileFuse,
     searchQuery,
   ]);
   const { toggleSidebar: onToggleSidebar } = useWorkspaceScreenStore();

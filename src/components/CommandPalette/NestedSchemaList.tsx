@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import { IconCheck, IconLoader2, IconStarFilled } from "@tabler/icons-react";
-import Fuse, { type IFuseOptions } from "fuse.js";
+import { matchSorter, rankings } from "match-sorter";
 import { useQuery } from "@tanstack/react-query";
 
 import {
@@ -19,13 +19,6 @@ interface SchemaItem {
   isDefault: boolean;
   isCurrent: boolean;
 }
-
-const SCHEMA_FUSE_OPTIONS: IFuseOptions<SchemaItem> = {
-  keys: ["name"],
-  threshold: 0.4,
-  includeScore: true,
-  minMatchCharLength: 1,
-};
 
 interface NestedSchemaListProps {
   listRef?: React.RefObject<HTMLDivElement | null>;
@@ -81,19 +74,17 @@ export function NestedSchemaList({
     }));
   }, [schemas, connectionDefaultSchema, currentSchema]);
 
-  // Create Fuse index
-  const fuse = useMemo(
-    () => new Fuse(schemaItems, SCHEMA_FUSE_OPTIONS),
-    [schemaItems],
-  );
-
   // Filter results based on search query
   const filteredSchemas = useMemo(() => {
-    if (!query.trim()) {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
       return schemaItems;
     }
-    return fuse.search(query).map((r) => r.item);
-  }, [schemaItems, fuse, query]);
+    return matchSorter(schemaItems, trimmedQuery, {
+      keys: [{ key: "name", maxRanking: rankings.STARTS_WITH }],
+      threshold: rankings.MATCHES,
+    });
+  }, [schemaItems, query]);
 
   if (isLoading) {
     return (

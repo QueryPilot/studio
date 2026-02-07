@@ -61,6 +61,7 @@ interface QuickFilterProps {
 
 export interface QuickFilterRef {
   focus: () => void;
+  isFocusWithin?: () => boolean;
 }
 
 const modeConfig: Record<
@@ -465,6 +466,13 @@ export const QuickFilter = memo(
     useImperativeHandle(ref, () => ({
       focus: () => {
         editorViewRef.current?.focus();
+      },
+      isFocusWithin: () => {
+        const activeElement = document.activeElement;
+        if (!activeElement) return false;
+        if (containerRef.current?.contains(activeElement)) return true;
+        if (suggestionsRef.current?.contains(activeElement)) return true;
+        return Boolean(editorViewRef.current?.hasFocus);
       },
     }));
 

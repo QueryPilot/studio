@@ -10,6 +10,7 @@ import type {
 import { DataGridBase, type DataGridBaseProps } from "./DataGridBase";
 import type {
   GridColumnV2,
+  GridActivationEvent,
   GridEditCommitEvent,
   GridEditCoordinates,
   GridHistoryEntry,
@@ -97,6 +98,7 @@ export interface EditableDataGridProps
     | "onCellEdited"
     | "onFinishedEditing"
     | "onCellActivated"
+    | "onCellClicked"
     | "onDelete"
     | "onRowAppended"
     | "onPaste"
@@ -130,7 +132,7 @@ export interface EditableDataGridProps
   onSelectionChange?: (selection: GridSelection) => void;
   onActiveCellChange?: (cell: Item | null) => void;
   /** Optional cell activation handler (e.g., for drill-down navigation); return true to mark handled */
-  onCellActivated?: (cell: Item) => boolean | void;
+  onCellActivated?: (event: GridActivationEvent) => boolean | void;
   getRowThemeOverride?: DataEditorProps["getRowThemeOverride"];
   highlightRegions?: DataEditorProps["highlightRegions"];
   onHeaderClicked?: DataEditorProps["onHeaderClicked"];
@@ -139,7 +141,7 @@ export interface EditableDataGridProps
   onItemHovered?: DataEditorProps["onItemHovered"];
   onColumnMoved?: DataEditorProps["onColumnMoved"]; // NEW: Support column reordering
   drawCell?: DataEditorProps["drawCell"];
-  onCellClicked?: DataEditorProps["onCellClicked"];
+  onCellClicked?: (event: GridActivationEvent) => void;
   /** Callback when paste has validation errors */
   onPasteValidationErrors?: (errors: PasteValidationError[]) => void;
   /** Callback for batch clear operations (Delete on range selection) */
@@ -341,16 +343,18 @@ export const EditableDataGrid = forwardRef<
 
   const handleCellActivated = useCallback(
     (cell: Item) => {
+      const coords = getCoordinates(cell);
+      if (!coords) return;
+
+      const activationEvent: GridActivationEvent = coords;
+
       // If custom activation handler provided (e.g., for drill-down), allow it to short-circuit
       if (onCellActivatedProp) {
-        const handled = onCellActivatedProp(cell);
+        const handled = onCellActivatedProp(activationEvent);
         if (handled) {
           return;
         }
       }
-
-      const coords = getCoordinates(cell);
-      if (!coords) return;
       logger.info("🟠 Cell activated for editing:", {
         cell,
         coords,
@@ -676,14 +680,17 @@ export const EditableDataGrid = forwardRef<
   );
 
   // Handle cell click - ensure Glide's canvas has focus for keyboard navigation
-  const handleCellClickInternal = useCallback<NonNullable<DataEditorProps['onCellClicked']>>(
-    (cell, event) => {
-      onCellClicked?.(cell, event);
+  const handleCellClickInternal = useCallback<NonNullable<DataEditorProps["onCellClicked"]>>(
+    (cell) => {
+      const coords = getCoordinates(cell);
+      if (coords) {
+        onCellClicked?.(coords);
+      }
       // Focus Glide's canvas (not wrapper) to enable native keyboard navigation
       // This is critical for arrow keys, Tab, Delete, etc. to work
       gridRef.current?.focus();
     },
-    [onCellClicked],
+    [getCoordinates, onCellClicked],
   );
 
   // Keyboard events are now handled by Glide Data Grid natively

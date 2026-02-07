@@ -4,10 +4,12 @@
 //! mongodb Rust driver.
 
 use async_trait::async_trait;
-use bson::{doc, Document};
+use bson::{doc, Bson, Document};
 use futures::TryStreamExt;
 use mongodb::{options::ClientOptions, Client, Database};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
@@ -22,6 +24,40 @@ pub struct MongoDbAdapter {
     database: Arc<RwLock<Option<Database>>>,
     database_name: Arc<RwLock<String>>,
     connected: Arc<RwLock<bool>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MongoCursorToken {
+    pub last_id: Value,
+    #[serde(default)]
+    pub last_sort_values: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MongoDocumentPage {
+    pub documents: Vec<Value>,
+    pub next_cursor: Option<MongoCursorToken>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MongoFieldStat {
+    pub path: String,
+    pub occurrences: u64,
+    pub null_count: u64,
+    pub types: Vec<String>,
+    pub sample_values: Vec<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MongoSchemaSample {
+    pub sample_size: u64,
+    pub scanned_count: u64,
+    pub fields: Vec<MongoFieldStat>,
 }
 
 impl MongoDbAdapter {
@@ -386,6 +422,329 @@ impl MongoDbAdapter {
             bson::Bson::Decimal128(d) => Value::String(d.to_string()),
             _ => Value::String(format!("{:?}", bson)),
         }
+    }
+
+    fn json_path_get<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
+        let mut current = value;
+        for segment in path.split('.') {
+            if let Ok(index) = segment.parse::<usize>() {
+                current = current.as_array()?.get(index)?;
+            } else {
+                current = current.as_object()?.get(segment)?;
+            }
+        }
+        Some(current)
+    }
+
+    fn parse_sort_pairs(sort: Option<&Value>) -> Result<Vec<(String, i32)>, AppError> {
+        let mut sort_pairs: Vec<(String, i32)> = Vec::new();
+
+        if let Some(sort_value) = sort {
+            let sort_map = sort_value
+                .as_object()
+                .ok_or_else(|| AppError::InvalidInput("sort must be a JSON object".to_string()))?;
+
+            for (field, direction_value) in sort_map {
+                let direction = match direction_value {
+                    Value::Number(n) if n.as_i64() == Some(-1) => -1,
+                    Value::Number(_) => 1,
+                    Value::String(s) if s.eq_ignore_ascii_case("desc") => -1,
+                    Value::String(s) if s.eq_ignore_ascii_case("asc") => 1,
+                    _ => {
+                        return Err(AppError::InvalidInput(format!(
+                            "Unsupported sort direction for field '{}'",
+                            field
+                        )));
+                    }
+                };
+                sort_pairs.push((field.clone(), direction));
+            }
+        }
+
+        if sort_pairs.is_empty() {
+            sort_pairs.push(("_id".to_string(), 1));
+        } else if !sort_pairs.iter().any(|(field, _)| field == "_id") {
+            let fallback_direction = sort_pairs.first().map(|(_, dir)| *dir).unwrap_or(1);
+            sort_pairs.push(("_id".to_string(), fallback_direction));
+        }
+
+        Ok(sort_pairs)
+    }
+
+    fn sort_pairs_to_doc(sort_pairs: &[(String, i32)]) -> Document {
+        let mut sort_doc = Document::new();
+        for (field, direction) in sort_pairs {
+            sort_doc.insert(field, Bson::Int32(*direction));
+        }
+        sort_doc
+    }
+
+    fn cursor_value_for_field<'a>(cursor: &'a MongoCursorToken, field: &str) -> Option<&'a Value> {
+        if field == "_id" {
+            return Some(&cursor.last_id);
+        }
+        cursor.last_sort_values.get(field)
+    }
+
+    fn build_cursor_filter(
+        base_filter: Document,
+        cursor: Option<&MongoCursorToken>,
+        sort_pairs: &[(String, i32)],
+    ) -> Result<Document, AppError> {
+        let Some(cursor_token) = cursor else {
+            return Ok(base_filter);
+        };
+
+        let mut or_clauses: Vec<Bson> = Vec::new();
+
+        'branch: for (idx, (field, direction)) in sort_pairs.iter().enumerate() {
+            let Some(cursor_value) = Self::cursor_value_for_field(cursor_token, field) else {
+                continue;
+            };
+            let cursor_bson = Self::json_to_bson(cursor_value)?;
+
+            let mut branch = Document::new();
+            for (prev_field, _) in sort_pairs.iter().take(idx) {
+                let Some(prev_value) = Self::cursor_value_for_field(cursor_token, prev_field) else {
+                    // If a prior sort field is missing from the cursor token,
+                    // this branch cannot express strict tuple ordering safely.
+                    continue 'branch;
+                };
+                branch.insert(prev_field, Self::json_to_bson(prev_value)?);
+            }
+
+            let op = if *direction >= 0 { "$gt" } else { "$lt" };
+            branch.insert(field, Bson::Document(doc! { op: cursor_bson }));
+            or_clauses.push(Bson::Document(branch));
+        }
+
+        if or_clauses.is_empty() {
+            return Ok(base_filter);
+        }
+
+        let or_doc = doc! { "$or": Bson::Array(or_clauses) };
+        if base_filter.is_empty() {
+            Ok(or_doc)
+        } else {
+            Ok(doc! {
+                "$and": Bson::Array(vec![
+                    Bson::Document(base_filter),
+                    Bson::Document(or_doc),
+                ])
+            })
+        }
+    }
+
+    fn build_next_cursor(last_document: &Value, sort_pairs: &[(String, i32)]) -> Option<MongoCursorToken> {
+        let last_id = Self::json_path_get(last_document, "_id")?.clone();
+        let mut sort_values = HashMap::new();
+
+        for (field, _) in sort_pairs {
+            let value = Self::json_path_get(last_document, field)
+                .cloned()
+                .unwrap_or(Value::Null);
+            sort_values.insert(field.clone(), value);
+        }
+
+        Some(MongoCursorToken {
+            last_id,
+            last_sort_values: sort_values,
+        })
+    }
+
+    fn json_type_label(value: &Value) -> String {
+        match value {
+            Value::Null => "null".to_string(),
+            Value::Bool(_) => "boolean".to_string(),
+            Value::Number(_) => "number".to_string(),
+            Value::String(_) => "string".to_string(),
+            Value::Array(_) => "array".to_string(),
+            Value::Object(_) => "object".to_string(),
+        }
+    }
+
+    fn compact_sample_value(value: &Value) -> Value {
+        match value {
+            Value::Object(map) => Value::String(format!("{{{} keys}}", map.len())),
+            Value::Array(arr) => Value::String(format!("[{} items]", arr.len())),
+            _ => value.clone(),
+        }
+    }
+
+    fn collect_field_stats(
+        value: &Value,
+        path: &str,
+        depth: u8,
+        max_depth: u8,
+        stats: &mut HashMap<String, (u64, u64, HashSet<String>, Vec<Value>)>,
+    ) {
+        if depth > max_depth {
+            return;
+        }
+
+        if !path.is_empty() {
+            let entry = stats
+                .entry(path.to_string())
+                .or_insert_with(|| (0, 0, HashSet::new(), Vec::new()));
+
+            entry.0 += 1;
+            if value.is_null() {
+                entry.1 += 1;
+            }
+
+            entry.2.insert(Self::json_type_label(value));
+            if entry.3.len() < 3 {
+                entry.3.push(Self::compact_sample_value(value));
+            }
+        }
+
+        if depth == max_depth {
+            return;
+        }
+
+        match value {
+            Value::Object(map) => {
+                for (key, child) in map {
+                    let child_path = if path.is_empty() {
+                        key.clone()
+                    } else {
+                        format!("{}.{}", path, key)
+                    };
+                    Self::collect_field_stats(child, &child_path, depth + 1, max_depth, stats);
+                }
+            }
+            Value::Array(arr) => {
+                // Sample up to 5 elements per array path to avoid exploding recursion.
+                for child in arr.iter().take(5) {
+                    let child_path = if path.is_empty() {
+                        "[]".to_string()
+                    } else {
+                        format!("{}[]", path)
+                    };
+                    Self::collect_field_stats(child, &child_path, depth + 1, max_depth, stats);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub async fn find_documents_page(
+        &self,
+        collection: &str,
+        filter: Value,
+        mut options: FindOptions,
+        cursor: Option<MongoCursorToken>,
+    ) -> Result<MongoDocumentPage, AppError> {
+        let db = self.database.read().await;
+        match db.as_ref() {
+            Some(database) => {
+                let coll = database.collection::<Document>(collection);
+                let base_filter = Self::json_to_bson_doc(&filter)?;
+
+                let sort_pairs = Self::parse_sort_pairs(options.sort.as_ref())?;
+                let sort_doc = Self::sort_pairs_to_doc(&sort_pairs);
+                let effective_limit = options.limit.unwrap_or(100).clamp(1, 1000);
+                let query_filter =
+                    Self::build_cursor_filter(base_filter, cursor.as_ref(), &sort_pairs)?;
+
+                let mut find_options = mongodb::options::FindOptions::default();
+                find_options.limit = Some((effective_limit + 1) as i64);
+                find_options.sort = Some(sort_doc);
+                if let Some(proj_value) = options.projection.take() {
+                    find_options.projection = Some(Self::json_to_bson_doc(&proj_value)?);
+                }
+
+                let mut cursor_stream = coll
+                    .find(query_filter)
+                    .with_options(find_options)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("Find page failed: {}", e)))?;
+
+                let mut docs: Vec<Document> = Vec::new();
+                while let Some(doc) = cursor_stream
+                    .try_next()
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("Cursor error: {}", e)))?
+                {
+                    docs.push(doc);
+                }
+
+                let has_more = docs.len() as u64 > effective_limit;
+                if has_more {
+                    docs.pop();
+                }
+
+                let json_documents: Vec<Value> =
+                    docs.into_iter().map(Self::bson_doc_to_json).collect();
+
+                let next_cursor = if has_more {
+                    json_documents
+                        .last()
+                        .and_then(|doc| Self::build_next_cursor(doc, &sort_pairs))
+                } else {
+                    None
+                };
+
+                Ok(MongoDocumentPage {
+                    documents: json_documents,
+                    next_cursor,
+                    has_more,
+                })
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    pub async fn sample_collection_schema(
+        &self,
+        collection: &str,
+        filter: Option<Value>,
+        sample_size: u64,
+        max_depth: u8,
+    ) -> Result<MongoSchemaSample, AppError> {
+        let sanitized_sample_size = sample_size.clamp(10, 2000);
+        let docs = self
+            .find_documents(
+                collection,
+                filter.unwrap_or_else(|| Value::Object(serde_json::Map::new())),
+                FindOptions {
+                    limit: Some(sanitized_sample_size),
+                    ..FindOptions::default()
+                },
+            )
+            .await?;
+
+        let mut stats: HashMap<String, (u64, u64, HashSet<String>, Vec<Value>)> = HashMap::new();
+        for doc in &docs {
+            Self::collect_field_stats(doc, "", 0, max_depth, &mut stats);
+        }
+
+        let mut fields: Vec<MongoFieldStat> = stats
+            .into_iter()
+            .map(|(path, (occurrences, null_count, types, sample_values))| {
+                let mut type_list: Vec<String> = types.into_iter().collect();
+                type_list.sort();
+                MongoFieldStat {
+                    path,
+                    occurrences,
+                    null_count,
+                    types: type_list,
+                    sample_values,
+                }
+            })
+            .collect();
+
+        fields.sort_by(|a, b| {
+            b.occurrences
+                .cmp(&a.occurrences)
+                .then_with(|| a.path.cmp(&b.path))
+        });
+
+        Ok(MongoSchemaSample {
+            sample_size: sanitized_sample_size,
+            scanned_count: docs.len() as u64,
+            fields,
+        })
     }
 
     /// List all collections in the current database

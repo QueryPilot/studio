@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import Fuse, { type IFuseOptions } from "fuse.js";
+import { matchSorter, rankings } from "match-sorter";
 import { IconPlus, IconExternalLink } from "@tabler/icons-react";
 import { toast } from "sonner";
 
@@ -27,13 +27,6 @@ interface ConnectionItem {
   port: number;
   dbType: DbType;
 }
-
-const CONNECTION_FUSE_OPTIONS: IFuseOptions<ConnectionItem> = {
-  keys: ["name", "database", "host"],
-  threshold: 0.4,
-  includeScore: true,
-  minMatchCharLength: 1,
-};
 
 interface NestedConnectionListProps {
   listRef?: React.RefObject<HTMLDivElement | null>;
@@ -91,19 +84,21 @@ export function NestedConnectionList({
     }));
   }, [connections]);
 
-  // Create Fuse index
-  const fuse = useMemo(
-    () => new Fuse(connectionItems, CONNECTION_FUSE_OPTIONS),
-    [connectionItems],
-  );
-
   // Filter results based on search query
   const filteredConnections = useMemo(() => {
-    if (!query.trim()) {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
       return connectionItems;
     }
-    return fuse.search(query).map((r) => r.item);
-  }, [connectionItems, fuse, query]);
+    return matchSorter(connectionItems, trimmedQuery, {
+      keys: [
+        { key: "name", maxRanking: rankings.STARTS_WITH },
+        { key: "database", maxRanking: rankings.WORD_STARTS_WITH },
+        { key: "host", maxRanking: rankings.WORD_STARTS_WITH },
+      ],
+      threshold: rankings.MATCHES,
+    });
+  }, [connectionItems, query]);
 
   const handleAddToWorkspace = async (connItem: ConnectionItem) => {
     if (!activeWorkspace) return;

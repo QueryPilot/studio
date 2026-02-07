@@ -14,6 +14,8 @@ const createMockAdapter = (): DocumentQueryable => ({
   isConnected: vi.fn(() => true),
   getCapabilities: vi.fn((): AdapterCapability[] => ['document-queryable']),
   findDocuments: vi.fn(),
+  findDocumentsPage: vi.fn(),
+  sampleCollectionSchema: vi.fn(),
   insertDocument: vi.fn(),
   insertDocuments: vi.fn(),
   updateDocument: vi.fn(),

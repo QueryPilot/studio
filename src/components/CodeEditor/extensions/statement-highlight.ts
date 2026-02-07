@@ -127,14 +127,27 @@ function buildStatementDecorations(
     return Decoration.none;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const decorations: any[] = [];
 
+  // Viewport-aware: only decorate statements that overlap the visible area
+  const { from: vpFrom, to: vpTo } = view.viewport;
+
   statements.forEach((stmt, index) => {
+    // Skip statements entirely outside the viewport
+    if (stmt.to < vpFrom || stmt.from > vpTo) return;
+
     // Get all line numbers for this statement
     const fromLine = view.state.doc.lineAt(stmt.from);
     const toLine = view.state.doc.lineAt(stmt.to);
 
-    for (let lineNum = fromLine.number; lineNum <= toLine.number; lineNum++) {
+    // Clamp iteration to viewport range
+    const vpFirstLine = view.state.doc.lineAt(vpFrom).number;
+    const vpLastLine = view.state.doc.lineAt(vpTo).number;
+    const startLine = Math.max(fromLine.number, vpFirstLine);
+    const endLine = Math.min(toLine.number, vpLastLine);
+
+    for (let lineNum = startLine; lineNum <= endLine; lineNum++) {
       const line = view.state.doc.line(lineNum);
 
       if (index === activeIndex) {
@@ -161,11 +174,14 @@ function buildStatementDecorations(
 const statementHighlightPlugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
+    private view: EditorView;
     private pendingUpdate: ReturnType<typeof setTimeout> | null = null;
     private cachedStatements: StatementBoundary[] = [];
     private lastDocLength = 0;
+    private docChangedSinceLastCompute = false;
 
     constructor(view: EditorView) {
+      this.view = view;
       // Initial computation - can be slow on first load but that's okay
       this.lastDocLength = view.state.doc.length;
       if (view.state.doc.length > 0) {
@@ -188,6 +204,10 @@ const statementHighlightPlugin = ViewPlugin.fromClass(
       const stateField = update.state.field(activeStatementField, false);
       if (!stateField) return;
 
+      if (update.docChanged) {
+        this.docChangedSinceLastCompute = true;
+      }
+
       // Cancel any pending update
       if (this.pendingUpdate) {
         clearTimeout(this.pendingUpdate);
@@ -198,25 +218,29 @@ const statementHighlightPlugin = ViewPlugin.fromClass(
       this.pendingUpdate = setTimeout(() => {
         this.pendingUpdate = null;
 
-        // Only recompute statements if document actually changed
-        if (update.state.doc.length !== this.lastDocLength || update.docChanged) {
-          this.cachedStatements = getAllStatements(update.state);
-          this.lastDocLength = update.state.doc.length;
+        // Use this.view.state (always current) instead of closed-over update.state
+        const currentState = this.view.state;
+
+        // Recompute statements if document changed (length or content)
+        if (this.docChangedSinceLastCompute || currentState.doc.length !== this.lastDocLength) {
+          this.cachedStatements = getAllStatements(currentState);
+          this.lastDocLength = currentState.doc.length;
+          this.docChangedSinceLastCompute = false;
         }
 
         // Find active statement based on cursor position
-        const cursorPos = update.state.selection.main.head;
+        const cursorPos = currentState.selection.main.head;
         const activeIndex = findActiveStatement(this.cachedStatements, cursorPos);
 
         // Rebuild decorations
         this.decorations = buildStatementDecorations(
-          update.view,
+          this.view,
           this.cachedStatements,
           activeIndex
         );
 
         // Request re-render
-        update.view.requestMeasure();
+        this.view.requestMeasure();
       }, 100); // 100ms debounce - feels instant but prevents lag
     }
 

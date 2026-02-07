@@ -1,8 +1,9 @@
 import type { GridCell, Item } from '@glideapps/glide-data-grid';
-import type { GridColumnV2, GridRowModel, CrudCommandFactory } from '../types';
+import type { GridColumnV2, GridRowModel, CrudCommandFactory, GridActivationEvent } from '../types';
 import type { CrudCommand, JsonValue } from '@/types/crud';
 import type { GridEditCommitEvent } from '../types';
 import type { RedisType } from '@/adapters/types/redis';
+import type { DocumentSchemaSample } from '@/adapters/types/mongodb';
 
 // ============================================================================
 // Hook-Based Data Provider Types (Preferred Pattern)
@@ -20,6 +21,7 @@ export interface BaseDataHookResult {
 
   // Loading state
   isLoading: boolean;
+  isLoadingMore?: boolean;
   error: Error | null;
 
   // Pagination
@@ -60,14 +62,15 @@ export interface DocumentDataHookResult extends BaseDataHookResult {
 
   // Path navigation for drill-down
   currentPath: PathSegment[];
-  canStepInto: (row: number, col: number) => boolean;
-  stepInto: (row: number, col: number) => void;
+  canStepInto: (event: GridActivationEvent) => boolean;
+  stepInto: (event: GridActivationEvent) => void;
   stepOut: () => void;
   navigateToPath: (pathIndex: number) => void;
   getCurrentDocumentId: () => JsonValue | null;
 
   // Total count
   totalCount?: number;
+  schemaSample?: DocumentSchemaSample;
 }
 
 /**
