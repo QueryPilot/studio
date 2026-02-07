@@ -197,12 +197,12 @@ INSERT INTO dbo.all_data_types (
  'CHAR100', 'Variable length string up to MAX', N'NCHAR100', N'Variable length Unicode string 你好世界 🚀',
  0xDEADBEEF, 0xCAFEBABE,
  '2024-06-15', '14:30:45.1234567', '2024-06-15 14:30:45', '2024-06-15 14:30:45.1234567', '2024-06-15 14:30:45.1234567 +05:30', '2024-06-15 14:30:00',
- NEWID(), N'<root><item id="1">XML content</item></root>', hierarchyid::Parse('/1/2/3/'), geography::Point(37.7749, -122.4194, 4326), geometry::STGeomFromText('POINT(1 1)', 0), 'SQL Variant Value'),
-(0, 0, -32768, -2147483648, -9223372036854775808, -12345678901234567890.123456789012345678, -9999999999999999999.999999999999999999, -3.141592653589793, -3.14159, -$922337203685477.5808, -$214748.3648,
+ NEWID(), N'<root><item id="1">XML content</item></root>', hierarchyid::Parse('/1/2/3/'), geography::Point(37.7749, -122.4194, 4326), geometry::STGeomFromText('POINT(1 1)', 0), CAST('SQL Variant Value' AS SQL_VARIANT)),
+(0, 0, -32768, -2147483648, -9223372036854775808, -12345678901234567890.123456789012345678, -9999999999999999999.999999999999999999, -3.141592653589793, -3.14159, -$922337203685477.5807, -$214748.3647,
  'MIN', 'Minimum values test', N'MIN', N'Минимальные значения',
  0x00, 0x00,
  '1753-01-01', '00:00:00', '1753-01-01 00:00:00', '0001-01-01 00:00:00', '0001-01-01 00:00:00 +00:00', '1900-01-01 00:00:00',
- '00000000-0000-0000-0000-000000000000', N'<empty/>', hierarchyid::Parse('/'), NULL, NULL, 0);
+ '00000000-0000-0000-0000-000000000000', N'<empty/>', hierarchyid::Parse('/'), NULL, NULL, CAST(0 AS SQL_VARIANT));
 GO
 
 INSERT INTO dbo.null_patterns (description, all_null_row, nullable_int, nullable_text, nullable_bool, nullable_date, nullable_json) VALUES
@@ -231,7 +231,7 @@ GO
 
 INSERT INTO dbo.numeric_extremes (description, tiny_val, small_val, int_val, big_val, decimal_val, float_val, real_val, money_val) VALUES
 (N'Maximum positive', 255, 32767, 2147483647, 9223372036854775807, 99999999999999999999.999999999999999999, 1.7976931348623157e+308, 3.4028235e+38, $922337203685477.5807),
-(N'Minimum negative', 0, -32768, -2147483648, -9223372036854775808, -99999999999999999999.999999999999999999, -1.7976931348623157e+308, -3.4028235e+38, -$922337203685477.5808),
+(N'Minimum negative', 0, -32768, -2147483648, -9223372036854775808, -99999999999999999999.999999999999999999, -1.7976931348623157e+308, -3.4028235e+38, -$922337203685477.5807),
 (N'Zero values', 0, 0, 0, 0, 0.0, 0, 0, $0.00),
 (N'Pi approximations', NULL, NULL, 3, 3, 3.141592653589793238, 3.141592653589793, 3.1415927, $3.14);
 GO

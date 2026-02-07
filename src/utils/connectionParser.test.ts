@@ -46,7 +46,7 @@ describe("connectionParser", () => {
       });
 
       it("should detect SQLite file path", () => {
-        const uri = "./seeds/sqlite/todoapp.db";
+        const uri = "./seeds/sqlite/query_pilot_test.db";
         expect(detectConnectionFormat(uri)).toBe("uri");
       });
 
@@ -635,11 +635,11 @@ DB_PORT=5432`;
       });
 
       it("should parse SQLite file path without scheme", () => {
-        const uri = "./seeds/sqlite/todoapp.db";
+        const uri = "./seeds/sqlite/query_pilot_test.db";
         const config = parseConnectionUri(uri);
 
         expect(config.dbType).toBe("sqlite");
-        expect(config.database).toBe("./seeds/sqlite/todoapp.db");
+        expect(config.database).toBe("./seeds/sqlite/query_pilot_test.db");
       });
     });
 

@@ -2,6 +2,16 @@
 """
 PostgreSQL Bulk Seeding Script
 Generates and loads 100K records with partitioning support.
+
+SECURITY NOTE: All credentials in this file are for DEVELOPMENT ONLY.
+- postgres_password = "devpass123" is a dev-only credential
+- NEVER use these values in production environments.
+
+PREREQUISITES:
+    cd seeds
+    python3 -m venv bulk_seed_venv
+    source bulk_seed_venv/bin/activate
+    pip install faker
 """
 
 import subprocess
