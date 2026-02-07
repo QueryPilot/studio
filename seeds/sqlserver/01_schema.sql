@@ -208,7 +208,7 @@ CREATE TABLE dbo.orders (
 ) ON ps_orders_date(created_at);
 CREATE INDEX idx_orders_customer ON dbo.orders(customer_id) ON ps_orders_date(created_at);
 CREATE INDEX idx_orders_status ON dbo.orders(status) ON ps_orders_date(created_at);
-CREATE UNIQUE INDEX idx_orders_number ON dbo.orders(order_number);
+CREATE UNIQUE INDEX idx_orders_number ON dbo.orders(order_number, created_at) ON ps_orders_date(created_at);
 GO
 
 CREATE TABLE dbo.order_items (

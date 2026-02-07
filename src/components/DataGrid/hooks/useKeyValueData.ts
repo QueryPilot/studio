@@ -8,28 +8,39 @@
  * - CRUD command creation for the staging pipeline
  */
 
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
-import type { GridCell, Item } from '@glideapps/glide-data-grid';
-import { GridCellKind } from '@glideapps/glide-data-grid';
-import { nanoid } from 'nanoid';
-import type { GridColumnV2, GridRowModel, GridEditCommitEvent, CrudCommandFactory } from '../types';
-import type { KeyValueDataHookResult, KeyMetadata } from '../sources/types';
-import type { CrudCommand, DataUpdatePayload, DataInsertPayload, DataDeletePayload, JsonValue } from '@/types/crud';
-import type { CellValue } from '@/types';
-import { RedisAdapter } from '@/adapters/redis/RedisAdapter';
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
+import type { GridCell, Item } from "@glideapps/glide-data-grid";
+import { GridCellKind } from "@glideapps/glide-data-grid";
+import { nanoid } from "nanoid";
+import type {
+  GridColumnV2,
+  GridRowModel,
+  GridEditCommitEvent,
+  CrudCommandFactory,
+} from "../types";
+import type { KeyValueDataHookResult, KeyMetadata } from "../sources/types";
+import type {
+  CrudCommand,
+  DataUpdatePayload,
+  DataInsertPayload,
+  DataDeletePayload,
+  JsonValue,
+} from "@/types/crud";
+import type { CellValue } from "@/types";
+import { RedisAdapter } from "@/adapters/redis/RedisAdapter";
 import {
   getColumnsForRedisType,
   mapRedisDataToRows,
   buildKeyValueCell,
   getRedisRowKey,
-} from '../utils/keyvalueCellFactory';
+} from "../utils/keyvalueCellFactory";
 import {
   type KeyValueFilter,
   applyKeyValueSearch,
   applyKeyValuePattern,
-} from '@/utils/keyvalueFilterParser';
-import { logger } from '@/lib/logger';
+} from "@/utils/keyvalueFilterParser";
+import { logger } from "@/lib/logger";
 
 // ============================================================================
 // Types
@@ -47,19 +58,53 @@ export interface UseKeyValueDataParams {
 
 // Browser mode columns (when viewing list of keys): Key, Type, Value, TTL
 const BROWSER_COLUMNS: GridColumnV2[] = [
-  { id: 'key', field: 'col_0', title: 'Key', name: 'key', width: 300, type: 'string' },
-  { id: 'type', field: 'col_1', title: 'Type', name: 'type', width: 80, type: 'string' },
-  { id: 'value', field: 'col_2', title: 'Value', name: 'value', width: 400, type: 'string' },
-  { id: 'ttl', field: 'col_3', title: 'TTL', name: 'ttl', width: 100, type: 'string' },
+  {
+    id: "key",
+    field: "col_0",
+    title: "Key",
+    name: "key",
+    width: 300,
+    type: "string",
+  },
+  {
+    id: "type",
+    field: "col_1",
+    title: "Type",
+    name: "type",
+    width: 80,
+    type: "string",
+  },
+  {
+    id: "value",
+    field: "col_2",
+    title: "Value",
+    name: "value",
+    width: 400,
+    type: "string",
+  },
+  {
+    id: "ttl",
+    field: "col_3",
+    title: "TTL",
+    name: "ttl",
+    width: 100,
+    type: "string",
+  },
 ];
 
 // Helper to create CellValue for browser mode
-function createBrowserCellValue(value: unknown, dbType: string, redisType?: string): CellValue {
-  const isJson = ['hash', 'list', 'set', 'zset', 'stream'].includes(redisType || '');
+function createBrowserCellValue(
+  value: unknown,
+  dbType: string,
+  redisType?: string,
+): CellValue {
+  const isJson = ["hash", "list", "set", "zset", "stream"].includes(
+    redisType || "",
+  );
   return {
     value,
     db_type: dbType,
-    value_type: isJson ? 'Json' : 'Text',
+    value_type: isJson ? "Json" : "Text",
     is_truncated: false,
     metadata: redisType ? { attributes: { redisType } } : undefined,
   };
@@ -69,12 +114,14 @@ function createBrowserCellValue(value: unknown, dbType: string, redisType?: stri
 // Hook Implementation
 // ============================================================================
 
-export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHookResult {
+export function useKeyValueData(
+  params: UseKeyValueDataParams,
+): KeyValueDataHookResult {
   const {
     connectionId,
     database,
     initialKey,
-    pattern: initialPattern = '*',
+    pattern: initialPattern = "*",
     enabled = true,
     filter,
   } = params;
@@ -83,20 +130,26 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
 
   // State
   const [currentKey, setCurrentKey] = useState<KeyMetadata | null>(null);
-  const [selectedKeyName, setSelectedKeyName] = useState<string | undefined>(initialKey);
+  const [selectedKeyName, setSelectedKeyName] = useState<string | undefined>(
+    initialKey,
+  );
   const [pattern, setPatternState] = useState<string>(initialPattern);
-  const [totalKeyCount, setTotalKeyCount] = useState<number | undefined>(undefined);
-  const [executionTime, setExecutionTime] = useState<number | undefined>(undefined);
+  const [totalKeyCount, setTotalKeyCount] = useState<number | undefined>(
+    undefined,
+  );
+  const [executionTime, setExecutionTime] = useState<number | undefined>(
+    undefined,
+  );
 
   // Browser mode: when no initialKey, show list of keys
   const isBrowserMode = !initialKey && !selectedKeyName;
 
   // Browser mode value search (client-side filter on loaded previews)
-  const [valueFilter, setValueFilterState] = useState<string>('');
+  const [valueFilter, setValueFilterState] = useState<string>("");
 
   // Pattern setter with refetch
   const setPattern = useCallback((newPattern: string) => {
-    setPatternState(newPattern || '*');
+    setPatternState(newPattern || "*");
   }, []);
 
   const setValueFilter = useCallback((filter: string) => {
@@ -124,12 +177,17 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
 
   // Browser mode: fetch list of keys with infinite scroll
   const browserQueryKey = useMemo(
-    () => ['redis-keys-browser', connectionId, database, pattern],
-    [connectionId, database, pattern]
+    () => ["redis-keys-browser", connectionId, database, pattern],
+    [connectionId, database, pattern],
   );
 
   // Type for browser page data
-  type BrowserKeyInfo = { key: string; type: string; ttl: number; value: string };
+  type BrowserKeyInfo = {
+    key: string;
+    type: string;
+    ttl: number;
+    value: string;
+  };
   type BrowserPage = { keys: BrowserKeyInfo[]; nextCursor: string };
 
   const {
@@ -140,7 +198,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     refetch: refetchBrowser,
     fetchNextPage: fetchNextBrowserPage,
     hasNextPage: hasNextBrowserPage,
-  } = useInfiniteQuery<BrowserPage, Error>({
+  } = useInfiniteQuery<BrowserPage>({
     queryKey: browserQueryKey,
     queryFn: async ({ pageParam }): Promise<BrowserPage> => {
       const cursor = pageParam as string;
@@ -150,23 +208,30 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
         const adapter = await getAdapterWithDb();
 
         // Get total key count for this database (only on first page)
-        if (cursor === '0') {
+        if (cursor === "0") {
           const dbSize = await adapter.getDatabaseSize();
           setTotalKeyCount(dbSize);
         }
 
         // Scan keys with pattern and fetch value previews in a single IPC call
-        const result = await adapter.scanKeysWithPreviews(pattern, cursor, BROWSER_PAGE_SIZE);
+        const result = await adapter.scanKeysWithPreviews(
+          pattern,
+          cursor,
+          BROWSER_PAGE_SIZE,
+        );
 
         if (result.keys.length === 0) {
           return { keys: [], nextCursor: result.cursor };
         }
 
-        logger.info('redis-browser', `Scanned ${result.keys.length} keys with previews (cursor: ${cursor} → ${result.cursor})`);
+        logger.info(
+          "redis-browser",
+          `Scanned ${result.keys.length} keys with previews (cursor: ${cursor} → ${result.cursor})`,
+        );
 
         const keysWithValues = result.keys.map((keyInfo) => ({
           key: keyInfo.key,
-          type: keyInfo.keyType || 'unknown',
+          type: keyInfo.keyType || "unknown",
           ttl: keyInfo.ttl ?? -1,
           value: keyInfo.preview,
         }));
@@ -177,10 +242,10 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
         setExecutionTime(Math.round(endTime - startTime));
       }
     },
-    initialPageParam: '0',
+    initialPageParam: "0",
     getNextPageParam: (lastPage) => {
       // Redis SCAN returns '0' when iteration is complete
-      return lastPage.nextCursor !== '0' ? lastPage.nextCursor : undefined;
+      return lastPage.nextCursor !== "0" ? lastPage.nextCursor : undefined;
     },
     enabled: enabled && !!connectionId && isBrowserMode,
     staleTime: 10000, // 10 seconds
@@ -189,7 +254,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
   // Flatten browser pages into single array
   const browserKeys = useMemo(() => {
     if (!browserData?.pages) return undefined;
-    return browserData.pages.flatMap(page => page.keys);
+    return browserData.pages.flatMap((page) => page.keys);
   }, [browserData]);
 
   // Number of keys loaded from server (before client-side value filter)
@@ -197,8 +262,8 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
 
   // Query key for key metadata
   const metadataQueryKey = useMemo(
-    () => ['redis-key-metadata', connectionId, database, selectedKeyName],
-    [connectionId, database, selectedKeyName]
+    () => ["redis-key-metadata", connectionId, database, selectedKeyName],
+    [connectionId, database, selectedKeyName],
   );
 
   // Fetch key metadata (type, TTL, size)
@@ -224,14 +289,18 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
       // Get size based on type
       let size: number | undefined;
       try {
-        if (type === 'string') {
+        if (type === "string") {
           const value = await adapter.getKey(selectedKeyName);
-          size = value && typeof value === 'object' && 'type' in value && value.type === 'string'
-            ? (value.value as string).length
-            : undefined;
-        } else if (type === 'list') {
+          size =
+            value &&
+            typeof value === "object" &&
+            "type" in value &&
+            value.type === "string"
+              ? value.value.length
+              : undefined;
+        } else if (type === "list") {
           size = await adapter.listLen(selectedKeyName);
-        } else if (type === 'stream') {
+        } else if (type === "stream") {
           size = await adapter.streamLen(selectedKeyName);
         }
       } catch {
@@ -256,8 +325,14 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
 
   // Query key for key data
   const dataQueryKey = useMemo(
-    () => ['redis-key-data', connectionId, database, selectedKeyName, currentKey?.type],
-    [connectionId, database, selectedKeyName, currentKey?.type]
+    () => [
+      "redis-key-data",
+      connectionId,
+      database,
+      selectedKeyName,
+      currentKey?.type,
+    ],
+    [connectionId, database, selectedKeyName, currentKey?.type],
   );
 
   // Fetch key data based on type
@@ -279,31 +354,36 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
         const type = currentKey.type;
 
         switch (type) {
-          case 'string': {
+          case "string": {
             const value = await adapter.getKey(selectedKeyName);
-            if (value && typeof value === 'object' && 'type' in value && value.type === 'string') {
-              return value.value as string;
+            if (
+              value &&
+              typeof value === "object" &&
+              "type" in value &&
+              value.type === "string"
+            ) {
+              return value.value;
             }
             return null;
           }
 
-          case 'hash':
+          case "hash":
             return adapter.hashGetAll(selectedKeyName);
 
-          case 'list':
+          case "list":
             // Fetch all list items (could paginate for large lists)
             return adapter.listRange(selectedKeyName, 0, -1);
 
-          case 'set':
+          case "set":
             return adapter.setMembers(selectedKeyName);
 
-          case 'zset':
+          case "zset":
             // Fetch all zset members with scores
             return adapter.zsetRange(selectedKeyName, 0, -1, true);
 
-          case 'stream':
+          case "stream":
             // Fetch stream entries
-            return adapter.streamRange(selectedKeyName, '-', '+', 100);
+            return adapter.streamRange(selectedKeyName, "-", "+", 100);
 
           default:
             return null;
@@ -313,7 +393,8 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
         setExecutionTime(Math.round(endTime - startTime));
       }
     },
-    enabled: enabled && !!connectionId && !!selectedKeyName && !!currentKey?.type,
+    enabled:
+      enabled && !!connectionId && !!selectedKeyName && !!currentKey?.type,
     staleTime: 10000, // 10 seconds
   });
 
@@ -338,17 +419,18 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
       let filteredKeys = browserKeys;
       if (valueFilter) {
         const search = valueFilter.toLowerCase();
-        filteredKeys = browserKeys.filter((keyInfo) =>
-          keyInfo.key.toLowerCase().includes(search) ||
-          keyInfo.value.toLowerCase().includes(search)
+        filteredKeys = browserKeys.filter(
+          (keyInfo) =>
+            keyInfo.key.toLowerCase().includes(search) ||
+            keyInfo.value.toLowerCase().includes(search),
         );
       }
 
       result = filteredKeys.map((keyInfo) => ({
-        col_0: createBrowserCellValue(keyInfo.key, 'text'),
-        col_1: createBrowserCellValue(keyInfo.type, 'text'),
-        col_2: createBrowserCellValue(keyInfo.value, 'json', keyInfo.type),
-        col_3: createBrowserCellValue(keyInfo.ttl, 'integer'),
+        col_0: createBrowserCellValue(keyInfo.key, "text"),
+        col_1: createBrowserCellValue(keyInfo.type, "text"),
+        col_2: createBrowserCellValue(keyInfo.value, "json", keyInfo.type),
+        col_3: createBrowserCellValue(keyInfo.ttl, "integer"),
       }));
     } else if (!currentKey || rawData === null || rawData === undefined) {
       return [];
@@ -359,15 +441,15 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     // Apply client-side filtering if filter is set (only in key view mode)
     if (filter && !isBrowserMode) {
       switch (filter.mode) {
-        case 'search':
+        case "search":
           if (filter.searchText) {
             result = applyKeyValueSearch(result, filter.searchText);
           }
           break;
-        case 'pattern':
+        case "pattern":
           if (filter.pattern) {
             // For pattern mode, filter by the first column (field/member name)
-            result = applyKeyValuePattern(result, filter.pattern, 'col_0');
+            result = applyKeyValuePattern(result, filter.pattern, "col_0");
           }
           break;
       }
@@ -386,8 +468,8 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
       if (!column || !row) {
         return {
           kind: GridCellKind.Text,
-          data: '',
-          displayData: '',
+          data: "",
+          displayData: "",
           allowOverlay: false,
           readonly: true,
         };
@@ -397,27 +479,30 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
 
       // Browser mode: use custom cells with proper renderers
       if (isBrowserMode) {
-        const rawValue = cellValue && typeof cellValue === 'object' && 'value' in cellValue
-          ? (cellValue as { value: unknown }).value
-          : cellValue;
-        const strValue = rawValue === null || rawValue === undefined ? '' : String(rawValue);
+        const rawValue =
+          cellValue && typeof cellValue === "object" && "value" in cellValue
+            ? (cellValue as { value: unknown }).value
+            : cellValue;
+        const strValue =
+          rawValue === null || rawValue === undefined ? "" : String(rawValue);
 
         // Get row type for editability decisions
-        const typeCell = row['col_1'];
-        const rowType = typeCell && typeof typeCell === 'object' && 'value' in typeCell
-          ? String((typeCell as { value: unknown }).value)
-          : 'unknown';
+        const typeCell = row["col_1"];
+        const rowType =
+          typeCell && typeof typeCell === "object" && "value" in typeCell
+            ? String((typeCell as { value: unknown }).value)
+            : "unknown";
 
         // Key column (col_0): text-single-cell
-        if (column.field === 'col_0') {
+        if (column.field === "col_0") {
           return {
             kind: GridCellKind.Custom,
             data: {
-              kind: 'text-single-cell',
+              kind: "text-single-cell",
               value: strValue,
               nullable: false,
-              columnName: 'Key',
-              dbType: 'text',
+              columnName: "Key",
+              dbType: "text",
             },
             copyData: strValue,
             allowOverlay: true,
@@ -426,15 +511,15 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
         }
 
         // Type column (col_1): text-single-cell
-        if (column.field === 'col_1') {
+        if (column.field === "col_1") {
           return {
             kind: GridCellKind.Custom,
             data: {
-              kind: 'text-single-cell',
+              kind: "text-single-cell",
               value: strValue,
               nullable: false,
-              columnName: 'Type',
-              dbType: 'text',
+              columnName: "Type",
+              dbType: "text",
             },
             copyData: strValue,
             allowOverlay: true,
@@ -443,24 +528,31 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
         }
 
         // Value column (col_2): json-cell for complex types, text for string
-        if (column.field === 'col_2') {
+        if (column.field === "col_2") {
           // Get redis type from metadata.attributes
-          const cellMetadata = cellValue && typeof cellValue === 'object' && 'metadata' in cellValue
-            ? (cellValue as { metadata?: { attributes?: { redisType?: string } } }).metadata
-            : undefined;
-          const redisType = cellMetadata?.attributes?.redisType || 'string';
+          const cellMetadata =
+            cellValue &&
+            typeof cellValue === "object" &&
+            "metadata" in cellValue
+              ? (
+                  cellValue as {
+                    metadata?: { attributes?: { redisType?: string } };
+                  }
+                ).metadata
+              : undefined;
+          const redisType = cellMetadata?.attributes?.redisType || "string";
 
           // Use json-cell for hash, list, set, zset, stream
-          if (['hash', 'list', 'set', 'zset', 'stream'].includes(redisType)) {
+          if (["hash", "list", "set", "zset", "stream"].includes(redisType)) {
             return {
               kind: GridCellKind.Custom,
               data: {
-                kind: 'json-cell',
+                kind: "json-cell",
                 value: strValue,
                 nullable: false,
                 isValid: true,
-                columnName: 'Value',
-                dbType: 'json',
+                columnName: "Value",
+                dbType: "json",
               },
               copyData: strValue,
               allowOverlay: true,
@@ -469,34 +561,38 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
           }
 
           // Use text-multi-cell for long strings, text-single-cell for short
-          const isLongText = strValue.length > 100 || strValue.includes('\n');
+          const isLongText = strValue.length > 100 || strValue.includes("\n");
           return {
             kind: GridCellKind.Custom,
             data: {
-              kind: isLongText ? 'text-multi-cell' : 'text-single-cell',
+              kind: isLongText ? "text-multi-cell" : "text-single-cell",
               value: strValue,
               nullable: false,
-              columnName: 'Value',
-              dbType: 'text',
+              columnName: "Value",
+              dbType: "text",
             },
             copyData: strValue,
             allowOverlay: true,
-            readonly: rowType !== 'string',
+            readonly: rowType !== "string",
           };
         }
 
         // TTL column (col_3): editable, shows raw seconds (-1 = no expiry)
-        if (column.field === 'col_3') {
-          const ttlNum = typeof rawValue === 'number' ? rawValue : parseInt(String(rawValue), 10);
-          const displayStr = ttlNum === -1 ? '-1' : ttlNum === -2 ? 'N/A' : String(ttlNum);
+        if (column.field === "col_3") {
+          const ttlNum =
+            typeof rawValue === "number"
+              ? rawValue
+              : parseInt(String(rawValue), 10);
+          const displayStr =
+            ttlNum === -1 ? "-1" : ttlNum === -2 ? "N/A" : String(ttlNum);
           return {
             kind: GridCellKind.Custom,
             data: {
-              kind: 'text-single-cell',
+              kind: "text-single-cell",
               value: displayStr,
               nullable: false,
-              columnName: 'TTL (seconds)',
-              dbType: 'integer',
+              columnName: "TTL (seconds)",
+              dbType: "integer",
             },
             copyData: displayStr,
             allowOverlay: true,
@@ -508,11 +604,11 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
         return {
           kind: GridCellKind.Custom,
           data: {
-            kind: 'text-single-cell',
+            kind: "text-single-cell",
             value: strValue,
             nullable: false,
             columnName: column.title || column.id,
-            dbType: 'text',
+            dbType: "text",
           },
           copyData: strValue,
           allowOverlay: true,
@@ -521,17 +617,19 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
       }
 
       // Debug logging for key view mode cell content
-      logger.info('keyvalue-data', 'getCellContent (key view mode)', {
+      logger.info("keyvalue-data", "getCellContent (key view mode)", {
         cell: [colIndex, rowIndex],
         columnField: column.field,
         columnTitle: column.title,
         keyType: currentKey?.type,
         cellValueType: typeof cellValue,
-        cellValueIsObject: typeof cellValue === 'object' && cellValue !== null,
-        cellValueHasValue: cellValue && typeof cellValue === 'object' && 'value' in cellValue,
-        actualValue: cellValue && typeof cellValue === 'object' && 'value' in cellValue
-          ? String((cellValue as { value: unknown }).value).slice(0, 100)
-          : String(cellValue).slice(0, 100),
+        cellValueIsObject: typeof cellValue === "object" && cellValue !== null,
+        cellValueHasValue:
+          cellValue && typeof cellValue === "object" && "value" in cellValue,
+        actualValue:
+          cellValue && typeof cellValue === "object" && "value" in cellValue
+            ? String((cellValue as { value: unknown }).value).slice(0, 100)
+            : String(cellValue).slice(0, 100),
       });
 
       return buildKeyValueCell({
@@ -541,22 +639,19 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
         keyType: currentKey?.type,
       });
     },
-    [columns, rows, currentKey, isBrowserMode]
+    [columns, rows, currentKey, isBrowserMode],
   );
 
   // Key selection
-  const selectKey = useCallback(
-    async (key: string): Promise<void> => {
-      setSelectedKeyName(key);
-      logger.info('keyvalue-data', `Selected key: ${key}`);
-    },
-    []
-  );
+  const selectKey = useCallback(async (key: string): Promise<void> => {
+    setSelectedKeyName(key);
+    logger.info("keyvalue-data", `Selected key: ${key}`);
+  }, []);
 
   const clearSelection = useCallback((): void => {
     setSelectedKeyName(undefined);
     setCurrentKey(null);
-    logger.info('keyvalue-data', 'Cleared key selection');
+    logger.info("keyvalue-data", "Cleared key selection");
   }, []);
 
   // TTL management
@@ -572,9 +667,12 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
       // Refresh metadata
       await refetchMetadata();
 
-      logger.info('keyvalue-data', `Set TTL for ${selectedKeyName}: ${seconds}s`);
+      logger.info(
+        "keyvalue-data",
+        `Set TTL for ${selectedKeyName}: ${seconds}s`,
+      );
     },
-    [selectedKeyName, getAdapter, refetchMetadata]
+    [selectedKeyName, getAdapter, refetchMetadata],
   );
 
   // Delete current key
@@ -589,7 +687,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     // Clear selection
     clearSelection();
 
-    logger.info('keyvalue-data', `Deleted key: ${selectedKeyName}`);
+    logger.info("keyvalue-data", `Deleted key: ${selectedKeyName}`);
   }, [selectedKeyName, getAdapter, clearSelection]);
 
   // Pagination - browser mode uses cursor-based SCAN pagination
@@ -617,51 +715,63 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
   const AUTO_LOAD_THRESHOLD = 5000;
   const [loadAllRequested, setLoadAllRequested] = useState(false);
 
-  const shouldAutoLoad = isBrowserMode
-    && !!valueFilter
-    && hasMore
-    && !isFetchingNextBrowserPage
-    && (
-      (totalKeyCount !== undefined && totalKeyCount < AUTO_LOAD_THRESHOLD)
-      || loadAllRequested
-    );
+  const shouldAutoLoad =
+    isBrowserMode &&
+    !!valueFilter &&
+    hasMore &&
+    !isFetchingNextBrowserPage &&
+    ((totalKeyCount !== undefined && totalKeyCount < AUTO_LOAD_THRESHOLD) ||
+      loadAllRequested);
 
   // Whether all keys are loaded (no more pages to fetch)
   const allKeysLoaded = isBrowserMode && !hasMore;
   // Whether we should show "Search all" button
-  const showLoadAll = isBrowserMode
-    && !!valueFilter
-    && hasMore
-    && !loadAllRequested
-    && totalKeyCount !== undefined
-    && totalKeyCount >= AUTO_LOAD_THRESHOLD;
+  const showLoadAll =
+    isBrowserMode &&
+    !!valueFilter &&
+    hasMore &&
+    !loadAllRequested &&
+    totalKeyCount !== undefined &&
+    totalKeyCount >= AUTO_LOAD_THRESHOLD;
 
   const loadAllKeys = useCallback(() => {
     setLoadAllRequested(true);
   }, []);
 
-  // Reset loadAllRequested when value filter is cleared or pattern changes
-  const prevValueFilterRef = useRef(valueFilter);
-  const prevPatternRef = useRef(pattern);
-  if (valueFilter !== prevValueFilterRef.current || pattern !== prevPatternRef.current) {
-    prevValueFilterRef.current = valueFilter;
-    prevPatternRef.current = pattern;
+  // Reset loadAllRequested when value filter is cleared
+  useEffect(() => {
     if (!valueFilter) {
       setLoadAllRequested(false);
     }
-  }
+  }, [valueFilter]);
 
-  // Progressive auto-load effect
+  // Stabilize fetchNextBrowserPage ref to avoid effect re-triggers
+  const fetchNextBrowserPageRef = useRef(fetchNextBrowserPage);
   useEffect(() => {
-    if (shouldAutoLoad) {
-      fetchNextBrowserPage();
-    }
-  }, [shouldAutoLoad, fetchNextBrowserPage]);
+    fetchNextBrowserPageRef.current = fetchNextBrowserPage;
+  });
+
+  // Progressive auto-load effect with cancellation
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadNext = async () => {
+      if (shouldAutoLoad && !cancelled) {
+        await fetchNextBrowserPageRef.current();
+      }
+    };
+
+    void loadNext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldAutoLoad]);
 
   // CRUD helpers
   const createEditCommand = useCallback(
     (event: GridEditCommitEvent): CrudCommand | null => {
-      logger.info('keyvalue-data', 'createEditCommand called', {
+      logger.info("keyvalue-data", "createEditCommand called", {
         hasCurrentKey: !!currentKey,
         currentKeyType: currentKey?.type,
         selectedKeyName,
@@ -670,53 +780,70 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
       });
 
       if (!currentKey || !selectedKeyName) {
-        logger.warn('keyvalue-data', 'createEditCommand: missing currentKey or selectedKeyName', {
-          currentKey,
-          selectedKeyName,
-        });
+        logger.warn(
+          "keyvalue-data",
+          "createEditCommand: missing currentKey or selectedKeyName",
+          {
+            currentKey,
+            selectedKeyName,
+          },
+        );
         return null;
       }
 
       const { column, row: rowData, newValue } = event;
 
       if (!rowData) {
-        logger.warn('keyvalue-data', 'createEditCommand: missing rowData');
+        logger.warn("keyvalue-data", "createEditCommand: missing rowData");
         return null;
       }
 
-      if (currentKey.type === 'list' || currentKey.type === 'set' || currentKey.type === 'stream') {
-        logger.info('keyvalue-data', 'createEditCommand: type not editable', { type: currentKey.type });
+      if (
+        currentKey.type === "list" ||
+        currentKey.type === "set" ||
+        currentKey.type === "stream"
+      ) {
+        logger.info("keyvalue-data", "createEditCommand: type not editable", {
+          type: currentKey.type,
+        });
         return null;
       }
 
-      if (currentKey.type === 'zset' && column.field !== 'score') {
-        logger.info('keyvalue-data', 'createEditCommand: zset only score editable');
+      if (currentKey.type === "zset" && column.field !== "score") {
+        logger.info(
+          "keyvalue-data",
+          "createEditCommand: zset only score editable",
+        );
         return null;
       }
 
       const rowKey = getRedisRowKey(rowData, currentKey.type);
-      const updateColumn = currentKey.type === 'hash'
-        ? String((rowKey as { field?: unknown }).field ?? column.field)
-        : column.field;
+      const updateColumn =
+        currentKey.type === "hash"
+          ? String((rowKey as { field?: unknown }).field ?? column.field)
+          : column.field;
 
       // Extract old value
       const cellValue = rowData[column.field];
-      const extractedOldValue = cellValue && typeof cellValue === 'object' && 'value' in cellValue
-        ? cellValue.value
-        : cellValue;
-      const oldValueJson: JsonValue = extractedOldValue === undefined ? null :
-        (extractedOldValue as JsonValue);
+      const extractedOldValue =
+        cellValue && typeof cellValue === "object" && "value" in cellValue
+          ? cellValue.value
+          : cellValue;
+      const oldValueJson: JsonValue =
+        extractedOldValue === undefined
+          ? null
+          : (extractedOldValue as JsonValue);
 
       // Extract new value from GridCell
       let newValueJson: JsonValue = null;
-      if ('data' in newValue) {
+      if ("data" in newValue) {
         const data = newValue.data;
-        if (typeof data === 'object' && data !== null && 'value' in data) {
+        if (typeof data === "object" && data !== null && "value" in data) {
           newValueJson = (data as { value: unknown }).value as JsonValue;
         } else if (
-          typeof data === 'string' ||
-          typeof data === 'number' ||
-          typeof data === 'boolean' ||
+          typeof data === "string" ||
+          typeof data === "number" ||
+          typeof data === "boolean" ||
           data === null
         ) {
           newValueJson = data;
@@ -733,7 +860,7 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
 
       const command: CrudCommand = {
         id: nanoid(),
-        type: 'data.update',
+        type: "data.update",
         target: {
           connectionId,
           database: String(database),
@@ -744,10 +871,10 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
           timestamp: new Date().toISOString(),
           description: `Update ${currentKey.type} field`,
         },
-        state: 'staged',
+        state: "staged",
       };
 
-      logger.info('keyvalue-data', 'createEditCommand: created command', {
+      logger.info("keyvalue-data", "createEditCommand: created command", {
         id: command.id,
         type: command.type,
         column: payload.column,
@@ -757,36 +884,36 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
 
       return command;
     },
-    [currentKey, selectedKeyName, connectionId, database]
+    [currentKey, selectedKeyName, connectionId, database],
   );
 
   const createInsertCommand = useCallback(
     (values: Record<string, unknown>): CrudCommand => {
-      const keyType = currentKey?.type ?? 'string';
+      const keyType = currentKey?.type ?? "string";
       const insertValues: Record<string, JsonValue> = {};
 
       switch (keyType) {
-        case 'hash': {
+        case "hash": {
           const field = values.field;
-          if (field !== undefined && field !== null && field !== '') {
+          if (field !== undefined && field !== null && field !== "") {
             insertValues[String(field)] = (values.value ?? null) as JsonValue;
           }
           break;
         }
-        case 'list':
+        case "list":
           insertValues.value = (values.value ?? null) as JsonValue;
           break;
-        case 'set':
+        case "set":
           insertValues.member = (values.member ?? null) as JsonValue;
           break;
-        case 'zset':
+        case "zset":
           insertValues.member = (values.member ?? null) as JsonValue;
           insertValues.score = (values.score ?? null) as JsonValue;
           break;
-        case 'stream':
+        case "stream":
           break;
-        case 'string':
-        case 'unknown':
+        case "string":
+        case "unknown":
         default:
           insertValues.value = (values.value ?? null) as JsonValue;
           break;
@@ -800,21 +927,21 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
 
       return {
         id: nanoid(),
-        type: 'data.insert',
+        type: "data.insert",
         target: {
           connectionId,
           database: String(database),
-          table: selectedKeyName || '',
+          table: selectedKeyName || "",
         },
         payload,
         metadata: {
           timestamp: new Date().toISOString(),
-          description: `Insert ${currentKey?.type || 'key'} value`,
+          description: `Insert ${currentKey?.type || "key"} value`,
         },
-        state: 'staged',
+        state: "staged",
       };
     },
-    [connectionId, database, selectedKeyName, currentKey]
+    [connectionId, database, selectedKeyName, currentKey],
   );
 
   const createDeleteCommand = useCallback(
@@ -822,27 +949,27 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
       const rowKey = currentKey ? getRedisRowKey(row, currentKey.type) : {};
 
       const payload: DataDeletePayload & { redisType?: string } = {
-        primaryKeys: { key: selectedKeyName || '', ...rowKey },
+        primaryKeys: { key: selectedKeyName || "", ...rowKey },
         redisType: currentKey?.type,
       };
 
       return {
         id: nanoid(),
-        type: 'data.delete',
+        type: "data.delete",
         target: {
           connectionId,
           database: String(database),
-          table: selectedKeyName || '',
+          table: selectedKeyName || "",
         },
         payload,
         metadata: {
           timestamp: new Date().toISOString(),
-          description: `Delete ${currentKey?.type || 'key'} value`,
+          description: `Delete ${currentKey?.type || "key"} value`,
         },
-        state: 'staged',
+        state: "staged",
       };
     },
-    [connectionId, database, selectedKeyName, currentKey]
+    [connectionId, database, selectedKeyName, currentKey],
   );
 
   // Build column maps for CrudCommandFactory
@@ -869,29 +996,29 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
       const rowKeyObj = getRedisRowKey(row, currentKey.type);
 
       // For hash: use field name
-      if (currentKey.type === 'hash' && 'field' in rowKeyObj) {
+      if (currentKey.type === "hash" && "field" in rowKeyObj) {
         return `${selectedKeyName}:field:${rowKeyObj.field}`;
       }
       // For list: use index
-      if (currentKey.type === 'list' && 'index' in rowKeyObj) {
+      if (currentKey.type === "list" && "index" in rowKeyObj) {
         return `${selectedKeyName}:index:${rowKeyObj.index}`;
       }
       // For set: use member value
-      if (currentKey.type === 'set' && 'member' in rowKeyObj) {
+      if (currentKey.type === "set" && "member" in rowKeyObj) {
         return `${selectedKeyName}:member:${rowKeyObj.member}`;
       }
       // For zset: use member value
-      if (currentKey.type === 'zset' && 'member' in rowKeyObj) {
+      if (currentKey.type === "zset" && "member" in rowKeyObj) {
         return `${selectedKeyName}:member:${rowKeyObj.member}`;
       }
       return `${selectedKeyName}:row-${index}`;
     },
-    [currentKey, selectedKeyName]
+    [currentKey, selectedKeyName],
   );
 
   // Helper to extract raw value from a CellValue wrapper
   const extractCellRaw = useCallback((cell: unknown): unknown => {
-    return cell && typeof cell === 'object' && 'value' in cell
+    return cell && typeof cell === "object" && "value" in cell
       ? (cell as { value: unknown }).value
       : cell;
   }, []);
@@ -904,79 +1031,100 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
       return {
         connectionId,
         database: String(database),
-        schema: '',
+        schema: "",
         table: browserTable,
-        primaryKeyColumns: ['key'],
+        primaryKeyColumns: ["key"],
         columnNameToFieldMap,
         columnByFieldMap,
         getRowKey: (row: GridRowModel | undefined, index: number): string => {
           if (!row) return `browser-row-${index}`;
-          const keyName = extractCellRaw(row['col_0']);
-          return keyName ? `browser:${String(keyName)}` : `browser-row-${index}`;
+          const keyName = extractCellRaw(row["col_0"]);
+          return keyName
+            ? `browser:${String(keyName)}`
+            : `browser-row-${index}`;
         },
 
         createEditCommand: (event: GridEditCommitEvent): CrudCommand | null => {
           const { column, row: rowData, newValue } = event;
           if (!rowData) return null;
 
-          const keyName = String(extractCellRaw(rowData['col_0']) ?? '');
+          const keyName = String(extractCellRaw(rowData["col_0"]) ?? "");
           if (!keyName) return null;
-          const rowType = String(extractCellRaw(rowData['col_1']) ?? 'unknown');
+          const rowType = String(extractCellRaw(rowData["col_1"]) ?? "unknown");
 
           // Extract new value from GridCell
           let newValueRaw: unknown = null;
-          if ('data' in newValue) {
+          if ("data" in newValue) {
             const d = newValue.data;
-            if (typeof d === 'object' && d !== null && 'value' in d) {
+            if (typeof d === "object" && d !== null && "value" in d) {
               newValueRaw = (d as { value: unknown }).value;
-            } else if (typeof d === 'string' || typeof d === 'number' || typeof d === 'boolean' || d === null) {
+            } else if (
+              typeof d === "string" ||
+              typeof d === "number" ||
+              typeof d === "boolean" ||
+              d === null
+            ) {
               newValueRaw = d;
             }
           }
 
           // Value edit (col_2) — only for string-type keys
-          if (column.field === 'col_2') {
-            if (rowType !== 'string') return null;
-            const oldValue = extractCellRaw(rowData['col_2']);
+          if (column.field === "col_2") {
+            if (rowType !== "string") return null;
+            const oldValue = extractCellRaw(rowData["col_2"]);
             return {
               id: nanoid(),
-              type: 'data.update',
-              target: { connectionId, database: String(database), table: browserTable },
+              type: "data.update",
+              target: {
+                connectionId,
+                database: String(database),
+                table: browserTable,
+              },
               payload: {
-                column: 'value',
+                column: "value",
                 primaryKeys: { key: keyName },
                 oldValue: (oldValue ?? null) as JsonValue,
                 newValue: (newValueRaw ?? null) as JsonValue,
-                redisType: 'string',
+                redisType: "string",
               },
-              metadata: { timestamp: new Date().toISOString(), description: `SET ${keyName}` },
-              state: 'staged',
+              metadata: {
+                timestamp: new Date().toISOString(),
+                description: `SET ${keyName}`,
+              },
+              state: "staged",
             };
           }
 
           // TTL edit (col_3)
-          if (column.field === 'col_3') {
-            const oldTtl = extractCellRaw(rowData['col_3']);
-            const ttlStr = String(newValueRaw ?? '');
+          if (column.field === "col_3") {
+            const oldTtl = extractCellRaw(rowData["col_3"]);
+            const ttlStr = String(newValueRaw ?? "");
             const seconds = parseInt(ttlStr, 10);
             return {
               id: nanoid(),
-              type: 'data.update',
-              target: { connectionId, database: String(database), table: browserTable },
+              type: "data.update",
+              target: {
+                connectionId,
+                database: String(database),
+                table: browserTable,
+              },
               payload: {
-                column: 'ttl',
+                column: "ttl",
                 primaryKeys: { key: keyName },
                 oldValue: (oldTtl ?? null) as JsonValue,
-                newValue: (Number.isFinite(seconds) ? seconds : -1) as JsonValue,
+                newValue: (Number.isFinite(seconds)
+                  ? seconds
+                  : -1) as JsonValue,
                 redisType: rowType,
               },
               metadata: {
                 timestamp: new Date().toISOString(),
-                description: Number.isFinite(seconds) && seconds > 0
-                  ? `EXPIRE ${keyName} ${seconds}`
-                  : `PERSIST ${keyName}`,
+                description:
+                  Number.isFinite(seconds) && seconds > 0
+                    ? `EXPIRE ${keyName} ${seconds}`
+                    : `PERSIST ${keyName}`,
               },
-              state: 'staged',
+              state: "staged",
             };
           }
 
@@ -987,23 +1135,36 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
           // New key creation from browser grid is not supported
           return {
             id: nanoid(),
-            type: 'data.insert',
-            target: { connectionId, database: String(database), table: '' },
+            type: "data.insert",
+            target: { connectionId, database: String(database), table: "" },
             payload: { values: {} },
-            metadata: { timestamp: new Date().toISOString(), description: 'New key' },
-            state: 'staged',
+            metadata: {
+              timestamp: new Date().toISOString(),
+              description: "New key",
+            },
+            state: "staged",
           };
         },
 
-        createDeleteCommand: (row: GridRowModel, _rowKey: string): CrudCommand => {
-          const keyName = String(extractCellRaw(row['col_0']) ?? '');
+        createDeleteCommand: (
+          row: GridRowModel,
+          _rowKey: string,
+        ): CrudCommand => {
+          const keyName = String(extractCellRaw(row["col_0"]) ?? "");
           return {
             id: nanoid(),
-            type: 'data.delete',
-            target: { connectionId, database: String(database), table: browserTable },
+            type: "data.delete",
+            target: {
+              connectionId,
+              database: String(database),
+              table: browserTable,
+            },
             payload: { primaryKeys: { key: keyName } },
-            metadata: { timestamp: new Date().toISOString(), description: `DEL ${keyName}` },
-            state: 'staged',
+            metadata: {
+              timestamp: new Date().toISOString(),
+              description: `DEL ${keyName}`,
+            },
+            state: "staged",
           };
         },
       };
@@ -1012,24 +1173,28 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
     // ===== Key view mode factory: hash, list, set, zset =====
     if (!currentKey || !selectedKeyName) return undefined;
     // Streams are read-only, strings are single-value (no row-level CRUD)
-    if (currentKey.type === 'string' || currentKey.type === 'stream' || currentKey.type === 'unknown') {
+    if (
+      currentKey.type === "string" ||
+      currentKey.type === "stream" ||
+      currentKey.type === "unknown"
+    ) {
       return undefined;
     }
 
     // Determine primary key columns based on Redis type
     const primaryKeyColumns: string[] = [];
-    if (currentKey.type === 'hash') {
-      primaryKeyColumns.push('field');
-    } else if (currentKey.type === 'list') {
-      primaryKeyColumns.push('index');
-    } else if (currentKey.type === 'set' || currentKey.type === 'zset') {
-      primaryKeyColumns.push('member');
+    if (currentKey.type === "hash") {
+      primaryKeyColumns.push("field");
+    } else if (currentKey.type === "list") {
+      primaryKeyColumns.push("index");
+    } else if (currentKey.type === "set" || currentKey.type === "zset") {
+      primaryKeyColumns.push("member");
     }
 
     return {
       connectionId,
       database: String(database),
-      schema: '',
+      schema: "",
       table: selectedKeyName,
       primaryKeyColumns,
       columnNameToFieldMap,
@@ -1068,12 +1233,10 @@ export function useKeyValueData(params: UseKeyValueDataParams): KeyValueDataHook
   const isLoading = isBrowserMode
     ? isLoadingBrowser || isFetchingNextBrowserPage
     : isLoadingMetadata || isLoadingData;
-  const error = isBrowserMode
-    ? (browserError as Error | null)
-    : ((metadataError || dataError) as Error | null);
+  const error = isBrowserMode ? browserError : metadataError || dataError;
 
   return {
-    paradigm: 'keyvalue',
+    paradigm: "keyvalue",
     rows,
     columns,
     getCellContent,

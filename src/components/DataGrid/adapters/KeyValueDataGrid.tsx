@@ -221,7 +221,7 @@ const KeyBrowserToolbar = memo(function KeyBrowserToolbar({
           ) : (
             displayedCount
           )}
-          {totalKeyCount !== undefined && totalKeyCount > loadedCount && (
+          {totalKeyCount !== undefined && totalKeyCount > displayedCount && totalKeyCount !== loadedCount && (
             <span className="text-muted-foreground/70"> / {totalKeyCount}</span>
           )}
           {' keys'}

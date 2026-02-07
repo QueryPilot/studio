@@ -282,7 +282,7 @@ setup: docker-up
 	@echo "Database Connections:"
 	@echo "  PostgreSQL: localhost:15432 (user: devuser, pass: devpass123, db: todoapp)"
 	@echo "  MySQL:      localhost:13306 (user: devuser, pass: devpass123, db: todoapp)"
-	@echo "  SQLite:     seeds/sqlite/todoapp.db"
+	@echo "  SQLite:     seeds/sqlite/query_pilot_test.db"
 	@echo "  SQL Server: localhost:11434 (user: sa, pass: DevPass123, db: todoapp)"
 	@echo "  Oracle:     localhost:11521 (user: todoapp, pass: DevPass123, service: XE)"
 	@echo "  MongoDB:    localhost:17017 (user: devuser, pass: devpass123, db: todoapp)"

@@ -64,7 +64,7 @@ make seed-mysql      # Seed MySQL only
 **Test Databases** (via `make setup`):
 - PostgreSQL: `localhost:15432`
 - MySQL: `localhost:13306`
-- SQLite: `seeds/sqlite/todoapp.db`
+- SQLite: `seeds/sqlite/query_pilot_test.db`
 - SQL Server: `localhost:11434`
 - Oracle: `localhost:11521`
 
