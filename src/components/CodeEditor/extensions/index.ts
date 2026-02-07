@@ -22,3 +22,9 @@ export { createRefactoringExtension } from "./sql-refactoring";
 export type { RefactorOptions } from "./sql-refactoring";
 
 export { startRename } from "./inline-rename";
+
+export { createScrollbarMarkersExtension } from "./scrollbar-markers";
+
+export { createFormatOnPasteExtension } from "./format-on-paste";
+
+export { createQueryHistoryNavExtension } from "./query-history-navigation";

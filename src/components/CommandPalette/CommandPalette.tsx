@@ -13,7 +13,7 @@ import {
   IconTable,
   IconTerminal2,
 } from "@tabler/icons-react";
-import Fuse, { type IFuseOptions } from "fuse.js";
+import { matchSorter, rankings } from "match-sorter";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -67,21 +67,6 @@ import {
 const MAX_RECENT_ITEMS_EMPTY = 12;
 const MAX_RECENT_ITEMS_SEARCH = 8;
 const MAX_RESULTS_PER_GROUP = 50;
-
-// Fuse.js configuration for unified items
-const UNIFIED_FUSE_OPTIONS: IFuseOptions<UnifiedItem> = {
-  keys: [
-    { name: "name", weight: 0.6 },
-    { name: "keywords", weight: 0.3 },
-    { name: "subtitle", weight: 0.1 },
-  ],
-  threshold: 0.35,
-  ignoreLocation: true,
-  findAllMatches: true,
-  includeScore: true,
-  includeMatches: true,
-  minMatchCharLength: 1,
-};
 
 type ItemGroup =
   | "Recently Used"
@@ -144,7 +129,6 @@ export function CommandPalette(): React.ReactElement {
   const actionsButtonRef = useRef<HTMLButtonElement>(null);
   const [selectedValue, setSelectedValue] = useState<string>("");
   const [actionsOpen, setActionsOpen] = useState(false);
-  const [indexReady, setIndexReady] = useState(false);
   // Track when content is ready to render (after first paint)
   const [contentReady, setContentReady] = useState(false);
 
@@ -221,7 +205,6 @@ export function CommandPalette(): React.ReactElement {
   useEffect(() => {
     if (!isOpen) {
       setContentReady(false);
-      setIndexReady(false);
       return;
     }
     // Use double-rAF to ensure we're past the first paint
@@ -237,35 +220,25 @@ export function CommandPalette(): React.ReactElement {
     return () => { cancelled = true; };
   }, [isOpen]);
 
-  // Defer Fuse index creation until after content is ready
-  useEffect(() => {
-    if (!contentReady) {
-      setIndexReady(false);
-      return;
-    }
-    // When content is ready, defer index creation slightly more
-    if (typeof requestIdleCallback !== "undefined") {
-      const id = requestIdleCallback(() => { setIndexReady(true); }, { timeout: 50 });
-      return () => { cancelIdleCallback(id); };
-    }
-    // Fallback for browsers without requestIdleCallback
-    const id = setTimeout(() => { setIndexReady(true); }, 16);
-    return () => { clearTimeout(id); };
-  }, [contentReady]);
+  const searchQuery = deferredQuery.trim();
 
-  const searchQuery = deferredQuery.trim().toLowerCase();
-
-  // Consolidated Fuse index - only created when content is ready and index is ready
-  const fuseIndex = useMemo(() => {
-    if (!contentReady || !indexReady) return null;
-    return new Fuse(unifiedItems, UNIFIED_FUSE_OPTIONS);
-  }, [contentReady, indexReady, unifiedItems]);
-
-  // Search results from the consolidated index
+  // Ranked search results
   const searchResults = useMemo(() => {
-    if (!searchQuery || !fuseIndex) return null;
-    return fuseIndex.search(searchQuery);
-  }, [fuseIndex, searchQuery]);
+    if (!searchQuery) return null;
+    return matchSorter(unifiedItems, searchQuery, {
+      keys: [
+        { key: "name", maxRanking: rankings.STARTS_WITH },
+        { key: "keywords", maxRanking: rankings.WORD_STARTS_WITH },
+        { key: "subtitle", maxRanking: rankings.CONTAINS },
+      ],
+      threshold: rankings.MATCHES,
+    });
+  }, [searchQuery, unifiedItems]);
+
+  const searchRankMap = useMemo(() => {
+    if (!searchResults) return null;
+    return new Map(searchResults.map((item, index) => [item.id, index]));
+  }, [searchResults]);
 
   // Get recently used items - only compute when content is ready
   const recentItems = useMemo(() => {
@@ -280,13 +253,12 @@ export function CommandPalette(): React.ReactElement {
       return getTopFrecencyItems(unifiedItems, limit);
     }
 
-    // When searching but index not ready, show empty results
     if (!searchResults) {
       return [];
     }
 
     // When searching, filter recent items by query match
-    const matchedIds = new Set(searchResults.map((r) => r.item.id));
+    const matchedIds = new Set(searchResults.map((item) => item.id));
     return getTopFrecencyItems(
       unifiedItems.filter((item) => matchedIds.has(item.id)),
       limit,
@@ -307,18 +279,16 @@ export function CommandPalette(): React.ReactElement {
       (item) => !recentItemIds.has(item.id),
     );
 
-    // Track Fuse scores when searching
-    let scoreMap: Map<string, number> | null = null;
+    // Track ranking positions when searching
+    let rankMap: Map<string, number> | null = null;
 
     if (searchQuery) {
-      // When searching but index not ready, show empty results
       if (!searchResults) {
         return [];
       }
 
-      // Build score map from search results
-      scoreMap = new Map(searchResults.map((r) => [r.item.id, r.score ?? 1]));
-      const matchedIds = new Set(searchResults.map((r) => r.item.id));
+      rankMap = searchRankMap;
+      const matchedIds = new Set(searchResults.map((item) => item.id));
       itemsToGroup = itemsToGroup.filter((item) => matchedIds.has(item.id));
     }
 
@@ -337,13 +307,15 @@ export function CommandPalette(): React.ReactElement {
     // Sort within groups
     for (const [group, items] of groups) {
       let sortedItems: UnifiedItem[];
-      if (scoreMap) {
-        // When searching, sort by Fuse score (relevance)
-        const scores = scoreMap; // Capture for closure
+      if (rankMap) {
+        // When searching, sort by overall search ranking
+        const ranks = rankMap; // Capture for closure
         sortedItems = [...items].sort((a, b) => {
-          const scoreA = scores.get(a.id) ?? 1;
-          const scoreB = scores.get(b.id) ?? 1;
-          return scoreA - scoreB;
+          const rankA = ranks.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+          const rankB = ranks.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+          if (rankA !== rankB) return rankA - rankB;
+          const frecencySorted = sortByFrecency([a, b]);
+          return frecencySorted[0]?.id === a.id ? -1 : 1;
         });
       } else {
         // When not searching, sort by frecency
@@ -358,7 +330,7 @@ export function CommandPalette(): React.ReactElement {
       const items = groups.get(group);
       return [group, items ?? []] as [ItemGroup, UnifiedItem[]];
     });
-  }, [contentReady, unifiedItems, searchQuery, searchResults, recentItemIds, sortByFrecency]);
+  }, [contentReady, unifiedItems, searchQuery, searchResults, searchRankMap, recentItemIds, sortByFrecency]);
 
   // Find the selected item for actions
   const selectedItem = useMemo(() => {
@@ -809,8 +781,6 @@ export function CommandPalette(): React.ReactElement {
 
   const emptyMessage = isLoading
     ? ""
-    : searchQuery && !indexReady
-    ? "Indexing..."
     : searchQuery
     ? "No results found."
     : "No items available.";

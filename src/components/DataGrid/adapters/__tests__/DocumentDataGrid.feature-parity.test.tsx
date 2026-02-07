@@ -14,13 +14,41 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactElement, ReactNode } from "react";
 import { DocumentDataGrid } from "../DocumentDataGrid";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+const mocks = vi.hoisted(() => ({
+  stageCommand: vi.fn(),
+  useDocumentData: vi.fn(),
+}));
+
 // Mock dependencies
 vi.mock("@/adapters/mongodb/MongoDBAdapter");
-vi.mock("@/stores/crudStore");
-vi.mock("@/hooks/useDocumentData");
+vi.mock("@/stores/crudStore", () => ({
+  useCrudStore: (
+    selector?: (state: { stageCommand: typeof mocks.stageCommand }) => unknown,
+  ) => {
+    const state = { stageCommand: mocks.stageCommand };
+    return selector ? selector(state) : state;
+  },
+}));
+vi.mock("../../hooks/useDocumentData", () => ({
+  useDocumentData: (...args: unknown[]) => mocks.useDocumentData(...args),
+}));
+vi.mock("../../base/BaseDataGrid", () => ({
+  BaseDataGrid: ({
+    className,
+    topToolbar,
+  }: {
+    className?: string;
+    topToolbar?: ReactNode;
+  }) => (
+    <div data-testid="data-grid" role="grid" className={className}>
+      {topToolbar}
+    </div>
+  ),
+}));
 
 const createTestQueryClient = () =>
   new QueryClient({
@@ -38,7 +66,7 @@ const defaultProps = {
   pageSize: 50,
 };
 
-const renderWithProviders = (ui: React.ReactElement) => {
+const renderWithProviders = (ui: ReactElement) => {
   const queryClient = createTestQueryClient();
   return render(
     <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>,
@@ -48,6 +76,40 @@ const renderWithProviders = (ui: React.ReactElement) => {
 describe("DocumentDataGrid Feature Parity", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.useDocumentData.mockReturnValue({
+      paradigm: "document",
+      rows: [],
+      columns: [
+        {
+          id: "_id",
+          field: "_id",
+          title: "_id",
+          name: "_id",
+          width: 180,
+          type: "text",
+        },
+      ],
+      getCellContent: vi.fn(),
+      isLoading: false,
+      isLoadingMore: false,
+      error: null,
+      hasMore: false,
+      fetchNextPage: vi.fn(),
+      refetch: vi.fn().mockResolvedValue(undefined),
+      executionTime: 0,
+      currentPath: [],
+      canStepInto: vi.fn().mockReturnValue(false),
+      stepInto: vi.fn(),
+      stepOut: vi.fn(),
+      navigateToPath: vi.fn(),
+      getCurrentDocumentId: vi.fn().mockReturnValue(null),
+      totalCount: 0,
+      schemaSample: undefined,
+      createEditCommand: vi.fn().mockReturnValue(null),
+      createInsertCommand: vi.fn(),
+      createDeleteCommand: vi.fn(),
+      commandFactory: undefined,
+    });
   });
 
   describe("Sorting Features", () => {
@@ -62,7 +124,7 @@ describe("DocumentDataGrid Feature Parity", () => {
     });
 
     it("supports multi-column sorting with Shift+click", async () => {
-      const user = userEvent.setup();
+      userEvent.setup();
       renderWithProviders(<DocumentDataGrid {...defaultProps} />);
 
       // Multi-column sort is handled by BaseDataGrid's useColumnSorting hook

@@ -13,11 +13,19 @@ import { useQuery } from '@tanstack/react-query';
 import type { GridCell, Item } from '@glideapps/glide-data-grid';
 import { GridCellKind } from '@glideapps/glide-data-grid';
 import { nanoid } from 'nanoid';
-import type { GridColumnV2, GridRowModel, GridEditCommitEvent, CrudCommandFactory, SortColumn } from '../types';
+import type {
+  GridColumnV2,
+  GridRowModel,
+  GridEditCommitEvent,
+  CrudCommandFactory,
+  SortColumn,
+  GridActivationEvent,
+} from '../types';
 import type { DocumentDataHookResult, PathSegment } from '../sources/types';
 import type { CrudCommand, DataUpdatePayload, DataInsertPayload, DataDeletePayload, JsonValue } from '@/types/crud';
 import type { GridCellValueType } from '@/types/cellValue';
 import { MongoDBAdapter } from '@/adapters/mongodb/MongoDBAdapter';
+import type { CursorToken } from '@/adapters/types/mongodb';
 import {
   buildDocumentCell,
   generateColumnsFromDocuments,
@@ -51,6 +59,8 @@ export interface UseDocumentDataParams {
   enabled?: boolean;
   /** Filter for server-side (query mode) or client-side (search mode) filtering */
   filter?: DocumentFilter;
+  flattenMode?: boolean;
+  flattenDepth?: number;
 }
 
 interface DocumentWithId extends Record<string, unknown> {
@@ -60,6 +70,62 @@ interface DocumentWithId extends Record<string, unknown> {
 type DocumentId = string | number | Record<string, unknown>;
 
 const DEFAULT_PAGE_SIZE = 50;
+const MAX_ROOT_BUFFER_DOCS = 10000;
+
+function flattenDocumentRecord(
+  value: unknown,
+  prefix: string,
+  depth: number,
+  maxDepth: number,
+  out: Record<string, unknown>
+): void {
+  if (depth >= maxDepth || value === null || value === undefined) {
+    if (prefix) {
+      out[prefix] = value;
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    if (prefix) {
+      out[prefix] = value;
+    }
+    return;
+  }
+
+  if (typeof value !== 'object') {
+    if (prefix) {
+      out[prefix] = value;
+    }
+    return;
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) {
+    if (prefix) {
+      out[prefix] = value;
+    }
+    return;
+  }
+
+  for (const [key, child] of entries) {
+    const nextPrefix = prefix ? `${prefix}.${key}` : key;
+    flattenDocumentRecord(child, nextPrefix, depth + 1, maxDepth, out);
+  }
+}
+
+function flattenDocumentForGrid(doc: Record<string, unknown>, maxDepth: number): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  flattenDocumentRecord(doc, '', 0, maxDepth, out);
+  return out;
+}
+
+function projectionPathFromSamplePath(path: string): string | null {
+  if (!path || path.includes('[]')) {
+    return null;
+  }
+  return path;
+}
 
 // ============================================================================
 // Hook Implementation
@@ -74,6 +140,8 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     pageSize = DEFAULT_PAGE_SIZE,
     enabled = true,
     filter,
+    flattenMode = false,
+    flattenDepth = 3,
   } = params;
 
   // Get sort state from grid preferences
@@ -107,9 +175,31 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
   // Navigation state
   const [currentPath, setCurrentPath] = useState<PathSegment[]>([]);
   const [currentDocumentId, setCurrentDocumentId] = useState<DocumentId | null>(null);
-  const [currentPage, setCurrentPage] = useState(0);
-  const [pagedDocuments, setPagedDocuments] = useState<DocumentWithId[]>([]);
+  const [rootDocuments, setRootDocuments] = useState<DocumentWithId[]>([]);
+  const [nextCursor, setNextCursor] = useState<CursorToken | null>(null);
+  const [rootHasMore, setRootHasMore] = useState(true);
+  const [rootError, setRootError] = useState<Error | null>(null);
+  const [isRootLoading, setIsRootLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [executionTime, setExecutionTime] = useState<number | undefined>(undefined);
+  const rootRequestVersionRef = useRef(0);
+  const nextCursorRef = useRef<CursorToken | null>(null);
+  const rootHasMoreRef = useRef(true);
+  const isLoadingMoreRef = useRef(false);
+  const schemaProjectionRef = useRef<Record<string, 0 | 1> | undefined>(undefined);
+  const projectionSignatureRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    nextCursorRef.current = nextCursor;
+  }, [nextCursor]);
+
+  useEffect(() => {
+    rootHasMoreRef.current = rootHasMore;
+  }, [rootHasMore]);
+
+  useEffect(() => {
+    isLoadingMoreRef.current = isLoadingMore;
+  }, [isLoadingMore]);
 
   // Get or create adapter
   const getAdapter = useCallback(() => {
@@ -119,37 +209,94 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     return adapterRef.current;
   }, [connectionId]);
 
-  // Query key for document fetching (includes filter and sort for server-side queries)
-  const queryKey = useMemo(
-    () => ['document-data', connectionId, database, collection, currentPath, currentDocumentId, currentPage, serverQuery, mongoSort],
-    [connectionId, database, collection, currentPath, currentDocumentId, currentPage, serverQuery, mongoSort]
+  const fetchRootPage = useCallback(
+    async (reset: boolean): Promise<void> => {
+      if (currentPath.length > 0 || !enabled || !connectionId || !collection) {
+        return;
+      }
+      if (!reset && (!rootHasMoreRef.current || isLoadingMoreRef.current)) {
+        return;
+      }
+
+      const adapter = getAdapter();
+      const requestVersion = ++rootRequestVersionRef.current;
+
+      if (reset) {
+        setIsRootLoading(true);
+        setIsLoadingMore(false);
+        setRootError(null);
+      } else {
+        setIsLoadingMore(true);
+      }
+
+      const startTime = performance.now();
+      try {
+        const page = await adapter.findDocumentsPage(collection, serverQuery, {
+          limit: pageSize,
+          sort: mongoSort,
+          projection: schemaProjectionRef.current,
+          cursor: reset ? null : nextCursorRef.current,
+        });
+
+        if (requestVersion !== rootRequestVersionRef.current) {
+          return;
+        }
+
+        const incomingDocs = page.documents as DocumentWithId[];
+        setRootDocuments((prev) => {
+          const merged = reset ? incomingDocs : [...prev, ...incomingDocs];
+          if (merged.length <= MAX_ROOT_BUFFER_DOCS) {
+            return merged;
+          }
+          return merged.slice(merged.length - MAX_ROOT_BUFFER_DOCS);
+        });
+        setNextCursor(page.nextCursor ?? null);
+        setRootHasMore(page.hasMore);
+      } catch (err) {
+        if (requestVersion !== rootRequestVersionRef.current) {
+          return;
+        }
+        const normalized = err instanceof Error ? err : new Error(String(err));
+        setRootError(normalized);
+        logger.error('document-data', 'Failed to fetch root page', normalized);
+      } finally {
+        if (requestVersion === rootRequestVersionRef.current) {
+          const endTime = performance.now();
+          setExecutionTime(Math.round(endTime - startTime));
+          setIsRootLoading(false);
+          setIsLoadingMore(false);
+        }
+      }
+    },
+    [
+      collection,
+      currentPath.length,
+      enabled,
+      connectionId,
+      getAdapter,
+      mongoSort,
+      pageSize,
+      serverQuery,
+    ]
   );
 
-  // Fetch documents
+  // Fetch drilled-in (nested) data
+  const nestedQueryKey = useMemo(
+    () => ['document-nested-data', connectionId, database, collection, currentPath, currentDocumentId],
+    [connectionId, database, collection, currentPath, currentDocumentId]
+  );
+
   const {
-    data: rawDocuments,
-    isLoading,
-    error,
-    refetch: refetchQuery,
+    data: nestedDocuments,
+    isLoading: isNestedLoading,
+    error: nestedError,
+    refetch: refetchNestedQuery,
   } = useQuery({
-    queryKey,
+    queryKey: nestedQueryKey,
     queryFn: async () => {
       const startTime = performance.now();
       const adapter = getAdapter();
-
       try {
-        // If we're at root level, fetch collection documents (with optional server-side filter and sort)
-        if (currentPath.length === 0) {
-          const docs = await adapter.findDocuments(collection, serverQuery, {
-            skip: currentPage * pageSize,
-            limit: pageSize,
-            sort: mongoSort,
-          });
-          return docs as DocumentWithId[];
-        }
-
-        // If we're drilled into a document, we need to get the nested data
-        // First, fetch the document
         const docId = currentDocumentId;
         if (!docId) {
           return [];
@@ -160,7 +307,6 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
           return [];
         }
 
-        // Navigate the path to get the nested data
         let current: unknown = docs[0];
         for (const segment of currentPath) {
           if (current === null || current === undefined) {
@@ -175,23 +321,20 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
           }
         }
 
-        // Return the nested data as array for grid display
         if (Array.isArray(current)) {
-          // For arrays, wrap each item with index
           return current.map((item, index) => ({ __index: index, __value: item }));
-        } else if (typeof current === 'object' && current !== null) {
-          // For objects at nested level, return as single-item array
+        }
+        if (typeof current === 'object' && current !== null) {
           return [current as DocumentWithId];
         }
-
         return [];
       } finally {
         const endTime = performance.now();
         setExecutionTime(Math.round(endTime - startTime));
       }
     },
-    enabled: enabled && !!connectionId && !!collection,
-    staleTime: 30000, // 30 seconds
+    enabled: enabled && !!connectionId && !!collection && currentPath.length > 0,
+    staleTime: 30000,
   });
 
   // Query key for total count (includes filter for accurate counts)
@@ -217,30 +360,121 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     staleTime: 60000, // 1 minute (counts change less frequently)
   });
 
+  const { data: schemaSample } = useQuery({
+    queryKey: ['document-schema-sample', connectionId, database, collection, serverQuery, flattenDepth],
+    queryFn: async () => {
+      const adapter = getAdapter();
+      return adapter.sampleCollectionSchema(collection, serverQuery, {
+        sampleSize: 600,
+        maxDepth: flattenDepth,
+      });
+    },
+    enabled: enabled && !!connectionId && !!collection && currentPath.length === 0 && flattenMode,
+    staleTime: 120000,
+  });
+
+  const flattenProjection = useMemo<Record<string, 0 | 1> | undefined>(() => {
+    if (!flattenMode || !schemaSample || schemaSample.fields.length === 0) {
+      return undefined;
+    }
+
+    const projection: Record<string, 0 | 1> = { _id: 1 };
+    const candidatePaths = schemaSample.fields
+      .map((field) => projectionPathFromSamplePath(field.path))
+      .filter((path): path is string => Boolean(path))
+      .slice(0, 120);
+
+    for (const path of candidatePaths) {
+      projection[path] = 1;
+    }
+
+    return projection;
+  }, [flattenMode, schemaSample]);
+  const flattenProjectionSignature = useMemo(
+    () => (flattenProjection ? JSON.stringify(flattenProjection) : '__none__'),
+    [flattenProjection]
+  );
+
   useEffect(() => {
-    if (!rawDocuments) {
-      setPagedDocuments([]);
+    schemaProjectionRef.current = flattenProjection;
+  }, [flattenProjection]);
+
+  useEffect(() => {
+    if (currentPath.length > 0 || !enabled || !connectionId || !collection) {
       return;
     }
 
+    if (projectionSignatureRef.current === null) {
+      projectionSignatureRef.current = flattenProjectionSignature;
+      return;
+    }
+
+    if (projectionSignatureRef.current === flattenProjectionSignature) {
+      return;
+    }
+
+    projectionSignatureRef.current = flattenProjectionSignature;
+    rootRequestVersionRef.current += 1;
+    setRootDocuments([]);
+    setNextCursor(null);
+    setRootHasMore(true);
+    setRootError(null);
+
+    void fetchRootPage(true);
+  }, [
+    currentPath.length,
+    enabled,
+    connectionId,
+    collection,
+    flattenProjectionSignature,
+    fetchRootPage,
+  ]);
+
+  useEffect(() => {
+    if (currentPath.length > 0 || !enabled || !connectionId || !collection) {
+      return;
+    }
+
+    rootRequestVersionRef.current += 1;
+    setRootDocuments([]);
+    setNextCursor(null);
+    setRootHasMore(true);
+    setRootError(null);
+
+    void fetchRootPage(true);
+  }, [
+    connectionId,
+    database,
+    collection,
+    enabled,
+    currentPath.length,
+    pageSize,
+    serverQuery,
+    mongoSort,
+    fetchRootPage,
+  ]);
+
+  useEffect(() => {
     if (currentPath.length > 0) {
-      return;
+      rootRequestVersionRef.current += 1;
+      setIsRootLoading(false);
+      setIsLoadingMore(false);
     }
-
-    setPagedDocuments((prev) => {
-      const nextPage = rawDocuments as DocumentWithId[];
-      if (currentPage === 0) {
-        return nextPage;
-      }
-      if (nextPage.length === 0) {
-        return prev;
-      }
-      return [...prev, ...nextPage];
-    });
-  }, [rawDocuments, currentPage, currentPath.length]);
+  }, [currentPath.length]);
 
   // Transform documents to rows
-  const documents = currentPath.length > 0 ? (rawDocuments || []) : pagedDocuments;
+  const documents = useMemo(
+    () => (currentPath.length > 0 ? nestedDocuments ?? [] : rootDocuments),
+    [currentPath.length, nestedDocuments, rootDocuments]
+  );
+  const displayDocuments = useMemo(() => {
+    if (currentPath.length > 0 || !flattenMode) {
+      return documents;
+    }
+    return (documents as Record<string, unknown>[]).map((doc) =>
+      flattenDocumentForGrid(doc, flattenDepth)
+    );
+  }, [currentPath.length, documents, flattenMode, flattenDepth]);
 
   // Generate columns based on current level
   const columns = useMemo<GridColumnV2[]>(() => {
@@ -251,15 +485,15 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       }
     }
 
-    if (documents.length === 0) {
+    if (displayDocuments.length === 0) {
       // Default columns when no documents
       return [
         { id: '_id', field: '_id', title: '_id', name: '_id', width: 220 },
       ];
     }
 
-    return generateColumnsFromDocuments(documents as Record<string, unknown>[]);
-  }, [documents, currentPath]);
+    return generateColumnsFromDocuments(displayDocuments as Record<string, unknown>[]);
+  }, [displayDocuments, currentPath]);
 
   // Map document value type to GridCellValueType
   const mapToGridCellValueType = (docType: ReturnType<typeof detectDocumentValueType>): GridCellValueType => {
@@ -287,10 +521,10 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
   // Transform documents to GridRowModel (with optional client-side search filtering)
   const rows = useMemo<GridRowModel[]>(() => {
     // Apply client-side search filter if in search mode
-    let filteredDocs = documents;
+    let filteredDocs = displayDocuments;
     if (filter?.mode === 'search' && filter.searchText) {
       filteredDocs = applyDocumentColumnSearch(
-        documents as Record<string, unknown>[],
+        displayDocuments as Record<string, unknown>[],
         filter.searchText
       ) as typeof documents;
     }
@@ -310,7 +544,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       }
       return row;
     });
-  }, [documents, columns, filter]);
+  }, [displayDocuments, columns, filter]);
 
   // Get cell content for grid
   const getCellContent = useCallback(
@@ -342,58 +576,63 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     [columns, rows]
   );
 
+  const getRawValueFromRow = useCallback(
+    (rowData: GridRowModel | undefined, column: GridColumnV2): unknown => {
+      if (!rowData) return undefined;
+      const cellValue = rowData[column.field];
+      if (cellValue && typeof cellValue === 'object' && 'value' in cellValue) {
+        return (cellValue as { value?: unknown }).value;
+      }
+      return cellValue;
+    },
+    []
+  );
+
   // Check if a cell can be drilled into
   const canStepInto = useCallback(
-    (row: number, col: number): boolean => {
-      const column = columns[col];
-      const rowData = rows[row];
-
-      if (!column || !rowData) {
+    (event: GridActivationEvent): boolean => {
+      const { row, column } = event;
+      if (!row) {
         return false;
       }
 
-      const cellValue = rowData[column.field];
-      const rawValue = cellValue?.value;
+      const rawValue = getRawValueFromRow(row, column);
       const valueType = detectDocumentValueType(rawValue);
-
       return valueType === 'object' || valueType === 'array';
     },
-    [columns, rows]
+    [getRawValueFromRow]
   );
 
   // Step into a nested object/array
   const stepInto = useCallback(
-    (row: number, col: number): void => {
-      const column = columns[col];
-      const rowData = rows[row];
-
-      if (!column || !rowData || !canStepInto(row, col)) {
+    (event: GridActivationEvent): void => {
+      const { row: rowData, column } = event;
+      if (!rowData || !canStepInto(event)) {
         return;
       }
 
-      const cellValue = rowData[column.field];
-      const rawValue = cellValue?.value;
+      const rawValue = getRawValueFromRow(rowData, column);
       const valueType = detectDocumentValueType(rawValue);
 
-      // Set the document ID if we're at root level
+      // Resolve and set document ID using row data (safe across sorting/pinning)
       if (currentPath.length === 0) {
-        const doc = documents[row] as DocumentWithId;
-        const docId = doc?._id;
-        if (docId !== undefined) {
-          setCurrentDocumentId(docId as DocumentId);
+        const idCell = rowData._id;
+        const idValue =
+          idCell && typeof idCell === 'object' && 'value' in idCell
+            ? (idCell as { value?: unknown }).value
+            : idCell;
+        if (idValue !== undefined && idValue !== null) {
+          setCurrentDocumentId(idValue as DocumentId);
         }
       }
 
       const isArrayLevel = currentPath.length > 0 && currentPath[currentPath.length - 1]?.type === 'array';
-      const arrayIndex = isArrayLevel ? (rowData.__index as { value?: unknown } | undefined)?.value : undefined;
-      const segmentKey = isArrayLevel && typeof arrayIndex === 'number'
-        ? arrayIndex
-        : column.field;
-      const segmentLabel = isArrayLevel && typeof arrayIndex === 'number'
-        ? `[${arrayIndex}]`
-        : (column.title || column.field);
+      const arrayIndex = isArrayLevel
+        ? (rowData.__index as { value?: unknown } | undefined)?.value
+        : undefined;
+      const segmentKey = isArrayLevel && typeof arrayIndex === 'number' ? arrayIndex : column.field;
+      const segmentLabel = isArrayLevel && typeof arrayIndex === 'number' ? `[${arrayIndex}]` : (column.title || column.field);
 
-      // Add new path segment
       const newSegment: PathSegment = {
         key: segmentKey,
         label: segmentLabel,
@@ -401,11 +640,10 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       };
 
       setCurrentPath((prev) => [...prev, newSegment]);
-      setCurrentPage(0);
 
       logger.info('document-data', `Stepped into ${column.field}`, { path: [...currentPath, newSegment] });
     },
-    [columns, rows, canStepInto, documents, currentPath]
+    [canStepInto, currentPath, getRawValueFromRow]
   );
 
   // Step out one level
@@ -415,7 +653,6 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     }
 
     setCurrentPath((prev) => prev.slice(0, -1));
-    setCurrentPage(0);
 
     // Clear document ID if returning to root
     if (currentPath.length === 1) {
@@ -432,7 +669,6 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         // Navigate to root
         setCurrentPath([]);
         setCurrentDocumentId(null);
-        setCurrentPage(0);
         return;
       }
 
@@ -441,7 +677,6 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       }
 
       setCurrentPath((prev) => prev.slice(0, pathIndex + 1));
-      setCurrentPage(0);
 
       logger.info('document-data', `Navigated to path index ${pathIndex}`);
     },
@@ -454,34 +689,36 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
   }, [currentDocumentId]);
 
   // Pagination
-  // hasMore is true when the last fetch returned a FULL page (pageSize documents)
-  // If it returned less, we've reached the end
-  const hasMore = currentPath.length === 0 && (rawDocuments?.length ?? 0) === pageSize;
+  const hasMore = currentPath.length === 0 && rootHasMore;
 
   const fetchNextPage = useCallback(async (): Promise<void> => {
     if (currentPath.length > 0) {
       return;
     }
-    if ((rawDocuments?.length ?? 0) < pageSize) {
-      // Don't fetch next page if the last one was incomplete
-      return;
-    }
-    setCurrentPage((prev) => prev + 1);
-  }, [currentPath.length, rawDocuments?.length, pageSize]);
+    await fetchRootPage(false);
+  }, [currentPath.length, fetchRootPage]);
 
   const refetch = useCallback(async (): Promise<void> => {
-    if (currentPage !== 0) {
-      setPagedDocuments([]);
-      setCurrentPage(0);
+    if (currentPath.length === 0) {
+      rootRequestVersionRef.current += 1;
+      setRootDocuments([]);
+      setNextCursor(null);
+      setRootHasMore(true);
+      setRootError(null);
+      await fetchRootPage(true);
       return;
     }
-    await refetchQuery();
-  }, [currentPage, refetchQuery]);
+    await refetchNestedQuery();
+  }, [currentPath.length, fetchRootPage, refetchNestedQuery]);
+
+  const isLoading = currentPath.length === 0 ? isRootLoading : isNestedLoading;
+  const activeError = currentPath.length === 0 ? rootError : nestedError;
+  const error = activeError instanceof Error ? activeError : null;
 
   // CRUD helpers
   const createEditCommand = useCallback(
     (event: GridEditCommitEvent): CrudCommand | null => {
-      const { column, row: rowData, rowIndex, newValue } = event;
+      const { column, row: rowData, newValue } = event;
 
       if (!rowData) {
         return null;
@@ -490,9 +727,11 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       // Get document ID for the update filter
       let docId: DocumentId | undefined;
       if (currentPath.length === 0) {
-        const doc = documents[rowIndex] as DocumentWithId | undefined;
-        const id = doc?._id;
-        if (id !== undefined) {
+        const idCell = rowData._id;
+        const id = idCell && typeof idCell === 'object' && 'value' in idCell
+          ? (idCell as { value?: unknown }).value
+          : idCell;
+        if (id !== undefined && id !== null) {
           docId = id as DocumentId;
         }
       } else {
@@ -563,7 +802,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         state: 'staged',
       };
     },
-    [rows, documents, currentPath, currentDocumentId, connectionId, database, collection]
+    [currentPath, currentDocumentId, connectionId, database, collection]
   );
 
   const createInsertCommand = useCallback(
@@ -649,7 +888,11 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       if (!row) return `row-${index}`;
       const idValue = row._id?.value;
       if (idValue !== undefined && idValue !== null) {
-        return `${collection}:${String(idValue)}`;
+        const idText =
+          typeof idValue === 'string' || typeof idValue === 'number'
+            ? String(idValue)
+            : JSON.stringify(idValue);
+        return `${collection}:${idText}`;
       }
       return `${collection}:row-${index}`;
     },
@@ -704,7 +947,8 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     columns,
     getCellContent,
     isLoading,
-    error: error as Error | null,
+    isLoadingMore: currentPath.length === 0 ? isLoadingMore : false,
+    error,
     hasMore,
     fetchNextPage,
     refetch,
@@ -716,6 +960,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     navigateToPath,
     getCurrentDocumentId,
     totalCount,
+    schemaSample,
     createEditCommand,
     createInsertCommand,
     createDeleteCommand,

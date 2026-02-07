@@ -3,11 +3,14 @@
  */
 
 import type { InsertResult, InsertManyResult, UpdateResult, DeleteResult, CollectionInfo } from './mongodb';
+import type { CursorToken, DocumentPageResult, DocumentSchemaSample } from './mongodb';
 import type { RedisValue, RedisType, ScanResult, ScanResultWithPreviews, ZSetMember, StreamEntry } from './redis';
 import type { SetOptions } from '../capabilities';
 
 export type DocumentOperation =
   | { type: 'find'; collection: string; filter: object; skip?: number; limit?: number; sort?: Record<string, 1 | -1>; projection?: Record<string, 0 | 1> }
+  | { type: 'find_page' | 'findPage'; collection: string; filter: object; limit?: number; sort?: Record<string, 1 | -1>; projection?: Record<string, 0 | 1>; cursor?: CursorToken | null }
+  | { type: 'sample_schema' | 'sampleSchema'; collection: string; filter?: object; sampleSize?: number; maxDepth?: number }
   | { type: 'insert'; collection: string; document: object }
   | { type: 'insert_many'; collection: string; documents: object[] }
   | { type: 'update'; collection: string; filter: object; update: object }
@@ -19,6 +22,8 @@ export type DocumentOperation =
 
 export type DocumentResult =
   | { type: 'documents'; data: object[] }
+  | { type: 'document_page' | 'documentPage'; data: DocumentPageResult<object> }
+  | { type: 'schema_sample' | 'schemaSample'; data: DocumentSchemaSample }
   | { type: 'insert'; data: InsertResult }
   | { type: 'insert_many'; data: InsertManyResult }
   | { type: 'update'; data: UpdateResult }

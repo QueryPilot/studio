@@ -6,7 +6,7 @@ import {
   IconLoader2,
   IconExternalLink,
 } from "@tabler/icons-react";
-import Fuse, { type IFuseOptions } from "fuse.js";
+import { matchSorter, rankings } from "match-sorter";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -34,13 +34,6 @@ interface DatabaseItem {
   hasProfile: boolean;
   isCurrent: boolean;
 }
-
-const DATABASE_FUSE_OPTIONS: IFuseOptions<DatabaseItem> = {
-  keys: ["name"],
-  threshold: 0.4,
-  includeScore: true,
-  minMatchCharLength: 1,
-};
 
 interface NestedDatabaseListProps {
   listRef?: React.RefObject<HTMLDivElement | null>;
@@ -108,19 +101,17 @@ export function NestedDatabaseList({
     });
   }, [databases, connections, currentConnection, currentDatabase]);
 
-  // Create Fuse index
-  const fuse = useMemo(
-    () => new Fuse(databaseItems, DATABASE_FUSE_OPTIONS),
-    [databaseItems]
-  );
-
   // Filter results based on search query
   const filteredDatabases = useMemo(() => {
-    if (!query.trim()) {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
       return databaseItems;
     }
-    return fuse.search(query).map((r) => r.item);
-  }, [databaseItems, fuse, query]);
+    return matchSorter(databaseItems, trimmedQuery, {
+      keys: [{ key: "name", maxRanking: rankings.STARTS_WITH }],
+      threshold: rankings.MATCHES,
+    });
+  }, [databaseItems, query]);
 
   /**
    * Get or create connection profile for a database

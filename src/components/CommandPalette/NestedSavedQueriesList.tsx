@@ -4,7 +4,7 @@ import {
   IconLoader2,
   IconStarFilled,
 } from "@tabler/icons-react";
-import Fuse, { type IFuseOptions } from "fuse.js";
+import { matchSorter, rankings } from "match-sorter";
 
 import {
   CommandEmpty,
@@ -18,18 +18,6 @@ import type { SavedQuery } from "@/lib/db/queryHistory";
 interface SavedQueryItem extends SavedQuery {
   preview: string;
 }
-
-const SAVED_QUERY_FUSE_OPTIONS: IFuseOptions<SavedQueryItem> = {
-  keys: [
-    { name: "name", weight: 0.5 },
-    { name: "query", weight: 0.3 },
-    { name: "tags", weight: 0.15 },
-    { name: "description", weight: 0.05 },
-  ],
-  threshold: 0.4,
-  includeScore: true,
-  minMatchCharLength: 1,
-};
 
 interface NestedSavedQueriesListProps {
   listRef?: React.RefObject<HTMLDivElement | null>;
@@ -70,19 +58,22 @@ export function NestedSavedQueriesList({
     });
   }, [savedQueryItems]);
 
-  // Create Fuse index
-  const fuse = useMemo(
-    () => new Fuse(sortedItems, SAVED_QUERY_FUSE_OPTIONS),
-    [sortedItems],
-  );
-
   // Filter results based on search query
   const filteredQueries = useMemo(() => {
-    if (!query.trim()) {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
       return sortedItems;
     }
-    return fuse.search(query).map((r) => r.item);
-  }, [sortedItems, fuse, query]);
+    return matchSorter(sortedItems, trimmedQuery, {
+      keys: [
+        { key: "name", maxRanking: rankings.STARTS_WITH },
+        { key: "query", maxRanking: rankings.WORD_STARTS_WITH },
+        { key: "tags", maxRanking: rankings.WORD_STARTS_WITH },
+        { key: "description", maxRanking: rankings.CONTAINS },
+      ],
+      threshold: rankings.MATCHES,
+    });
+  }, [sortedItems, query]);
 
   if (isLoading) {
     return (

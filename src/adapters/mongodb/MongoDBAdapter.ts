@@ -8,6 +8,9 @@ import type {
 } from '../capabilities';
 import type {
   FindOptions,
+  FindPageOptions,
+  DocumentPageResult,
+  DocumentSchemaSample,
   InsertResult,
   InsertManyResult,
   UpdateResult,
@@ -71,6 +74,36 @@ export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
       limit: options?.limit,
       sort: options?.sort,
       projection: options?.projection,
+    });
+  }
+
+  async findDocumentsPage(
+    collection: string,
+    filter: object = {},
+    options?: FindPageOptions,
+  ): Promise<DocumentPageResult<object>> {
+    return this.execute<DocumentPageResult<object>>({
+      type: 'find_page',
+      collection,
+      filter,
+      limit: options?.limit,
+      sort: options?.sort,
+      projection: options?.projection,
+      cursor: options?.cursor ?? undefined,
+    });
+  }
+
+  async sampleCollectionSchema(
+    collection: string,
+    filter?: object,
+    options?: { sampleSize?: number; maxDepth?: number },
+  ): Promise<DocumentSchemaSample> {
+    return this.execute<DocumentSchemaSample>({
+      type: 'sample_schema',
+      collection,
+      filter,
+      sampleSize: options?.sampleSize,
+      maxDepth: options?.maxDepth,
     });
   }
 

@@ -19,6 +19,8 @@ describe('MongoDBAdapter', () => {
   describe('capability interface compliance', () => {
     it('implements DocumentQueryable interface', () => {
       expect(typeof adapter.findDocuments).toBe('function');
+      expect(typeof adapter.findDocumentsPage).toBe('function');
+      expect(typeof adapter.sampleCollectionSchema).toBe('function');
       expect(typeof adapter.insertDocument).toBe('function');
       expect(typeof adapter.insertDocuments).toBe('function');
       expect(typeof adapter.updateDocument).toBe('function');
@@ -54,6 +56,59 @@ describe('MongoDBAdapter', () => {
         },
       });
       expect(result).toEqual([{ _id: '1', name: 'test' }]);
+    });
+
+    it('findDocumentsPage calls document_execute with FindPage operation', async () => {
+      mockInvoke.mockResolvedValueOnce({
+        type: 'documentPage',
+        data: {
+          documents: [{ _id: '1', name: 'test' }],
+          nextCursor: { lastId: '1', lastSortValues: { _id: '1' } },
+          hasMore: true,
+        },
+      });
+
+      const result = await adapter.findDocumentsPage('users', { active: true }, { limit: 10 });
+
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
+        connId: 'test-conn-id',
+        operation: {
+          type: 'find_page',
+          collection: 'users',
+          filter: { active: true },
+          limit: 10,
+          cursor: undefined,
+          projection: undefined,
+          sort: undefined,
+        },
+      });
+      expect(result.hasMore).toBe(true);
+      expect(result.documents).toHaveLength(1);
+    });
+
+    it('sampleCollectionSchema calls document_execute with SampleSchema operation', async () => {
+      mockInvoke.mockResolvedValueOnce({
+        type: 'schemaSample',
+        data: {
+          sampleSize: 500,
+          scannedCount: 120,
+          fields: [{ path: 'name', occurrences: 120, nullCount: 0, types: ['string'], sampleValues: ['Alice'] }],
+        },
+      });
+
+      const result = await adapter.sampleCollectionSchema('users', { active: true }, { sampleSize: 500, maxDepth: 3 });
+
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
+        connId: 'test-conn-id',
+        operation: {
+          type: 'sample_schema',
+          collection: 'users',
+          filter: { active: true },
+          sampleSize: 500,
+          maxDepth: 3,
+        },
+      });
+      expect(result.fields[0]?.path).toBe('name');
     });
 
     it('insertDocument calls document_execute with Insert operation', async () => {
