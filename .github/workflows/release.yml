@@ -6,6 +6,10 @@ on:
       - "v*.*.*"
   workflow_dispatch:
     inputs:
+      tag:
+        description: "Tag/version to release (e.g. v1.2.3)"
+        required: true
+        type: string
       publish_to_app_repo:
         description: "Publish to QueryPilot/studio-app?"
         required: false
@@ -170,6 +174,25 @@ jobs:
           rm certificate.p12
 
       # ============================================
+      # Build MCP Sidecar (required by externalBin)
+      # ============================================
+
+      - name: Build MCP sidecar (universal binary)
+        run: |
+          cargo build --release --package querypilot-mcp --target aarch64-apple-darwin
+          cargo build --release --package querypilot-mcp --target x86_64-apple-darwin
+          mkdir -p target/release
+          # Create arch-specific copies for Tauri bundling
+          cp target/aarch64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-aarch64-apple-darwin
+          cp target/x86_64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-x86_64-apple-darwin
+          # Create universal binary
+          lipo -create \
+            target/aarch64-apple-darwin/release/querypilot-mcp \
+            target/x86_64-apple-darwin/release/querypilot-mcp \
+            -output target/release/querypilot-mcp-universal-apple-darwin
+          echo "MCP sidecar built for universal-apple-darwin"
+
+      # ============================================
       # Build Tauri App
       # ============================================
 
@@ -180,8 +203,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.APPLE_CERTIFICATE }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           # Sentry Configuration (optional - only used if secrets are set)
           # Single DSN for all components (Frontend, Backend, Sidecar)
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
@@ -488,7 +511,16 @@ jobs:
     if: success()
 
     steps:
-      - name: Update release status
+      - name: Publish draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          echo "Publishing draft release $VERSION..."
+          gh release edit "$VERSION" --draft=false --repo "${{ github.repository }}"
+          echo "Release $VERSION published!"
+
+      - name: Release summary
         run: |
           echo "🎉 All builds completed successfully!"
           echo ""
@@ -499,5 +531,3 @@ jobs:
           echo ""
           echo "🚀 Public Release (QueryPilot/studio-app):"
           echo "   https://github.com/QueryPilot/studio-app/releases"
-          echo ""
-          echo "Draft release created - review and publish!"

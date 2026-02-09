@@ -190,16 +190,15 @@ fn msgpack_array_header_size(len: usize) -> usize {
 
 /// Fast digit pair lookup table (00-99)
 static DIGIT_PAIRS: &[[u8; 2]; 100] = &[
-    *b"00", *b"01", *b"02", *b"03", *b"04", *b"05", *b"06", *b"07", *b"08", *b"09",
-    *b"10", *b"11", *b"12", *b"13", *b"14", *b"15", *b"16", *b"17", *b"18", *b"19",
-    *b"20", *b"21", *b"22", *b"23", *b"24", *b"25", *b"26", *b"27", *b"28", *b"29",
-    *b"30", *b"31", *b"32", *b"33", *b"34", *b"35", *b"36", *b"37", *b"38", *b"39",
-    *b"40", *b"41", *b"42", *b"43", *b"44", *b"45", *b"46", *b"47", *b"48", *b"49",
-    *b"50", *b"51", *b"52", *b"53", *b"54", *b"55", *b"56", *b"57", *b"58", *b"59",
-    *b"60", *b"61", *b"62", *b"63", *b"64", *b"65", *b"66", *b"67", *b"68", *b"69",
-    *b"70", *b"71", *b"72", *b"73", *b"74", *b"75", *b"76", *b"77", *b"78", *b"79",
-    *b"80", *b"81", *b"82", *b"83", *b"84", *b"85", *b"86", *b"87", *b"88", *b"89",
-    *b"90", *b"91", *b"92", *b"93", *b"94", *b"95", *b"96", *b"97", *b"98", *b"99",
+    *b"00", *b"01", *b"02", *b"03", *b"04", *b"05", *b"06", *b"07", *b"08", *b"09", *b"10", *b"11",
+    *b"12", *b"13", *b"14", *b"15", *b"16", *b"17", *b"18", *b"19", *b"20", *b"21", *b"22", *b"23",
+    *b"24", *b"25", *b"26", *b"27", *b"28", *b"29", *b"30", *b"31", *b"32", *b"33", *b"34", *b"35",
+    *b"36", *b"37", *b"38", *b"39", *b"40", *b"41", *b"42", *b"43", *b"44", *b"45", *b"46", *b"47",
+    *b"48", *b"49", *b"50", *b"51", *b"52", *b"53", *b"54", *b"55", *b"56", *b"57", *b"58", *b"59",
+    *b"60", *b"61", *b"62", *b"63", *b"64", *b"65", *b"66", *b"67", *b"68", *b"69", *b"70", *b"71",
+    *b"72", *b"73", *b"74", *b"75", *b"76", *b"77", *b"78", *b"79", *b"80", *b"81", *b"82", *b"83",
+    *b"84", *b"85", *b"86", *b"87", *b"88", *b"89", *b"90", *b"91", *b"92", *b"93", *b"94", *b"95",
+    *b"96", *b"97", *b"98", *b"99",
 ];
 
 /// Write 2-digit number using lookup table (branchless)
@@ -228,8 +227,16 @@ fn write_6digits(dst: &mut [u8], offset: usize, val: u32) {
 /// Fast timestamp format: "YYYY-MM-DD HH:MM:SS.ffffff"
 /// Returns slice length (26 bytes)
 #[inline]
-fn format_timestamp_fast(dst: &mut [u8; 26], year: i32, month: u32, day: u32,
-                         hour: u32, min: u32, sec: u32, micros: u32) {
+fn format_timestamp_fast(
+    dst: &mut [u8; 26],
+    year: i32,
+    month: u32,
+    day: u32,
+    hour: u32,
+    min: u32,
+    sec: u32,
+    micros: u32,
+) {
     write_4digits(dst, 0, year as u32);
     dst[4] = b'-';
     write_2digits(dst, 5, month);
@@ -248,9 +255,18 @@ fn format_timestamp_fast(dst: &mut [u8; 26], year: i32, month: u32, day: u32,
 /// Fast timestamptz format: "YYYY-MM-DD HH:MM:SS.ffffff+HH:MM"
 /// Returns slice length (32 bytes)
 #[inline]
-fn format_timestamptz_fast(dst: &mut [u8; 32], year: i32, month: u32, day: u32,
-                           hour: u32, min: u32, sec: u32, micros: u32,
-                           tz_hours: i32, tz_mins: i32) {
+fn format_timestamptz_fast(
+    dst: &mut [u8; 32],
+    year: i32,
+    month: u32,
+    day: u32,
+    hour: u32,
+    min: u32,
+    sec: u32,
+    micros: u32,
+    tz_hours: i32,
+    tz_mins: i32,
+) {
     write_4digits(dst, 0, year as u32);
     dst[4] = b'-';
     write_2digits(dst, 5, month);
@@ -535,8 +551,7 @@ impl DirectMsgPackEncoder {
         let mut buffer = Vec::with_capacity(estimated);
 
         // Write outer array header
-        encode::write_array_len(&mut buffer, rows.len() as u32)
-            .map_err(Self::map_encode_err)?;
+        encode::write_array_len(&mut buffer, rows.len() as u32).map_err(Self::map_encode_err)?;
 
         // Encode each row sequentially
         for row in rows {
@@ -569,8 +584,7 @@ impl DirectMsgPackEncoder {
         let mut buffer = Vec::with_capacity(total_size);
 
         // Write outer array header
-        encode::write_array_len(&mut buffer, rows.len() as u32)
-            .map_err(Self::map_encode_err)?;
+        encode::write_array_len(&mut buffer, rows.len() as u32).map_err(Self::map_encode_err)?;
 
         // Merge all row buffers (sequential but fast - just memcpy)
         for row_buf in row_buffers {
@@ -883,8 +897,7 @@ impl DirectMsgPackEncoder {
         match proto::date_from_sql(raw) {
             Ok(days) => {
                 let pg_epoch = NaiveDate::from_ymd_opt(2000, 1, 1).unwrap();
-                if let Some(date) =
-                    pg_epoch.checked_add_signed(chrono::Duration::days(days as i64))
+                if let Some(date) = pg_epoch.checked_add_signed(chrono::Duration::days(days as i64))
                 {
                     // Use fast formatter instead of chrono's format!()
                     let mut date_buf = [0u8; 10];
@@ -944,7 +957,13 @@ impl DirectMsgPackEncoder {
 
         // Format: HH:MM:SS.ffffff+HH:MM (21 bytes)
         let mut time_buf = [0u8; 21];
-        format_time_fast(&mut time_buf[..15].try_into().unwrap(), hours, mins, secs, micros);
+        format_time_fast(
+            &mut time_buf[..15].try_into().unwrap(),
+            hours,
+            mins,
+            secs,
+            micros,
+        );
         time_buf[15] = if tz_hours >= 0 { b'+' } else { b'-' };
         write_2digits(&mut time_buf, 16, tz_hours.unsigned_abs());
         time_buf[18] = b':';

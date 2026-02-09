@@ -35,7 +35,11 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
 
     for i in 1..=a_len {
         for j in 1..=b_len {
-            let cost = if a_chars[i - 1] == b_chars[j - 1] { 0 } else { 1 };
+            let cost = if a_chars[i - 1] == b_chars[j - 1] {
+                0
+            } else {
+                1
+            };
             matrix[i][j] = (matrix[i - 1][j] + 1) // deletion
                 .min(matrix[i][j - 1] + 1) // insertion
                 .min(matrix[i - 1][j - 1] + cost); // substitution
@@ -51,7 +55,7 @@ fn is_similar(a: &str, b: &str, threshold: usize) -> bool {
     if a == b {
         return false; // Identical, not a typo
     }
-    
+
     let distance = levenshtein_distance(&a.to_lowercase(), &b.to_lowercase());
     distance <= threshold && distance > 0
 }
@@ -76,6 +80,54 @@ fn find_closest_match<'a>(
     }
 
     best_match
+}
+
+fn is_identifier_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'"'
+}
+
+fn find_span_in_statement(stmt: &ParsedStatement, needle: &str) -> Option<(usize, usize)> {
+    if needle.is_empty() {
+        return None;
+    }
+
+    let stmt_lower = stmt.text.to_lowercase();
+    let needle_lower = needle.to_lowercase();
+    let mut from_idx = 0usize;
+
+    while from_idx <= stmt_lower.len() {
+        let rel = stmt_lower[from_idx..].find(&needle_lower)?;
+        let idx = from_idx + rel;
+        let end = idx + needle_lower.len();
+        let bytes = stmt_lower.as_bytes();
+
+        let before_ok = if idx == 0 {
+            true
+        } else {
+            !is_identifier_char(bytes[idx - 1])
+        };
+        let after_ok = if end >= bytes.len() {
+            true
+        } else {
+            !is_identifier_char(bytes[end])
+        };
+
+        if before_ok && after_ok {
+            return Some((stmt.range.0 + idx, stmt.range.0 + end));
+        }
+
+        from_idx = if idx >= stmt_lower.len() {
+            stmt_lower.len()
+        } else {
+            stmt_lower[idx..]
+                .char_indices()
+                .nth(1)
+                .map(|(offset, _)| idx + offset)
+                .unwrap_or(stmt_lower.len())
+        };
+    }
+
+    None
 }
 
 /// Error severity level.
@@ -213,7 +265,7 @@ struct KeywordTypoRule;
 impl LintRule for KeywordTypoRule {
     fn check(&self, stmt: &ParsedStatement, result: &mut ValidationResult) {
         let text_lower = stmt.text.to_lowercase();
-        
+
         let typos = vec![
             ("wher ", "WHERE"),
             ("selct ", "SELECT"),
@@ -254,7 +306,7 @@ struct InvalidStarUsageRule;
 impl LintRule for InvalidStarUsageRule {
     fn check(&self, stmt: &ParsedStatement, result: &mut ValidationResult) {
         let text_lower = stmt.text.to_lowercase();
-        
+
         // Pattern: * followed immediately by alphanumeric (not space/comma/FROM)
         // Example: "select *sd from" or "select *foo,"
         let chars: Vec<char> = text_lower.chars().collect();
@@ -266,7 +318,7 @@ impl LintRule for InvalidStarUsageRule {
                     // Make sure it's not part of a valid pattern like "table.*col"
                     let prev_char = if i > 0 { Some(chars[i - 1]) } else { None };
                     let is_qualified_star = prev_char == Some('.');
-                    
+
                     if !is_qualified_star {
                         result.add_error(SqlError {
                             from: stmt.range.0 + i,
@@ -288,38 +340,76 @@ struct MissingOperatorRule;
 impl LintRule for MissingOperatorRule {
     fn check(&self, stmt: &ParsedStatement, result: &mut ValidationResult) {
         let text_lower = stmt.text.to_lowercase();
-        
+
         // Look for WHERE clause
         if !text_lower.contains("where") {
             return;
         }
-        
+
         // Pattern: identifier followed by space and number/negative number
         // without an operator (=, <, >, <=, >=, !=, <>)
-        let operators = vec!["=", "<", ">", "<=", ">=", "!=", "<>", "in", "like", "between"];
-        
-        // Split by WHERE and check the condition part
+        let operators = vec![
+            "=", "<", ">", "<=", ">=", "!=", "<>", "in", "like", "between",
+        ];
+
+        // Split by WHERE and check the condition part, stopping at clause-ending keywords
         if let Some(where_idx) = text_lower.find("where") {
-            let condition = &text_lower[where_idx + 5..]; // Skip "where"
-            
+            let after_where = &text_lower[where_idx + 5..]; // Skip "where"
+
+            // Truncate at clause-ending keywords so we only inspect the WHERE conditions
+            let clause_terminators = [
+                "order by",
+                "group by",
+                "having",
+                "limit",
+                "offset",
+                "union",
+                "intersect",
+                "except",
+                "fetch",
+                "for update",
+                "for share",
+                "into",
+                "window",
+                "returning",
+            ];
+            let mut end = after_where.len();
+            for kw in &clause_terminators {
+                if let Some(pos) = after_where.find(kw) {
+                    if pos < end {
+                        end = pos;
+                    }
+                }
+            }
+            let condition = &after_where[..end];
+
             // Look for patterns like "id -19" or "id 123" (missing operator)
             // This is a simplified check - a full implementation would use regex
             let words: Vec<&str> = condition.split_whitespace().collect();
             for i in 0..words.len().saturating_sub(1) {
                 let current = words[i];
                 let next = words.get(i + 1);
-                
+
                 // Check if current looks like an identifier and next is a number
                 if let Some(next_word) = next {
-                    let is_number = next_word.parse::<i64>().is_ok() 
+                    let is_number = next_word.parse::<i64>().is_ok()
                         || (next_word.starts_with('-') && next_word[1..].parse::<i64>().is_ok());
-                    
+
                     let has_operator = operators.iter().any(|op| current.ends_with(op));
-                    
-                    if is_number && !has_operator && !current.contains(|c: char| !c.is_alphanumeric() && c != '_') {
+
+                    if is_number
+                        && !has_operator
+                        && !current.contains(|c: char| !c.is_alphanumeric() && c != '_')
+                    {
+                        let pattern = format!("{} {}", current, next_word);
+                        let relative_start = condition
+                            .find(&pattern)
+                            .map(|pos| stmt.range.0 + where_idx + 5 + pos)
+                            .unwrap_or(stmt.range.0);
+                        let relative_end = relative_start + pattern.len();
                         result.add_error(SqlError {
-                            from: stmt.range.0,
-                            to: stmt.range.1,
+                            from: relative_start,
+                            to: relative_end.min(stmt.range.1),
                             message: format!("Missing comparison operator between '{}' and '{}'. Did you mean '{} = {}'?", current, next_word, current, next_word),
                             severity: ErrorSeverity::Error,
                             source: ErrorSource::Syntax,
@@ -337,7 +427,7 @@ struct MissingWhereClauseRule;
 impl LintRule for MissingWhereClauseRule {
     fn check(&self, stmt: &ParsedStatement, result: &mut ValidationResult) {
         let text_upper = stmt.text.to_uppercase();
-        
+
         if matches!(
             stmt.statement_type.as_deref(),
             Some("UPDATE") | Some("DELETE")
@@ -363,11 +453,13 @@ struct SelectStarRule;
 impl LintRule for SelectStarRule {
     fn check(&self, stmt: &ParsedStatement, result: &mut ValidationResult) {
         let text_upper = stmt.text.to_uppercase();
-        
+
         if stmt.statement_type == Some("SELECT".to_string()) && text_upper.contains("SELECT *") {
+            let (from, to) =
+                find_span_in_statement(stmt, "*").unwrap_or((stmt.range.0, stmt.range.1));
             result.add_error(SqlError {
-                from: stmt.range.0,
-                to: stmt.range.1,
+                from,
+                to,
                 message: "Consider specifying columns instead of SELECT *".to_string(),
                 severity: ErrorSeverity::Info,
                 source: ErrorSource::Validation,
@@ -388,9 +480,11 @@ impl LintRule for UnusedCteRule {
                 .iter()
                 .any(|t| t.name.to_lowercase() == cte_name_lower);
             if !is_referenced {
+                let (from, to) =
+                    find_span_in_statement(stmt, &cte.name).unwrap_or((stmt.range.0, stmt.range.1));
                 result.add_error(SqlError {
-                    from: stmt.range.0,
-                    to: stmt.range.1,
+                    from,
+                    to,
                     message: format!("CTE '{}' is defined but never referenced", cte.name),
                     severity: ErrorSeverity::Warning,
                     source: ErrorSource::Validation,
@@ -440,9 +534,11 @@ impl<'a> LintRule for FuzzyReferenceRule<'a> {
                     if let Some((closest, _distance)) =
                         find_closest_match(&table_ref.name, &existing_table_names, 2)
                     {
+                        let (from, to) = find_span_in_statement(stmt, &table_ref.name)
+                            .unwrap_or((stmt.range.0, stmt.range.1));
                         result.add_error(SqlError {
-                            from: stmt.range.0,
-                            to: stmt.range.1,
+                            from,
+                            to,
                             message: format!(
                                 "Table '{}' not found. Did you mean '{}'?",
                                 table_ref.name, closest
@@ -457,9 +553,11 @@ impl<'a> LintRule for FuzzyReferenceRule<'a> {
                     if let Some((closest, _distance)) =
                         find_closest_match(&table_ref.name, &cte_names, 2)
                     {
+                        let (from, to) = find_span_in_statement(stmt, &table_ref.name)
+                            .unwrap_or((stmt.range.0, stmt.range.1));
                         result.add_error(SqlError {
-                            from: stmt.range.0,
-                            to: stmt.range.1,
+                            from,
+                            to,
                             message: format!(
                                 "Reference '{}' not found. Did you mean the CTE '{}'?",
                                 table_ref.name, closest
@@ -474,6 +572,15 @@ impl<'a> LintRule for FuzzyReferenceRule<'a> {
             // Check for column name typos
             for col in &stmt.columns {
                 if col.name == "*" {
+                    continue;
+                }
+
+                if col.table.is_none()
+                    && stmt
+                        .output_aliases
+                        .iter()
+                        .any(|alias| alias.eq_ignore_ascii_case(&col.name))
+                {
                     continue;
                 }
 
@@ -511,9 +618,11 @@ impl<'a> LintRule for FuzzyReferenceRule<'a> {
                     if let Some((closest, _distance)) =
                         find_closest_match(&col.name, &candidate_columns, 2)
                     {
+                        let (from, to) = find_span_in_statement(stmt, &col.name)
+                            .unwrap_or((stmt.range.0, stmt.range.1));
                         result.add_error(SqlError {
-                            from: stmt.range.0,
-                            to: stmt.range.1,
+                            from,
+                            to,
                             message: format!(
                                 "Column '{}' not found. Did you mean '{}'?",
                                 col.name, closest
@@ -541,9 +650,11 @@ impl<'a> LintRule for FuzzyReferenceRule<'a> {
                 if let Some((closest, _distance)) =
                     find_closest_match(&table_ref.name, &cte_names, 2)
                 {
+                    let (from, to) = find_span_in_statement(stmt, &table_ref.name)
+                        .unwrap_or((stmt.range.0, stmt.range.1));
                     result.add_error(SqlError {
-                        from: stmt.range.0,
-                        to: stmt.range.1,
+                        from,
+                        to,
                         message: format!(
                             "Reference '{}' not found. Did you mean the CTE '{}'?",
                             table_ref.name, closest
@@ -717,36 +828,30 @@ fn validate_ambiguous_columns(stmt: &ParsedStatement, result: &mut ValidationRes
     let mut seen = std::collections::HashSet::new();
 
     for col in &stmt.columns {
-        if col.table.is_none() && col.name != "*" && seen.insert(col.name.to_lowercase()) {
+        if col.table.is_none()
+            && col.name != "*"
+            && !stmt
+                .output_aliases
+                .iter()
+                .any(|alias| alias.eq_ignore_ascii_case(&col.name))
+            && seen.insert(col.name.to_lowercase())
+        {
             unqualified.push(&col.name);
         }
     }
 
     let max_hints: usize = 8;
     for col_name in unqualified.iter().take(max_hints) {
+        let (from, to) =
+            find_span_in_statement(stmt, col_name).unwrap_or((stmt.range.0, stmt.range.1));
         result.add_error(SqlError {
-            from: stmt.range.0,
-            to: stmt.range.1,
+            from,
+            to,
             message: format!(
                 "Column '{}' should be qualified with table name (multiple tables in query)",
                 col_name
             ),
             severity: ErrorSeverity::Hint,
-            source: ErrorSource::Validation,
-        });
-    }
-
-    if unqualified.len() > max_hints {
-        let remaining = unqualified.len() - max_hints;
-        result.add_error(SqlError {
-            from: stmt.range.0,
-            to: stmt.range.1,
-            message: format!(
-                "{} more unqualified column{} omitted; qualify columns to remove this hint",
-                remaining,
-                if remaining == 1 { "" } else { "s" }
-            ),
-            severity: ErrorSeverity::Info,
             source: ErrorSource::Validation,
         });
     }
@@ -815,6 +920,26 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_cte_referenced_inside_another_cte() {
+        // CTE 'params' is referenced inside 'manager_commission' via CROSS JOIN,
+        // not in the main SELECT. Should NOT produce "never referenced" warning.
+        let doc = parse_document(
+            "WITH params AS (SELECT 1 AS x), \
+             data AS (SELECT * FROM users CROSS JOIN params p) \
+             SELECT * FROM data",
+            SqlDialect::PostgreSQL,
+        );
+        let result = validate_document(&doc, None, None);
+        assert!(
+            !result
+                .warnings
+                .iter()
+                .any(|w| w.message.contains("'params'") && w.message.contains("never referenced")),
+            "CTE 'params' referenced inside another CTE body should not be flagged as unused"
+        );
+    }
+
+    #[test]
     fn test_validate_ambiguous_column() {
         let doc = parse_document(
             "SELECT id, name FROM users u JOIN orders o ON u.id = o.user_id",
@@ -864,10 +989,24 @@ mod tests {
             .filter(|w| w.message.contains("should be qualified"))
             .collect();
         assert_eq!(qualify_hints.len(), 8);
-        assert!(result
+        assert!(!result
             .warnings
             .iter()
             .any(|w| w.message.contains("omitted; qualify columns")));
+    }
+
+    #[test]
+    fn test_validate_ambiguous_columns_ignores_select_output_aliases() {
+        let doc = parse_document(
+            "SELECT u.id + o.id AS item_count FROM users u JOIN orders o ON u.id = o.user_id ORDER BY item_count",
+            SqlDialect::PostgreSQL,
+        );
+        let result = validate_document(&doc, None, None);
+
+        assert!(!result.warnings.iter().any(|w| {
+            w.message.contains("item_count")
+                && w.message.contains("should be qualified with table name")
+        }));
     }
 
     // New rule tests
@@ -887,10 +1026,7 @@ mod tests {
 
     #[test]
     fn test_invalid_star_usage() {
-        let doc = parse_document(
-            r#"select *sd from "addresses""#,
-            SqlDialect::PostgreSQL,
-        );
+        let doc = parse_document(r#"select *sd from "addresses""#, SqlDialect::PostgreSQL);
         let result = validate_document(&doc, None, None);
         assert!(!result.is_valid());
         assert!(result
@@ -914,6 +1050,38 @@ mod tests {
     }
 
     #[test]
+    fn test_limit_not_flagged_as_missing_operator() {
+        let doc = parse_document(
+            r#"SELECT * FROM users WHERE name ILIKE '%test%' ORDER BY id DESC LIMIT 100"#,
+            SqlDialect::PostgreSQL,
+        );
+        let result = validate_document(&doc, None, None);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.message.contains("Missing comparison operator")),
+            "LIMIT 100 should not be flagged as missing operator"
+        );
+    }
+
+    #[test]
+    fn test_offset_not_flagged_as_missing_operator() {
+        let doc = parse_document(
+            r#"SELECT * FROM users WHERE id = 1 LIMIT 10 OFFSET 20"#,
+            SqlDialect::PostgreSQL,
+        );
+        let result = validate_document(&doc, None, None);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.message.contains("Missing comparison operator")),
+            "OFFSET 20 should not be flagged as missing operator"
+        );
+    }
+
+    #[test]
     fn test_valid_query_no_false_positives() {
         let doc = parse_document(
             r#"SELECT id, name FROM users WHERE id = 1 AND status = 'active'"#,
@@ -926,15 +1094,14 @@ mod tests {
 
     #[test]
     fn test_multiple_typos() {
-        let doc = parse_document(
-            r#"selct * form users wher id = 1"#,
-            SqlDialect::PostgreSQL,
-        );
+        let doc = parse_document(r#"selct * form users wher id = 1"#, SqlDialect::PostgreSQL);
         let result = validate_document(&doc, None, None);
         assert!(!result.is_valid());
         // Should catch multiple typos
         let error_messages: Vec<String> = result.errors.iter().map(|e| e.message.clone()).collect();
-        assert!(error_messages.iter().any(|m| m.contains("SELECT") || m.contains("FROM") || m.contains("WHERE")));
+        assert!(error_messages
+            .iter()
+            .any(|m| m.contains("SELECT") || m.contains("FROM") || m.contains("WHERE")));
     }
 
     // Fuzzy matching tests
@@ -952,18 +1119,20 @@ mod tests {
         // Distance 1 - should be similar
         assert!(is_similar("user", "users", 1));
         assert!(is_similar("email", "emal", 1));
-        
+
         // Identical - not similar (not a typo)
         assert!(!is_similar("users", "users", 1));
-        
+
         // Distance > threshold - not similar
         assert!(!is_similar("users", "customers", 1));
     }
 
     #[test]
     fn test_fuzzy_table_name_typo() {
-        use crate::sql_engine::schema_store::{CachedSchemaBuilder, TableInfo, ColumnInfo, TableType};
-        
+        use crate::sql_engine::schema_store::{
+            CachedSchemaBuilder, ColumnInfo, TableInfo, TableType,
+        };
+
         // Create schema with "users" and "orders" tables
         let schema = CachedSchemaBuilder::new()
             .add_table(TableInfo {
@@ -973,8 +1142,9 @@ mod tests {
                 comment: None,
                 row_count: None,
             })
-            .add_columns("users", vec![
-                ColumnInfo {
+            .add_columns(
+                "users",
+                vec![ColumnInfo {
                     name: "id".to_string(),
                     data_type: "INT".to_string(),
                     nullable: false,
@@ -986,8 +1156,8 @@ mod tests {
                     ordinal: 1,
                     precision: None,
                     scale: None,
-                },
-            ])
+                }],
+            )
             .add_table(TableInfo {
                 name: "orders".to_string(),
                 schema: None,
@@ -1000,15 +1170,17 @@ mod tests {
         // Test typo: "user" instead of "users"
         let doc = parse_document("SELECT * FROM user", SqlDialect::PostgreSQL);
         let result = validate_document(&doc, Some(&schema), None);
-        
+
         let warnings: Vec<String> = result.warnings.iter().map(|w| w.message.clone()).collect();
         assert!(warnings.iter().any(|m| m.contains("Did you mean 'users'")));
     }
 
     #[test]
     fn test_fuzzy_column_name_typo() {
-        use crate::sql_engine::schema_store::{CachedSchemaBuilder, TableInfo, ColumnInfo, TableType};
-        
+        use crate::sql_engine::schema_store::{
+            CachedSchemaBuilder, ColumnInfo, TableInfo, TableType,
+        };
+
         // Create schema with "users" table with "email" column
         let schema = CachedSchemaBuilder::new()
             .add_table(TableInfo {
@@ -1018,42 +1190,47 @@ mod tests {
                 comment: None,
                 row_count: None,
             })
-            .add_columns("users", vec![
-                ColumnInfo {
-                    name: "id".to_string(),
-                    data_type: "INT".to_string(),
-                    nullable: false,
-                    default_value: None,
-                    is_primary_key: true,
-                    is_unique: true,
-                    comment: None,
-                    enum_values: None,
-                    ordinal: 1,
-                    precision: None,
-                    scale: None,
-                },
-                ColumnInfo {
-                    name: "email".to_string(),
-                    data_type: "VARCHAR".to_string(),
-                    nullable: true,
-                    default_value: None,
-                    is_primary_key: false,
-                    is_unique: false,
-                    comment: None,
-                    enum_values: None,
-                    ordinal: 2,
-                    precision: None,
-                    scale: None,
-                },
-            ])
+            .add_columns(
+                "users",
+                vec![
+                    ColumnInfo {
+                        name: "id".to_string(),
+                        data_type: "INT".to_string(),
+                        nullable: false,
+                        default_value: None,
+                        is_primary_key: true,
+                        is_unique: true,
+                        comment: None,
+                        enum_values: None,
+                        ordinal: 1,
+                        precision: None,
+                        scale: None,
+                    },
+                    ColumnInfo {
+                        name: "email".to_string(),
+                        data_type: "VARCHAR".to_string(),
+                        nullable: true,
+                        default_value: None,
+                        is_primary_key: false,
+                        is_unique: false,
+                        comment: None,
+                        enum_values: None,
+                        ordinal: 2,
+                        precision: None,
+                        scale: None,
+                    },
+                ],
+            )
             .build();
 
         // Test typo: "emal" instead of "email"
         let doc = parse_document("SELECT emal FROM users", SqlDialect::PostgreSQL);
         let result = validate_document(&doc, Some(&schema), None);
-        
+
         let warnings: Vec<String> = result.warnings.iter().map(|w| w.message.clone()).collect();
-        assert!(warnings.iter().any(|m| m.contains("emal") && m.contains("Did you mean 'email'")));
+        assert!(warnings
+            .iter()
+            .any(|m| m.contains("emal") && m.contains("Did you mean 'email'")));
     }
 
     #[test]
@@ -1064,9 +1241,11 @@ mod tests {
             SqlDialect::PostgreSQL,
         );
         let result = validate_document(&doc, None, None);
-        
+
         let warnings: Vec<String> = result.warnings.iter().map(|w| w.message.clone()).collect();
-        assert!(warnings.iter().any(|m| m.contains("active_user") && m.contains("Did you mean")));
+        assert!(warnings
+            .iter()
+            .any(|m| m.contains("active_user") && m.contains("Did you mean")));
     }
 
     #[test]
@@ -1145,18 +1324,23 @@ mod tests {
         let doc = parse_document("SELECT missing_col FROM users", SqlDialect::PostgreSQL);
         let result = validate_document(&doc, Some(&schema), None);
 
-        assert!(result
-            .warnings
-            .iter()
-            .any(|w| w.message.contains("missing_col") && w.message.contains("any referenced table")));
+        assert!(result.warnings.iter().any(
+            |w| w.message.contains("missing_col") && w.message.contains("any referenced table")
+        ));
     }
 
     #[test]
     fn test_comment_text_is_ignored_by_heuristic_rules() {
-        let doc = parse_document("-- selct * form users\nSELECT id FROM users", SqlDialect::PostgreSQL);
+        let doc = parse_document(
+            "-- selct * form users\nSELECT id FROM users",
+            SqlDialect::PostgreSQL,
+        );
         let result = validate_document(&doc, None, None);
 
-        assert!(!result.errors.iter().any(|e| e.message.contains("did you mean")));
+        assert!(!result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("did you mean")));
     }
 
     #[test]
@@ -1199,7 +1383,10 @@ mod tests {
                 comment: None,
                 row_count: None,
             })
-            .add_columns("orders", vec![col("id", 1), col("user_id", 2), col("status", 3)])
+            .add_columns(
+                "orders",
+                vec![col("id", 1), col("user_id", 2), col("status", 3)],
+            )
             .add_table(TableInfo {
                 name: "order_items".to_string(),
                 schema: None,
@@ -1207,7 +1394,10 @@ mod tests {
                 comment: None,
                 row_count: None,
             })
-            .add_columns("order_items", vec![col("id", 1), col("order_id", 2), col("price", 3)])
+            .add_columns(
+                "order_items",
+                vec![col("id", 1), col("order_id", 2), col("price", 3)],
+            )
             .build();
 
         let queries = vec![

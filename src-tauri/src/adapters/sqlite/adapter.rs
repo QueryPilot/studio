@@ -162,9 +162,7 @@ impl BaseCapability for SqliteAdapter {
     }
 
     fn get_capabilities(&self) -> Vec<AdapterCapability> {
-        vec![
-            AdapterCapability::SqlQueryable,
-        ]
+        vec![AdapterCapability::SqlQueryable]
     }
 }
 
@@ -260,4 +258,3 @@ impl SqlQueryable for SqliteAdapter {
         .await
     }
 }
-

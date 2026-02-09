@@ -156,7 +156,10 @@ impl MongoDbAdapter {
         };
 
         if is_srv {
-            format!("{}://{}{}/{}{}", protocol, auth, profile.host, db, options_str)
+            format!(
+                "{}://{}{}/{}{}",
+                protocol, auth, profile.host, db, options_str
+            )
         } else {
             format!(
                 "{}://{}{}:{}/{}{}",
@@ -185,9 +188,9 @@ impl MongoDbAdapter {
         let conn_str = Self::build_connection_string(profile);
 
         // Add connection timeout to prevent indefinite hangs
-        let mut client_options = ClientOptions::parse(&conn_str).await.map_err(|e| {
-            AppError::DatabaseError(format!("Failed to parse MongoDB URI: {}", e))
-        })?;
+        let mut client_options = ClientOptions::parse(&conn_str)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to parse MongoDB URI: {}", e)))?;
 
         // Set server selection and connection timeouts
         client_options.connect_timeout = Some(std::time::Duration::from_secs(15));
@@ -397,11 +400,9 @@ impl MongoDbAdapter {
             bson::Bson::Boolean(b) => Value::Bool(b),
             bson::Bson::Int32(i) => Value::Number(i.into()),
             bson::Bson::Int64(i) => Value::Number(i.into()),
-            bson::Bson::Double(f) => {
-                serde_json::Number::from_f64(f)
-                    .map(Value::Number)
-                    .unwrap_or(Value::Null)
-            }
+            bson::Bson::Double(f) => serde_json::Number::from_f64(f)
+                .map(Value::Number)
+                .unwrap_or(Value::Null),
             bson::Bson::String(s) => Value::String(s),
             bson::Bson::ObjectId(oid) => Value::String(oid.to_hex()),
             bson::Bson::Array(arr) => {
@@ -505,7 +506,8 @@ impl MongoDbAdapter {
 
             let mut branch = Document::new();
             for (prev_field, _) in sort_pairs.iter().take(idx) {
-                let Some(prev_value) = Self::cursor_value_for_field(cursor_token, prev_field) else {
+                let Some(prev_value) = Self::cursor_value_for_field(cursor_token, prev_field)
+                else {
                     // If a prior sort field is missing from the cursor token,
                     // this branch cannot express strict tuple ordering safely.
                     continue 'branch;
@@ -535,7 +537,10 @@ impl MongoDbAdapter {
         }
     }
 
-    fn build_next_cursor(last_document: &Value, sort_pairs: &[(String, i32)]) -> Option<MongoCursorToken> {
+    fn build_next_cursor(
+        last_document: &Value,
+        sort_pairs: &[(String, i32)],
+    ) -> Option<MongoCursorToken> {
         let last_id = Self::json_path_get(last_document, "_id")?.clone();
         let mut sort_values = HashMap::new();
 
@@ -752,18 +757,14 @@ impl MongoDbAdapter {
         let db = self.database.read().await;
         match db.as_ref() {
             Some(database) => {
-                let collections = database
-                    .list_collection_names()
-                    .await
-                    .map_err(|e| AppError::DatabaseError(format!("Failed to list collections: {}", e)))?;
+                let collections = database.list_collection_names().await.map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to list collections: {}", e))
+                })?;
 
                 let mut result = Vec::new();
                 for name in collections {
                     // Get stats for each collection
-                    let stats = database
-                        .run_command(doc! { "collStats": &name })
-                        .await
-                        .ok();
+                    let stats = database.run_command(doc! { "collStats": &name }).await.ok();
 
                     let (doc_count, size_bytes) = match stats {
                         Some(s) => (
@@ -1021,10 +1022,9 @@ impl MongoDbAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let dbs = c
-                    .list_database_names()
-                    .await
-                    .map_err(|e| AppError::DatabaseError(format!("Failed to list databases: {}", e)))?;
+                let dbs = c.list_database_names().await.map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to list databases: {}", e))
+                })?;
 
                 Ok(dbs.into_iter().map(|name| DatabaseInfo { name }).collect())
             }
@@ -1038,10 +1038,9 @@ impl MongoDbAdapter {
         match db.as_ref() {
             Some(database) => {
                 let coll = database.collection::<Document>(collection);
-                let mut cursor = coll
-                    .list_indexes()
-                    .await
-                    .map_err(|e| AppError::DatabaseError(format!("Failed to list indexes: {}", e)))?;
+                let mut cursor = coll.list_indexes().await.map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to list indexes: {}", e))
+                })?;
 
                 let mut indexes = Vec::new();
                 while let Some(index) = cursor
@@ -1051,7 +1050,10 @@ impl MongoDbAdapter {
                 {
                     // Convert IndexModel to JSON-compatible format
                     let mut idx_json = serde_json::Map::new();
-                    idx_json.insert("keys".to_string(), Self::bson_doc_to_json(index.keys.clone()));
+                    idx_json.insert(
+                        "keys".to_string(),
+                        Self::bson_doc_to_json(index.keys.clone()),
+                    );
                     if let Some(opts) = &index.options {
                         if let Some(name) = &opts.name {
                             idx_json.insert("name".to_string(), Value::String(name.clone()));
@@ -1086,15 +1088,12 @@ impl MongoDbAdapter {
             Some(database) => {
                 let coll = database.collection::<Document>(collection);
                 let keys_doc = Self::json_to_bson_doc(&keys)?;
-                
-                let index_model = mongodb::IndexModel::builder()
-                    .keys(keys_doc)
-                    .build();
 
-                let result = coll
-                    .create_index(index_model)
-                    .await
-                    .map_err(|e| AppError::DatabaseError(format!("Failed to create index: {}", e)))?;
+                let index_model = mongodb::IndexModel::builder().keys(keys_doc).build();
+
+                let result = coll.create_index(index_model).await.map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to create index: {}", e))
+                })?;
 
                 Ok(result.index_name)
             }
@@ -1326,6 +1325,9 @@ mod tests {
             "SRV connection must NOT include port, got: {}",
             conn_str
         );
-        assert_eq!(conn_str, "mongodb+srv://admin:secret@cluster0.mongodb.net/mydb");
+        assert_eq!(
+            conn_str,
+            "mongodb+srv://admin:secret@cluster0.mongodb.net/mydb"
+        );
     }
 }

@@ -195,12 +195,19 @@ pub struct McpHandler {
 
 impl McpHandler {
     pub fn new(manager: Arc<ConnectionManager>, ai_context: Arc<AiContextStore>) -> Self {
-        Self { manager, ai_context }
+        Self {
+            manager,
+            ai_context,
+        }
     }
 
     /// Dispatch a JSON-RPC request to the appropriate handler
     pub async fn handle_request(&self, id: String, method: &str, params: Value) -> JsonRpcResponse {
-        tracing::info!("[MCP Bridge] Received request: method={}, params={:?}", method, params);
+        tracing::info!(
+            "[MCP Bridge] Received request: method={}, params={:?}",
+            method,
+            params
+        );
         let response = match method {
             "list_connections" => self.handle_list_connections(id.clone()).await,
             "query" => self.handle_query(id.clone(), params).await,
@@ -283,15 +290,16 @@ impl McpHandler {
 
         // Dispatch based on database paradigm
         let result = match db_type {
-            DbType::PostgreSQL | DbType::MySQL | DbType::MariaDB | DbType::SQLite | DbType::SQLServer => {
-                self.execute_sql_query(&params.query, limit, &params.order, &conn).await
+            DbType::PostgreSQL
+            | DbType::MySQL
+            | DbType::MariaDB
+            | DbType::SQLite
+            | DbType::SQLServer => {
+                self.execute_sql_query(&params.query, limit, &params.order, &conn)
+                    .await
             }
-            DbType::MongoDB => {
-                self.execute_document_query(&params, limit, &conn).await
-            }
-            DbType::Redis => {
-                self.execute_keyvalue_query(&params, &conn).await
-            }
+            DbType::MongoDB => self.execute_document_query(&params, limit, &conn).await,
+            DbType::Redis => self.execute_keyvalue_query(&params, &conn).await,
         };
 
         let execution_time_ms = start.elapsed().as_millis() as u64;
@@ -380,7 +388,12 @@ impl McpHandler {
 
     /// Build a limited query (simple approach - wraps in subquery for safety)
     /// Returns None if any column name fails validation
-    fn build_limited_query(&self, query: &str, limit: u64, order: &Option<Vec<OrderSpec>>) -> Result<String, String> {
+    fn build_limited_query(
+        &self,
+        query: &str,
+        limit: u64,
+        order: &Option<Vec<OrderSpec>>,
+    ) -> Result<String, String> {
         // If the query already has LIMIT, don't modify it
         let upper_query = query.to_uppercase();
         if upper_query.contains(" LIMIT ") {
@@ -478,7 +491,10 @@ impl McpHandler {
             .into_iter()
             .map(|doc| {
                 if let Some(obj) = doc.as_object() {
-                    columns.iter().map(|col| obj.get(&col.name).cloned().unwrap_or(Value::Null)).collect()
+                    columns
+                        .iter()
+                        .map(|col| obj.get(&col.name).cloned().unwrap_or(Value::Null))
+                        .collect()
                 } else {
                     vec![doc]
                 }
@@ -525,9 +541,18 @@ impl McpHandler {
             .map_err(|e| e.to_string())?;
 
         let columns = vec![
-            ColumnInfo { name: "key".to_string(), db_type: "string".to_string() },
-            ColumnInfo { name: "type".to_string(), db_type: "string".to_string() },
-            ColumnInfo { name: "ttl".to_string(), db_type: "integer".to_string() },
+            ColumnInfo {
+                name: "key".to_string(),
+                db_type: "string".to_string(),
+            },
+            ColumnInfo {
+                name: "type".to_string(),
+                db_type: "string".to_string(),
+            },
+            ColumnInfo {
+                name: "ttl".to_string(),
+                db_type: "integer".to_string(),
+            },
         ];
 
         // Convert to rows (array of arrays)
@@ -573,12 +598,12 @@ impl McpHandler {
 
         let db_type = conn.adapter.db_type();
         let result = match db_type {
-            DbType::PostgreSQL | DbType::MySQL | DbType::MariaDB | DbType::SQLite | DbType::SQLServer => {
-                self.list_sql_tables(&params, &conn).await
-            }
-            DbType::MongoDB => {
-                self.list_mongo_collections(&conn).await
-            }
+            DbType::PostgreSQL
+            | DbType::MySQL
+            | DbType::MariaDB
+            | DbType::SQLite
+            | DbType::SQLServer => self.list_sql_tables(&params, &conn).await,
+            DbType::MongoDB => self.list_mongo_collections(&conn).await,
             DbType::Redis => {
                 // Redis doesn't have tables/collections
                 Ok(ListTablesResult { tables: vec![] })
@@ -629,18 +654,16 @@ impl McpHandler {
                     schema
                 )
             }
-            DbType::MySQL | DbType::MariaDB => {
-                "SELECT table_name AS name, table_type AS type
+            DbType::MySQL | DbType::MariaDB => "SELECT table_name AS name, table_type AS type
                  FROM information_schema.tables
                  WHERE table_schema = DATABASE()
-                 ORDER BY table_name".to_string()
-            }
-            DbType::SQLite => {
-                "SELECT name, type
+                 ORDER BY table_name"
+                .to_string(),
+            DbType::SQLite => "SELECT name, type
                  FROM sqlite_master
                  WHERE type IN ('table', 'view')
-                 ORDER BY name".to_string()
-            }
+                 ORDER BY name"
+                .to_string(),
             DbType::SQLServer => {
                 format!(
                     "SELECT TABLE_NAME AS name, TABLE_TYPE AS type
@@ -653,14 +676,21 @@ impl McpHandler {
             _ => return Err("Unsupported database type for listing tables".to_string()),
         };
 
-        let result = sql_adapter.execute_query(&query).await.map_err(|e| e.to_string())?;
+        let result = sql_adapter
+            .execute_query(&query)
+            .await
+            .map_err(|e| e.to_string())?;
 
         let tables: Vec<TableInfo> = result
             .rows
             .into_iter()
             .filter_map(|row| {
                 let name = row.first()?.as_str()?.to_string();
-                let table_type = row.get(1).and_then(|v| v.as_str()).unwrap_or("TABLE").to_string();
+                let table_type = row
+                    .get(1)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("TABLE")
+                    .to_string();
                 Some(TableInfo {
                     name,
                     table_type,
@@ -682,7 +712,10 @@ impl McpHandler {
             .as_mongo()
             .ok_or_else(|| "Connection does not support document queries".to_string())?;
 
-        let collections = mongo_adapter.list_collections().await.map_err(|e| e.to_string())?;
+        let collections = mongo_adapter
+            .list_collections()
+            .await
+            .map_err(|e| e.to_string())?;
 
         let tables: Vec<TableInfo> = collections
             .into_iter()
@@ -722,15 +755,13 @@ impl McpHandler {
 
         let db_type = conn.adapter.db_type();
         let result = match db_type {
-            DbType::PostgreSQL | DbType::MySQL | DbType::MariaDB | DbType::SQLite | DbType::SQLServer => {
-                self.describe_sql_table(&params, &conn).await
-            }
-            DbType::MongoDB => {
-                self.describe_mongo_collection(&params.table, &conn).await
-            }
-            DbType::Redis => {
-                Err("Redis does not support table description".to_string())
-            }
+            DbType::PostgreSQL
+            | DbType::MySQL
+            | DbType::MariaDB
+            | DbType::SQLite
+            | DbType::SQLServer => self.describe_sql_table(&params, &conn).await,
+            DbType::MongoDB => self.describe_mongo_collection(&params.table, &conn).await,
+            DbType::Redis => Err("Redis does not support table description".to_string()),
         };
 
         match result {
@@ -835,41 +866,58 @@ impl McpHandler {
             _ => return Err("Unsupported database type".to_string()),
         };
 
-        let result = sql_adapter.execute_query(&columns_query).await.map_err(|e| e.to_string())?;
+        let result = sql_adapter
+            .execute_query(&columns_query)
+            .await
+            .map_err(|e| e.to_string())?;
 
         let columns: Vec<DescribeColumnInfo> = if db_type == DbType::SQLite {
             // SQLite PRAGMA returns different columns: cid, name, type, notnull, dflt_value, pk
-            result.rows.into_iter().filter_map(|row| {
-                let name = row.get(1)?.as_str()?.to_string();
-                let data_type = row.get(2)?.as_str()?.to_string();
-                let not_null = row.get(3).and_then(|v| v.as_i64()).unwrap_or(0);
-                let pk = row.get(5).and_then(|v| v.as_i64()).unwrap_or(0);
-                Some(DescribeColumnInfo {
-                    name,
-                    data_type,
-                    nullable: not_null == 0,
-                    primary_key: pk > 0,
+            result
+                .rows
+                .into_iter()
+                .filter_map(|row| {
+                    let name = row.get(1)?.as_str()?.to_string();
+                    let data_type = row.get(2)?.as_str()?.to_string();
+                    let not_null = row.get(3).and_then(|v| v.as_i64()).unwrap_or(0);
+                    let pk = row.get(5).and_then(|v| v.as_i64()).unwrap_or(0);
+                    Some(DescribeColumnInfo {
+                        name,
+                        data_type,
+                        nullable: not_null == 0,
+                        primary_key: pk > 0,
+                    })
                 })
-            }).collect()
+                .collect()
         } else {
-            result.rows.into_iter().filter_map(|row| {
-                let name = row.first()?.as_str()?.to_string();
-                let data_type = row.get(1)?.as_str()?.to_string();
-                let nullable = row.get(2).map(|v| v.as_bool().unwrap_or(false)).unwrap_or(true);
-                let primary_key = row.get(3).map(|v| v.as_bool().unwrap_or(false)).unwrap_or(false);
-                Some(DescribeColumnInfo {
-                    name,
-                    data_type,
-                    nullable,
-                    primary_key,
+            result
+                .rows
+                .into_iter()
+                .filter_map(|row| {
+                    let name = row.first()?.as_str()?.to_string();
+                    let data_type = row.get(1)?.as_str()?.to_string();
+                    let nullable = row
+                        .get(2)
+                        .map(|v| v.as_bool().unwrap_or(false))
+                        .unwrap_or(true);
+                    let primary_key = row
+                        .get(3)
+                        .map(|v| v.as_bool().unwrap_or(false))
+                        .unwrap_or(false);
+                    Some(DescribeColumnInfo {
+                        name,
+                        data_type,
+                        nullable,
+                        primary_key,
+                    })
                 })
-            }).collect()
+                .collect()
         };
 
         Ok(DescribeTableResult {
             columns,
-            indexes: None,  // TODO: Add index query
-            foreign_keys: None,  // TODO: Add foreign key query
+            indexes: None,      // TODO: Add index query
+            foreign_keys: None, // TODO: Add foreign key query
         })
     }
 
@@ -898,7 +946,8 @@ impl McpHandler {
             .map_err(|e| e.to_string())?;
 
         // Collect all unique fields across sampled documents
-        let mut fields: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut fields: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
 
         for doc in &documents {
             if let Some(obj) = doc.as_object() {
@@ -906,12 +955,20 @@ impl McpHandler {
                     let type_name = match value {
                         Value::Null => "null",
                         Value::Bool(_) => "boolean",
-                        Value::Number(n) => if n.is_i64() { "integer" } else { "number" },
+                        Value::Number(n) => {
+                            if n.is_i64() {
+                                "integer"
+                            } else {
+                                "number"
+                            }
+                        }
                         Value::String(_) => "string",
                         Value::Array(_) => "array",
                         Value::Object(_) => "object",
                     };
-                    fields.entry(key.clone()).or_insert_with(|| type_name.to_string());
+                    fields
+                        .entry(key.clone())
+                        .or_insert_with(|| type_name.to_string());
                 }
             }
         }
@@ -956,7 +1013,10 @@ impl McpHandler {
         };
 
         let limit = params.limit.unwrap_or(20).min(100);
-        let history = self.ai_context.get_history(limit, params.connection_id.as_deref()).await;
+        let history = self
+            .ai_context
+            .get_history(limit, params.connection_id.as_deref())
+            .await;
 
         match serde_json::to_value(&history) {
             Ok(value) => JsonRpcResponse::success(id, value),
@@ -1067,7 +1127,8 @@ impl McpHandler {
         match sql_adapter.execute_query(&explain_query).await {
             Ok(result) => {
                 // Format as text output
-                let plan_text: Vec<String> = result.rows
+                let plan_text: Vec<String> = result
+                    .rows
                     .iter()
                     .map(|row| {
                         row.iter()
@@ -1124,7 +1185,9 @@ mod tests {
     #[test]
     fn test_build_limited_query_basic() {
         let handler = create_test_handler();
-        let result = handler.build_limited_query("SELECT * FROM users", 100, &None).unwrap();
+        let result = handler
+            .build_limited_query("SELECT * FROM users", 100, &None)
+            .unwrap();
         assert_eq!(result, "SELECT * FROM users LIMIT 100");
     }
 
@@ -1135,8 +1198,13 @@ mod tests {
             column: "created_at".to_string(),
             direction: OrderDirection::Desc,
         }]);
-        let result = handler.build_limited_query("SELECT * FROM users", 50, &order).unwrap();
-        assert_eq!(result, "SELECT * FROM users ORDER BY \"created_at\" DESC LIMIT 50");
+        let result = handler
+            .build_limited_query("SELECT * FROM users", 50, &order)
+            .unwrap();
+        assert_eq!(
+            result,
+            "SELECT * FROM users ORDER BY \"created_at\" DESC LIMIT 50"
+        );
     }
 
     #[test]
@@ -1152,14 +1220,21 @@ mod tests {
                 direction: OrderDirection::Asc,
             },
         ]);
-        let result = handler.build_limited_query("SELECT * FROM users", 50, &order).unwrap();
-        assert_eq!(result, "SELECT * FROM users ORDER BY \"created_at\" DESC, \"name\" ASC LIMIT 50");
+        let result = handler
+            .build_limited_query("SELECT * FROM users", 50, &order)
+            .unwrap();
+        assert_eq!(
+            result,
+            "SELECT * FROM users ORDER BY \"created_at\" DESC, \"name\" ASC LIMIT 50"
+        );
     }
 
     #[test]
     fn test_build_limited_query_already_has_limit() {
         let handler = create_test_handler();
-        let result = handler.build_limited_query("SELECT * FROM users LIMIT 10", 100, &None).unwrap();
+        let result = handler
+            .build_limited_query("SELECT * FROM users LIMIT 10", 100, &None)
+            .unwrap();
         assert_eq!(result, "SELECT * FROM users LIMIT 10");
     }
 

@@ -1,5 +1,5 @@
 import { logger } from "@/lib/logger";
-import { memo, useCallback, forwardRef } from "react";
+import { memo, useCallback, forwardRef, useEffect, useRef } from "react";
 import { SqlEditor } from "@/components/CodeEditor/SqlEditor";
 import type { SqlEditorRef } from "@/components/CodeEditor/SqlEditor";
 import type { SqlDialect } from "@/components/CodeEditor";
@@ -42,12 +42,18 @@ export const QueryEditor = memo(
     },
     ref,
   ) {
+    const valueRef = useRef(value);
+
+    useEffect(() => {
+      valueRef.current = value;
+    }, [value]);
+
     const handleExecute = useCallback(
       (query?: string) => {
         logger.debug("query-editor", "Execute requested", {
           hasInlineQuery: Boolean(query),
           inlineQueryLength: query?.length || 0,
-          editorValueLength: value.length || 0,
+          editorValueLength: valueRef.current.length || 0,
         });
 
         // Prevent execution if already executing
@@ -59,14 +65,14 @@ export const QueryEditor = memo(
         }
 
         if (onExecute) {
-          const finalQuery = query || value;
+          const finalQuery = query || valueRef.current;
           logger.debug("query-editor", "Forwarding execute to callback", {
             finalQueryLength: finalQuery.length || 0,
           });
           onExecute(finalQuery);
         }
       },
-      [isExecuting, onExecute, value],
+      [isExecuting, onExecute],
     );
 
     return (
@@ -75,6 +81,7 @@ export const QueryEditor = memo(
           ref={ref}
           value={value}
           onChange={onChange}
+          onChangeDelay={120}
           onExecute={handleExecute}
           dialectOverride={dialectOverride}
           onDialectDetected={onDialectDetected}

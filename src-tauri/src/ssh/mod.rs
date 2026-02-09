@@ -6,7 +6,7 @@ mod port_allocator;
 pub use port_allocator::{allocate_local_port, is_port_listening};
 pub use tunnel::{verify_connection, SshTunnel};
 
-use crate::types::SshTunnelConfig;
+use crate::types::{SshAuthMethod, SshTunnelConfig};
 
 /// Parse ~/.ssh/config for host-specific settings
 #[derive(Default, Debug)]
@@ -72,6 +72,66 @@ pub fn apply_ssh_config_overrides(config: &mut SshTunnelConfig, overrides: &SshC
     if config.user.is_empty() {
         if let Some(ref user) = overrides.user {
             config.user = user.clone();
+        }
+    }
+    if let Some(identity_file) = overrides.identity_file.as_ref() {
+        // Respect explicit credentials from profile; only apply IdentityFile
+        // when auth is currently SSH agent based.
+        if matches!(config.auth, SshAuthMethod::Agent) {
+            config.auth = SshAuthMethod::KeyFile {
+                path: identity_file.clone(),
+                passphrase: None,
+            };
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apply_identity_file_overrides_agent_auth() {
+        let mut config = SshTunnelConfig {
+            host: "db.example.com".into(),
+            port: 22,
+            user: "alice".into(),
+            auth: SshAuthMethod::Agent,
+        };
+        let overrides = SshConfigOverrides {
+            identity_file: Some("/tmp/test-key".into()),
+            ..Default::default()
+        };
+
+        apply_ssh_config_overrides(&mut config, &overrides);
+
+        match config.auth {
+            SshAuthMethod::KeyFile { path, passphrase } => {
+                assert_eq!(path, "/tmp/test-key");
+                assert!(passphrase.is_none());
+            }
+            _ => panic!("expected key file auth from IdentityFile override"),
+        }
+    }
+
+    #[test]
+    fn identity_file_does_not_override_explicit_password_auth() {
+        let mut config = SshTunnelConfig {
+            host: "db.example.com".into(),
+            port: 22,
+            user: "alice".into(),
+            auth: SshAuthMethod::Password("secret".into()),
+        };
+        let overrides = SshConfigOverrides {
+            identity_file: Some("/tmp/test-key".into()),
+            ..Default::default()
+        };
+
+        apply_ssh_config_overrides(&mut config, &overrides);
+
+        match config.auth {
+            SshAuthMethod::Password(password) => assert_eq!(password, "secret"),
+            _ => panic!("expected explicit password auth to remain unchanged"),
         }
     }
 }

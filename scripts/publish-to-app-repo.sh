@@ -93,7 +93,7 @@ if [ -f "CHANGELOG.md" ]; then
 ## Installation
 
 **macOS:**
-- Download \`Query-Pilot_aarch64.dmg\` for Apple Silicon
+- Download \`QueryPilot_${VERSION}.dmg\` (works on both Intel and Apple Silicon)
 - Open DMG and drag Query Pilot to Applications folder
 - On first launch, right-click the app and select "Open" if you see a security warning
 
@@ -122,12 +122,67 @@ echo -e "${BLUE}📄 Generating update manifest...${NC}"
 MANIFEST_FILE="$WORK_DIR/latest.json"
 PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-# Find DMG files and their sizes
+# Find DMG file (universal or arch-specific)
+UNIVERSAL_DMG=$(find "$WORK_DIR" -name "QueryPilot_*.dmg" | head -1)
 DARWIN_AARCH64_DMG=$(find "$WORK_DIR" -name "*aarch64.dmg" -o -name "*arm64.dmg" | head -1)
 DARWIN_X64_DMG=$(find "$WORK_DIR" -name "*x86_64.dmg" -o -name "*x64.dmg" | head -1)
 
-# Start building the manifest
-cat > "$MANIFEST_FILE" << EOF
+# Use universal DMG for both platforms if no arch-specific DMGs found
+if [ -n "$UNIVERSAL_DMG" ] && [ -z "$DARWIN_AARCH64_DMG" ] && [ -z "$DARWIN_X64_DMG" ]; then
+    echo -e "${BLUE}Found universal DMG: $(basename "$UNIVERSAL_DMG")${NC}"
+    DMG_NAME=$(basename "$UNIVERSAL_DMG")
+    DMG_URL="https://github.com/$TARGET_REPO/releases/download/$VERSION/$DMG_NAME"
+    DMG_PATH="$UNIVERSAL_DMG"
+
+    SIGNATURE=""
+    if [ -f "$UPDATER_KEY_PATH" ] && [ "$SIGN_UPDATES" != "false" ]; then
+        echo -e "${BLUE}🔐 Signing $DMG_NAME...${NC}"
+        SIGNATURE=$(pnpm tauri signer sign "$DMG_PATH" --private-key "$UPDATER_KEY_PATH" 2>/dev/null || echo "")
+        if [ -n "$SIGNATURE" ]; then
+            echo -e "${GREEN}✓${NC} Signed universal DMG"
+        else
+            echo -e "${YELLOW}⚠️  Failed to sign, creating unsigned manifest${NC}"
+        fi
+    fi
+
+    if [ -n "$SIGNATURE" ]; then
+        cat > "$MANIFEST_FILE" << EOF
+{
+  "version": "${VERSION#v}",
+  "notes": "$(head -5 "$RELEASE_NOTES_FILE" | sed 's/"/\\"/g' | tr '\n' ' ')",
+  "pub_date": "$PUB_DATE",
+  "platforms": {
+    "darwin-aarch64": {
+      "signature": "$SIGNATURE",
+      "url": "$DMG_URL"
+    },
+    "darwin-x86_64": {
+      "signature": "$SIGNATURE",
+      "url": "$DMG_URL"
+    }
+  }
+}
+EOF
+    else
+        cat > "$MANIFEST_FILE" << EOF
+{
+  "version": "${VERSION#v}",
+  "notes": "$(head -5 "$RELEASE_NOTES_FILE" | sed 's/"/\\"/g' | tr '\n' ' ')",
+  "pub_date": "$PUB_DATE",
+  "platforms": {
+    "darwin-aarch64": {
+      "url": "$DMG_URL"
+    },
+    "darwin-x86_64": {
+      "url": "$DMG_URL"
+    }
+  }
+}
+EOF
+    fi
+else
+    # Arch-specific DMGs - build manifest per-platform
+    cat > "$MANIFEST_FILE" << EOF
 {
   "version": "${VERSION#v}",
   "notes": "$(head -5 "$RELEASE_NOTES_FILE" | sed 's/"/\\"/g' | tr '\n' ' ')",
@@ -135,87 +190,54 @@ cat > "$MANIFEST_FILE" << EOF
   "platforms": {
 EOF
 
-# Add macOS ARM64 platform
-if [ -n "$DARWIN_AARCH64_DMG" ]; then
-    DMG_NAME=$(basename "$DARWIN_AARCH64_DMG")
-    DMG_SIZE=$(stat -f%z "$DARWIN_AARCH64_DMG" 2>/dev/null || stat -c%s "$DARWIN_AARCH64_DMG" 2>/dev/null)
-    DMG_URL="https://github.com/$TARGET_REPO/releases/download/$VERSION/$DMG_NAME"
+    FIRST_ENTRY=true
 
-    # Sign the DMG if key is available
-    if [ -f "$UPDATER_KEY_PATH" ] && [ "$SIGN_UPDATES" != "false" ]; then
-        echo -e "${BLUE}🔐 Signing $DMG_NAME...${NC}"
-        SIGNATURE=$(pnpm tauri signer sign "$DARWIN_AARCH64_DMG" --private-key "$UPDATER_KEY_PATH" 2>/dev/null || echo "")
+    for ARCH_LABEL in "darwin-aarch64" "darwin-x86_64"; do
+        if [ "$ARCH_LABEL" = "darwin-aarch64" ]; then
+            DMG_PATH="$DARWIN_AARCH64_DMG"
+        else
+            DMG_PATH="$DARWIN_X64_DMG"
+        fi
+
+        [ -z "$DMG_PATH" ] && continue
+
+        DMG_NAME=$(basename "$DMG_PATH")
+        DMG_URL="https://github.com/$TARGET_REPO/releases/download/$VERSION/$DMG_NAME"
+
+        if [ "$FIRST_ENTRY" = false ]; then
+            # Append comma to previous entry
+            sed -i '$ s/}$/},/' "$MANIFEST_FILE"
+        fi
+        FIRST_ENTRY=false
+
+        SIGNATURE=""
+        if [ -f "$UPDATER_KEY_PATH" ] && [ "$SIGN_UPDATES" != "false" ]; then
+            echo -e "${BLUE}🔐 Signing $DMG_NAME...${NC}"
+            SIGNATURE=$(pnpm tauri signer sign "$DMG_PATH" --private-key "$UPDATER_KEY_PATH" 2>/dev/null || echo "")
+        fi
 
         if [ -n "$SIGNATURE" ]; then
             cat >> "$MANIFEST_FILE" << EOF
-    "darwin-aarch64": {
+    "$ARCH_LABEL": {
       "signature": "$SIGNATURE",
       "url": "$DMG_URL"
     }
 EOF
-            echo -e "${GREEN}✓${NC} Signed darwin-aarch64"
+            echo -e "${GREEN}✓${NC} Signed $ARCH_LABEL"
         else
-            echo -e "${YELLOW}⚠️  Failed to sign darwin-aarch64, adding without signature${NC}"
             cat >> "$MANIFEST_FILE" << EOF
-    "darwin-aarch64": {
+    "$ARCH_LABEL": {
       "url": "$DMG_URL"
     }
 EOF
         fi
-    else
-        echo -e "${YELLOW}⚠️  Skipping signature for darwin-aarch64${NC}"
-        cat >> "$MANIFEST_FILE" << EOF
-    "darwin-aarch64": {
-      "url": "$DMG_URL"
-    }
-EOF
-    fi
-fi
+    done
 
-# Add macOS x64 platform if available
-if [ -n "$DARWIN_X64_DMG" ]; then
-    DMG_NAME=$(basename "$DARWIN_X64_DMG")
-    DMG_URL="https://github.com/$TARGET_REPO/releases/download/$VERSION/$DMG_NAME"
-
-    # Add comma if not first entry
-    if [ -n "$DARWIN_AARCH64_DMG" ]; then
-        echo "," >> "$MANIFEST_FILE"
-    fi
-
-    if [ -f "$UPDATER_KEY_PATH" ] && [ "$SIGN_UPDATES" != "false" ]; then
-        echo -e "${BLUE}🔐 Signing $DMG_NAME...${NC}"
-        SIGNATURE=$(pnpm tauri signer sign "$DARWIN_X64_DMG" --private-key "$UPDATER_KEY_PATH" 2>/dev/null || echo "")
-
-        if [ -n "$SIGNATURE" ]; then
-            cat >> "$MANIFEST_FILE" << EOF
-    "darwin-x86_64": {
-      "signature": "$SIGNATURE",
-      "url": "$DMG_URL"
-    }
-EOF
-            echo -e "${GREEN}✓${NC} Signed darwin-x86_64"
-        else
-            echo -e "${YELLOW}⚠️  Failed to sign darwin-x86_64, adding without signature${NC}"
-            cat >> "$MANIFEST_FILE" << EOF
-    "darwin-x86_64": {
-      "url": "$DMG_URL"
-    }
-EOF
-        fi
-    else
-        cat >> "$MANIFEST_FILE" << EOF
-    "darwin-x86_64": {
-      "url": "$DMG_URL"
-    }
-EOF
-    fi
-fi
-
-# Close JSON
-cat >> "$MANIFEST_FILE" << EOF
+    cat >> "$MANIFEST_FILE" << EOF
   }
 }
 EOF
+fi
 
 echo -e "${GREEN}✓${NC} Update manifest generated"
 echo ""

@@ -36,8 +36,11 @@ describe("parseCommands", () => {
 
     const commands = parseCommands(text);
     expect(commands).toHaveLength(1);
-    expect(commands[0]!.name).toBe("crud.stage");
-    expect((commands[0]!.params as { connectionId: string }).connectionId).toBe("conn-123");
+    const first = commands[0];
+    expect(first).toBeDefined();
+    if (!first) throw new Error("Expected command");
+    expect(first.name).toBe("crud.stage");
+    expect((first.params as { connectionId: string }).connectionId).toBe("conn-123");
   });
 
   it("parses tab.update command", () => {
@@ -50,7 +53,10 @@ describe("parseCommands", () => {
 
     const commands = parseCommands(text);
     expect(commands).toHaveLength(1);
-    expect(commands[0]!.name).toBe("tab.update");
+    const first = commands[0];
+    expect(first).toBeDefined();
+    if (!first) throw new Error("Expected command");
+    expect(first.name).toBe("tab.update");
   });
 
   it("parses editor.insert command", () => {
@@ -60,7 +66,10 @@ describe("parseCommands", () => {
 
     const commands = parseCommands(text);
     expect(commands).toHaveLength(1);
-    expect(commands[0]!.name).toBe("editor.insert");
+    const first = commands[0];
+    expect(first).toBeDefined();
+    if (!first) throw new Error("Expected command");
+    expect(first.name).toBe("editor.insert");
   });
 
   it("parses multiple commands", () => {
@@ -78,20 +87,50 @@ Second update:
     const text = `<command name="crud.stage">{ invalid }</command>`;
     const commands = parseCommands(text);
     expect(commands).toHaveLength(1);
-    expect(commands[0]!.error).toBeDefined();
+    const first = commands[0];
+    expect(first).toBeDefined();
+    if (!first) throw new Error("Expected command");
+    expect(first.error).toBeDefined();
   });
 
   it("extracts position in text", () => {
     const text = 'Before\n<command name="tab.update">{}</command>\nAfter';
     const commands = parseCommands(text);
-    expect(commands[0]!.startIndex).toBe(7);
+    const first = commands[0];
+    expect(first).toBeDefined();
+    if (!first) throw new Error("Expected command");
+    expect(first.startIndex).toBe(7);
   });
 
   it("marks unknown commands as errors", () => {
     const text = `<command name="sql.execute">{"connectionId": "c1", "sql": "SELECT 1"}</command>`;
     const commands = parseCommands(text);
     expect(commands).toHaveLength(1);
-    expect(commands[0]!.error).toContain("Unknown command");
+    const first = commands[0];
+    expect(first).toBeDefined();
+    if (!first) throw new Error("Expected command");
+    expect(first.error).toContain("Unknown command");
+  });
+
+  it("ignores command-like tags inside fenced code blocks", () => {
+    const text = `Here is an example only:
+
+\`\`\`xml
+<command name="tab.update">{"content":"SELECT 1"}</command>
+\`\`\``;
+    const commands = parseCommands(text);
+    expect(commands).toHaveLength(0);
+  });
+
+  it("parses non-canonical command syntax with low confidence", () => {
+    const text = `<command   name='tab.update' >{"content":"SELECT 1"}</command>`;
+    const commands = parseCommands(text);
+    expect(commands).toHaveLength(1);
+    const first = commands[0];
+    expect(first).toBeDefined();
+    if (!first) throw new Error("Expected command");
+    expect(first.name).toBe("tab.update");
+    expect(first.confidence).toBe("low");
   });
 });
 
@@ -118,12 +157,28 @@ More text...
     expect(result.complete).toHaveLength(1);
     expect(result.incomplete).toBe(true);
   });
+
+  it("detects incomplete commands even when payload contains '<' characters", () => {
+    const text =
+      '<command name="query.run">{"connectionId":"c1","query":"SELECT * FROM users WHERE age < 18"';
+    const result = parseCommandsProgressive(text);
+    expect(result.incomplete).toBe(true);
+  });
 });
 
 describe("stripCommands", () => {
   it("removes command blocks from text", () => {
     const text = `Before <command name="test">{}</command> After`;
     expect(stripCommands(text)).toBe("Before  After");
+  });
+
+  it("does not strip fenced command examples", () => {
+    const text = `Before
+\`\`\`xml
+<command name="tab.update">{"content":"SELECT 1"}</command>
+\`\`\`
+After`;
+    expect(stripCommands(text)).toContain("<command name=\"tab.update\">");
   });
 });
 

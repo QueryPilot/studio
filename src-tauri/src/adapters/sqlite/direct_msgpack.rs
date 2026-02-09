@@ -76,17 +76,15 @@ impl DirectMsgPackEncoder {
             Some(ValueRef::Real(f)) => {
                 encode::write_f64(buf, f).map_err(Self::map_encode_err)?;
             }
-            Some(ValueRef::Text(bytes)) => {
-                match std::str::from_utf8(bytes) {
-                    Ok(s) => {
-                        encode::write_str(buf, s).map_err(Self::map_encode_err)?;
-                    }
-                    Err(_) => {
-                        let b64 = BASE64_STANDARD.encode(bytes);
-                        encode::write_str(buf, &b64).map_err(Self::map_encode_err)?;
-                    }
+            Some(ValueRef::Text(bytes)) => match std::str::from_utf8(bytes) {
+                Ok(s) => {
+                    encode::write_str(buf, s).map_err(Self::map_encode_err)?;
                 }
-            }
+                Err(_) => {
+                    let b64 = BASE64_STANDARD.encode(bytes);
+                    encode::write_str(buf, &b64).map_err(Self::map_encode_err)?;
+                }
+            },
             Some(ValueRef::Blob(bytes)) => {
                 let b64 = BASE64_STANDARD.encode(bytes);
                 encode::write_str(buf, &b64).map_err(Self::map_encode_err)?;
@@ -115,4 +113,3 @@ mod tests {
         assert_eq!(encoder.column_count, 5);
     }
 }
-

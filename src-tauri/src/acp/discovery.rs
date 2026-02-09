@@ -215,8 +215,8 @@ pub fn discover_agents() -> Vec<AgentInfo> {
                             manager_type: p.manager_type.to_string(),
                             installed,
                             installed_version,
-                            latest_version: None,    // populated by check_updates
-                            update_available: false,  // populated by check_updates
+                            latest_version: None, // populated by check_updates
+                            update_available: false, // populated by check_updates
                         }
                     })
                     .collect(),
@@ -566,10 +566,7 @@ fn fetch_claude_code_models() -> Option<Vec<ModelInfo>> {
         resolved.display()
     );
 
-    let output = Command::new(&shell)
-        .args(["-c", &cmd])
-        .output()
-        .ok()?;
+    let output = Command::new(&shell).args(["-c", &cmd]).output().ok()?;
 
     if !output.status.success() {
         return None;

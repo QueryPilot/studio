@@ -5,7 +5,11 @@
  * Supports progressive parsing during streaming.
  */
 
-import { COMMAND_META, type AiCommandName, type ParsedCommand } from "@/types/aiCommands";
+import {
+  COMMAND_META,
+  type AiCommandName,
+  type ParsedCommand,
+} from "@/types/aiCommands";
 
 /**
  * Generate a deterministic ID for a command based on its content and position.
@@ -32,34 +36,104 @@ const VALID_COMMAND_NAMES = new Set(Object.keys(COMMAND_META));
 // Parser
 // ============================================================================
 
-const COMMAND_REGEX = /<command\s+name="([^"]+)">([\s\S]*?)<\/command>/g;
-const PARTIAL_COMMAND_REGEX = /<command\s+name="[^"]*">[^<]*$/;
+const COMMAND_REGEX =
+  /<command\b[^>]*\bname\s*=\s*(['"])([^'"]+)\1[^>]*>([\s\S]*?)<\/command>/gi;
+const OPENING_TAG_REGEX =
+  /<command\b[^>]*\bname\s*=\s*(['"])([^'"]+)\1[^>]*>/gi;
+const STRICT_OPENING_TAG_REGEX = /^<command name="[^"]+">$/;
+const FENCED_CODE_BLOCK_REGEX = /(```[\s\S]*?```|~~~[\s\S]*?~~~)/g;
+
+interface Range {
+  start: number;
+  end: number;
+}
+
+interface CommandMatch {
+  raw: string;
+  name: string;
+  content: string;
+  startIndex: number;
+  endIndex: number;
+  confidence: "high" | "low";
+}
+
+function collectProtectedRanges(text: string): Range[] {
+  const ranges: Range[] = [];
+  FENCED_CODE_BLOCK_REGEX.lastIndex = 0;
+
+  let match: RegExpExecArray | null;
+  while ((match = FENCED_CODE_BLOCK_REGEX.exec(text)) !== null) {
+    const raw = match[0];
+    ranges.push({
+      start: match.index,
+      end: match.index + raw.length,
+    });
+  }
+
+  return ranges;
+}
+
+function isIndexInRanges(index: number, ranges: Range[]): boolean {
+  return ranges.some((range) => index >= range.start && index < range.end);
+}
+
+function parseCommandMatches(text: string): CommandMatch[] {
+  const matches: CommandMatch[] = [];
+  const protectedRanges = collectProtectedRanges(text);
+
+  COMMAND_REGEX.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = COMMAND_REGEX.exec(text)) !== null) {
+    const raw = match[0];
+    const name = match[2];
+    const content = match[3];
+    if (name === undefined || content === undefined) {
+      continue;
+    }
+    const startIndex = match.index;
+    const endIndex = startIndex + raw.length;
+
+    if (isIndexInRanges(startIndex, protectedRanges)) {
+      continue;
+    }
+
+    const openingTagEnd = raw.indexOf(">");
+    const openingTag = openingTagEnd >= 0 ? raw.slice(0, openingTagEnd + 1) : "";
+    const confidence: "high" | "low" = STRICT_OPENING_TAG_REGEX.test(openingTag)
+      ? "high"
+      : "low";
+
+    matches.push({
+      raw,
+      name,
+      content,
+      startIndex,
+      endIndex,
+      confidence,
+    });
+  }
+
+  return matches;
+}
 
 /**
  * Parse complete commands from text.
  */
 export function parseCommands(text: string): ParsedCommand[] {
   const commands: ParsedCommand[] = [];
-  let match: RegExpExecArray | null;
+  const matches = parseCommandMatches(text);
 
-  // Reset regex state
-  COMMAND_REGEX.lastIndex = 0;
-
-  while ((match = COMMAND_REGEX.exec(text)) !== null) {
-    const [raw, name, content] = match;
-    const startIndex = match.index;
-    const endIndex = startIndex + raw.length;
-
-    // name should always be present due to regex structure, but handle defensively
-    const commandName = name ?? "";
+  for (const match of matches) {
+    const commandName = match.name;
 
     const command: ParsedCommand = {
-      id: generateCommandId(commandName, content ?? "", startIndex),
+      id: generateCommandId(commandName, match.content, match.startIndex),
       name: commandName as AiCommandName,
       params: {},
-      raw,
-      startIndex,
-      endIndex,
+      raw: match.raw,
+      startIndex: match.startIndex,
+      endIndex: match.endIndex,
+      confidence: match.confidence,
     };
 
     // Validate command name is in registry
@@ -67,7 +141,7 @@ export function parseCommands(text: string): ParsedCommand[] {
       command.error = `Unknown command: ${commandName}`;
     } else {
       try {
-        const trimmedContent = content?.trim() ?? "";
+        const trimmedContent = match.content.trim();
         command.params = trimmedContent ? JSON.parse(trimmedContent) : {};
       } catch (e) {
         command.error = `Invalid JSON: ${e instanceof Error ? e.message : String(e)}`;
@@ -95,26 +169,28 @@ export interface ProgressiveParseResult {
  */
 export function parseCommandsProgressive(text: string): ProgressiveParseResult {
   const complete = parseCommands(text);
+  const protectedRanges = collectProtectedRanges(text);
+  const completeRanges = complete.map((c) => ({ start: c.startIndex, end: c.endIndex }));
 
-  // Check if there's an incomplete command at the end
-  // (opening tag started but no closing tag yet)
-  const lastCompleteEnd =
-    complete.length > 0 ? Math.max(...complete.map((c) => c.endIndex)) : 0;
-
-  const remaining = text.slice(lastCompleteEnd);
-  const hasIncomplete = PARTIAL_COMMAND_REGEX.test(remaining);
-
+  OPENING_TAG_REGEX.lastIndex = 0;
+  let match: RegExpExecArray | null;
   let incompleteStart: number | undefined;
-  if (hasIncomplete) {
-    const match = remaining.match(/<command\s+name="[^"]*">/);
-    if (match && match.index !== undefined) {
-      incompleteStart = lastCompleteEnd + match.index;
+  while ((match = OPENING_TAG_REGEX.exec(text)) !== null) {
+    const start = match.index;
+    if (isIndexInRanges(start, protectedRanges)) {
+      continue;
+    }
+    const coveredByComplete = completeRanges.some(
+      (range) => start >= range.start && start < range.end
+    );
+    if (!coveredByComplete) {
+      incompleteStart = start;
     }
   }
 
   return {
     complete,
-    incomplete: hasIncomplete,
+    incomplete: incompleteStart !== undefined,
     incompleteStart,
   };
 }
@@ -123,22 +199,32 @@ export function parseCommandsProgressive(text: string): ProgressiveParseResult {
  * Remove command blocks from text.
  */
 export function stripCommands(text: string): string {
-  return text.replace(COMMAND_REGEX, "").replace(/\n{3,}/g, "\n\n");
+  const matches = parseCommandMatches(text);
+  if (matches.length === 0) return text;
+
+  let stripped = text;
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const match = matches[i];
+    if (!match) continue;
+    stripped =
+      stripped.slice(0, match.startIndex) + stripped.slice(match.endIndex);
+  }
+
+  return stripped.replace(/\n{3,}/g, "\n\n").trimEnd();
 }
 
 /**
  * Check if text contains any commands.
  */
 export function hasCommands(text: string): boolean {
-  COMMAND_REGEX.lastIndex = 0;
-  return COMMAND_REGEX.test(text);
+  return parseCommandMatches(text).length > 0;
 }
 
 /**
  * Check if text has an incomplete command being streamed.
  */
 export function hasIncompleteCommand(text: string): boolean {
-  return PARTIAL_COMMAND_REGEX.test(text);
+  return parseCommandsProgressive(text).incomplete;
 }
 
 /**

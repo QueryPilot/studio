@@ -8,7 +8,15 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
-import type { AgentInfo, AcpSession, AcpMessage, ToolCall, ModelInfo, NpmPackageManager } from "@/types/acp";
+import type {
+  AgentInfo,
+  AcpSession,
+  AcpMessage,
+  ToolCall,
+  ModelInfo,
+  NpmPackageManager,
+  AssistantFlowSegment,
+} from "@/types/acp";
 import * as db from "@/lib/db/aiConversations";
 import { AcpService } from "@/services/acpService";
 import { toast } from "sonner";
@@ -116,9 +124,15 @@ interface AcpState {
   streamingContent: string;
   streamingThinking: string;
   streamingError: string | null;
+  streamingFlow: AssistantFlowSegment[];
 
   // Active tool calls during streaming
   activeToolCalls: ToolCall[];
+
+  // Additional ACP streaming metadata
+  streamingPlan: Array<{ id: string; description: string; status: string }>;
+  currentMode: string | null;
+  availableSessionCommands: string[];
 
   // Warmup state - pre-starts agent for faster first message
   isWarmingUp: boolean;
@@ -151,6 +165,11 @@ interface AcpState {
   appendThinking: (text: string) => void;
   addToolCall: (toolCall: ToolCall) => void;
   updateToolCall: (toolCallId: string, status: ToolCall["status"]) => void;
+  setPlan: (
+    steps: Array<{ id: string; description: string; status: string }>
+  ) => void;
+  setMode: (mode: string | null) => void;
+  setAvailableCommands: (commands: string[]) => void;
   finalizeMessage: () => void;
   togglePanel: () => void;
   setPreferredPackageManager: (pm: NpmPackageManager) => void;
@@ -181,7 +200,11 @@ export const useAcpStore = create<AcpState>()(
     streamingContent: "",
     streamingThinking: "",
     streamingError: null,
+    streamingFlow: [],
     activeToolCalls: [],
+    streamingPlan: [],
+    currentMode: null,
+    availableSessionCommands: [],
     isWarmingUp: false,
     mcpAvailable: true, // Assume available until warmup confirms
     recentSessions: [],
@@ -334,6 +357,10 @@ export const useAcpStore = create<AcpState>()(
           activeSession: null,
           activeInstanceId: null,
           messages: [],
+          streamingFlow: [],
+          streamingPlan: [],
+          currentMode: null,
+          availableSessionCommands: [],
           isWarmingUp: false,
         });
 
@@ -580,6 +607,15 @@ export const useAcpStore = create<AcpState>()(
         activeSession: session,
         activeInstanceId: null, // Old instance is dead - will warmup on next message
         messages,
+        isStreaming: false,
+        streamingContent: "",
+        streamingThinking: "",
+        streamingError: null,
+        streamingFlow: [],
+        activeToolCalls: [],
+        streamingPlan: [],
+        currentMode: null,
+        availableSessionCommands: [],
         isWarmingUp: false,
       });
 
@@ -603,7 +639,11 @@ export const useAcpStore = create<AcpState>()(
         streamingContent: "",
         streamingThinking: "",
         streamingError: null,
+        streamingFlow: [],
         activeToolCalls: [],
+        streamingPlan: [],
+        currentMode: null,
+        availableSessionCommands: [],
         isWarmingUp: false,
       });
 
@@ -656,7 +696,9 @@ export const useAcpStore = create<AcpState>()(
         streamingContent: "",
         streamingThinking: "",
         streamingError: null,
+        streamingFlow: [],
         activeToolCalls: [],
+        streamingPlan: [],
       }));
 
       // Now wait for session to be ready (user sees their message while waiting)
@@ -671,7 +713,11 @@ export const useAcpStore = create<AcpState>()(
       }
 
       if (!activeSession || !activeInstanceId) {
-        set({ isStreaming: false, streamingError: "No active session" });
+        set({
+          isStreaming: false,
+          streamingError: "No active session",
+          streamingFlow: [],
+        });
         return;
       }
 
@@ -712,16 +758,30 @@ export const useAcpStore = create<AcpState>()(
           onToolCallUpdate: (id, status) => {
             get().updateToolCall(id, status as ToolCall["status"]);
           },
+          onPlanUpdate: (steps) => {
+            get().setPlan(steps);
+          },
+          onModeUpdate: (mode) => {
+            get().setMode(mode);
+          },
+          onAvailableCommandsUpdate: (commands) => {
+            get().setAvailableCommands(commands);
+          },
           onComplete: () => {
             get().finalizeMessage();
           },
           onError: (error) => {
-            set({ isStreaming: false, streamingError: error });
+            set({
+              isStreaming: false,
+              streamingError: error,
+              streamingFlow: [],
+              streamingPlan: [],
+            });
             console.error("ACP error:", error);
           },
         });
       } catch (error) {
-        set({ isStreaming: false });
+        set({ isStreaming: false, streamingFlow: [], streamingPlan: [] });
         console.error("ACP error:", error);
       }
     },
@@ -730,14 +790,27 @@ export const useAcpStore = create<AcpState>()(
       const { activeInstanceId } = get();
       if (activeInstanceId) {
         await AcpService.cancelSession(activeInstanceId);
-        set({ isStreaming: false });
+        set({ isStreaming: false, streamingFlow: [], streamingPlan: [] });
       }
     },
 
     appendChunk: (text) => {
-      set((state) => ({
-        streamingContent: state.streamingContent + text,
-      }));
+      if (!text) return;
+
+      set((state) => {
+        const nextFlow = [...state.streamingFlow];
+        const last = nextFlow[nextFlow.length - 1];
+        if (last && last.type === "text") {
+          last.text += text;
+        } else {
+          nextFlow.push({ type: "text", text });
+        }
+
+        return {
+          streamingContent: state.streamingContent + text,
+          streamingFlow: nextFlow,
+        };
+      });
     },
 
     appendThinking: (text) => {
@@ -752,8 +825,21 @@ export const useAcpStore = create<AcpState>()(
         if (state.activeToolCalls.some((tc) => tc.id === toolCall.id)) {
           return state; // Already have this tool call
         }
+
+        const hasFlowEntry = state.streamingFlow.some(
+          (segment) =>
+            segment.type === "tool-call" && segment.call.id === toolCall.id
+        );
+        const nextFlow = hasFlowEntry
+          ? state.streamingFlow
+          : [
+              ...state.streamingFlow,
+              { type: "tool-call" as const, call: toolCall },
+            ];
+
         return {
           activeToolCalls: [...state.activeToolCalls, toolCall],
+          streamingFlow: nextFlow,
         };
       });
     },
@@ -763,11 +849,40 @@ export const useAcpStore = create<AcpState>()(
         activeToolCalls: state.activeToolCalls.map((tc) =>
           tc.id === toolCallId ? { ...tc, status } : tc
         ),
+        streamingFlow: state.streamingFlow.map((segment) => {
+          if (segment.type !== "tool-call") return segment;
+          if (segment.call.id !== toolCallId) return segment;
+          return {
+            ...segment,
+            call: {
+              ...segment.call,
+              status,
+            },
+          };
+        }),
       }));
     },
 
+    setPlan: (steps) => {
+      set({ streamingPlan: steps });
+    },
+
+    setMode: (mode) => {
+      set({ currentMode: mode });
+    },
+
+    setAvailableCommands: (commands) => {
+      set({ availableSessionCommands: commands });
+    },
+
     finalizeMessage: async () => {
-      const { activeSession, streamingContent, streamingThinking, activeToolCalls } = get();
+      const {
+        activeSession,
+        streamingContent,
+        streamingThinking,
+        activeToolCalls,
+        streamingFlow,
+      } = get();
       if (!activeSession) return;
 
       const assistantMessage: AcpMessage = {
@@ -777,6 +892,7 @@ export const useAcpStore = create<AcpState>()(
         content: streamingContent,
         thinking: streamingThinking || undefined,
         toolCalls: activeToolCalls.length > 0 ? activeToolCalls : undefined,
+        assistantFlow: streamingFlow.length > 0 ? streamingFlow : undefined,
         timestamp: Date.now(),
       };
 
@@ -785,7 +901,9 @@ export const useAcpStore = create<AcpState>()(
         isStreaming: false,
         streamingContent: "",
         streamingThinking: "",
+        streamingFlow: [],
         activeToolCalls: [],
+        streamingPlan: [],
       }));
 
       await db.saveMessage(assistantMessage);
@@ -845,7 +963,7 @@ export const useAcpStore = create<AcpState>()(
       for (const { pkg, agentId } of outdatedPackages) {
         try {
           const binaryName = agentId === "codex-acp" ? "codex" : "claude";
-          await AcpService.upgradePackage(pkg.name, pkg.managerType as "npm" | "brew", binaryName);
+          await AcpService.upgradePackage(pkg.name, pkg.managerType, binaryName);
           successCount++;
           results.push(`${pkg.name} → v${pkg.latestVersion}`);
         } catch (err) {

@@ -22,12 +22,12 @@ use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-use crate::core::backup_capability::{
-    BackupCapable, BackupConfig, BackupFormat, BackupObject, BackupObjectType,
-    BackupOptionsSchema, BackupPreview, BackupPreviewObject, FieldType, OptionField,
-    ProgressSender, RestoreConfig, RestoreOptionsSchema, ToolRequirement, ToolPurpose,
-};
 use crate::core::backup_capability::BackupProgress;
+use crate::core::backup_capability::{
+    BackupCapable, BackupConfig, BackupFormat, BackupObject, BackupObjectType, BackupOptionsSchema,
+    BackupPreview, BackupPreviewObject, FieldType, OptionField, ProgressSender, RestoreConfig,
+    RestoreOptionsSchema, ToolPurpose, ToolRequirement,
+};
 use crate::error::AppError;
 
 use super::MongoDbAdapter;
@@ -112,29 +112,32 @@ impl BackupCapable for MongoDbAdapter {
     /// Restore options schema for MongoDB.
     fn restore_options(&self) -> RestoreOptionsSchema {
         RestoreOptionsSchema {
-            common: vec![
-                OptionField {
-                    key: "drop".to_string(),
-                    label: "Drop Before Restore".to_string(),
-                    field_type: FieldType::Bool,
-                    default: json!(false),
-                    description: "Drop existing collections before restoring. Use with caution!".to_string(),
-                },
-            ],
+            common: vec![OptionField {
+                key: "drop".to_string(),
+                label: "Drop Before Restore".to_string(),
+                field_type: FieldType::Bool,
+                default: json!(false),
+                description: "Drop existing collections before restoring. Use with caution!"
+                    .to_string(),
+            }],
             advanced: vec![
                 OptionField {
                     key: "nsFrom".to_string(),
                     label: "Namespace From".to_string(),
                     field_type: FieldType::String,
                     default: json!(""),
-                    description: "Rename namespace during restore. Source pattern (e.g., 'olddb.*').".to_string(),
+                    description:
+                        "Rename namespace during restore. Source pattern (e.g., 'olddb.*')."
+                            .to_string(),
                 },
                 OptionField {
                     key: "nsTo".to_string(),
                     label: "Namespace To".to_string(),
                     field_type: FieldType::String,
                     default: json!(""),
-                    description: "Rename namespace during restore. Target pattern (e.g., 'newdb.*').".to_string(),
+                    description:
+                        "Rename namespace during restore. Target pattern (e.g., 'newdb.*')."
+                            .to_string(),
                 },
                 OptionField {
                     key: "numParallelCollections".to_string(),
@@ -227,7 +230,12 @@ impl BackupCapable for MongoDbAdapter {
                         datetime.to_rfc3339()
                     }),
                     objects: vec![BackupPreviewObject {
-                        name: if is_gzip { "Compressed Archive" } else { "Archive" }.to_string(),
+                        name: if is_gzip {
+                            "Compressed Archive"
+                        } else {
+                            "Archive"
+                        }
+                        .to_string(),
                         object_type: "archive".to_string(),
                         row_count: None,
                     }],
@@ -245,9 +253,10 @@ impl BackupCapable for MongoDbAdapter {
         progress: ProgressSender,
     ) -> Result<(), AppError> {
         let db_name = self.get_database_name().await;
-        let client = self.get_client().await.ok_or_else(|| {
-            AppError::ConnectionClosed("Not connected".into())
-        })?;
+        let client = self
+            .get_client()
+            .await
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
         // Build connection URI from adapter state
         // We need to get connection info - use the client's default database
@@ -338,9 +347,10 @@ impl BackupCapable for MongoDbAdapter {
         progress: ProgressSender,
     ) -> Result<(), AppError> {
         let db_name = self.get_database_name().await;
-        let client = self.get_client().await.ok_or_else(|| {
-            AppError::ConnectionClosed("Not connected".into())
-        })?;
+        let client = self
+            .get_client()
+            .await
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
         let uri = build_connection_uri(&client, &db_name).await?;
         let source_path = config.source_path.clone();
@@ -437,10 +447,7 @@ impl BackupCapable for MongoDbAdapter {
 /// Build MongoDB connection URI from client.
 /// Note: This is a simplified version - in production, you'd want to preserve
 /// the original connection string or reconstruct it from stored credentials.
-async fn build_connection_uri(
-    client: &mongodb::Client,
-    db_name: &str,
-) -> Result<String, AppError> {
+async fn build_connection_uri(client: &mongodb::Client, db_name: &str) -> Result<String, AppError> {
     // Get connection info from client options
     // The mongodb crate doesn't expose the original URI, so we reconstruct it
     // from the client's default selection criteria
@@ -461,7 +468,10 @@ async fn build_connection_uri(
     // Parse host:port
     let (hostname, port) = if host.contains(':') {
         let parts: Vec<&str> = host.split(':').collect();
-        (parts[0].to_string(), parts.get(1).unwrap_or(&"27017").to_string())
+        (
+            parts[0].to_string(),
+            parts.get(1).unwrap_or(&"27017").to_string(),
+        )
     } else {
         (host, "27017".to_string())
     };
@@ -543,8 +553,8 @@ fn parse_directory_backup(path: &Path) -> Result<BackupPreview, AppError> {
 /// Check if a file starts with gzip magic bytes.
 fn check_gzip_magic(path: &Path) -> Result<bool, AppError> {
     use std::io::Read;
-    let mut file = fs::File::open(path)
-        .map_err(|e| AppError::Io(format!("Failed to open file: {}", e)))?;
+    let mut file =
+        fs::File::open(path).map_err(|e| AppError::Io(format!("Failed to open file: {}", e)))?;
 
     let mut magic = [0u8; 2];
     if file.read_exact(&mut magic).is_ok() {
@@ -579,17 +589,16 @@ fn has_gzipped_bson(path: &Path) -> bool {
 }
 
 /// Execute a tool command (mongodump/mongorestore) and stream progress.
-async fn execute_tool_command(
-    mut cmd: Command,
-    progress: ProgressSender,
-) -> Result<(), AppError> {
+async fn execute_tool_command(mut cmd: Command, progress: ProgressSender) -> Result<(), AppError> {
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
-    let _ = progress.send(BackupProgress::Output {
-        line: format!("Running: {:?}", cmd),
-        is_error: false,
-    }).await;
+    let _ = progress
+        .send(BackupProgress::Output {
+            line: format!("Running: {:?}", cmd),
+            is_error: false,
+        })
+        .await;
 
     let mut child = cmd.spawn().map_err(|e| {
         AppError::Io(format!(
@@ -599,16 +608,18 @@ async fn execute_tool_command(
     })?;
 
     // Read stderr (mongodump/mongorestore write progress to stderr)
-    let stderr = child.stderr.take().ok_or_else(|| {
-        AppError::Internal("Failed to capture stderr".to_string())
-    })?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| AppError::Internal("Failed to capture stderr".to_string()))?;
 
     let mut stderr_reader = BufReader::new(stderr).lines();
 
     // Also capture stdout for any output
-    let stdout = child.stdout.take().ok_or_else(|| {
-        AppError::Internal("Failed to capture stdout".to_string())
-    })?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| AppError::Internal("Failed to capture stdout".to_string()))?;
 
     let mut stdout_reader = BufReader::new(stdout).lines();
 
@@ -623,42 +634,51 @@ async fn execute_tool_command(
             // "2024-01-01T00:00:00.000+0000	writing mydb.mycollection to..."
             // "2024-01-01T00:00:00.000+0000	done dumping mydb.mycollection (1000 documents)"
 
-            let _ = progress_clone.send(BackupProgress::Output {
-                line: line.clone(),
-                is_error,
-            }).await;
+            let _ = progress_clone
+                .send(BackupProgress::Output {
+                    line: line.clone(),
+                    is_error,
+                })
+                .await;
         }
     });
 
     let progress_clone2 = progress.clone();
     let stdout_task = tokio::spawn(async move {
         while let Ok(Some(line)) = stdout_reader.next_line().await {
-            let _ = progress_clone2.send(BackupProgress::Output {
-                line,
-                is_error: false,
-            }).await;
+            let _ = progress_clone2
+                .send(BackupProgress::Output {
+                    line,
+                    is_error: false,
+                })
+                .await;
         }
     });
 
     // Wait for command to complete
-    let status = child.wait().await.map_err(|e| {
-        AppError::Internal(format!("Failed to wait for tool: {}", e))
-    })?;
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to wait for tool: {}", e)))?;
 
     // Wait for output tasks
     let _ = stderr_task.await;
     let _ = stdout_task.await;
 
     if status.success() {
-        let _ = progress.send(BackupProgress::Completed {
-            message: "Operation completed successfully".to_string(),
-        }).await;
+        let _ = progress
+            .send(BackupProgress::Completed {
+                message: "Operation completed successfully".to_string(),
+            })
+            .await;
         Ok(())
     } else {
         let error_msg = format!("Tool exited with status: {}", status);
-        let _ = progress.send(BackupProgress::Failed {
-            error: error_msg.clone(),
-        }).await;
+        let _ = progress
+            .send(BackupProgress::Failed {
+                error: error_msg.clone(),
+            })
+            .await;
         Err(AppError::DatabaseError(error_msg))
     }
 }

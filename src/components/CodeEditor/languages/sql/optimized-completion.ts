@@ -399,6 +399,79 @@ function quickAnalyze(
 }
 
 /**
+ * Some contexts have richer TypeScript-only smart completions (JOIN conditions,
+ * aliases in scope, qualified access). Prefer TS in those contexts so we don't
+ * lose suggestions when Rust returns first.
+ */
+function shouldPreferTypeScriptCompletion(context: CompletionContext): boolean {
+  const { state, pos } = context;
+  const line = state.doc.lineAt(pos);
+  const beforeCursor = line.text.slice(0, pos - line.from);
+
+  // Qualified access (alias.column / table.column)
+  if (/\.\s*[\w_]*$/.test(beforeCursor)) {
+    return true;
+  }
+
+  // JOIN target table context
+  if (
+    /\b(?:LEFT\s+|RIGHT\s+|INNER\s+|FULL\s+(?:OUTER\s+)?|CROSS\s+)?JOIN\s+[A-Za-z0-9_"`[\].]*$/i.test(
+      beforeCursor,
+    )
+  ) {
+    return true;
+  }
+
+  // JOIN ON condition context
+  if (/\bON\s+[A-Za-z0-9_"`[\].]*$/i.test(beforeCursor)) {
+    return true;
+  }
+
+  return false;
+}
+
+function augmentRustCompletionsWithAliases(
+  context: CompletionContext,
+  rustResult: CompletionResult,
+  connectionId: string,
+): CompletionResult {
+  const word = context.matchBefore(/[\w_]+/);
+  const query = word ? word.text.toLowerCase() : "";
+  const aliasOptions: Completion[] = [];
+  const existingLabels = new Set(
+    rustResult.options.map((option) => option.label.toLowerCase()),
+  );
+
+  for (const table of extractTableRefs(context.state, connectionId)) {
+    const alias = table.alias;
+    if (!alias) continue;
+    if (isSqlKeyword(alias)) continue;
+
+    const aliasLower = alias.toLowerCase();
+    if (query && !aliasLower.includes(query)) continue;
+    if (existingLabels.has(aliasLower)) continue;
+
+    aliasOptions.push({
+      label: alias,
+      type: "class",
+      detail: `alias → ${table.name}`,
+      boost: 18,
+      apply: `${alias}.`,
+    });
+  }
+
+  if (aliasOptions.length === 0) {
+    return rustResult;
+  }
+
+  return {
+    ...rustResult,
+    from: word?.from ?? rustResult.from,
+    options: [...aliasOptions, ...rustResult.options],
+  };
+}
+
+/**
  * Create optimized completion source
  *
  * In Tauri environment: Tries Rust completion first (faster, uses pre-synced schema),
@@ -454,20 +527,29 @@ export function createOptimizedCompletionSource(config: CompletionConfig) {
       return null;
     }
 
+    const preferTypeScript = shouldPreferTypeScriptCompletion(context);
+
     // Try Rust completion first (faster, uses pre-synced schema via sql_set_schema)
-    const rustSource = await getRustSource();
-    if (rustSource) {
-      try {
-        const rustResult = await rustSource(context);
-        if (rustResult && rustResult.options.length > 0) {
-          return rustResult;
+    // except in TS-rich contexts (JOIN/alias/qualified access).
+    if (!preferTypeScript) {
+      const rustSource = await getRustSource();
+      if (rustSource) {
+        try {
+          const rustResult = await rustSource(context);
+          if (rustResult && rustResult.options.length > 0) {
+            return augmentRustCompletionsWithAliases(
+              context,
+              rustResult,
+              connectionId,
+            );
+          }
+          // Fall through to TypeScript if Rust returns empty
+        } catch (error) {
+          console.warn(
+            "[optimized-completion] Rust completion failed, falling back to TypeScript:",
+            error
+          );
         }
-        // Fall through to TypeScript if Rust returns empty
-      } catch (error) {
-        console.warn(
-          "[optimized-completion] Rust completion failed, falling back to TypeScript:",
-          error
-        );
       }
     }
 

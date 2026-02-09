@@ -4,11 +4,15 @@
 
 use super::parser::ParsedStatement;
 use super::schema_store::CachedSchema;
-use super::validator::{SqlError, ErrorSeverity, ErrorSource};
+use super::validator::{ErrorSeverity, ErrorSource, SqlError};
 use std::collections::HashSet;
 
 fn normalize_table_name(name: &str) -> String {
-    name.rsplit('.').next().unwrap_or(name).trim_matches('"').to_string()
+    name.rsplit('.')
+        .next()
+        .unwrap_or(name)
+        .trim_matches('"')
+        .to_string()
 }
 
 fn resolve_table_name_in_statement(stmt: &ParsedStatement, qualifier: &str) -> String {
@@ -60,49 +64,133 @@ fn get_existing_statement_tables(stmt: &ParsedStatement, schema: &CachedSchema) 
         .collect()
 }
 
+fn is_identifier_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'"'
+}
+
+fn find_identifier_span(stmt: &ParsedStatement, identifier: &str) -> Option<(usize, usize)> {
+    if identifier.is_empty() {
+        return None;
+    }
+
+    let text_lower = stmt.text.to_lowercase();
+    let needle_lower = identifier.to_lowercase();
+    let mut search_from = 0usize;
+
+    while search_from <= text_lower.len() {
+        let rel_idx = text_lower[search_from..].find(&needle_lower)?;
+        let idx = search_from + rel_idx;
+        let end = idx + needle_lower.len();
+        let bytes = text_lower.as_bytes();
+
+        let before_ok = if idx == 0 {
+            true
+        } else {
+            !is_identifier_char(bytes[idx - 1])
+        };
+        let after_ok = if end >= bytes.len() {
+            true
+        } else {
+            !is_identifier_char(bytes[end])
+        };
+
+        if before_ok && after_ok {
+            return Some((stmt.range.0 + idx, stmt.range.0 + end));
+        }
+
+        search_from = if idx >= text_lower.len() {
+            text_lower.len()
+        } else {
+            text_lower[idx..]
+                .char_indices()
+                .nth(1)
+                .map(|(offset, _)| idx + offset)
+                .unwrap_or(text_lower.len())
+        };
+    }
+
+    None
+}
+
+fn find_reference_span(stmt: &ParsedStatement, candidates: &[String]) -> Option<(usize, usize)> {
+    for candidate in candidates {
+        if let Some(span) = find_identifier_span(stmt, candidate) {
+            return Some(span);
+        }
+
+        // Try quoted variant (common for case-sensitive identifiers)
+        if !candidate.starts_with('"') && !candidate.ends_with('"') {
+            let quoted = format!("\"{}\"", candidate);
+            if let Some(span) = find_identifier_span(stmt, &quoted) {
+                return Some(span);
+            }
+        }
+    }
+
+    None
+}
+
 /// Check if a table exists in the schema.
 pub fn table_exists(table_name: &str, schema: &CachedSchema) -> bool {
-    schema.tables.iter().any(|t|
-        t.name.to_lowercase() == table_name.to_lowercase()
-    )
+    schema
+        .tables
+        .iter()
+        .any(|t| t.name.to_lowercase() == table_name.to_lowercase())
 }
 
 /// Check if a column exists in a table.
 pub fn column_exists(table_name: &str, column_name: &str, schema: &CachedSchema) -> bool {
     if let Some(columns) = schema.columns.get(table_name) {
-        columns.iter().any(|c|
-            c.name.to_lowercase() == column_name.to_lowercase()
-        )
+        columns
+            .iter()
+            .any(|c| c.name.to_lowercase() == column_name.to_lowercase())
     } else {
         false
     }
 }
 
 /// Validate table references in a statement.
-pub fn validate_table_references(
-    stmt: &ParsedStatement,
-    schema: &CachedSchema,
-) -> Vec<SqlError> {
+pub fn validate_table_references(stmt: &ParsedStatement, schema: &CachedSchema) -> Vec<SqlError> {
     let mut errors = Vec::new();
 
     for table_ref in &stmt.tables {
         // Skip if it's a CTE reference
-        if stmt.ctes.iter().any(|c| c.name.to_lowercase() == table_ref.name.to_lowercase()) {
+        if stmt
+            .ctes
+            .iter()
+            .any(|c| c.name.to_lowercase() == table_ref.name.to_lowercase())
+        {
             continue;
         }
 
         // Skip if it's an alias (subquery result)
-        if stmt.aliases.iter().any(|a| a.alias.to_lowercase() == table_ref.name.to_lowercase()) {
+        if stmt
+            .aliases
+            .iter()
+            .any(|a| a.alias.to_lowercase() == table_ref.name.to_lowercase())
+        {
             continue;
         }
 
         let normalized = normalize_table_name(&table_ref.name);
         if !table_exists(&normalized, schema) {
+            let span = find_reference_span(stmt, &[table_ref.name.clone(), normalized.clone()])
+                .unwrap_or((stmt.range.0, stmt.range.1));
+            let suggestions = suggest_similar_tables(&normalized, schema);
+            let message = if let Some(suggestion) = suggestions.first() {
+                format!(
+                    "Table '{}' does not exist. Did you mean '{}'?",
+                    table_ref.name, suggestion
+                )
+            } else {
+                format!("Table '{}' does not exist", table_ref.name)
+            };
+
             errors.push(SqlError {
-                from: stmt.range.0,
-                to: stmt.range.1,
-                message: format!("Table '{}' does not exist", table_ref.name),
-                severity: ErrorSeverity::Warning,
+                from: span.0,
+                to: span.1,
+                message,
+                severity: ErrorSeverity::Error,
                 source: ErrorSource::Semantic,
             });
         }
@@ -112,13 +200,15 @@ pub fn validate_table_references(
 }
 
 /// Validate column references in a statement.
-pub fn validate_column_references(
-    stmt: &ParsedStatement,
-    schema: &CachedSchema,
-) -> Vec<SqlError> {
+pub fn validate_column_references(stmt: &ParsedStatement, schema: &CachedSchema) -> Vec<SqlError> {
     let mut errors = Vec::new();
     let existing_tables = get_existing_statement_tables(stmt, schema);
     let cte_names: HashSet<String> = stmt.ctes.iter().map(|c| c.name.to_lowercase()).collect();
+    let output_aliases: HashSet<String> = stmt
+        .output_aliases
+        .iter()
+        .map(|alias| alias.to_lowercase())
+        .collect();
 
     for col_ref in &stmt.columns {
         if col_ref.name == "*" {
@@ -140,18 +230,37 @@ pub fn validate_column_references(
             }
 
             if !column_exists(&actual_table, &col_ref.name, schema) {
-                errors.push(SqlError {
-                    from: stmt.range.0,
-                    to: stmt.range.1,
-                    message: format!(
+                let span = find_reference_span(
+                    stmt,
+                    &[format!("{}.{}", table, col_ref.name), col_ref.name.clone()],
+                )
+                .unwrap_or((stmt.range.0, stmt.range.1));
+                let suggestions = suggest_similar_columns(&col_ref.name, &actual_table, schema);
+                let message = if let Some(suggestion) = suggestions.first() {
+                    format!(
+                        "Column '{}' does not exist in table '{}'. Did you mean '{}'?",
+                        col_ref.name, actual_table, suggestion
+                    )
+                } else {
+                    format!(
                         "Column '{}' does not exist in table '{}'",
                         col_ref.name, actual_table
-                    ),
-                    severity: ErrorSeverity::Warning,
+                    )
+                };
+
+                errors.push(SqlError {
+                    from: span.0,
+                    to: span.1,
+                    message,
+                    severity: ErrorSeverity::Error,
                     source: ErrorSource::Semantic,
                 });
             }
         } else {
+            if output_aliases.contains(&col_ref.name.to_lowercase()) {
+                continue;
+            }
+
             if existing_tables.is_empty() {
                 continue;
             }
@@ -160,14 +269,17 @@ pub fn validate_column_references(
                 .iter()
                 .any(|table| column_exists(table, &col_ref.name, schema));
             if !exists_in_any {
+                let span = find_reference_span(stmt, &[col_ref.name.clone()])
+                    .unwrap_or((stmt.range.0, stmt.range.1));
+
                 errors.push(SqlError {
-                    from: stmt.range.0,
-                    to: stmt.range.1,
+                    from: span.0,
+                    to: span.1,
                     message: format!(
                         "Column '{}' does not exist in any referenced table",
                         col_ref.name
                     ),
-                    severity: ErrorSeverity::Warning,
+                    severity: ErrorSeverity::Error,
                     source: ErrorSource::Semantic,
                 });
             }
@@ -181,13 +293,15 @@ pub fn validate_column_references(
 pub fn suggest_similar_tables(name: &str, schema: &CachedSchema) -> Vec<String> {
     let name_lower = name.to_lowercase();
 
-    schema.tables.iter()
+    schema
+        .tables
+        .iter()
         .filter(|t| {
             let t_lower = t.name.to_lowercase();
             // Simple fuzzy match: contains or starts with
-            t_lower.contains(&name_lower) ||
-            name_lower.contains(&t_lower) ||
-            levenshtein_distance(&name_lower, &t_lower) <= 2
+            t_lower.contains(&name_lower)
+                || name_lower.contains(&t_lower)
+                || levenshtein_distance(&name_lower, &t_lower) <= 2
         })
         .take(5)
         .map(|t| t.name.clone())
@@ -203,12 +317,13 @@ pub fn suggest_similar_columns(
     let col_lower = column_name.to_lowercase();
 
     if let Some(columns) = schema.columns.get(table_name) {
-        columns.iter()
+        columns
+            .iter()
             .filter(|c| {
                 let c_lower = c.name.to_lowercase();
-                c_lower.contains(&col_lower) ||
-                col_lower.contains(&c_lower) ||
-                levenshtein_distance(&col_lower, &c_lower) <= 2
+                c_lower.contains(&col_lower)
+                    || col_lower.contains(&c_lower)
+                    || levenshtein_distance(&col_lower, &c_lower) <= 2
             })
             .take(5)
             .map(|c| c.name.clone())
@@ -225,17 +340,29 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
     let m = a_chars.len();
     let n = b_chars.len();
 
-    if m == 0 { return n; }
-    if n == 0 { return m; }
+    if m == 0 {
+        return n;
+    }
+    if n == 0 {
+        return m;
+    }
 
     let mut dp = vec![vec![0; n + 1]; m + 1];
 
-    for i in 0..=m { dp[i][0] = i; }
-    for j in 0..=n { dp[0][j] = j; }
+    for i in 0..=m {
+        dp[i][0] = i;
+    }
+    for j in 0..=n {
+        dp[0][j] = j;
+    }
 
     for i in 1..=m {
         for j in 1..=n {
-            let cost = if a_chars[i - 1] == b_chars[j - 1] { 0 } else { 1 };
+            let cost = if a_chars[i - 1] == b_chars[j - 1] {
+                0
+            } else {
+                1
+            };
             dp[i][j] = (dp[i - 1][j] + 1)
                 .min(dp[i][j - 1] + 1)
                 .min(dp[i - 1][j - 1] + cost);
@@ -248,7 +375,8 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sql_engine::schema_store::{CachedSchemaBuilder, TableInfo, TableType, ColumnInfo};
+    use crate::sql_engine::schema_store::{CachedSchemaBuilder, ColumnInfo, TableInfo, TableType};
+    use crate::sql_engine::{parse_document, SqlDialect};
 
     fn test_schema() -> CachedSchema {
         let schema = CachedSchemaBuilder::new()
@@ -268,34 +396,37 @@ mod tests {
             })
             .build();
 
-        schema.columns.insert("users".to_string(), vec![
-            ColumnInfo {
-                name: "id".to_string(),
-                data_type: "integer".to_string(),
-                nullable: false,
-                default_value: None,
-                is_primary_key: true,
-                is_unique: true,
-                comment: None,
-                enum_values: None,
-                ordinal: 1,
-                precision: None,
-                scale: None,
-            },
-            ColumnInfo {
-                name: "name".to_string(),
-                data_type: "varchar".to_string(),
-                nullable: false,
-                default_value: None,
-                is_primary_key: false,
-                is_unique: false,
-                comment: None,
-                enum_values: None,
-                ordinal: 2,
-                precision: None,
-                scale: None,
-            },
-        ]);
+        schema.columns.insert(
+            "users".to_string(),
+            vec![
+                ColumnInfo {
+                    name: "id".to_string(),
+                    data_type: "integer".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    is_primary_key: true,
+                    is_unique: true,
+                    comment: None,
+                    enum_values: None,
+                    ordinal: 1,
+                    precision: None,
+                    scale: None,
+                },
+                ColumnInfo {
+                    name: "name".to_string(),
+                    data_type: "varchar".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    is_primary_key: false,
+                    is_unique: false,
+                    comment: None,
+                    enum_values: None,
+                    ordinal: 2,
+                    precision: None,
+                    scale: None,
+                },
+            ],
+        );
 
         schema
     }
@@ -326,5 +457,110 @@ mod tests {
         assert_eq!(levenshtein_distance("kitten", "sitting"), 3);
         assert_eq!(levenshtein_distance("", "abc"), 3);
         assert_eq!(levenshtein_distance("abc", "abc"), 0);
+    }
+
+    #[test]
+    fn test_missing_table_reports_identifier_span_and_error_severity() {
+        let schema = test_schema();
+        let doc = parse_document("SELECT * FROM missing_table", SqlDialect::PostgreSQL);
+        let stmt = doc
+            .statements
+            .first()
+            .expect("expected one parsed statement");
+
+        let errors = validate_table_references(stmt, &schema);
+        let missing = errors
+            .iter()
+            .find(|e| e.message.contains("missing_table"))
+            .expect("expected missing table error");
+
+        let start = stmt.range.0
+            + stmt
+                .text
+                .to_lowercase()
+                .find("missing_table")
+                .expect("missing table token should be present");
+        let end = start + "missing_table".len();
+
+        assert_eq!(missing.from, start);
+        assert_eq!(missing.to, end);
+        assert_eq!(missing.severity, ErrorSeverity::Error);
+    }
+
+    #[test]
+    fn test_missing_qualified_column_reports_identifier_span_and_error_severity() {
+        let schema = test_schema();
+        let doc = parse_document("SELECT u.nonexistent FROM users u", SqlDialect::PostgreSQL);
+        let stmt = doc
+            .statements
+            .first()
+            .expect("expected one parsed statement");
+
+        let errors = validate_column_references(stmt, &schema);
+        let missing = errors
+            .iter()
+            .find(|e| e.message.contains("nonexistent"))
+            .expect("expected missing column error");
+
+        let start = stmt.range.0
+            + stmt
+                .text
+                .to_lowercase()
+                .find("u.nonexistent")
+                .expect("missing qualified column token should be present");
+        let end = start + "u.nonexistent".len();
+
+        assert_eq!(missing.from, start);
+        assert_eq!(missing.to, end);
+        assert_eq!(missing.severity, ErrorSeverity::Error);
+    }
+
+    #[test]
+    fn test_missing_join_column_reports_identifier_span_and_error_severity() {
+        let schema = test_schema();
+        let doc = parse_document(
+            "SELECT * FROM users u LEFT JOIN users c ON u.id = c.vuiver",
+            SqlDialect::PostgreSQL,
+        );
+        let stmt = doc
+            .statements
+            .first()
+            .expect("expected one parsed statement");
+
+        let errors = validate_column_references(stmt, &schema);
+        let missing = errors
+            .iter()
+            .find(|e| e.message.contains("vuiver"))
+            .expect("expected missing join column error");
+
+        let start = stmt.range.0
+            + stmt
+                .text
+                .to_lowercase()
+                .find("c.vuiver")
+                .expect("missing qualified join column token should be present");
+        let end = start + "c.vuiver".len();
+
+        assert_eq!(missing.from, start);
+        assert_eq!(missing.to, end);
+        assert_eq!(missing.severity, ErrorSeverity::Error);
+    }
+
+    #[test]
+    fn test_select_alias_reference_is_not_treated_as_missing_table_column() {
+        let schema = test_schema();
+        let doc = parse_document(
+            "SELECT COUNT(*) AS item_count FROM users ORDER BY item_count",
+            SqlDialect::PostgreSQL,
+        );
+        let stmt = doc
+            .statements
+            .first()
+            .expect("expected one parsed statement");
+
+        let errors = validate_column_references(stmt, &schema);
+        assert!(!errors
+            .iter()
+            .any(|e| e.message.contains("item_count") && e.message.contains("does not exist")));
     }
 }

@@ -19,16 +19,16 @@ use crate::types::ConnectionProfile;
 pub trait BaseCapability: Send + Sync {
     /// Connect to the database using the provided profile
     async fn connect(&self, profile: &ConnectionProfile) -> Result<(), AppError>;
-    
+
     /// Disconnect from the database
     async fn disconnect(&self) -> Result<(), AppError>;
-    
+
     /// Test the connection and return status
     async fn test_connection(&self) -> Result<CapabilityTestResult, AppError>;
-    
+
     /// Check if currently connected
     fn is_connected(&self) -> bool;
-    
+
     /// Get the capabilities this adapter supports
     fn get_capabilities(&self) -> Vec<AdapterCapability>;
 }
@@ -50,11 +50,8 @@ pub trait DocumentQueryable: BaseCapability {
         options: FindOptions,
     ) -> Result<Vec<Value>, AppError>;
 
-    async fn insert_document(
-        &self,
-        collection: &str,
-        doc: Value,
-    ) -> Result<InsertResult, AppError>;
+    async fn insert_document(&self, collection: &str, doc: Value)
+        -> Result<InsertResult, AppError>;
 
     async fn insert_documents(
         &self,
@@ -138,8 +135,12 @@ pub trait RichKeyValueOperable: KeyValueOperable {
 
     // List
     async fn list_range(&self, key: &str, start: i64, stop: i64) -> Result<Vec<String>, AppError>;
-    async fn list_push(&self, key: &str, values: &[String], side: ListSide)
-        -> Result<u64, AppError>;
+    async fn list_push(
+        &self,
+        key: &str,
+        values: &[String],
+        side: ListSide,
+    ) -> Result<u64, AppError>;
     async fn list_len(&self, key: &str) -> Result<u64, AppError>;
 
     // Set

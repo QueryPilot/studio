@@ -1,4 +1,4 @@
-.PHONY: help d dev dev-profile dp build package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-integration ti test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle seed-mongodb seed-redis setup version release release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-clean test-ssh-full
+.PHONY: help d dev dev-profile dp mcp-sidecar build package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-integration ti test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle seed-mongodb seed-redis setup version release release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-all-adapters test-ssh-clean test-ssh-full test-ssh-all-smoke
 
 SSH_KEYGEN ?= ssh-keygen
 SQLSERVER_CONTAINER ?= query-pilot-sqlserver
@@ -12,8 +12,9 @@ help:
 	@echo "Query Pilot - Available Commands:"
 	@echo ""
 	@echo "Development:"
-	@echo "  make dev, make d       - Run in development mode"
+	@echo "  make dev, make d       - Run in development mode (auto-builds MCP sidecar)"
 	@echo "  make dev-profile, dp   - Run in development mode with QP_STREAM_PROFILE=1"
+	@echo "  make mcp-sidecar       - Build MCP sidecar only"
 	@echo "  make build             - Build for production"
 	@echo "  make package-dist      - Package build with installation instructions"
 	@echo "  make install           - Install dependencies"
@@ -57,11 +58,18 @@ help:
 	@echo "Quick Start:"
 	@echo "  make setup          - Start containers and seed all databases"
 
+# Build MCP sidecar (required for AI database tools)
+mcp-sidecar:
+	@echo "Building MCP sidecar..."
+	@cargo build -p querypilot-mcp --release 2>/dev/null && \
+		echo "MCP sidecar ready (release)" || \
+		(echo "⚠️  MCP sidecar build failed - AI database tools will be unavailable" && exit 0)
+
 # Development
-dev d:
+dev d: mcp-sidecar
 	pnpm tauri:dev
 
-dev-profile dp:
+dev-profile dp: mcp-sidecar
 	QP_STREAM_PROFILE=1 pnpm tauri:dev
 
 # Build for production
@@ -139,9 +147,20 @@ test-ssh-setup:
 	@mkdir -p tests/ssh-keys
 	@$(SSH_KEYGEN) -t rsa -b 4096 -f tests/ssh-keys/test_rsa_key -N "" -C "test@querypilot" >/dev/null 2>&1 || true
 	@$(SSH_KEYGEN) -t ed25519 -f tests/ssh-keys/test_ed25519_key -N "testpass123" -C "test@querypilot" >/dev/null 2>&1 || true
-	@docker compose up -d ssh-bastion-password ssh-bastion-key postgres-private
+	@docker compose --profile ssh-test up -d ssh-bastion-password ssh-bastion-key postgres-private
 	@echo "⏳ Waiting for bastions and private database to be ready..."
 	@sleep 10
+	@mkdir -p tests/ssh-known-hosts
+	@rm -f tests/ssh-known-hosts/known_hosts
+	@for port in 2222 2223; do \
+		for attempt in 1 2 3 4 5; do \
+			if ssh-keyscan -p $$port 127.0.0.1 >> tests/ssh-known-hosts/known_hosts 2>/dev/null; then \
+				break; \
+			fi; \
+			sleep 1; \
+		done; \
+	done
+	@sort -u tests/ssh-known-hosts/known_hosts -o tests/ssh-known-hosts/known_hosts
 	@echo "✅ SSH testing environment ready"
 
 test-ssh:
@@ -157,15 +176,46 @@ test-ssh:
 		TEST_DB_POSTGRES_USER=devuser \
 		TEST_DB_POSTGRES_PASSWORD=devpass123 \
 		TEST_DB_POSTGRES_DB=todoapp \
+		QUERY_PILOT_SSH_KNOWN_HOSTS=../tests/ssh-known-hosts/known_hosts \
 		cargo test --test ssh_tunnel_test -- --nocapture --test-threads=1
+
+test-ssh-all-adapters:
+	@echo "🧪 Running SSH integration tests for all supported adapters..."
+	@cd src-tauri && \
+		TEST_SSH_ENABLED=1 \
+		TEST_SSH_HOST=127.0.0.1 \
+		TEST_SSH_PORT=2222 \
+		TEST_SSH_USER=sshuser \
+		TEST_SSH_PASSWORD=bastionpass123 \
+		QUERY_PILOT_SSH_KNOWN_HOSTS=../tests/ssh-known-hosts/known_hosts \
+		cargo test --test ssh_all_adapters_test -- --nocapture --test-threads=1
 
 test-ssh-clean:
 	@echo "🧹 Cleaning up SSH testing environment..."
 	@docker compose down -v
 	@rm -rf tests/ssh-keys/test_*
+	@rm -rf tests/ssh-known-hosts
 	@echo "✅ Cleanup complete"
 
-test-ssh-full: test-ssh-setup test-ssh test-ssh-clean
+test-ssh-full: test-ssh-setup test-ssh test-ssh-all-adapters test-ssh-clean
+
+test-ssh-all-smoke:
+	@echo "🔍 Checking SSH bastion reachability to all supported DB services..."
+	@docker compose --profile ssh-test up -d ssh-bastion-password >/dev/null
+	@for target in \
+		"query-pilot-postgres:5432" \
+		"query-pilot-mysql:3306" \
+		"query-pilot-mariadb:3306" \
+		"query-pilot-sqlserver:1433" \
+		"query-pilot-mongodb:27017" \
+		"query-pilot-redis:6379" \
+		"query-pilot-oracle:1521"; do \
+		host=$${target%%:*}; \
+		port=$${target##*:}; \
+		printf "  - %-32s " "$$target"; \
+		docker exec -i query-pilot-ssh-bastion-password sh -c "nc -z -w 3 $$host $$port" >/dev/null 2>&1 && echo "OK" || (echo "FAIL"; exit 1); \
+	done
+	@echo "✅ SSH bastion can reach all supported DB services"
 
 # Run all tests (unit + integration)
 test-all:

@@ -20,12 +20,12 @@ use std::fs;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
 
-use crate::core::backup_capability::{
-    BackupCapable, BackupConfig, BackupFormat, BackupObject, BackupObjectType,
-    BackupOptionsSchema, BackupPreview, BackupPreviewObject, FieldType, OptionField,
-    ProgressSender, RestoreConfig, RestoreOptionsSchema, ToolRequirement,
-};
 use crate::core::backup_capability::BackupProgress;
+use crate::core::backup_capability::{
+    BackupCapable, BackupConfig, BackupFormat, BackupObject, BackupObjectType, BackupOptionsSchema,
+    BackupPreview, BackupPreviewObject, FieldType, OptionField, ProgressSender, RestoreConfig,
+    RestoreOptionsSchema, ToolRequirement,
+};
 use crate::error::AppError;
 
 use super::RedisAdapter;
@@ -106,7 +106,9 @@ impl BackupCapable for RedisAdapter {
                 label: "Replace Existing Keys".to_string(),
                 field_type: FieldType::Bool,
                 default: json!(false),
-                description: "If true, overwrites existing keys. If false, skips keys that already exist.".to_string(),
+                description:
+                    "If true, overwrites existing keys. If false, skips keys that already exist."
+                        .to_string(),
             }],
             advanced: vec![],
         }
@@ -114,17 +116,19 @@ impl BackupCapable for RedisAdapter {
 
     /// List key patterns that can be backed up.
     async fn list_backup_objects(&self) -> Result<Vec<BackupObject>, AppError> {
-        let client = self.get_client().await.ok_or_else(|| {
-            AppError::ConnectionClosed("Not connected".into())
-        })?;
+        let client = self
+            .get_client()
+            .await
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
         let mut objects = Vec::new();
 
         // Get database info
         let db_index = self.current_database().await;
-        let db_size: u64 = client.dbsize().await.map_err(|e| {
-            AppError::DatabaseError(format!("Failed to get database size: {}", e))
-        })?;
+        let db_size: u64 = client
+            .dbsize()
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to get database size: {}", e)))?;
 
         // Add the current database as a backup object
         objects.push(BackupObject {
@@ -201,9 +205,10 @@ impl BackupCapable for RedisAdapter {
         config: BackupConfig,
         progress: ProgressSender,
     ) -> Result<(), AppError> {
-        let client = self.get_client().await.ok_or_else(|| {
-            AppError::ConnectionClosed("Not connected".into())
-        })?;
+        let client = self
+            .get_client()
+            .await
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
         let destination_path = config.destination_path.clone();
         let format = config.format.clone();
@@ -232,11 +237,17 @@ impl BackupCapable for RedisAdapter {
 
         match format.as_str() {
             "json" => {
-                execute_json_backup(&client, &destination_path, &pattern, scan_count, self.current_database().await, &progress).await
+                execute_json_backup(
+                    &client,
+                    &destination_path,
+                    &pattern,
+                    scan_count,
+                    self.current_database().await,
+                    &progress,
+                )
+                .await
             }
-            "rdb" => {
-                execute_rdb_backup(&client, &destination_path, &progress).await
-            }
+            "rdb" => execute_rdb_backup(&client, &destination_path, &progress).await,
             _ => Err(AppError::InvalidInput(format!(
                 "Unsupported backup format: {}",
                 format
@@ -250,9 +261,10 @@ impl BackupCapable for RedisAdapter {
         config: RestoreConfig,
         progress: ProgressSender,
     ) -> Result<(), AppError> {
-        let client = self.get_client().await.ok_or_else(|| {
-            AppError::ConnectionClosed("Not connected".into())
-        })?;
+        let client = self
+            .get_client()
+            .await
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
         let source_path = config.source_path.clone();
         let replace = config
@@ -278,9 +290,7 @@ impl BackupCapable for RedisAdapter {
         }
 
         match extension.as_str() {
-            "json" => {
-                execute_json_restore(&client, &source_path, replace, &progress).await
-            }
+            "json" => execute_json_restore(&client, &source_path, replace, &progress).await,
             "rdb" => {
                 // RDB restore requires server access - provide helpful error
                 let _ = progress.send(BackupProgress::Failed {
@@ -381,8 +391,8 @@ fn parse_rdb_backup(path: &Path) -> Result<(Vec<BackupPreviewObject>, Option<Str
         .map_err(|e| AppError::Io(format!("Failed to read file metadata: {}", e)))?;
 
     // Check for RDB magic number "REDIS"
-    let mut file = fs::File::open(path)
-        .map_err(|e| AppError::Io(format!("Failed to open file: {}", e)))?;
+    let mut file =
+        fs::File::open(path).map_err(|e| AppError::Io(format!("Failed to open file: {}", e)))?;
 
     let mut magic = [0u8; 5];
     use std::io::Read;
@@ -417,20 +427,24 @@ async fn execute_json_backup(
     db_index: u8,
     progress: &ProgressSender,
 ) -> Result<(), AppError> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+    use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
-    let _ = progress.send(BackupProgress::Output {
-        line: format!("Starting JSON backup with pattern: {}", pattern),
-        is_error: false,
-    }).await;
+    let _ = progress
+        .send(BackupProgress::Output {
+            line: format!("Starting JSON backup with pattern: {}", pattern),
+            is_error: false,
+        })
+        .await;
 
     // First, count total keys matching the pattern
     let total_keys = count_keys_matching(client, pattern).await?;
 
-    let _ = progress.send(BackupProgress::Output {
-        line: format!("Found {} keys matching pattern", total_keys),
-        is_error: false,
-    }).await;
+    let _ = progress
+        .send(BackupProgress::Output {
+            line: format!("Found {} keys matching pattern", total_keys),
+            is_error: false,
+        })
+        .await;
 
     // Get Redis version
     let info: String = client.info(None).await.unwrap_or_default();
@@ -453,7 +467,10 @@ async fn execute_json_backup(
             let key_str = key.as_str_lossy().to_string();
 
             // Get key type
-            let key_type: String = client.r#type(&key_str).await.unwrap_or_else(|_| "unknown".to_string());
+            let key_type: String = client
+                .r#type(&key_str)
+                .await
+                .unwrap_or_else(|_| "unknown".to_string());
 
             // Get TTL
             let ttl: i64 = client.ttl(&key_str).await.unwrap_or(-1);
@@ -527,10 +544,12 @@ async fn execute_rdb_backup(
     destination_path: &str,
     progress: &ProgressSender,
 ) -> Result<(), AppError> {
-    let _ = progress.send(BackupProgress::Output {
-        line: "Triggering BGSAVE...".to_string(),
-        is_error: false,
-    }).await;
+    let _ = progress
+        .send(BackupProgress::Output {
+            line: "Triggering BGSAVE...".to_string(),
+            is_error: false,
+        })
+        .await;
 
     // Get current LASTSAVE timestamp
     let initial_lastsave: i64 = client
@@ -561,23 +580,36 @@ async fn execute_rdb_backup(
         attempts += 1;
         if attempts > 120 {
             // 60 seconds timeout
-            return Err(AppError::DatabaseError("BGSAVE timeout after 60 seconds".to_string()));
+            return Err(AppError::DatabaseError(
+                "BGSAVE timeout after 60 seconds".to_string(),
+            ));
         }
 
-        let _ = progress.send(BackupProgress::Output {
-            line: format!("Waiting for BGSAVE to complete... ({} seconds)", attempts / 2),
-            is_error: false,
-        }).await;
+        let _ = progress
+            .send(BackupProgress::Output {
+                line: format!(
+                    "Waiting for BGSAVE to complete... ({} seconds)",
+                    attempts / 2
+                ),
+                is_error: false,
+            })
+            .await;
     }
 
     // Get RDB file location
     let dir: String = client
-        .custom(fred::cmd!("CONFIG"), vec!["GET".to_string(), "dir".to_string()])
+        .custom(
+            fred::cmd!("CONFIG"),
+            vec!["GET".to_string(), "dir".to_string()],
+        )
         .await
         .map_err(|e| AppError::DatabaseError(format!("CONFIG GET dir failed: {}", e)))?;
 
     let dbfilename: String = client
-        .custom(fred::cmd!("CONFIG"), vec!["GET".to_string(), "dbfilename".to_string()])
+        .custom(
+            fred::cmd!("CONFIG"),
+            vec!["GET".to_string(), "dbfilename".to_string()],
+        )
         .await
         .map_err(|e| AppError::DatabaseError(format!("CONFIG GET dbfilename failed: {}", e)))?;
 
@@ -587,10 +619,12 @@ async fn execute_rdb_backup(
 
     let rdb_path = Path::new(&dir).join(&dbfilename);
 
-    let _ = progress.send(BackupProgress::Output {
-        line: format!("RDB file location: {}", rdb_path.display()),
-        is_error: false,
-    }).await;
+    let _ = progress
+        .send(BackupProgress::Output {
+            line: format!("RDB file location: {}", rdb_path.display()),
+            is_error: false,
+        })
+        .await;
 
     // Try to copy the RDB file
     // Note: This may fail if Redis is on a remote server or in a container
@@ -616,7 +650,8 @@ async fn execute_rdb_backup(
             }).await;
             Err(AppError::Io(format!(
                 "Failed to copy RDB file from {}: {}. For remote servers, manually copy the file.",
-                rdb_path.display(), e
+                rdb_path.display(),
+                e
             )))
         }
     }
@@ -629,12 +664,14 @@ async fn execute_json_restore(
     replace: bool,
     progress: &ProgressSender,
 ) -> Result<(), AppError> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+    use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
-    let _ = progress.send(BackupProgress::Output {
-        line: "Reading JSON backup file...".to_string(),
-        is_error: false,
-    }).await;
+    let _ = progress
+        .send(BackupProgress::Output {
+            line: "Reading JSON backup file...".to_string(),
+            is_error: false,
+        })
+        .await;
 
     // Read and parse JSON file
     let file = fs::File::open(source_path)
@@ -644,10 +681,12 @@ async fn execute_json_restore(
         .map_err(|e| AppError::Io(format!("Failed to parse JSON backup: {}", e)))?;
 
     let total = backup.keys.len();
-    let _ = progress.send(BackupProgress::Output {
-        line: format!("Found {} keys to restore", total),
-        is_error: false,
-    }).await;
+    let _ = progress
+        .send(BackupProgress::Output {
+            line: format!("Found {} keys to restore", total),
+            is_error: false,
+        })
+        .await;
 
     let mut restored = 0u64;
     let mut skipped = 0u64;
@@ -655,7 +694,8 @@ async fn execute_json_restore(
 
     for key_backup in backup.keys {
         // Decode the serialized data
-        let data = BASE64.decode(&key_backup.data)
+        let data = BASE64
+            .decode(&key_backup.data)
             .map_err(|e| AppError::Io(format!("Failed to decode key data: {}", e)))?;
 
         // Calculate TTL for RESTORE command
@@ -678,34 +718,40 @@ async fn execute_json_restore(
         // Use RESTORE command with binary data
         // RESTORE key ttl serialized-value [REPLACE]
         let restore_result: Result<String, _> = if replace {
-            client.custom(
-                fred::cmd!("RESTORE"),
-                vec![
-                    key_backup.key.as_str(),
-                    &ttl_ms.to_string(),
-                    unsafe { std::str::from_utf8_unchecked(&data) }, // Binary data
-                    "REPLACE",
-                ],
-            ).await
+            client
+                .custom(
+                    fred::cmd!("RESTORE"),
+                    vec![
+                        key_backup.key.as_str(),
+                        &ttl_ms.to_string(),
+                        unsafe { std::str::from_utf8_unchecked(&data) }, // Binary data
+                        "REPLACE",
+                    ],
+                )
+                .await
         } else {
-            client.custom(
-                fred::cmd!("RESTORE"),
-                vec![
-                    key_backup.key.as_str(),
-                    &ttl_ms.to_string(),
-                    unsafe { std::str::from_utf8_unchecked(&data) }, // Binary data
-                ],
-            ).await
+            client
+                .custom(
+                    fred::cmd!("RESTORE"),
+                    vec![
+                        key_backup.key.as_str(),
+                        &ttl_ms.to_string(),
+                        unsafe { std::str::from_utf8_unchecked(&data) }, // Binary data
+                    ],
+                )
+                .await
         };
 
         match restore_result {
             Ok(_) => restored += 1,
             Err(e) => {
                 errors += 1;
-                let _ = progress.send(BackupProgress::Output {
-                    line: format!("Failed to restore key '{}': {}", key_backup.key, e),
-                    is_error: true,
-                }).await;
+                let _ = progress
+                    .send(BackupProgress::Output {
+                        line: format!("Failed to restore key '{}': {}", key_backup.key, e),
+                        is_error: true,
+                    })
+                    .await;
             }
         }
 
@@ -715,7 +761,10 @@ async fn execute_json_restore(
                 .send(BackupProgress::Progress {
                     current: processed as u32,
                     total: total as u32,
-                    message: format!("Restored {} keys, skipped {}, errors {}", restored, skipped, errors),
+                    message: format!(
+                        "Restored {} keys, skipped {}, errors {}",
+                        restored, skipped, errors
+                    ),
                 })
                 .await
                 .is_err()

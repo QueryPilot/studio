@@ -48,7 +48,9 @@ pub fn get_snippets_by_category(category: SnippetCategory) -> Vec<SnippetItem> {
 pub fn get_snippets(prefix: &str) -> Vec<SnippetItem> {
     get_all_snippets()
         .into_iter()
-        .filter(|s| s.prefix.starts_with(prefix) || s.name.to_lowercase().contains(&prefix.to_lowercase()))
+        .filter(|s| {
+            s.prefix.starts_with(prefix) || s.name.to_lowercase().contains(&prefix.to_lowercase())
+        })
         .collect()
 }
 
@@ -175,7 +177,8 @@ RETURNS ${3:type} AS $$
 BEGIN
     ${4:body}
 END;
-$$ LANGUAGE plpgsql"#.to_string(),
+$$ LANGUAGE plpgsql"#
+                .to_string(),
             description: "Create PL/pgSQL function".to_string(),
             category: SnippetCategory::Plpgsql,
         },
@@ -185,7 +188,8 @@ $$ LANGUAGE plpgsql"#.to_string(),
             body: r#"CREATE TRIGGER ${1:name}
     ${2:BEFORE|AFTER} ${3:INSERT|UPDATE|DELETE} ON ${4:table}
     FOR EACH ROW
-    EXECUTE FUNCTION ${5:function}()"#.to_string(),
+    EXECUTE FUNCTION ${5:function}()"#
+                .to_string(),
             description: "Create trigger".to_string(),
             category: SnippetCategory::Plpgsql,
         },
@@ -219,7 +223,9 @@ mod tests {
     fn test_get_snippets() {
         let snippets = get_snippets("sel");
         assert!(!snippets.is_empty());
-        assert!(snippets.iter().all(|s| s.prefix.starts_with("sel") || s.name.to_lowercase().contains("sel")));
+        assert!(snippets
+            .iter()
+            .all(|s| s.prefix.starts_with("sel") || s.name.to_lowercase().contains("sel")));
     }
 
     #[test]

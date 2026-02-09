@@ -11,12 +11,12 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::time::Duration;
 
-use crate::core::backup_capability::{
-    BackupCapable, BackupConfig, BackupFormat, BackupObject, BackupObjectType,
-    BackupOptionsSchema, BackupPreview, BackupPreviewObject, FieldType, OptionField,
-    ProgressSender, RestoreConfig, RestoreOptionsSchema, ToolRequirement,
-};
 use crate::core::backup_capability::BackupProgress;
+use crate::core::backup_capability::{
+    BackupCapable, BackupConfig, BackupFormat, BackupObject, BackupObjectType, BackupOptionsSchema,
+    BackupPreview, BackupPreviewObject, FieldType, OptionField, ProgressSender, RestoreConfig,
+    RestoreOptionsSchema, ToolRequirement,
+};
 use crate::error::AppError;
 
 use super::SqliteAdapter;
@@ -35,13 +35,16 @@ impl BackupCapable for SqliteAdapter {
                 id: "binary".to_string(),
                 name: "Binary Database".to_string(),
                 extension: "db".to_string(),
-                description: "Native SQLite binary format. Fast, compact, preserves all data types exactly.".to_string(),
+                description:
+                    "Native SQLite binary format. Fast, compact, preserves all data types exactly."
+                        .to_string(),
             },
             BackupFormat {
                 id: "sql".to_string(),
                 name: "SQL Dump".to_string(),
                 extension: "sql".to_string(),
-                description: "Human-readable SQL statements. Portable across SQLite versions.".to_string(),
+                description: "Human-readable SQL statements. Portable across SQLite versions."
+                    .to_string(),
             },
         ]
     }
@@ -633,8 +636,12 @@ fn execute_sql_backup(
 
         // Write CREATE TABLE statement
         writeln!(file, "-- Table: {}", name).map_err(|e| AppError::Io(e.to_string()))?;
-        writeln!(file, "DROP TABLE IF EXISTS \"{}\";", name.replace('"', "\"\""))
-            .map_err(|e| AppError::Io(e.to_string()))?;
+        writeln!(
+            file,
+            "DROP TABLE IF EXISTS \"{}\";",
+            name.replace('"', "\"\"")
+        )
+        .map_err(|e| AppError::Io(e.to_string()))?;
         writeln!(file, "{};", create_sql).map_err(|e| AppError::Io(e.to_string()))?;
 
         // Dump data
@@ -671,8 +678,12 @@ fn execute_sql_backup(
         }
 
         writeln!(file, "-- View: {}", name).map_err(|e| AppError::Io(e.to_string()))?;
-        writeln!(file, "DROP VIEW IF EXISTS \"{}\";", name.replace('"', "\"\""))
-            .map_err(|e| AppError::Io(e.to_string()))?;
+        writeln!(
+            file,
+            "DROP VIEW IF EXISTS \"{}\";",
+            name.replace('"', "\"\"")
+        )
+        .map_err(|e| AppError::Io(e.to_string()))?;
         writeln!(file, "{};", create_sql).map_err(|e| AppError::Io(e.to_string()))?;
         writeln!(file).map_err(|e| AppError::Io(e.to_string()))?;
     }
@@ -769,7 +780,9 @@ fn dump_table_data(
         let mut values = Vec::with_capacity(column_count);
 
         for i in 0..column_count {
-            let value = row.get_ref(i).map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            let value = row
+                .get_ref(i)
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
             values.push(format_sql_value(value));
         }
 

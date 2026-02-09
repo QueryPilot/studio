@@ -680,12 +680,14 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       panelMetadata[tabId] = { ...currentMetadata, ...updates };
 
       const newContents = new Map(panelContents);
-      newContents.set(panelId, {
+      const updatedPanel = {
         ...panel,
         metadata: panelMetadata,
-      });
+      };
+      newContents.set(panelId, updatedPanel);
 
-      const updatedTree = updatePanelContents(layoutTree, newContents);
+      // Avoid rebuilding the full tree for frequent metadata updates (e.g. query typing).
+      const updatedTree = updateSinglePanel(layoutTree, panelId, updatedPanel);
 
       set({
         layoutTree: updatedTree,

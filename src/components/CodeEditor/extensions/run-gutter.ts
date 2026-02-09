@@ -7,7 +7,7 @@
 
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { StateField, type Extension } from "@codemirror/state";
-import { forEachDiagnostic, lintGutter } from "@codemirror/lint";
+import { diagnosticCount, forEachDiagnostic, lintGutter } from "@codemirror/lint";
 import { getAllStatements, type StatementBoundary } from "../core/query-utils";
 
 /**
@@ -18,7 +18,7 @@ const statementsField = StateField.define<Map<number, StatementBoundary>>({
   create(state) {
     const map = new Map<number, StatementBoundary>();
     // Don't track statements if document is empty
-    if (!state.doc.toString().trim()) return map;
+    if (state.doc.length === 0) return map;
 
     const statements = getAllStatements(state);
     statements.forEach((stmt) => {
@@ -31,7 +31,7 @@ const statementsField = StateField.define<Map<number, StatementBoundary>>({
     if (tr.docChanged) {
       const newMap = new Map<number, StatementBoundary>();
       // Don't track statements if document is empty
-      if (!tr.state.doc.toString().trim()) return newMap;
+      if (tr.state.doc.length === 0) return newMap;
 
       const statements = getAllStatements(tr.state);
       statements.forEach((stmt) => {
@@ -51,33 +51,21 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
   return ViewPlugin.fromClass(
     class {
       private pendingUpdate: number | null = null;
-      private observer: MutationObserver | null = null;
+      private lastDiagCount = 0;
 
       constructor(private view: EditorView) {
-        this.setupObserver();
+        this.lastDiagCount = diagnosticCount(view.state);
         this.scheduleUpdate();
       }
 
-      setupObserver() {
-        const lintGutter = this.view.dom.querySelector(".cm-gutter-lint");
-        if (lintGutter) {
-          this.observer = new MutationObserver(() => {
-            this.scheduleUpdate();
-          });
-          this.observer.observe(lintGutter, {
-            childList: true,
-            subtree: true,
-            attributes: false,
-          });
-        }
-      }
-
       update(update: ViewUpdate) {
-        if (
-          update.docChanged ||
-          update.viewportChanged ||
-          update.selectionSet
-        ) {
+        const nextDiagCount = diagnosticCount(update.state);
+        const diagnosticsChanged = nextDiagCount !== this.lastDiagCount;
+        if (diagnosticsChanged) {
+          this.lastDiagCount = nextDiagCount;
+        }
+
+        if (update.docChanged || update.viewportChanged || diagnosticsChanged) {
           this.scheduleUpdate();
         }
       }
@@ -92,16 +80,14 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
       }
 
       updateGutter() {
-        // Don't show play buttons if document is empty or whitespace-only
-        const docContent = this.view.state.doc.toString();
-        if (!docContent.trim()) return;
+        // Don't show play buttons if document is empty
+        if (this.view.state.doc.length === 0) return;
 
         const statements = this.view.state.field(statementsField, false);
         if (!statements || statements.size === 0) return;
 
         const lintGutter = this.view.dom.querySelector(".cm-gutter-lint");
         if (!lintGutter) {
-          this.setupObserver();
           return;
         }
 
@@ -136,40 +122,31 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
             ".cm-run-gutter-button",
           );
 
-          // Remove lint dots from the left gutter; lint position is shown in right scrollbar markers.
-          element
-            .querySelectorAll(
-              ".cm-lintPoint, .cm-lintPoint-error, .cm-lintPoint-warning, .cm-lintPoint-info",
-            )
-            .forEach((node) => {
-              node.remove();
-            });
-
-          // Remove existing button
-          if (existingPlayButton) {
-            existingPlayButton.remove();
-          }
-
           // Add play button if this line starts a statement and has no error
           if (stmt && !hasErrorMarker) {
-            const button = document.createElement("button");
-            button.className = "cm-run-gutter-button";
-            button.setAttribute("aria-label", "Run this query");
-            button.setAttribute("title", "Run this query");
+            const button =
+              existingPlayButton ?? document.createElement("button");
 
-            button.innerHTML = `
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                <polygon points="5 3 19 12 5 21 5 3"></polygon>
-              </svg>
-            `;
+            if (!existingPlayButton) {
+              button.className = "cm-run-gutter-button";
+              button.setAttribute("aria-label", "Run this query");
+              button.setAttribute("title", "Run this query");
+
+              button.innerHTML = `
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+              `;
+              element.appendChild(button);
+            }
 
             button.onclick = (e) => {
               e.preventDefault();
               e.stopPropagation();
               onExecute(stmt.text);
             };
-
-            element.appendChild(button);
+          } else if (existingPlayButton) {
+            existingPlayButton.remove();
           }
         });
       }
@@ -177,9 +154,6 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
       destroy() {
         if (this.pendingUpdate !== null) {
           cancelAnimationFrame(this.pendingUpdate);
-        }
-        if (this.observer) {
-          this.observer.disconnect();
         }
       }
     },

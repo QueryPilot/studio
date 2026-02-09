@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect, useMemo, useRef, useCallback, Component, type ReactNode, type ErrorInfo } from "react";
+import { Streamdown } from "streamdown";
 import {
   IconCheck,
   IconX,
@@ -22,6 +23,7 @@ import {
   IconAlertTriangle,
   IconInfoCircle,
   IconArrowBack,
+  IconCopy,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -162,6 +164,112 @@ function HighlightedJson({ json }: { json: string }) {
         </span>
       ))}
     </pre>
+  );
+}
+
+// ============================================================================
+// Command Preview - Smart display based on command type
+// ============================================================================
+
+interface CommandPreviewProps {
+  command: ParsedCommand;
+  meta: (typeof COMMAND_META)[keyof typeof COMMAND_META];
+}
+
+function CopyableCodeBlock({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => { setCopied(false); }, 2000);
+    } catch {
+      // ignore
+    }
+  }, [text]);
+
+  return (
+    <div className="relative group/code">
+      <pre className="text-[11px] bg-muted/50 rounded p-2.5 overflow-x-auto font-mono leading-relaxed border border-border/50 whitespace-pre-wrap break-words select-text">
+        {text}
+      </pre>
+      <Button
+        size="icon-xs"
+        variant="ghost"
+        className="absolute top-1.5 right-1.5 h-5 w-5 opacity-0 group-hover/code:opacity-100 transition-opacity"
+        onClick={() => { void handleCopy(); }}
+        title={`Copy ${label}`}
+      >
+        {copied ? (
+          <IconCheck className="h-3 w-3 text-green-500" />
+        ) : (
+          <IconCopy className="h-3 w-3" />
+        )}
+      </Button>
+    </div>
+  );
+}
+
+function CommandPreview({ command, meta }: CommandPreviewProps) {
+  const params = command.params as Record<string, unknown>;
+
+  // For query.run: show the actual SQL query instead of raw JSON
+  if (command.name === "query.run" && typeof params.query === "string") {
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-muted-foreground">Query</span>
+          <Badge variant="outline" size="xs">
+            {meta.approvalLevel}
+          </Badge>
+        </div>
+        <CopyableCodeBlock text={params.query} label="query" />
+      </div>
+    );
+  }
+
+  // For tab.create / tab.update: show the SQL content
+  if ((command.name === "tab.create" || command.name === "tab.update") && typeof params.content === "string") {
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-muted-foreground">Content</span>
+          <Badge variant="outline" size="xs">
+            {meta.approvalLevel}
+          </Badge>
+        </div>
+        <CopyableCodeBlock text={params.content} label="content" />
+      </div>
+    );
+  }
+
+  // For editor.insert: show the text being inserted
+  if (command.name === "editor.insert" && typeof params.text === "string") {
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-muted-foreground">Content</span>
+          <Badge variant="outline" size="xs">
+            {meta.approvalLevel}
+          </Badge>
+        </div>
+        <CopyableCodeBlock text={params.text} label="content" />
+      </div>
+    );
+  }
+
+  // Default: show syntax-highlighted JSON
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-muted-foreground">Parameters</span>
+        <Badge variant="outline" size="xs">
+          {meta.approvalLevel}
+        </Badge>
+      </div>
+      <HighlightedJson json={JSON.stringify(command.params, null, 2)} />
+    </div>
   );
 }
 
@@ -451,6 +559,7 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
 
     const canAutoApprove =
       shouldAutoApprove(command.name) &&
+      command.confidence !== "low" &&
       !command.error &&
       !validationError &&
       localState === "pending";
@@ -462,7 +571,7 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
         void handleApproveRef.current();
       });
     }
-  }, [meta, command.name, command.error, validationError, shouldAutoApprove, localState, batchResult]);
+  }, [meta, command.name, command.confidence, command.error, validationError, shouldAutoApprove, localState, batchResult]);
 
   const handleReject = useCallback(() => {
     setLocalState("rejected");
@@ -595,8 +704,8 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
         </div>
         {result && (
           <div className="px-3 pb-3 text-xs border-t border-border/50">
-            <div className="pt-2 prose prose-sm dark:prose-invert max-w-none">
-              <pre className="whitespace-pre-wrap text-[11px] bg-transparent p-0 m-0">{result}</pre>
+            <div className="pt-2 prose prose-sm dark:prose-invert max-w-none text-[11px] leading-relaxed">
+              <Streamdown className="select-text">{result}</Streamdown>
             </div>
           </div>
         )}
@@ -737,16 +846,8 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
             </div>
           )}
 
-          {/* Syntax highlighted JSON */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-muted-foreground">Parameters</span>
-              <Badge variant="outline" size="xs">
-                {meta.approvalLevel}
-              </Badge>
-            </div>
-            <HighlightedJson json={JSON.stringify(command.params, null, 2)} />
-          </div>
+          {/* Command preview - show query for query.run, JSON for others */}
+          <CommandPreview command={command} meta={meta} />
         </div>
       )}
     </div>
@@ -774,7 +875,11 @@ export function CommandList({ commands, onResult, onBatchResult }: CommandListPr
   // Get commands eligible for auto-execution
   const autoExecCommands = useMemo(() => {
     return commands.filter(
-      (c) => !c.error && shouldAutoApprove(c.name) && getCommandState(c.id) === "pending"
+      (c) =>
+        !c.error &&
+        c.confidence !== "low" &&
+        shouldAutoApprove(c.name) &&
+        getCommandState(c.id) === "pending"
     );
   }, [commands, shouldAutoApprove, getCommandState]);
 

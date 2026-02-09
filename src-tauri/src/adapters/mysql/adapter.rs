@@ -44,7 +44,10 @@ impl MySqlAdapter {
     }
 
     /// Execute multiple SQL statements within a transaction
-    pub async fn execute_in_transaction(&self, statements: Vec<String>) -> Result<Vec<u64>, AppError> {
+    pub async fn execute_in_transaction(
+        &self,
+        statements: Vec<String>,
+    ) -> Result<Vec<u64>, AppError> {
         let mut conn = self.get_conn().await?;
 
         // Start transaction manually
@@ -80,7 +83,7 @@ impl MySqlAdapter {
             .tcp_port(profile.port as u16)
             .user(Some(&profile.username))
             .db_name(Some(&profile.database));
-        
+
         // Set password if provided
         if let Some(password) = &profile.password {
             builder = builder.pass(Some(password));
@@ -89,7 +92,7 @@ impl MySqlAdapter {
         // Apply connection options from profile (e.g., charset=utf8mb4)
         // Collect all init commands first, then apply them once
         let mut init_commands = Vec::new();
-        
+
         for (key, value) in &profile.options {
             match key.to_lowercase().as_str() {
                 "charset" => {
@@ -115,7 +118,7 @@ impl MySqlAdapter {
                 }
             }
         }
-        
+
         // Apply all init commands at once
         if !init_commands.is_empty() {
             builder = builder.init(init_commands);
@@ -126,21 +129,22 @@ impl MySqlAdapter {
             match ssl_mode {
                 SslMode::Require | SslMode::VerifyCa | SslMode::VerifyFull => {
                     let mut ssl_opts = SslOpts::default();
-                    
+
                     // Apply SSL CA certificate if provided
                     if let Some(ssl_config) = &profile.ssl_config {
                         if let Some(ca_file) = &ssl_config.ca_file {
-                            ssl_opts = ssl_opts.with_root_certs(vec![std::path::PathBuf::from(ca_file).into()]);
+                            ssl_opts = ssl_opts
+                                .with_root_certs(vec![std::path::PathBuf::from(ca_file).into()]);
                         }
                         // Note: mysql_async client identity requires PKCS12 format
                         // For PEM cert/key files, users need to convert to PKCS12 first
                     }
-                    
+
                     // For verify modes, enable hostname verification
                     if matches!(ssl_mode, SslMode::VerifyFull) {
                         ssl_opts = ssl_opts.with_danger_accept_invalid_certs(false);
                     }
-                    
+
                     builder = builder.ssl_opts(ssl_opts);
                 }
                 SslMode::Disable => {
@@ -194,10 +198,12 @@ impl BaseCapability for MySqlAdapter {
         let connect_timeout = std::time::Duration::from_secs(15);
         let conn = tokio::time::timeout(connect_timeout, pool.get_conn())
             .await
-            .map_err(|_| AppError::ConnectionClosed(format!(
-                "Connection timed out after {} seconds - host may be unreachable",
-                connect_timeout.as_secs()
-            )))?
+            .map_err(|_| {
+                AppError::ConnectionClosed(format!(
+                    "Connection timed out after {} seconds - host may be unreachable",
+                    connect_timeout.as_secs()
+                ))
+            })?
             .map_err(|e| {
                 tracing::error!("MySQL connection failed: {}", e);
                 AppError::Internal(format!("Failed to connect: {}", e))
@@ -214,9 +220,9 @@ impl BaseCapability for MySqlAdapter {
 
     async fn disconnect(&self) -> Result<(), AppError> {
         if let Some(pool) = self.pool.write().await.take() {
-            pool.disconnect().await.map_err(|e| {
-                AppError::Internal(format!("Failed to disconnect: {}", e))
-            })?;
+            pool.disconnect()
+                .await
+                .map_err(|e| AppError::Internal(format!("Failed to disconnect: {}", e)))?;
         }
         Ok(())
     }
@@ -261,9 +267,7 @@ impl BaseCapability for MySqlAdapter {
     }
 
     fn get_capabilities(&self) -> Vec<AdapterCapability> {
-        vec![
-            AdapterCapability::SqlQueryable,
-        ]
+        vec![AdapterCapability::SqlQueryable]
     }
 }
 
@@ -321,4 +325,3 @@ impl SqlQueryable for MySqlAdapter {
         Ok(affected)
     }
 }
-

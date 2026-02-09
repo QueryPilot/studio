@@ -383,6 +383,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const isGridFocusedRef = useRef(false);
   // Prevent repeated auto-focus attempts while the same panel focus state is active
   const hasAutoFocusedRef = useRef(false);
+  const lastPointerInteractionAtRef = useRef(0);
 
   // Store refs for callbacks
   const onCellEditCommitRef = useRef(onCellEditCommitCallback);
@@ -408,6 +409,19 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     }
   }, [focused]);
 
+  useEffect(() => {
+    const markPointerInteraction = () => {
+      lastPointerInteractionAtRef.current = Date.now();
+    };
+
+    document.addEventListener("pointerdown", markPointerInteraction, true);
+    document.addEventListener("mousedown", markPointerInteraction, true);
+    return () => {
+      document.removeEventListener("pointerdown", markPointerInteraction, true);
+      document.removeEventListener("mousedown", markPointerInteraction, true);
+    };
+  }, []);
+
   // --- Auto-focus when panel becomes focused ---
   // This handles the case where a tab is opened from CommandPalette
   // and the grid should receive focus to enable keyboard navigation
@@ -418,39 +432,70 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     let cancelled = false;
     let attempts = 0;
     const MAX_ATTEMPTS = 24;
+    const RETRY_INTERVAL_MS = 16;
+    const INITIAL_DELAY_MS = 60;
+    const POINTER_INTERACTION_GRACE_MS = 250;
+
+    const hasRecentPointerInteraction = () =>
+      Date.now() - lastPointerInteractionAtRef.current <
+      POINTER_INTERACTION_GRACE_MS;
+
+    const shouldAbortForCurrentFocusTarget = () => {
+      if (effectiveQuickFilterRef.current?.isFocusWithin?.()) {
+        return true;
+      }
+
+      const activeElement = document.activeElement as HTMLElement | null;
+      if (!activeElement) return false;
+
+      const activeElementIsTextInput =
+        activeElement.tagName === "INPUT" ||
+        activeElement.tagName === "TEXTAREA" ||
+        activeElement.isContentEditable;
+      const activeElementInsideGrid = Boolean(
+        wrapperRef.current?.contains(activeElement),
+      );
+
+      if (activeElementIsTextInput && activeElementInsideGrid) {
+        return true;
+      }
+
+      return false;
+    };
+
+    const scheduleRetry = () => {
+      attempts += 1;
+      if (attempts < MAX_ATTEMPTS) {
+        timeoutId = setTimeout(tryFocusGrid, RETRY_INTERVAL_MS);
+      }
+    };
 
     const tryFocusGrid = () => {
       if (cancelled || hasAutoFocusedRef.current) return;
 
-      // Do not steal focus from QuickFilter when user already interacted with it.
-      if (effectiveQuickFilterRef.current?.isFocusWithin?.()) {
-        hasAutoFocusedRef.current = true;
+      // Respect user pointer interactions so clicked controls can take focus first.
+      if (shouldAbortForCurrentFocusTarget()) {
         return;
       }
 
-      const activeElement = document.activeElement as HTMLElement | null;
-      const activeElementIsTextInput = Boolean(
-        activeElement &&
-          (activeElement.tagName === "INPUT" ||
-            activeElement.tagName === "TEXTAREA" ||
-            activeElement.isContentEditable),
-      );
-      const activeElementInsideGrid = Boolean(
-        activeElement && wrapperRef.current?.contains(activeElement),
-      );
-
-      // Avoid stealing focus from local toolbar editors in this grid instance.
-      if (activeElementIsTextInput && activeElementInsideGrid) {
-        hasAutoFocusedRef.current = true;
+      if (hasRecentPointerInteraction()) {
+        scheduleRetry();
         return;
       }
 
       // Retry while grid ref is not mounted yet (common during async column/data setup).
       if (!gridRef.current) {
-        attempts += 1;
-        if (attempts < MAX_ATTEMPTS) {
-          timeoutId = setTimeout(tryFocusGrid, 16);
-        }
+        scheduleRetry();
+        return;
+      }
+
+      // Re-check right before focus to avoid stealing focus from newly-focused editors.
+      if (shouldAbortForCurrentFocusTarget()) {
+        return;
+      }
+
+      if (hasRecentPointerInteraction()) {
+        scheduleRetry();
         return;
       }
 
@@ -460,7 +505,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       hasAutoFocusedRef.current = true;
     };
 
-    timeoutId = setTimeout(tryFocusGrid, 60);
+    timeoutId = setTimeout(tryFocusGrid, INITIAL_DELAY_MS);
     return () => {
       cancelled = true;
       if (timeoutId !== undefined) {

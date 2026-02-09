@@ -10,9 +10,21 @@
  * are handled by BaseDataGrid.
  */
 
-import { memo, useCallback, useMemo, useRef, useDeferredValue, useEffect } from "react";
+import {
+  memo,
+  useCallback,
+  useMemo,
+  useRef,
+  useDeferredValue,
+  useEffect,
+  useState,
+} from "react";
 import type { Item, GridCell } from "@glideapps/glide-data-grid";
 import { GridCellKind } from "@glideapps/glide-data-grid";
+import {
+  IconLayoutSidebarRightCollapse,
+  IconLayoutSidebarRightExpand,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { BaseDataGrid } from "../base/BaseDataGrid";
 import type {
@@ -47,6 +59,7 @@ import { useAcpStore, DEFAULT_QUICK_FILTER_MODEL } from "@/stores/acpStore";
 import { AcpService } from "@/services/acpService";
 import type { SortConfig } from "@/types/filter";
 import type { SortColumn } from "../types";
+import { Button } from "@/components/ui/button";
 
 // Stable empty array to prevent infinite re-renders when sortColumns is undefined
 const EMPTY_SORT_COLUMNS: SortColumn[] = [];
@@ -91,6 +104,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
 
   // Ref for QuickFilter - passed to BaseDataGrid for Cmd+F handling
   const quickFilterRef = useRef<QuickFilterRef>(null);
+  const [showInspector, setShowInspector] = useState(false);
 
   // Determine entity type and read-only status based on kind
   const entityType: "table" | "view" | "materialized_view" =
@@ -822,19 +836,38 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
       {/* Quick Filter - managed here, not in BaseDataGrid */}
       {filterColumns.length > 0 && (
         <div className="py-1.5 px-1">
-          <QuickFilter
-            ref={quickFilterRef}
-            columns={filterColumns}
-            value={quickFilterValue}
-            mode={quickFilterMode}
-            onValueChange={setQuickFilterValue}
-            onModeChange={setQuickFilterMode}
-            onSubmit={handleFilterSubmit}
-            isLoading={quickFilterLoading}
-            error={quickFilterError}
-            explanation={aiExplanation}
-            clientSideFiltering={false}
-          />
+          <div className="flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <QuickFilter
+                ref={quickFilterRef}
+                columns={filterColumns}
+                value={quickFilterValue}
+                mode={quickFilterMode}
+                onValueChange={setQuickFilterValue}
+                onModeChange={setQuickFilterMode}
+                onSubmit={handleFilterSubmit}
+                isLoading={quickFilterLoading}
+                error={quickFilterError}
+                explanation={aiExplanation}
+                clientSideFiltering={false}
+              />
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[11px] shrink-0"
+              onClick={() => {
+                setShowInspector((prev) => !prev);
+              }}
+            >
+              {showInspector ? (
+                <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5 mr-1" />
+              ) : (
+                <IconLayoutSidebarRightExpand className="h-3.5 w-3.5 mr-1" />
+              )}
+              Inspector
+            </Button>
+          </div>
         </div>
       )}
 
@@ -889,6 +922,9 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
         executionTime={executionTime}
         // Focus management
         focused={focused}
+        inspectorOpen={showInspector}
+        onInspectorOpenChange={setShowInspector}
+        showInspectorToggleButton={false}
         // Pass QuickFilter ref for Cmd+F handling (since we manage our own QuickFilter)
         externalQuickFilterRef={quickFilterRef}
         className={cn("flex-1", className)}

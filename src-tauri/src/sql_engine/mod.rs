@@ -106,8 +106,12 @@ pub use join_suggester::{
 pub use outline::{
     CteOutline, OutlineBuilder, OutlineTree, ParseStatus, StatementOutline, TableOutline, TextSpan,
 };
-pub use refactor::{Refactor, RefactorAction, RefactorKind, RefactorRequest, RefactorResult, TextEdit};
-pub use snippets::{get_all_snippets, get_snippets, get_snippets_by_category, SnippetCategory, SnippetItem};
+pub use refactor::{
+    Refactor, RefactorAction, RefactorKind, RefactorRequest, RefactorResult, TextEdit,
+};
+pub use snippets::{
+    get_all_snippets, get_snippets, get_snippets_by_category, SnippetCategory, SnippetItem,
+};
 pub use sp_params::{
     generate_function_call, get_builtin_function_help, get_function_overloads,
     get_function_signature, suggest_sp_params, BuiltinFunctionHelp, FunctionOverload,

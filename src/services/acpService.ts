@@ -51,7 +51,9 @@ function withSilentAgentMutex<T>(fn: () => Promise<T>): Promise<T> {
   silentAgentMutex = new Promise((resolve) => {
     release = resolve;
   });
-  return currentMutex.then(fn).finally(() => release());
+  return currentMutex.then(fn).finally(() => {
+    release();
+  });
 }
 
 /**
@@ -151,6 +153,14 @@ export const AcpService = {
   },
 
   /**
+   * Get the current session ID for an active agent instance.
+   * Used to subscribe to session events before sending a prompt.
+   */
+  async getSessionId(instanceId: string): Promise<string> {
+    return invoke<string>("acp_get_session_id", { instanceId });
+  },
+
+  /**
    * Send a prompt to an agent and stream the response
    * @param instanceId The running agent instance ID
    * @param prompt The user prompt text
@@ -167,18 +177,17 @@ export const AcpService = {
       onThinking?: (text: string) => void;
       onToolCall?: (toolCall: ToolCall) => void;
       onToolCallUpdate?: (toolCallId: string, status: string) => void;
+      onPlanUpdate?: (steps: Array<{ id: string; description: string; status: string }>) => void;
+      onModeUpdate?: (mode: string) => void;
+      onAvailableCommandsUpdate?: (commands: string[]) => void;
       onComplete?: () => void;
       onError?: (error: string) => void;
     }
   ): Promise<string> {
-    // Send prompt - returns session ID for this interaction
+    // Subscribe before sending the prompt to avoid losing early chunks.
     let sessionId: string;
     try {
-      sessionId = await invoke<string>("acp_send_prompt", {
-        instanceId,
-        prompt,
-        contextJson,
-      });
+      sessionId = await this.getSessionId(instanceId);
     } catch (error) {
       callbacks?.onError?.(String(error));
       throw error;
@@ -196,13 +205,13 @@ export const AcpService = {
       switch (update.type) {
         case "AgentMessageChunk": {
           // Handle both { content: ContentBlock } and { content: ContentBlock[] }
-          const contentData = update.content?.content;
+          const contentData = update.content.content;
           const text = extractText(contentData);
           if (text) callbacks?.onChunk?.(text);
           break;
         }
         case "AgentThoughtChunk": {
-          const contentData = update.content?.content;
+          const contentData = update.content.content;
           const thought = extractText(contentData);
           if (thought) callbacks?.onThinking?.(thought);
           break;
@@ -240,6 +249,22 @@ export const AcpService = {
           }
           break;
         }
+        case "Plan": {
+          callbacks?.onPlanUpdate?.(update.plan.steps);
+          break;
+        }
+        case "CurrentModeUpdate": {
+          const modeValue = update.mode.mode;
+          if (modeValue) {
+            callbacks?.onModeUpdate?.(modeValue);
+          }
+          break;
+        }
+        case "AvailableCommandsUpdate": {
+          const commands = update.commands.commands;
+          callbacks?.onAvailableCommandsUpdate?.(commands);
+          break;
+        }
         case "Complete": {
           // Stream ended - finalize message and clean up
           callbacks?.onComplete?.();
@@ -256,6 +281,26 @@ export const AcpService = {
     });
 
     activeListeners.set(sessionId, unlisten);
+
+    // Now send the prompt after listener is active.
+    try {
+      const responseSessionId = await invoke<string>("acp_send_prompt", {
+        instanceId,
+        prompt,
+        contextJson,
+      });
+      // Defensive guard: session ID must remain stable for this request.
+      if (responseSessionId !== sessionId) {
+        AcpService.stopListening(sessionId);
+        throw new Error(
+          `Session mismatch: subscribed to ${sessionId}, prompt returned ${responseSessionId}`
+        );
+      }
+    } catch (error) {
+      AcpService.stopListening(sessionId);
+      callbacks?.onError?.(String(error));
+      throw error;
+    }
 
     return sessionId;
   },
@@ -400,8 +445,12 @@ export const AcpService = {
       try {
         // Collect the response
         let responseText = "";
-        let completed = false;
-        let error: string | undefined;
+        let resolveCompletion:
+          | ((result: { error?: string }) => void)
+          | null = null;
+        const completionPromise = new Promise<{ error?: string }>((resolve) => {
+          resolveCompletion = resolve;
+        });
 
         // Send prompt and collect streaming response
         await this.sendPrompt(instanceId, prompt, contextJson, {
@@ -409,32 +458,38 @@ export const AcpService = {
             responseText += text;
           },
           onComplete: () => {
-            completed = true;
+            if (resolveCompletion) {
+              resolveCompletion({});
+            }
           },
           onError: (err) => {
-            error = err;
-            completed = true;
+            if (resolveCompletion) {
+              resolveCompletion({ error: err });
+            }
           },
         });
 
-        // Wait for completion with timeout (200ms polling to reduce CPU usage)
+        // Wait for completion with timeout.
         const maxWaitTime = 60000; // 60 seconds
-        const startTime = Date.now();
+        const completionResult = await Promise.race([
+          completionPromise,
+          new Promise<{ timedOut: true }>((resolve) => {
+            setTimeout(() => {
+              resolve({ timedOut: true });
+            }, maxWaitTime);
+          }),
+        ]);
 
-        while (!completed && Date.now() - startTime < maxWaitTime) {
-          await new Promise((resolve) => setTimeout(resolve, 200));
-        }
-
-        if (error) {
-          // On error, clear cached agent (might be in bad state)
-          cachedSilentAgent = null;
-          throw new Error(error);
-        }
-
-        if (!completed) {
+        if ("timedOut" in completionResult) {
           // On timeout, clear cached agent
           cachedSilentAgent = null;
           throw new Error("AI request timed out");
+        }
+
+        if (completionResult.error) {
+          // On error, clear cached agent (might be in bad state)
+          cachedSilentAgent = null;
+          throw new Error(completionResult.error);
         }
 
         return responseText;

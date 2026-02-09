@@ -6,13 +6,17 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::core::ConnectionManager;
 use super::{
-    complete, parse_document, validate_document, CompletionRequest, SqlDialect,
-    schema_store::{CacheKey, CachedSchemaBuilder, ColumnInfo, EnumInfo, ForeignKeyInfo, FunctionInfo, FunctionParam, ParamMode, TableInfo, TableType},
+    complete,
     outline::{OutlineBuilder, OutlineTree},
-    SCHEMA_STORE,
+    parse_document,
+    schema_store::{
+        CacheKey, CachedSchemaBuilder, ColumnInfo, EnumInfo, ForeignKeyInfo, FunctionInfo,
+        FunctionParam, ParamMode, TableInfo, TableType,
+    },
+    validate_document, CompletionRequest, SqlDialect, SCHEMA_STORE,
 };
+use crate::core::ConnectionManager;
 
 /// Parse request from frontend
 #[derive(Debug, Deserialize)]
@@ -163,9 +167,7 @@ pub async fn sql_parse(request: ParseRequest) -> Result<ParseResponse, String> {
 
 /// Validate SQL document
 #[tauri::command]
-pub async fn sql_validate(
-    request: ValidateRequest,
-) -> Result<ValidateResponse, String> {
+pub async fn sql_validate(request: ValidateRequest) -> Result<ValidateResponse, String> {
     let dialect = parse_dialect(&request.dialect);
     let doc = parse_document(&request.sql, dialect);
 
@@ -207,9 +209,7 @@ pub async fn sql_validate(
 
 /// Get completions for SQL
 #[tauri::command]
-pub async fn sql_complete(
-    request: CompleteRequest,
-) -> Result<CompleteResponse, String> {
+pub async fn sql_complete(request: CompleteRequest) -> Result<CompleteResponse, String> {
     let dialect = parse_dialect(&request.dialect);
     let doc = parse_document(&request.sql, dialect);
 
@@ -494,10 +494,7 @@ pub async fn sql_set_schema(request: SetSchemaRequest) -> Result<SetSchemaRespon
 /// Clear schema cache for a connection.
 /// Call when connection is closed or schema is refreshed.
 #[tauri::command]
-pub async fn sql_clear_schema(
-    connection_id: String,
-    schema: Option<String>,
-) -> Result<(), String> {
+pub async fn sql_clear_schema(connection_id: String, schema: Option<String>) -> Result<(), String> {
     SCHEMA_STORE.invalidate(&connection_id, schema.as_deref());
     Ok(())
 }
@@ -508,11 +505,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_sql_get_outline_simple_select() {
-        let result = sql_get_outline(
-            "SELECT * FROM users".to_string(),
-            "postgresql".to_string(),
-        )
-        .await;
+        let result =
+            sql_get_outline("SELECT * FROM users".to_string(), "postgresql".to_string()).await;
 
         assert!(result.is_ok());
         let outline = result.unwrap();
@@ -543,11 +537,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_sql_get_outline_mysql_dialect() {
-        let result = sql_get_outline(
-            "SELECT * FROM `users`".to_string(),
-            "mysql".to_string(),
-        )
-        .await;
+        let result =
+            sql_get_outline("SELECT * FROM `users`".to_string(), "mysql".to_string()).await;
 
         assert!(result.is_ok());
         let outline = result.unwrap();

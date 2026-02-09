@@ -129,7 +129,7 @@ export const COMMAND_META: Record<AiCommandName, AiCommandMeta> = {
   "query.run": {
     name: "query.run",
     paradigm: "universal",
-    approvalLevel: "auto",
+    approvalLevel: "approve",
     description: "Execute a query and display results",
     params: [
       { name: "connectionId", type: "string", required: true, description: "Database connection ID" },
@@ -259,6 +259,8 @@ export interface ParsedCommand<T = unknown> {
   raw: string;
   startIndex: number;
   endIndex: number;
+  /** Parser confidence. "low" means parsed from non-canonical command syntax. */
+  confidence?: "high" | "low";
   error?: string;
 }
 
