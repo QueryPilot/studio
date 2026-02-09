@@ -18,7 +18,8 @@
     "test:unit": "vitest run",
     "test:watch": "vitest watch",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "bench:sql-editor": "tsx scripts/bench/sql-editor-latency.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.1.0",

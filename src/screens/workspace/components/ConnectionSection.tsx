@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, forwardRef } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { cn } from "@/lib/utils";
 import {
   IconTable,
@@ -22,7 +23,6 @@ import {
   IconX,
   IconExternalLink,
   IconLayout2,
-  IconKey,
   IconSitemap,
   IconDatabaseExport,
   IconCopy,
@@ -205,11 +205,28 @@ export const ConnectionSection = forwardRef<
     removeConnectionFromWorkspace,
     setFocusedConnection,
     updateConnectionState,
-  } = useWorkspaceBundleStore();
+  } = useWorkspaceBundleStore(
+    useShallow((s) => ({
+      reconnectConnection: s.reconnectConnection,
+      removeConnectionFromWorkspace: s.removeConnectionFromWorkspace,
+      setFocusedConnection: s.setFocusedConnection,
+      updateConnectionState: s.updateConnectionState,
+    })),
+  );
   const { toggleStarred, getStarredItems } = useStarredItemsStore();
-  const { stagedCommands } = useCrudStore();
-  const { panels, activePanelId } = usePanelStore();
-  const { focusedPanelId, panelContents } = useWorkbenchStore();
+  const stagedCommands = useCrudStore((s) => s.stagedCommands);
+  const { panels, activePanelId } = usePanelStore(
+    useShallow((s) => ({
+      panels: s.panels,
+      activePanelId: s.activePanelId,
+    })),
+  );
+  const { focusedPanelId, panelContents } = useWorkbenchStore(
+    useShallow((s) => ({
+      focusedPanelId: s.focusedPanelId,
+      panelContents: s.panelContents,
+    })),
+  );
 
   // Pre-compute lookup maps for O(1) access
   const tablesByKey = useMemo(() => {
@@ -404,6 +421,38 @@ export const ConnectionSection = forwardRef<
     return (
       activeTab.payload.functionName === functionName &&
       activeTab.payload.schema === functionSchema
+    );
+  };
+
+  const isMongoCollectionActive = (collectionName: string): boolean => {
+    if (!database) return false;
+
+    if (focusedPanelId) {
+      const focusedPanel = panelContents.get(focusedPanelId);
+      const focusedTabId = focusedPanel?.activeTabId;
+      if (focusedPanel && focusedTabId) {
+        const metadata = focusedPanel.metadata?.[focusedTabId];
+        if (
+          metadata?.type === "mongo-collection" &&
+          metadata.connectionId === connectionId &&
+          metadata.database === database &&
+          metadata.table === collectionName
+        ) {
+          return true;
+        }
+      }
+    }
+
+    const activePanel = panels.get(activePanelId);
+    if (!activePanel || !activePanel.activeTabId) return false;
+
+    const activeTab = activePanel.tabs.get(activePanel.activeTabId);
+    if (!activeTab || activeTab.type !== "mongo-collection") return false;
+
+    return (
+      activeTab.payload.connectionId === connectionId &&
+      activeTab.payload.database === database &&
+      activeTab.payload.tableName === collectionName
     );
   };
 
@@ -609,7 +658,7 @@ export const ConnectionSection = forwardRef<
     }
   };
 
-  const handleCopyDefinition = async () => {
+  const handleCopyDefinition = () => {
     toast.info("Copy definition - coming soon");
   };
 
@@ -730,20 +779,20 @@ export const ConnectionSection = forwardRef<
   };
 
   // Section context menu handlers
-  const handleSelectAllTables = useCallback(() => {
+  const handleSelectAllTables = () => {
     const tableKeys = tables.map((t) => `table:${t.schema}.${t.name}`);
     setSelectedItems(new Set(tableKeys));
-  }, [tables]);
+  };
 
-  const handleSelectAllViews = useCallback(() => {
+  const handleSelectAllViews = () => {
     const viewKeys = views.map((v) => `view:${v.schema}.${v.name}`);
     setSelectedItems(new Set(viewKeys));
-  }, [views]);
+  };
 
-  const handleSelectAllFunctions = useCallback(() => {
+  const handleSelectAllFunctions = () => {
     const funcKeys = functions.map((f) => `function:${f.schema}.${f.name}`);
     setSelectedItems(new Set(funcKeys));
-  }, [functions]);
+  };
 
   const handleCopyAllTableNames = useCallback(async () => {
     const names = tables.map((t) => t.name).join("\n");
@@ -1360,7 +1409,7 @@ export const ConnectionSection = forwardRef<
                           <IconLayout2 className="h-3.5 w-4 min-w-4 text-emerald-600 shrink-0" />
                         }
                         name={collection.name}
-                        isActive={false}
+                        isActive={isMongoCollectionActive(collection.name)}
                         onClick={() => {
                           setFocusedConnection(connectionId);
                           const {

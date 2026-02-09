@@ -5,6 +5,60 @@
 use super::parser::ParsedStatement;
 use super::schema_store::CachedSchema;
 use super::validator::{SqlError, ErrorSeverity, ErrorSource};
+use std::collections::HashSet;
+
+fn normalize_table_name(name: &str) -> String {
+    name.rsplit('.').next().unwrap_or(name).trim_matches('"').to_string()
+}
+
+fn resolve_table_name_in_statement(stmt: &ParsedStatement, qualifier: &str) -> String {
+    let normalized = normalize_table_name(qualifier);
+
+    if let Some(alias) = stmt
+        .aliases
+        .iter()
+        .find(|a| a.alias.eq_ignore_ascii_case(&normalized))
+    {
+        return normalize_table_name(&alias.table);
+    }
+
+    if let Some(table_ref) = stmt.tables.iter().find(|t| {
+        t.alias
+            .as_ref()
+            .map(|a| a.eq_ignore_ascii_case(&normalized))
+            .unwrap_or(false)
+            || t.name.eq_ignore_ascii_case(&normalized)
+    }) {
+        return table_ref.name.clone();
+    }
+
+    normalized
+}
+
+fn get_existing_statement_tables(stmt: &ParsedStatement, schema: &CachedSchema) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let cte_names: HashSet<String> = stmt.ctes.iter().map(|c| c.name.to_lowercase()).collect();
+
+    stmt.tables
+        .iter()
+        .filter_map(|t| {
+            if cte_names.contains(&t.name.to_lowercase()) {
+                return None;
+            }
+            let normalized = normalize_table_name(&t.name);
+            let key = normalized.to_lowercase();
+            if seen.contains(&key) {
+                return None;
+            }
+            if table_exists(&normalized, schema) {
+                seen.insert(key);
+                Some(normalized)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
 
 /// Check if a table exists in the schema.
 pub fn table_exists(table_name: &str, schema: &CachedSchema) -> bool {
@@ -42,7 +96,8 @@ pub fn validate_table_references(
             continue;
         }
 
-        if !table_exists(&table_ref.name, schema) {
+        let normalized = normalize_table_name(&table_ref.name);
+        if !table_exists(&normalized, schema) {
             errors.push(SqlError {
                 from: stmt.range.0,
                 to: stmt.range.1,
@@ -62,26 +117,56 @@ pub fn validate_column_references(
     schema: &CachedSchema,
 ) -> Vec<SqlError> {
     let mut errors = Vec::new();
+    let existing_tables = get_existing_statement_tables(stmt, schema);
+    let cte_names: HashSet<String> = stmt.ctes.iter().map(|c| c.name.to_lowercase()).collect();
 
     for col_ref in &stmt.columns {
+        if col_ref.name == "*" {
+            continue;
+        }
+
         if let Some(table) = &col_ref.table {
-            // Resolve alias to table name
-            let actual_table = stmt.aliases.iter()
-                .find(|a| a.alias.to_lowercase() == table.to_lowercase())
-                .map(|a| &a.table)
-                .unwrap_or(table);
+            let actual_table = resolve_table_name_in_statement(stmt, table);
 
             // Check CTE first
-            if stmt.ctes.iter().any(|c| c.name.to_lowercase() == actual_table.to_lowercase()) {
+            if cte_names.contains(&actual_table.to_lowercase()) {
                 // Can't validate CTE columns without deeper analysis
                 continue;
             }
 
-            if !column_exists(actual_table, &col_ref.name, schema) {
+            // If the table itself doesn't exist, table validation will report it.
+            if !table_exists(&actual_table, schema) {
+                continue;
+            }
+
+            if !column_exists(&actual_table, &col_ref.name, schema) {
                 errors.push(SqlError {
                     from: stmt.range.0,
                     to: stmt.range.1,
-                    message: format!("Column '{}' does not exist in table '{}'", col_ref.name, actual_table),
+                    message: format!(
+                        "Column '{}' does not exist in table '{}'",
+                        col_ref.name, actual_table
+                    ),
+                    severity: ErrorSeverity::Warning,
+                    source: ErrorSource::Semantic,
+                });
+            }
+        } else {
+            if existing_tables.is_empty() {
+                continue;
+            }
+
+            let exists_in_any = existing_tables
+                .iter()
+                .any(|table| column_exists(table, &col_ref.name, schema));
+            if !exists_in_any {
+                errors.push(SqlError {
+                    from: stmt.range.0,
+                    to: stmt.range.1,
+                    message: format!(
+                        "Column '{}' does not exist in any referenced table",
+                        col_ref.name
+                    ),
                     severity: ErrorSeverity::Warning,
                     source: ErrorSource::Semantic,
                 });

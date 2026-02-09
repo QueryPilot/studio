@@ -53,4 +53,40 @@ describe('BaseDataGrid', () => {
 
     expect(container.querySelector('[data-testid="breadcrumb-nav"]')).toBeInTheDocument();
   });
+
+  it('should not break hook ordering when staged changes are toggled', () => {
+    const baseProps = {
+      gridId: "test-toggle-staged",
+      rows: mockRows,
+      columns: mockColumns,
+      getCellContent: mockGetCellContent,
+      connectionId: "test-connection",
+      paradigm: "document" as const,
+    };
+
+    const { rerender } = render(
+      <BaseDataGrid
+        {...baseProps}
+        enableStagedChanges={true}
+      />,
+    );
+
+    expect(() => {
+      rerender(
+        <BaseDataGrid
+          {...baseProps}
+          enableStagedChanges={false}
+        />,
+      );
+    }).not.toThrow();
+
+    expect(() => {
+      rerender(
+        <BaseDataGrid
+          {...baseProps}
+          enableStagedChanges={true}
+        />,
+      );
+    }).not.toThrow();
+  });
 });

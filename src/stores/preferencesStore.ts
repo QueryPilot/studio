@@ -30,10 +30,6 @@ interface PreferencesState {
   unsavedChanges: boolean;
   setUnsavedChanges: (hasChanges: boolean) => void;
 
-  // Query execution preferences
-  smartQueryLimit: number | null;
-  setSmartQueryLimit: (limit: number | null) => void;
-
   /** Query timeout in seconds. Default: 300 (5 minutes). Set to 0 for no timeout. */
   queryTimeoutSecs: number;
   setQueryTimeoutSecs: (timeout: number) => void;
@@ -52,12 +48,6 @@ export const usePreferencesStore = create<PreferencesState>()(
         set((state) => ({
           telemetry: { ...state.telemetry, ...telemetry },
         }));
-      },
-
-      // Query execution defaults
-      smartQueryLimit: 5000,
-      setSmartQueryLimit: (limit) => {
-        set({ smartQueryLimit: limit });
       },
 
       // Query timeout (5 minutes default, 0 = no timeout)
@@ -89,7 +79,6 @@ export const usePreferencesStore = create<PreferencesState>()(
       name: "query-pilot-preferences",
       partialize: (state) => ({
         telemetry: state.telemetry,
-        smartQueryLimit: state.smartQueryLimit,
         queryTimeoutSecs: state.queryTimeoutSecs,
       }),
     },

@@ -2,6 +2,7 @@
 
 use super::parser::{ParsedDocument, ParsedStatement};
 use super::schema_store::CachedSchema;
+use super::semantic::{validate_column_references, validate_table_references};
 use serde::{Deserialize, Serialize};
 
 // =============================================================================
@@ -179,32 +180,17 @@ pub fn validate_statement(
     let mut result = ValidationResult::new();
 
     if let Some(schema) = schema {
-        for table_ref in &stmt.tables {
-            let table_exists = schema
-                .tables
-                .iter()
-                .any(|t| t.name.to_lowercase() == table_ref.name.to_lowercase());
-
-            if !table_exists && !is_cte_reference(&table_ref.name, &stmt.ctes) {
-                result.add_error(SqlError {
-                    from: stmt.range.0,
-                    to: stmt.range.1,
-                    message: format!("Table '{}' does not exist", table_ref.name),
-                    severity: ErrorSeverity::Warning,
-                    source: ErrorSource::Semantic,
-                });
-            }
+        for error in validate_table_references(stmt, schema) {
+            result.add_error(error);
+        }
+        for error in validate_column_references(stmt, schema) {
+            result.add_error(error);
         }
     }
 
     validate_common_issues(stmt, schema, &mut result);
 
     result
-}
-
-fn is_cte_reference(name: &str, ctes: &[super::parser::CteDefinition]) -> bool {
-    ctes.iter()
-        .any(|cte| cte.name.to_lowercase() == name.to_lowercase())
 }
 
 // =============================================================================
@@ -215,11 +201,6 @@ fn is_cte_reference(name: &str, ctes: &[super::parser::CteDefinition]) -> bool {
 /// Each rule can inspect a statement and add errors/warnings to the result.
 trait LintRule {
     fn check(&self, stmt: &ParsedStatement, result: &mut ValidationResult);
-}
-
-/// Context passed to rules that need schema information.
-struct RuleContext<'a> {
-    schema: Option<&'a CachedSchema>,
 }
 
 // =============================================================================
@@ -435,125 +416,129 @@ struct FuzzyReferenceRule<'a> {
 
 impl<'a> LintRule for FuzzyReferenceRule<'a> {
     fn check(&self, stmt: &ParsedStatement, result: &mut ValidationResult) {
-        let Some(schema) = self.schema else {
-            return;
-        };
-
-        // Check for table name typos
-        let existing_table_names: Vec<String> = schema
-            .tables
-            .iter()
-            .map(|t| t.name.clone())
-            .collect();
-
-        for table_ref in &stmt.tables {
-            let table_exists = existing_table_names
-                .iter()
-                .any(|t| t.to_lowercase() == table_ref.name.to_lowercase());
-            
-            let is_cte = stmt
-                .ctes
-                .iter()
-                .any(|cte| cte.name.to_lowercase() == table_ref.name.to_lowercase());
-
-            // If table doesn't exist and it's not a CTE, check for typos
-            if !table_exists && !is_cte {
-                // Check against table names
-                if let Some((closest, distance)) = 
-                    find_closest_match(&table_ref.name, &existing_table_names, 2)
-                {
-                    result.add_error(SqlError {
-                        from: stmt.range.0,
-                        to: stmt.range.1,
-                        message: format!(
-                            "Table '{}' not found. Did you mean '{}'?",
-                            table_ref.name, closest
-                        ),
-                        severity: ErrorSeverity::Warning,
-                        source: ErrorSource::Semantic,
-                    });
-                    continue; // Skip checking CTEs if we found a table match
-                }
-
-                // Check against CTE names
-                let cte_names: Vec<String> = stmt.ctes.iter().map(|c| c.name.clone()).collect();
-                if let Some((closest, _distance)) = 
-                    find_closest_match(&table_ref.name, &cte_names, 2)
-                {
-                    result.add_error(SqlError {
-                        from: stmt.range.0,
-                        to: stmt.range.1,
-                        message: format!(
-                            "Reference '{}' not found. Did you mean the CTE '{}'?",
-                            table_ref.name, closest
-                        ),
-                        severity: ErrorSeverity::Warning,
-                        source: ErrorSource::Semantic,
-                    });
-                }
-            }
-        }
-
-        // Check for column name typos
-        for col in &stmt.columns {
-            // Skip wildcard and qualified columns (we only check unqualified ones)
-            if col.name == "*" || col.table.is_some() {
-                continue;
-            }
-
-            // Get all column names from referenced tables
-            let mut all_column_names: Vec<String> = Vec::new();
-            for table_ref in &stmt.tables {
-                // Use get_columns method to retrieve columns for this table
-                if let Some(columns) = schema.get_columns(&table_ref.name) {
-                    all_column_names.extend(
-                        columns
-                            .iter()
-                            .map(|c| c.name.clone())
-                    );
-                }
-            }
-
-            // Check if column exists in any table
-            let column_exists = all_column_names
-                .iter()
-                .any(|c| c.to_lowercase() == col.name.to_lowercase());
-
-            if !column_exists && !all_column_names.is_empty() {
-                // Check for typos
-                if let Some((closest, _distance)) = 
-                    find_closest_match(&col.name, &all_column_names, 2)
-                {
-                    result.add_error(SqlError {
-                        from: stmt.range.0,
-                        to: stmt.range.1,
-                        message: format!(
-                            "Column '{}' not found. Did you mean '{}'?",
-                            col.name, closest
-                        ),
-                        severity: ErrorSeverity::Warning,
-                        source: ErrorSource::Semantic,
-                    });
-                }
-            }
-        }
-
-        // Check for CTE reference typos (when using WITH clause)
         let cte_names: Vec<String> = stmt.ctes.iter().map(|c| c.name.clone()).collect();
-        
-        // Check if a table reference looks like a misspelled CTE
+        let existing_table_names: Vec<String> = self
+            .schema
+            .map(|schema| schema.tables.iter().map(|t| t.name.clone()).collect())
+            .unwrap_or_default();
+
+        if let Some(schema) = self.schema {
+            // Check for table name typos
+            for table_ref in &stmt.tables {
+                let table_exists = existing_table_names
+                    .iter()
+                    .any(|t| t.eq_ignore_ascii_case(&table_ref.name));
+
+                let is_cte = stmt
+                    .ctes
+                    .iter()
+                    .any(|cte| cte.name.eq_ignore_ascii_case(&table_ref.name));
+
+                // If table doesn't exist and it's not a CTE, check for typos
+                if !table_exists && !is_cte {
+                    // Check against table names
+                    if let Some((closest, _distance)) =
+                        find_closest_match(&table_ref.name, &existing_table_names, 2)
+                    {
+                        result.add_error(SqlError {
+                            from: stmt.range.0,
+                            to: stmt.range.1,
+                            message: format!(
+                                "Table '{}' not found. Did you mean '{}'?",
+                                table_ref.name, closest
+                            ),
+                            severity: ErrorSeverity::Warning,
+                            source: ErrorSource::Semantic,
+                        });
+                        continue; // Skip checking CTEs if we found a table match
+                    }
+
+                    // Check against CTE names
+                    if let Some((closest, _distance)) =
+                        find_closest_match(&table_ref.name, &cte_names, 2)
+                    {
+                        result.add_error(SqlError {
+                            from: stmt.range.0,
+                            to: stmt.range.1,
+                            message: format!(
+                                "Reference '{}' not found. Did you mean the CTE '{}'?",
+                                table_ref.name, closest
+                            ),
+                            severity: ErrorSeverity::Warning,
+                            source: ErrorSource::Semantic,
+                        });
+                    }
+                }
+            }
+
+            // Check for column name typos
+            for col in &stmt.columns {
+                if col.name == "*" {
+                    continue;
+                }
+
+                let mut candidate_columns: Vec<String> = Vec::new();
+
+                if let Some(table_or_alias) = &col.table {
+                    let resolved_table = table_or_alias
+                        .rsplit('.')
+                        .next()
+                        .unwrap_or(table_or_alias)
+                        .to_string();
+                    let resolved_table = stmt
+                        .aliases
+                        .iter()
+                        .find(|a| a.alias.eq_ignore_ascii_case(&resolved_table))
+                        .map(|a| a.table.rsplit('.').next().unwrap_or(&a.table).to_string())
+                        .unwrap_or(resolved_table);
+
+                    if let Some(columns) = schema.get_columns(&resolved_table) {
+                        candidate_columns.extend(columns.iter().map(|c| c.name.clone()));
+                    }
+                } else {
+                    for table_ref in &stmt.tables {
+                        if let Some(columns) = schema.get_columns(&table_ref.name) {
+                            candidate_columns.extend(columns.iter().map(|c| c.name.clone()));
+                        }
+                    }
+                }
+
+                let column_exists = candidate_columns
+                    .iter()
+                    .any(|c| c.eq_ignore_ascii_case(&col.name));
+
+                if !column_exists && !candidate_columns.is_empty() {
+                    if let Some((closest, _distance)) =
+                        find_closest_match(&col.name, &candidate_columns, 2)
+                    {
+                        result.add_error(SqlError {
+                            from: stmt.range.0,
+                            to: stmt.range.1,
+                            message: format!(
+                                "Column '{}' not found. Did you mean '{}'?",
+                                col.name, closest
+                            ),
+                            severity: ErrorSeverity::Warning,
+                            source: ErrorSource::Semantic,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Check for CTE reference typos (works even when no schema is available)
         for table_ref in &stmt.tables {
             let is_real_table = existing_table_names
                 .iter()
-                .any(|t| t.to_lowercase() == table_ref.name.to_lowercase());
-            
+                .any(|t| t.eq_ignore_ascii_case(&table_ref.name));
+
             let is_cte = cte_names
                 .iter()
-                .any(|c| c.to_lowercase() == table_ref.name.to_lowercase());
+                .any(|c| c.eq_ignore_ascii_case(&table_ref.name));
 
             // If it's neither a real table nor a CTE, but close to a CTE name
             if !is_real_table && !is_cte && !cte_names.is_empty() {
-                if let Some((closest, _distance)) = 
+                if let Some((closest, _distance)) =
                     find_closest_match(&table_ref.name, &cte_names, 2)
                 {
                     result.add_error(SqlError {
@@ -577,6 +562,12 @@ fn validate_common_issues(
     schema: Option<&CachedSchema>,
     result: &mut ValidationResult,
 ) {
+    // Heuristic rules should ignore commented-out SQL.
+    let lint_stmt = ParsedStatement {
+        text: strip_sql_comments_preserve_offsets(&stmt.text),
+        ..stmt.clone()
+    };
+
     // Run all validation rules
     let rules: Vec<Box<dyn LintRule>> = vec![
         Box::new(KeywordTypoRule),
@@ -590,8 +581,131 @@ fn validate_common_issues(
     ];
 
     for rule in rules {
-        rule.check(stmt, result);
+        rule.check(&lint_stmt, result);
     }
+}
+
+fn parse_dollar_quote_tag(chars: &[char], start: usize) -> Option<(String, usize)> {
+    if chars.get(start) != Some(&'$') {
+        return None;
+    }
+
+    let mut j = start + 1;
+    while j < chars.len() && (chars[j].is_ascii_alphanumeric() || chars[j] == '_') {
+        j += 1;
+    }
+
+    if j < chars.len() && chars[j] == '$' {
+        let tag: String = chars[start..=j].iter().collect();
+        Some((tag, j + 1))
+    } else {
+        None
+    }
+}
+
+fn strip_sql_comments_preserve_offsets(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let chars: Vec<char> = sql.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        // Single-quoted string
+        if chars[i] == '\'' {
+            out.push(chars[i]);
+            i += 1;
+            while i < chars.len() {
+                out.push(chars[i]);
+                if chars[i] == '\'' && i + 1 < chars.len() && chars[i + 1] == '\'' {
+                    out.push(chars[i + 1]);
+                    i += 2;
+                    continue;
+                }
+                if chars[i] == '\'' {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+
+        // Double-quoted identifier/string
+        if chars[i] == '"' {
+            out.push(chars[i]);
+            i += 1;
+            while i < chars.len() {
+                out.push(chars[i]);
+                if chars[i] == '"' {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+
+        // Dollar-quoted block (PostgreSQL)
+        if chars[i] == '$' {
+            if let Some((tag, search_from)) = parse_dollar_quote_tag(&chars, i) {
+                let tag_chars: Vec<char> = tag.chars().collect();
+                let mut k = search_from;
+                let mut end = None;
+                while k + tag_chars.len() <= chars.len() {
+                    if chars[k..k + tag_chars.len()] == tag_chars[..] {
+                        end = Some(k + tag_chars.len());
+                        break;
+                    }
+                    k += 1;
+                }
+
+                if let Some(block_end) = end {
+                    while i < block_end && i < chars.len() {
+                        out.push(chars[i]);
+                        i += 1;
+                    }
+                    continue;
+                }
+            }
+        }
+
+        // Line comment
+        if chars[i] == '-' && i + 1 < chars.len() && chars[i + 1] == '-' {
+            out.push(' ');
+            out.push(' ');
+            i += 2;
+            while i < chars.len() && chars[i] != '\n' {
+                out.push(' ');
+                i += 1;
+            }
+            continue;
+        }
+
+        // Block comment
+        if chars[i] == '/' && i + 1 < chars.len() && chars[i + 1] == '*' {
+            out.push(' ');
+            out.push(' ');
+            i += 2;
+            while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                if chars[i] == '\n' || chars[i] == '\r' {
+                    out.push(chars[i]);
+                } else {
+                    out.push(' ');
+                }
+                i += 1;
+            }
+            if i + 1 < chars.len() {
+                out.push(' ');
+                out.push(' ');
+                i += 2;
+            }
+            continue;
+        }
+
+        out.push(chars[i]);
+        i += 1;
+    }
+
+    out
 }
 
 fn validate_ambiguous_columns(stmt: &ParsedStatement, result: &mut ValidationResult) {
@@ -599,19 +713,42 @@ fn validate_ambiguous_columns(stmt: &ParsedStatement, result: &mut ValidationRes
         return;
     }
 
+    let mut unqualified: Vec<&str> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
     for col in &stmt.columns {
-        if col.table.is_none() && col.name != "*" {
-            result.add_error(SqlError {
-                from: stmt.range.0,
-                to: stmt.range.1,
-                message: format!(
-                    "Column '{}' should be qualified with table name (multiple tables in query)",
-                    col.name
-                ),
-                severity: ErrorSeverity::Hint,
-                source: ErrorSource::Validation,
-            });
+        if col.table.is_none() && col.name != "*" && seen.insert(col.name.to_lowercase()) {
+            unqualified.push(&col.name);
         }
+    }
+
+    let max_hints: usize = 8;
+    for col_name in unqualified.iter().take(max_hints) {
+        result.add_error(SqlError {
+            from: stmt.range.0,
+            to: stmt.range.1,
+            message: format!(
+                "Column '{}' should be qualified with table name (multiple tables in query)",
+                col_name
+            ),
+            severity: ErrorSeverity::Hint,
+            source: ErrorSource::Validation,
+        });
+    }
+
+    if unqualified.len() > max_hints {
+        let remaining = unqualified.len() - max_hints;
+        result.add_error(SqlError {
+            from: stmt.range.0,
+            to: stmt.range.1,
+            message: format!(
+                "{} more unqualified column{} omitted; qualify columns to remove this hint",
+                remaining,
+                if remaining == 1 { "" } else { "s" }
+            ),
+            severity: ErrorSeverity::Info,
+            source: ErrorSource::Validation,
+        });
     }
 }
 
@@ -711,6 +848,26 @@ mod tests {
             .warnings
             .iter()
             .any(|w| w.message.contains("should be qualified")));
+    }
+
+    #[test]
+    fn test_validate_ambiguous_column_caps_large_lists() {
+        let doc = parse_document(
+            "SELECT a,b,c,d,e,f,g,h,i,j FROM users u JOIN orders o ON u.id = o.user_id",
+            SqlDialect::PostgreSQL,
+        );
+        let result = validate_document(&doc, None, None);
+
+        let qualify_hints: Vec<&SqlError> = result
+            .warnings
+            .iter()
+            .filter(|w| w.message.contains("should be qualified"))
+            .collect();
+        assert_eq!(qualify_hints.len(), 8);
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("omitted; qualify columns")));
     }
 
     // New rule tests
@@ -910,5 +1067,183 @@ mod tests {
         
         let warnings: Vec<String> = result.warnings.iter().map(|w| w.message.clone()).collect();
         assert!(warnings.iter().any(|m| m.contains("active_user") && m.contains("Did you mean")));
+    }
+
+    #[test]
+    fn test_validate_missing_qualified_column() {
+        use crate::sql_engine::schema_store::{
+            CachedSchemaBuilder, ColumnInfo, TableInfo, TableType,
+        };
+
+        let schema = CachedSchemaBuilder::new()
+            .add_table(TableInfo {
+                name: "users".to_string(),
+                schema: None,
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .add_columns(
+                "users",
+                vec![ColumnInfo {
+                    name: "id".to_string(),
+                    data_type: "INT".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    is_primary_key: true,
+                    is_unique: true,
+                    comment: None,
+                    enum_values: None,
+                    ordinal: 1,
+                    precision: None,
+                    scale: None,
+                }],
+            )
+            .build();
+
+        let doc = parse_document("SELECT u.missing_col FROM users u", SqlDialect::PostgreSQL);
+        let result = validate_document(&doc, Some(&schema), None);
+
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("missing_col") && w.message.contains("users")));
+    }
+
+    #[test]
+    fn test_validate_missing_unqualified_column() {
+        use crate::sql_engine::schema_store::{
+            CachedSchemaBuilder, ColumnInfo, TableInfo, TableType,
+        };
+
+        let schema = CachedSchemaBuilder::new()
+            .add_table(TableInfo {
+                name: "users".to_string(),
+                schema: None,
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .add_columns(
+                "users",
+                vec![ColumnInfo {
+                    name: "id".to_string(),
+                    data_type: "INT".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    is_primary_key: true,
+                    is_unique: true,
+                    comment: None,
+                    enum_values: None,
+                    ordinal: 1,
+                    precision: None,
+                    scale: None,
+                }],
+            )
+            .build();
+
+        let doc = parse_document("SELECT missing_col FROM users", SqlDialect::PostgreSQL);
+        let result = validate_document(&doc, Some(&schema), None);
+
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("missing_col") && w.message.contains("any referenced table")));
+    }
+
+    #[test]
+    fn test_comment_text_is_ignored_by_heuristic_rules() {
+        let doc = parse_document("-- selct * form users\nSELECT id FROM users", SqlDialect::PostgreSQL);
+        let result = validate_document(&doc, None, None);
+
+        assert!(!result.errors.iter().any(|e| e.message.contains("did you mean")));
+    }
+
+    #[test]
+    #[ignore = "Benchmark harness: run manually for latency tracking"]
+    fn benchmark_lint_latency() {
+        use crate::sql_engine::schema_store::{
+            CachedSchemaBuilder, ColumnInfo, TableInfo, TableType,
+        };
+        use std::time::Instant;
+
+        fn col(name: &str, ordinal: i32) -> ColumnInfo {
+            ColumnInfo {
+                name: name.to_string(),
+                data_type: "TEXT".to_string(),
+                nullable: true,
+                default_value: None,
+                is_primary_key: false,
+                is_unique: false,
+                comment: None,
+                enum_values: None,
+                ordinal,
+                precision: None,
+                scale: None,
+            }
+        }
+
+        let schema = CachedSchemaBuilder::new()
+            .add_table(TableInfo {
+                name: "users".to_string(),
+                schema: None,
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .add_columns("users", vec![col("id", 1), col("email", 2), col("name", 3)])
+            .add_table(TableInfo {
+                name: "orders".to_string(),
+                schema: None,
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .add_columns("orders", vec![col("id", 1), col("user_id", 2), col("status", 3)])
+            .add_table(TableInfo {
+                name: "order_items".to_string(),
+                schema: None,
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .add_columns("order_items", vec![col("id", 1), col("order_id", 2), col("price", 3)])
+            .build();
+
+        let queries = vec![
+            "SELECT u.id, u.email, o.status FROM users u JOIN orders o ON u.id = o.user_id WHERE o.status = 'paid'",
+            "WITH recent_orders AS (SELECT id, user_id FROM orders WHERE status = 'paid') SELECT ro.id, u.name FROM recent_orders ro JOIN users u ON u.id = ro.user_id",
+            "SELECT oi.prce FROM order_items oi",
+            "-- commented typo selct * form users\nSELECT id FROM users WHERE id 19",
+        ];
+
+        const WARMUP: usize = 20;
+        const ITERATIONS: usize = 250;
+        let mut samples_ms = Vec::with_capacity(ITERATIONS);
+
+        for i in 0..(WARMUP + ITERATIONS) {
+            let query = queries[i % queries.len()];
+            let started = Instant::now();
+            let doc = parse_document(query, SqlDialect::PostgreSQL);
+            let _ = validate_document(&doc, Some(&schema), None);
+            let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+
+            if i >= WARMUP {
+                samples_ms.push(elapsed_ms);
+            }
+        }
+
+        samples_ms.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let avg_ms = samples_ms.iter().sum::<f64>() / samples_ms.len() as f64;
+        let p50_ms = samples_ms[samples_ms.len() / 2];
+        let p95_idx = ((samples_ms.len() as f64) * 0.95).floor() as usize;
+        let p95_ms = samples_ms[p95_idx.min(samples_ms.len() - 1)];
+        let min_ms = samples_ms[0];
+        let max_ms = samples_ms[samples_ms.len() - 1];
+
+        println!(
+            "BENCH_LINT {{\"iterations\":{},\"avg_ms\":{:.3},\"p50_ms\":{:.3},\"p95_ms\":{:.3},\"min_ms\":{:.3},\"max_ms\":{:.3}}}",
+            ITERATIONS, avg_ms, p50_ms, p95_ms, min_ms, max_ms
+        );
     }
 }

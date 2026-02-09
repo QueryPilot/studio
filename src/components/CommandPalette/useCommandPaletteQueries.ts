@@ -9,14 +9,30 @@ import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { schemaCache } from "@/services/schemaCache";
 import { logger } from "@/lib/logger";
 import type { OpenConnection } from "@/types/workspace";
-import type { DbType } from "@/types/connection";
+import { type DbType, getParadigm } from "@/types/connection";
+import type { CollectionInfo } from "@/adapters/types/mongodb";
+import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
+import { RedisAdapter } from "@/adapters/redis/RedisAdapter";
 
 export interface CategorizedCommand extends CommandDescriptor {
   keybinding?: ResolvedKeybinding;
 }
 
 // Unified item types for command palette
-export type UnifiedItemType = "table" | "view" | "materializedView" | "function" | "command";
+export type UnifiedItemType =
+  | "table"
+  | "view"
+  | "materializedView"
+  | "function"
+  | "collection"
+  | "redisDatabase"
+  | "command";
+
+interface RedisDatabaseInfo {
+  db: number;
+  keys: number;
+  expires: number;
+}
 
 export interface UnifiedItem {
   id: string;
@@ -35,6 +51,8 @@ export interface UnifiedItem {
   // Type-specific payload
   table?: TableMeta;
   func?: FunctionMeta;
+  collection?: CollectionInfo;
+  redisDatabase?: RedisDatabaseInfo;
   command?: CategorizedCommand;
 }
 
@@ -149,72 +167,172 @@ export function useKeybindings() {
   });
 }
 
-interface ConnectionSchemaData {
+interface ConnectionPaletteData {
   connection: OpenConnection;
   tables: TableMeta[];
   views: TableMeta[];
   functions: FunctionMeta[];
+  collections: CollectionInfo[];
+  redisDatabases: RedisDatabaseInfo[];
+}
+
+function canIncludeConnectionInPalette(connection: OpenConnection): boolean {
+  if (connection.status !== "connected") return false;
+  const paradigm = getParadigm(connection.profile.db_type);
+
+  if (paradigm === "sql") {
+    return Boolean(connection.database && connection.schema);
+  }
+
+  if (paradigm === "document") {
+    return Boolean(connection.database);
+  }
+
+  // Redis can always be represented by keyspaces (db0, db1, ...)
+  return true;
+}
+
+function getConnectionPaletteKey(connection: OpenConnection): string {
+  const paradigm = getParadigm(connection.profile.db_type);
+
+  if (paradigm === "sql") {
+    return `${connection.id}:${connection.database}:${connection.schema}`;
+  }
+
+  if (paradigm === "document") {
+    return `${connection.id}:${connection.database}`;
+  }
+
+  return `${connection.id}:${connection.database || "0"}`;
+}
+
+function parseRedisDatabases(
+  serverInfo: Record<string, string>,
+): RedisDatabaseInfo[] {
+  const databases: RedisDatabaseInfo[] = [];
+
+  for (const [key, value] of Object.entries(serverInfo)) {
+    const dbMatch = key.match(/^db(\d+)$/);
+    const valueMatch = value.match(/keys=(\d+),expires=(\d+)/);
+    if (!dbMatch || !valueMatch) continue;
+
+    databases.push({
+      db: Number.parseInt(dbMatch[1], 10),
+      keys: Number.parseInt(valueMatch[1], 10),
+      expires: Number.parseInt(valueMatch[2], 10),
+    });
+  }
+
+  databases.sort((left, right) => left.db - right.db);
+  if (databases.length === 0) {
+    return [{ db: 0, keys: 0, expires: 0 }];
+  }
+  return databases;
 }
 
 /**
- * Fetch schema data for a single connection.
+ * Fetch searchable palette data for a single connection, across paradigms.
  */
-async function fetchConnectionSchemaData(conn: OpenConnection): Promise<ConnectionSchemaData> {
+async function fetchConnectionPaletteData(
+  conn: OpenConnection,
+): Promise<ConnectionPaletteData> {
+  const emptyResult: ConnectionPaletteData = {
+    connection: conn,
+    tables: [],
+    views: [],
+    functions: [],
+    collections: [],
+    redisDatabases: [],
+  };
+
   try {
-    const [allTables, functions] = await Promise.all([
-      schemaCache.getTables(conn.id, conn.schema),
-      schemaCache.getFunctions(conn.id, conn.schema),
-    ]);
+    const paradigm = getParadigm(conn.profile.db_type);
 
-    const tables = allTables.filter((t) => t.kind === "Table");
-    const views = allTables.filter((t) => t.kind === "View" || t.kind === "MaterializedView");
+    if (paradigm === "sql") {
+      const [allTables, functions] = await Promise.all([
+        schemaCache.getTables(conn.id, conn.schema),
+        schemaCache.getFunctions(conn.id, conn.schema),
+      ]);
 
-    logger.info(`[fetchConnectionSchemaData] ${conn.profile.name}: ${tables.length} tables, ${views.length} views, ${functions.length} functions`);
+      const tables = allTables.filter((t) => t.kind === "Table");
+      const views = allTables.filter(
+        (t) => t.kind === "View" || t.kind === "MaterializedView",
+      );
+
+      logger.info(
+        `[fetchConnectionPaletteData] SQL ${conn.profile.name}: ${tables.length} tables, ${views.length} views, ${functions.length} functions`,
+      );
+
+      return {
+        ...emptyResult,
+        tables,
+        views,
+        functions: filterUserFunctions(functions),
+      };
+    }
+
+    if (paradigm === "document") {
+      const adapter = new MongoDBAdapter(conn.id);
+      const collections = await adapter.listCollections();
+      logger.info(
+        `[fetchConnectionPaletteData] MongoDB ${conn.profile.name}: ${collections.length} collections`,
+      );
+
+      return {
+        ...emptyResult,
+        collections,
+      };
+    }
+
+    const adapter = new RedisAdapter(conn.id);
+    const serverInfo = await adapter.getServerInfo("keyspace");
+    const redisDatabases = parseRedisDatabases(serverInfo);
+    logger.info(
+      `[fetchConnectionPaletteData] Redis ${conn.profile.name}: ${redisDatabases.length} keyspaces`,
+    );
 
     return {
-      connection: conn,
-      tables,
-      views,
-      functions: filterUserFunctions(functions),
+      ...emptyResult,
+      redisDatabases,
     };
   } catch (err) {
-    logger.error(`[fetchConnectionSchemaData] Failed to fetch for ${conn.profile.name}:`, err);
-    return {
-      connection: conn,
-      tables: [],
-      views: [],
-      functions: [],
-    };
+    logger.error(
+      `[fetchConnectionPaletteData] Failed to fetch for ${conn.profile.name}:`,
+      err,
+    );
+    return emptyResult;
   }
 }
 
 /**
- * Hook to fetch schema data for the CURRENT (focused) connection.
+ * Hook to fetch palette data for the CURRENT (focused) connection.
  * High priority - fetches immediately for instant results.
  */
-export function useCurrentConnectionSchemaData() {
+export function useCurrentConnectionPaletteData() {
   const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
   const focusedConnectionId = activeWorkspace?.focusedConnectionId;
 
   const currentConnection = useMemo(() => {
     if (!activeWorkspace || !focusedConnectionId) return null;
     const conn = activeWorkspace.connections.get(focusedConnectionId);
-    if (conn?.status === "connected" && conn.database && conn.schema) {
+    if (conn && canIncludeConnectionInPalette(conn)) {
       return conn;
     }
     return null;
   }, [activeWorkspace, focusedConnectionId]);
 
   const connectionKey = currentConnection
-    ? `${currentConnection.id}:${currentConnection.database}:${currentConnection.schema}`
+    ? getConnectionPaletteKey(currentConnection)
     : null;
 
   return useQuery({
-    queryKey: ["currentConnectionSchemaData", connectionKey],
-    queryFn: async (): Promise<ConnectionSchemaData | null> => {
+    queryKey: ["currentConnectionPaletteData", connectionKey],
+    queryFn: async (): Promise<ConnectionPaletteData | null> => {
       if (!currentConnection) return null;
-      logger.info(`[useCurrentConnectionSchemaData] Fetching data for current connection: ${currentConnection.profile.name}`);
-      return fetchConnectionSchemaData(currentConnection);
+      logger.info(
+        `[useCurrentConnectionPaletteData] Fetching data for current connection: ${currentConnection.profile.name}`,
+      );
+      return fetchConnectionPaletteData(currentConnection);
     },
     enabled: !!connectionKey,
     staleTime: 5 * 60 * 1000, // 5 minutes - reduce refetches
@@ -225,35 +343,36 @@ export function useCurrentConnectionSchemaData() {
 }
 
 /**
- * Hook to fetch schema data for OTHER connections (not the focused one).
+ * Hook to fetch palette data for OTHER connections (not the focused one).
  * Lower priority - fetches in background after current connection data is ready.
  */
-export function useOtherConnectionsSchemaData(currentDataReady: boolean) {
+export function useOtherConnectionsPaletteData(currentDataReady: boolean) {
   const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
   const focusedConnectionId = activeWorkspace?.focusedConnectionId;
 
   const otherConnections = useMemo(() => {
     if (!activeWorkspace) return [];
     return Array.from(activeWorkspace.connections.values())
-      .filter(c =>
-        c.status === "connected" &&
-        c.database &&
-        c.schema &&
-        c.id !== focusedConnectionId
+      .filter(
+        (connection) =>
+          connection.id !== focusedConnectionId &&
+          canIncludeConnectionInPalette(connection),
       );
   }, [activeWorkspace, focusedConnectionId]);
 
   const connectionKeys = useMemo(() => {
     return otherConnections
-      .map(c => `${c.id}:${c.database}:${c.schema}`)
+      .map(getConnectionPaletteKey)
       .sort();
   }, [otherConnections]);
 
   return useQuery({
-    queryKey: ["otherConnectionsSchemaData", connectionKeys],
-    queryFn: async (): Promise<ConnectionSchemaData[]> => {
-      logger.info(`[useOtherConnectionsSchemaData] Fetching data for ${otherConnections.length} other connections`);
-      return Promise.all(otherConnections.map(fetchConnectionSchemaData));
+    queryKey: ["otherConnectionsPaletteData", connectionKeys],
+    queryFn: async (): Promise<ConnectionPaletteData[]> => {
+      logger.info(
+        `[useOtherConnectionsPaletteData] Fetching data for ${otherConnections.length} other connections`,
+      );
+      return Promise.all(otherConnections.map(fetchConnectionPaletteData));
     },
     enabled: currentDataReady && connectionKeys.length > 0,
     staleTime: 5 * 60 * 1000, // 5 minutes - reduce refetches
@@ -264,14 +383,15 @@ export function useOtherConnectionsSchemaData(currentDataReady: boolean) {
 }
 
 /**
- * Convert connection schema data to unified items.
+ * Convert connection palette data to unified items.
  */
-function connectionDataToItems(connData: ConnectionSchemaData): UnifiedItem[] {
+function connectionDataToItems(connData: ConnectionPaletteData): UnifiedItem[] {
   const items: UnifiedItem[] = [];
-  const { connection, tables, views, functions } = connData;
+  const { connection, tables, views, functions, collections, redisDatabases } =
+    connData;
   const connId = connection.id;
   const connName = connection.profile.name;
-  const database = connection.database;
+  const database = connection.database || "";
   const dbType = connection.profile.db_type;
 
   const makeId = (entityType: string, schemaName: string, name: string) =>
@@ -343,6 +463,56 @@ function connectionDataToItems(connData: ConnectionSchemaData): UnifiedItem[] {
     });
   }
 
+  for (const collection of collections) {
+    const collectionCount =
+      typeof collection.docCount === "number"
+        ? `~${formatNumber(collection.docCount)} docs`
+        : "";
+
+    items.push({
+      id: `collection:${connId}:${database}.${collection.name}`,
+      type: "collection",
+      name: collection.name,
+      subtitle: collectionCount,
+      connectionId: connId,
+      connectionName: connName,
+      database,
+      dbType,
+      keywords: [
+        collection.name.toLowerCase(),
+        "collection",
+        "mongo",
+        connName.toLowerCase(),
+        database.toLowerCase(),
+      ],
+      collection,
+    });
+  }
+
+  for (const redisDatabase of redisDatabases) {
+    const databaseName = `db${redisDatabase.db}`;
+    const keyCount = `${formatNumber(redisDatabase.keys)} keys`;
+
+    items.push({
+      id: `redis-db:${connId}:${databaseName}`,
+      type: "redisDatabase",
+      name: databaseName,
+      subtitle: keyCount,
+      connectionId: connId,
+      connectionName: connName,
+      database: String(redisDatabase.db),
+      dbType,
+      keywords: [
+        databaseName.toLowerCase(),
+        "redis",
+        "database",
+        "keyspace",
+        connName.toLowerCase(),
+      ],
+      redisDatabase,
+    });
+  }
+
   return items;
 }
 
@@ -358,14 +528,14 @@ export function useUnifiedItems() {
   const {
     data: currentConnectionData,
     isLoading: isLoadingCurrent,
-  } = useCurrentConnectionSchemaData();
+  } = useCurrentConnectionPaletteData();
 
   // Fetch other connections in background (lower priority, waits for current)
   const currentDataReady = !isLoadingCurrent && currentConnectionData !== undefined;
   const {
     data: otherConnectionsData = [],
     isLoading: isLoadingOthers,
-  } = useOtherConnectionsSchemaData(currentDataReady);
+  } = useOtherConnectionsPaletteData(currentDataReady);
 
   const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
   const isInWorkspace = !!activeWorkspace;

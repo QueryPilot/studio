@@ -445,19 +445,50 @@ function qualifyRawWhereClause(
       continue;
     }
 
-    if (char === '"') {
+    if (char === '"' || char === '`') {
+      const quoteChar = char;
       const start = i;
       i += 1;
       let identifier = '';
       while (i < clause.length) {
         const innerChar = clause.charAt(i);
         const innerNext = clause.charAt(i + 1);
-        if (innerChar === '"' && innerNext === '"') {
-          identifier += '"';
+        if (innerChar === quoteChar && innerNext === quoteChar) {
+          identifier += quoteChar;
           i += 2;
           continue;
         }
-        if (innerChar === '"') {
+        if (innerChar === quoteChar) {
+          i += 1;
+          break;
+        }
+        identifier += innerChar;
+        i += 1;
+      }
+      const token = clause.slice(start, i);
+      const prevChar = findPrevNonWhitespace(start - 1);
+      const nextNonWhitespace = findNextNonWhitespace(i);
+      const isQualified =
+        prevChar === '.' || prevChar === ':' || nextNonWhitespace === '.';
+      const shouldPrefix = !isQualified && columnSet.has(identifier);
+
+      result += shouldPrefix ? prefix + token : token;
+      continue;
+    }
+
+    if (char === '[') {
+      const start = i;
+      i += 1;
+      let identifier = '';
+      while (i < clause.length) {
+        const innerChar = clause.charAt(i);
+        const innerNext = clause.charAt(i + 1);
+        if (innerChar === ']' && innerNext === ']') {
+          identifier += ']';
+          i += 2;
+          continue;
+        }
+        if (innerChar === ']') {
           i += 1;
           break;
         }

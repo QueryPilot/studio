@@ -16,6 +16,7 @@ import {
   type Rectangle,
   type GridMouseEventArgs,
 } from "@glideapps/glide-data-grid";
+import { IconLayoutSidebarRightCollapse, IconLayoutSidebarRightExpand } from "@tabler/icons-react";
 import { toast } from "sonner";
 import type {
   GridRowModel,
@@ -32,6 +33,7 @@ import type { EditableDataGridRef } from "./EditableDataGrid";
 import { EditableDataGrid } from "./EditableDataGrid";
 import { DataGridStatusBar } from "../components/DataGridStatusBar";
 import { DataGridErrorState } from "../components/DataGridStates";
+import { InspectorPanel, type InspectorPanelProps } from "../components/InspectorPanel";
 import { QuickFilter } from "../components/QuickFilter";
 import { UnifiedContextMenu } from "../components/UnifiedContextMenu";
 import { FKPreviewPopover } from "../components/FKPreviewPopover";
@@ -40,6 +42,7 @@ import { cn } from "@/lib/utils";
 import { useCommand } from "@/hooks/useCommand";
 import { useContextKey, useScopedKeybindings } from "@/hooks/useContextKey";
 import { openTableObject } from "@/utils/workbench/openers";
+import { quoteIdentifier } from "@/adapters/formatting";
 
 // Hooks
 import { useQuickFilter } from "../hooks/useQuickFilter";
@@ -72,10 +75,23 @@ import {
   type ColumnTypeHint,
 } from "../utils/pasteUtils";
 import { readClipboardText } from "@/lib/clipboard";
+import { Button } from "@/components/ui/button";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
+import type { ImperativePanelHandle } from "react-resizable-panels";
 import {
   applyClientSideFilter,
   type FilterOptions,
 } from "../utils/clientSideFilter";
+
+const EMPTY_STAGED_CHANGES = {
+  rowChanges: new Map<number, Set<string>>(),
+  insertedRows: new Set<number>(),
+  deletedRows: new Set<number>(),
+};
 
 export interface BaseDataGridProps {
   // Core data (from data hooks)
@@ -152,6 +168,13 @@ export interface BaseDataGridProps {
   enableClipboard?: boolean;
   enableFillOperations?: boolean;
   enableStagedChanges?: boolean;
+  enableInspector?: boolean;
+  enableHoverCellIcons?: boolean;
+  showInspectorToggleButton?: boolean;
+  inspectorDefaultOpen?: boolean;
+  inspectorOpen?: boolean;
+  onInspectorOpenChange?: (open: boolean) => void;
+  renderInspectorPanel?: (props: InspectorPanelProps) => React.ReactNode;
 
   /** Minimum rendered rows before infinite load trigger can fire */
   loadMoreMinRows?: number;
@@ -245,7 +268,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     schema,
     tableName,
     paradigm,
-    dialect: _dialect,
+    dialect,
     enableFiltering = true,
     enableSorting = true,
     enableExport: _enableExport = true,
@@ -254,6 +277,12 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     enableClipboard = true,
     enableFillOperations = true,
     enableStagedChanges = true,
+    enableInspector = true,
+    enableHoverCellIcons = true,
+    showInspectorToggleButton = true,
+    inspectorDefaultOpen = false,
+    inspectorOpen,
+    onInspectorOpenChange,
     readOnly = false,
     // Command factory for CRUD
     commandFactory,
@@ -272,6 +301,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     fkPreviewComponent,
     hoverIconsDrawCell,
     customGetCellContent,
+    renderInspectorPanel,
     className,
     // FK data
     referencedTableColumns,
@@ -344,59 +374,100 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const quickFilterRef = useRef<QuickFilterRef>(null);
   const scrollDebounceRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const loadingMoreRef = useRef(false); // Ref-based guard to prevent duplicate fetches
+  const inspectorPanelRef = useRef<ImperativePanelHandle>(null);
   // Use external ref if provided (parent-managed QuickFilter), otherwise use internal ref
   const effectiveQuickFilterRef = externalQuickFilterRef ?? quickFilterRef;
 
   // Ref-based focus tracking for synchronous checks in keyboard handlers
   // This is critical for multi-panel scenarios where state updates are async
   const isGridFocusedRef = useRef(false);
+  // Prevent repeated auto-focus attempts while the same panel focus state is active
+  const hasAutoFocusedRef = useRef(false);
 
   // Store refs for callbacks
   const onCellEditCommitRef = useRef(onCellEditCommitCallback);
   const commandFactoryRef = useRef(commandFactory);
+
+  // --- State ---
+  const [isGridFocused, setIsGridFocused] = useState(false);
+  const [isEditingCell, setIsEditingCell] = useState(false);
+  const isEditingCellRef = useRef(false);
 
   useEffect(() => {
     onCellEditCommitRef.current = onCellEditCommitCallback;
     commandFactoryRef.current = commandFactory;
   });
 
+  useEffect(() => {
+    hasAutoFocusedRef.current = false;
+  }, [gridId]);
+
+  useEffect(() => {
+    if (!focused) {
+      hasAutoFocusedRef.current = false;
+    }
+  }, [focused]);
+
   // --- Auto-focus when panel becomes focused ---
   // This handles the case where a tab is opened from CommandPalette
   // and the grid should receive focus to enable keyboard navigation
   useEffect(() => {
-    if (!focused || !autoFocus) return;
+    if (!focused || !autoFocus || hasAutoFocusedRef.current) return;
 
-    // Delay to ensure the grid is fully mounted and visible
-    // The ref might not be ready during initial mount, so check inside timeout
-    const timeoutId = setTimeout(() => {
-      // Do not steal focus from QuickFilter or any active text editor/input.
-      if (effectiveQuickFilterRef.current?.isFocusWithin?.()) return;
-      const activeElement = document.activeElement as HTMLElement | null;
-      if (
-        activeElement &&
-        (activeElement.tagName === "INPUT" ||
-          activeElement.tagName === "TEXTAREA" ||
-          activeElement.isContentEditable)
-      ) {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 24;
+
+    const tryFocusGrid = () => {
+      if (cancelled || hasAutoFocusedRef.current) return;
+
+      // Do not steal focus from QuickFilter when user already interacted with it.
+      if (effectiveQuickFilterRef.current?.isFocusWithin?.()) {
+        hasAutoFocusedRef.current = true;
         return;
       }
 
-      if (gridRef.current) {
-        gridRef.current.focus();
-        // Also update our focus tracking state
-        isGridFocusedRef.current = true;
-        setIsGridFocused(true);
-      }
-    }, 100);
-    return () => {
-      clearTimeout(timeoutId);
-    };
-  }, [focused, autoFocus, effectiveQuickFilterRef]);
+      const activeElement = document.activeElement as HTMLElement | null;
+      const activeElementIsTextInput = Boolean(
+        activeElement &&
+          (activeElement.tagName === "INPUT" ||
+            activeElement.tagName === "TEXTAREA" ||
+            activeElement.isContentEditable),
+      );
+      const activeElementInsideGrid = Boolean(
+        activeElement && wrapperRef.current?.contains(activeElement),
+      );
 
-  // --- State ---
-  const [isGridFocused, setIsGridFocused] = useState(false);
-  const [isEditingCell, setIsEditingCell] = useState(false);
-  const isEditingCellRef = useRef(false);
+      // Avoid stealing focus from local toolbar editors in this grid instance.
+      if (activeElementIsTextInput && activeElementInsideGrid) {
+        hasAutoFocusedRef.current = true;
+        return;
+      }
+
+      // Retry while grid ref is not mounted yet (common during async column/data setup).
+      if (!gridRef.current) {
+        attempts += 1;
+        if (attempts < MAX_ATTEMPTS) {
+          timeoutId = setTimeout(tryFocusGrid, 16);
+        }
+        return;
+      }
+
+      gridRef.current.focus();
+      isGridFocusedRef.current = true;
+      setIsGridFocused(true);
+      hasAutoFocusedRef.current = true;
+    };
+
+    timeoutId = setTimeout(tryFocusGrid, 60);
+    return () => {
+      cancelled = true;
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [focused, autoFocus, effectiveQuickFilterRef, columns.length, rows.length]);
 
   // Scoped keybindings for this grid instance
   const scopeId = useScopedKeybindings(gridId);
@@ -414,7 +485,42 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     scopeId,
     resetOnUnmount: true,
   });
-  const [showDetailsSheet, setShowDetailsSheet] = useState(false);
+  const [uncontrolledInspectorOpen, setUncontrolledInspectorOpen] =
+    useState(inspectorDefaultOpen);
+  const showInspector = inspectorOpen ?? uncontrolledInspectorOpen;
+  const setInspectorOpen = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      const resolved =
+        typeof next === "function"
+          ? (next as (prev: boolean) => boolean)(showInspector)
+          : next;
+
+      if (inspectorOpen === undefined) {
+        setUncontrolledInspectorOpen(resolved);
+      }
+      onInspectorOpenChange?.(resolved);
+    },
+    [inspectorOpen, onInspectorOpenChange, showInspector],
+  );
+  const [inspectorSelectedRow, setInspectorSelectedRow] =
+    useState<GridRowModel | null>(null);
+  const [inspectorBaselineRow, setInspectorBaselineRow] =
+    useState<GridRowModel | null>(null);
+
+  // Programmatically collapse/expand inspector panel without unmounting grid
+  useEffect(() => {
+    const panel = inspectorPanelRef.current;
+    if (!panel) return;
+    try {
+      if (showInspector) {
+        if (panel.isCollapsed()) panel.resize(28);
+      } else {
+        if (!panel.isCollapsed()) panel.collapse();
+      }
+    } catch {
+      // Panel may not be sized yet (e.g., in tests without layout)
+    }
+  }, [showInspector]);
 
   // Grid selection - managed internally
   const [gridSelection, setGridSelection] = useState<GridSelection | undefined>(
@@ -956,20 +1062,19 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   }, []);
 
   // --- Staged Changes Highlighting ---
+  // Important: call hooks unconditionally to preserve hook ordering.
+  const stagedChangesFromStore = useStagedChangesIndicator({
+    connectionId,
+    database: database ?? "",
+    schema: schema ?? "",
+    table: tableName ?? "",
+    rows: deferredDisplayRows,
+    columns: finalColumns,
+  });
+
   const stagedChanges = enableStagedChanges
-    ? useStagedChangesIndicator({
-        connectionId,
-        database: database ?? "",
-        schema: schema ?? "",
-        table: tableName ?? "",
-        rows: deferredDisplayRows,
-        columns: finalColumns,
-      })
-    : {
-        rowChanges: new Map<number, Set<string>>(),
-        insertedRows: new Set<number>(),
-        deletedRows: new Set<number>(),
-      };
+    ? stagedChangesFromStore
+    : EMPTY_STAGED_CHANGES;
 
   const stagedChangesRef = useRef(stagedChanges);
   // Update synchronously during render (not in useEffect) to avoid delay
@@ -1070,7 +1175,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   } = useCellHoverIcons({
     columns: finalColumns,
     rows: deferredDisplayRows,
-    enabled: !hoverIconsDrawCell && !isLargeDataset, // Only enabled if no external drawCell
+    enabled: enableHoverCellIcons && !hoverIconsDrawCell && !isLargeDataset,
     containerRef: containerRef,
     enableFKPreview: paradigm === "sql",
     gridRef: gridRef,
@@ -2318,6 +2423,162 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     contextMenuTargetRef.current = null;
   }, [gridId, hydrated, enableColumnManagement]);
 
+  const handleInspectorViewDetails = useCallback(
+    (rowsToInspect: GridRowModel[]) => {
+      if (!enableInspector || rowsToInspect.length === 0) {
+        return;
+      }
+      setInspectorSelectedRow(rowsToInspect[0] ?? null);
+      setInspectorOpen(true);
+    },
+    [enableInspector, setInspectorOpen],
+  );
+
+  const handleInspectorCellActivated = useCallback(
+    (event: GridActivationEvent) => {
+      if (enableInspector && event.row) {
+        setInspectorSelectedRow(event.row);
+      }
+      return onCellActivated?.(event);
+    },
+    [enableInspector, onCellActivated],
+  );
+
+  const handleInspectorCellClicked = useCallback(
+    (event: GridActivationEvent) => {
+      if (enableInspector && event.row) {
+        setInspectorSelectedRow(event.row);
+      }
+      onCellClicked?.(event);
+    },
+    [enableInspector, onCellClicked],
+  );
+
+  // Prefer the currently selected row from the live grid data.
+  // This avoids stale inspector rows after drill-in path changes.
+  const activeInspectorRow = selectedRowsData[0] ?? inspectorSelectedRow ?? null;
+  const activeInspectorPanel = (showInspector && enableInspector)
+    ? (renderInspectorPanel
+        ? renderInspectorPanel({
+            selectedRow: activeInspectorRow,
+            columns: finalColumns,
+            baselineRow: inspectorBaselineRow,
+            onSetBaseline: setInspectorBaselineRow,
+          })
+        : <InspectorPanel
+            selectedRow={activeInspectorRow}
+            columns={finalColumns}
+            baselineRow={inspectorBaselineRow}
+            onSetBaseline={setInspectorBaselineRow}
+          />)
+    : null;
+
+  // Grid container - extracted to avoid duplication across inspector branches
+  const gridContainer = (
+    <div
+      ref={containerRef}
+      className="h-full px-1 min-h-0 outline-none"
+      tabIndex={-1}
+      onFocusCapture={handleFocusCapture}
+      onBlurCapture={handleBlurCapture}
+      onPaste={handleNativePaste}
+      onMouseDown={() => {
+        isGridFocusedRef.current = true;
+        setIsGridFocused(true);
+      }}
+    >
+      <UnifiedContextMenu
+        selectedRows={selectedRowsData}
+        selectedRowKeys={selectedRowKeys}
+        allRows={deferredDisplayRows}
+        columns={finalColumns}
+        pinnedRowKeys={pinnedRowIds}
+        tableName={tableName}
+        schema={schema}
+        databaseType={databaseType as any}
+        paradigm={paradigm}
+        onViewDetails={handleInspectorViewDetails}
+        onPinRows={handlePinRowsFromMenu}
+        onUnpinRows={handleUnpinRowsFromMenu}
+        onAddRow={commandFactory && !readOnly ? handleAddRow : undefined}
+        onInsertRowAbove={
+          commandFactory && !readOnly ? handleInsertRowAbove : undefined
+        }
+        onInsertRowBelow={
+          commandFactory && !readOnly ? handleInsertRowBelow : undefined
+        }
+        onDuplicateRows={
+          commandFactory && !readOnly ? handleDuplicateRows : undefined
+        }
+        onDeleteRows={
+          commandFactory && !readOnly ? handleDeleteRows : undefined
+        }
+        onPaste={commandFactory && !readOnly ? handlePaste : undefined}
+        onFilterByColumn={
+          enableFiltering ? handleFilterByColumn : undefined
+        }
+        allColumnsForVisibility={finalColumns}
+        pinnedColumns={columnState.pinned}
+        columnVisibility={columnState.visibility}
+        getSortDirection={getSortDirection}
+        onSort={handleColumnSort}
+        onClearSort={handleClearSort}
+        onHideColumn={handleColumnHide}
+        onPinColumn={handlePinColumn}
+        onUnpinColumn={handleUnpinColumn}
+        onToggleColumnVisibility={handleToggleColumnVisibility}
+        onShowAllColumns={handleShowAllColumns}
+        contextMenuTargetRef={contextMenuTargetRef}
+        connectionId={connectionId}
+        referencedTableColumns={referencedTableColumns ?? {}}
+      >
+        <EditableDataGrid
+          ref={gridRef}
+          tableKey={gridId}
+          rows={deferredDisplayRows}
+          columns={finalColumns}
+          getCellContent={getCellContent}
+          drawHeader={drawHeader}
+          drawCell={effectiveDrawCell}
+          getRowThemeOverride={getRowThemeOverride}
+          freezeColumns={enableColumnManagement ? freezeColumns : 0}
+          gridSelection={gridSelection}
+          onSelectionChange={handleGridSelectionChange}
+          onCellActivated={handleInspectorCellActivated}
+          onCellClicked={handleInspectorCellClicked}
+          onCellEditStart={handleCellEditStart}
+          onCellEditCancel={handleCellEditCancel}
+          onCellEditCommit={
+            (commandFactory || onCellEditCommitCallback) && !readOnly
+              ? handleCellEditCommitWrapper
+              : undefined
+          }
+          onRowInsert={
+            commandFactory && !readOnly ? handleRowInsert : undefined
+          }
+          onColumnResize={
+            enableColumnManagement ? handleColumnResize : undefined
+          }
+          onColumnResizeEnd={
+            enableColumnManagement
+              ? (column, size) => {
+                  handleColumnResizeEnd(column, size);
+                  flushWidths(columnWidths);
+                }
+              : undefined
+          }
+          onColumnMoved={
+            enableColumnManagement ? handleColumnMoved : undefined
+          }
+          onHeaderClicked={handleHeaderClicked}
+          onItemHovered={handleItemHovered}
+          onVisibleRegionChanged={handleVisibleRegionChanged}
+          maxColumnWidth={1000}
+        />
+      </UnifiedContextMenu>
+    </div>
+  );
+
   // --- Render ---
   return (
     <div
@@ -2329,7 +2590,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       {topToolbar}
 
       {/* Quick Filter + Toolbar Actions */}
-      {((enableFiltering && filterColumns.length > 0) || toolbarActions) && (
+      {((enableFiltering && filterColumns.length > 0) ||
+        toolbarActions ||
+        (enableInspector && showInspectorToggleButton)) && (
         <div className="flex items-center gap-2 py-1.5">
           {enableFiltering && filterColumns.length > 0 && (
             <div className="flex-1 min-w-0">
@@ -2348,15 +2611,30 @@ export const BaseDataGrid = memo(function BaseDataGrid(
               />
             </div>
           )}
-          {toolbarActions && (
-            <div className="shrink-0 flex items-center gap-1.5">
-              {toolbarActions}
-            </div>
-          )}
+          <div className="shrink-0 flex items-center gap-1.5">
+            {toolbarActions}
+            {enableInspector && showInspectorToggleButton && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-[11px]"
+                onClick={() => {
+                  setInspectorOpen((prev) => !prev);
+                }}
+              >
+                {showInspector ? (
+                  <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5 mr-1" />
+                ) : (
+                  <IconLayoutSidebarRightExpand className="h-3.5 w-3.5 mr-1" />
+                )}
+                Inspector
+              </Button>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Error State */}
+      {/* Error State / Main Grid */}
       {error ? (
         <div className="flex-1 min-h-0">
           <DataGridErrorState
@@ -2365,117 +2643,27 @@ export const BaseDataGrid = memo(function BaseDataGrid(
             onReconnect={onReconnect}
           />
         </div>
-      ) : (
-        /* Main grid with context menu */
-        <div
-          ref={containerRef}
-          className="flex-1 px-1 min-h-0 outline-none"
-          tabIndex={-1}
-          onFocusCapture={handleFocusCapture}
-          onBlurCapture={handleBlurCapture}
-          onPaste={handleNativePaste}
-          onMouseDown={() => {
-            // Ensure focus state is set on any mouse interaction
-            // This handles cases where focusin events don't fire (e.g., clicking canvas)
-            isGridFocusedRef.current = true;
-            setIsGridFocused(true);
-          }}
-        >
-          <UnifiedContextMenu
-            selectedRows={selectedRowsData}
-            selectedRowKeys={selectedRowKeys}
-            allRows={deferredDisplayRows}
-            columns={finalColumns}
-            pinnedRowKeys={pinnedRowIds}
-            tableName={tableName}
-            schema={schema}
-            databaseType={databaseType as any}
-            paradigm={paradigm}
-            onPinRows={handlePinRowsFromMenu}
-            onUnpinRows={handleUnpinRowsFromMenu}
-            // CRUD operations (internally managed)
-            onAddRow={commandFactory && !readOnly ? handleAddRow : undefined}
-            onInsertRowAbove={
-              commandFactory && !readOnly ? handleInsertRowAbove : undefined
-            }
-            onInsertRowBelow={
-              commandFactory && !readOnly ? handleInsertRowBelow : undefined
-            }
-            onDuplicateRows={
-              commandFactory && !readOnly ? handleDuplicateRows : undefined
-            }
-            onDeleteRows={
-              commandFactory && !readOnly ? handleDeleteRows : undefined
-            }
-            onPaste={commandFactory && !readOnly ? handlePaste : undefined}
-            // Filter by column
-            onFilterByColumn={
-              enableFiltering ? handleFilterByColumn : undefined
-            }
-            // Details sheet
-            showDetailsSheet={showDetailsSheet}
-            onShowDetailsSheetChange={setShowDetailsSheet}
-            // Column operations
-            allColumnsForVisibility={finalColumns}
-            pinnedColumns={columnState.pinned}
-            columnVisibility={columnState.visibility}
-            getSortDirection={getSortDirection}
-            onSort={handleColumnSort}
-            onClearSort={handleClearSort}
-            onHideColumn={handleColumnHide}
-            onPinColumn={handlePinColumn}
-            onUnpinColumn={handleUnpinColumn}
-            onToggleColumnVisibility={handleToggleColumnVisibility}
-            onShowAllColumns={handleShowAllColumns}
-            contextMenuTargetRef={contextMenuTargetRef}
-            connectionId={connectionId}
-            referencedTableColumns={referencedTableColumns ?? {}}
+      ) : enableInspector ? (
+        <ResizablePanelGroup direction="horizontal" className="flex-1 min-h-0">
+          <ResizablePanel defaultSize={inspectorDefaultOpen ? 72 : 100} minSize={40} order={1}>
+            {gridContainer}
+          </ResizablePanel>
+          <ResizableHandle withHandle className={cn(!showInspector && "sr-only")} />
+          <ResizablePanel
+            ref={inspectorPanelRef}
+            defaultSize={inspectorDefaultOpen ? 28 : 0}
+            minSize={20}
+            collapsible
+            collapsedSize={0}
+            order={2}
+            onCollapse={() => setInspectorOpen(false)}
+            onExpand={() => setInspectorOpen(true)}
           >
-            <EditableDataGrid
-              ref={gridRef}
-              tableKey={gridId}
-              rows={deferredDisplayRows}
-              columns={finalColumns}
-              getCellContent={getCellContent}
-              drawHeader={drawHeader}
-              drawCell={effectiveDrawCell}
-              getRowThemeOverride={getRowThemeOverride}
-              freezeColumns={enableColumnManagement ? freezeColumns : 0}
-              gridSelection={gridSelection}
-              onSelectionChange={handleGridSelectionChange}
-              onCellActivated={onCellActivated}
-              onCellClicked={onCellClicked}
-              onCellEditStart={handleCellEditStart}
-              onCellEditCancel={handleCellEditCancel}
-              onCellEditCommit={
-                (commandFactory || onCellEditCommitCallback) && !readOnly
-                  ? handleCellEditCommitWrapper
-                  : undefined
-              }
-              onRowInsert={
-                commandFactory && !readOnly ? handleRowInsert : undefined
-              }
-              onColumnResize={
-                enableColumnManagement ? handleColumnResize : undefined
-              }
-              onColumnResizeEnd={
-                enableColumnManagement
-                  ? (column, size) => {
-                      handleColumnResizeEnd(column, size);
-                      flushWidths(columnWidths);
-                    }
-                  : undefined
-              }
-              onColumnMoved={
-                enableColumnManagement ? handleColumnMoved : undefined
-              }
-              onHeaderClicked={handleHeaderClicked}
-              onItemHovered={handleItemHovered}
-              onVisibleRegionChanged={handleVisibleRegionChanged}
-              maxColumnWidth={1000}
-            />
-          </UnifiedContextMenu>
-        </div>
+            {activeInspectorPanel}
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      ) : (
+        gridContainer
       )}
 
       {/* FK Preview - either external or internal */}
@@ -2502,20 +2690,21 @@ export const BaseDataGrid = memo(function BaseDataGrid(
             sourceSchema={schema ?? "public"}
             onOpenReference={() => {
               const { fkReference, fkValue } = fkPreviewState;
+              const quotedCol = quoteIdentifier(fkReference.referenced_column, dialect ?? "postgresql");
               let filterValue: string;
               if (fkValue === null) {
-                filterValue = `"${fkReference.referenced_column}" IS NULL`;
+                filterValue = `${quotedCol} IS NULL`;
               } else if (typeof fkValue === "string") {
                 const escaped = String(fkValue).replace(/'/g, "''");
-                filterValue = `"${fkReference.referenced_column}" = '${escaped}'`;
+                filterValue = `${quotedCol} = '${escaped}'`;
               } else if (
                 typeof fkValue === "number" ||
                 typeof fkValue === "boolean"
               ) {
-                filterValue = `"${fkReference.referenced_column}" = ${fkValue}`;
+                filterValue = `${quotedCol} = ${fkValue}`;
               } else {
                 const escaped = String(fkValue).replace(/'/g, "''");
-                filterValue = `"${fkReference.referenced_column}" = '${escaped}'`;
+                filterValue = `${quotedCol} = '${escaped}'`;
               }
 
               openTableObject({

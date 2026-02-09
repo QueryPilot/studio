@@ -4,13 +4,15 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
 import type { GridColumnV2, GridRowModel } from "../types";
 
-interface DocumentInspectorPanelProps {
+export interface InspectorPanelProps {
   selectedRow: GridRowModel | null;
   columns: GridColumnV2[];
   baselineRow?: GridRowModel | null;
   onSetBaseline?: (row: GridRowModel | null) => void;
+  className?: string;
 }
 
 function extractCellValue(value: unknown): unknown {
@@ -20,11 +22,30 @@ function extractCellValue(value: unknown): unknown {
   return value;
 }
 
+function getColumnLabel(column: GridColumnV2): string {
+  const title = column.title.trim();
+  if (title && !/^col_\d+$/i.test(title)) return title;
+  const name = column.name.trim();
+  if (name && !/^col_\d+$/i.test(name)) return name;
+  const metaName = column.meta?.name.trim();
+  if (metaName) return metaName;
+  if (title) return title;
+  if (name) return name;
+  return column.field;
+}
+
 function rowToDocument(row: GridRowModel, columns: GridColumnV2[]): Record<string, unknown> {
   const doc: Record<string, unknown> = {};
+  const usedLabels = new Map<string, number>();
+
   for (const column of columns) {
-    doc[column.field] = extractCellValue(row[column.field]);
+    const baseLabel = getColumnLabel(column);
+    const duplicateCount = usedLabels.get(baseLabel) ?? 0;
+    usedLabels.set(baseLabel, duplicateCount + 1);
+    const label = duplicateCount === 0 ? baseLabel : `${baseLabel} (${duplicateCount + 1})`;
+    doc[label] = extractCellValue(row[column.field]);
   }
+
   return doc;
 }
 
@@ -132,12 +153,13 @@ function JsonTreeNode({
   );
 }
 
-export const DocumentInspectorPanel = memo(function DocumentInspectorPanel({
+export const InspectorPanel = memo(function InspectorPanel({
   selectedRow,
   columns,
   baselineRow = null,
   onSetBaseline,
-}: DocumentInspectorPanelProps) {
+  className,
+}: InspectorPanelProps) {
   const [search, setSearch] = useState("");
 
   const selectedDocument = useMemo(() => {
@@ -157,14 +179,19 @@ export const DocumentInspectorPanel = memo(function DocumentInspectorPanel({
 
   if (!selectedDocument) {
     return (
-      <div className="h-full w-full border-l bg-background p-4 text-xs text-muted-foreground">
-        Select a document cell to inspect structured JSON details.
+      <div
+        className={cn(
+          "h-full w-full border-l bg-background p-4 text-xs text-muted-foreground",
+          className,
+        )}
+      >
+        Select a row or cell to inspect structured data.
       </div>
     );
   }
 
   return (
-    <div className="h-full w-full border-l bg-background flex flex-col">
+    <div className={cn("h-full w-full border-l bg-background flex flex-col", className)}>
       <div className="px-3 py-2 border-b flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium">Inspector</span>
@@ -246,7 +273,7 @@ export const DocumentInspectorPanel = memo(function DocumentInspectorPanel({
         <TabsContent value="diff" className="flex-1 min-h-0 mt-2 px-3 pb-3">
           {!baselineDocument ? (
             <div className="text-xs text-muted-foreground border rounded p-3">
-              Set a baseline document to compare changes.
+              Set a baseline row to compare changes.
             </div>
           ) : (
             <ScrollArea className="h-full rounded border p-2">

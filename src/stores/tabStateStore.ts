@@ -113,7 +113,6 @@ interface QueryState {
   isExecuting: boolean;
   isStreaming: boolean;
   viewMode: "table" | "json" | "explain" | "raw" | "stats";
-  appliedLimit: { originalSql: string; limit: number } | null;
   hasUnsavedChanges: boolean;
   lastExecutedQuery: string;
   lastSelectQuery: string | null; // Store last SELECT query for auto-refresh after mutations
@@ -231,7 +230,7 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         isExecuting: false,
         isStreaming: false,
         viewMode: persisted.viewMode,
-        appliedLimit: null,
+
         hasUnsavedChanges: false,
         lastExecutedQuery: persisted.lastExecutedQuery,
         lastSelectQuery: null,
@@ -264,7 +263,7 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         isExecuting: false,
         isStreaming: false,
         viewMode: "table" as const,
-        appliedLimit: null,
+
         hasUnsavedChanges: false,
         lastExecutedQuery: "",
         lastSelectQuery: null,

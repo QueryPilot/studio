@@ -11,6 +11,8 @@ import {
   IconMathFunction,
   IconLoader2,
   IconTable,
+  IconLayout2,
+  IconDatabase,
   IconTerminal2,
 } from "@tabler/icons-react";
 import { matchSorter, rankings } from "match-sorter";
@@ -46,6 +48,7 @@ import {
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { getParadigm } from "@/types/connection";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
+import type { TabMetadata } from "@/types/workbench";
 import { useUnifiedItems, type UnifiedItem } from "./useCommandPaletteQueries";
 import { useFrecency } from "./useFrecency";
 import { NestedDatabaseList } from "./NestedDatabaseList";
@@ -74,6 +77,8 @@ type ItemGroup =
   | "Tables"
   | "Views"
   | "Functions"
+  | "Collections"
+  | "Keyspaces"
   | "Commands";
 
 const GROUP_ORDER: ItemGroup[] = [
@@ -82,6 +87,8 @@ const GROUP_ORDER: ItemGroup[] = [
   "Tables",
   "Views",
   "Functions",
+  "Collections",
+  "Keyspaces",
   "Commands",
 ];
 
@@ -94,6 +101,10 @@ function getItemGroup(item: UnifiedItem): ItemGroup {
       return "Views";
     case "function":
       return "Functions";
+    case "collection":
+      return "Collections";
+    case "redisDatabase":
+      return "Keyspaces";
     case "command":
       if (
         item.command?.metadata?.paletteGroup === "Theme"
@@ -114,6 +125,10 @@ function getItemIcon(item: UnifiedItem): React.ReactNode {
       return <IconEye className="text-blue-500" />;
     case "function":
       return <IconMathFunction className="text-purple-500" />;
+    case "collection":
+      return <IconLayout2 className="text-emerald-500" />;
+    case "redisDatabase":
+      return <IconDatabase className="text-orange-500" />;
     case "command":
       if (item.command?.icon) {
         return item.command.icon;
@@ -479,6 +494,23 @@ export function CommandPalette(): React.ReactElement {
         return;
       }
 
+      const openInWorkbench = (
+        tabId: string,
+        metadata: TabMetadata,
+      ) => {
+        const workbench = useWorkbenchStore.getState();
+        const panels = workbench.panelContents;
+        let targetPanelId = workbench.focusedPanelId ?? panels.keys().next().value;
+        if (!targetPanelId) return;
+
+        if (!workbench.focusedPanelId) {
+          workbench.focusPanel(targetPanelId);
+          targetPanelId = workbench.focusedPanelId ?? targetPanelId;
+        }
+
+        workbench.addTab(targetPanelId, tabId, metadata);
+      };
+
       if (item.type === "function" && item.func) {
         if (openInSplit) {
           openFunctionInSplitRight({
@@ -509,6 +541,22 @@ export function CommandPalette(): React.ReactElement {
             viewType: "data",
           });
         }
+      } else if (item.type === "collection" && item.collection) {
+        openInWorkbench(`mongo-${itemDatabase}-${item.collection.name}`, {
+          type: "mongo-collection",
+          title: item.collection.name,
+          connectionId: itemConnectionId,
+          database: itemDatabase,
+          table: item.collection.name,
+        });
+      } else if (item.type === "redisDatabase" && item.redisDatabase) {
+        const dbIndex = item.redisDatabase.db;
+        openInWorkbench(`redis-key-${itemConnectionId}-db${dbIndex}`, {
+          type: "redis-key",
+          title: `db${dbIndex}`,
+          connectionId: itemConnectionId,
+          database: String(dbIndex),
+        });
       }
 
       closePalette();

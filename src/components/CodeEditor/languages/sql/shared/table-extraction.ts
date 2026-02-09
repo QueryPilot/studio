@@ -6,7 +6,7 @@
 import { syntaxTree } from "@codemirror/language";
 import type { EditorState } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
-import { isTableKeyword, TABLE_KEYWORDS_SET } from "../constants";
+import { isSqlKeyword, isTableKeyword, TABLE_KEYWORDS_SET } from "../constants";
 import { getInstanceCache, hashDocument, hashString, CACHE_CONFIG } from "./cache";
 
 export interface TableRef {
@@ -31,12 +31,17 @@ const TABLE_CLAUSE_TYPES = [
   "DeleteStatement",
 ];
 
-// Keywords that shouldn't be treated as aliases
-const ALIAS_BLACKLIST = new Set([
-  "ON", "LEFT", "RIGHT", "INNER", "OUTER", "CROSS", "JOIN",
-  "WHERE", "SET", "VALUES", "AND", "OR", "GROUP", "ORDER",
-  "HAVING", "LIMIT", "OFFSET", "UNION", "EXCEPT", "INTERSECT",
-]);
+function sanitizeAlias(raw: string): string {
+  return raw.replace(/["`[\]]/g, "");
+}
+
+function isValidAlias(alias: string | undefined): alias is string {
+  if (!alias) return false;
+  const normalized = sanitizeAlias(alias).trim();
+  if (!normalized) return false;
+  if (isSqlKeyword(normalized)) return false;
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(normalized);
+}
 
 /**
  * Extract table references from a syntax tree within a specific range.
@@ -107,11 +112,9 @@ function extractAlias(state: EditorState, node: SyntaxNode): string | undefined 
   // Check if next is an identifier (alias)
   if (nextNode && (nextNode.type.name === "Identifier" || nextNode.type.name === "QuotedIdentifier")) {
     const aliasText = state.sliceDoc(nextNode.from, nextNode.to);
-    const normalized = aliasText.toUpperCase();
-
-    // Verify it's not a keyword
-    if (!ALIAS_BLACKLIST.has(normalized)) {
-      return aliasText.replace(/["`[\]]/g, "");
+    const sanitized = sanitizeAlias(aliasText);
+    if (isValidAlias(sanitized)) {
+      return sanitized;
     }
   }
 
@@ -210,7 +213,13 @@ export function parseCTEs(sql: string): TableRef[] {
     return ctes;
   }
 
-  const afterWith = sql.slice(withMatch.index! + withMatch[0].length);
+  const withStart = withMatch.index ?? -1;
+  if (withStart < 0) {
+    cachedCTEs = { sql, hash, ctes };
+    return ctes;
+  }
+
+  const afterWith = sql.slice(withStart + withMatch[0].length);
   const ctePattern = /(\w+)\s+AS\s*\(/gi;
   let match;
 

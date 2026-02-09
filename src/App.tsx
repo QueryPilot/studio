@@ -13,6 +13,7 @@ import { BackupRestoreScreen } from "./screens/backup-restore";
 import { useEffect, useState } from "react";
 import { isTauri } from "./utils/tauri";
 import type { Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { vaultStorage } from "./services/vaultStorage";
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -103,7 +104,7 @@ function App() {
 
   useEffect(() => {
     if (!isTauri()) {
-      return;
+      return undefined;
     }
 
     let disposed = false;
@@ -290,11 +291,11 @@ function App() {
       disposed = true;
       removeListener?.();
     };
-  }, []);
+  }, [loadAgents]);
 
   useEffect(() => {
     if (!isTauri()) {
-      return;
+      return undefined;
     }
 
     let disposed = false;
@@ -340,23 +341,20 @@ function App() {
             return;
           }
 
-          return toast.promise(
-            (async () => {
-              await pendingUpdate.downloadAndInstall();
-              await closeUpdate();
-            })(),
-            {
-              loading: "Downloading update…",
-              success:
-                "Update downloaded. The application will restart to finish installation.",
-              error: (err) => {
-                logger.error("Failed to install update", err);
-                return err instanceof Error
-                  ? err.message
-                  : "Failed to install update";
-              },
+          toast.promise((async () => {
+            await pendingUpdate.downloadAndInstall();
+            await closeUpdate();
+            await relaunch();
+          })(), {
+            loading: "Downloading update…",
+            success: "Restarting to apply update…",
+            error: (err) => {
+              logger.error("Failed to install update", err);
+              return err instanceof Error
+                ? err.message
+                : "Failed to install update";
             },
-          );
+          });
         };
 
         toast(`Update ${update.version} available`, {
@@ -364,7 +362,9 @@ function App() {
             update.body ?? "A new version of Query Pilot is ready to install.",
           action: {
             label: "Install",
-            onClick: () => handleInstall(),
+            onClick: () => {
+              handleInstall();
+            },
           },
           duration: 60000,
         });

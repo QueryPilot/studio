@@ -7,7 +7,7 @@
 
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { StateField, type Extension } from "@codemirror/state";
-import { lintGutter } from "@codemirror/lint";
+import { forEachDiagnostic, lintGutter } from "@codemirror/lint";
 import { getAllStatements, type StatementBoundary } from "../core/query-utils";
 
 /**
@@ -110,6 +110,15 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
         const firstLine = this.view.state.doc.lineAt(from).number;
         const lastLine = this.view.state.doc.lineAt(to).number;
 
+        // Compute error lines from diagnostics directly (do not depend on gutter dots).
+        const errorLines = new Set<number>();
+        forEachDiagnostic(this.view.state, (diagnostic) => {
+          if (diagnostic.severity === "error") {
+            const line = this.view.state.doc.lineAt(diagnostic.from).number;
+            errorLines.add(line);
+          }
+        });
+
         const gutterElements = lintGutter.querySelectorAll(".cm-gutterElement");
 
         gutterElements.forEach((element, index) => {
@@ -122,11 +131,19 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
           const stmt = statements.get(lineNum);
 
           // Only hide play button on ERROR (not warning/info)
-          // Check for CodeMirror's default error diagnostic class
-          const hasErrorMarker = element.querySelector(".cm-lintPoint-error");
+          const hasErrorMarker = errorLines.has(lineNum);
           const existingPlayButton = element.querySelector(
             ".cm-run-gutter-button",
           );
+
+          // Remove lint dots from the left gutter; lint position is shown in right scrollbar markers.
+          element
+            .querySelectorAll(
+              ".cm-lintPoint, .cm-lintPoint-error, .cm-lintPoint-warning, .cm-lintPoint-info",
+            )
+            .forEach((node) => {
+              node.remove();
+            });
 
           // Remove existing button
           if (existingPlayButton) {
@@ -179,6 +196,9 @@ export function createRunGutterExtension(
     // Include lint gutter
     lintGutter({
       hoverTime: 300, // Wait 300ms before showing tooltip (reduces accidental popups)
+      // We use the gutter column for run buttons only.
+      // Lint positions are shown via inline diagnostics + right scrollbar markers.
+      markerFilter: () => [],
     }),
 
     // Track statements
@@ -199,6 +219,10 @@ export function createRunGutterExtension(
         justifyContent: "center", // Center content in fixed-width gutter
         width: "20px",
         padding: "0 !important",
+      },
+      // Hide default lint markers; diagnostics are surfaced via right-side scrollbar markers.
+      ".cm-gutter-lint .cm-lintPoint, .cm-gutter-lint .cm-lintPoint-error, .cm-gutter-lint .cm-lintPoint-warning, .cm-gutter-lint .cm-lintPoint-info": {
+        display: "none !important",
       },
       // Play button styles
       ".cm-run-gutter-button": {
