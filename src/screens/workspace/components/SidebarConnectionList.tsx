@@ -2,8 +2,7 @@
  * SidebarConnectionList.tsx
  *
  * Container component that displays all connections in the workspace
- * as VS Code-style collapsible sections. Manages expanded state and
- * search filtering across all connections.
+ * as VS Code-style sections with search filtering across all connections.
  */
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
@@ -25,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { eventBus } from "@/services/eventBus";
 import { QueryHistoryPanel } from "@/components/QueryHistory";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
+import { useShallow } from "zustand/react/shallow";
 import { ConnectionSection } from "./ConnectionSection";
 import type { OpenConnection } from "@/types/workspace";
 import { getParadigm } from "@/types/connection";
@@ -83,26 +83,28 @@ export function SidebarConnectionList({
     };
   }, []);
 
-  // Get all connections from workspace bundle store
-  const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
-  const focusedConnectionId = activeWorkspace?.focusedConnectionId ?? null;
-
+  // Only subscribe to connection list references, not focused connection changes.
+  const [connectionIds, workspaceConnections] = useWorkspaceBundleStore(
+    useShallow((s) => [
+      s.activeWorkspace?.config.connectionIds ?? null,
+      s.activeWorkspace?.connections ?? null,
+    ]),
+  );
   // Get connections as an array, sorted by the order in config.connectionIds
   const connections = useMemo(() => {
-    if (!activeWorkspace) return [];
+    if (!connectionIds || !workspaceConnections) return [];
 
     const orderedConnections: OpenConnection[] = [];
-    const connectionIds = activeWorkspace.config.connectionIds;
 
     for (const id of connectionIds) {
-      const conn = activeWorkspace.connections.get(id);
+      const conn = workspaceConnections.get(id);
       if (conn) {
         orderedConnections.push(conn);
       }
     }
 
     return orderedConnections;
-  }, [activeWorkspace]);
+  }, [connectionIds, workspaceConnections]);
 
   // Default all SQL connections to expanded in ERD view.
   // Uses a ref to track which connections we've already seen so we don't
@@ -118,71 +120,7 @@ export function SidebarConnectionList({
     setExpandedErdDbs((prev) => new Set([...prev, ...newIds]));
   }, [connections]);
 
-  // Track expanded connections - auto-expand focused connection
-  const [expandedConnections, setExpandedConnections] = useState<Set<string>>(
-    () => {
-      const initial = new Set<string>();
-      // Auto-expand the focused connection
-      if (focusedConnectionId) {
-        initial.add(focusedConnectionId);
-      }
-      return initial;
-    },
-  );
-
-  // Track previous focused connection to detect changes
-  const prevFocusedIdRef = useRef<string | null>(null);
-
-  // Track connection section DOM elements for scrolling
-  const connectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // When focused connection changes, auto-expand it and scroll to it
-  useEffect(() => {
-    if (scrollTimeoutRef.current !== null) {
-      clearTimeout(scrollTimeoutRef.current);
-      scrollTimeoutRef.current = null;
-    }
-
-    if (
-      focusedConnectionId &&
-      focusedConnectionId !== prevFocusedIdRef.current
-    ) {
-      setExpandedConnections((prev) => {
-        if (prev.has(focusedConnectionId)) return prev;
-        const next = new Set(prev);
-        next.add(focusedConnectionId);
-        return next;
-      });
-
-      // Scroll to the connection section after a short delay (to allow expand animation)
-      scrollTimeoutRef.current = setTimeout(() => {
-        const element = connectionRefs.current.get(focusedConnectionId);
-        element?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        scrollTimeoutRef.current = null;
-      }, 100);
-    }
-    prevFocusedIdRef.current = focusedConnectionId;
-
-    return () => {
-      if (scrollTimeoutRef.current !== null) {
-        clearTimeout(scrollTimeoutRef.current);
-        scrollTimeoutRef.current = null;
-      }
-    };
-  }, [focusedConnectionId]);
-
-  const toggleConnection = useCallback((connectionId: string) => {
-    setExpandedConnections((prev) => {
-      const next = new Set(prev);
-      if (next.has(connectionId)) {
-        next.delete(connectionId);
-      } else {
-        next.add(connectionId);
-      }
-      return next;
-    });
-  }, []);
+  const noopToggleConnection = useCallback(() => {}, []);
 
   // Handle refresh all connections
   const handleRefreshAll = useCallback(async () => {
@@ -213,7 +151,7 @@ export function SidebarConnectionList({
     return connections;
   }, [connections, searchQuery]);
 
-  if (!activeWorkspace) {
+  if (!connectionIds || !workspaceConnections) {
     return (
       <div className="flex flex-col h-full items-center justify-center p-4">
         <p className="text-sm text-muted-foreground">No workspace active</p>
@@ -472,18 +410,9 @@ export function SidebarConnectionList({
             filteredConnections.map((connection) => (
               <ConnectionSection
                 key={connection.id}
-                ref={(el) => {
-                  if (el) {
-                    connectionRefs.current.set(connection.id, el);
-                  } else {
-                    connectionRefs.current.delete(connection.id);
-                  }
-                }}
                 connection={connection}
-                isExpanded={expandedConnections.has(connection.id)}
-                onToggle={() => {
-                  toggleConnection(connection.id);
-                }}
+                isExpanded={true}
+                onToggle={noopToggleConnection}
                 searchQuery={searchQuery}
                 onTableClick={onTableClick}
                 onFunctionClick={onFunctionClick}

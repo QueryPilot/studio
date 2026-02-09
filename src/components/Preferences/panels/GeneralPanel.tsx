@@ -6,8 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAppStore } from "@/stores/appStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
-import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IconRefresh,
   IconLoader2,
@@ -16,14 +15,9 @@ import {
   IconDownload,
 } from "@tabler/icons-react";
 import { getVersion } from "@tauri-apps/api/app";
-
-interface ReleaseInfo {
-  version: string;
-  notes: string;
-  pub_date: string;
-  download_url: string;
-  signature: string | null;
-}
+import { check } from "@tauri-apps/plugin-updater";
+import type { Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 export default function GeneralPanel() {
   const {
@@ -40,34 +34,52 @@ export default function GeneralPanel() {
     | "idle"
     | "checking"
     | "available"
-    | "downloading"
-    | "ready"
+    | "installing"
     | "uptodate"
     | "error"
   >("idle");
   const [updateMessage, setUpdateMessage] = useState("");
   const [appVersion, setAppVersion] = useState("");
-  const [pendingUpdate, setPendingUpdate] = useState<ReleaseInfo | null>(null);
-  const [downloadedPath, setDownloadedPath] = useState<string | null>(null);
+  const [availableVersion, setAvailableVersion] = useState<string | null>(null);
+  const pendingUpdateRef = useRef<Update | null>(null);
+
+  const closePendingUpdate = useCallback(async () => {
+    const pending = pendingUpdateRef.current;
+    pendingUpdateRef.current = null;
+
+    if (!pending) {
+      return;
+    }
+
+    try {
+      await pending.close();
+    } catch {
+      // Ignore close errors; update handles are best-effort cleanup.
+    }
+  }, []);
 
   useEffect(() => {
     setUnsavedChanges(false);
     void getVersion().then(setAppVersion);
-  }, []);
+  }, [setUnsavedChanges]);
+
+  useEffect(() => () => {
+    void closePendingUpdate();
+  }, [closePendingUpdate]);
 
   const handleCheckUpdate = async () => {
     try {
       setUpdateStatus("checking");
       setUpdateMessage("");
-      setPendingUpdate(null);
-      setDownloadedPath(null);
-
-      const update = await invoke<ReleaseInfo | null>("check_for_updates");
+      setAvailableVersion(null);
+      await closePendingUpdate();
+      const update = await check();
 
       if (update) {
+        pendingUpdateRef.current = update;
+        setAvailableVersion(update.version);
         setUpdateStatus("available");
         setUpdateMessage(`Version ${update.version} available`);
-        setPendingUpdate(update);
       } else {
         setUpdateStatus("uptodate");
         setUpdateMessage("You're on the latest version");
@@ -80,43 +92,21 @@ export default function GeneralPanel() {
     }
   };
 
-  const handleDownloadUpdate = async () => {
+  const handleInstallUpdate = async () => {
+    const pendingUpdate = pendingUpdateRef.current;
     if (!pendingUpdate) return;
 
     try {
-      setUpdateStatus("downloading");
-      setUpdateMessage(`Downloading v${pendingUpdate.version}...`);
-
-      const filePath = await invoke<string>("download_update", {
-        url: pendingUpdate.download_url,
-      });
-
-      setDownloadedPath(filePath);
-      setUpdateStatus("ready");
-      setUpdateMessage(
-        `v${pendingUpdate.version} downloaded. Ready to install.`,
-      );
+      setUpdateStatus("installing");
+      setUpdateMessage(`Installing v${pendingUpdate.version}...`);
+      await pendingUpdate.downloadAndInstall();
+      await closePendingUpdate();
+      setUpdateMessage("Update installed. Restarting...");
+      await relaunch();
     } catch (error) {
       setUpdateStatus("error");
       setUpdateMessage(
-        error instanceof Error ? error.message : "Failed to download update",
-      );
-    }
-  };
-
-  const handleInstallUpdate = async () => {
-    if (!downloadedPath) return;
-
-    try {
-      setUpdateMessage("Opening installer...");
-      await invoke("install_update", { filePath: downloadedPath });
-      setUpdateMessage(
-        "Installer opened. Please follow the installation prompts.",
-      );
-    } catch (error) {
-      setUpdateStatus("error");
-      setUpdateMessage(
-        error instanceof Error ? error.message : "Failed to install update",
+        error instanceof Error ? error.message : "Failed to install update.",
       );
     }
   };
@@ -269,20 +259,10 @@ export default function GeneralPanel() {
                 <Button
                   variant="default"
                   size="sm"
-                  onClick={handleDownloadUpdate}
-                >
-                  <IconDownload className="h-4 w-4 mr-2" />
-                  Download
-                </Button>
-              )}
-              {updateStatus === "ready" && (
-                <Button
-                  variant="default"
-                  size="sm"
                   onClick={handleInstallUpdate}
                 >
-                  <IconCheck className="h-4 w-4 mr-2" />
-                  Install
+                  <IconDownload className="h-4 w-4 mr-2" />
+                  Install {availableVersion ? `v${availableVersion}` : "Update"}
                 </Button>
               )}
               <Button
@@ -290,11 +270,11 @@ export default function GeneralPanel() {
                 size="sm"
                 onClick={handleCheckUpdate}
                 disabled={
-                  updateStatus === "checking" || updateStatus === "downloading"
+                  updateStatus === "checking" || updateStatus === "installing"
                 }
               >
                 {updateStatus === "checking" ||
-                updateStatus === "downloading" ? (
+                updateStatus === "installing" ? (
                   <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : updateStatus === "uptodate" ? (
                   <IconCheck className="h-4 w-4 mr-2 text-green-600" />
@@ -305,8 +285,8 @@ export default function GeneralPanel() {
                 )}
                 {updateStatus === "checking"
                   ? "Checking..."
-                  : updateStatus === "downloading"
-                  ? "Downloading..."
+                  : updateStatus === "installing"
+                  ? "Installing..."
                   : "Check for Updates"}
               </Button>
             </div>

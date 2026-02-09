@@ -127,6 +127,13 @@ function projectionPathFromSamplePath(path: string): string | null {
   return path;
 }
 
+function splitDocumentFieldPath(field: string): string[] {
+  return field
+    .split('.')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
 // ============================================================================
 // Hook Implementation
 // ============================================================================
@@ -546,6 +553,21 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     });
   }, [displayDocuments, columns, filter]);
 
+  const nullTypeHintsByField = useMemo(() => {
+    const hints = new Map<string, ReturnType<typeof detectDocumentValueType>>();
+    for (const column of columns) {
+      for (const doc of displayDocuments as Record<string, unknown>[]) {
+        const candidate = doc[column.field];
+        if (candidate === null || candidate === undefined) {
+          continue;
+        }
+        hints.set(column.field, detectDocumentValueType(candidate));
+        break;
+      }
+    }
+    return hints;
+  }, [columns, displayDocuments]);
+
   // Get cell content for grid
   const getCellContent = useCallback(
     (cell: Item): GridCell => {
@@ -569,11 +591,12 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       return buildDocumentCell({
         value: rawValue,
         column,
+        nullTypeHint: nullTypeHintsByField.get(column.field),
         readOnly: false,
         canDrillDown: true,
       });
     },
-    [columns, rows]
+    [columns, rows, nullTypeHintsByField]
   );
 
   const getRawValueFromRow = useCallback(
@@ -630,18 +653,42 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       const arrayIndex = isArrayLevel
         ? (rowData.__index as { value?: unknown } | undefined)?.value
         : undefined;
-      const segmentKey = isArrayLevel && typeof arrayIndex === 'number' ? arrayIndex : column.field;
-      const segmentLabel = isArrayLevel && typeof arrayIndex === 'number' ? `[${arrayIndex}]` : (column.title || column.field);
+      const terminalType: PathSegment['type'] = valueType === 'array' ? 'array' : 'object';
 
-      const newSegment: PathSegment = {
-        key: segmentKey,
-        label: segmentLabel,
-        type: valueType === 'array' ? 'array' : 'object',
-      };
+      const nextSegments: PathSegment[] = [];
+      if (isArrayLevel && typeof arrayIndex === 'number') {
+        nextSegments.push({
+          key: arrayIndex,
+          label: `[${arrayIndex}]`,
+          type: terminalType,
+        });
+      } else {
+        const pathParts = splitDocumentFieldPath(column.field);
+        if (pathParts.length === 0) {
+          return;
+        }
 
-      setCurrentPath((prev) => [...prev, newSegment]);
+        for (let i = 0; i < pathParts.length; i++) {
+          const part = pathParts[i];
+          if (!part) continue;
+          const isTerminal = i === pathParts.length - 1;
+          nextSegments.push({
+            key: part,
+            label: isTerminal && pathParts.length === 1 ? (column.title || column.field) : part,
+            type: isTerminal ? terminalType : 'object',
+          });
+        }
+      }
 
-      logger.info('document-data', `Stepped into ${column.field}`, { path: [...currentPath, newSegment] });
+      if (nextSegments.length === 0) {
+        return;
+      }
+
+      setCurrentPath((prev) => {
+        const nextPath = [...prev, ...nextSegments];
+        logger.info('document-data', `Stepped into ${column.field}`, { path: nextPath });
+        return nextPath;
+      });
     },
     [canStepInto, currentPath, getRawValueFromRow]
   );
@@ -698,18 +745,100 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     await fetchRootPage(false);
   }, [currentPath.length, fetchRootPage]);
 
-  const refetch = useCallback(async (): Promise<void> => {
-    if (currentPath.length === 0) {
-      rootRequestVersionRef.current += 1;
-      setRootDocuments([]);
-      setNextCursor(null);
-      setRootHasMore(true);
-      setRootError(null);
+  const refetchRootDocumentsPreservingWindow = useCallback(async (): Promise<void> => {
+    if (currentPath.length > 0 || !enabled || !connectionId || !collection) {
+      return;
+    }
+
+    // Preserve the currently loaded viewport depth so save/refetch doesn't collapse
+    // back to a single page and reset the user's scroll position.
+    const targetCount = Math.max(rootDocuments.length, pageSize);
+    if (targetCount <= 0) {
       await fetchRootPage(true);
       return;
     }
+
+    const adapter = getAdapter();
+    const requestVersion = ++rootRequestVersionRef.current;
+    setRootError(null);
+    setIsLoadingMore(false);
+    if (rootDocuments.length === 0) {
+      setIsRootLoading(true);
+    }
+
+    const startTime = performance.now();
+    let cursor: CursorToken | null = null;
+    let hasMore = true;
+    const refreshedDocuments: DocumentWithId[] = [];
+
+    try {
+      while (hasMore && refreshedDocuments.length < targetCount) {
+        const remaining = targetCount - refreshedDocuments.length;
+        const page = await adapter.findDocumentsPage(collection, serverQuery, {
+          limit: Math.max(1, Math.min(pageSize, remaining)),
+          sort: mongoSort,
+          projection: schemaProjectionRef.current,
+          cursor,
+        });
+
+        if (requestVersion !== rootRequestVersionRef.current) {
+          return;
+        }
+
+        const pageDocuments = page.documents as DocumentWithId[];
+        if (pageDocuments.length === 0) {
+          hasMore = false;
+          cursor = null;
+          break;
+        }
+
+        refreshedDocuments.push(...pageDocuments);
+        cursor = page.nextCursor ?? null;
+        hasMore = page.hasMore;
+      }
+
+      if (requestVersion !== rootRequestVersionRef.current) {
+        return;
+      }
+
+      setRootDocuments(refreshedDocuments);
+      setNextCursor(cursor);
+      setRootHasMore(hasMore);
+    } catch (err) {
+      if (requestVersion !== rootRequestVersionRef.current) {
+        return;
+      }
+      const normalized = err instanceof Error ? err : new Error(String(err));
+      setRootError(normalized);
+      logger.error('document-data', 'Failed to refetch root documents', normalized);
+    } finally {
+      if (requestVersion === rootRequestVersionRef.current) {
+        const endTime = performance.now();
+        setExecutionTime(Math.round(endTime - startTime));
+        setIsRootLoading(false);
+        setIsLoadingMore(false);
+      }
+    }
+  }, [
+    collection,
+    connectionId,
+    currentPath.length,
+    enabled,
+    fetchRootPage,
+    getAdapter,
+    mongoSort,
+    pageSize,
+    rootDocuments.length,
+    serverQuery,
+  ]);
+
+  const refetch = useCallback(async (): Promise<void> => {
+    if (currentPath.length === 0) {
+      await refetchRootDocumentsPreservingWindow();
+      return;
+    }
     await refetchNestedQuery();
-  }, [currentPath.length, fetchRootPage, refetchNestedQuery]);
+  }, [currentPath.length, refetchNestedQuery, refetchRootDocumentsPreservingWindow]);
 
   const isLoading = currentPath.length === 0 ? isRootLoading : isNestedLoading;
   const activeError = currentPath.length === 0 ? rootError : nestedError;

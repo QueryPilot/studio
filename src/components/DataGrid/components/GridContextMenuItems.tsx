@@ -53,7 +53,7 @@ export interface GridContextMenuItemsProps {
   databaseType: DatabaseType;
   /** Data paradigm for context-aware copy options */
   paradigm?: DataParadigm;
-  onViewDetails: () => void;
+  onViewDetails?: () => void;
   onPinRows?: (rowKeys: string[]) => void;
   onUnpinRows?: (rowKeys: string[]) => void;
   onAddRow?: () => void;
@@ -445,16 +445,18 @@ export function GridContextMenuItems({
 
   return (
     <>
-      {/* View Details */}
-      <ContextMenuItem
-        onClick={onViewDetails}
-        className="text-xs py-1.5 px-3 outline-none"
-      >
-        <IconEye className="mr-1.5 h-3 w-3 text-foreground" />
-        <span className="flex-1">View Details</span>
-      </ContextMenuItem>
-
-      <ContextMenuSeparator className="my-1" />
+      {onViewDetails && (
+        <>
+          <ContextMenuItem
+            onClick={onViewDetails}
+            className="text-xs py-1.5 px-3 outline-none"
+          >
+            <IconEye className="mr-1.5 h-3 w-3 text-foreground" />
+            <span className="flex-1">View Details</span>
+          </ContextMenuItem>
+          <ContextMenuSeparator className="my-1" />
+        </>
+      )}
 
       {/* Copy submenu - paradigm-aware */}
       <ContextMenuSub>

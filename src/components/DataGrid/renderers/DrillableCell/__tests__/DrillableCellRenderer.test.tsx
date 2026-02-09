@@ -174,7 +174,7 @@ describe('DrillableCell types', () => {
       expect(cell.kind).toBe(GridCellKind.Custom);
       expect(cell.data.kind).toBe(DRILLABLE_CELL_KIND);
       expect(cell.data.type).toBe('object');
-      expect(cell.data.preview).toBe('{3 fields}');
+      expect(cell.data.preview).toBe('{name, age, +1}');
       expect(cell.data.itemCount).toBe(3);
       expect(cell.data.canDrillDown).toBe(true);
       expect(cell.readonly).toBe(true);
@@ -185,7 +185,7 @@ describe('DrillableCell types', () => {
       const value = { name: 'John' };
       const cell = createDrillableObjectCell(value);
 
-      expect(cell.data.preview).toBe('{1 field}');
+      expect(cell.data.preview).toBe('{name}');
       expect(cell.data.itemCount).toBe(1);
     });
 
@@ -193,7 +193,7 @@ describe('DrillableCell types', () => {
       const value = {};
       const cell = createDrillableObjectCell(value);
 
-      expect(cell.data.preview).toBe('{0 fields}');
+      expect(cell.data.preview).toBe('{}');
       expect(cell.data.itemCount).toBe(0);
     });
 
@@ -221,7 +221,7 @@ describe('DrillableCell types', () => {
       expect(cell.kind).toBe(GridCellKind.Custom);
       expect(cell.data.kind).toBe(DRILLABLE_CELL_KIND);
       expect(cell.data.type).toBe('array');
-      expect(cell.data.preview).toBe('[5 items]');
+      expect(cell.data.preview).toBe('[5] "a"');
       expect(cell.data.itemCount).toBe(5);
       expect(cell.data.canDrillDown).toBe(true);
       expect(cell.readonly).toBe(true);
@@ -232,7 +232,7 @@ describe('DrillableCell types', () => {
       const value = ['a'];
       const cell = createDrillableArrayCell(value);
 
-      expect(cell.data.preview).toBe('[1 item]');
+      expect(cell.data.preview).toBe('[1] "a"');
       expect(cell.data.itemCount).toBe(1);
     });
 
@@ -240,7 +240,7 @@ describe('DrillableCell types', () => {
       const value: unknown[] = [];
       const cell = createDrillableArrayCell(value);
 
-      expect(cell.data.preview).toBe('[0 items]');
+      expect(cell.data.preview).toBe('[]');
       expect(cell.data.itemCount).toBe(0);
     });
 

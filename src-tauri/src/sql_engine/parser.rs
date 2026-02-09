@@ -117,6 +117,18 @@ pub fn parse_document(sql: &str, dialect: SqlDialect) -> ParsedDocument {
                     position: start,
                     position_end: Some(end),
                 });
+
+                // Keep a fallback statement so heuristic lint rules (typo detection,
+                // missing operators, etc.) can still run on syntactically invalid SQL.
+                statements.push(ParsedStatement {
+                    statement_type: None,
+                    range: (start, end),
+                    text,
+                    tables: vec![],
+                    aliases: vec![],
+                    columns: vec![],
+                    ctes: vec![],
+                });
             }
         }
     }
@@ -649,5 +661,13 @@ mod tests {
         assert_eq!(doc.statements[0].columns.len(), 1);
         assert_eq!(doc.statements[0].columns[0].name, "*");
         assert_eq!(doc.statements[0].columns[0].table.as_deref(), Some("u"));
+    }
+
+    #[test]
+    fn test_parse_error_keeps_fallback_statement_for_heuristics() {
+        let doc = parse_document("selct * form users", SqlDialect::PostgreSQL);
+        assert!(!doc.errors.is_empty());
+        assert_eq!(doc.statements.len(), 1);
+        assert_eq!(doc.statements[0].statement_type, None);
     }
 }

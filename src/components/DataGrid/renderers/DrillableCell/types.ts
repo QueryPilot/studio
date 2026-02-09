@@ -26,6 +26,27 @@ export interface DrillableCell extends CustomCell {
   copyData: string;
 }
 
+function formatInlineValuePreview(value: unknown): string {
+  if (value === null || value === undefined) return "null";
+  if (Array.isArray(value)) return "[]";
+  if (typeof value === "object") return "{}";
+  if (typeof value === "string") {
+    if (value.length <= 12) return `"${value}"`;
+    return `"${value.slice(0, 9)}…"`;
+  }
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
+    return String(value);
+  }
+  if (typeof value === "symbol") {
+    return value.description ? `:${value.description}` : ":symbol";
+  }
+  return "[value]";
+}
+
 /**
  * Creates a drillable cell for nested objects
  */
@@ -35,7 +56,12 @@ export function createDrillableObjectCell(
 ): DrillableCell {
   const keys = Object.keys(value);
   const itemCount = keys.length;
-  const preview = `{${itemCount} field${itemCount !== 1 ? 's' : ''}}`;
+  let preview = "{}";
+  if (itemCount > 0) {
+    const visibleKeys = keys.slice(0, 2);
+    const remaining = itemCount - visibleKeys.length;
+    preview = `{${visibleKeys.join(", ")}${remaining > 0 ? `, +${remaining}` : ""}}`;
+  }
 
   return {
     kind: GridCellKind.Custom,
@@ -61,7 +87,11 @@ export function createDrillableArrayCell(
   canDrillDown = true
 ): DrillableCell {
   const itemCount = value.length;
-  const preview = `[${itemCount} item${itemCount !== 1 ? 's' : ''}]`;
+  const sample = value[0];
+  const preview =
+    itemCount === 0
+      ? "[]"
+      : `[${itemCount}] ${formatInlineValuePreview(sample)}`;
 
   return {
     kind: GridCellKind.Custom,

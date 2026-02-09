@@ -15,22 +15,54 @@ import {
   type CompletionContext,
   type CompletionResult,
 } from "@codemirror/autocomplete";
-import { createSqlMetadataProvider } from "./metadataProvider";
 import { searchFunctions } from "./functions";
 import type { SqlDialect } from "../../types";
 import { extractTableRefs, resolveTableAlias } from "./shared";
 import { analyzeSqlContext } from "./context";
 import { shouldTriggerCompletion } from "./deferred-completion";
-import {
-  createRustCompletionSource,
-  isRustCompletionAvailable,
-} from "./rust-completion";
+import type { MetadataProvider } from "../../types";
+import { isSqlKeyword } from "./constants";
 
-interface CompletionConfig {
+function createLazyMetadataProvider(
+  connectionId: string,
+  defaultSchema: string,
+): MetadataProvider {
+  let providerPromise: Promise<MetadataProvider> | null = null;
+
+  const getProvider = async (): Promise<MetadataProvider> => {
+    if (!providerPromise) {
+      providerPromise = import("./metadataProvider").then((mod) =>
+        mod.createSqlMetadataProvider(connectionId, defaultSchema),
+      );
+    }
+    return providerPromise;
+  };
+
+  return {
+    listEntities: async (schema?: string) =>
+      (await getProvider()).listEntities(schema),
+    listFields: async (entityName: string, schema?: string) =>
+      (await getProvider()).listFields(entityName, schema),
+    getEntityDetails: async (entityName: string, schema?: string) =>
+      (await getProvider()).getEntityDetails?.(entityName, schema) ?? null,
+    getJoinConditions: async (tablesInScope, targetTable, schema?: string) =>
+      (await getProvider()).getJoinConditions?.(
+        tablesInScope,
+        targetTable,
+        schema,
+      ) ?? [],
+    listFunctions: async (schema?: string) =>
+      (await getProvider()).listFunctions?.(schema) ?? [],
+  };
+}
+
+export interface CompletionConfig {
   connectionId: string;
   database: string;
   schema?: string;
   dialect?: SqlDialect;
+  providerOverride?: MetadataProvider;
+  disableRustSource?: boolean;
 }
 
 interface CacheEntry {
@@ -251,22 +283,30 @@ interface MetadataCache {
 const metadataCache = new Map<string, MetadataCache>();
 const METADATA_CACHE_TTL = 30000; // 30 seconds - metadata changes less frequently
 
-function getMetadataCache(connectionId: string): MetadataCache | null {
-  const cached = metadataCache.get(connectionId);
+function buildCacheNamespace(
+  connectionId: string,
+  schema: string,
+  dialect: SqlDialect
+): string {
+  return `${connectionId}:${schema}:${dialect}`;
+}
+
+function getMetadataCache(cacheNamespace: string): MetadataCache | null {
+  const cached = metadataCache.get(cacheNamespace);
   if (cached && Date.now() - cached.timestamp < METADATA_CACHE_TTL) {
     return cached;
   }
   return null;
 }
 
-function setMetadataCache(connectionId: string, cache: MetadataCache): void {
+function setMetadataCache(cacheNamespace: string, cache: MetadataCache): void {
   // Limit total connections cached
   if (metadataCache.size > 10) {
     const oldest = [...metadataCache.entries()]
       .sort((a, b) => a[1].timestamp - b[1].timestamp)[0];
     if (oldest) metadataCache.delete(oldest[0]);
   }
-  metadataCache.set(connectionId, cache);
+  metadataCache.set(cacheNamespace, cache);
 }
 
 /**
@@ -366,20 +406,44 @@ function quickAnalyze(
  * In web environment: Uses TypeScript completion directly.
  */
 export function createOptimizedCompletionSource(config: CompletionConfig) {
-  const { connectionId, database, schema, dialect = "postgresql" } = config;
+  const {
+    connectionId,
+    database,
+    schema,
+    dialect = "postgresql",
+    providerOverride,
+    disableRustSource = false,
+  } = config;
   const defaultSchema = schema || "public";
-  const provider = createSqlMetadataProvider(connectionId, defaultSchema);
+  const cacheNamespace = buildCacheNamespace(connectionId, defaultSchema, dialect);
+  const provider =
+    providerOverride ?? createLazyMetadataProvider(connectionId, defaultSchema);
 
-  // Create Rust source if available (Tauri environment)
-  const rustSource =
-    isRustCompletionAvailable() && connectionId && database
-      ? createRustCompletionSource({
-          connectionId,
-          database,
-          schema: defaultSchema,
-          dialect,
+  let rustSourcePromise:
+    | Promise<((context: CompletionContext) => Promise<CompletionResult | null>) | null>
+    | null = null;
+
+  const getRustSource = async () => {
+    if (disableRustSource || !connectionId || !database) {
+      return null;
+    }
+    if (!rustSourcePromise) {
+      rustSourcePromise = import("./rust-completion")
+        .then((mod) => {
+          if (!mod.isRustCompletionAvailable()) {
+            return null;
+          }
+          return mod.createRustCompletionSource({
+            connectionId,
+            database,
+            schema: defaultSchema,
+            dialect,
+          });
         })
-      : null;
+        .catch(() => null);
+    }
+    return rustSourcePromise;
+  };
 
   return async (
     context: CompletionContext
@@ -391,6 +455,7 @@ export function createOptimizedCompletionSource(config: CompletionConfig) {
     }
 
     // Try Rust completion first (faster, uses pre-synced schema via sql_set_schema)
+    const rustSource = await getRustSource();
     if (rustSource) {
       try {
         const rustResult = await rustSource(context);
@@ -413,7 +478,7 @@ export function createOptimizedCompletionSource(config: CompletionConfig) {
     const contextHash = hashContext(pos, state.doc.length, beforeCursor);
 
     // Check cache
-    const cacheKey = `${connectionId}:${contextHash}`;
+    const cacheKey = `${cacheNamespace}:${contextHash}`;
     const cached = completionCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
       const word = context.matchBefore(/[\w_]+/);
@@ -425,7 +490,7 @@ export function createOptimizedCompletionSource(config: CompletionConfig) {
     }
 
     // Check for in-flight request
-    const inflightKey = `${connectionId}:${analysis.intent}`;
+    const inflightKey = `${cacheNamespace}:${contextHash}`;
     const inflight = inflightRequests.get(inflightKey);
     if (inflight) {
       try {
@@ -450,7 +515,8 @@ export function createOptimizedCompletionSource(config: CompletionConfig) {
       analysis.intent,
       defaultSchema,
       dialect,
-      connectionId
+      connectionId,
+      cacheNamespace
     );
 
     inflightRequests.set(inflightKey, requestPromise);
@@ -489,12 +555,13 @@ export function createOptimizedCompletionSource(config: CompletionConfig) {
  * Uses metadata cache for fast incremental filtering
  */
 async function fetchCompletions(
-  provider: ReturnType<typeof createSqlMetadataProvider>,
+  provider: MetadataProvider,
   context: CompletionContext,
   intent: "table" | "column" | "unknown",
   defaultSchema: string,
   dialect: SqlDialect,
-  connectionId: string
+  connectionId: string,
+  cacheNamespace: string
 ): Promise<Completion[] | null> {
   const completions: Completion[] = [];
   const word = context.matchBefore(/[\w_]+/);
@@ -520,11 +587,15 @@ async function fetchCompletions(
         );
 
         for (const suggestion of joinConditions) {
+          const suggestionScore =
+            typeof suggestion.score === "number"
+              ? suggestion.score
+              : Number(suggestion.score) || 0;
           completions.push({
             label: suggestion.condition,
             type: suggestion.source === "fk" ? "method" : "text",
             detail: suggestion.description,
-            boost: suggestion.score + (suggestion.source === "fk" ? 20 : 10),
+            boost: suggestionScore + (suggestion.source === "fk" ? 20 : 10),
             apply: suggestion.condition,
           });
         }
@@ -586,11 +657,16 @@ async function fetchCompletions(
         }
 
         // Try metadata cache first for instant response
-        const cached = getMetadataCache(connectionId);
+        const cached = getMetadataCache(cacheNamespace);
         if (cached?.columns.has(cacheKey)) {
-          const cachedColumns = cached.columns.get(cacheKey)!;
-          const columnQuery = dotMatch.text.split(".")[1]?.replace(/["`[\]]/g, "") || "";
-          return columnQuery ? filterByFuzzy(cachedColumns, columnQuery) : cachedColumns;
+          const cachedColumns = cached.columns.get(cacheKey);
+          if (cachedColumns) {
+            const columnQuery =
+              dotMatch.text.split(".")[1]?.replace(/["`[\]]/g, "") || "";
+            return columnQuery
+              ? filterByFuzzy(cachedColumns, columnQuery)
+              : cachedColumns;
+          }
         }
 
         // Fetch fields using the resolved table name
@@ -632,13 +708,14 @@ async function fetchCompletions(
 
         // Cache column completions for this table
         if (completions.length > 0) {
-          const existingCache = getMetadataCache(connectionId) || {
+          const existingCache = getMetadataCache(cacheNamespace) || {
             tables: [],
             columns: new Map(),
             timestamp: Date.now(),
           };
           existingCache.columns.set(cacheKey, [...completions]);
-          setMetadataCache(connectionId, existingCache);
+          existingCache.timestamp = Date.now();
+          setMetadataCache(cacheNamespace, existingCache);
         }
       }
 
@@ -651,36 +728,110 @@ async function fetchCompletions(
     }
 
     if (intent === "table") {
+      const sqlBeforeCursor = context.state.doc.sliceString(0, context.pos);
+      const isJoinTableContext = /\b(?:LEFT\s+|RIGHT\s+|INNER\s+|FULL\s+(?:OUTER\s+)?|CROSS\s+)?JOIN\s+[a-zA-Z0-9_"`[\].]*$/i.test(
+        sqlBeforeCursor,
+      );
+
       // Try metadata cache first for instant response
-      const cached = getMetadataCache(connectionId);
-      if (cached?.tables.length) {
-        return query ? filterByFuzzy(cached.tables, query) : cached.tables;
+      if (!isJoinTableContext) {
+        const cached = getMetadataCache(cacheNamespace);
+        if (cached?.tables.length) {
+          return query ? filterByFuzzy(cached.tables, query) : cached.tables;
+        }
       }
 
       // Table context - fetch and cache
       const entities = await provider.listEntities();
+      const baseTableCompletions: Completion[] = [];
       for (const entity of entities) {
         const alias = generateAlias(entity.name);
         const usageBoost = getUsageBoost("tables", entity.name);
-        completions.push({
+        const completion: Completion = {
           label: entity.name,
           type: entity.type === "table" ? "class" : "constant",
           detail: alias ? `→ ${alias}` : entity.type,
           boost: 5 + usageBoost,
           apply: `${quoteIdentifier(entity.name, dialect)}${alias ? ` ${alias}` : ""}`,
-        });
+        };
+        baseTableCompletions.push(completion);
       }
 
-      // Cache table completions
-      if (completions.length > 0) {
-        const existingCache = getMetadataCache(connectionId) || {
+      // Add auto JOIN suggestions when selecting a table in JOIN context.
+      if (isJoinTableContext && provider.getJoinConditions) {
+        const fetchJoinConditions = (
+          tablesInScope: Array<{ name: string; alias?: string; schema?: string }>,
+          targetTable: { name: string; alias?: string; schema?: string },
+          schema?: string,
+        ) => provider.getJoinConditions?.(tablesInScope, targetTable, schema) ?? [];
+        const tablesInScope = extractTableRefs(context.state, connectionId)
+          .filter((t) => !t.isCTE)
+          .map((t) => ({ name: t.name, alias: t.alias, schema: t.schema }));
+
+        if (tablesInScope.length > 0) {
+          const joinCandidates = entities
+            .filter((e) => e.type === "table")
+            .filter((e) =>
+              query ? e.name.toLowerCase().includes(query.toLowerCase()) : true,
+            )
+            .slice(0, 25);
+
+          const joinSuggestionResults = await Promise.all(
+            joinCandidates.map(async (entity) => {
+              const alias = generateAlias(entity.name) || undefined;
+              const targetTable = {
+                name: entity.name,
+                alias,
+                schema: entity.schema,
+              };
+              const conditions = await fetchJoinConditions(
+                tablesInScope,
+                targetTable,
+                defaultSchema,
+              );
+              if (conditions.length === 0) {
+                return null;
+              }
+              const best = conditions[0];
+              if (!best) return null;
+              const suggestionScore =
+                typeof best.score === "number" ? best.score : Number(best.score) || 0;
+              return {
+                entity,
+                alias,
+                condition: best.condition,
+                description: best.description,
+                score: suggestionScore,
+                source: best.source,
+              };
+            }),
+          );
+
+          for (const result of joinSuggestionResults) {
+            if (!result) continue;
+            completions.push({
+              label: `${result.entity.name} ON ${result.condition}`,
+              type: "method",
+              detail: `Auto JOIN • ${result.description}`,
+              boost: 35 + result.score + (result.source === "fk" ? 12 : 0),
+              apply: `${quoteIdentifier(result.entity.name, dialect)}${result.alias ? ` ${result.alias}` : ""} ON ${result.condition}`,
+            });
+          }
+        }
+      }
+
+      completions.push(...baseTableCompletions);
+
+      // Cache plain table completions (without join-condition snippets)
+      if (baseTableCompletions.length > 0) {
+        const existingCache = getMetadataCache(cacheNamespace) || {
           tables: [],
           columns: new Map(),
           timestamp: Date.now(),
         };
-        existingCache.tables = [...completions];
+        existingCache.tables = [...baseTableCompletions];
         existingCache.timestamp = Date.now();
-        setMetadataCache(connectionId, existingCache);
+        setMetadataCache(cacheNamespace, existingCache);
       }
 
       // Apply fuzzy filtering
@@ -701,6 +852,7 @@ async function fetchCompletions(
     const queryLower = query.toLowerCase();
     for (const table of tables) {
       const aliasOrName = table.alias || table.name;
+      if (isSqlKeyword(aliasOrName)) continue;
 
       // Skip if this is exactly what the user is typing (self-suggestion bug)
       if (aliasOrName.toLowerCase() === queryLower) continue;
@@ -717,25 +869,36 @@ async function fetchCompletions(
 
     // Add columns from tables in scope (without prefix) - highest priority
     // This allows typing column names directly without table.prefix
+    const tableColumnResults = await Promise.all(
+      tables.map(async (table) => {
+        // Skip CTEs without known columns
+        if (table.isCTE && !table.cteColumns?.length && !table.cteSourceTable) {
+          return { table, columns: [] as Array<{ name: string; dataType: string }> };
+        }
+
+        if (table.isCTE && table.cteColumns?.length) {
+          return {
+            table,
+            columns: table.cteColumns.map((c) => ({ name: c, dataType: "unknown" })),
+          };
+        }
+
+        if (table.isCTE && table.cteSourceTable) {
+          return {
+            table,
+            columns: await provider.listFields(table.cteSourceTable, defaultSchema),
+          };
+        }
+
+        return {
+          table,
+          columns: await provider.listFields(table.name, table.schema || defaultSchema),
+        };
+      })
+    );
+
     const seenColumns = new Set<string>();
-    for (const table of tables) {
-      // Skip CTEs without known columns
-      if (table.isCTE && !table.cteColumns?.length && !table.cteSourceTable) continue;
-
-      // Get columns for this table
-      let columns: Array<{ name: string; dataType: string }> = [];
-
-      if (table.isCTE && table.cteColumns?.length) {
-        // CTE with explicit columns
-        columns = table.cteColumns.map(c => ({ name: c, dataType: "unknown" }));
-      } else if (table.isCTE && table.cteSourceTable) {
-        // CTE with SELECT * from source
-        columns = await provider.listFields(table.cteSourceTable, defaultSchema);
-      } else {
-        // Regular table
-        columns = await provider.listFields(table.name, table.schema || defaultSchema);
-      }
-
+    for (const { table, columns } of tableColumnResults) {
       for (const col of columns) {
         // Avoid duplicate column names from multiple tables
         const colKey = col.name.toLowerCase();
@@ -817,14 +980,30 @@ function quoteIdentifier(name: string, dialect: SqlDialect): string {
  * Generate smart alias for table
  */
 function generateAlias(tableName: string): string {
-  if (tableName.includes("_")) {
-    return tableName
-      .split("_")
-      .map((p) => p[0] || "")
-      .join("")
-      .toLowerCase();
+  const baseName = tableName.split(".").pop()?.toLowerCase() || tableName.toLowerCase();
+  const candidates: string[] = [];
+
+  if (baseName.includes("_")) {
+    candidates.push(
+      baseName
+        .split("_")
+        .map((p) => p[0] || "")
+        .join(""),
+    );
   }
-  return tableName[0]?.toLowerCase() || "";
+  candidates.push(baseName[0] || "");
+  if (baseName.length >= 2) candidates.push(baseName.slice(0, 2));
+  if (baseName.length >= 3) candidates.push(baseName.slice(0, 3));
+
+  for (const candidate of candidates) {
+    const alias = candidate.trim().toLowerCase();
+    if (!alias) continue;
+    if (isSqlKeyword(alias)) continue;
+    if (!/^[a-z_][a-z0-9_]*$/.test(alias)) continue;
+    return alias;
+  }
+
+  return "";
 }
 
 /**
@@ -837,8 +1016,14 @@ export function clearCompletionCache(connectionId?: string): void {
         completionCache.delete(key);
       }
     }
+    for (const key of metadataCache.keys()) {
+      if (key.startsWith(`${connectionId}:`)) {
+        metadataCache.delete(key);
+      }
+    }
   } else {
     completionCache.clear();
+    metadataCache.clear();
   }
   inflightRequests.clear();
 }

@@ -26,6 +26,8 @@ export interface DocumentCellOptions {
   value: unknown;
   /** Column definition */
   column: GridColumnV2;
+  /** Best-effort type hint for null values in sparse columns */
+  nullTypeHint?: DocumentCellValue['type'];
   /** Whether the cell is read-only */
   readOnly?: boolean;
   /** Whether drill-down is enabled for nested values */
@@ -93,13 +95,13 @@ export function detectDocumentValueType(value: unknown): DocumentCellValue['type
  * Build a GridCell for a document value
  */
 export function buildDocumentCell(opts: DocumentCellOptions): GridCell {
-  const { value, column, readOnly = false, canDrillDown = true } = opts;
+  const { value, column, nullTypeHint, readOnly = false, canDrillDown = true } = opts;
 
   const valueType = detectDocumentValueType(value);
 
   switch (valueType) {
     case 'null':
-      return buildNullCell(column, readOnly);
+      return buildNullCell(column, readOnly, nullTypeHint);
 
     case 'object':
       return buildObjectCell(value as Record<string, unknown>, column, readOnly, canDrillDown);
@@ -128,18 +130,32 @@ export function buildDocumentCell(opts: DocumentCellOptions): GridCell {
   }
 }
 
-function buildNullCell(_column: GridColumnV2, readOnly: boolean): GridCell {
+function buildNullCell(
+  column: GridColumnV2,
+  readOnly: boolean,
+  nullTypeHint?: DocumentCellValue['type']
+): GridCell {
+  const contentAlign =
+    nullTypeHint === 'number'
+      ? 'right'
+      : nullTypeHint === 'boolean'
+      ? 'center'
+      : 'left';
+
   return {
-    kind: GridCellKind.Text,
-    data: 'null',
-    displayData: 'null',
+    kind: GridCellKind.Custom,
+    data: {
+      kind: 'text-single-cell',
+      value: null,
+      nullable: true,
+      columnName: column.title || column.id,
+      isPrimaryKey: column.field === '_id',
+      dbType: 'document_null',
+    },
+    copyData: 'null',
     allowOverlay: !readOnly,
     readonly: readOnly,
-    contentAlign: 'left',
-    themeOverride: {
-      textDark: 'rgba(127,127,127,0.7)',
-      baseFontStyle: 'italic 12px',
-    },
+    contentAlign,
   };
 }
 
@@ -194,7 +210,7 @@ function buildDateCell(value: unknown, column: GridColumnV2, readOnly: boolean):
     const dateVal = (value as { $date: string | number }).$date;
     dateStr = typeof dateVal === 'number'
       ? new Date(dateVal).toISOString()
-      : String(dateVal);
+      : dateVal;
   } else {
     dateStr = String(value);
   }

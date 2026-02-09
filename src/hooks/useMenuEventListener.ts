@@ -86,13 +86,13 @@ export function useMenuEventListener() {
           setTheme("system");
           break;
         case "zoom_in":
-          void handleZoom(1.1);
+          handleZoom(1.1);
           break;
         case "zoom_out":
-          void handleZoom(0.9);
+          handleZoom(0.9);
           break;
         case "zoom_reset":
-          void handleZoom(1.0, true);
+          handleZoom(1.0, true);
           break;
 
         // Edit Menu
@@ -180,8 +180,10 @@ export function useMenuEventListener() {
 
     return () => {
       unlistenPromise
-        .then((unlisten) => unlisten())
-        .catch((err) => {
+        .then((unlisten) => {
+          unlisten();
+        })
+        .catch((err: unknown) => {
           logger.error("[useMenuEventListener] Failed to unlisten:", err);
         });
     };
@@ -257,7 +259,7 @@ function handleCloseTab(
   }
 }
 
-async function handleZoom(factor: number, reset = false) {
+function handleZoom(factor: number, reset = false) {
   // Use CSS zoom as fallback/primary for now as it's safer than webview zoom
   // which might affect the whole window including titlebar
   try {
@@ -317,14 +319,24 @@ async function handleCheckUpdates() {
   try {
     const update = await check();
     if (update) {
-      if (
-        confirm(
-          `Update available: ${update.version}\n\nDownload and install now?`,
-        )
-      ) {
-        await update.downloadAndInstall();
-        if (confirm("Update installed. Restart now?")) {
-          await relaunch();
+      try {
+        if (
+          confirm(
+            `Update available: ${update.version}\n\nDownload and install now?`,
+          )
+        ) {
+          await update.downloadAndInstall();
+          if (confirm("Update installed. Restart now?")) {
+            await relaunch();
+          } else {
+            alert("Update installed. Restart Query Pilot to apply it.");
+          }
+        }
+      } finally {
+        try {
+          await update.close();
+        } catch (closeError) {
+          logger.warn("Failed to close update handle", closeError);
         }
       }
     } else {

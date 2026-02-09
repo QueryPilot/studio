@@ -44,12 +44,10 @@ export const QueryEditor = memo(
   ) {
     const handleExecute = useCallback(
       (query?: string) => {
-        logger.info("[QueryEditor.handleExecute] Called with:", {
-          query,
-          queryLength: query?.length || 0,
-          value,
-          valueLength: value.length || 0,
-          willUse: query || value,
+        logger.debug("query-editor", "Execute requested", {
+          hasInlineQuery: Boolean(query),
+          inlineQueryLength: query?.length || 0,
+          editorValueLength: value.length || 0,
         });
 
         // Prevent execution if already executing
@@ -62,8 +60,7 @@ export const QueryEditor = memo(
 
         if (onExecute) {
           const finalQuery = query || value;
-          logger.info("[QueryEditor.handleExecute] Calling onExecute with:", {
-            finalQuery,
+          logger.debug("query-editor", "Forwarding execute to callback", {
             finalQueryLength: finalQuery.length || 0,
           });
           onExecute(finalQuery);

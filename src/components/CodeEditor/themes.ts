@@ -314,7 +314,11 @@ export const createLintTooltipTheme = (isDark: boolean): Extension => {
         : "0 4px 12px rgba(0, 0, 0, 0.1) !important",
       fontSize: "13px !important",
       fontFamily: "'Inter', -apple-system, sans-serif !important",
-      maxWidth: "400px !important",
+      width: "min(560px, 82vw) !important",
+      maxWidth: "560px !important",
+      maxHeight: "48vh !important",
+      overflowY: "auto !important",
+      overflowX: "hidden !important",
       zIndex: "10000 !important",
     },
     // Individual diagnostic messages

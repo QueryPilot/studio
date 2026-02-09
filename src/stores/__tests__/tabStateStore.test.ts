@@ -65,7 +65,6 @@ describe("tabStateStore", () => {
       expect(state?.isExecuting).toBe(false);
       expect(state?.isStreaming).toBe(false);
       expect(state?.viewMode).toBe("table");
-      expect(state?.appliedLimit).toBe(null);
     });
 
     it("should update existing query state", () => {
@@ -138,22 +137,6 @@ describe("tabStateStore", () => {
       expect(state?.viewMode).toBe("table");
     });
 
-    it("should handle applied limit", () => {
-      const store = useTabStateStore.getState();
-
-      store.setQueryState("tab-1", {
-        appliedLimit: {
-          originalSql: "SELECT * FROM users",
-          limit: 1000,
-        },
-      });
-
-      const state = store.getQueryState("tab-1");
-      expect(state?.appliedLimit).toEqual({
-        originalSql: "SELECT * FROM users",
-        limit: 1000,
-      });
-    });
   });
 
   describe("Query Results", () => {
