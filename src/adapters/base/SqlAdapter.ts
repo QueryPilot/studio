@@ -301,7 +301,7 @@ export abstract class SqlAdapter implements DatabaseAdapter {
    */
   private buildEmbeddedJoinClauses(
     mainTable: string,
-    target: TableRef,
+    _target: TableRef,
     embeddedFKs: EmbeddedFKConfig[]
   ): string {
     return embeddedFKs
@@ -311,9 +311,7 @@ export abstract class SqlAdapter implements DatabaseAdapter {
           schema: fk.refSchema,
           table: fk.refTable,
         });
-        const fkColumn = target.schema
-          ? `${mainTable}.${this.quoteIdentifier(fk.fkColumn)}`
-          : `${mainTable}.${this.quoteIdentifier(fk.fkColumn)}`;
+        const fkColumn = `${mainTable}.${this.quoteIdentifier(fk.fkColumn)}`;
         const pkColumn = `${this.quoteIdentifier(alias)}.${this.quoteIdentifier(fk.refPkColumn)}`;
 
         return ` LEFT JOIN ${refTable} AS ${this.quoteIdentifier(alias)} ON ${fkColumn} = ${pkColumn}`;

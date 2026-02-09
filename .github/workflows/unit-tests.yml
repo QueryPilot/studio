@@ -82,7 +82,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: "pnpm"
 
       - name: Install frontend dependencies
@@ -96,15 +96,31 @@ jobs:
 
       # Run tests
       - name: Run Rust unit tests
+        id: rust_tests
         working-directory: src-tauri
-        run: cargo test --lib --bins -- --nocapture
+        run: |
+          OUTPUT=$(cargo test --lib --bins -- --nocapture 2>&1) || { echo "$OUTPUT"; exit 1; }
+          echo "$OUTPUT"
+          RUST_COUNT=$(echo "$OUTPUT" | grep -oP '\d+ test(s)? passed' | grep -oP '^\d+' || echo "0")
+          if [ "$RUST_COUNT" = "0" ]; then
+            RUST_COUNT=$(echo "$OUTPUT" | grep 'test result:' | grep -oP '\d+ passed' | grep -oP '^\d+' || echo "?")
+          fi
+          echo "count=$RUST_COUNT" >> $GITHUB_OUTPUT
 
       - name: Run Rust doc tests
         working-directory: src-tauri
         run: cargo test --doc
 
       - name: Run frontend unit tests
-        run: pnpm test:unit
+        id: frontend_tests
+        run: |
+          OUTPUT=$(pnpm test:unit 2>&1) || { echo "$OUTPUT"; exit 1; }
+          echo "$OUTPUT"
+          FE_COUNT=$(echo "$OUTPUT" | grep -oP 'Tests\s+\d+' | grep -oP '\d+' | tail -1 || echo "?")
+          if [ -z "$FE_COUNT" ]; then
+            FE_COUNT=$(echo "$OUTPUT" | grep -oP '\d+ test(s)? passed' | grep -oP '^\d+' || echo "?")
+          fi
+          echo "count=$FE_COUNT" >> $GITHUB_OUTPUT
 
       # Linting (only on Linux to save time)
       - name: Run Rust clippy
@@ -164,23 +180,25 @@ jobs:
       # Test summary
       - name: Test Summary
         if: always()
+        env:
+          RUST_COUNT: ${{ steps.rust_tests.outputs.count || '?' }}
+          FE_COUNT: ${{ steps.frontend_tests.outputs.count || '?' }}
         run: |
-          echo "## 🧪 Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Tests" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Rust unit tests (93 tests)" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Frontend unit tests (501 tests)" >> $GITHUB_STEP_SUMMARY
-          echo "- 📊 **Total: 594 tests**" >> $GITHUB_STEP_SUMMARY
+          echo "- Rust unit tests ($RUST_COUNT tests)" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend unit tests ($FE_COUNT tests)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Code Quality" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Rust clippy" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Rust formatting" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Frontend linting" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ TypeScript type check" >> $GITHUB_STEP_SUMMARY
+          echo "- Rust clippy" >> $GITHUB_STEP_SUMMARY
+          echo "- Rust formatting" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend linting" >> $GITHUB_STEP_SUMMARY
+          echo "- TypeScript type check" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Coverage" >> $GITHUB_STEP_SUMMARY
-          echo "- 📊 Frontend & Rust coverage uploaded to Codecov" >> $GITHUB_STEP_SUMMARY
-          echo "- 📦 Coverage report available in artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend & Rust coverage uploaded to Codecov" >> $GITHUB_STEP_SUMMARY
+          echo "- Coverage report available in artifacts" >> $GITHUB_STEP_SUMMARY
         shell: bash
 
   integration-ssh:

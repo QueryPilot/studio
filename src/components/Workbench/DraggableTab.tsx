@@ -99,11 +99,10 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
   onCopyName,
 }) => {
   const draggableId = `tab-${panelId}-${tabId}`;
-  const { attributes, listeners, setNodeRef, isDragging } =
-    useDraggable({
-      id: draggableId,
-      data: { tabId, panelId, displayName, tabType, isView, kind },
-    });
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: draggableId,
+    data: { tabId, panelId, displayName, tabType, isView, kind },
+  });
 
   // Don't apply transform here - DragOverlay handles the visual feedback
   // Only reduce opacity to indicate the element is being dragged
@@ -201,9 +200,9 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
               {...listeners}
               {...attributes}
               className={cn(
-                "group px-2 py-1 text-xs h-8 transition-colors flex items-center gap-1.5 cursor-move relative group",
+                "group px-2 py-1 text-xs h-8 transition-colors flex items-center gap-1.5 cursor-move relative group backdrop-blur-lg",
                 {
-                  "bg-background text-foreground font-medium z-10 sticky left-0 right-0":
+                  "bg-background/80 text-foreground font-medium z-10 sticky left-0 right-0":
                     isActive && isFocused,
                   "bg-background/60 z-10 sticky left-0 right-0":
                     isActive && !isFocused,

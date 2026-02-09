@@ -683,8 +683,11 @@ The JSON must be valid. Commands will be parsed and displayed to the user for ap
 
 /**
  * Build the complete system prompt with dynamically generated command documentation.
+ *
+ * Note: backend ACP layer owns the active system prompt used for chat requests.
+ * This helper is kept for debugging/inspection and other internal tooling.
  */
-function buildSystemPrompt(): string {
+export function buildSystemPrompt(): string {
   return `${QUERYPILOT_SYSTEM_INSTRUCTIONS}
 
 ${generateCommandDocumentation()}
@@ -749,9 +752,9 @@ function serializeConnectionContext(conn: AIConnectionContext): Record<string, u
 }
 
 /**
- * Convert AI context to JSON string for sending to AI.
- * Includes system instructions and schema context.
- * Supports SQL, MongoDB, and Redis connections.
+ * Convert AI context to a pure JSON string for sending to ACP backend.
+ * System instructions are injected server-side (Rust ACP commands), so this
+ * payload must only contain structured context.
  */
 export function serializeAIContext(context: AIContext): string {
   const schemaContext = {
@@ -811,12 +814,5 @@ export function serializeAIContext(context: AIContext): string {
     }),
   };
 
-  // Combine system prompt (with generated command docs) and database context
-  return `${buildSystemPrompt()}
-
-## Database Context
-
-\`\`\`json
-${JSON.stringify(schemaContext, null, 2)}
-\`\`\``;
+  return JSON.stringify(schemaContext, null, 2);
 }

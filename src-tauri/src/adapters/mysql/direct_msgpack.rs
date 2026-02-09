@@ -209,4 +209,3 @@ mod tests {
         assert_eq!(encoder.column_count, 5);
     }
 }
-

@@ -121,7 +121,11 @@ impl DirectMsgPackEncoder {
             return Ok(());
         }
         // Decimal
-        if let Some(v) = row.try_get::<tiberius::numeric::Numeric, _>(idx).ok().flatten() {
+        if let Some(v) = row
+            .try_get::<tiberius::numeric::Numeric, _>(idx)
+            .ok()
+            .flatten()
+        {
             let s = v.to_string();
             encode::write_str(buf, &s).map_err(Self::map_encode_err)?;
             return Ok(());

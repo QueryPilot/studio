@@ -29,7 +29,10 @@ impl McpBridge {
     /// Create a new MCP bridge
     pub fn new(manager: Arc<ConnectionManager>, ai_context: Arc<AiContextStore>) -> Self {
         let socket_path = Self::default_socket_path();
-        let handler = Arc::new(McpHandler::new(Arc::clone(&manager), Arc::clone(&ai_context)));
+        let handler = Arc::new(McpHandler::new(
+            Arc::clone(&manager),
+            Arc::clone(&ai_context),
+        ));
         let shutdown = Arc::new(Notify::new());
 
         Self {
@@ -157,7 +160,9 @@ impl McpBridge {
             let response = match serde_json::from_str::<JsonRpcRequest>(trimmed) {
                 Ok(request) => {
                     tracing::debug!("MCP request: {} {}", request.method, request.id);
-                    handler.handle_request(request.id, &request.method, request.params).await
+                    handler
+                        .handle_request(request.id, &request.method, request.params)
+                        .await
                 }
                 Err(e) => {
                     tracing::warn!("Invalid MCP request: {}", e);

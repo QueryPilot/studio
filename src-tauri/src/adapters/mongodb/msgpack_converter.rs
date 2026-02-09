@@ -3,8 +3,8 @@
 //! Converts MongoDB BSON documents directly to MessagePack format for efficient
 //! IPC streaming. Follows the same pattern as `postgres/direct_msgpack.rs`.
 
-use bson::{Bson, Document};
 use crate::error::{AppError, Result};
+use bson::{Bson, Document};
 
 /// MongoDB BSON to MessagePack encoder
 ///
@@ -22,14 +22,17 @@ impl BsonMsgPackEncoder {
 
     /// Encode a batch of BSON documents to MessagePack bytes
     pub fn encode_batch(&mut self, documents: &[Document]) -> Result<Vec<u8>> {
-        let bson_values: Vec<Bson> = documents.iter().map(|d| Bson::Document(d.clone())).collect();
+        let bson_values: Vec<Bson> = documents
+            .iter()
+            .map(|d| Bson::Document(d.clone()))
+            .collect();
         let encoded = rmp_serde::to_vec(&bson_values)
             .map_err(|e| AppError::Internal(format!("MessagePack encoding failed: {}", e)))?;
-        
+
         if !documents.is_empty() {
             self.estimated_doc_size = encoded.len() / documents.len();
         }
-        
+
         Ok(encoded)
     }
 }
@@ -55,7 +58,9 @@ mod tests {
 
         // Act: Encode to MessagePack
         let mut encoder = BsonMsgPackEncoder::new();
-        let encoded = encoder.encode_batch(&docs).expect("encoding should succeed");
+        let encoded = encoder
+            .encode_batch(&docs)
+            .expect("encoding should succeed");
 
         // Assert: Verify we got valid MessagePack bytes
         assert!(!encoded.is_empty(), "encoded bytes should not be empty");
@@ -80,7 +85,9 @@ mod tests {
     fn encodes_empty_batch() {
         let docs: Vec<Document> = vec![];
         let mut encoder = BsonMsgPackEncoder::new();
-        let encoded = encoder.encode_batch(&docs).expect("encoding should succeed");
+        let encoded = encoder
+            .encode_batch(&docs)
+            .expect("encoding should succeed");
 
         // Should encode as empty array
         let decoded: Vec<bson::Bson> =
@@ -103,7 +110,9 @@ mod tests {
         }];
 
         let mut encoder = BsonMsgPackEncoder::new();
-        let encoded = encoder.encode_batch(&docs).expect("encoding should succeed");
+        let encoded = encoder
+            .encode_batch(&docs)
+            .expect("encoding should succeed");
 
         let decoded: Vec<bson::Bson> =
             rmp_serde::from_slice(&encoded).expect("should decode as MessagePack");

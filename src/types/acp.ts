@@ -65,6 +65,11 @@ export interface AcpMessage {
   timestamp: number;
   toolCalls?: ToolCall[];
   thinking?: string;
+  /**
+   * Ordered assistant output flow used to render true interleaving:
+   * text chunk -> tool call -> text chunk, etc.
+   */
+  assistantFlow?: AssistantFlowSegment[];
 }
 
 export interface ToolCall {
@@ -74,6 +79,16 @@ export interface ToolCall {
   input: Record<string, unknown>;
   output?: unknown;
 }
+
+export type AssistantFlowSegment =
+  | {
+      type: "text";
+      text: string;
+    }
+  | {
+      type: "tool-call";
+      call: ToolCall;
+    };
 
 // ============ Session Update Events ============
 

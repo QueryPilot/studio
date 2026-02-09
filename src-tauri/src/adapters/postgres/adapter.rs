@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use deadpool_postgres::{Config, ManagerConfig, Pool, RecyclingMethod, Runtime};
-use tokio_postgres::NoTls;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tokio_postgres::NoTls;
 
 use super::simple_converter::SimpleConverter;
 use crate::core::capabilities::{
@@ -29,8 +29,13 @@ impl PostgresAdapter {
     }
 
     async fn get_client(&self) -> Result<deadpool_postgres::Client, AppError> {
-        let pool = self.get_pool().await.ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        pool.get().await.map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))
+        let pool = self
+            .get_pool()
+            .await
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+        pool.get()
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))
     }
 }
 
@@ -80,10 +85,12 @@ impl BaseCapability for PostgresAdapter {
         let connect_timeout = std::time::Duration::from_secs(15);
         let _ = tokio::time::timeout(connect_timeout, pool.get())
             .await
-            .map_err(|_| AppError::ConnectionClosed(format!(
-                "Connection timed out after {} seconds - host may be unreachable",
-                connect_timeout.as_secs()
-            )))?
+            .map_err(|_| {
+                AppError::ConnectionClosed(format!(
+                    "Connection timed out after {} seconds - host may be unreachable",
+                    connect_timeout.as_secs()
+                ))
+            })?
             .map_err(|e| AppError::Internal(format!("Failed to connect: {}", e)))?;
 
         *self.pool.write().await = Some(pool);
@@ -134,9 +141,7 @@ impl BaseCapability for PostgresAdapter {
     }
 
     fn get_capabilities(&self) -> Vec<AdapterCapability> {
-        vec![
-            AdapterCapability::SqlQueryable,
-        ]
+        vec![AdapterCapability::SqlQueryable]
     }
 }
 

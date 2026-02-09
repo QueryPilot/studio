@@ -395,10 +395,24 @@
   font-size: 11px;
 }
 
+/* Ensure all CodeMirror tooltips appear above panel containers */
+.cm-tooltip {
+  z-index: 99999 !important;
+}
+
 /* Remove default CodeMirror border from hover tooltip wrapper */
 .cm-tooltip.cm-tooltip-hover {
   border: none !important;
   background: transparent !important;
+  pointer-events: none !important;
+}
+
+.cm-tooltip.cm-tooltip-hover .cm-sql-hover-tooltip {
+  pointer-events: none !important;
+}
+
+.cm-tooltip .cm-parameter-hint {
+  pointer-events: none !important;
 }
 
 /* SQL Editor Autocomplete Styles - matches QuickFilter style */
@@ -408,6 +422,7 @@
   border-radius: 6px !important;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
   padding: 4px !important;
+  z-index: 99999 !important;
 }
 
 .cm-tooltip.cm-tooltip-autocomplete > ul {
@@ -433,6 +448,34 @@
 .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected="true"] {
   background: var(--accent) !important;
   color: var(--accent-foreground) !important;
+}
+
+/* Lint popover: keep compact, selectable, and wrap long content */
+.cm-tooltip.cm-tooltip-lint {
+  max-width: min(460px, calc(100vw - 32px)) !important;
+  pointer-events: auto !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+.cm-tooltip.cm-tooltip-lint .cm-diagnostic {
+  max-width: min(460px, calc(100vw - 32px)) !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  cursor: text !important;
+  pointer-events: auto !important;
+}
+
+.cm-tooltip.cm-tooltip-lint .cm-diagnosticText,
+.cm-tooltip.cm-tooltip-lint .cm-diagnosticSource {
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 /* Completion label (column/table name) */

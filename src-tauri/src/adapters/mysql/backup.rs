@@ -15,9 +15,9 @@ use tokio::io::{AsyncBufReadExt, BufReader as TokioBufReader};
 use tokio::process::Command;
 
 use crate::core::backup_capability::{
-    BackupCapable, BackupConfig, BackupFormat, BackupObject, BackupObjectType,
-    BackupOptionsSchema, BackupPreview, BackupPreviewObject, BackupProgress, FieldType,
-    OptionField, ProgressSender, RestoreConfig, RestoreOptionsSchema, ToolPurpose, ToolRequirement,
+    BackupCapable, BackupConfig, BackupFormat, BackupObject, BackupObjectType, BackupOptionsSchema,
+    BackupPreview, BackupPreviewObject, BackupProgress, FieldType, OptionField, ProgressSender,
+    RestoreConfig, RestoreOptionsSchema, ToolPurpose, ToolRequirement,
 };
 use crate::error::AppError;
 
@@ -82,13 +82,11 @@ impl BackupCapable for MySqlAdapter {
     /// MySQL/MariaDB supports both mysqldump/mysql AND mariadb-dump/mariadb.
     /// Only one tool is required - we use whichever is available.
     fn tool_requirements(&self) -> Vec<ToolRequirement> {
-        vec![
-            ToolRequirement {
-                name: "mysqldump".to_string(),
-                purpose: ToolPurpose::Backup,
-                download_size_mb: 15,
-            },
-        ]
+        vec![ToolRequirement {
+            name: "mysqldump".to_string(),
+            purpose: ToolPurpose::Backup,
+            download_size_mb: 15,
+        }]
     }
 
     /// MySQL/MariaDB only supports SQL dump format.
@@ -185,15 +183,13 @@ impl BackupCapable for MySqlAdapter {
     fn restore_options(&self) -> RestoreOptionsSchema {
         RestoreOptionsSchema {
             common: vec![],
-            advanced: vec![
-                OptionField {
-                    key: "force".to_string(),
-                    label: "Force (Ignore Errors)".to_string(),
-                    field_type: FieldType::Bool,
-                    default: json!(false),
-                    description: "Continue even if SQL errors occur during restore.".to_string(),
-                },
-            ],
+            advanced: vec![OptionField {
+                key: "force".to_string(),
+                label: "Force (Ignore Errors)".to_string(),
+                field_type: FieldType::Bool,
+                default: json!(false),
+                description: "Continue even if SQL errors occur during restore.".to_string(),
+            }],
         }
     }
 
@@ -209,9 +205,8 @@ impl BackupCapable for MySqlAdapter {
             .await
             .map_err(|e| AppError::DatabaseError(format!("Failed to get database: {}", e)))?;
 
-        let db_name = db_name.ok_or_else(|| {
-            AppError::DatabaseError("No database selected".into())
-        })?;
+        let db_name =
+            db_name.ok_or_else(|| AppError::DatabaseError("No database selected".into()))?;
 
         let mut objects = Vec::new();
 
@@ -230,10 +225,10 @@ impl BackupCapable for MySqlAdapter {
             db_name.replace('\'', "''")
         );
 
-        let rows: Vec<(String, String, Option<u64>, Option<u64>)> = conn
-            .query(table_query)
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to list tables: {}", e)))?;
+        let rows: Vec<(String, String, Option<u64>, Option<u64>)> =
+            conn.query(table_query)
+                .await
+                .map_err(|e| AppError::DatabaseError(format!("Failed to list tables: {}", e)))?;
 
         for (name, table_type, row_count, estimated_size) in rows {
             let object_type = if table_type.contains("VIEW") {
@@ -343,7 +338,10 @@ impl BackupCapable for MySqlAdapter {
 
         let _ = progress
             .send(BackupProgress::Output {
-                line: format!("Starting backup of database '{}' using {}...", database, dump_tool),
+                line: format!(
+                    "Starting backup of database '{}' using {}...",
+                    database, dump_tool
+                ),
                 is_error: false,
             })
             .await;
@@ -604,7 +602,10 @@ impl BackupCapable for MySqlAdapter {
 
         let _ = progress
             .send(BackupProgress::Output {
-                line: format!("Starting restore to database '{}' using {}...", database, client_tool),
+                line: format!(
+                    "Starting restore to database '{}' using {}...",
+                    database, client_tool
+                ),
                 is_error: false,
             })
             .await;
@@ -677,10 +678,9 @@ impl BackupCapable for MySqlAdapter {
         }
 
         // Wait for process to complete
-        let status = child
-            .wait()
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to wait for {}: {}", client_tool, e)))?;
+        let status = child.wait().await.map_err(|e| {
+            AppError::Internal(format!("Failed to wait for {}: {}", client_tool, e))
+        })?;
 
         if !status.success() {
             let code = status.code().unwrap_or(-1);

@@ -6,10 +6,10 @@
 //! - SQL keywords and snippets
 //! - CTEs and aliases in scope
 
-use serde::{Deserialize, Serialize};
 use super::dialect::SqlDialect;
 use super::parser::ParsedDocument;
 use super::schema_store::CachedSchema;
+use serde::{Deserialize, Serialize};
 
 /// Completion item kind.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -80,7 +80,11 @@ pub fn generate_alias(table_name: &str) -> String {
     if parts.len() > 1 {
         parts.iter().filter_map(|p| p.chars().next()).collect()
     } else {
-        table_name.chars().take(2).collect::<String>().to_lowercase()
+        table_name
+            .chars()
+            .take(2)
+            .collect::<String>()
+            .to_lowercase()
     }
 }
 
@@ -200,40 +204,63 @@ pub fn complete(request: &CompletionRequest) -> CompletionResult {
 
 fn analyze_context(doc: &ParsedDocument, position: usize) -> CompletionContext {
     // Find the statement containing the cursor
-    let stmt = doc.statements.iter().find(|s| {
-        position >= s.range.0 && position <= s.range.1
-    });
+    let stmt = doc
+        .statements
+        .iter()
+        .find(|s| position >= s.range.0 && position <= s.range.1);
 
     let Some(stmt) = stmt else {
         return CompletionContext::Statement;
     };
 
-    let text_before: String = stmt.text.chars().take(position.saturating_sub(stmt.range.0)).collect();
+    let text_before: String = stmt
+        .text
+        .chars()
+        .take(position.saturating_sub(stmt.range.0))
+        .collect();
     let text_before_upper = text_before.to_uppercase();
 
     // Check for qualified identifier (e.g., "u." or "public.")
     if let Some(dot_pos) = text_before.rfind('.') {
-        let before_dot = text_before[..dot_pos].split_whitespace().last().unwrap_or("");
+        let before_dot = text_before[..dot_pos]
+            .split_whitespace()
+            .last()
+            .unwrap_or("");
         // Check if it's a schema or alias
         if before_dot.chars().all(|c| c.is_alphanumeric() || c == '_') {
             if is_likely_schema(before_dot) {
-                return CompletionContext::SchemaQualified { schema: before_dot.to_string() };
+                return CompletionContext::SchemaQualified {
+                    schema: before_dot.to_string(),
+                };
             } else {
-                return CompletionContext::ColumnName { table_or_alias: before_dot.to_string() };
+                return CompletionContext::ColumnName {
+                    table_or_alias: before_dot.to_string(),
+                };
             }
         }
     }
 
     // Check context keywords
-    let keywords = ["FROM", "JOIN", "INNER JOIN", "LEFT JOIN", "RIGHT JOIN",
-                    "CROSS JOIN", "INTO", "UPDATE", "TABLE"];
+    let keywords = [
+        "FROM",
+        "JOIN",
+        "INNER JOIN",
+        "LEFT JOIN",
+        "RIGHT JOIN",
+        "CROSS JOIN",
+        "INTO",
+        "UPDATE",
+        "TABLE",
+    ];
     for kw in keywords {
         if text_before_upper.trim().ends_with(kw) {
             return CompletionContext::TableName;
         }
     }
 
-    let expr_keywords = ["SELECT", "WHERE", "AND", "OR", "ON", "SET", "VALUES", "HAVING"];
+    let expr_keywords = [
+        "SELECT", "WHERE", "AND", "OR", "ON", "SET", "VALUES", "HAVING",
+    ];
     for kw in expr_keywords {
         if text_before_upper.trim().ends_with(kw) {
             return CompletionContext::Expression;
@@ -245,9 +272,10 @@ fn analyze_context(doc: &ParsedDocument, position: usize) -> CompletionContext {
 
 fn get_word_range(doc: &ParsedDocument, position: usize) -> (usize, usize) {
     // Find current word boundaries
-    let stmt = doc.statements.iter().find(|s| {
-        position >= s.range.0 && position <= s.range.1
-    });
+    let stmt = doc
+        .statements
+        .iter()
+        .find(|s| position >= s.range.0 && position <= s.range.1);
 
     let Some(stmt) = stmt else {
         return (position, position);
@@ -279,19 +307,22 @@ fn is_likely_schema(name: &str) -> bool {
 }
 
 fn resolve_alias(doc: &ParsedDocument, position: usize, alias: &str) -> Option<String> {
-    let stmt = doc.statements.iter().find(|s| {
-        position >= s.range.0 && position <= s.range.1
-    })?;
+    let stmt = doc
+        .statements
+        .iter()
+        .find(|s| position >= s.range.0 && position <= s.range.1)?;
 
-    stmt.aliases.iter()
+    stmt.aliases
+        .iter()
         .find(|a| a.alias.to_lowercase() == alias.to_lowercase())
         .map(|a| a.table.clone())
 }
 
 fn add_cte_completions(doc: &ParsedDocument, position: usize, items: &mut Vec<CompletionItem>) {
-    let stmt = doc.statements.iter().find(|s| {
-        position >= s.range.0 && position <= s.range.1
-    });
+    let stmt = doc
+        .statements
+        .iter()
+        .find(|s| position >= s.range.0 && position <= s.range.1);
 
     if let Some(stmt) = stmt {
         for cte in &stmt.ctes {
@@ -312,15 +343,18 @@ fn add_columns_in_scope(
     schema: &CachedSchema,
     items: &mut Vec<CompletionItem>,
 ) {
-    let stmt = doc.statements.iter().find(|s| {
-        position >= s.range.0 && position <= s.range.1
-    });
+    let stmt = doc
+        .statements
+        .iter()
+        .find(|s| position >= s.range.0 && position <= s.range.1);
 
     if let Some(stmt) = stmt {
         for table_ref in &stmt.tables {
             if let Some(columns) = schema.columns.get(&table_ref.name) {
                 for col in columns.iter() {
-                    let prefix = table_ref.alias.as_ref()
+                    let prefix = table_ref
+                        .alias
+                        .as_ref()
                         .or(Some(&table_ref.name))
                         .map(|a| format!("{}.", a))
                         .unwrap_or_default();
@@ -379,13 +413,21 @@ fn build_function_detail(func: &super::schema_store::FunctionInfo) -> String {
         .parameters
         .iter()
         .map(|p| {
-            let name_part = p.name.as_ref().map(|n| format!("{} ", n)).unwrap_or_default();
+            let name_part = p
+                .name
+                .as_ref()
+                .map(|n| format!("{} ", n))
+                .unwrap_or_default();
             format!("{}{}", name_part, p.data_type)
         })
         .collect();
 
     let params_str = params.join(", ");
-    let return_str = func.return_type.as_ref().map(|r| format!(" -> {}", r)).unwrap_or_default();
+    let return_str = func
+        .return_type
+        .as_ref()
+        .map(|r| format!(" -> {}", r))
+        .unwrap_or_default();
 
     if let Some(desc) = &func.description {
         format!("({}){}  {}", params_str, return_str, desc)
@@ -473,9 +515,25 @@ fn add_statement_keywords(items: &mut Vec<CompletionItem>) {
 
 fn add_expression_keywords(items: &mut Vec<CompletionItem>) {
     let keywords = [
-        "AND", "OR", "NOT", "IN", "BETWEEN", "LIKE", "ILIKE",
-        "IS NULL", "IS NOT NULL", "EXISTS", "CASE", "WHEN", "THEN", "ELSE", "END",
-        "ASC", "DESC", "NULLS FIRST", "NULLS LAST",
+        "AND",
+        "OR",
+        "NOT",
+        "IN",
+        "BETWEEN",
+        "LIKE",
+        "ILIKE",
+        "IS NULL",
+        "IS NOT NULL",
+        "EXISTS",
+        "CASE",
+        "WHEN",
+        "THEN",
+        "ELSE",
+        "END",
+        "ASC",
+        "DESC",
+        "NULLS FIRST",
+        "NULLS LAST",
     ];
 
     for kw in keywords {

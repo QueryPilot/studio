@@ -273,15 +273,19 @@ impl SchemaStore {
             drop(entry);
             self.cache.remove(key);
         }
-        self.misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.misses
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         None
     }
 
     pub fn put(&self, key: CacheKey, schema: CachedSchema) {
-        self.cache.insert(key, CacheEntry {
-            data: schema,
-            created_at: Instant::now(),
-        });
+        self.cache.insert(
+            key,
+            CacheEntry {
+                data: schema,
+                created_at: Instant::now(),
+            },
+        );
     }
 
     pub fn invalidate(&self, connection_id: &str, schema: Option<&str>) {

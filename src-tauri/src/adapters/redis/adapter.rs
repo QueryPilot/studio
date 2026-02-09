@@ -140,21 +140,19 @@ impl RedisAdapter {
         let connect_timeout = std::time::Duration::from_secs(15);
         tokio::time::timeout(connect_timeout, client.init())
             .await
-            .map_err(|_| AppError::ConnectionClosed(format!(
-                "Connection timed out after {} seconds - host may be unreachable",
-                connect_timeout.as_secs()
-            )))?
-            .map_err(|e| {
-                AppError::DatabaseError(format!("Failed to connect to Redis: {}", e))
-            })?;
+            .map_err(|_| {
+                AppError::ConnectionClosed(format!(
+                    "Connection timed out after {} seconds - host may be unreachable",
+                    connect_timeout.as_secs()
+                ))
+            })?
+            .map_err(|e| AppError::DatabaseError(format!("Failed to connect to Redis: {}", e)))?;
 
         // Verify with PING (also with timeout)
         let _: String = tokio::time::timeout(connect_timeout, client.ping(None))
             .await
             .map_err(|_| AppError::ConnectionClosed("PING timed out".into()))?
-            .map_err(|e| {
-                AppError::DatabaseError(format!("Redis PING failed: {}", e))
-            })?;
+            .map_err(|e| AppError::DatabaseError(format!("Redis PING failed: {}", e)))?;
 
         let db_num: u8 = profile
             .database
@@ -191,9 +189,9 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                c.select(db as i64).await.map_err(|e| {
-                    AppError::DatabaseError(format!("SELECT failed: {}", e))
-                })?;
+                c.select(db as i64)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("SELECT failed: {}", e)))?;
                 drop(client);
                 *self.current_db.write().await = db;
                 Ok(())
@@ -319,9 +317,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let ttl: i64 = c.ttl(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("TTL failed: {}", e))
-                })?;
+                let ttl: i64 = c
+                    .ttl(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("TTL failed: {}", e)))?;
                 Ok(ttl)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -333,9 +332,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let result: bool = c.expire(key, seconds as i64, None).await.map_err(|e| {
-                    AppError::DatabaseError(format!("EXPIRE failed: {}", e))
-                })?;
+                let result: bool = c
+                    .expire(key, seconds as i64, None)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("EXPIRE failed: {}", e)))?;
                 Ok(result)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -347,9 +347,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let value: Option<String> = c.get(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("GET failed: {}", e))
-                })?;
+                let value: Option<String> = c
+                    .get(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("GET failed: {}", e)))?;
                 Ok(value)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -381,9 +382,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.del(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("DEL failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .del(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("DEL failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -395,16 +397,17 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.exists(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("EXISTS failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .exists(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("EXISTS failed: {}", e)))?;
                 Ok(count > 0)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
         }
     }
 
-    // Note: KEYS command is intentionally not implemented as it's 
+    // Note: KEYS command is intentionally not implemented as it's
     // blocking and should not be used in production. Use SCAN instead.
     // SCAN will be implemented when we add the key browser functionality.
 
@@ -415,9 +418,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let result: HashMap<String, String> = c.hgetall(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("HGETALL failed: {}", e))
-                })?;
+                let result: HashMap<String, String> = c
+                    .hgetall(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("HGETALL failed: {}", e)))?;
                 Ok(result)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -429,9 +433,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let result: Option<String> = c.hget(key, field).await.map_err(|e| {
-                    AppError::DatabaseError(format!("HGET failed: {}", e))
-                })?;
+                let result: Option<String> = c
+                    .hget(key, field)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("HGET failed: {}", e)))?;
                 Ok(result)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -448,9 +453,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let result: bool = c.hset(key, (field, value)).await.map_err(|e| {
-                    AppError::DatabaseError(format!("HSET failed: {}", e))
-                })?;
+                let result: bool = c
+                    .hset(key, (field, value))
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("HSET failed: {}", e)))?;
                 Ok(result)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -462,9 +468,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.hdel(key, field).await.map_err(|e| {
-                    AppError::DatabaseError(format!("HDEL failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .hdel(key, field)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("HDEL failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -483,9 +490,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let result: Vec<String> = c.lrange(key, start, stop).await.map_err(|e| {
-                    AppError::DatabaseError(format!("LRANGE failed: {}", e))
-                })?;
+                let result: Vec<String> = c
+                    .lrange(key, start, stop)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("LRANGE failed: {}", e)))?;
                 Ok(result)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -497,9 +505,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.lpush(key, value).await.map_err(|e| {
-                    AppError::DatabaseError(format!("LPUSH failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .lpush(key, value)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("LPUSH failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -511,9 +520,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.rpush(key, value).await.map_err(|e| {
-                    AppError::DatabaseError(format!("RPUSH failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .rpush(key, value)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("RPUSH failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -525,9 +535,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let len: u64 = c.llen(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("LLEN failed: {}", e))
-                })?;
+                let len: u64 = c
+                    .llen(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("LLEN failed: {}", e)))?;
                 Ok(len)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -541,9 +552,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let result: Vec<String> = c.smembers(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("SMEMBERS failed: {}", e))
-                })?;
+                let result: Vec<String> = c
+                    .smembers(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("SMEMBERS failed: {}", e)))?;
                 Ok(result)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -555,9 +567,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.sadd(key, member).await.map_err(|e| {
-                    AppError::DatabaseError(format!("SADD failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .sadd(key, member)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("SADD failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -569,9 +582,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.srem(key, member).await.map_err(|e| {
-                    AppError::DatabaseError(format!("SREM failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .srem(key, member)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("SREM failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -583,9 +597,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.scard(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("SCARD failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .scard(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("SCARD failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -599,9 +614,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.zadd(key, None, None, false, false, (score, member)).await.map_err(|e| {
-                    AppError::DatabaseError(format!("ZADD failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .zadd(key, None, None, false, false, (score, member))
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("ZADD failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -613,9 +629,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.zcard(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("ZCARD failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .zcard(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("ZCARD failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -627,9 +644,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let score: Option<f64> = c.zscore(key, member).await.map_err(|e| {
-                    AppError::DatabaseError(format!("ZSCORE failed: {}", e))
-                })?;
+                let score: Option<f64> = c
+                    .zscore(key, member)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("ZSCORE failed: {}", e)))?;
                 Ok(score)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -643,9 +661,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let key_type: String = c.r#type(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("TYPE failed: {}", e))
-                })?;
+                let key_type: String = c
+                    .r#type(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("TYPE failed: {}", e)))?;
                 Ok(key_type)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -696,9 +715,10 @@ impl KeyValueOperable for RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let value: Option<String> = c.get(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("GET failed: {}", e))
-                })?;
+                let value: Option<String> = c
+                    .get(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("GET failed: {}", e)))?;
                 Ok(value.map(RedisValue::String))
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -720,7 +740,11 @@ impl KeyValueOperable for RedisAdapter {
                     RedisValue::Float(f) => f.to_string(),
                     RedisValue::Boolean(b) => if b { "1" } else { "0" }.to_string(),
                     RedisValue::Nil => return Ok(()),
-                    _ => return Err(AppError::InvalidInput("Cannot SET complex values directly".to_string())),
+                    _ => {
+                        return Err(AppError::InvalidInput(
+                            "Cannot SET complex values directly".to_string(),
+                        ))
+                    }
                 };
 
                 let expiration = options.ttl_seconds.map(|s| Expiration::EX(s as i64));
@@ -748,9 +772,10 @@ impl KeyValueOperable for RedisAdapter {
                 if keys.is_empty() {
                     return Ok(0);
                 }
-                let count: u64 = c.del(keys.to_vec()).await.map_err(|e| {
-                    AppError::DatabaseError(format!("DEL failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .del(keys.to_vec())
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("DEL failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -764,9 +789,10 @@ impl KeyValueOperable for RedisAdapter {
                 if keys.is_empty() {
                     return Ok(0);
                 }
-                let count: u64 = c.exists(keys.to_vec()).await.map_err(|e| {
-                    AppError::DatabaseError(format!("EXISTS failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .exists(keys.to_vec())
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("EXISTS failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -821,9 +847,7 @@ impl KeyValueOperable for RedisAdapter {
                     let key_type_str = type_val
                         .and_then(|v| v.as_str().map(|s| s.to_string()))
                         .unwrap_or_else(|| "unknown".to_string());
-                    let ttl = ttl_val
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(-1);
+                    let ttl = ttl_val.and_then(|v| v.as_i64()).unwrap_or(-1);
 
                     keys.push(KeyInfo {
                         key: key_str,
@@ -948,11 +972,7 @@ return {cursor, results}
                     .eval(
                         script,
                         Vec::<String>::new(), // no KEYS - SCAN uses ARGV
-                        vec![
-                            cursor.to_string(),
-                            pattern.to_string(),
-                            count.to_string(),
-                        ],
+                        vec![cursor.to_string(), pattern.to_string(), count.to_string()],
                     )
                     .await
                     .map_err(|e| {
@@ -981,9 +1001,7 @@ impl RedisAdapter {
         };
 
         if arr.len() < 2 {
-            return Err(AppError::DatabaseError(
-                "EVAL result too short".to_string(),
-            ));
+            return Err(AppError::DatabaseError("EVAL result too short".to_string()));
         }
 
         let cursor = arr[0].as_u64().unwrap_or(0);
@@ -1038,9 +1056,11 @@ impl RedisAdapter {
             fred::types::Value::Double(f) => RedisValue::Float(f),
             fred::types::Value::String(s) => RedisValue::String(s.to_string()),
             fred::types::Value::Bytes(b) => RedisValue::Bytes(b.to_vec()),
-            fred::types::Value::Array(arr) => {
-                RedisValue::Array(arr.into_iter().map(Self::fred_value_to_redis_value).collect())
-            }
+            fred::types::Value::Array(arr) => RedisValue::Array(
+                arr.into_iter()
+                    .map(Self::fred_value_to_redis_value)
+                    .collect(),
+            ),
             fred::types::Value::Map(map) => {
                 let mut result = HashMap::new();
                 for (k, v) in map.inner() {
@@ -1103,9 +1123,7 @@ impl RedisAdapter {
     fn fred_value_to_serde_json(value: &fred::types::Value) -> serde_json::Value {
         match value {
             fred::types::Value::Null => serde_json::Value::Null,
-            fred::types::Value::String(s) => {
-                serde_json::Value::String(s.to_string())
-            }
+            fred::types::Value::String(s) => serde_json::Value::String(s.to_string()),
             fred::types::Value::Integer(i) => {
                 serde_json::Value::Number(serde_json::Number::from(*i))
             }
@@ -1215,9 +1233,10 @@ impl RichKeyValueOperable for RedisAdapter {
         match client.as_ref() {
             Some(c) => {
                 let pairs: Vec<(&String, &String)> = fields.iter().collect();
-                let count: u64 = c.hset(key, pairs).await.map_err(|e| {
-                    AppError::DatabaseError(format!("HSET failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .hset(key, pairs)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("HSET failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -1231,9 +1250,10 @@ impl RichKeyValueOperable for RedisAdapter {
                 if fields.is_empty() {
                     return Ok(0);
                 }
-                let count: u64 = c.hdel(key, fields.to_vec()).await.map_err(|e| {
-                    AppError::DatabaseError(format!("HDEL failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .hdel(key, fields.to_vec())
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("HDEL failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -1282,9 +1302,10 @@ impl RichKeyValueOperable for RedisAdapter {
                 if members.is_empty() {
                     return Ok(0);
                 }
-                let count: u64 = c.sadd(key, members.to_vec()).await.map_err(|e| {
-                    AppError::DatabaseError(format!("SADD failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .sadd(key, members.to_vec())
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("SADD failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -1298,9 +1319,10 @@ impl RichKeyValueOperable for RedisAdapter {
                 if members.is_empty() {
                     return Ok(0);
                 }
-                let count: u64 = c.srem(key, members.to_vec()).await.map_err(|e| {
-                    AppError::DatabaseError(format!("SREM failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .srem(key, members.to_vec())
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("SREM failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -1390,9 +1412,10 @@ impl RichKeyValueOperable for RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let len: u64 = c.xlen(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("XLEN failed: {}", e))
-                })?;
+                let len: u64 = c
+                    .xlen(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("XLEN failed: {}", e)))?;
                 Ok(len)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -1453,10 +1476,7 @@ mod tests {
     async fn test_select_db_requires_connection() {
         let adapter = RedisAdapter::new();
         let result = adapter.select_db(2).await;
-        assert!(
-            result.is_err(),
-            "select_db should fail when not connected"
-        );
+        assert!(result.is_err(), "select_db should fail when not connected");
     }
 
     #[tokio::test]
@@ -1489,27 +1509,45 @@ mod tests {
         };
 
         let adapter = RedisAdapter::new();
-        adapter.connect(&profile).await.expect("Failed to connect to Redis");
+        adapter
+            .connect(&profile)
+            .await
+            .expect("Failed to connect to Redis");
 
-        adapter.select_db(2).await.expect("select_db should succeed");
+        adapter
+            .select_db(2)
+            .await
+            .expect("select_db should succeed");
         assert_eq!(adapter.current_database().await, 2);
 
-        let test_key = format!("__test_select_db_{}", std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos());
-
-        adapter.set_string(&test_key, "test_value", None).await.expect("SET should work");
-
-        adapter.select_db(0).await.expect("select_db to 0 should succeed");
-        let result = adapter.get_string(&test_key).await.expect("GET should work");
-        assert!(
-            result.is_none(),
-            "Key set in db2 should not exist in db0"
+        let test_key = format!(
+            "__test_select_db_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         );
 
+        adapter
+            .set_string(&test_key, "test_value", None)
+            .await
+            .expect("SET should work");
+
+        adapter
+            .select_db(0)
+            .await
+            .expect("select_db to 0 should succeed");
+        let result = adapter
+            .get_string(&test_key)
+            .await
+            .expect("GET should work");
+        assert!(result.is_none(), "Key set in db2 should not exist in db0");
+
         adapter.select_db(2).await.expect("select_db back to 2");
-        let result = adapter.get_string(&test_key).await.expect("GET should work");
+        let result = adapter
+            .get_string(&test_key)
+            .await
+            .expect("GET should work");
         assert_eq!(result, Some("test_value".to_string()));
 
         adapter.delete_key(&test_key).await.expect("cleanup");

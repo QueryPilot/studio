@@ -22,10 +22,22 @@ fn test_unified_adapter_postgres_construction() {
     let unified = UnifiedAdapter::postgres(adapter);
 
     assert_eq!(unified.db_type(), DbType::PostgreSQL);
-    assert!(unified.as_sql().is_some(), "PostgreSQL should be SqlQueryable");
-    assert!(unified.as_document().is_none(), "PostgreSQL should not be DocumentQueryable");
-    assert!(unified.as_keyvalue().is_none(), "PostgreSQL should not be RichKeyValueOperable");
-    assert!(unified.as_postgres().is_some(), "Should have concrete PostgresAdapter access");
+    assert!(
+        unified.as_sql().is_some(),
+        "PostgreSQL should be SqlQueryable"
+    );
+    assert!(
+        unified.as_document().is_none(),
+        "PostgreSQL should not be DocumentQueryable"
+    );
+    assert!(
+        unified.as_keyvalue().is_none(),
+        "PostgreSQL should not be RichKeyValueOperable"
+    );
+    assert!(
+        unified.as_postgres().is_some(),
+        "Should have concrete PostgresAdapter access"
+    );
 }
 
 #[test]
@@ -35,8 +47,14 @@ fn test_unified_adapter_mysql_construction() {
 
     assert_eq!(unified.db_type(), DbType::MySQL);
     assert!(unified.as_sql().is_some(), "MySQL should be SqlQueryable");
-    assert!(unified.as_document().is_none(), "MySQL should not be DocumentQueryable");
-    assert!(unified.as_keyvalue().is_none(), "MySQL should not be RichKeyValueOperable");
+    assert!(
+        unified.as_document().is_none(),
+        "MySQL should not be DocumentQueryable"
+    );
+    assert!(
+        unified.as_keyvalue().is_none(),
+        "MySQL should not be RichKeyValueOperable"
+    );
 }
 
 #[test]
@@ -55,8 +73,14 @@ fn test_unified_adapter_sqlite_construction() {
 
     assert_eq!(unified.db_type(), DbType::SQLite);
     assert!(unified.as_sql().is_some(), "SQLite should be SqlQueryable");
-    assert!(unified.as_document().is_none(), "SQLite should not be DocumentQueryable");
-    assert!(unified.as_keyvalue().is_none(), "SQLite should not be RichKeyValueOperable");
+    assert!(
+        unified.as_document().is_none(),
+        "SQLite should not be DocumentQueryable"
+    );
+    assert!(
+        unified.as_keyvalue().is_none(),
+        "SQLite should not be RichKeyValueOperable"
+    );
 }
 
 #[test]
@@ -65,9 +89,18 @@ fn test_unified_adapter_mssql_construction() {
     let unified = UnifiedAdapter::mssql(adapter);
 
     assert_eq!(unified.db_type(), DbType::SQLServer);
-    assert!(unified.as_sql().is_some(), "SQL Server should be SqlQueryable");
-    assert!(unified.as_document().is_none(), "SQL Server should not be DocumentQueryable");
-    assert!(unified.as_keyvalue().is_none(), "SQL Server should not be RichKeyValueOperable");
+    assert!(
+        unified.as_sql().is_some(),
+        "SQL Server should be SqlQueryable"
+    );
+    assert!(
+        unified.as_document().is_none(),
+        "SQL Server should not be DocumentQueryable"
+    );
+    assert!(
+        unified.as_keyvalue().is_none(),
+        "SQL Server should not be RichKeyValueOperable"
+    );
 }
 
 #[test]
@@ -76,10 +109,22 @@ fn test_unified_adapter_mongodb_construction() {
     let unified = UnifiedAdapter::mongodb(adapter);
 
     assert_eq!(unified.db_type(), DbType::MongoDB);
-    assert!(unified.as_sql().is_none(), "MongoDB should not be SqlQueryable");
-    assert!(unified.as_document().is_some(), "MongoDB should be DocumentQueryable");
-    assert!(unified.as_keyvalue().is_none(), "MongoDB should not be RichKeyValueOperable");
-    assert!(unified.as_mongo().is_some(), "Should have concrete MongoDbAdapter access");
+    assert!(
+        unified.as_sql().is_none(),
+        "MongoDB should not be SqlQueryable"
+    );
+    assert!(
+        unified.as_document().is_some(),
+        "MongoDB should be DocumentQueryable"
+    );
+    assert!(
+        unified.as_keyvalue().is_none(),
+        "MongoDB should not be RichKeyValueOperable"
+    );
+    assert!(
+        unified.as_mongo().is_some(),
+        "Should have concrete MongoDbAdapter access"
+    );
 }
 
 #[test]
@@ -88,10 +133,22 @@ fn test_unified_adapter_redis_construction() {
     let unified = UnifiedAdapter::redis(adapter);
 
     assert_eq!(unified.db_type(), DbType::Redis);
-    assert!(unified.as_sql().is_none(), "Redis should not be SqlQueryable");
-    assert!(unified.as_document().is_none(), "Redis should not be DocumentQueryable");
-    assert!(unified.as_keyvalue().is_some(), "Redis should be RichKeyValueOperable");
-    assert!(unified.as_redis().is_some(), "Should have concrete RedisAdapter access");
+    assert!(
+        unified.as_sql().is_none(),
+        "Redis should not be SqlQueryable"
+    );
+    assert!(
+        unified.as_document().is_none(),
+        "Redis should not be DocumentQueryable"
+    );
+    assert!(
+        unified.as_keyvalue().is_some(),
+        "Redis should be RichKeyValueOperable"
+    );
+    assert!(
+        unified.as_redis().is_some(),
+        "Should have concrete RedisAdapter access"
+    );
 }
 
 // ============================================================================

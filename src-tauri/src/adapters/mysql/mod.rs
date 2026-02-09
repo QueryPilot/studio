@@ -9,4 +9,3 @@ pub use adapter::MySqlAdapter;
 pub use direct_msgpack::DirectMsgPackEncoder;
 #[allow(unused_imports)]
 pub use simple_converter::SimpleConverter;
-

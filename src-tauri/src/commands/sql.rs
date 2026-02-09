@@ -174,7 +174,12 @@ pub async fn query(
 
     let cap_result = tokio::time::timeout(timeout_duration, sql_adapter.execute_query(&sql))
         .await
-        .map_err(|_| format!("Query timed out after {} seconds", timeout_duration.as_secs()))?
+        .map_err(|_| {
+            format!(
+                "Query timed out after {} seconds",
+                timeout_duration.as_secs()
+            )
+        })?
         .map_err(|e| e.to_string())?;
 
     Ok(capability_result_to_query_result(cap_result))
@@ -246,8 +251,7 @@ fn find_main_statement_keyword(sql: &str) -> Option<String> {
             let abs_pos = search_start + pos;
 
             // Check if this keyword is at word boundary
-            let before_ok =
-                abs_pos == 0 || !upper.as_bytes()[abs_pos - 1].is_ascii_alphanumeric();
+            let before_ok = abs_pos == 0 || !upper.as_bytes()[abs_pos - 1].is_ascii_alphanumeric();
             let after_ok = abs_pos + keyword.len() >= upper.len()
                 || !upper.as_bytes()[abs_pos + keyword.len()].is_ascii_alphanumeric();
 
@@ -321,14 +325,10 @@ async fn execute_single_fetch_stream(
             execute_postgres_stream(sql, metadata_channel, data_channel, conn).await
         }
         DbType::MySQL | DbType::MariaDB => {
-            execute_generic_stream(sql, metadata_channel, data_channel, conn).await
+            execute_mysql_stream(sql, metadata_channel, data_channel, conn).await
         }
-        DbType::SQLite => {
-            execute_generic_stream(sql, metadata_channel, data_channel, conn).await
-        }
-        DbType::SQLServer => {
-            execute_generic_stream(sql, metadata_channel, data_channel, conn).await
-        }
+        DbType::SQLite => execute_generic_stream(sql, metadata_channel, data_channel, conn).await,
+        DbType::SQLServer => execute_mssql_stream(sql, metadata_channel, data_channel, conn).await,
         // Non-SQL databases don't use SQL streaming - handled by their own commands
         DbType::MongoDB | DbType::Redis => {
             Err("SQL streaming not supported for non-SQL databases".to_string())
@@ -351,7 +351,10 @@ async fn execute_generic_stream(
         .as_sql()
         .ok_or_else(|| "execute_generic_stream only supports SQL databases".to_string())?;
 
-    let cap_result = sql_adapter.execute_query(sql).await.map_err(|e| e.to_string())?;
+    let cap_result = sql_adapter
+        .execute_query(sql)
+        .await
+        .map_err(|e| e.to_string())?;
     let result = capability_result_to_query_result(cap_result);
 
     let query_elapsed = start_time.elapsed().as_millis();
@@ -361,40 +364,309 @@ async fn execute_generic_stream(
         result.rows.len()
     );
 
-    // Send column metadata
+    send_query_results(&result, start_time, query_elapsed, metadata_channel, data_channel)
+}
+
+/// Poll the IPC data channel by sending empty payloads every 100ms.
+/// Returns when the channel closes (frontend cancelled). The frontend
+/// ignores empty batches (checks `rawRows.length === 0`).
+async fn wait_for_channel_close(data_channel: &tauri::ipc::Channel<tauri::ipc::Response>) {
+    loop {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        if data_channel
+            .send(tauri::ipc::Response::new(vec![]))
+            .is_err()
+        {
+            return;
+        }
+    }
+}
+
+/// Send query results (columns + rows + timing) to the frontend channels.
+/// Shared by MySQL, MSSQL, and other single-fetch streaming implementations.
+fn send_query_results(
+    result: &QueryResult,
+    start_time: std::time::Instant,
+    query_elapsed_ms: u128,
+    metadata_channel: &tauri::ipc::Channel<StreamMessage>,
+    data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
+) -> std::result::Result<(), String> {
     let _ = metadata_channel.send(StreamMessage::Started {
         columns: result.columns.clone(),
         estimated_rows: Some(result.rows.len() as i64),
     });
 
-    // Convert rows to MessagePack and send in batches
     let encode_start = std::time::Instant::now();
-
-    // For smaller result sets, send all at once
     if !result.rows.is_empty() {
-        // Use rmp_serde to serialize the rows as MessagePack
-        let msgpack_data = rmp_serde::to_vec(&result.rows)
-            .map_err(|e| format!("Failed to encode rows: {}", e))?;
-
+        let msgpack_data =
+            rmp_serde::to_vec(&result.rows).map_err(|e| format!("Failed to encode rows: {}", e))?;
         let _ = data_channel.send(tauri::ipc::Response::new(msgpack_data));
     }
-
     let encode_elapsed = encode_start.elapsed().as_millis();
     let total_elapsed = start_time.elapsed().as_millis();
 
-    // Send success message
     let _ = metadata_channel.send(StreamMessage::Success {
         total_rows: result.rows.len(),
         execution_time_ms: total_elapsed as u64,
         cursor_setup_ms: None,
         total_streaming_ms: Some(total_elapsed as u64),
         fetch_count: Some(1),
-        network_ms: Some(query_elapsed as u64),
+        network_ms: Some(query_elapsed_ms as u64),
         conversion_ms: Some(encode_elapsed as u64),
         ipc_send_ms: Some(0),
     });
 
     Ok(())
+}
+
+/// MySQL/MariaDB streaming implementation with cancellation support.
+/// Uses the same connection for both CONNECTION_ID() retrieval and query execution,
+/// ensuring the correct query gets killed on cancellation.
+async fn execute_mysql_stream(
+    sql: &str,
+    metadata_channel: &tauri::ipc::Channel<StreamMessage>,
+    data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
+    conn: &crate::core::manager::LiveConnection,
+) -> std::result::Result<(), String> {
+    use mysql_async::prelude::*;
+
+    let mysql_adapter = conn
+        .adapter
+        .as_mysql()
+        .ok_or_else(|| "MySQL adapter not available".to_string())?;
+    let pool = mysql_adapter
+        .get_pool()
+        .await
+        .ok_or_else(|| "MySQL pool not available".to_string())?;
+
+    // Get the query connection and its connection ID (same connection for both)
+    let mut query_conn = pool
+        .get_conn()
+        .await
+        .map_err(|e| format!("Failed to get MySQL connection: {}", e))?;
+
+    let conn_id: u32 = query_conn
+        .query_first("SELECT CONNECTION_ID()")
+        .await
+        .map_err(|e| format!("Failed to get CONNECTION_ID: {}", e))?
+        .unwrap_or(0);
+    tracing::info!("  🔍 MySQL query running on connection ID: {}", conn_id);
+
+    let start_time = std::time::Instant::now();
+    let sql_owned = sql.to_string();
+
+    // Execute the query on the SAME connection we got the ID from
+    let query_future = async {
+        let mut result = query_conn
+            .query_iter(&sql_owned)
+            .await
+            .map_err(|e| format!("Query failed: {}", e))?;
+
+        let columns_ref = result.columns_ref();
+        let columns: Vec<crate::core::capabilities::CapabilityColumnMeta> = columns_ref
+            .iter()
+            .map(|col| crate::core::capabilities::CapabilityColumnMeta {
+                name: col.name_str().to_string(),
+                data_type: crate::adapters::mysql::types::MySqlTypeConverter::column_type_to_string(
+                    col.column_type(),
+                ),
+            })
+            .collect();
+
+        let rows: Vec<mysql_async::Row> = result
+            .collect()
+            .await
+            .map_err(|e| format!("Failed to collect rows: {}", e))?;
+
+        let json_rows =
+            crate::adapters::mysql::simple_converter::SimpleConverter::rows_to_json(&rows);
+        Ok::<_, String>(crate::core::capabilities::CapabilityQueryResult {
+            columns,
+            rows: json_rows,
+        })
+    };
+
+    let cap_result = tokio::select! {
+        result = query_future => result?,
+        _ = wait_for_channel_close(data_channel) => {
+            tracing::info!("  ⚠️  Channel closed (user cancelled MySQL query)");
+            if conn_id > 0 {
+                tracing::info!("  🛑 Sending KILL QUERY {} to MySQL", conn_id);
+                let kill_pool = pool.clone();
+                tokio::spawn(async move {
+                    match kill_pool.get_conn().await {
+                        Ok(mut kill_conn) => {
+                            let kill_sql = format!("KILL QUERY {}", conn_id);
+                            match kill_conn.query_drop(&kill_sql).await {
+                                Ok(_) => tracing::info!("  ✅ Successfully killed MySQL query"),
+                                Err(e) => tracing::warn!("  ⚠️  Failed to kill MySQL query: {}", e),
+                            }
+                        }
+                        Err(e) => tracing::warn!("  ⚠️  Failed to get kill connection: {}", e),
+                    }
+                });
+            }
+            let _ = metadata_channel.send(StreamMessage::Interrupted {
+                resumable: false,
+                message: "Query cancelled by user".to_string(),
+            });
+            return Err("Query cancelled by user".to_string());
+        }
+    };
+
+    let result = capability_result_to_query_result(cap_result);
+    let query_elapsed = start_time.elapsed().as_millis();
+    tracing::info!(
+        "  ⏱ MySQL query execution: {}ms, {} rows",
+        query_elapsed,
+        result.rows.len()
+    );
+
+    send_query_results(&result, start_time, query_elapsed, metadata_channel, data_channel)
+}
+
+/// SQL Server streaming implementation with cancellation support.
+/// Uses the same connection for both @@SPID retrieval and query execution,
+/// ensuring the correct query gets killed on cancellation.
+///
+/// NOTE: MSSQL `KILL {spid}` terminates the entire session (not just the query).
+/// Unlike MySQL's `KILL QUERY`, there is no query-only kill in SQL Server.
+/// After the KILL, the pooled connection is dead. bb8 detects broken connections
+/// via `ManageConnection::is_valid()` and will replace them on the next checkout.
+async fn execute_mssql_stream(
+    sql: &str,
+    metadata_channel: &tauri::ipc::Channel<StreamMessage>,
+    data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
+    conn: &crate::core::manager::LiveConnection,
+) -> std::result::Result<(), String> {
+    use futures::FutureExt;
+    use std::panic::AssertUnwindSafe;
+
+    let mssql_adapter = conn
+        .adapter
+        .as_mssql()
+        .ok_or_else(|| "MSSQL adapter not available".to_string())?;
+    let pool = mssql_adapter
+        .get_pool()
+        .await
+        .ok_or_else(|| "MSSQL pool not available".to_string())?;
+
+    // Get the query connection and its SPID (same connection for both)
+    let mut query_conn = pool
+        .get()
+        .await
+        .map_err(|e| format!("Failed to get MSSQL connection: {}", e))?;
+
+    let spid: i16 = {
+        let result = query_conn
+            .simple_query("SELECT @@SPID")
+            .await
+            .map_err(|e| format!("Failed to query @@SPID: {}", e))?;
+        let row = result
+            .into_row()
+            .await
+            .map_err(|e| format!("Failed to get SPID row: {}", e))?;
+        match row {
+            Some(r) => r.get::<i16, _>(0).unwrap_or(0),
+            None => 0,
+        }
+    };
+    tracing::info!("  🔍 MSSQL query running on SPID: {}", spid);
+
+    let start_time = std::time::Instant::now();
+    let sql_owned = sql.to_string();
+
+    // Execute the query on the SAME connection we got the SPID from
+    let query_future = async {
+        let query_result = AssertUnwindSafe(async {
+            let mut result = query_conn
+                .simple_query(sql_owned.as_str())
+                .await
+                .map_err(|e| format!("Query failed: {}", e))?;
+
+            let columns_opt = result
+                .columns()
+                .await
+                .map_err(|e| format!("Failed to get columns: {}", e))?;
+
+            let columns: Vec<crate::core::capabilities::CapabilityColumnMeta> = columns_opt
+                .map(|cols| {
+                    cols.iter()
+                        .map(|col| crate::core::capabilities::CapabilityColumnMeta {
+                            name: col.name().to_string(),
+                            data_type:
+                                crate::adapters::mssql::types::MssqlTypeConverter::column_type_to_string(
+                                    &col.column_type(),
+                                ),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let rows: Vec<tiberius::Row> = result
+                .into_first_result()
+                .await
+                .map_err(|e| format!("Failed to collect rows: {}", e))?;
+
+            let json_rows: Vec<Vec<serde_json::Value>> = rows
+                .iter()
+                .map(crate::adapters::mssql::simple_converter::SimpleConverter::row_to_json)
+                .collect();
+
+            Ok::<_, String>(crate::core::capabilities::CapabilityQueryResult {
+                columns,
+                rows: json_rows,
+            })
+        })
+        .catch_unwind()
+        .await;
+
+        match query_result {
+            Ok(result) => result,
+            Err(_) => Err(
+                "SQL_VARIANT columns or CLR UDTs are not supported. Cast them to NVARCHAR/VARBINARY or exclude them."
+                    .to_string(),
+            ),
+        }
+    };
+
+    let cap_result = tokio::select! {
+        result = query_future => result?,
+        _ = wait_for_channel_close(data_channel) => {
+            tracing::info!("  ⚠️  Channel closed (user cancelled MSSQL query)");
+            if spid > 0 {
+                tracing::info!("  🛑 Sending KILL {} to MSSQL", spid);
+                let kill_pool = pool.clone();
+                tokio::spawn(async move {
+                    match kill_pool.get().await {
+                        Ok(mut kill_conn) => {
+                            let kill_sql = format!("KILL {}", spid);
+                            match kill_conn.simple_query(&kill_sql).await {
+                                Ok(_) => tracing::info!("  ✅ Successfully killed MSSQL query"),
+                                Err(e) => tracing::warn!("  ⚠️  Failed to kill MSSQL query: {}", e),
+                            }
+                        }
+                        Err(e) => tracing::warn!("  ⚠️  Failed to get kill connection: {}", e),
+                    }
+                });
+            }
+            let _ = metadata_channel.send(StreamMessage::Interrupted {
+                resumable: false,
+                message: "Query cancelled by user".to_string(),
+            });
+            return Err("Query cancelled by user".to_string());
+        }
+    };
+
+    let result = capability_result_to_query_result(cap_result);
+    let query_elapsed = start_time.elapsed().as_millis();
+    tracing::info!(
+        "  ⏱ MSSQL query execution: {}ms, {} rows",
+        query_elapsed,
+        result.rows.len()
+    );
+
+    send_query_results(&result, start_time, query_elapsed, metadata_channel, data_channel)
 }
 
 /// SQLite-specific query execution using the adapter's query() method
@@ -434,8 +706,8 @@ async fn execute_sqlite_query(
     // Convert rows to the expected format (Vec<Vec<Value>>)
     let rows_data: Vec<Vec<serde_json::Value>> = result.rows.into_iter().collect();
 
-    let msgpack_bytes = rmp_serde::to_vec(&rows_data)
-        .map_err(|e| format!("MessagePack encoding failed: {}", e))?;
+    let msgpack_bytes =
+        rmp_serde::to_vec(&rows_data).map_err(|e| format!("MessagePack encoding failed: {}", e))?;
 
     let encode_elapsed = encode_start.elapsed().as_millis();
 
@@ -706,7 +978,9 @@ async fn execute_postgres_stream(
                         if let Ok(cancel_conn) = cancel_pool.get().await {
                             let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
                             match cancel_conn.execute(&cancel_sql, &[]).await {
-                                Ok(_) => tracing::info!("  ✅ Successfully cancelled backend query"),
+                                Ok(_) => {
+                                    tracing::info!("  ✅ Successfully cancelled backend query")
+                                }
                                 Err(e) => tracing::warn!("  ⚠️  Failed to cancel backend: {}", e),
                             }
                         }
@@ -833,7 +1107,9 @@ async fn execute_postgres_stream(
                         if let Ok(cancel_conn) = cancel_pool.get().await {
                             let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
                             match cancel_conn.execute(&cancel_sql, &[]).await {
-                                Ok(_) => tracing::info!("  ✅ Successfully cancelled backend query"),
+                                Ok(_) => {
+                                    tracing::info!("  ✅ Successfully cancelled backend query")
+                                }
                                 Err(e) => tracing::warn!("  ⚠️  Failed to cancel backend: {}", e),
                             }
                         }
@@ -880,9 +1156,7 @@ async fn execute_postgres_stream(
         send_time_ms,
         send_count
     );
-    tracing::info!(
-        "  └─ Batch sizes: 16→64→256→1024→2048 (progressive) | Format: direct msgpack"
-    );
+    tracing::info!("  └─ Batch sizes: 16→64→256→1024→2048 (progressive) | Format: direct msgpack");
     tracing::info!("==========================================");
 
     // CRITICAL: Check if channel was closed before sending success
@@ -984,14 +1258,17 @@ pub async fn execute_query(
     // Route based on database type
     // SQLite uses the adapter's query() method, PostgreSQL uses streaming
     match conn.profile.db_type {
-        crate::types::DbType::SQLite => {
-            tokio::time::timeout(
-                timeout_duration,
-                execute_sqlite_query(&sql, &metadata_channel, &data_channel, &conn),
+        crate::types::DbType::SQLite => tokio::time::timeout(
+            timeout_duration,
+            execute_sqlite_query(&sql, &metadata_channel, &data_channel, &conn),
+        )
+        .await
+        .map_err(|_| {
+            format!(
+                "Query timed out after {} seconds",
+                timeout_duration.as_secs()
             )
-            .await
-            .map_err(|_| format!("Query timed out after {} seconds", timeout_duration.as_secs()))?
-        }
+        })?,
         _ => {
             // PostgreSQL and other databases use the streaming path
             tokio::time::timeout(
@@ -999,7 +1276,12 @@ pub async fn execute_query(
                 execute_single_fetch_stream(&sql, &metadata_channel, &data_channel, &conn),
             )
             .await
-            .map_err(|_| format!("Query timed out after {} seconds", timeout_duration.as_secs()))?
+            .map_err(|_| {
+                format!(
+                    "Query timed out after {} seconds",
+                    timeout_duration.as_secs()
+                )
+            })?
         }
     }
 }

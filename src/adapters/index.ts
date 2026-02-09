@@ -73,6 +73,7 @@ export function isSqlParadigm(dbType: DbType): boolean {
 }
 
 const adapterCache = new Map<string, BaseAdapter>();
+const pendingAdapters = new Map<string, Promise<BaseAdapter>>();
 
 /**
  * Get adapter for any database type (SQL, Document, or KeyValue)
@@ -87,9 +88,28 @@ export async function getAdapter(
     return cached;
   }
 
-  let adapter: BaseAdapter;
+  // Deduplicate concurrent calls for the same connection
+  const pending = pendingAdapters.get(connectionId);
+  if (pending) {
+    return pending;
+  }
 
-  // Route based on paradigm
+  const promise = createAdapter(connectionId, dbType);
+  pendingAdapters.set(connectionId, promise);
+
+  try {
+    const adapter = await promise;
+    adapterCache.set(connectionId, adapter);
+    return adapter;
+  } finally {
+    pendingAdapters.delete(connectionId);
+  }
+}
+
+async function createAdapter(
+  connectionId: string,
+  dbType: DbType
+): Promise<BaseAdapter> {
   const paradigm = getParadigm(dbType);
   switch (paradigm) {
     case 'sql': {
@@ -98,23 +118,15 @@ export async function getAdapter(
         throw new Error(`Unsupported SQL database type: ${dbType}`);
       }
       const AdapterClass = await adapterLoader();
-      adapter = new AdapterClass(connectionId);
-      break;
+      return new AdapterClass(connectionId);
     }
-    case 'document': {
-      adapter = new MongoDBAdapter(connectionId);
-      break;
-    }
-    case 'keyvalue': {
-      adapter = new RedisAdapter(connectionId);
-      break;
-    }
+    case 'document':
+      return new MongoDBAdapter(connectionId);
+    case 'keyvalue':
+      return new RedisAdapter(connectionId);
     default:
       throw new Error(`Unsupported database paradigm for type: ${dbType}`);
   }
-
-  adapterCache.set(connectionId, adapter);
-  return adapter;
 }
 
 /**
@@ -195,6 +207,7 @@ export function getSqlAdapterSync(connectionId: string): DatabaseAdapter {
  */
 export function clearAdapter(connectionId: string): void {
   adapterCache.delete(connectionId);
+  pendingAdapters.delete(connectionId);
 }
 
 /**
@@ -202,6 +215,7 @@ export function clearAdapter(connectionId: string): void {
  */
 export function clearAllAdapters(): void {
   adapterCache.clear();
+  pendingAdapters.clear();
 }
 
 // Re-export types

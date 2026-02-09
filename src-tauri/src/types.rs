@@ -67,8 +67,11 @@ impl DbType {
     /// Get the database paradigm for this database type
     pub fn paradigm(&self) -> DatabaseParadigm {
         match self {
-            DbType::PostgreSQL | DbType::MySQL | DbType::MariaDB | 
-            DbType::SQLite | DbType::SQLServer => DatabaseParadigm::Sql,
+            DbType::PostgreSQL
+            | DbType::MySQL
+            | DbType::MariaDB
+            | DbType::SQLite
+            | DbType::SQLServer => DatabaseParadigm::Sql,
             DbType::MongoDB => DatabaseParadigm::Document,
             DbType::Redis => DatabaseParadigm::KeyValue,
         }

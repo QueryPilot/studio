@@ -78,7 +78,11 @@ impl SimpleConverter {
                     return JsonValue::String(v.to_string());
                 }
                 // Decimal - convert to string
-                if let Some(v) = row.try_get::<tiberius::numeric::Numeric, _>(i).ok().flatten() {
+                if let Some(v) = row
+                    .try_get::<tiberius::numeric::Numeric, _>(i)
+                    .ok()
+                    .flatten()
+                {
                     return JsonValue::String(v.to_string());
                 }
                 // XML
@@ -98,10 +102,16 @@ impl SimpleConverter {
                 }
 
                 // Non-null value that couldn't be converted - return type placeholder
-                let col_type = row.columns().get(i).map(|c| {
-                    format!("{:?}", c.column_type())
-                }).unwrap_or_else(|| "unknown".to_string());
-                tracing::warn!("SimpleConverter: MSSQL column {} type {} could not be converted", i, col_type);
+                let col_type = row
+                    .columns()
+                    .get(i)
+                    .map(|c| format!("{:?}", c.column_type()))
+                    .unwrap_or_else(|| "unknown".to_string());
+                tracing::warn!(
+                    "SimpleConverter: MSSQL column {} type {} could not be converted",
+                    i,
+                    col_type
+                );
                 JsonValue::String(format!("<{}>", col_type.to_lowercase()))
             })
             .collect()

@@ -65,4 +65,3 @@ mod tests {
         let _converter = SimpleConverter;
     }
 }
-

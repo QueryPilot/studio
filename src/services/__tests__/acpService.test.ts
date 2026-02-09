@@ -169,6 +169,10 @@ describe("AcpService", () => {
   describe("sendPrompt", () => {
     it("should send prompt and return session ID", async () => {
       setupAcpMocks((cmd, args) => {
+        if (cmd === "acp_get_session_id") {
+          expect(args?.instanceId).toBe("instance-123");
+          return "session-789";
+        }
         if (cmd === "acp_send_prompt") {
           expect(args?.instanceId).toBe("instance-123");
           expect(args?.prompt).toBe("Hello, agent!");
@@ -189,6 +193,9 @@ describe("AcpService", () => {
       const contextJson = JSON.stringify({ tables: ["users", "posts"] });
 
       setupAcpMocks((cmd, args) => {
+        if (cmd === "acp_get_session_id") {
+          return "session-789";
+        }
         if (cmd === "acp_send_prompt") {
           expect(args?.contextJson).toBe(contextJson);
           return "session-789";
@@ -206,9 +213,11 @@ describe("AcpService", () => {
     });
 
     it("should call onChunk callback for AgentMessageChunk events", async () => {
-      setupAcpMocks((cmd) =>
-        cmd === "acp_send_prompt" ? "session-stream-1" : null
-      );
+      setupAcpMocks((cmd) => {
+        if (cmd === "acp_get_session_id") return "session-stream-1";
+        if (cmd === "acp_send_prompt") return "session-stream-1";
+        return null;
+      });
 
       const onChunk = vi.fn();
 
@@ -236,9 +245,11 @@ describe("AcpService", () => {
     });
 
     it("should call onThinking callback for AgentThoughtChunk events", async () => {
-      setupAcpMocks((cmd) =>
-        cmd === "acp_send_prompt" ? "session-stream-2" : null
-      );
+      setupAcpMocks((cmd) => {
+        if (cmd === "acp_get_session_id") return "session-stream-2";
+        if (cmd === "acp_send_prompt") return "session-stream-2";
+        return null;
+      });
 
       const onThinking = vi.fn();
 
@@ -266,9 +277,11 @@ describe("AcpService", () => {
     });
 
     it("should call onToolCall callback for ToolCall events", async () => {
-      setupAcpMocks((cmd) =>
-        cmd === "acp_send_prompt" ? "session-stream-3" : null
-      );
+      setupAcpMocks((cmd) => {
+        if (cmd === "acp_get_session_id") return "session-stream-3";
+        if (cmd === "acp_send_prompt") return "session-stream-3";
+        return null;
+      });
 
       const onToolCall = vi.fn();
 
@@ -303,9 +316,11 @@ describe("AcpService", () => {
     });
 
     it("should call onComplete callback and cleanup on Complete event", async () => {
-      setupAcpMocks((cmd) =>
-        cmd === "acp_send_prompt" ? "session-stream-4" : null
-      );
+      setupAcpMocks((cmd) => {
+        if (cmd === "acp_get_session_id") return "session-stream-4";
+        if (cmd === "acp_send_prompt") return "session-stream-4";
+        return null;
+      });
 
       const onComplete = vi.fn();
 
@@ -329,6 +344,9 @@ describe("AcpService", () => {
 
     it("should call onError callback when prompt fails", async () => {
       setupAcpMocks((cmd) => {
+        if (cmd === "acp_get_session_id") {
+          return "session-error-1";
+        }
         if (cmd === "acp_send_prompt") {
           throw new Error("Network error");
         }
@@ -347,9 +365,11 @@ describe("AcpService", () => {
 
   describe("stopListening", () => {
     it("should stop listening for session events", async () => {
-      setupAcpMocks((cmd) =>
-        cmd === "acp_send_prompt" ? "session-stop-1" : null
-      );
+      setupAcpMocks((cmd) => {
+        if (cmd === "acp_get_session_id") return "session-stop-1";
+        if (cmd === "acp_send_prompt") return "session-stop-1";
+        return null;
+      });
 
       const onChunk = vi.fn();
 
@@ -383,9 +403,9 @@ describe("AcpService", () => {
 
     it("should not error when stopping non-existent listener", () => {
       // Should not throw
-      expect(() =>
-        AcpService.stopListening("nonexistent-session")
-      ).not.toThrow();
+      expect(() => {
+        AcpService.stopListening("nonexistent-session");
+      }).not.toThrow();
     });
   });
 
@@ -420,9 +440,11 @@ describe("AcpService", () => {
 
   describe("edge cases", () => {
     it("should handle content blocks without text", async () => {
-      setupAcpMocks((cmd) =>
-        cmd === "acp_send_prompt" ? "session-edge-1" : null
-      );
+      setupAcpMocks((cmd) => {
+        if (cmd === "acp_get_session_id") return "session-edge-1";
+        if (cmd === "acp_send_prompt") return "session-edge-1";
+        return null;
+      });
 
       const onChunk = vi.fn();
 
@@ -451,9 +473,11 @@ describe("AcpService", () => {
     });
 
     it("should handle empty content array", async () => {
-      setupAcpMocks((cmd) =>
-        cmd === "acp_send_prompt" ? "session-edge-2" : null
-      );
+      setupAcpMocks((cmd) => {
+        if (cmd === "acp_get_session_id") return "session-edge-2";
+        if (cmd === "acp_send_prompt") return "session-edge-2";
+        return null;
+      });
 
       const onChunk = vi.fn();
 
@@ -481,9 +505,11 @@ describe("AcpService", () => {
     });
 
     it("should handle tool call with undefined input", async () => {
-      setupAcpMocks((cmd) =>
-        cmd === "acp_send_prompt" ? "session-edge-3" : null
-      );
+      setupAcpMocks((cmd) => {
+        if (cmd === "acp_get_session_id") return "session-edge-3";
+        if (cmd === "acp_send_prompt") return "session-edge-3";
+        return null;
+      });
 
       const onToolCall = vi.fn();
 

@@ -52,7 +52,7 @@ const DIALECT_OPTIONS: Array<{
 
 interface QueryToolbarProps {
   isExecuting: boolean;
-  query: string;
+  hasQuery: boolean;
   showResults: boolean;
   showOutline?: boolean;
   viewMode: "table" | "json" | "explain" | "raw" | "stats";
@@ -77,7 +77,7 @@ interface QueryToolbarProps {
 
 export const QueryToolbar = memo(function QueryToolbar({
   isExecuting,
-  query,
+  hasQuery,
   showResults,
   showOutline = false,
   viewMode,
@@ -241,7 +241,7 @@ export const QueryToolbar = memo(function QueryToolbar({
             size="sm"
             variant="ghost"
             onClick={onBeautify}
-            disabled={isExecuting || !query.trim()}
+            disabled={isExecuting || !hasQuery}
             className="!h-6 text-xs gap-1 hidden @[500px]/toolbar:flex !px-2"
             title="Format SQL (⌥F)"
           >
@@ -305,7 +305,7 @@ export const QueryToolbar = memo(function QueryToolbar({
               {/* Format */}
               <DropdownMenuItem
                 onClick={onBeautify}
-                disabled={isExecuting || !query.trim()}
+                disabled={isExecuting || !hasQuery}
                 className="text-xs"
               >
                 <IconWand className="h-3 w-3 mr-2" />
@@ -319,7 +319,7 @@ export const QueryToolbar = memo(function QueryToolbar({
             size="sm"
             variant="outline"
             onClick={onExplain}
-            disabled={isExecuting || !query.trim()}
+            disabled={isExecuting || !hasQuery}
             className="!h-6 text-xs gap-1 !px-2 hidden @[500px]/toolbar:flex"
             title="Run EXPLAIN ANALYZE"
           >
@@ -332,7 +332,7 @@ export const QueryToolbar = memo(function QueryToolbar({
             size="sm"
             variant={isExecuting ? "destructive" : "default"}
             onClick={isExecuting ? onCancel : onExecute}
-            disabled={!query.trim() && !isExecuting}
+            disabled={!hasQuery && !isExecuting}
             className="!h-6 text-xs gap-1 !px-2.5"
             title={
               isExecuting

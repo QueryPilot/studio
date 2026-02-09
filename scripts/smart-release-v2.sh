@@ -29,18 +29,28 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$ROOT_DIR"
 
-# Check if codex is installed
-if ! command -v codex &> /dev/null; then
-    echo -e "${RED}❌ Error: codex CLI not found${NC}"
+# Check if codex or claude is installed
+AI_CLI=""
+AI_EXEC=""
+if command -v codex &> /dev/null; then
+    AI_CLI="codex"
+    AI_EXEC="codex exec"
+elif command -v claude &> /dev/null; then
+    AI_CLI="claude"
+    AI_EXEC="claude -p"
+else
+    echo -e "${RED}❌ Error: Neither codex nor claude CLI found${NC}"
     echo ""
-    echo "Install codex from: https://github.com/openai/codex"
-    echo "Or install via npm: npm install -g @openai/codex-cli"
+    echo "Install one of:"
+    echo "  - Codex: npm install -g @openai/codex-cli"
+    echo "  - Claude: See https://docs.anthropic.com/claude-code"
     echo ""
     echo -e "${YELLOW}Fallback: Use manual release instead:${NC}"
     echo "  make version VERSION=1.2.3"
-    echo "  make release VERSION=1.2.3"
+    echo "  make release-manual VERSION=1.2.3"
     exit 1
 fi
+echo -e "${BLUE}Using AI CLI: ${NC}$AI_CLI"
 
 # Note: gh CLI not required - this script uses git directly
 
@@ -65,9 +75,10 @@ fi
 echo -e "${BLUE}🧪 Running tests before release...${NC}"
 echo ""
 
-# Build AI sidecar first (required for some tests)
-echo "Building AI sidecar..."
-bash scripts/build-ai-sidecar.sh >/dev/null 2>&1 || { echo -e "${RED}❌ Failed to build AI sidecar${NC}"; exit 1; }
+# Build MCP sidecar first (required by externalBin)
+echo "Building MCP sidecar..."
+cargo build --release --package querypilot-mcp 2>&1 || { echo -e "${RED}❌ Failed to build MCP sidecar${NC}"; exit 1; }
+echo -e "${GREEN}✓${NC} MCP sidecar built"
 
 # Run Rust backend tests
 echo "Running Rust backend tests..."
@@ -157,7 +168,7 @@ $(git status --short)
 $(git diff --stat $COMMIT_RANGE 2>/dev/null || echo "First release")
 EOF
 
-echo -e "${BLUE}🤖 Asking Codex to analyze commits and suggest next version...${NC}"
+echo -e "${BLUE}🤖 Asking $AI_CLI to analyze commits and suggest next version...${NC}"
 echo ""
 
 # Use Codex to determine next version
@@ -180,14 +191,20 @@ Look for conventional commit prefixes:
 Based on the commits, respond with ONLY the next version number (e.g., 1.2.0).
 No explanation, just the version number."
 
-# Get version from Codex
-NEXT_VERSION=$(codex exec "$(cat $CONTEXT_FILE)
+# Get version from AI CLI
+if [ "$AI_CLI" = "codex" ]; then
+    NEXT_VERSION=$(codex exec "$(cat $CONTEXT_FILE)
 
 $VERSION_PROMPT" 2>/dev/null | tail -1 | tr -d '[:space:]' | sed 's/^v//')
+else
+    NEXT_VERSION=$(echo "$(cat $CONTEXT_FILE)
+
+$VERSION_PROMPT" | claude -p 2>/dev/null | tail -1 | tr -d '[:space:]' | sed 's/^v//')
+fi
 
 # Validate version format
 if ! echo "$NEXT_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
-    echo -e "${RED}❌ Codex returned invalid version: $NEXT_VERSION${NC}"
+    echo -e "${RED}❌ AI returned invalid version: $NEXT_VERSION${NC}"
     echo ""
     read -p "Enter version manually (e.g., 1.2.0): " MANUAL_VERSION
     NEXT_VERSION="$MANUAL_VERSION"
@@ -205,7 +222,7 @@ if [[ $REPLY =~ ^[Nn]$ ]]; then
 fi
 
 echo ""
-echo -e "${BLUE}🤖 Generating professional, user-friendly changelog...${NC}"
+echo -e "${BLUE}🤖 Asking $AI_CLI to generate professional changelog...${NC}"
 echo ""
 
 # Enhanced changelog prompt for better human-readable output
@@ -262,9 +279,15 @@ Example tone:
 Output ONLY the changelog entry, starting with ## [$NEXT_VERSION]"
 
 # Generate changelog
-NEW_CHANGELOG=$(codex exec "$(cat $CONTEXT_FILE)
+if [ "$AI_CLI" = "codex" ]; then
+    NEW_CHANGELOG=$(codex exec "$(cat $CONTEXT_FILE)
 
 $CHANGELOG_PROMPT" 2>/dev/null)
+else
+    NEW_CHANGELOG=$(echo "$(cat $CONTEXT_FILE)
+
+$CHANGELOG_PROMPT" | claude -p 2>/dev/null)
+fi
 
 echo -e "${GREEN}✓ Generated changelog:${NC}"
 echo ""
