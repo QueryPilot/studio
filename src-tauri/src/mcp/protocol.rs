@@ -138,7 +138,8 @@ mod tests {
 
     #[test]
     fn test_serialize_error_response() {
-        let resp = JsonRpcResponse::error("req-1".to_string(), -32600, "Invalid request".to_string());
+        let resp =
+            JsonRpcResponse::error("req-1".to_string(), -32600, "Invalid request".to_string());
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"id\":\"req-1\""));
         assert!(json.contains("\"error\""));

@@ -20,7 +20,7 @@ import {
   useCallback,
   memo,
 } from "react";
-import { EditorState, Prec } from "@codemirror/state";
+import { EditorState, Prec, Transaction } from "@codemirror/state";
 import {
   EditorView,
   keymap,
@@ -30,6 +30,7 @@ import {
   placeholder as placeholderExt,
   scrollPastEnd,
   tooltips,
+  closeHoverTooltips,
 } from "@codemirror/view";
 import {
   defaultKeymap,
@@ -83,11 +84,8 @@ import {
   formatEditorContent,
 } from "./extensions/formatter";
 import { createGotoDefinitionExtension } from "./extensions/goto-definition";
-import { createSemanticHighlightingExtension } from "./extensions/semantic-highlighting";
-import { createStatementHighlightExtension } from "./extensions/statement-highlight";
 import { createRunGutterExtension } from "./extensions/run-gutter";
 import { createRefactoringExtension } from "./extensions/sql-refactoring";
-import { createScrollbarMarkersExtension } from "./extensions/scrollbar-markers";
 import { createFormatOnPasteExtension } from "./extensions/format-on-paste";
 import { createQueryHistoryNavExtension } from "./extensions/query-history-navigation";
 import { ExtractCteDialog } from "./components/ExtractCteDialog";
@@ -290,10 +288,13 @@ export const SqlEditor = memo(
         dialectOverride,
         onDialectDetected,
       });
+    const docValueRef = useRef(initialDoc);
+    const hasLocalEditsSinceFocusRef = useRef(false);
 
     // --- Effects hook: onChange, execute, event bus ---
     const {
       onGotoDefinitionRef,
+      lastEmittedValueRef,
       debouncedOnChange,
       executeQuery,
       executeKeymap,
@@ -314,12 +315,29 @@ export const SqlEditor = memo(
       if (value === undefined) return;
 
       const currentValue = view.state.doc.toString();
-      if (value !== currentValue) {
-        view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: value },
-        });
+      if (value === currentValue) {
+        docValueRef.current = value;
+        return;
       }
-    }, [value]);
+
+      // Ignore stale controlled write-backs while this focused editor has local edits.
+      // This prevents char reverts and cursor jumps from delayed state echoes.
+      if (view.hasFocus && hasLocalEditsSinceFocusRef.current) {
+        if (value === lastEmittedValueRef.current) {
+          return;
+        }
+        return;
+      }
+
+      const selectionAnchor = view.state.selection.main.head;
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: value },
+        ...(view.hasFocus
+          ? { selection: { anchor: Math.min(selectionAnchor, value.length) } }
+          : {}),
+      });
+      docValueRef.current = value;
+    }, [value, lastEmittedValueRef]);
 
     // Stable reference for schema
     const defaultSchema = schema || getFallbackSchema(dbType, database);
@@ -394,7 +412,6 @@ export const SqlEditor = memo(
       const provider = createSqlMetadataProvider(connectionId, defaultSchema);
       return [
         sqlLang,
-        tooltips({ parent: document.body }),
         autocompletion({
           activateOnTyping: true,
           activateOnTypingDelay: 150,
@@ -493,16 +510,21 @@ export const SqlEditor = memo(
       preInitSqlWorkers();
 
       const actualTheme = resolvedTheme === "dark" ? "dark" : "light";
+      const tooltipParent = containerRef.current.ownerDocument.body;
 
       // Update listener - uses RAF to avoid blocking cursor rendering
+      let rafId: number | null = null;
       let pendingUpdate: EditorView | null = null;
       const flushUpdate = () => {
-        if (pendingUpdate) {
-          const val = pendingUpdate.state.doc.toString();
-          debouncedOnChange(val);
-          detectDialect(val);
-          pendingUpdate = null;
-        }
+        rafId = null;
+        const pending = pendingUpdate;
+        if (!pending) return;
+
+        const val = pending.state.doc.toString();
+        docValueRef.current = val;
+        debouncedOnChange(val);
+        detectDialect(val);
+        pendingUpdate = null;
       };
 
       const updateListener = EditorView.updateListener.of((update) => {
@@ -514,8 +536,11 @@ export const SqlEditor = memo(
         }
 
         if (update.docChanged) {
+          hasLocalEditsSinceFocusRef.current = true;
           pendingUpdate = update.view;
-          requestAnimationFrame(flushUpdate);
+          if (rafId === null) {
+            rafId = requestAnimationFrame(flushUpdate);
+          }
         }
       });
 
@@ -523,6 +548,8 @@ export const SqlEditor = memo(
         doc: initialDoc,
         extensions: [
           baseTheme,
+          // Render tooltips in document.body to avoid clipping by panel containers.
+          tooltips({ parent: tooltipParent, position: "fixed" }),
           history(),
           bracketMatching(),
           closeBrackets(),
@@ -586,7 +613,6 @@ export const SqlEditor = memo(
           createParameterHintsExtension(),
           createFormatterExtension(effectiveDialect),
           createGotoDefinitionExtension(),
-          createSemanticHighlightingExtension(),
 
           createRefactoringExtension({
             dialect: effectiveDialect,
@@ -596,8 +622,6 @@ export const SqlEditor = memo(
             },
           }),
 
-          createStatementHighlightExtension(),
-          createScrollbarMarkersExtension(),
           createFormatOnPasteExtension(effectiveDialect),
 
           createQueryHistoryNavExtension({
@@ -625,6 +649,7 @@ export const SqlEditor = memo(
       });
 
       viewRef.current = view;
+      docValueRef.current = view.state.doc.toString();
 
       // Listen for goto-definition events
       const handleGotoDefinition = (event: Event) => {
@@ -638,13 +663,44 @@ export const SqlEditor = memo(
       };
       view.dom.addEventListener("goto-definition", handleGotoDefinition);
 
+      // Close hover/lint tooltips when clicking outside editor and tooltip surfaces.
+      const ownerDocument = containerRef.current.ownerDocument;
+      const handleOutsidePointerDown = (event: PointerEvent) => {
+        const target = event.target as Element | null;
+        if (!target) return;
+        const tooltipTarget = target.closest(".cm-tooltip");
+
+        // Keep lint tooltip interactive so users can select/copy diagnostic text.
+        if (tooltipTarget?.classList.contains("cm-tooltip-lint")) return;
+
+        // Dismiss hover/lint popups on editor clicks, cursor moves, and outside clicks.
+        view.dispatch({
+          annotations: Transaction.userEvent.of("select.pointer"),
+          effects: closeHoverTooltips,
+        });
+      };
+      ownerDocument.addEventListener(
+        "pointerdown",
+        handleOutsidePointerDown,
+        true,
+      );
+
       // Track focus state for keyboard shortcuts
       const handleFocus = () => {
+        hasLocalEditsSinceFocusRef.current = false;
         contextServiceRef.current?.setValue("editorTextFocus", true);
         contextServiceRef.current?.setValue("queryEditor", true);
       };
       const handleBlur = (e: FocusEvent) => {
-        if (!view.dom.contains(e.relatedTarget as Node)) {
+        const relatedTarget = e.relatedTarget as Element | null;
+
+        // Hover/tooltips can briefly receive focus; keep editor context active.
+        if (relatedTarget?.closest(".cm-tooltip")) {
+          return;
+        }
+
+        if (!relatedTarget || !view.dom.contains(relatedTarget)) {
+          hasLocalEditsSinceFocusRef.current = false;
           contextServiceRef.current?.setValue("editorTextFocus", false);
           contextServiceRef.current?.setValue("queryEditor", false);
         }
@@ -659,7 +715,17 @@ export const SqlEditor = memo(
       }
 
       return () => {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        pendingUpdate = null;
         view.dom.removeEventListener("goto-definition", handleGotoDefinition);
+        ownerDocument.removeEventListener(
+          "pointerdown",
+          handleOutsidePointerDown,
+          true,
+        );
         view.dom.removeEventListener("focusin", handleFocus);
         view.dom.removeEventListener("focusout", handleBlur);
         contextServiceRef.current?.setValue("editorTextFocus", false);

@@ -167,9 +167,7 @@ async fn test_mysql_execute() {
 
     // Use a simple SELECT statement to test execute
     // (Temporary tables in MySQL require different handling)
-    let result = adapter
-        .execute("SELECT 1")
-        .await;
+    let result = adapter.execute("SELECT 1").await;
     assert!(result.is_ok(), "Execute failed: {:?}", result.err());
 
     adapter.disconnect().await.unwrap();
@@ -234,13 +232,12 @@ async fn test_mysql_advanced_types() {
 
     // UUID (returns string)
     assert!(!json_str(&row[1]).is_empty());
-    
+
     // Bit usually returns integer or binary string
     assert!(!row[2].is_null());
-    
+
     // String func
     assert_eq!(json_str(&row[3]), "ab");
 
     adapter.disconnect().await.unwrap();
 }
-

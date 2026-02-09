@@ -75,27 +75,10 @@ export function formatTableName(
 /**
  * Escape a string for SQL (double single quotes)
  */
-export function escapeString(value: string, dbType: DbType | string): string {
-  const type = toDbType(dbType);
-
-  switch (type) {
-    case DbType.MySQL:
-      // MySQL uses backslash escaping by default
-      return value
-        .replace(/\\/g, '\\\\')
-        .replace(/'/g, "\\'")
-        .replace(/"/g, '\\"')
-        .replace(/\n/g, '\\n')
-        .replace(/\r/g, '\\r')
-        .replace(/\0/g, '\\0')
-        .replace(/\x1a/g, '\\Z');
-    case DbType.PostgreSQL:
-    case DbType.SQLite:
-    case DbType.SQLServer:
-    default:
-      // Standard SQL: double single quotes
-      return value.replace(/'/g, "''");
-  }
+export function escapeString(value: string, _dbType?: DbType | string): string {
+  // Standard SQL escaping: double single quotes
+  // Works correctly in all sql_modes including MySQL's NO_BACKSLASH_ESCAPES
+  return value.replace(/'/g, "''");
 }
 
 /**
@@ -349,12 +332,14 @@ function groupToSql(
 function qualifyRawWhereClause(
   clause: string,
   columnPrefix: string,
-  columnNames: string[]
+  columnNames: string[],
+  dbType?: DbType
 ): string {
   const prefix = `${columnPrefix}.`;
   const columnSet = new Set(columnNames);
   const columnLowerSet = new Set(columnNames.map((name) => name.toLowerCase()));
   const isWhitespace = (char: string) => /\s/.test(char);
+  const isMySQL = dbType === DbType.MySQL;
 
   const findPrevNonWhitespace = (fromIndex: number) => {
     for (let i = fromIndex; i >= 0; i--) {
@@ -424,8 +409,39 @@ function qualifyRawWhereClause(
       continue;
     }
 
+    // PostgreSQL dollar-quoted strings: $tag$...$tag$ or $$...$$
+    if (!inSingleQuote && char === '$') {
+      // Try to match a dollar-quote tag: $ optionally followed by identifier chars then $
+      let tagEnd = i + 1;
+      while (tagEnd < clause.length && isIdentifierPart(clause.charAt(tagEnd))) {
+        tagEnd++;
+      }
+      if (tagEnd < clause.length && clause.charAt(tagEnd) === '$') {
+        const tag = clause.slice(i, tagEnd + 1); // e.g. "$$" or "$tag$"
+        result += tag;
+        i = tagEnd + 1;
+        // Consume everything until the closing tag
+        const closeIdx = clause.indexOf(tag, i);
+        if (closeIdx !== -1) {
+          result += clause.slice(i, closeIdx + tag.length);
+          i = closeIdx + tag.length;
+        } else {
+          // No closing tag found — emit the rest as-is
+          result += clause.slice(i);
+          i = clause.length;
+        }
+        continue;
+      }
+    }
+
     if (inSingleQuote) {
       result += char;
+      // MySQL backslash escaping: \' keeps the string open
+      if (isMySQL && char === '\\' && nextChar) {
+        result += nextChar;
+        i += 2;
+        continue;
+      }
       if (char === "'" && nextChar === "'") {
         result += nextChar;
         i += 2;
@@ -554,7 +570,8 @@ export function filterConfigToWhereClause(
       return qualifyRawWhereClause(
         filter.rawWhereClause,
         columnPrefix,
-        columnNames
+        columnNames,
+        toDbType(dbType)
       );
     }
     return filter.rawWhereClause;

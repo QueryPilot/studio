@@ -134,11 +134,13 @@ export const aiCommands: Command[] = [
 
       // For generate SQL, we just open the panel and emit an event
       // The AI panel can listen for this to show a specific prompt or UI
-      eventBus.emit("ai:generate-sql", {
-        connectionId: context?.connectionId,
-        database: context?.database,
-        schema: context?.schema,
-      });
+      setTimeout(() => {
+        eventBus.emit("ai:generate-sql", {
+          connectionId: context?.connectionId,
+          database: context?.database,
+          schema: context?.schema,
+        });
+      }, 0);
     },
   },
   {

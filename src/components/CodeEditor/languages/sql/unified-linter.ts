@@ -94,10 +94,14 @@ async function lintWithRust(
 }
 
 export function createUnifiedLinter(config: UnifiedLinterConfig): Extension {
+  let lastSql = "";
+  let lastDiagnostics: Diagnostic[] = [];
+
   return linter(
     async (view: EditorView): Promise<Diagnostic[]> => {
       const sql = view.state.doc.toString();
       if (!sql.trim()) return [];
+      if (sql === lastSql) return lastDiagnostics;
 
       try {
         const diagnostics = await lintWithRust(
@@ -107,10 +111,14 @@ export function createUnifiedLinter(config: UnifiedLinterConfig): Extension {
           config.schema,
         );
 
-        return diagnostics.map((d) => {
+        const mappedDiagnostics = diagnostics.map((d) => {
+          const from = Math.max(0, Math.min(sql.length, d.from));
+          const rawTo = Math.max(0, Math.min(sql.length, d.to));
+          const to = rawTo > from ? rawTo : Math.min(sql.length, from + 1);
+
           const diagnostic: Diagnostic = {
-            from: Math.max(0, d.from),
-            to: Math.min(sql.length, d.to),
+            from,
+            to,
             severity: d.severity,
             message: d.message,
             source: `sql-${d.source}`,
@@ -124,14 +132,27 @@ export function createUnifiedLinter(config: UnifiedLinterConfig): Extension {
               }
             : diagnostic;
         });
+
+        lastSql = sql;
+        lastDiagnostics = mappedDiagnostics;
+        return mappedDiagnostics;
       } catch (error) {
         console.error("[unified-linter] Rust validation failed:", error);
         return [];
       }
     },
     {
-      delay: config.delay ?? 1000, // Increased from 500ms to reduce lag
+      delay: config.delay ?? 1200, // Longer debounce reduces typing stalls.
       needsRefresh: () => false, // Don't auto-refresh on viewport changes
+      // Dismiss lint hover popup when cursor/selection moves (click, arrows, etc.).
+      // This keeps popup lifecycle predictable while typing and navigating.
+      hideOn: (tr) => {
+        if (tr.selection) return true;
+        if (tr.docChanged) return true;
+        if (tr.isUserEvent("select.pointer")) return true;
+        if (tr.isUserEvent("select")) return true;
+        return null;
+      },
     },
   );
 }

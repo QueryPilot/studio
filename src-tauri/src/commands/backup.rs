@@ -129,10 +129,12 @@ pub async fn get_backup_capability(
         .await
         .map_err(|e| e.to_string())?;
 
-    let backup_adapter = conn
-        .adapter
-        .as_backup()
-        .ok_or_else(|| format!("Connection '{}' does not support backup/restore", profile.name))?;
+    let backup_adapter = conn.adapter.as_backup().ok_or_else(|| {
+        format!(
+            "Connection '{}' does not support backup/restore",
+            profile.name
+        )
+    })?;
 
     Ok(BackupCapabilityInfo {
         tool_requirements: backup_adapter.tool_requirements(),
@@ -212,10 +214,12 @@ pub async fn get_backup_preview(
         .await
         .map_err(|e| e.to_string())?;
 
-    let backup_adapter = conn
-        .adapter
-        .as_backup()
-        .ok_or_else(|| format!("Connection '{}' does not support backup/restore", profile.name))?;
+    let backup_adapter = conn.adapter.as_backup().ok_or_else(|| {
+        format!(
+            "Connection '{}' does not support backup/restore",
+            profile.name
+        )
+    })?;
 
     let path = PathBuf::from(&file_path);
     backup_adapter
@@ -247,10 +251,12 @@ pub async fn start_backup(
         .await
         .map_err(|e| e.to_string())?;
 
-    let backup_adapter = conn
-        .adapter
-        .as_backup()
-        .ok_or_else(|| format!("Connection '{}' does not support backup/restore", profile.name))?;
+    let backup_adapter = conn.adapter.as_backup().ok_or_else(|| {
+        format!(
+            "Connection '{}' does not support backup/restore",
+            profile.name
+        )
+    })?;
 
     // Create an mpsc channel to receive progress from the adapter
     let (tx, mut rx) = mpsc::channel::<BackupProgress>(100);
@@ -297,10 +303,12 @@ pub async fn start_restore(
         .await
         .map_err(|e| e.to_string())?;
 
-    let backup_adapter = conn
-        .adapter
-        .as_backup()
-        .ok_or_else(|| format!("Connection '{}' does not support backup/restore", profile.name))?;
+    let backup_adapter = conn.adapter.as_backup().ok_or_else(|| {
+        format!(
+            "Connection '{}' does not support backup/restore",
+            profile.name
+        )
+    })?;
 
     // Create an mpsc channel to receive progress from the adapter
     let (tx, mut rx) = mpsc::channel::<BackupProgress>(100);
@@ -652,7 +660,9 @@ pub async fn download_tool(
         .find(|d| d.platform == current_platform && d.arch == current_arch)
         .or_else(|| {
             // Fallback: try to find any download for current platform
-            info.downloads.iter().find(|d| d.platform == current_platform)
+            info.downloads
+                .iter()
+                .find(|d| d.platform == current_platform)
         })
         .ok_or_else(|| {
             format!(

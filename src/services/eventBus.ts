@@ -19,6 +19,12 @@ export type KeyboardEventPayload = {
   [key: string]: unknown;
 };
 
+export type AIGenerateSqlPayload = KeyboardEventPayload & {
+  connectionId?: string;
+  database?: string;
+  schema?: string;
+};
+
 type Events = {
   // Data Grid events
   "data-grid:copy": KeyboardEventPayload;
@@ -45,17 +51,16 @@ type Events = {
 
   // AI events
   "ai:explain-query": KeyboardEventPayload;
-  "ai:generate-sql": KeyboardEventPayload;
+  "ai:generate-sql": AIGenerateSqlPayload;
 
   // Sidebar events
   "sidebar:switch-view": { view: "objects" | "queries" };
 
   // Query History events
-  "query-history:focus-search": void;
+  "query-history:focus-search": undefined;
 
   // Query Panel events
   "query-panel:toggle-results": KeyboardEventPayload;
 };
 
 export const eventBus = mitt<Events>();
-

@@ -35,7 +35,10 @@ fn main() {
     let ai_context = Arc::new(ai_context::AiContextStore::new());
 
     // Create and start MCP bridge for AI agent communication
-    let mcp_bridge = Arc::new(mcp::McpBridge::new(manager.clone(), Arc::clone(&ai_context)));
+    let mcp_bridge = Arc::new(mcp::McpBridge::new(
+        manager.clone(),
+        Arc::clone(&ai_context),
+    ));
     let mcp_bridge_for_cleanup = mcp_bridge.clone();
 
     // Start MCP bridge in background
@@ -199,6 +202,7 @@ fn main() {
             acp::commands::acp_start_agent,
             acp::commands::acp_create_session,
             acp::commands::acp_set_session_model,
+            acp::commands::acp_get_session_id,
             acp::commands::acp_send_prompt,
             acp::commands::acp_cancel_session,
             acp::commands::acp_install_package,

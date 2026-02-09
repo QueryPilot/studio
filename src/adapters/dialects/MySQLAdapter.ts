@@ -3,7 +3,7 @@
  *
  * MySQL-specific SQL generation with:
  * - Backtick identifier quoting
- * - Backslash string escaping
+ * - Standard SQL string escaping ('' doubling, safe with NO_BACKSLASH_ESCAPES)
  * - Boolean as 1/0
  * - No RETURNING clause support
  * - DateTime format without timezone
@@ -21,7 +21,6 @@ import { SqlAdapter } from "../base/SqlAdapter";
 import type { ColumnInfo, ObjectDefinitionType, TableRef } from "../types";
 import {
   quoteIdentifier as sharedQuoteIdentifier,
-  escapeString as sharedEscapeString,
 } from "../formatting";
 import { getMySQLFeaturesForConnection } from "@/stores/versionStore";
 import type { MySQLVersionFeatures } from "../utils/versionUtils";
@@ -47,7 +46,7 @@ export class MySQLAdapter extends SqlAdapter {
 
   /**
    * Quote and escape a string value for MySQL
-   * Uses backslash escaping which is MySQL's default behavior
+   * Uses standard SQL '' doubling (works in all sql_modes)
    */
   quoteString(value: string): string {
     return `'${this.escapeString(value)}'`;
@@ -123,13 +122,8 @@ export class MySQLAdapter extends SqlAdapter {
     return false;
   }
 
-  /**
-   * Escape special characters for MySQL string literals
-   * Uses backslash escaping (MySQL's default sql_mode)
-   */
-  protected escapeString(value: string): string {
-    return sharedEscapeString(value, DbType.MySQL);
-  }
+  // escapeString: inherits standard SQL '' doubling from base class
+  // This works in all MySQL sql_modes including NO_BACKSLASH_ESCAPES
 
   // ─────────────────────────────────────────────────────────────────
   // DDL Operations - MySQL syntax

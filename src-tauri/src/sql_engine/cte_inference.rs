@@ -2,9 +2,9 @@
 //!
 //! Infers column types and names from CTE definitions.
 
+use super::parser::ParsedStatement;
 use serde::Serialize;
 use sqlparser::ast::{self, SetExpr, Statement};
-use super::parser::ParsedStatement;
 
 /// Source of an inferred CTE column.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -32,7 +32,10 @@ pub struct InferredCteColumn {
 /// Infer columns from a CTE based on its SELECT query.
 pub fn infer_cte_columns(cte_name: &str, stmt: &ParsedStatement) -> Vec<String> {
     // Find the CTE definition
-    let cte = stmt.ctes.iter().find(|c| c.name.to_lowercase() == cte_name.to_lowercase());
+    let cte = stmt
+        .ctes
+        .iter()
+        .find(|c| c.name.to_lowercase() == cte_name.to_lowercase());
 
     if let Some(cte) = cte {
         if !cte.columns.is_empty() {
@@ -126,9 +129,12 @@ fn analyze_cte_query(query: &ast::Query) -> Vec<InferredCteColumn> {
 
 fn analyze_expr(expr: &ast::Expr) -> (String, CteColumnSource) {
     match expr {
-        ast::Expr::Identifier(ident) => {
-            (ident.value.clone(), CteColumnSource::Alias { name: ident.value.clone() })
-        }
+        ast::Expr::Identifier(ident) => (
+            ident.value.clone(),
+            CteColumnSource::Alias {
+                name: ident.value.clone(),
+            },
+        ),
         ast::Expr::CompoundIdentifier(parts) => {
             let name = parts.last().map(|i| i.value.clone()).unwrap_or_default();
             let table = if parts.len() >= 2 {
@@ -136,7 +142,13 @@ fn analyze_expr(expr: &ast::Expr) -> (String, CteColumnSource) {
             } else {
                 String::new()
             };
-            (name.clone(), CteColumnSource::Table { table, column: name })
+            (
+                name.clone(),
+                CteColumnSource::Table {
+                    table,
+                    column: name,
+                },
+            )
         }
         ast::Expr::Value(val) => {
             let type_str = match val {
@@ -146,7 +158,12 @@ fn analyze_expr(expr: &ast::Expr) -> (String, CteColumnSource) {
                 ast::Value::Null => "null",
                 _ => "unknown",
             };
-            ("?column?".to_string(), CteColumnSource::Literal { value_type: type_str.to_string() })
+            (
+                "?column?".to_string(),
+                CteColumnSource::Literal {
+                    value_type: type_str.to_string(),
+                },
+            )
         }
         ast::Expr::Function(func) => {
             let name = func.name.to_string();
@@ -155,9 +172,7 @@ fn analyze_expr(expr: &ast::Expr) -> (String, CteColumnSource) {
         ast::Expr::BinaryOp { .. } | ast::Expr::UnaryOp { .. } => {
             ("?column?".to_string(), CteColumnSource::Expression)
         }
-        ast::Expr::Case { .. } => {
-            ("?column?".to_string(), CteColumnSource::Expression)
-        }
+        ast::Expr::Case { .. } => ("?column?".to_string(), CteColumnSource::Expression),
         _ => ("?column?".to_string(), CteColumnSource::Unknown),
     }
 }
@@ -169,7 +184,11 @@ mod tests {
     #[test]
     fn test_infer_simple_cte() {
         let sql = "WITH active AS (SELECT id, name FROM users) SELECT * FROM active";
-        let columns = infer_cte_columns_detailed("active", sql, super::super::dialect::SqlDialect::PostgreSQL);
+        let columns = infer_cte_columns_detailed(
+            "active",
+            sql,
+            super::super::dialect::SqlDialect::PostgreSQL,
+        );
 
         assert_eq!(columns.len(), 2);
         assert_eq!(columns[0].name, "id");
@@ -179,7 +198,11 @@ mod tests {
     #[test]
     fn test_infer_cte_with_alias() {
         let sql = "WITH totals AS (SELECT SUM(amount) as total FROM orders) SELECT * FROM totals";
-        let columns = infer_cte_columns_detailed("totals", sql, super::super::dialect::SqlDialect::PostgreSQL);
+        let columns = infer_cte_columns_detailed(
+            "totals",
+            sql,
+            super::super::dialect::SqlDialect::PostgreSQL,
+        );
 
         assert_eq!(columns.len(), 1);
         assert_eq!(columns[0].name, "total");

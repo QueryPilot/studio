@@ -361,15 +361,14 @@ pub async fn mongo_find_documents_stream(
             .enumerate()
             .map(|(i, v)| {
                 bson::to_document(v).map_err(|e| {
-                    format!(
-                        "Failed to convert document at index {} to BSON: {}",
-                        i, e
-                    )
+                    format!("Failed to convert document at index {} to BSON: {}", i, e)
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let encoded = encoder.encode_batch(&bson_docs).map_err(|e| e.to_string())?;
+        let encoded = encoder
+            .encode_batch(&bson_docs)
+            .map_err(|e| e.to_string())?;
 
         data_channel
             .send(tauri::ipc::Response::new(encoded))
@@ -589,7 +588,10 @@ pub async fn document_execute(
             Ok(DocumentResult::Collections(collections))
         }
         DocumentOperation::RunCommand { command } => {
-            let result = adapter.run_command(command).await.map_err(|e| e.to_string())?;
+            let result = adapter
+                .run_command(command)
+                .await
+                .map_err(|e| e.to_string())?;
             Ok(DocumentResult::Command(result))
         }
     }

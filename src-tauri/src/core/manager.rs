@@ -11,10 +11,10 @@ use crate::adapters::mysql::MySqlAdapter;
 use crate::adapters::postgres::PostgresAdapter;
 use crate::adapters::redis::RedisAdapter;
 use crate::adapters::sqlite::SqliteAdapter;
+use crate::core::backup_capability::BackupCapable;
 use crate::core::capabilities::{
     BaseCapability, CapabilityTestResult, DocumentQueryable, RichKeyValueOperable, SqlQueryable,
 };
-use crate::core::backup_capability::BackupCapable;
 use crate::error::{AppError, Result};
 use crate::ssh::secrets::delete_ssh_passphrase;
 use crate::ssh::SshTunnel;
@@ -47,6 +47,8 @@ pub struct UnifiedAdapter {
 
     /// Concrete adapter pointers for adapter-specific access
     postgres: Option<*const PostgresAdapter>,
+    mysql: Option<*const MySqlAdapter>,
+    mssql: Option<*const MssqlAdapter>,
     mongo: Option<*const MongoDbAdapter>,
     redis: Option<*const RedisAdapter>,
 
@@ -73,6 +75,8 @@ impl UnifiedAdapter {
             keyvalue: None,
             backup: Some(backup_ptr),
             postgres: Some(ptr),
+            mysql: None,
+            mssql: None,
             mongo: None,
             redis: None,
             db_type: DbType::PostgreSQL,
@@ -92,6 +96,8 @@ impl UnifiedAdapter {
             keyvalue: None,
             backup: Some(backup_ptr),
             postgres: None,
+            mysql: Some(ptr),
+            mssql: None,
             mongo: None,
             redis: None,
             db_type,
@@ -111,6 +117,8 @@ impl UnifiedAdapter {
             keyvalue: None,
             backup: Some(backup_ptr),
             postgres: None,
+            mysql: None,
+            mssql: None,
             mongo: None,
             redis: None,
             db_type: DbType::SQLite,
@@ -130,6 +138,8 @@ impl UnifiedAdapter {
             keyvalue: None,
             backup: Some(backup_ptr),
             postgres: None,
+            mysql: None,
+            mssql: Some(ptr),
             mongo: None,
             redis: None,
             db_type: DbType::SQLServer,
@@ -149,6 +159,8 @@ impl UnifiedAdapter {
             keyvalue: None,
             backup: Some(backup_ptr),
             postgres: None,
+            mysql: None,
+            mssql: None,
             mongo: Some(ptr),
             redis: None,
             db_type: DbType::MongoDB,
@@ -168,6 +180,8 @@ impl UnifiedAdapter {
             keyvalue: Some(kv_ptr),
             backup: Some(backup_ptr),
             postgres: None,
+            mysql: None,
+            mssql: None,
             mongo: None,
             redis: Some(ptr),
             db_type: DbType::Redis,
@@ -222,6 +236,14 @@ impl UnifiedAdapter {
 
     pub fn as_postgres(&self) -> Option<&PostgresAdapter> {
         self.postgres.map(|p| unsafe { &*p })
+    }
+
+    pub fn as_mysql(&self) -> Option<&MySqlAdapter> {
+        self.mysql.map(|p| unsafe { &*p })
+    }
+
+    pub fn as_mssql(&self) -> Option<&MssqlAdapter> {
+        self.mssql.map(|p| unsafe { &*p })
     }
 
     pub fn as_mongo(&self) -> Option<&MongoDbAdapter> {
@@ -459,11 +481,9 @@ impl ConnectionManager {
 
             // Wait for notification with 120s timeout (uses proper async signaling, not polling)
             let timeout_duration = Duration::from_secs(120);
-            let wait_result = tokio::time::timeout(
-                timeout_duration,
-                self.wait_for_connection_ready(&conn_id),
-            )
-            .await;
+            let wait_result =
+                tokio::time::timeout(timeout_duration, self.wait_for_connection_ready(&conn_id))
+                    .await;
 
             match wait_result {
                 Ok(()) => {
@@ -496,9 +516,7 @@ impl ConnectionManager {
         self.pending_connections.insert(conn_id.clone());
 
         // Execute connection attempt
-        let result = self
-            .get_or_create_connection_inner(&conn_id, profile)
-            .await;
+        let result = self.get_or_create_connection_inner(&conn_id, profile).await;
 
         // Always remove from pending set and notify waiters
         self.pending_connections.remove(&conn_id);
@@ -699,11 +717,8 @@ impl ConnectionManager {
 
     pub async fn disconnect(&self, conn_id: &str) -> Result<()> {
         if let Some((_, conn)) = self.connections.remove(conn_id) {
-            let disconnect_result = tokio::time::timeout(
-                Duration::from_secs(2),
-                conn.adapter.disconnect(),
-            )
-            .await;
+            let disconnect_result =
+                tokio::time::timeout(Duration::from_secs(2), conn.adapter.disconnect()).await;
 
             match disconnect_result {
                 Ok(Ok(())) => {}
@@ -762,10 +777,7 @@ impl ConnectionManager {
         Ok(())
     }
 
-    fn create_adapter(
-        &self,
-        profile: &ConnectionProfile,
-    ) -> Result<UnifiedAdapter> {
+    fn create_adapter(&self, profile: &ConnectionProfile) -> Result<UnifiedAdapter> {
         match profile.db_type {
             DbType::PostgreSQL => Ok(UnifiedAdapter::postgres(PostgresAdapter::new())),
             DbType::MySQL | DbType::MariaDB => {

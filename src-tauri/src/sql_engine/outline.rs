@@ -53,7 +53,7 @@ pub struct CteOutline {
 /// Table reference outline.
 #[derive(Serialize, Clone, Debug)]
 pub struct TableOutline {
-    pub name: String,        // Schema-qualified if present (e.g., "public.users")
+    pub name: String, // Schema-qualified if present (e.g., "public.users")
     pub alias: Option<String>,
     pub span: TextSpan,
     pub alias_span: Option<TextSpan>,
@@ -189,13 +189,7 @@ impl<'a> OutlineBuilder<'a> {
         // Extract CTEs, tables, and subqueries based on statement type
         match stmt {
             Statement::Query(query) => {
-                self.extract_from_query(
-                    query,
-                    stmt_start,
-                    &mut ctes,
-                    &mut tables,
-                    &mut subqueries,
-                );
+                self.extract_from_query(query, stmt_start, &mut ctes, &mut tables, &mut subqueries);
             }
             Statement::Insert(insert) => {
                 let table_name = insert.table_name.to_string();
@@ -314,13 +308,7 @@ impl<'a> OutlineBuilder<'a> {
                 }
             }
             SetExpr::Query(query) => {
-                self.extract_from_query(
-                    query,
-                    base_offset,
-                    &mut Vec::new(),
-                    tables,
-                    subqueries,
-                );
+                self.extract_from_query(query, base_offset, &mut Vec::new(), tables, subqueries);
             }
             SetExpr::SetOperation { left, right, .. } => {
                 self.extract_from_set_expr(left.as_ref(), base_offset, tables, subqueries);
@@ -401,7 +389,13 @@ impl<'a> OutlineBuilder<'a> {
         let mut tables = Vec::new();
         let mut subqueries = Vec::new();
 
-        self.extract_from_query(query, base_offset, &mut Vec::new(), &mut tables, &mut subqueries);
+        self.extract_from_query(
+            query,
+            base_offset,
+            &mut Vec::new(),
+            &mut tables,
+            &mut subqueries,
+        );
 
         StatementOutline {
             kind: "SELECT".to_string(),
@@ -521,12 +515,12 @@ fn get_statement_type(stmt: &Statement) -> String {
 fn get_join_type(op: &ast::JoinOperator) -> String {
     match op {
         ast::JoinOperator::Inner(_) => "INNER".to_string(),
-        ast::JoinOperator::LeftOuter(_) | ast::JoinOperator::LeftSemi(_) | ast::JoinOperator::LeftAnti(_) => {
-            "LEFT".to_string()
-        }
-        ast::JoinOperator::RightOuter(_) | ast::JoinOperator::RightSemi(_) | ast::JoinOperator::RightAnti(_) => {
-            "RIGHT".to_string()
-        }
+        ast::JoinOperator::LeftOuter(_)
+        | ast::JoinOperator::LeftSemi(_)
+        | ast::JoinOperator::LeftAnti(_) => "LEFT".to_string(),
+        ast::JoinOperator::RightOuter(_)
+        | ast::JoinOperator::RightSemi(_)
+        | ast::JoinOperator::RightAnti(_) => "RIGHT".to_string(),
         ast::JoinOperator::FullOuter(_) => "FULL".to_string(),
         ast::JoinOperator::CrossJoin => "CROSS".to_string(),
         ast::JoinOperator::CrossApply | ast::JoinOperator::OuterApply => "APPLY".to_string(),
@@ -732,7 +726,8 @@ mod tests {
 
     #[test]
     fn test_multi_statement_query() {
-        let sql = "SELECT 1; INSERT INTO users (name) VALUES ('test'); UPDATE users SET active = true";
+        let sql =
+            "SELECT 1; INSERT INTO users (name) VALUES ('test'); UPDATE users SET active = true";
         let outline = build_outline(sql, SqlDialect::PostgreSQL);
 
         assert_eq!(outline.parse_status, ParseStatus::Full);
@@ -1239,7 +1234,12 @@ mod tests {
                 "Failed for {:?}",
                 dialect
             );
-            assert_eq!(outline.statements[0].ctes.len(), 2, "Failed for {:?}", dialect);
+            assert_eq!(
+                outline.statements[0].ctes.len(),
+                2,
+                "Failed for {:?}",
+                dialect
+            );
         }
     }
 
@@ -1348,22 +1348,28 @@ WHERE s.total_todos > 10
 ORDER BY completion_rate DESC;
 "#;
         let outline = build_outline(sql, SqlDialect::PostgreSQL);
-        
+
         println!("Parse status: {:?}", outline.parse_status);
         println!("Statements: {}", outline.statements.len());
         for (i, stmt) in outline.statements.iter().enumerate() {
-            println!("Statement {}: {} with {} CTEs, {} tables", i, stmt.kind, stmt.ctes.len(), stmt.tables.len());
+            println!(
+                "Statement {}: {} with {} CTEs, {} tables",
+                i,
+                stmt.kind,
+                stmt.ctes.len(),
+                stmt.tables.len()
+            );
         }
-        
+
         assert_eq!(outline.parse_status, ParseStatus::Full);
         assert_eq!(outline.statements.len(), 2);
-        
+
         // First statement: simple SELECT
         assert_eq!(outline.statements[0].kind, "SELECT");
         assert_eq!(outline.statements[0].tables.len(), 1);
         assert_eq!(outline.statements[0].tables[0].name, "users");
         assert_eq!(outline.statements[0].tables[0].alias, Some("u".to_string()));
-        
+
         // Second statement: SELECT with CTEs and JOIN
         assert_eq!(outline.statements[1].kind, "SELECT");
         assert_eq!(outline.statements[1].ctes.len(), 2);

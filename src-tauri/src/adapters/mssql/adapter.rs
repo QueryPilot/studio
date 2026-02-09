@@ -197,8 +197,13 @@ impl MssqlAdapter {
             let quoted = Self::quote_identifier(column_name);
             let type_name = type_name.unwrap_or("").to_ascii_lowercase();
             let expr = match type_name.as_str() {
-                "sql_variant" => format!("CONVERT(NVARCHAR(MAX), {}) AS [converted_{}]", quoted, column_name),
-                "geography" | "geometry" => format!("{}.STAsText() AS [text_{}]", quoted, column_name),
+                "sql_variant" => format!(
+                    "CONVERT(NVARCHAR(MAX), {}) AS [converted_{}]",
+                    quoted, column_name
+                ),
+                "geography" | "geometry" => {
+                    format!("{}.STAsText() AS [text_{}]", quoted, column_name)
+                }
                 "hierarchyid" => format!("{}.ToString() AS [string_{}]", quoted, column_name),
                 _ => quoted,
             };
@@ -504,9 +509,7 @@ impl BaseCapability for MssqlAdapter {
     }
 
     fn get_capabilities(&self) -> Vec<AdapterCapability> {
-        vec![
-            AdapterCapability::SqlQueryable,
-        ]
+        vec![AdapterCapability::SqlQueryable]
     }
 }
 
@@ -541,10 +544,8 @@ impl SqlQueryable for MssqlAdapter {
                     let system_type_name: Option<&str> = row.get(2);
                     let type_name = system_type_name.unwrap_or("").to_ascii_lowercase();
                     let is_variant = type_name.starts_with("sql_variant");
-                    let is_clr_udt = matches!(
-                        type_name.as_str(),
-                        "geography" | "geometry" | "hierarchyid"
-                    );
+                    let is_clr_udt =
+                        matches!(type_name.as_str(), "geography" | "geometry" | "hierarchyid");
 
                     if is_variant || is_clr_udt {
                         let column_name: Option<&str> = row.get(1);
@@ -592,46 +593,47 @@ impl SqlQueryable for MssqlAdapter {
             }
         }
 
-        let query_result = AssertUnwindSafe(async move {
-            let mut result = conn
-                .simple_query(sql.as_str())
-                .await
-                .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+        let query_result =
+            AssertUnwindSafe(async move {
+                let mut result = conn
+                    .simple_query(sql.as_str())
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
 
-            // Get column metadata - columns() is async
-            let columns_opt = result
-                .columns()
-                .await
-                .map_err(|e| AppError::DatabaseError(format!("Failed to get columns: {}", e)))?;
+                // Get column metadata - columns() is async
+                let columns_opt = result.columns().await.map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to get columns: {}", e))
+                })?;
 
-            let columns: Vec<CapabilityColumnMeta> = columns_opt
-                .map(|cols| {
-                    cols.iter()
-                        .map(|col| CapabilityColumnMeta {
-                            name: col.name().to_string(),
-                            data_type: MssqlTypeConverter::column_type_to_string(&col.column_type()),
-                        })
-                        .collect()
+                let columns: Vec<CapabilityColumnMeta> = columns_opt
+                    .map(|cols| {
+                        cols.iter()
+                            .map(|col| CapabilityColumnMeta {
+                                name: col.name().to_string(),
+                                data_type: MssqlTypeConverter::column_type_to_string(
+                                    &col.column_type(),
+                                ),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                // Collect rows
+                let rows: Vec<tiberius::Row> = result.into_first_result().await.map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to collect rows: {}", e))
+                })?;
+
+                // Convert to JSON
+                let json_rows: Vec<Vec<serde_json::Value>> =
+                    rows.iter().map(SimpleConverter::row_to_json).collect();
+
+                Ok(CapabilityQueryResult {
+                    columns,
+                    rows: json_rows,
                 })
-                .unwrap_or_default();
-
-            // Collect rows
-            let rows: Vec<tiberius::Row> = result
-                .into_first_result()
-                .await
-                .map_err(|e| AppError::DatabaseError(format!("Failed to collect rows: {}", e)))?;
-
-            // Convert to JSON
-            let json_rows: Vec<Vec<serde_json::Value>> =
-                rows.iter().map(SimpleConverter::row_to_json).collect();
-
-            Ok(CapabilityQueryResult {
-                columns,
-                rows: json_rows,
             })
-        })
-        .catch_unwind()
-        .await;
+            .catch_unwind()
+            .await;
 
         match query_result {
             Ok(result) => result,
@@ -684,15 +686,19 @@ mod tests {
 
     #[test]
     fn test_regex_matching() {
-        let re = Regex::new(r"(?is)^\s*select\s+(top\s+\d+\s+)?\*\s+from\s+([^\s;]+)(.*)$").unwrap();
-        
+        let re =
+            Regex::new(r"(?is)^\s*select\s+(top\s+\d+\s+)?\*\s+from\s+([^\s;]+)(.*)$").unwrap();
+
         let sql = "SELECT * FROM dbo.activity_logs";
         let caps = re.captures(sql).unwrap();
         assert_eq!(caps.get(2).map(|m| m.as_str()), Some("dbo.activity_logs"));
 
         let sql = "select * from [dbo].[activity_logs] order by id";
         let caps = re.captures(sql).unwrap();
-        assert_eq!(caps.get(2).map(|m| m.as_str()), Some("[dbo].[activity_logs]"));
+        assert_eq!(
+            caps.get(2).map(|m| m.as_str()),
+            Some("[dbo].[activity_logs]")
+        );
 
         let sql = "SELECT TOP 100 * FROM dbo.activity_logs";
         let caps = re.captures(sql).unwrap();

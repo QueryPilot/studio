@@ -9,12 +9,12 @@ use serde_json::json;
 use std::fs;
 use std::path::Path;
 
-use crate::core::backup_capability::{
-    BackupCapable, BackupConfig, BackupFormat, BackupObject, BackupObjectType,
-    BackupOptionsSchema, BackupPreview, BackupPreviewObject, FieldType, OptionField,
-    ProgressSender, RestoreConfig, RestoreOptionsSchema, ToolRequirement,
-};
 use crate::core::backup_capability::BackupProgress;
+use crate::core::backup_capability::{
+    BackupCapable, BackupConfig, BackupFormat, BackupObject, BackupObjectType, BackupOptionsSchema,
+    BackupPreview, BackupPreviewObject, FieldType, OptionField, ProgressSender, RestoreConfig,
+    RestoreOptionsSchema, ToolRequirement,
+};
 use crate::error::AppError;
 
 use super::MssqlAdapter;
@@ -88,13 +88,15 @@ impl BackupCapable for MssqlAdapter {
     /// List tables that can be backed up.
     /// Note: MSSQL native backup always backs up the entire database.
     async fn list_backup_objects(&self) -> Result<Vec<BackupObject>, AppError> {
-        let pool = self.get_pool().await.ok_or_else(|| {
-            AppError::ConnectionClosed("Not connected".into())
-        })?;
+        let pool = self
+            .get_pool()
+            .await
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
-        let mut conn = pool.get().await.map_err(|e| {
-            AppError::Internal(format!("Failed to get connection: {}", e))
-        })?;
+        let mut conn = pool
+            .get()
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         // Query for tables with row counts
         let sql = r#"
@@ -206,20 +208,19 @@ impl BackupCapable for MssqlAdapter {
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_default();
 
-        let pool = self.get_pool().await.ok_or_else(|| {
-            AppError::ConnectionClosed("Not connected".into())
-        })?;
+        let pool = self
+            .get_pool()
+            .await
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
-        let mut conn = pool.get().await.map_err(|e| {
-            AppError::Internal(format!("Failed to get connection: {}", e))
-        })?;
+        let mut conn = pool
+            .get()
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         // Use RESTORE FILELISTONLY to get backup contents
         let escaped_path = path_str.replace('\'', "''");
-        let sql = format!(
-            "RESTORE FILELISTONLY FROM DISK = N'{}'",
-            escaped_path
-        );
+        let sql = format!("RESTORE FILELISTONLY FROM DISK = N'{}'", escaped_path);
 
         let result = conn
             .simple_query(&sql)
@@ -252,15 +253,9 @@ impl BackupCapable for MssqlAdapter {
         }
 
         // Get header info for database name and backup time
-        let header_sql = format!(
-            "RESTORE HEADERONLY FROM DISK = N'{}'",
-            escaped_path
-        );
+        let header_sql = format!("RESTORE HEADERONLY FROM DISK = N'{}'", escaped_path);
 
-        let header_result = conn
-            .simple_query(&header_sql)
-            .await
-            .ok();
+        let header_result = conn.simple_query(&header_sql).await.ok();
 
         let mut created_at = None;
         if let Some(result) = header_result {
@@ -289,13 +284,15 @@ impl BackupCapable for MssqlAdapter {
         config: BackupConfig,
         progress: ProgressSender,
     ) -> Result<(), AppError> {
-        let pool = self.get_pool().await.ok_or_else(|| {
-            AppError::ConnectionClosed("Not connected".into())
-        })?;
+        let pool = self
+            .get_pool()
+            .await
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
-        let mut conn = pool.get().await.map_err(|e| {
-            AppError::Internal(format!("Failed to get connection: {}", e))
-        })?;
+        let mut conn = pool
+            .get()
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         // Send started message
         if progress
@@ -419,13 +416,15 @@ impl BackupCapable for MssqlAdapter {
         config: RestoreConfig,
         progress: ProgressSender,
     ) -> Result<(), AppError> {
-        let pool = self.get_pool().await.ok_or_else(|| {
-            AppError::ConnectionClosed("Not connected".into())
-        })?;
+        let pool = self
+            .get_pool()
+            .await
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
-        let mut conn = pool.get().await.map_err(|e| {
-            AppError::Internal(format!("Failed to get connection: {}", e))
-        })?;
+        let mut conn = pool
+            .get()
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         // Send started message
         if progress
@@ -485,8 +484,7 @@ impl BackupCapable for MssqlAdapter {
         let sql = if options.is_empty() {
             format!(
                 "RESTORE DATABASE [{}] FROM DISK = N'{}'",
-                escaped_db,
-                escaped_path
+                escaped_db, escaped_path
             )
         } else {
             format!(
@@ -539,10 +537,7 @@ impl BackupCapable for MssqlAdapter {
         let _ = result.into_first_result().await;
 
         // Set database back to multi-user mode
-        let multi_user_sql = format!(
-            "ALTER DATABASE [{}] SET MULTI_USER",
-            escaped_db
-        );
+        let multi_user_sql = format!("ALTER DATABASE [{}] SET MULTI_USER", escaped_db);
         let _ = conn.simple_query(&multi_user_sql).await;
 
         // Switch back to the restored database

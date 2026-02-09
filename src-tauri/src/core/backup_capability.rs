@@ -148,11 +148,24 @@ pub struct BackupPreviewObject {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum BackupProgress {
-    Started { total_steps: Option<u32> },
-    Progress { current: u32, total: u32, message: String },
-    Output { line: String, is_error: bool },
-    Completed { message: String },
-    Failed { error: String },
+    Started {
+        total_steps: Option<u32>,
+    },
+    Progress {
+        current: u32,
+        total: u32,
+        message: String,
+    },
+    Output {
+        line: String,
+        is_error: bool,
+    },
+    Completed {
+        message: String,
+    },
+    Failed {
+        error: String,
+    },
 }
 
 pub type ProgressSender = mpsc::Sender<BackupProgress>;
@@ -224,7 +237,9 @@ mod tests {
 
     #[test]
     fn test_backup_progress_variants() {
-        let started = BackupProgress::Started { total_steps: Some(10) };
+        let started = BackupProgress::Started {
+            total_steps: Some(10),
+        };
         let progress = BackupProgress::Progress {
             current: 5,
             total: 10,

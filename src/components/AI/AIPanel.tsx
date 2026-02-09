@@ -6,6 +6,7 @@
  */
 
 import {
+  Fragment,
   useCallback,
   useState,
   useMemo,
@@ -53,9 +54,7 @@ import {
   IconBrain,
   IconChevronDown,
   IconChevronRight,
-  IconTerminal2,
   IconFileText,
-  IconSearch,
   IconCheck,
   IconClock,
   IconWand,
@@ -65,13 +64,13 @@ import {
   IconCode,
   IconPlus,
   IconMessage,
+  IconArrowDown,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
 import type { ToolCall as ToolCallType } from "@/types/acp";
 import {
   parseCommandsProgressive,
-  stripCommands,
 } from "@/utils/aiCommandParser";
 import { CommandList } from "./CommandCard";
 import { QueryBlock } from "./QueryBlock";
@@ -80,6 +79,9 @@ import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { tableStreamingService } from "@/services/tableStreamingService";
 import { Kbd } from "../ui/kbd";
+import { eventBus, type AIGenerateSqlPayload } from "@/services/eventBus";
+import type { ParsedCommand } from "@/types/aiCommands";
+import type { AssistantFlowSegment } from "@/types/acp";
 
 // ============================================================================
 // Types
@@ -103,6 +105,10 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     streamingThinking,
     streamingError,
     activeToolCalls,
+    streamingFlow,
+    streamingPlan,
+    currentMode,
+    availableSessionCommands,
     activeSession,
     availableAgents,
     isLoadingAgents,
@@ -150,8 +156,9 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   const [inputValue, setInputValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const [stickToBottom, setStickToBottom] = useState(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
 
   // Load recent sessions on mount and when connection changes
   // Sessions are filtered by connectionId for workspace-specific history
@@ -184,10 +191,63 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     }
   }, [activeSession, isWarmingUp, warmupAgent, connectionId]);
 
-  // Auto-scroll on new content
+  const getScrollViewport = useCallback((): HTMLDivElement | null => {
+    const root = scrollAreaRef.current;
+    if (!root) return null;
+    const viewport = root.querySelector('[data-slot="scroll-area-viewport"]');
+    return viewport instanceof HTMLDivElement ? viewport : null;
+  }, []);
+
+  const scrollViewportToBottom = useCallback(
+    (behavior: ScrollBehavior = "auto") => {
+      const viewport = getScrollViewport();
+      if (!viewport) return;
+      viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+    },
+    [getScrollViewport],
+  );
+
+  const scrollToBottom = useCallback(
+    (behavior: ScrollBehavior = "auto") => {
+      scrollViewportToBottom(behavior);
+      setStickToBottom(true);
+      setShowJumpToLatest(false);
+    },
+    [scrollViewportToBottom],
+  );
+
+  // Track whether user is reading older content; only autoscroll when near bottom.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingContent, streamingThinking, activeToolCalls]);
+    const viewport = getScrollViewport();
+    if (!viewport) return;
+
+    const handleScroll = () => {
+      const distanceFromBottom =
+        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+      const nearBottom = distanceFromBottom <= 80;
+      setStickToBottom(nearBottom);
+      setShowJumpToLatest(!nearBottom);
+    };
+
+    handleScroll();
+    viewport.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      viewport.removeEventListener("scroll", handleScroll);
+    };
+  }, [getScrollViewport, messages.length, isStreaming]);
+
+  useEffect(() => {
+    if (!stickToBottom) return;
+    scrollViewportToBottom(isStreaming ? "auto" : "smooth");
+  }, [
+    messages,
+    streamingContent,
+    streamingThinking,
+    activeToolCalls,
+    stickToBottom,
+    isStreaming,
+    scrollViewportToBottom,
+  ]);
 
   // Maintain focus after actions
   const focusInput = useCallback(() => {
@@ -196,6 +256,26 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
       inputRef.current?.focus();
     });
   }, []);
+
+  useEffect(() => {
+    const handleGenerateSql = (payload: AIGenerateSqlPayload) => {
+      const seedLines = [
+        "Generate a SQL query for this request:",
+        payload.connectionId ? `Connection: ${payload.connectionId}` : null,
+        payload.database ? `Database: ${payload.database}` : null,
+        payload.schema ? `Schema: ${payload.schema}` : null,
+        "- Goal:",
+      ].filter((line): line is string => Boolean(line));
+
+      setInputValue((current) => (current.trim() ? current : seedLines.join("\n")));
+      focusInput();
+    };
+
+    eventBus.on("ai:generate-sql", handleGenerateSql);
+    return () => {
+      eventBus.off("ai:generate-sql", handleGenerateSql);
+    };
+  }, [focusInput]);
 
   // Focus input on mount and when streaming ends
   useEffect(() => {
@@ -211,6 +291,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     setError(null);
     setInputValue("");
     focusInput();
+    scrollToBottom("auto");
 
     try {
       if (!activeSession && !isWarmingUp) {
@@ -246,6 +327,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     sendMessage,
     startSession,
     focusInput,
+    scrollToBottom,
   ]);
 
   const handleKeyDown = useCallback(
@@ -270,13 +352,15 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     newConversation();
     resetPermissions();
     focusInput();
-  }, [newConversation, resetPermissions, focusInput]);
+    scrollToBottom("auto");
+  }, [newConversation, resetPermissions, focusInput, scrollToBottom]);
 
   const handleLoadSession = useCallback(
     (sessionId: string) => {
       void loadSession(sessionId);
+      scrollToBottom("auto");
     },
-    [loadSession],
+    [loadSession, scrollToBottom],
   );
 
   const handleDeleteSession = useCallback(
@@ -294,14 +378,13 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   );
   const hasInstalledAgents = installedAgents.length > 0;
   const hasMessages = messages.length > 0 || isStreaming;
-  const canSend =
-    inputValue.trim().length > 0 && !isStreaming && hasInstalledAgents;
+  const canSend = inputValue.trim().length > 0 && !isStreaming && hasInstalledAgents;
 
   return (
     <div
       data-slot="ai-panel"
       className={cn(
-        "flex flex-col h-full min-h-0 bg-background overflow-hidden",
+        "relative flex flex-col h-full min-h-0 bg-background overflow-hidden",
         className,
       )}
     >
@@ -313,6 +396,8 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         onDeleteSession={handleDeleteSession}
         activeSession={activeSession}
         recentSessions={recentSessions}
+        currentMode={currentMode}
+        availableCommandCount={availableSessionCommands.length}
       />
 
       {/* Error Banner */}
@@ -348,6 +433,8 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
               streamingContent={streamingContent}
               streamingThinking={streamingThinking}
               activeToolCalls={activeToolCalls}
+              streamingFlow={streamingFlow}
+              streamingPlan={streamingPlan}
             />
           ) : (
             <EmptyState
@@ -359,9 +446,26 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
               }}
             />
           )}
-          <div ref={messagesEndRef} className="h-4" />
+          <div className="h-4" />
         </div>
       </ScrollArea>
+
+      {showJumpToLatest && hasMessages && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-20 z-10 flex justify-center">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="pointer-events-auto h-7 gap-1.5 text-[11px]"
+            onClick={() => {
+              scrollToBottom("smooth");
+            }}
+          >
+            <IconArrowDown className="h-3.5 w-3.5" />
+            Jump to latest
+          </Button>
+        </div>
+      )}
 
       {/* Input Area */}
       <InputArea
@@ -393,6 +497,8 @@ interface PanelHeaderProps {
   onLoadSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
   activeSession: { id: string; title: string } | null;
+  currentMode: string | null;
+  availableCommandCount: number;
   recentSessions: Array<{
     id: string;
     title: string;
@@ -407,6 +513,8 @@ function PanelHeader({
   onLoadSession,
   onDeleteSession,
   activeSession,
+  currentMode,
+  availableCommandCount,
   recentSessions,
 }: PanelHeaderProps) {
   // Filter out current session from history
@@ -491,7 +599,7 @@ function PanelHeader({
       <div className="flex-1" />
 
       {/* New conversation shortcut */}
-      <Tooltip>
+        <Tooltip>
         <TooltipTrigger
           render={
             <Button
@@ -506,6 +614,18 @@ function PanelHeader({
         />
         <TooltipContent side="bottom">New conversation</TooltipContent>
       </Tooltip>
+
+      {currentMode && (
+        <span className="rounded border border-border/70 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          mode: {currentMode}
+        </span>
+      )}
+
+      {availableCommandCount > 0 && (
+        <span className="rounded border border-border/70 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          {availableCommandCount} cmds
+        </span>
+      )}
 
       {onClose && (
         <Button
@@ -574,11 +694,14 @@ interface MessageListProps {
     content: string;
     thinking?: string;
     toolCalls?: ToolCallType[];
+    assistantFlow?: AssistantFlowSegment[];
   }>;
   isStreaming: boolean;
   streamingContent: string;
   streamingThinking: string;
   activeToolCalls: ToolCallType[];
+  streamingFlow: AssistantFlowSegment[];
+  streamingPlan: Array<{ id: string; description: string; status: string }>;
 }
 
 function MessageList({
@@ -587,28 +710,36 @@ function MessageList({
   streamingContent,
   streamingThinking,
   activeToolCalls,
+  streamingFlow,
+  streamingPlan,
 }: MessageListProps) {
   return (
     <div className="flex flex-col">
       {messages.map((msg) => (
-        <MessageBubble
-          key={msg.id}
-          role={msg.role}
-          content={msg.content}
-          thinking={msg.thinking}
-          toolCalls={msg.toolCalls}
-        />
+        <Fragment key={msg.id}>
+          <MessageBubble
+            role={msg.role}
+            content={msg.content}
+            thinking={msg.thinking}
+            toolCalls={msg.toolCalls}
+            assistantFlow={msg.assistantFlow}
+          />
+        </Fragment>
       ))}
 
       {/* Streaming Message */}
       {isStreaming && (
-        <MessageBubble
-          role="assistant"
-          content={streamingContent}
-          thinking={streamingThinking}
-          toolCalls={activeToolCalls}
-          isStreaming
-        />
+        <>
+          <MessageBubble
+            role="assistant"
+            content={streamingContent}
+            thinking={streamingThinking}
+            toolCalls={activeToolCalls}
+            assistantFlow={streamingFlow}
+            planSteps={streamingPlan}
+            isStreaming
+          />
+        </>
       )}
     </div>
   );
@@ -623,7 +754,98 @@ interface MessageBubbleProps {
   content: string;
   thinking?: string;
   toolCalls?: ToolCallType[];
+  assistantFlow?: AssistantFlowSegment[];
+  planSteps?: Array<{ id: string; description: string; status: string }>;
   isStreaming?: boolean;
+}
+
+type MessageContentSegment =
+  | { kind: "text"; key: string; text: string }
+  | { kind: "commands"; key: string; commands: ParsedCommand[] }
+  | { kind: "tool-call"; key: string; call: ToolCallType }
+  | { kind: "incomplete-command"; key: string };
+
+function sanitizeTextSegment(text: string): string {
+  return text.replace(/\n{3,}/g, "\n\n");
+}
+
+function hasRenderableText(text: string): boolean {
+  return text.trim().length > 0;
+}
+
+function splitTextIntoSegments(
+  text: string,
+  keyPrefix: string,
+  isStreaming: boolean,
+): MessageContentSegment[] {
+  const segments: MessageContentSegment[] = [];
+  const parsed = parseCommandsProgressive(text);
+  const completeCommands = [...parsed.complete].sort(
+    (a, b) => a.startIndex - b.startIndex,
+  );
+
+  let endOfRenderableText = text.length;
+  if (
+    isStreaming &&
+    parsed.incomplete &&
+    parsed.incompleteStart !== undefined
+  ) {
+    endOfRenderableText = Math.min(endOfRenderableText, parsed.incompleteStart);
+  }
+
+  const commandsInRange = completeCommands.filter(
+    (cmd) => cmd.endIndex <= endOfRenderableText,
+  );
+
+  let cursor = 0;
+  let pendingCommandGroup: ParsedCommand[] = [];
+
+  const flushCommands = () => {
+    if (pendingCommandGroup.length === 0) return;
+    const firstCommand = pendingCommandGroup[0];
+    if (!firstCommand) return;
+    segments.push({
+      kind: "commands",
+      key: `${keyPrefix}-commands-${firstCommand.id}`,
+      commands: pendingCommandGroup,
+    });
+    pendingCommandGroup = [];
+  };
+
+  for (const command of commandsInRange) {
+    const rawText = text.slice(cursor, command.startIndex);
+    if (hasRenderableText(rawText)) {
+      flushCommands();
+      segments.push({
+        kind: "text",
+        key: `${keyPrefix}-text-${cursor}`,
+        text: sanitizeTextSegment(rawText),
+      });
+    }
+    pendingCommandGroup.push(command);
+    cursor = command.endIndex;
+  }
+
+  const trailingText = text.slice(cursor, endOfRenderableText);
+  if (hasRenderableText(trailingText)) {
+    flushCommands();
+    segments.push({
+      kind: "text",
+      key: `${keyPrefix}-text-${cursor}`,
+      text: sanitizeTextSegment(trailingText),
+    });
+  } else {
+    flushCommands();
+  }
+
+  if (isStreaming && parsed.incomplete) {
+    segments.push({
+      kind: "incomplete-command",
+      key: `${keyPrefix}-incomplete-${parsed.incompleteStart ?? "tail"}`,
+    });
+  }
+
+  return segments;
 }
 
 // SQL-like languages that should render as QueryBlock
@@ -642,11 +864,55 @@ const QUERY_LANGUAGES = new Set([
   "redis",
 ]);
 
+function extractTextFromNode(node: React.ReactNode): string {
+  if (typeof node === "string") return node;
+  if (typeof node === "number") return node.toString();
+  if (Array.isArray(node)) return node.map(extractTextFromNode).join("");
+  if (node && typeof node === "object" && "props" in node) {
+    const props = node.props as { children?: React.ReactNode };
+    return extractTextFromNode(props.children);
+  }
+  return "";
+}
+
+function findCodeNode(
+  node: React.ReactNode,
+): { className: string; content: string } | null {
+  if (!node) return null;
+
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const result = findCodeNode(child);
+      if (result) return result;
+    }
+    return null;
+  }
+
+  if (typeof node === "object" && "props" in node) {
+    const props = node.props as {
+      className?: string;
+      children?: React.ReactNode;
+    };
+    const className = props.className ?? "";
+    if (className.includes("language-")) {
+      return {
+        className,
+        content: extractTextFromNode(props.children),
+      };
+    }
+    return findCodeNode(props.children);
+  }
+
+  return null;
+}
+
 function MessageBubble({
   role,
   content,
   thinking,
   toolCalls,
+  assistantFlow,
+  planSteps,
   isStreaming,
 }: MessageBubbleProps) {
   const isUser = role === "user";
@@ -685,17 +951,66 @@ function MessageBubble({
       : null;
   }, [content, isUser, aiContext, focusedConnection]);
 
-  // Parse commands from assistant messages
-  const parsedCommands = useMemo(() => {
-    if (isUser || !content) return { complete: [], incomplete: false };
-    return parseCommandsProgressive(content);
-  }, [content, isUser]);
+  // Build message flow segments so text, tool calls, and command blocks render
+  // exactly in streaming order.
+  const messageSegments = useMemo<MessageContentSegment[]>(() => {
+    if (isUser) {
+      if (!content) return [];
+      return splitTextIntoSegments(content, "user", false);
+    }
 
-  // Strip commands from content for display
-  const displayContent = useMemo(() => {
-    if (isUser || !content) return content;
-    return stripCommands(content);
-  }, [content, isUser]);
+    if (assistantFlow && assistantFlow.length > 0) {
+      const segments: MessageContentSegment[] = [];
+      assistantFlow.forEach((segment, index) => {
+        if (segment.type === "text") {
+          const textSegments = splitTextIntoSegments(
+            segment.text,
+            `flow-${index}`,
+            Boolean(isStreaming) && index === assistantFlow.length - 1,
+          );
+          segments.push(...textSegments);
+          return;
+        }
+
+        segments.push({
+          kind: "tool-call",
+          key: `flow-tool-${segment.call.id}-${index}`,
+          call: segment.call,
+        });
+      });
+
+      if (segments.length > 0) {
+        return segments;
+      }
+    }
+
+    if (!content) {
+      if (toolCalls && toolCalls.length > 0) {
+        return toolCalls.map((call, index) => ({
+          kind: "tool-call" as const,
+          key: `fallback-only-tool-${call.id}-${index}`,
+          call,
+        }));
+      }
+      return [];
+    }
+
+    const fallback = splitTextIntoSegments(
+      content,
+      "assistant",
+      Boolean(isStreaming),
+    );
+    if (toolCalls && toolCalls.length > 0) {
+      fallback.push(
+        ...toolCalls.map((call, index) => ({
+          kind: "tool-call" as const,
+          key: `fallback-tool-${call.id}-${index}`,
+          call,
+        })),
+      );
+    }
+    return fallback;
+  }, [content, isUser, assistantFlow, isStreaming, toolCalls]);
 
   // Handle query execution from QueryBlock
   const handleQueryRun = useCallback(
@@ -767,42 +1082,14 @@ function MessageBubble({
       }: React.HTMLAttributes<HTMLPreElement> & {
         children?: React.ReactNode;
       }) => {
-        // Check if this pre contains a code element with a query language
-        // Streamdown renders code blocks as: <pre><code className="language-xxx">...</code></pre>
-        if (children && typeof children === "object" && "props" in children) {
-          const codeProps = children.props as {
-            className?: string;
-            children?: React.ReactNode;
-          };
-          const className = codeProps.className ?? "";
-
-          // Extract language from className (e.g., "language-sql" -> "sql")
-          const langMatch = className.match(/language-(\w+)/);
+        const codeNode = findCodeNode(children);
+        if (codeNode) {
+          const langMatch = codeNode.className.match(/language-([a-zA-Z0-9_-]+)/);
           const language = langMatch?.[1]?.toLowerCase() ?? "";
-
-          // If it's a query language, render as QueryBlock
           if (QUERY_LANGUAGES.has(language)) {
-            // Extract the code content - handle string, array, or other React children
-            let codeContent = "";
-            const childContent = codeProps.children;
-            if (typeof childContent === "string") {
-              codeContent = childContent;
-            } else if (typeof childContent === "number") {
-              codeContent = childContent.toString();
-            } else if (Array.isArray(childContent)) {
-              // Join array elements, filtering to strings/numbers
-              codeContent = childContent
-                .filter(
-                  (c): c is string | number =>
-                    typeof c === "string" || typeof c === "number",
-                )
-                .map((c) => (typeof c === "number" ? c.toString() : c))
-                .join("");
-            }
-
             return (
               <QueryBlock
-                query={codeContent}
+                query={codeNode.content}
                 language={language}
                 connectionId={resolvedConnection?.id}
                 connectionName={resolvedConnection?.name}
@@ -840,36 +1127,73 @@ function MessageBubble({
             />
           )}
 
-          {/* Tool Calls */}
-          {toolCalls && toolCalls.length > 0 && (
-            <ToolCallList calls={toolCalls} />
+          {/* ACP Plan */}
+          {planSteps && planSteps.length > 0 && (
+            <PlanBlock steps={planSteps} />
           )}
 
-          {/* Message Content */}
-          {displayContent ? (
-            <div
-              className={cn(
-                "prose prose-sm dark:prose-invert max-w-none",
-                "prose-p:my-1 prose-p:leading-normal",
-                "prose-headings:mt-3 prose-headings:mb-1.5 prose-headings:font-semibold prose-headings:text-sm",
-                "prose-ul:my-1.5 prose-ol:my-1.5",
-                "prose-li:my-0",
-                "prose-pre:my-1.5 prose-pre:p-2 prose-pre:rounded-md prose-pre:bg-muted prose-pre:text-[11px] prose-pre:leading-tight",
-                "prose-code:text-[11px] prose-code:font-medium prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:bg-muted",
-                "prose-code:before:content-none prose-code:after:content-none",
-                "text-[12px] leading-normal",
-              )}
-            >
-              <Streamdown
-                className="select-text"
-                components={streamdownComponents}
-              >
-                {displayContent}
-              </Streamdown>
+          {/* Message Content Flow (text + command blocks in original order) */}
+          {messageSegments.length > 0 ? (
+            <div className="space-y-2">
+              {messageSegments.map((segment) => {
+                if (segment.kind === "text") {
+                  return (
+                    <div
+                      key={segment.key}
+                      className={cn(
+                        "prose prose-sm dark:prose-invert max-w-none",
+                        "prose-p:my-1 prose-p:leading-normal",
+                        "prose-headings:mt-3 prose-headings:mb-1.5 prose-headings:font-semibold prose-headings:text-sm",
+                        "prose-ul:my-1.5 prose-ol:my-1.5",
+                        "prose-li:my-0",
+                        "prose-pre:my-1.5 prose-pre:p-2 prose-pre:rounded-md prose-pre:bg-muted prose-pre:text-[11px] prose-pre:leading-tight",
+                        "prose-code:text-[11px] prose-code:font-medium prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:bg-muted",
+                        "prose-code:before:content-none prose-code:after:content-none",
+                        "text-[12px] leading-normal",
+                      )}
+                    >
+                      <Streamdown
+                        className="select-text"
+                        components={streamdownComponents}
+                      >
+                        {segment.text}
+                      </Streamdown>
+                    </div>
+                  );
+                }
+
+                if (segment.kind === "commands") {
+                  return (
+                    <div
+                      key={segment.key}
+                      className="rounded-lg border border-border/60 bg-muted/20 p-2"
+                    >
+                      <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Commands
+                      </div>
+                      <CommandList commands={segment.commands} />
+                    </div>
+                  );
+                }
+
+                if (segment.kind === "tool-call") {
+                  return (
+                    <InlineToolCallEvent key={segment.key} call={segment.call} />
+                  );
+                }
+
+                return (
+                  <div
+                    key={segment.key}
+                    className="flex items-center gap-2 text-xs text-muted-foreground py-1"
+                  >
+                    <IconLoader2 className="h-3 w-3 animate-spin" />
+                    <span>Command loading...</span>
+                  </div>
+                );
+              })}
             </div>
-          ) : isStreaming &&
-            !thinking &&
-            (!toolCalls || toolCalls.length === 0) ? (
+          ) : isStreaming && !thinking ? (
             <div className="flex items-center gap-2 py-1">
               <div className="flex gap-1">
                 <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-pulse" />
@@ -881,19 +1205,6 @@ function MessageBubble({
               </span>
             </div>
           ) : null}
-
-          {/* AI Commands */}
-          {!isUser && parsedCommands.complete.length > 0 && (
-            <CommandList commands={parsedCommands.complete} />
-          )}
-
-          {/* Incomplete command indicator */}
-          {!isUser && parsedCommands.incomplete && isStreaming && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
-              <IconLoader2 className="h-3 w-3 animate-spin" />
-              <span>Command loading...</span>
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -939,84 +1250,83 @@ function ThinkingBlock({ content, expanded, onToggle }: ThinkingBlockProps) {
   );
 }
 
-// ============================================================================
-// Tool Call List
-// ============================================================================
-
-interface ToolCallListProps {
-  calls: ToolCallType[];
+interface PlanBlockProps {
+  steps: Array<{ id: string; description: string; status: string }>;
 }
 
-function ToolCallList({ calls }: ToolCallListProps) {
+function PlanBlock({ steps }: PlanBlockProps) {
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {calls.map((call) => (
-        <ToolCallBadge key={call.id} call={call} />
-      ))}
+    <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+      <div className="mb-1.5 text-[11px] font-medium text-muted-foreground">
+        Plan
+      </div>
+      <div className="space-y-1">
+        {steps.map((step) => (
+          <div key={step.id} className="flex items-center gap-2 text-[11px]">
+            {step.status === "running" ? (
+              <IconLoader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+            ) : step.status === "completed" ? (
+              <IconCheck className="h-3 w-3 shrink-0 text-green-500" />
+            ) : step.status === "failed" ? (
+              <IconX className="h-3 w-3 shrink-0 text-destructive" />
+            ) : (
+              <IconClock className="h-3 w-3 shrink-0 text-muted-foreground" />
+            )}
+            <span
+              className={cn(
+                "truncate",
+                step.status === "completed" && "text-muted-foreground line-through",
+              )}
+            >
+              {step.description}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-interface ToolCallBadgeProps {
-  call: ToolCallType;
+function getToolCallStatusText(status: ToolCallType["status"]): string {
+  switch (status) {
+    case "pending":
+      return "Queued";
+    case "running":
+      return "Running";
+    case "completed":
+      return "Completed";
+    case "failed":
+      return "Failed";
+    default:
+      return "Unknown";
+  }
 }
 
-function ToolCallBadge({ call }: ToolCallBadgeProps) {
-  const { name, status } = call;
-
-  const Icon = useMemo(() => {
-    // Determine icon based on tool name
-    const lowerName = name.toLowerCase();
-    if (lowerName.includes("read") || lowerName.includes("file")) {
-      return IconFileText;
-    }
-    if (
-      lowerName.includes("search") ||
-      lowerName.includes("glob") ||
-      lowerName.includes("grep")
-    ) {
-      return IconSearch;
-    }
-    if (
-      lowerName.includes("bash") ||
-      lowerName.includes("terminal") ||
-      lowerName.includes("exec")
-    ) {
-      return IconTerminal2;
-    }
-    return IconWand;
-  }, [name]);
-
-  const statusIcon = useMemo(() => {
-    switch (status) {
-      case "pending":
-        return <IconClock className="h-2.5 w-2.5 text-muted-foreground" />;
-      case "running":
-        return (
-          <IconLoader2 className="h-2.5 w-2.5 animate-spin text-primary" />
-        );
-      case "completed":
-        return <IconCheck className="h-2.5 w-2.5 text-green-500" />;
-      case "failed":
-        return <IconX className="h-2.5 w-2.5 text-destructive" />;
-      default:
-        return null;
-    }
-  }, [status]);
-
+function InlineToolCallEvent({ call }: { call: ToolCallType }) {
+  const statusText = getToolCallStatusText(call.status);
   return (
-    <div
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-medium",
-        status === "running" && "border-primary/30 bg-primary/5",
-        status === "completed" && "border-green-500/30 bg-green-500/5",
-        status === "failed" && "border-destructive/30 bg-destructive/5",
-        status === "pending" && "border-border bg-muted/50",
-      )}
-    >
-      <Icon className="h-3 w-3 text-muted-foreground" />
-      <span className="text-foreground/80">{name}</span>
-      {statusIcon}
+    <div className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
+      <div className="flex items-start gap-2">
+        {call.status === "running" ? (
+          <IconLoader2 className="mt-0.5 h-3 w-3 shrink-0 animate-spin text-primary" />
+        ) : call.status === "completed" ? (
+          <IconCheck className="mt-0.5 h-3 w-3 shrink-0 text-green-500" />
+        ) : call.status === "failed" ? (
+          <IconX className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />
+        ) : (
+          <IconClock className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
+        )}
+        <div className="min-w-0">
+          <div className="mb-0.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+            <IconWand className="h-2.5 w-2.5" />
+            <span>Agent Action</span>
+          </div>
+          <div className="truncate text-[11px] font-medium text-foreground/90">
+            {call.name}
+          </div>
+          <div className="text-[10px] text-muted-foreground">{statusText}</div>
+        </div>
+      </div>
     </div>
   );
 }

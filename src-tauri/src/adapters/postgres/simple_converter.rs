@@ -38,8 +38,8 @@
 
 use postgres_types::Type;
 use serde_json::Value as JsonValue;
-use tokio_postgres::Row;
 use tokio_postgres::types::FromSql;
+use tokio_postgres::Row;
 use uuid::Uuid;
 
 /// Minimal row-to-JSON converter for introspection queries.
@@ -92,25 +92,26 @@ impl SimpleConverter {
                 .flatten()
                 .map_or(JsonValue::Null, |v| JsonValue::Number(v.into())),
 
-            Type::INT8 => row
-                .try_get::<_, Option<i64>>(idx)
-                .ok()
-                .flatten()
-                .map_or(JsonValue::Null, |v| {
-                    // CRITICAL: BIGINT values beyond JavaScript's MAX_SAFE_INTEGER must be strings
-                    // JavaScript Number.MAX_SAFE_INTEGER = 2^53 - 1 = 9,007,199,254,740,991
-                    // PostgreSQL BIGINT max = 9,223,372,036,854,775,807
-                    const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
-                    const MIN_SAFE_INTEGER: i64 = -9_007_199_254_740_991;
-                    
-                    if v > MAX_SAFE_INTEGER || v < MIN_SAFE_INTEGER {
-                        // Send as string to preserve precision
-                        JsonValue::String(v.to_string())
-                    } else {
-                        // Safe to send as number
-                        JsonValue::Number(v.into())
-                    }
-                }),
+            Type::INT8 => {
+                row.try_get::<_, Option<i64>>(idx)
+                    .ok()
+                    .flatten()
+                    .map_or(JsonValue::Null, |v| {
+                        // CRITICAL: BIGINT values beyond JavaScript's MAX_SAFE_INTEGER must be strings
+                        // JavaScript Number.MAX_SAFE_INTEGER = 2^53 - 1 = 9,007,199,254,740,991
+                        // PostgreSQL BIGINT max = 9,223,372,036,854,775,807
+                        const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+                        const MIN_SAFE_INTEGER: i64 = -9_007_199_254_740_991;
+
+                        if v > MAX_SAFE_INTEGER || v < MIN_SAFE_INTEGER {
+                            // Send as string to preserve precision
+                            JsonValue::String(v.to_string())
+                        } else {
+                            // Safe to send as number
+                            JsonValue::Number(v.into())
+                        }
+                    })
+            }
 
             // Floats
             Type::FLOAT4 => row
@@ -130,7 +131,7 @@ impl SimpleConverter {
             // Numeric/Money - return as string to preserve precision
             Type::NUMERIC | Type::MONEY => {
                 // We can't easily get Numeric as f64 without losing precision,
-                // and rust_decimal/bigdecimal handling might vary. 
+                // and rust_decimal/bigdecimal handling might vary.
                 // Best to cast to string in SQL, but here we can try basic string conversion
                 // if the driver supports it, or generic string fallback.
                 // NOTE: tokio-postgres doesn't implement FromSql<String> for NUMERIC/MONEY by default.
@@ -139,11 +140,11 @@ impl SimpleConverter {
                 // Actually, let's use the fallback logic which tries String.
                 // If that fails, we might return <NUMERIC>.
                 // Update: Let's explicitly try to handle them if we can.
-                // But without knowing which Decimal crate is used (rust_decimal or bigdecimal), 
+                // But without knowing which Decimal crate is used (rust_decimal or bigdecimal),
                 // it's safer to let the fallback handle it or return a placeholder.
                 // However, since we want tests to pass, we should probably ensure numeric values come back.
                 // Tests use `::numeric` which returns `Decimal`.
-                // Let's rely on the catch-all `_` which tries `Option<String>`. 
+                // Let's rely on the catch-all `_` which tries `Option<String>`.
                 // But tokio-postgres WON'T convert Numeric to String automatically.
                 // So we really should handle it.
                 // Check Cargo.toml: `rust_decimal = ... features = ["db-postgres"]`.
@@ -162,20 +163,12 @@ impl SimpleConverter {
                     .map_or(JsonValue::Null, JsonValue::String)
             }
 
-            // JSON/JSONB - pass through as string (NO parsing!)
+            // JSON/JSONB - keep structured JSON value
             Type::JSON | Type::JSONB => row
                 .try_get::<_, Option<serde_json::Value>>(idx)
                 .ok()
                 .flatten()
-                .map_or(JsonValue::Null, |v| v) // Return the Value directly
-                // Wait, SimpleConverter doc says "pass through as string".
-                // But `serde_json::Value` is better if we have it.
-                // Let's stick to the existing logic which was `Option<String>`?
-                // The existing logic used `Option<String>` which might return the serialized JSON.
-                // If we use `serde_json::Value`, we get structure.
-                // The test expects `row[0]["key"]` or string.
-                // Let's try `serde_json::Value`.
-                ,
+                .map_or(JsonValue::Null, |v| v), // Return the Value directly
 
             // UUID
             Type::UUID => row
@@ -190,14 +183,14 @@ impl SimpleConverter {
                 .ok()
                 .flatten()
                 .map_or(JsonValue::Null, |v| {
-                     // Convert to hex string
-                     use std::fmt::Write;
-                     let mut s = String::with_capacity(v.len() * 2 + 2);
-                     s.push_str("\\x");
-                     for b in v {
-                         write!(s, "{:02x}", b).ok();
-                     }
-                     JsonValue::String(s)
+                    // Convert to hex string
+                    use std::fmt::Write;
+                    let mut s = String::with_capacity(v.len() * 2 + 2);
+                    s.push_str("\\x");
+                    for b in v {
+                        write!(s, "{:02x}", b).ok();
+                    }
+                    JsonValue::String(s)
                 }),
 
             // Date/Time types - require chrono
@@ -206,7 +199,7 @@ impl SimpleConverter {
                 .ok()
                 .flatten()
                 .map_or(JsonValue::Null, |v| JsonValue::String(v.to_string())),
-            
+
             Type::TIME => row
                 .try_get::<_, Option<chrono::NaiveTime>>(idx)
                 .ok()
@@ -253,7 +246,11 @@ impl SimpleConverter {
                     return JsonValue::Null;
                 }
                 // Final fallback: type placeholder
-                tracing::warn!("SimpleConverter: Type {:?} (oid: {}) could not be converted", pg_type, pg_type.oid());
+                tracing::warn!(
+                    "SimpleConverter: Type {:?} (oid: {}) could not be converted",
+                    pg_type,
+                    pg_type.oid()
+                );
                 JsonValue::String(format!("<{}>", pg_type.name()))
             }
         }
@@ -268,7 +265,11 @@ impl SimpleConverter {
 
         // Try to get as array of i32
         if let Ok(Some(arr)) = row.try_get::<_, Option<Vec<i32>>>(idx) {
-            return JsonValue::Array(arr.into_iter().map(|v| JsonValue::Number(v.into())).collect());
+            return JsonValue::Array(
+                arr.into_iter()
+                    .map(|v| JsonValue::Number(v.into()))
+                    .collect(),
+            );
         }
 
         // Fallback
@@ -338,11 +339,19 @@ impl SimpleConverter {
         match family {
             2 if addr_len == 4 => {
                 let ip = std::net::Ipv4Addr::new(addr[0], addr[1], addr[2], addr[3]);
-                Some(if prefix == 32 { ip.to_string() } else { format!("{}/{}", ip, prefix) })
+                Some(if prefix == 32 {
+                    ip.to_string()
+                } else {
+                    format!("{}/{}", ip, prefix)
+                })
             }
             3 if addr_len == 16 => {
                 let ip = std::net::Ipv6Addr::from(<[u8; 16]>::try_from(addr).ok()?);
-                Some(if prefix == 128 { ip.to_string() } else { format!("{}/{}", ip, prefix) })
+                Some(if prefix == 128 {
+                    ip.to_string()
+                } else {
+                    format!("{}/{}", ip, prefix)
+                })
             }
             _ => None,
         }
@@ -361,14 +370,26 @@ impl SimpleConverter {
             let years = months / 12;
             let mons = months % 12;
             if years != 0 {
-                parts.push(format!("{} {}", years, if years.abs() == 1 { "year" } else { "years" }));
+                parts.push(format!(
+                    "{} {}",
+                    years,
+                    if years.abs() == 1 { "year" } else { "years" }
+                ));
             }
             if mons != 0 {
-                parts.push(format!("{} {}", mons, if mons.abs() == 1 { "mon" } else { "mons" }));
+                parts.push(format!(
+                    "{} {}",
+                    mons,
+                    if mons.abs() == 1 { "mon" } else { "mons" }
+                ));
             }
         }
         if days != 0 {
-            parts.push(format!("{} {}", days, if days.abs() == 1 { "day" } else { "days" }));
+            parts.push(format!(
+                "{} {}",
+                days,
+                if days.abs() == 1 { "day" } else { "days" }
+            ));
         }
         if microseconds != 0 || parts.is_empty() {
             let total_secs = microseconds / 1_000_000;
@@ -404,7 +425,11 @@ impl SimpleConverter {
             let byte_idx = i / 8;
             let bit_idx = 7 - (i % 8);
             if byte_idx < bytes.len() {
-                s.push(if (bytes[byte_idx] >> bit_idx) & 1 == 1 { '1' } else { '0' });
+                s.push(if (bytes[byte_idx] >> bit_idx) & 1 == 1 {
+                    '1'
+                } else {
+                    '0'
+                });
             }
         }
         Some(s)

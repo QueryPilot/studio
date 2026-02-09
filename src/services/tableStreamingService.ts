@@ -456,7 +456,8 @@ function normalizeRawRows(rows: RawCellValue[][]): RawCellValue[][] {
 }
 
 class TableStreamingService {
-  private unlistener?: () => void;
+  private abortController: AbortController | null = null;
+  private generation = 0;
   private accumulatedRows: RawCellValue[][] = [];
   private columns?: ColumnMeta[];
   private isStreaming = false;
@@ -474,12 +475,22 @@ class TableStreamingService {
     onError?: (error: StreamingError) => void,
     timeoutSecs?: number,
   ): Promise<StreamingTableResult> {
-    this.cancel();
+    this.cancel(); // Abort any previous query
+
+    const controller = new AbortController();
+    this.abortController = controller;
+    const gen = this.generation;
+
     return new Promise((resolve, reject) => {
       try {
         this.isStreaming = true;
         this.accumulatedRows = [];
         this.columns = undefined;
+
+        // Reject the promise when cancelled via abort
+        const onAbort = () =>
+          reject(new DOMException("Query cancelled", "AbortError"));
+        controller.signal.addEventListener("abort", onAbort, { once: true });
 
         void queryStreamClient.streamWithCallbacks(
           {
@@ -491,6 +502,7 @@ class TableStreamingService {
           },
           {
             onStarted: (columns, estimatedRows) => {
+              if (gen !== this.generation) return; // stale — ignore
               this.columns = mapBackendColumnsToColumnMeta(columns);
               if (onProgress) {
                 onProgress({
@@ -503,6 +515,7 @@ class TableStreamingService {
               }
             },
             onBatch: (batch, totalSoFar) => {
+              if (gen !== this.generation) return; // stale — ignore
               // Normalize BigInt values to strings (JS can't JSON.stringify BigInt)
               const normalizedRows = normalizeRawRows(batch.rows);
               this.accumulatedRows.push(...normalizedRows);
@@ -515,15 +528,25 @@ class TableStreamingService {
               }
             },
             onSuccess: (streamResult) => {
-              this.isStreaming = false;
+              if (gen !== this.generation) return; // stale — ignore
+              // NOTE: Keep abort listener active during polling so cancel()
+              // can still reject the promise. Only remove it when settling.
 
               // CRITICAL FIX: Poll until all batches are accumulated
               // The backend sends success before all batch messages are processed
               // This is the same proven pattern used in streamEntityPage
               const expectedRows = streamResult.totalRows;
               const pollInterval = setInterval(() => {
+                // Check staleness inside the poll too — reject so the promise settles
+                if (gen !== this.generation) {
+                  clearInterval(pollInterval);
+                  // Don't reject here — the abort listener already rejected
+                  return;
+                }
                 if (this.accumulatedRows.length >= expectedRows) {
                   clearInterval(pollInterval);
+                  controller.signal.removeEventListener("abort", onAbort);
+                  this.isStreaming = false;
 
                   const finalResult: StreamingTableResult = {
                     columns: mapBackendColumnsToColumnMeta(
@@ -552,9 +575,15 @@ class TableStreamingService {
                 }
               }, 10);
 
-              // Safety timeout: resolve after 5 seconds even if count doesn't match
+              // Safety timeout: resolve after 5 seconds even if count doesn't match.
+              // NOTE: If cancel() fires between the generation check and removeEventListener,
+              // onAbort may reject while this path resolves. This is safe — JS Promises
+              // can only settle once, so the second call (resolve or reject) is a no-op.
               setTimeout(() => {
                 clearInterval(pollInterval);
+                if (gen !== this.generation) return; // stale — abort listener handles rejection
+                controller.signal.removeEventListener("abort", onAbort);
+                this.isStreaming = false;
                 logger.warn(
                   `streamQuery timeout waiting for batches: expected ${expectedRows}, got ${this.accumulatedRows.length}`,
                 );
@@ -575,6 +604,8 @@ class TableStreamingService {
               }, 5000);
             },
             onError: (err) => {
+              if (gen !== this.generation) return; // stale — ignore
+              controller.signal.removeEventListener("abort", onAbort);
               this.isStreaming = false;
               reject(err);
             },
@@ -588,9 +619,10 @@ class TableStreamingService {
   }
 
   cancel(): void {
-    if (this.unlistener) {
-      this.unlistener();
-      this.unlistener = undefined;
+    this.generation++;
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
     }
     this.isStreaming = false;
     this.accumulatedRows = [];

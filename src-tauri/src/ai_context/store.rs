@@ -64,7 +64,11 @@ impl AiContextStore {
     }
 
     /// Get recent query history
-    pub async fn get_history(&self, limit: usize, connection_id: Option<&str>) -> Vec<QueryHistoryEntry> {
+    pub async fn get_history(
+        &self,
+        limit: usize,
+        connection_id: Option<&str>,
+    ) -> Vec<QueryHistoryEntry> {
         let history = self.history.read().await;
         history
             .iter()
@@ -106,18 +110,20 @@ mod tests {
     async fn test_add_and_get_history() {
         let store = AiContextStore::new();
 
-        store.add_history_entry(QueryHistoryEntry {
-            id: "1".to_string(),
-            query: "SELECT 1".to_string(),
-            connection_id: "conn-1".to_string(),
-            database: "test".to_string(),
-            schema: Some("public".to_string()),
-            executed_at: 1000,
-            execution_time_ms: Some(50),
-            row_count: Some(1),
-            success: true,
-            error: None,
-        }).await;
+        store
+            .add_history_entry(QueryHistoryEntry {
+                id: "1".to_string(),
+                query: "SELECT 1".to_string(),
+                connection_id: "conn-1".to_string(),
+                database: "test".to_string(),
+                schema: Some("public".to_string()),
+                executed_at: 1000,
+                execution_time_ms: Some(50),
+                row_count: Some(1),
+                success: true,
+                error: None,
+            })
+            .await;
 
         let history = store.get_history(10, None).await;
         assert_eq!(history.len(), 1);
@@ -129,18 +135,20 @@ mod tests {
         let store = AiContextStore::new();
 
         for i in 0..150 {
-            store.add_history_entry(QueryHistoryEntry {
-                id: i.to_string(),
-                query: format!("SELECT {}", i),
-                connection_id: "conn-1".to_string(),
-                database: "test".to_string(),
-                schema: None,
-                executed_at: i as u64,
-                execution_time_ms: None,
-                row_count: None,
-                success: true,
-                error: None,
-            }).await;
+            store
+                .add_history_entry(QueryHistoryEntry {
+                    id: i.to_string(),
+                    query: format!("SELECT {}", i),
+                    connection_id: "conn-1".to_string(),
+                    database: "test".to_string(),
+                    schema: None,
+                    executed_at: i as u64,
+                    execution_time_ms: None,
+                    row_count: None,
+                    success: true,
+                    error: None,
+                })
+                .await;
         }
 
         let history = store.get_history(200, None).await;
@@ -153,31 +161,35 @@ mod tests {
     async fn test_filter_by_connection() {
         let store = AiContextStore::new();
 
-        store.add_history_entry(QueryHistoryEntry {
-            id: "1".to_string(),
-            query: "SELECT 1".to_string(),
-            connection_id: "conn-1".to_string(),
-            database: "test".to_string(),
-            schema: None,
-            executed_at: 1000,
-            execution_time_ms: None,
-            row_count: None,
-            success: true,
-            error: None,
-        }).await;
+        store
+            .add_history_entry(QueryHistoryEntry {
+                id: "1".to_string(),
+                query: "SELECT 1".to_string(),
+                connection_id: "conn-1".to_string(),
+                database: "test".to_string(),
+                schema: None,
+                executed_at: 1000,
+                execution_time_ms: None,
+                row_count: None,
+                success: true,
+                error: None,
+            })
+            .await;
 
-        store.add_history_entry(QueryHistoryEntry {
-            id: "2".to_string(),
-            query: "SELECT 2".to_string(),
-            connection_id: "conn-2".to_string(),
-            database: "test".to_string(),
-            schema: None,
-            executed_at: 2000,
-            execution_time_ms: None,
-            row_count: None,
-            success: true,
-            error: None,
-        }).await;
+        store
+            .add_history_entry(QueryHistoryEntry {
+                id: "2".to_string(),
+                query: "SELECT 2".to_string(),
+                connection_id: "conn-2".to_string(),
+                database: "test".to_string(),
+                schema: None,
+                executed_at: 2000,
+                execution_time_ms: None,
+                row_count: None,
+                success: true,
+                error: None,
+            })
+            .await;
 
         let filtered = store.get_history(10, Some("conn-1")).await;
         assert_eq!(filtered.len(), 1);
@@ -194,17 +206,19 @@ mod tests {
         assert!(!context.has_results);
 
         // Set active context
-        store.set_active_context(ActiveContext {
-            connection_id: Some("conn-1".to_string()),
-            database: Some("mydb".to_string()),
-            schema: Some("public".to_string()),
-            query: Some("SELECT * FROM users".to_string()),
-            last_executed_query: None,
-            has_results: true,
-            row_count: Some(10),
-            column_count: Some(3),
-            updated_at: 12345,
-        }).await;
+        store
+            .set_active_context(ActiveContext {
+                connection_id: Some("conn-1".to_string()),
+                database: Some("mydb".to_string()),
+                schema: Some("public".to_string()),
+                query: Some("SELECT * FROM users".to_string()),
+                last_executed_query: None,
+                has_results: true,
+                row_count: Some(10),
+                column_count: Some(3),
+                updated_at: 12345,
+            })
+            .await;
 
         let context = store.get_active_context().await;
         assert_eq!(context.connection_id, Some("conn-1".to_string()));
@@ -217,18 +231,20 @@ mod tests {
     async fn test_clear_history() {
         let store = AiContextStore::new();
 
-        store.add_history_entry(QueryHistoryEntry {
-            id: "1".to_string(),
-            query: "SELECT 1".to_string(),
-            connection_id: "conn-1".to_string(),
-            database: "test".to_string(),
-            schema: None,
-            executed_at: 1000,
-            execution_time_ms: None,
-            row_count: None,
-            success: true,
-            error: None,
-        }).await;
+        store
+            .add_history_entry(QueryHistoryEntry {
+                id: "1".to_string(),
+                query: "SELECT 1".to_string(),
+                connection_id: "conn-1".to_string(),
+                database: "test".to_string(),
+                schema: None,
+                executed_at: 1000,
+                execution_time_ms: None,
+                row_count: None,
+                success: true,
+                error: None,
+            })
+            .await;
 
         assert_eq!(store.get_history(10, None).await.len(), 1);
 

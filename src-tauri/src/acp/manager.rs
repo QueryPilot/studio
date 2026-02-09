@@ -102,11 +102,16 @@ impl Client for QueryPilotClient {
         // Determine if we should allow this tool
         // Allow safe operations and MCP tools (prefixed with mcp__)
         let is_mcp_tool = tool_title.starts_with("mcp__");
-        let should_allow = is_mcp_tool || matches!(
-            tool_kind,
-            // Safe operations - auto-approve
-            ToolKind::Read | ToolKind::Search | ToolKind::Think | ToolKind::Fetch | ToolKind::SwitchMode
-        );
+        let should_allow = is_mcp_tool
+            || matches!(
+                tool_kind,
+                // Safe operations - auto-approve
+                ToolKind::Read
+                    | ToolKind::Search
+                    | ToolKind::Think
+                    | ToolKind::Fetch
+                    | ToolKind::SwitchMode
+            );
 
         if should_allow {
             tracing::info!("Auto-approving {:?} operation: {}", tool_kind, tool_title);
@@ -151,7 +156,10 @@ impl Client for QueryPilotClient {
         args: SessionNotification,
     ) -> agent_client_protocol::Result<()> {
         // Forward notifications to the channel for Tauri event emission
-        tracing::info!("QueryPilotClient received notification for session {}", args.session_id);
+        tracing::info!(
+            "QueryPilotClient received notification for session {}",
+            args.session_id
+        );
         let _ = self.notification_tx.send(args);
         Ok(())
     }
@@ -211,8 +219,8 @@ impl AcpWorker {
         // Create ACP connection over the piper pipes
         let (connection, io_task) = ClientSideConnection::new(
             QueryPilotClient::new(notification_tx),
-            to_agent_tx,     // outgoing bytes (to agent)
-            from_agent_rx,   // incoming bytes (from agent)
+            to_agent_tx,   // outgoing bytes (to agent)
+            from_agent_rx, // incoming bytes (from agent)
             |fut| {
                 tokio::task::spawn_local(fut);
             },
@@ -264,7 +272,10 @@ impl AcpWorker {
                         {
                             break;
                         }
-                        if futures::AsyncWriteExt::flush(&mut from_agent_tx).await.is_err() {
+                        if futures::AsyncWriteExt::flush(&mut from_agent_tx)
+                            .await
+                            .is_err()
+                        {
                             break;
                         }
                     }
@@ -318,9 +329,7 @@ impl AcpWorker {
         let acp_mcp_servers: Vec<McpServer> = mcp_servers
             .into_iter()
             .map(|cfg| {
-                McpServer::Stdio(
-                    McpServerStdio::new(&cfg.name, &cfg.command).args(cfg.args),
-                )
+                McpServer::Stdio(McpServerStdio::new(&cfg.name, &cfg.command).args(cfg.args))
             })
             .collect();
 
@@ -345,7 +354,10 @@ impl AcpWorker {
         // Try ACP method first
         let result = process
             .connection
-            .set_session_model(SetSessionModelRequest::new(session_id, ModelId::new(model_id)))
+            .set_session_model(SetSessionModelRequest::new(
+                session_id,
+                ModelId::new(model_id),
+            ))
             .await;
 
         match result {
@@ -354,7 +366,8 @@ impl AcpWorker {
                 let err_str = e.to_string();
                 // If method not found, try fallback for specific agents
                 if err_str.contains("Method not found") {
-                    self.set_model_fallback(&process.binary_name, model_id).await
+                    self.set_model_fallback(&process.binary_name, model_id)
+                        .await
                 } else {
                     Err(err_str)
                 }
@@ -365,7 +378,10 @@ impl AcpWorker {
     /// Fallback method to set model for agents that don't support ACP session/set_model
     async fn set_model_fallback(&self, binary_name: &str, _model_id: &str) -> Result<(), String> {
         // No fallback available for supported agents (Claude Code, OpenCode, Codex)
-        Err(format!("Agent '{}' doesn't support model selection fallback", binary_name))
+        Err(format!(
+            "Agent '{}' doesn't support model selection fallback",
+            binary_name
+        ))
     }
 
     async fn send_prompt(
@@ -402,7 +418,10 @@ impl AcpWorker {
             .map_err(|e| e.to_string())
     }
 
-    fn take_notification_receiver(&mut self, agent_id: &str) -> Result<NotificationReceiver, String> {
+    fn take_notification_receiver(
+        &mut self,
+        agent_id: &str,
+    ) -> Result<NotificationReceiver, String> {
         let process = self.agents.get_mut(agent_id).ok_or("Agent not found")?;
         process
             .notification_rx

@@ -591,10 +591,7 @@ pub async fn keyvalue_execute(
             Ok(KeyValueResult::KeyType(key_type))
         }
         KeyValueOperation::Ttl { key } => {
-            let ttl = adapter
-                .get_key_ttl(&key)
-                .await
-                .map_err(|e| e.to_string())?;
+            let ttl = adapter.get_key_ttl(&key).await.map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Ttl(ttl))
         }
         KeyValueOperation::SetTtl { key, seconds } => {
@@ -675,10 +672,7 @@ pub async fn keyvalue_execute(
         }
         // Rich operations - Set
         KeyValueOperation::SetMembers { key } => {
-            let members = adapter
-                .set_members(&key)
-                .await
-                .map_err(|e| e.to_string())?;
+            let members = adapter.set_members(&key).await.map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Set(members))
         }
         KeyValueOperation::SetAdd { key, members } => {

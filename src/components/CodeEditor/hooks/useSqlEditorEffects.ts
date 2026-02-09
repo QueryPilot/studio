@@ -47,6 +47,7 @@ export function useSqlEditorEffects({
   const onExecuteRef = useRef(onExecute);
   const onGotoDefinitionRef = useRef(onGotoDefinition);
   const onDialectDetectedRef = useRef(onDialectDetected);
+  const lastEmittedValueRef = useRef<string | null>(null);
 
   // Keep refs updated
   useEffect(() => {
@@ -58,6 +59,7 @@ export function useSqlEditorEffects({
 
   // Create debounced onChange
   const handleChange = useCallback((value: string) => {
+    lastEmittedValueRef.current = value;
     onChangeRef.current?.(value);
   }, []);
 
@@ -203,6 +205,7 @@ export function useSqlEditorEffects({
     onExecuteRef,
     onGotoDefinitionRef,
     onDialectDetectedRef,
+    lastEmittedValueRef,
     debouncedOnChange,
     executeQuery,
     executeKeymap,

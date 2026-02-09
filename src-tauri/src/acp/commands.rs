@@ -17,7 +17,12 @@ pub async fn acp_list_agents() -> Result<Vec<AgentInfo>, String> {
     let agents = super::discovery::discover_agents();
     tracing::info!("Found {} agents", agents.len());
     for agent in &agents {
-        tracing::info!("  - {} (installed: {}, path: {:?})", agent.name, agent.installed, agent.path);
+        tracing::info!(
+            "  - {} (installed: {}, path: {:?})",
+            agent.name,
+            agent.installed,
+            agent.path
+        );
     }
     Ok(agents)
 }
@@ -25,7 +30,9 @@ pub async fn acp_list_agents() -> Result<Vec<AgentInfo>, String> {
 /// Fetch available models for an agent dynamically
 /// Returns models from shell command if supported, otherwise None
 #[tauri::command]
-pub async fn acp_fetch_agent_models(agent_id: String) -> Result<Option<Vec<super::discovery::ModelInfo>>, String> {
+pub async fn acp_fetch_agent_models(
+    agent_id: String,
+) -> Result<Option<Vec<super::discovery::ModelInfo>>, String> {
     tracing::info!("Fetching models for agent: {}", agent_id);
     let models = super::discovery::fetch_agent_models(&agent_id);
     if let Some(ref m) = models {
@@ -45,13 +52,10 @@ pub async fn acp_start_agent(
 ) -> Result<String, String> {
     tracing::info!("Starting agent: {}", agent_id);
     let agents = super::discovery::discover_agents();
-    let agent = agents
-        .iter()
-        .find(|a| a.id == agent_id)
-        .ok_or_else(|| {
-            tracing::error!("Agent not found: {}", agent_id);
-            "Agent not found".to_string()
-        })?;
+    let agent = agents.iter().find(|a| a.id == agent_id).ok_or_else(|| {
+        tracing::error!("Agent not found: {}", agent_id);
+        "Agent not found".to_string()
+    })?;
 
     tracing::info!("Found agent config: {} at {:?}", agent.name, agent.path);
 
@@ -109,7 +113,11 @@ pub async fn acp_create_session(
     mcp_servers: Option<Vec<McpServerConfig>>,
     manager: State<'_, Arc<AcpManager>>,
 ) -> Result<String, String> {
-    tracing::info!("Creating session for instance {} with cwd: {}", instance_id, cwd);
+    tracing::info!(
+        "Creating session for instance {} with cwd: {}",
+        instance_id,
+        cwd
+    );
 
     // Convert frontend config to manager's internal format
     let mcp_configs: Vec<super::manager::McpServerConfig> = mcp_servers
@@ -123,10 +131,16 @@ pub async fn acp_create_session(
         .collect();
 
     if !mcp_configs.is_empty() {
-        tracing::info!("MCP servers configured: {:?}", mcp_configs.iter().map(|c| &c.name).collect::<Vec<_>>());
+        tracing::info!(
+            "MCP servers configured: {:?}",
+            mcp_configs.iter().map(|c| &c.name).collect::<Vec<_>>()
+        );
     }
 
-    match manager.create_session(&instance_id, &cwd, mcp_configs).await {
+    match manager
+        .create_session(&instance_id, &cwd, mcp_configs)
+        .await
+    {
         Ok(session_id) => {
             tracing::info!("Session created: {}", session_id);
             Ok(session_id)
@@ -146,7 +160,11 @@ pub async fn acp_set_session_model(
     model_id: String,
     manager: State<'_, Arc<AcpManager>>,
 ) -> Result<(), String> {
-    tracing::info!("Setting model for instance {} to: {}", instance_id, model_id);
+    tracing::info!(
+        "Setting model for instance {} to: {}",
+        instance_id,
+        model_id
+    );
     match manager.set_session_model(&instance_id, &model_id).await {
         Ok(()) => {
             tracing::info!("Model set successfully");
@@ -162,6 +180,19 @@ pub async fn acp_set_session_model(
             Err(e)
         }
     }
+}
+
+/// Get the current session ID for an active agent instance.
+///
+/// Frontend uses this to subscribe to `acp-update-<sessionId>` before sending
+/// a prompt, preventing missed early streaming chunks.
+#[tauri::command]
+pub async fn acp_get_session_id(
+    instance_id: String,
+    manager: State<'_, Arc<AcpManager>>,
+) -> Result<String, String> {
+    let session_id = manager.get_session_id(&instance_id).await?;
+    Ok(session_id.to_string())
 }
 
 /// System instructions prepended to every prompt
@@ -248,16 +279,22 @@ pub async fn acp_send_prompt(
     app_handle: tauri::AppHandle,
     manager: State<'_, Arc<AcpManager>>,
 ) -> Result<String, String> {
-    tracing::info!("Sending prompt to instance {}: {}", instance_id, &prompt[..prompt.len().min(100)]);
+    tracing::info!(
+        "Sending prompt to instance {}: {}",
+        instance_id,
+        &prompt[..prompt.len().min(100)]
+    );
     let mut content = vec![];
 
     // Always prepend system instructions first
-    content.push(ContentBlock::Text(TextContent::new(SYSTEM_INSTRUCTIONS.to_string())));
+    content.push(ContentBlock::Text(TextContent::new(
+        SYSTEM_INSTRUCTIONS.to_string(),
+    )));
 
-    // Add database context if provided
+    // Add structured database context if provided (must be JSON from frontend)
     if let Some(ctx) = context_json {
         content.push(ContentBlock::Text(TextContent::new(format!(
-            "Database schema context:\n```json\n{}\n```\n\n",
+            "Database context (JSON):\n```json\n{}\n```\n\n",
             ctx
         ))));
     }
@@ -387,6 +424,29 @@ pub async fn acp_get_llm_home() -> Result<String, String> {
     Ok(llm_home.to_string_lossy().to_string())
 }
 
+/// Check if a path is a valid executable (exists, non-empty, and executable on Unix)
+fn is_valid_executable(path: &std::path::Path) -> bool {
+    match std::fs::metadata(path) {
+        Ok(meta) => {
+            // Must be a file with non-zero size
+            if !meta.is_file() || meta.len() == 0 {
+                return false;
+            }
+            // On Unix, check executable permission
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                meta.permissions().mode() & 0o111 != 0
+            }
+            #[cfg(not(unix))]
+            {
+                true
+            }
+        }
+        Err(_) => false,
+    }
+}
+
 /// Get the path to the MCP sidecar binary
 /// Returns the absolute path to the querypilot-mcp sidecar bundled with the app
 #[tauri::command]
@@ -404,7 +464,7 @@ pub async fn acp_get_mcp_sidecar_path(app_handle: tauri::AppHandle) -> Result<St
     // Try to resolve from app resources (production)
     if let Ok(resource_dir) = app_handle.path().resource_dir() {
         let sidecar_path = resource_dir.join("binaries").join(sidecar_name);
-        if sidecar_path.exists() {
+        if is_valid_executable(&sidecar_path) {
             tracing::info!("Found MCP sidecar at: {}", sidecar_path.display());
             return Ok(sidecar_path.to_string_lossy().to_string());
         }
@@ -412,31 +472,39 @@ pub async fn acp_get_mcp_sidecar_path(app_handle: tauri::AppHandle) -> Result<St
 
     // Fallback: try the workspace target paths for development
     // Tauri runs from src-tauri/, but workspace root is parent directory
-    let current_dir = std::env::current_dir()
-        .map_err(|e| format!("Failed to get current dir: {}", e))?;
+    let current_dir =
+        std::env::current_dir().map_err(|e| format!("Failed to get current dir: {}", e))?;
 
-    // Check workspace root target (for cargo workspace builds) - try both debug and release
+    // Check workspace root target (for cargo workspace builds)
+    // Prefer release over debug since debug builds may be incomplete
     if let Some(workspace_root) = current_dir.parent() {
-        for profile in ["debug", "release"] {
-            let workspace_path = workspace_root.join("target").join(profile).join(sidecar_name);
-            if workspace_path.exists() {
-                tracing::info!("Found MCP sidecar (workspace {}) at: {}", profile, workspace_path.display());
+        for profile in ["release", "debug"] {
+            let workspace_path = workspace_root
+                .join("target")
+                .join(profile)
+                .join(sidecar_name);
+            if is_valid_executable(&workspace_path) {
+                tracing::info!(
+                    "Found MCP sidecar (workspace {}) at: {}",
+                    profile,
+                    workspace_path.display()
+                );
                 return Ok(workspace_path.to_string_lossy().to_string());
             }
         }
     }
 
-    // Check current dir target (for standalone builds) - try both debug and release
-    for profile in ["debug", "release"] {
+    // Check current dir target (for standalone builds)
+    for profile in ["release", "debug"] {
         let dev_path = current_dir.join("target").join(profile).join(sidecar_name);
-        if dev_path.exists() {
+        if is_valid_executable(&dev_path) {
             tracing::info!("Found MCP sidecar ({}) at: {}", profile, dev_path.display());
             return Ok(dev_path.to_string_lossy().to_string());
         }
     }
 
     Err(format!(
-        "MCP sidecar not found. Expected at bundled resources or target/{{debug,release}}/{}",
+        "MCP sidecar not found or invalid. Expected a valid executable at bundled resources or target/{{release,debug}}/{}",
         sidecar_name
     ))
 }

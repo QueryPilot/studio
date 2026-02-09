@@ -13,10 +13,9 @@ use tokio::io::{AsyncBufReadExt, BufReader as TokioBufReader};
 use tokio::process::Command;
 
 use crate::core::backup_capability::{
-    BackupCapable, BackupConfig, BackupFormat, BackupObject, BackupObjectType,
-    BackupOptionsSchema, BackupPreview, BackupPreviewObject, BackupProgress, FieldType,
-    OptionField, ProgressSender, RestoreConfig, RestoreOptionsSchema, SelectOption,
-    ToolPurpose, ToolRequirement,
+    BackupCapable, BackupConfig, BackupFormat, BackupObject, BackupObjectType, BackupOptionsSchema,
+    BackupPreview, BackupPreviewObject, BackupProgress, FieldType, OptionField, ProgressSender,
+    RestoreConfig, RestoreOptionsSchema, SelectOption, ToolPurpose, ToolRequirement,
 };
 use crate::core::tool_registry::ToolRegistry;
 use crate::error::AppError;
@@ -113,9 +112,10 @@ impl BackupCapable for PostgresAdapter {
                 id: "directory".to_string(),
                 name: "Directory".to_string(),
                 extension: "".to_string(),
-                description: "Directory format with one file per table. Supports parallel backup/restore. \
+                description:
+                    "Directory format with one file per table. Supports parallel backup/restore. \
                     Best for very large databases."
-                    .to_string(),
+                        .to_string(),
             },
         ]
     }
@@ -144,7 +144,8 @@ impl BackupCapable for PostgresAdapter {
                         ],
                     },
                     default: json!("5"),
-                    description: "Compression level for custom and directory formats (0-9).".to_string(),
+                    description: "Compression level for custom and directory formats (0-9)."
+                        .to_string(),
                 },
                 OptionField {
                     key: "data_only".to_string(),
@@ -174,7 +175,8 @@ impl BackupCapable for PostgresAdapter {
                     label: "Skip Privileges".to_string(),
                     field_type: FieldType::Bool,
                     default: json!(false),
-                    description: "Don't output commands to set access privileges (GRANT/REVOKE).".to_string(),
+                    description: "Don't output commands to set access privileges (GRANT/REVOKE)."
+                        .to_string(),
                 },
                 OptionField {
                     key: "no_tablespaces".to_string(),
@@ -205,7 +207,8 @@ impl BackupCapable for PostgresAdapter {
                         max: Some(32.0),
                     },
                     default: json!(1),
-                    description: "Number of parallel dump jobs (directory format only).".to_string(),
+                    description: "Number of parallel dump jobs (directory format only)."
+                        .to_string(),
                 },
             ],
         }
@@ -282,13 +285,15 @@ impl BackupCapable for PostgresAdapter {
 
     /// List schemas and tables that can be backed up.
     async fn list_backup_objects(&self) -> Result<Vec<BackupObject>, AppError> {
-        let pool = self.get_pool().await.ok_or_else(|| {
-            AppError::ConnectionClosed("Not connected".into())
-        })?;
+        let pool = self
+            .get_pool()
+            .await
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
-        let client = pool.get().await.map_err(|e| {
-            AppError::Internal(format!("Failed to get connection: {}", e))
-        })?;
+        let client = pool
+            .get()
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         let mut objects = Vec::new();
 
@@ -487,10 +492,14 @@ impl BackupCapable for PostgresAdapter {
         // Build pg_dump command
         let pg_dump = Self::find_pg_dump().await?;
         let mut cmd = Command::new(&pg_dump);
-        cmd.arg("-h").arg(&host)
-            .arg("-p").arg(port.to_string())
-            .arg("-U").arg(&user)
-            .arg("-d").arg(&database);
+        cmd.arg("-h")
+            .arg(&host)
+            .arg("-p")
+            .arg(port.to_string())
+            .arg("-U")
+            .arg(&user)
+            .arg("-d")
+            .arg(&database);
 
         // Set format based on config
         let format_flag = match config.format.as_str() {
@@ -512,31 +521,66 @@ impl BackupCapable for PostgresAdapter {
             }
         }
 
-        if config.options.get("data_only").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if config
+            .options
+            .get("data_only")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             cmd.arg("--data-only");
         }
 
-        if config.options.get("schema_only").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if config
+            .options
+            .get("schema_only")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             cmd.arg("--schema-only");
         }
 
-        if config.options.get("no_owner").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if config
+            .options
+            .get("no_owner")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             cmd.arg("--no-owner");
         }
 
-        if config.options.get("no_privileges").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if config
+            .options
+            .get("no_privileges")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             cmd.arg("--no-privileges");
         }
 
-        if config.options.get("no_tablespaces").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if config
+            .options
+            .get("no_tablespaces")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             cmd.arg("--no-tablespaces");
         }
 
-        if config.options.get("clean").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if config
+            .options
+            .get("clean")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             cmd.arg("--clean");
         }
 
-        if config.options.get("if_exists").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if config
+            .options
+            .get("if_exists")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             cmd.arg("--if-exists");
         }
 
@@ -568,8 +612,7 @@ impl BackupCapable for PostgresAdapter {
         cmd.env("PGPASSWORD", &password);
 
         // Setup stdio
-        cmd.stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
         let _ = progress
             .send(BackupProgress::Output {
@@ -579,14 +622,15 @@ impl BackupCapable for PostgresAdapter {
             .await;
 
         // Spawn the process
-        let mut child = cmd.spawn().map_err(|e| {
-            AppError::Internal(format!("Failed to spawn pg_dump: {}", e))
-        })?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| AppError::Internal(format!("Failed to spawn pg_dump: {}", e)))?;
 
         // Read stderr for progress (pg_dump outputs to stderr with -v)
-        let stderr = child.stderr.take().ok_or_else(|| {
-            AppError::Internal("Failed to capture stderr".into())
-        })?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| AppError::Internal("Failed to capture stderr".into()))?;
 
         let progress_clone = progress.clone();
         let stderr_task = tokio::spawn(async move {
@@ -603,9 +647,10 @@ impl BackupCapable for PostgresAdapter {
         });
 
         // Wait for process to complete
-        let status = child.wait().await.map_err(|e| {
-            AppError::Internal(format!("pg_dump process error: {}", e))
-        })?;
+        let status = child
+            .wait()
+            .await
+            .map_err(|e| AppError::Internal(format!("pg_dump process error: {}", e)))?;
 
         // Wait for stderr reading to complete
         let _ = stderr_task.await;
@@ -625,10 +670,7 @@ impl BackupCapable for PostgresAdapter {
         // Send completion
         if progress
             .send(BackupProgress::Completed {
-                message: format!(
-                    "Backup completed successfully: {}",
-                    config.destination_path
-                ),
+                message: format!("Backup completed successfully: {}", config.destination_path),
             })
             .await
             .is_err()
@@ -702,43 +744,82 @@ impl BackupCapable for PostgresAdapter {
             // Use psql for SQL files
             let psql = Self::find_psql().await?;
             let mut c = Command::new(&psql);
-            c.arg("-h").arg(&host)
-                .arg("-p").arg(port.to_string())
-                .arg("-U").arg(&user)
-                .arg("-d").arg(&database)
-                .arg("-f").arg(&config.source_path);
+            c.arg("-h")
+                .arg(&host)
+                .arg("-p")
+                .arg(port.to_string())
+                .arg("-U")
+                .arg(&user)
+                .arg("-d")
+                .arg(&database)
+                .arg("-f")
+                .arg(&config.source_path);
             c
         } else {
             // Use pg_restore for custom/tar formats
             let pg_restore = Self::find_pg_restore().await?;
             let mut c = Command::new(&pg_restore);
-            c.arg("-h").arg(&host)
-                .arg("-p").arg(port.to_string())
-                .arg("-U").arg(&user)
-                .arg("-d").arg(&database);
+            c.arg("-h")
+                .arg(&host)
+                .arg("-p")
+                .arg(port.to_string())
+                .arg("-U")
+                .arg(&user)
+                .arg("-d")
+                .arg(&database);
 
             // Parse and apply options
-            if config.options.get("clean").and_then(|v| v.as_bool()).unwrap_or(false) {
+            if config
+                .options
+                .get("clean")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
                 c.arg("--clean");
             }
 
-            if config.options.get("data_only").and_then(|v| v.as_bool()).unwrap_or(false) {
+            if config
+                .options
+                .get("data_only")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
                 c.arg("--data-only");
             }
 
-            if config.options.get("no_owner").and_then(|v| v.as_bool()).unwrap_or(false) {
+            if config
+                .options
+                .get("no_owner")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
                 c.arg("--no-owner");
             }
 
-            if config.options.get("no_privileges").and_then(|v| v.as_bool()).unwrap_or(false) {
+            if config
+                .options
+                .get("no_privileges")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
                 c.arg("--no-privileges");
             }
 
-            if config.options.get("no_tablespaces").and_then(|v| v.as_bool()).unwrap_or(false) {
+            if config
+                .options
+                .get("no_tablespaces")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
                 c.arg("--no-tablespaces");
             }
 
-            if config.options.get("single_transaction").and_then(|v| v.as_bool()).unwrap_or(true) {
+            if config
+                .options
+                .get("single_transaction")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true)
+            {
                 c.arg("--single-transaction");
             }
 
@@ -748,7 +829,12 @@ impl BackupCapable for PostgresAdapter {
                 }
             }
 
-            if config.options.get("exit_on_error").and_then(|v| v.as_bool()).unwrap_or(false) {
+            if config
+                .options
+                .get("exit_on_error")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
                 c.arg("--exit-on-error");
             }
 
@@ -764,26 +850,29 @@ impl BackupCapable for PostgresAdapter {
         cmd.env("PGPASSWORD", &password);
 
         // Setup stdio
-        cmd.stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
         let tool_name = if is_sql { "psql" } else { "pg_restore" };
         let _ = progress
             .send(BackupProgress::Output {
-                line: format!("Starting restore to database '{}' using {}...", database, tool_name),
+                line: format!(
+                    "Starting restore to database '{}' using {}...",
+                    database, tool_name
+                ),
                 is_error: false,
             })
             .await;
 
         // Spawn the process
-        let mut child = cmd.spawn().map_err(|e| {
-            AppError::Internal(format!("Failed to spawn {}: {}", tool_name, e))
-        })?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| AppError::Internal(format!("Failed to spawn {}: {}", tool_name, e)))?;
 
         // Read stderr for progress
-        let stderr = child.stderr.take().ok_or_else(|| {
-            AppError::Internal("Failed to capture stderr".into())
-        })?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| AppError::Internal("Failed to capture stderr".into()))?;
 
         let progress_clone = progress.clone();
         let stderr_task = tokio::spawn(async move {
@@ -799,9 +888,10 @@ impl BackupCapable for PostgresAdapter {
         });
 
         // Wait for process to complete
-        let status = child.wait().await.map_err(|e| {
-            AppError::Internal(format!("{} process error: {}", tool_name, e))
-        })?;
+        let status = child
+            .wait()
+            .await
+            .map_err(|e| AppError::Internal(format!("{} process error: {}", tool_name, e)))?;
 
         // Wait for stderr reading to complete
         let _ = stderr_task.await;
@@ -861,8 +951,15 @@ fn parse_pg_restore_list(output: &str) -> Vec<BackupPreviewObject> {
             let type_idx = parts.iter().position(|&p| {
                 matches!(
                     p.to_uppercase().as_str(),
-                    "TABLE" | "VIEW" | "SEQUENCE" | "INDEX" | "FUNCTION"
-                        | "SCHEMA" | "TYPE" | "CONSTRAINT" | "TRIGGER"
+                    "TABLE"
+                        | "VIEW"
+                        | "SEQUENCE"
+                        | "INDEX"
+                        | "FUNCTION"
+                        | "SCHEMA"
+                        | "TYPE"
+                        | "CONSTRAINT"
+                        | "TRIGGER"
                 )
             });
 
@@ -901,9 +998,8 @@ fn parse_sql_backup_preview(
     file_name: String,
     file_size: u64,
 ) -> Result<BackupPreview, AppError> {
-    let file = fs::File::open(path).map_err(|e| {
-        AppError::Io(format!("Failed to open backup file: {}", e))
-    })?;
+    let file = fs::File::open(path)
+        .map_err(|e| AppError::Io(format!("Failed to open backup file: {}", e)))?;
 
     let reader = BufReader::new(file);
     let mut objects = Vec::new();
@@ -1111,7 +1207,10 @@ mod tests {
         assert!(options.common.iter().any(|o| o.key == "clean"));
 
         // Should have advanced options
-        assert!(options.advanced.iter().any(|o| o.key == "single_transaction"));
+        assert!(options
+            .advanced
+            .iter()
+            .any(|o| o.key == "single_transaction"));
         assert!(options.advanced.iter().any(|o| o.key == "jobs"));
     }
 

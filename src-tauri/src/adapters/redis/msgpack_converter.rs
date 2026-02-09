@@ -26,11 +26,11 @@ impl RedisMsgPackEncoder {
     pub fn encode_keys(&mut self, keys: &[KeyInfo]) -> Result<Vec<u8>> {
         let encoded = rmp_serde::to_vec(keys)
             .map_err(|e| AppError::Internal(format!("MessagePack encoding failed: {}", e)))?;
-        
+
         if !keys.is_empty() {
             self.estimated_key_size = encoded.len() / keys.len();
         }
-        
+
         Ok(encoded)
     }
 }

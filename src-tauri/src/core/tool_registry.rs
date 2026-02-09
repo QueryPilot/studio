@@ -78,15 +78,13 @@ impl ToolRegistry {
             ],
             // MySQL/MariaDB: Support both mysqldump/mysql AND mariadb-dump/mariadb
             // We only need ONE of each pair to be installed
-            "MySQL" | "MariaDB" => vec![
-                ToolInfo {
-                    name: "mysqldump".to_string(),
-                    description: "MySQL/MariaDB backup utility (or mariadb-dump)".to_string(),
-                    version_command: "--version".to_string(),
-                    download_url: Some("https://dev.mysql.com/downloads/mysql/".to_string()),
-                    download_size_mb: 15,
-                },
-            ],
+            "MySQL" | "MariaDB" => vec![ToolInfo {
+                name: "mysqldump".to_string(),
+                description: "MySQL/MariaDB backup utility (or mariadb-dump)".to_string(),
+                version_command: "--version".to_string(),
+                download_url: Some("https://dev.mysql.com/downloads/mysql/".to_string()),
+                download_size_mb: 15,
+            }],
             "MongoDB" => vec![
                 ToolInfo {
                     name: "mongodump".to_string(),
@@ -192,7 +190,13 @@ impl ToolRegistry {
         let keg_names = match name {
             "mysqldump" | "mysql" => vec!["mysql-client", "mysql", "mariadb"],
             "mariadb-dump" | "mariadb" => vec!["mariadb", "mysql-client", "mysql"],
-            "pg_dump" | "pg_restore" | "psql" => vec!["libpq", "postgresql@16", "postgresql@15", "postgresql@14", "postgresql"],
+            "pg_dump" | "pg_restore" | "psql" => vec![
+                "libpq",
+                "postgresql@16",
+                "postgresql@15",
+                "postgresql@14",
+                "postgresql",
+            ],
             "mongodump" | "mongorestore" => vec!["mongodb-database-tools"],
             _ => return None,
         };
