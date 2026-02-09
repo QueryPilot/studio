@@ -43,6 +43,9 @@ import { trackQueryExecution } from "@/services/aiContextService";
 import { SaveQueryDialog } from "@/components/QueryHistory";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { editorRegistry } from "@/services/editorRegistry";
+import { clearRustSchema, syncSchemaToRust } from "@/hooks/useRustSchemaSync";
+import { clearCompletionCache } from "@/components/CodeEditor/languages/sql/optimized-completion";
+import { clearProviderCache } from "@/components/CodeEditor/languages/sql/metadataProvider";
 
 interface QueryPanelProps {
   panelId: string;
@@ -96,10 +99,6 @@ export const QueryPanel = memo(function QueryPanel({
   );
   const [abortController, setAbortController] =
     useState<AbortController | null>(null);
-  const [appliedLimit, setAppliedLimitInternal] = useState<{
-    originalSql: string;
-    limit: number;
-  } | null>(globalState?.appliedLimit || null);
   const [viewMode, setViewModeInternal] = useState<
     "table" | "json" | "explain" | "raw" | "stats"
   >(globalState?.viewMode || "table");
@@ -212,13 +211,6 @@ export const QueryPanel = memo(function QueryPanel({
     setIsStreamingInternal(value);
   }, []);
 
-  const setAppliedLimit = useCallback(
-    (value: { originalSql: string; limit: number } | null) => {
-      setAppliedLimitInternal(value);
-    },
-    [],
-  );
-
   const setViewMode = useCallback(
     (value: "table" | "json" | "explain" | "raw" | "stats") => {
       setViewModeInternal(value);
@@ -226,7 +218,6 @@ export const QueryPanel = memo(function QueryPanel({
     [],
   );
 
-  const smartQueryLimit = usePreferencesStore((state) => state.smartQueryLimit);
   const updateTabMetadata = useWorkbenchStore(
     (state) => state.updateTabMetadata,
   );
@@ -290,7 +281,6 @@ export const QueryPanel = memo(function QueryPanel({
         result,
         isExecuting,
         isStreaming,
-        appliedLimit,
         viewMode,
         selectedDialect,
       },
@@ -302,7 +292,6 @@ export const QueryPanel = memo(function QueryPanel({
     result,
     isExecuting,
     isStreaming,
-    appliedLimit,
     viewMode,
     selectedDialect,
     tabId,
@@ -370,26 +359,6 @@ export const QueryPanel = memo(function QueryPanel({
 
       // Clean up the SQL - remove trailing semicolons as they cause issues
       sql = sql.trim().replace(/;\s*$/, "");
-
-      // Smart Query Limit
-      // Only apply if enabled, it's a SELECT query, not an EXPLAIN, and no explicit LIMIT exists
-      const isSelect = isSelectQuery(sql);
-      const hasLimit = /\bLIMIT\b/i.test(sql);
-      const isExplainQuery = sql.trim().toUpperCase().startsWith("EXPLAIN");
-
-      if (
-        smartQueryLimit &&
-        smartQueryLimit > 0 &&
-        isSelect &&
-        !isExplainQuery &&
-        !hasLimit
-      ) {
-        setAppliedLimit({ originalSql: sql, limit: smartQueryLimit });
-        sql = `${sql} LIMIT ${smartQueryLimit}`;
-        logger.info(`[handleExecute] Applied smart limit: ${smartQueryLimit}`);
-      } else {
-        setAppliedLimit(null);
-      }
 
       logger.info("[handleExecute] After trim and semicolon removal:", {
         sql,
@@ -701,6 +670,11 @@ export const QueryPanel = memo(function QueryPanel({
                     database,
                     targetSchema,
                   );
+
+                  // Ensure Rust and editor caches don't serve stale metadata
+                  void clearRustSchema(effectiveConnectionId, targetSchema).then(
+                    () => syncSchemaToRust(effectiveConnectionId, targetSchema),
+                  );
                 });
               }
 
@@ -715,6 +689,9 @@ export const QueryPanel = memo(function QueryPanel({
                   table,
                 );
               });
+
+              clearCompletionCache(effectiveConnectionId);
+              clearProviderCache(effectiveConnectionId);
             } else {
               logger.warn(
                 "[QueryPanel] Mutation detected but no tables parsed from SQL:",
@@ -852,11 +829,9 @@ export const QueryPanel = memo(function QueryPanel({
       query,
       effectiveConnectionId,
       database,
-      smartQueryLimit,
       setIsExecuting,
       setIsStreaming,
       setResult,
-      setAppliedLimit,
       tabId,
       setQueryState,
       setViewMode,

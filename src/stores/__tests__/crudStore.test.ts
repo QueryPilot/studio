@@ -552,7 +552,7 @@ describe("crudStore", () => {
       };
 
       const key = store.getTableKey(targetWithMissing);
-      expect(key).toBe("conn-1:::");
+      expect(key).toBe("conn-1::public:");
     });
 
     it("should use exported buildCrudTableKey function", () => {

@@ -16,8 +16,10 @@ const HISTORY_LIMIT = 100;
 type CrudHistorySnapshot = Map<string, CrudCommand[]>;
 
 const createTableKey = (target: CrudCommandTarget): string => {
-  const { connectionId, database = "", schema = "", table = "" } = target;
-  return [connectionId, database, schema, table].join(":");
+  const { connectionId, database = "", schema, table = "" } = target;
+  const normalizedSchema =
+    typeof schema === "string" && schema.trim().length > 0 ? schema : "public";
+  return [connectionId, database, normalizedSchema, table].join(":");
 };
 
 const cloneStagedCommands = (

@@ -466,6 +466,36 @@ export function useTableDataQuery(
     return infiniteQuery.data.pages[0]?.isEstimatedCount ?? true;
   }, [infiniteQuery.data]);
 
+  const fetchNextPageStable = useCallback(async () => {
+    logger.debug("table-data-query", "fetchNextPage called", {
+      isFetchingNextPage: infiniteQuery.isFetchingNextPage,
+      isStreaming: isStreamingRef.current,
+      hasNextPage: infiniteQuery.hasNextPage,
+    });
+    // Prevent overlapping fetches while streaming
+    if (infiniteQuery.isFetchingNextPage || isStreamingRef.current) {
+      logger.debug(
+        "table-data-query",
+        "Blocked fetchNextPage - currently streaming or fetching",
+      );
+      return;
+    }
+    try {
+      logger.debug(
+        "table-data-query",
+        "Calling infiniteQuery.fetchNextPage()",
+      );
+      const result = await infiniteQuery.fetchNextPage();
+      logger.debug("table-data-query", "fetchNextPage completed", {
+        status: result.status,
+        pagesCount: result.data?.pages.length,
+        isFetchingNextPage: infiniteQuery.isFetchingNextPage,
+      });
+    } catch (error) {
+      logger.error("table-data-query", "fetchNextPage error", error);
+    }
+  }, [infiniteQuery.fetchNextPage, infiniteQuery.isFetchingNextPage, infiniteQuery.hasNextPage]);
+
   return {
     data: infiniteQuery.data,
     rows,
@@ -478,35 +508,7 @@ export function useTableDataQuery(
     isFetching: infiniteQuery.isFetching,
     isFetchingNextPage: infiniteQuery.isFetchingNextPage,
     hasNextPage: infiniteQuery.hasNextPage,
-    fetchNextPage: async () => {
-      logger.debug("table-data-query", "fetchNextPage called", {
-        isFetchingNextPage: infiniteQuery.isFetchingNextPage,
-        isStreaming: isStreamingRef.current,
-        hasNextPage: infiniteQuery.hasNextPage,
-      });
-      // Prevent overlapping fetches while streaming
-      if (infiniteQuery.isFetchingNextPage || isStreamingRef.current) {
-        logger.debug(
-          "table-data-query",
-          "Blocked fetchNextPage - currently streaming or fetching",
-        );
-        return;
-      }
-      try {
-        logger.debug(
-          "table-data-query",
-          "Calling infiniteQuery.fetchNextPage()",
-        );
-        const result = await infiniteQuery.fetchNextPage();
-        logger.debug("table-data-query", "fetchNextPage completed", {
-          status: result.status,
-          pagesCount: result.data?.pages.length,
-          isFetchingNextPage: infiniteQuery.isFetchingNextPage,
-        });
-      } catch (error) {
-        logger.error("table-data-query", "fetchNextPage error", error);
-      }
-    },
+    fetchNextPage: fetchNextPageStable,
     refetch: async () => infiniteQuery.refetch(),
     cancelStream,
     progress,

@@ -73,7 +73,7 @@ describe('MongoDBAdapter', () => {
       expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
         connId: 'test-conn-id',
         operation: {
-          type: 'find_page',
+          type: 'findPage',
           collection: 'users',
           filter: { active: true },
           limit: 10,
@@ -101,7 +101,7 @@ describe('MongoDBAdapter', () => {
       expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
         connId: 'test-conn-id',
         operation: {
-          type: 'sample_schema',
+          type: 'sampleSchema',
           collection: 'users',
           filter: { active: true },
           sampleSize: 500,
@@ -132,7 +132,7 @@ describe('MongoDBAdapter', () => {
 
     it('insertDocuments calls document_execute with InsertMany operation', async () => {
       mockInvoke.mockResolvedValueOnce({
-        type: 'insert_many',
+        type: 'insertMany',
         data: { insertedIds: ['id1', 'id2'], insertedCount: 2 },
       });
 
@@ -141,7 +141,7 @@ describe('MongoDBAdapter', () => {
       expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
         connId: 'test-conn-id',
         operation: {
-          type: 'insert_many',
+          type: 'insertMany',
           collection: 'users',
           documents: [{ name: 'John' }, { name: 'Jane' }],
         },
@@ -238,7 +238,7 @@ describe('MongoDBAdapter', () => {
       expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
         connId: 'test-conn-id',
         operation: {
-          type: 'list_collections',
+          type: 'listCollections',
         },
       });
       expect(result).toEqual([{ name: 'users' }, { name: 'orders' }]);
@@ -255,7 +255,7 @@ describe('MongoDBAdapter', () => {
       expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
         connId: 'test-conn-id',
         operation: {
-          type: 'run_command',
+          type: 'runCommand',
           command: { buildInfo: 1 },
         },
       });

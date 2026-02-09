@@ -1,6 +1,6 @@
+/* eslint-disable react-refresh/only-export-components */
 import { logger } from "@/lib/logger";
-import { useEffect, useState, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,24 +11,18 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { check } from "@tauri-apps/plugin-updater";
+import type { Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 interface UpdateCheckerProps {
   checkOnMount?: boolean;
-}
-
-interface ReleaseInfo {
-  version: string;
-  notes: string;
-  pub_date: string;
-  download_url: string;
-  signature?: string;
 }
 
 interface UpdateState {
   available: boolean;
   version?: string;
   notes?: string;
-  downloadUrl?: string;
   downloading: boolean;
   progress: number;
   error?: string;
@@ -41,23 +35,44 @@ export function UpdateChecker({ checkOnMount = false }: UpdateCheckerProps) {
     progress: 0,
   });
   const [showDialog, setShowDialog] = useState(false);
+  const pendingUpdateRef = useRef<Update | null>(null);
+
+  const closePendingUpdate = useCallback(async () => {
+    const pending = pendingUpdateRef.current;
+    pendingUpdateRef.current = null;
+    if (!pending) {
+      return;
+    }
+    try {
+      await pending.close();
+    } catch (error) {
+      logger.warn("Failed to close update handle", error);
+    }
+  }, []);
 
   const checkForUpdates = useCallback(async () => {
     try {
       setState((prev) => ({ ...prev, error: undefined }));
 
-      const releaseInfo = await invoke<ReleaseInfo | null>("check_for_updates");
+      await closePendingUpdate();
+      const update = await check();
 
-      if (releaseInfo) {
+      if (update) {
+        pendingUpdateRef.current = update;
         setState({
           available: true,
-          version: releaseInfo.version,
-          notes: releaseInfo.notes,
-          downloadUrl: releaseInfo.download_url,
+          version: update.version,
+          notes: update.body ?? "",
           downloading: false,
           progress: 0,
         });
         setShowDialog(true);
+      } else {
+        setState({
+          available: false,
+          downloading: false,
+          progress: 0,
+        });
       }
     } catch (error) {
       logger.error("Update check failed:", error);
@@ -66,7 +81,7 @@ export function UpdateChecker({ checkOnMount = false }: UpdateCheckerProps) {
         error: error instanceof Error ? error.message : String(error),
       }));
     }
-  }, []);
+  }, [closePendingUpdate]);
 
   useEffect(() => {
     if (checkOnMount) {
@@ -77,23 +92,21 @@ export function UpdateChecker({ checkOnMount = false }: UpdateCheckerProps) {
     return undefined;
   }, [checkOnMount, checkForUpdates]);
 
+  useEffect(() => () => {
+    void closePendingUpdate();
+  }, [closePendingUpdate]);
+
   const handleInstall = async () => {
-    if (!state.downloadUrl) return;
+    const pendingUpdate = pendingUpdateRef.current;
+    if (!pendingUpdate) return;
 
     setState((prev) => ({ ...prev, downloading: true, progress: 0 }));
 
     try {
-      // Download update via Rust backend (authenticated)
-      const filePath = await invoke<string>("download_update", {
-        url: state.downloadUrl,
-      });
-
+      await pendingUpdate.downloadAndInstall();
       setState((prev) => ({ ...prev, progress: 100 }));
-
-      // Open the downloaded installer
-      await invoke("install_update", { filePath });
-
-      // Close dialog - user will install manually
+      await closePendingUpdate();
+      await relaunch();
       setShowDialog(false);
     } catch (error) {
       logger.error("Update install failed:", error);
@@ -106,6 +119,7 @@ export function UpdateChecker({ checkOnMount = false }: UpdateCheckerProps) {
   };
 
   const handleClose = () => {
+    void closePendingUpdate();
     setShowDialog(false);
     setState({
       available: false,
@@ -134,7 +148,7 @@ export function UpdateChecker({ checkOnMount = false }: UpdateCheckerProps) {
           <div className="space-y-2">
             <Progress value={state.progress} />
             <p className="text-center text-xs text-muted-foreground">
-              {state.progress < 100 ? "Downloading..." : "Opening installer..."}
+              {state.progress < 100 ? "Installing..." : "Restarting..."}
             </p>
           </div>
         )}
@@ -152,7 +166,7 @@ export function UpdateChecker({ checkOnMount = false }: UpdateCheckerProps) {
             Later
           </Button>
           <Button onClick={handleInstall} disabled={state.downloading}>
-            {state.downloading ? "Downloading..." : "Download & Install"}
+            {state.downloading ? "Installing..." : "Install Update"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -167,13 +181,21 @@ export function useUpdateChecker() {
   const checkForUpdates = useCallback(async () => {
     setIsChecking(true);
     try {
-      const releaseInfo = await invoke<ReleaseInfo | null>("check_for_updates");
+      const update = await check();
 
-      if (releaseInfo) {
-        return {
+      if (update) {
+        const result = {
           available: true,
-          version: releaseInfo.version,
-          notes: releaseInfo.notes,
+          version: update.version,
+          notes: update.body ?? "",
+        };
+        try {
+          await update.close();
+        } catch (error) {
+          logger.warn("Failed to close update handle", error);
+        }
+        return {
+          ...result,
         };
       }
       return { available: false };

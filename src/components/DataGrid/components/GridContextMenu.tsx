@@ -1,4 +1,4 @@
-import { useState, useMemo, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -6,7 +6,6 @@ import {
 } from "@/components/ui/context-menu";
 import type { GridColumnV2, GridRowModel } from "../types";
 import type { DatabaseType } from "@/types";
-import { RowDetailsSheet } from "./RowDetailsSheet";
 import { GridContextMenuItems } from "./GridContextMenuItems";
 
 export interface GridContextMenuProps {
@@ -29,8 +28,7 @@ export interface GridContextMenuProps {
   onInsertRowBelow?: () => void;
   onDeleteRows?: () => void;
   onPaste?: () => void;
-  showDetailsSheet?: boolean;
-  onShowDetailsSheetChange?: (show: boolean) => void;
+  onViewDetails?: (rows: GridRowModel[]) => void;
   /** When true or returns true, prevents the context menu from opening (e.g., when header menu is active) */
   disabled?: boolean | (() => boolean);
   /** Called when the context menu opens */
@@ -56,22 +54,12 @@ export function GridContextMenu({
   onInsertRowBelow,
   onDeleteRows,
   onPaste,
-  showDetailsSheet: controlledShowDetailsSheet,
-  onShowDetailsSheetChange,
+  onViewDetails,
   disabled = false,
   onOpen,
 }: GridContextMenuProps) {
-  const [internalShowDetailsSheet, setInternalShowDetailsSheet] =
-    useState(false);
-
-  // Use controlled state if provided, otherwise use internal state
-  const showDetailsSheet =
-    controlledShowDetailsSheet ?? internalShowDetailsSheet;
-  const setShowDetailsSheet =
-    onShowDetailsSheetChange ?? setInternalShowDetailsSheet;
-
   const handleViewDetails = () => {
-    setShowDetailsSheet(true);
+    onViewDetails?.(selectedRows);
   };
 
   const selectedPinnedKeys = useMemo(
@@ -133,13 +121,6 @@ export function GridContextMenu({
         </ContextMenuContent>
       </ContextMenu>
 
-      {/* Row Details Sheet */}
-      <RowDetailsSheet
-        open={showDetailsSheet}
-        onOpenChange={setShowDetailsSheet}
-        rows={selectedRows}
-        columns={columns}
-      />
     </>
   );
 }

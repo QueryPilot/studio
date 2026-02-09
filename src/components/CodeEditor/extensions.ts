@@ -42,7 +42,7 @@ import { acceptCompletion, autocompletion } from "@codemirror/autocomplete";
 import { dbmlMixed } from "./languages/dbml/dbml-mixed";
 // NOTE: Legacy createSemanticLinter removed - validation handled by createDialectLinter (unified-linter)
 import { createDialectLinter } from "./languages/sql/linter-strategy";
-import { createSqlCompletionSource } from "./languages/sql/completion";
+import { createOptimizedCompletionSource } from "./languages/sql/optimized-completion";
 
 /**
  * Pre-initialize SQL workers (no-op for Tauri-only app).
@@ -255,6 +255,19 @@ export const getLanguageExtension = (
   database?: string,
   schema?: string,
 ): Extension => {
+  const fallbackSchemaForDialect = (targetDialect?: SqlDialect) => {
+    switch (targetDialect) {
+      case "mysql":
+        return database || "default";
+      case "sqlite":
+        return "main";
+      case "mssql":
+        return "dbo";
+      default:
+        return "public";
+    }
+  };
+
   switch (language) {
     case "sql": {
       const dialectLang = getDialect(dialect);
@@ -276,16 +289,16 @@ export const getLanguageExtension = (
 
       // Add context-aware completion and hover if connection info is available
       if (connectionId && database) {
-        const defaultSchema = schema || "public";
+        const defaultSchema = schema || fallbackSchemaForDialect(dialect);
         const provider = createSqlMetadataProvider(connectionId, defaultSchema);
 
         extensions.push(
           dialectLang.language.data.of({
-            autocomplete: createSqlCompletionSource({
+            autocomplete: createOptimizedCompletionSource({
               connectionId,
               database,
-              schema,
-              dialect,
+              schema: defaultSchema,
+              dialect: dialect || "postgresql",
             }),
           }),
           // Add hover tooltips for table/column info

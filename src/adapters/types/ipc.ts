@@ -9,23 +9,23 @@ import type { SetOptions } from '../capabilities';
 
 export type DocumentOperation =
   | { type: 'find'; collection: string; filter: object; skip?: number; limit?: number; sort?: Record<string, 1 | -1>; projection?: Record<string, 0 | 1> }
-  | { type: 'find_page' | 'findPage'; collection: string; filter: object; limit?: number; sort?: Record<string, 1 | -1>; projection?: Record<string, 0 | 1>; cursor?: CursorToken | null }
-  | { type: 'sample_schema' | 'sampleSchema'; collection: string; filter?: object; sampleSize?: number; maxDepth?: number }
+  | { type: 'findPage'; collection: string; filter: object; limit?: number; sort?: Record<string, 1 | -1>; projection?: Record<string, 0 | 1>; cursor?: CursorToken | null }
+  | { type: 'sampleSchema'; collection: string; filter?: object; sampleSize?: number; maxDepth?: number }
   | { type: 'insert'; collection: string; document: object }
-  | { type: 'insert_many'; collection: string; documents: object[] }
+  | { type: 'insertMany'; collection: string; documents: object[] }
   | { type: 'update'; collection: string; filter: object; update: object }
   | { type: 'delete'; collection: string; filter: object }
   | { type: 'aggregate'; collection: string; pipeline: object[] }
   | { type: 'count'; collection: string; filter?: object }
-  | { type: 'list_collections' }
-  | { type: 'run_command'; command: object };
+  | { type: 'listCollections' }
+  | { type: 'runCommand'; command: object };
 
 export type DocumentResult =
   | { type: 'documents'; data: object[] }
-  | { type: 'document_page' | 'documentPage'; data: DocumentPageResult<object> }
-  | { type: 'schema_sample' | 'schemaSample'; data: DocumentSchemaSample }
+  | { type: 'documentPage'; data: DocumentPageResult<object> }
+  | { type: 'schemaSample'; data: DocumentSchemaSample }
   | { type: 'insert'; data: InsertResult }
-  | { type: 'insert_many'; data: InsertManyResult }
+  | { type: 'insertMany'; data: InsertManyResult }
   | { type: 'update'; data: UpdateResult }
   | { type: 'delete'; data: DeleteResult }
   | { type: 'count'; data: number }

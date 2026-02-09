@@ -35,14 +35,14 @@ describe('Unified DataGrid Architecture - Integration Tests', () => {
       const objCell = createDrillableObjectCell({ name: 'John', age: 30 });
       expect(objCell.data.kind).toBe(DRILLABLE_CELL_KIND);
       expect(objCell.data.type).toBe('object');
-      expect(objCell.data.preview).toMatch(/\{2 fields?\}/);
+      expect(objCell.data.preview).toMatch(/\{name, age\}/);
       expect(objCell.data.canDrillDown).toBe(true);
 
       // Test array cell creation
       const arrCell = createDrillableArrayCell([1, 2, 3]);
       expect(arrCell.data.kind).toBe(DRILLABLE_CELL_KIND);
       expect(arrCell.data.type).toBe('array');
-      expect(arrCell.data.preview).toMatch(/\[3 items?\]/);
+      expect(arrCell.data.preview).toMatch(/\[3\] 1/);
       expect(arrCell.data.canDrillDown).toBe(true);
     });
 

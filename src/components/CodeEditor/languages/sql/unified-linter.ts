@@ -3,6 +3,7 @@ import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { invoke } from "@tauri-apps/api/core";
 import type { SqlDialect } from "../../types";
+import { buildSqlQuickFixes } from "./quick-fixes";
 
 interface UnifiedLinterConfig {
   dialect: SqlDialect;
@@ -106,13 +107,23 @@ export function createUnifiedLinter(config: UnifiedLinterConfig): Extension {
           config.schema,
         );
 
-        return diagnostics.map((d) => ({
-          from: Math.max(0, d.from),
-          to: Math.min(sql.length, d.to),
-          severity: d.severity,
-          message: d.message,
-          source: `sql-${d.source}`,
-        }));
+        return diagnostics.map((d) => {
+          const diagnostic: Diagnostic = {
+            from: Math.max(0, d.from),
+            to: Math.min(sql.length, d.to),
+            severity: d.severity,
+            message: d.message,
+            source: `sql-${d.source}`,
+          };
+
+          const actions = buildSqlQuickFixes(diagnostic);
+          return actions.length > 0
+            ? {
+                ...diagnostic,
+                actions,
+              }
+            : diagnostic;
+        });
       } catch (error) {
         console.error("[unified-linter] Rust validation failed:", error);
         return [];

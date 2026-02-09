@@ -56,6 +56,7 @@ import {
   completionKeymap,
   closeBrackets,
   closeBracketsKeymap,
+  pickedCompletion,
 } from "@codemirror/autocomplete";
 import {
   sql,
@@ -65,7 +66,6 @@ import {
   MSSQL,
   PLSQL,
 } from "@codemirror/lang-sql";
-import { lintGutter } from "@codemirror/lint";
 
 import { useTheme } from "@/components/theme-provider";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
@@ -96,9 +96,16 @@ import { EditorContextMenu } from "./components/EditorContextMenu";
 // SQL language support
 import { createDialectLinter } from "./languages/sql/linter-strategy";
 import { createSqlHoverExtension } from "./languages/sql/hover";
-import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";
+import {
+  createSqlMetadataProvider,
+  clearProviderCache,
+} from "./languages/sql/metadataProvider";
 import { createExpandStarExtension } from "./languages/sql/code-actions";
-import { createOptimizedCompletionSource } from "./languages/sql/optimized-completion";
+import {
+  createOptimizedCompletionSource,
+  clearCompletionCache,
+  recordCompletionUsage,
+} from "./languages/sql/optimized-completion";
 import { useRustSchemaSync } from "@/hooks/useRustSchemaSync";
 import { useQueryHistoryStore } from "@/stores/queryHistoryStore";
 
@@ -182,6 +189,20 @@ const getDialectExtension = (dialect: SqlDialect) => {
     default:
       return PostgreSQL;
   }
+};
+
+const getFallbackSchema = (dbType: string, database: string): string => {
+  const normalized = dbType.toLowerCase();
+  if (normalized.includes("mysql") || normalized.includes("mariadb")) {
+    return database || "default";
+  }
+  if (normalized.includes("sqlite")) {
+    return "main";
+  }
+  if (normalized.includes("mssql") || normalized.includes("sqlserver")) {
+    return "dbo";
+  }
+  return "public";
 };
 
 // Base theme for layout
@@ -301,7 +322,44 @@ export const SqlEditor = memo(
     }, [value]);
 
     // Stable reference for schema
-    const defaultSchema = schema || "public";
+    const defaultSchema = schema || getFallbackSchema(dbType, database);
+
+    const handlePickedCompletion = useCallback(
+      (picked: { label: string; type?: string | null }) => {
+        const normalizedLabel = picked.label
+          .replaceAll("`", "")
+          .replaceAll('"', "")
+          .replaceAll("[", "")
+          .replaceAll("]", "")
+          .replace(/\.$/, "")
+          .trim();
+        if (!normalizedLabel) return;
+
+        const type = (picked.type || "").toLowerCase();
+        if (type === "function") {
+          recordCompletionUsage("function", normalizedLabel);
+          return;
+        }
+        if (type === "property") {
+          recordCompletionUsage("column", normalizedLabel);
+          return;
+        }
+        if (
+          type === "class" ||
+          type === "constant" ||
+          type === "namespace" ||
+          type === "variable"
+        ) {
+          recordCompletionUsage("table", normalizedLabel);
+        }
+      },
+      [],
+    );
+
+    useEffect(() => {
+      clearCompletionCache(connectionId);
+      clearProviderCache(connectionId);
+    }, [connectionId, defaultSchema, effectiveDialect]);
 
     // Sync schema to Rust for completion/validation
     useRustSchemaSync({
@@ -366,7 +424,7 @@ export const SqlEditor = memo(
       readOnly,
       placeholder,
       connectionId,
-      schema,
+      schema: defaultSchema,
     });
 
     // Imperative handle
@@ -448,6 +506,13 @@ export const SqlEditor = memo(
       };
 
       const updateListener = EditorView.updateListener.of((update) => {
+        for (const tr of update.transactions) {
+          const picked = tr.annotation(pickedCompletion);
+          if (picked) {
+            handlePickedCompletion(picked);
+          }
+        }
+
         if (update.docChanged) {
           pendingUpdate = update.view;
           requestAnimationFrame(flushUpdate);
@@ -504,7 +569,10 @@ export const SqlEditor = memo(
 
           compartments.theme.of(getThemeExtensions(actualTheme)),
           compartments.dialect.of([
-            ...createDialectLinter(effectiveDialect, { connectionId, schema }),
+            ...createDialectLinter(effectiveDialect, {
+              connectionId,
+              schema: defaultSchema,
+            }),
             ...dialectExtensions,
           ]),
           compartments.completion.of(completionExtension),
@@ -545,11 +613,7 @@ export const SqlEditor = memo(
                   if (query) executeQuery(query);
                 }),
               ]
-            : [
-                lintGutter({
-                  hoverTime: 300,
-                }),
-              ]),
+            : []),
 
           updateListener,
         ],

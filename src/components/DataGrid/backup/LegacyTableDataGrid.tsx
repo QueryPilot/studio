@@ -170,7 +170,6 @@ export const TableDataGrid = memo(function TableDataGrid(
   const [isPastePending, setIsPastePending] = useState(false);
   const [isRefreshingMatView, setIsRefreshingMatView] = useState(false);
   const scopeId = useScopedKeybindings(gridId);
-  const [showDetailsSheet, setShowDetailsSheet] = useState(false);
 
   // Get initial filter and panel ID from props (table mode only)
   const initialFilter =
@@ -2545,8 +2544,6 @@ export const TableDataGrid = memo(function TableDataGrid(
                   }
                 : undefined
             }
-            showDetailsSheet={showDetailsSheet}
-            onShowDetailsSheetChange={setShowDetailsSheet}
             // Header context menu props
             allColumnsForVisibility={reorderedColumns}
             pinnedColumns={columnState.pinned}
@@ -2720,13 +2717,7 @@ export const TableDataGrid = memo(function TableDataGrid(
         fetchCount={fetchCount}
         networkMs={networkMs}
         conversionMs={conversionMs}
-        onViewDetails={
-          hasSelection
-            ? () => {
-                setShowDetailsSheet(true);
-              }
-            : undefined
-        }
+        onViewDetails={undefined}
       />
     </div>
   );

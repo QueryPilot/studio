@@ -83,7 +83,7 @@ export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
     options?: FindPageOptions,
   ): Promise<DocumentPageResult<object>> {
     return this.execute<DocumentPageResult<object>>({
-      type: 'find_page',
+      type: 'findPage',
       collection,
       filter,
       limit: options?.limit,
@@ -99,7 +99,7 @@ export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
     options?: { sampleSize?: number; maxDepth?: number },
   ): Promise<DocumentSchemaSample> {
     return this.execute<DocumentSchemaSample>({
-      type: 'sample_schema',
+      type: 'sampleSchema',
       collection,
       filter,
       sampleSize: options?.sampleSize,
@@ -117,7 +117,7 @@ export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
 
   async insertDocuments(collection: string, documents: object[]): Promise<InsertManyResult> {
     return this.execute<InsertManyResult>({
-      type: 'insert_many',
+      type: 'insertMany',
       collection,
       documents,
     });
@@ -162,13 +162,13 @@ export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
 
   async listCollections(): Promise<CollectionInfo[]> {
     return this.execute<CollectionInfo[]>({
-      type: 'list_collections',
+      type: 'listCollections',
     });
   }
 
   async runCommand(command: object): Promise<object> {
     return this.execute<object>({
-      type: 'run_command',
+      type: 'runCommand',
       command,
     });
   }

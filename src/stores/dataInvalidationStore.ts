@@ -3,13 +3,18 @@ import { create } from "zustand";
 /**
  * Creates a unique key for a table across connection, database, schema, and table name
  */
+const normalizeSchema = (schema: string | undefined): string => {
+  const trimmed = schema?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : "public";
+};
+
 const createTableKey = (
   connectionId: string,
   database: string,
   schema: string | undefined,
   table: string,
 ): string => {
-  return [connectionId, database, schema ?? "public", table].join(":");
+  return [connectionId, database, normalizeSchema(schema), table].join(":");
 };
 
 /**
@@ -20,7 +25,7 @@ const createSchemaKey = (
   database: string,
   schema: string | undefined,
 ): string => {
-  return [connectionId, database, schema ?? "public"].join(":");
+  return [connectionId, database, normalizeSchema(schema)].join(":");
 };
 
 /**
@@ -176,7 +181,10 @@ export const useDataInvalidationStore = create<DataInvalidationState>(
       if (!listenersMap.has(tableKey)) {
         listenersMap.set(tableKey, new Set());
       }
-      listenersMap.get(tableKey)!.add(callback);
+      const tableListeners = listenersMap.get(tableKey);
+      if (tableListeners) {
+        tableListeners.add(callback);
+      }
 
       // Return unsubscribe function
       return () => {
@@ -197,7 +205,10 @@ export const useDataInvalidationStore = create<DataInvalidationState>(
       if (!listenersMap.has(schemaKey)) {
         listenersMap.set(schemaKey, new Set());
       }
-      listenersMap.get(schemaKey)!.add(callback);
+      const schemaListeners = listenersMap.get(schemaKey);
+      if (schemaListeners) {
+        schemaListeners.add(callback);
+      }
 
       // Return unsubscribe function
       return () => {

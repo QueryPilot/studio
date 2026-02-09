@@ -11,13 +11,18 @@
  */
 
 import { memo, useCallback, useMemo, useState, useRef, useEffect } from "react";
-import { IconBrackets, IconLayoutSidebarRightExpand, IconLayoutSidebarRightCollapse, IconSparkles, IconChevronRight } from "@tabler/icons-react";
+import {
+  IconBrackets,
+  IconSparkles,
+  IconChevronRight,
+  IconLayoutSidebarRightCollapse,
+  IconLayoutSidebarRightExpand,
+} from "@tabler/icons-react";
 import { BaseDataGrid } from "../base/BaseDataGrid";
 import { BreadcrumbNav } from "../components/BreadcrumbNav";
-import { DocumentInspectorPanel } from "../components/DocumentInspectorPanel";
 import { useDocumentData } from "../hooks/useDocumentData";
 import { useCrudStore } from "@/stores/crudStore";
-import type { GridActivationEvent, GridEditCommitEvent, GridRowModel } from "../types";
+import type { GridActivationEvent, GridEditCommitEvent } from "../types";
 import { cn } from "@/lib/utils";
 import { logger } from "@/lib/logger";
 import {
@@ -32,7 +37,6 @@ import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { toast } from "sonner";
 
 // ============================================================================
@@ -89,9 +93,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   const [filterError, setFilterError] = useState<string | null>(null);
   const [flattenMode, setFlattenMode] = useState(false);
   const [flattenDepth, setFlattenDepth] = useState(3);
-  const [showInspector, setShowInspector] = useState(true);
-  const [selectedRow, setSelectedRow] = useState<GridRowModel | null>(null);
-  const [baselineRow, setBaselineRow] = useState<GridRowModel | null>(null);
+  const [showInspector, setShowInspector] = useState(false);
   const [objectIdJump, setObjectIdJump] = useState("");
   const [planHint, setPlanHint] = useState<string | null>(null);
   const [savedViews, setSavedViews] = useState<DocumentGridView[]>(() => {
@@ -261,7 +263,6 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   // Handle cell activation for drill-down
   const handleCellActivated = useCallback(
     (event: GridActivationEvent) => {
-      setSelectedRow(event.row ?? null);
       if (data.canStepInto(event)) {
         const cellKey = `${event.rowIndex}:${event.columnIndex}`;
         if (lastDrilledCellRef.current === cellKey) {
@@ -282,7 +283,6 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   // Handle single-click drill-down for nested object/array cells
   const handleCellClicked = useCallback(
     (event: GridActivationEvent) => {
-      setSelectedRow(event.row ?? null);
       if (data.canStepInto(event)) {
         const cellKey = `${event.rowIndex}:${event.columnIndex}`;
         lastDrilledCellRef.current = cellKey;
@@ -410,21 +410,6 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
           variant="outline"
           className="h-7 text-[11px]"
           onClick={() => {
-            setShowInspector((prev) => !prev);
-          }}
-        >
-          {showInspector ? (
-            <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5 mr-1" />
-          ) : (
-            <IconLayoutSidebarRightExpand className="h-3.5 w-3.5 mr-1" />
-          )}
-          Inspector
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 text-[11px]"
-          onClick={() => {
             quickFilter.setMode("search");
             toast.message("AI helper", {
               description:
@@ -453,21 +438,58 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
         </div>
       )}
       {/* Show filter at root level only */}
-      {data.currentPath.length === 0 && filterColumns.length > 0 && (
-        <QuickFilter
-          ref={quickFilterRef}
-          columns={filterColumns}
-          value={quickFilter.value}
-          mode={quickFilter.mode}
-          onValueChange={quickFilter.setValue}
-          onModeChange={handleModeChange}
-          onSubmit={handleFilterSubmit}
-          error={filterError}
-          explanation={quickFilter.aiExplanation}
-          isLoading={false}
-          searchModeOnly={false}
-          clientSideFiltering={false}
-        />
+      {data.currentPath.length === 0 && filterColumns.length > 0 ? (
+        <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <QuickFilter
+              ref={quickFilterRef}
+              columns={filterColumns}
+              value={quickFilter.value}
+              mode={quickFilter.mode}
+              onValueChange={quickFilter.setValue}
+              onModeChange={handleModeChange}
+              onSubmit={handleFilterSubmit}
+              error={filterError}
+              explanation={quickFilter.aiExplanation}
+              isLoading={false}
+              searchModeOnly={false}
+              clientSideFiltering={false}
+            />
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-[11px] shrink-0"
+            onClick={() => {
+              setShowInspector((prev) => !prev);
+            }}
+          >
+            {showInspector ? (
+              <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5 mr-1" />
+            ) : (
+              <IconLayoutSidebarRightExpand className="h-3.5 w-3.5 mr-1" />
+            )}
+            Inspector
+          </Button>
+        </div>
+      ) : (
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-[11px]"
+            onClick={() => {
+              setShowInspector((prev) => !prev);
+            }}
+          >
+            {showInspector ? (
+              <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5 mr-1" />
+            ) : (
+              <IconLayoutSidebarRightExpand className="h-3.5 w-3.5 mr-1" />
+            )}
+            Inspector
+          </Button>
+        </div>
       )}
     </div>
   );
@@ -478,37 +500,6 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   // Loading and error states
   const isLoading = data.isLoading && data.rows.length === 0;
   const errorMessage = data.error ? data.error.message : null;
-
-  const getRowIdValue = useCallback((row: GridRowModel | null | undefined): unknown => {
-    if (!row) {
-      return null;
-    }
-    const idCell = (row as Record<string, unknown>)["_id"];
-    if (idCell && typeof idCell === "object" && "value" in idCell) {
-      return (idCell as { value?: unknown }).value ?? null;
-    }
-    return idCell ?? null;
-  }, []);
-
-  const rowIdMatches = useCallback(
-    (left: GridRowModel | null | undefined, right: GridRowModel | null | undefined): boolean =>
-      JSON.stringify(getRowIdValue(left)) === JSON.stringify(getRowIdValue(right)),
-    [getRowIdValue],
-  );
-
-  const inspectorSelectedRow = useMemo(() => {
-    if (!selectedRow) {
-      return null;
-    }
-    return data.rows.find((row) => rowIdMatches(row, selectedRow)) ?? null;
-  }, [data.rows, rowIdMatches, selectedRow]);
-
-  const inspectorBaselineRow = useMemo(() => {
-    if (!baselineRow) {
-      return null;
-    }
-    return data.rows.find((row) => rowIdMatches(row, baselineRow)) ?? null;
-  }, [baselineRow, data.rows, rowIdMatches]);
 
   // Reconnection handler
   const handleReconnect = useCallback(async () => {
@@ -523,7 +514,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
     }
   }, [connectionId, collection, data]);
 
-  const gridContent = (
+  return (
     <BaseDataGrid
       gridId={gridId}
       rows={data.rows}
@@ -545,6 +536,10 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       // Returns undefined when in nested path (read-only mode)
       commandFactory={data.commandFactory}
       topToolbar={topToolbar}
+      inspectorOpen={showInspector}
+      onInspectorOpenChange={setShowInspector}
+      showInspectorToggleButton={false}
+      enableHoverCellIcons={false}
       connectionId={connectionId}
       database={database}
       tableName={collection}
@@ -561,32 +556,9 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       onRefetch={data.refetch}
       onReconnect={handleReconnect}
       focused={focused}
+      externalQuickFilterRef={quickFilterRef}
       className={cn("document-datagrid", className)}
     />
-  );
-
-  if (!showInspector) {
-    return gridContent;
-  }
-
-  return (
-    <ResizablePanelGroup
-      direction="horizontal"
-      className={cn("document-datagrid-shell h-full", className)}
-    >
-      <ResizablePanel defaultSize={68} minSize={40}>
-        {gridContent}
-      </ResizablePanel>
-      <ResizableHandle withHandle />
-      <ResizablePanel defaultSize={32} minSize={20}>
-        <DocumentInspectorPanel
-          selectedRow={inspectorSelectedRow}
-          columns={data.columns}
-          baselineRow={inspectorBaselineRow}
-          onSetBaseline={setBaselineRow}
-        />
-      </ResizablePanel>
-    </ResizablePanelGroup>
   );
 });
 

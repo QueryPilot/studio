@@ -386,6 +386,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     error,
     hasNextPage,
     fetchNextPage,
+    isFetchingNextPage,
     refetch,
   } = tableDataQuery;
 
@@ -852,6 +853,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
         isEstimatedCount={isEstimatedCount}
         hasMore={hasNextPage}
         onLoadMore={fetchNextPage}
+        isLoadingMore={isFetchingNextPage}
         readOnly={isReadOnly}
         readOnlyReason={readOnlyReason}
         entityType={entityType}
