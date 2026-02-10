@@ -8,7 +8,11 @@ import React, {
   useTransition,
 } from "react";
 import { cn } from "@/lib/utils";
-import { type PanelContent, type DropPosition } from "@/types/workbench";
+import {
+  type PanelContent,
+  type DropPosition,
+  type TabMetadata,
+} from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import {
   IconX,
@@ -197,6 +201,44 @@ const DroppableZone: React.FC<DroppableZoneProps> = ({
     </div>
   );
 };
+
+const MemoizedPanelContent = React.memo(function MemoizedPanelContent({
+  panelId,
+  tabId,
+  metadata,
+}: {
+  panelId: string;
+  tabId: string;
+  metadata: TabMetadata;
+}) {
+  const stableMetadata = useMemo(
+    () => metadata,
+    [
+      metadata?.type,
+      metadata?.connectionId,
+      metadata?.database,
+      metadata?.schema,
+      metadata?.table,
+      metadata?.title,
+      metadata?.kind,
+      metadata?.isView,
+      metadata?.viewType,
+      metadata?.sql,
+      (metadata as Record<string, unknown>)?.initialFilter,
+      (metadata as Record<string, unknown>)?.functionName,
+      (metadata as Record<string, unknown>)?.returnType,
+      (metadata as Record<string, unknown>)?.objectType,
+    ],
+  );
+
+  return (
+    <PanelContentRenderer
+      panelId={panelId}
+      tabId={tabId}
+      metadata={stableMetadata}
+    />
+  );
+});
 
 interface PanelProps {
   content: PanelContent;
@@ -571,7 +613,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
 
             return (
               <div key={tabId} className={cn("absolute inset-0")}>
-                <PanelContentRenderer
+                <MemoizedPanelContent
                   panelId={content.id}
                   tabId={tabId}
                   metadata={metadata}
