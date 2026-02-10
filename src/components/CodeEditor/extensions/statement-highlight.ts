@@ -208,6 +208,9 @@ const statementHighlightPlugin = ViewPlugin.fromClass(
         this.docChangedSinceLastCompute = true;
       }
 
+      // Skip recompute for unfocused editors (keep stale decorations)
+      if (!update.view.hasFocus) return;
+
       // Cancel any pending update
       if (this.pendingUpdate) {
         clearTimeout(this.pendingUpdate);

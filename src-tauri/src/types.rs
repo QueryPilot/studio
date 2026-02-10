@@ -21,6 +21,20 @@ pub struct ConnectionProfile {
     pub options: HashMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub group: Option<String>,
+    #[serde(default)]
+    pub safe_mode: Option<SafeMode>,
+}
+
+/// Per-connection safe mode that restricts what operations the GUI allows,
+/// regardless of the actual database user's permissions.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SafeMode {
+    ReadOnly,
+    ReadWrite,
+    ReadWriteUpdate,
+    #[default]
+    FullAccess,
 }
 
 impl ConnectionProfile {

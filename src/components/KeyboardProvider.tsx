@@ -10,6 +10,7 @@ import { keyboardHandler } from '@/services/keyboardHandler';
 import { commandService } from '@/services/commandService';
 import { contextService } from '@/services/contextService';
 import { keybindingService } from '@/services/keybindingService';
+import { userKeybindingsService } from '@/services/userKeybindingsService';
 import { useWorkspaceScreenStore } from '@/stores/workspaceScreenStore';
 import useWorkbenchStore from '@/stores/workbenchStore';
 import { useModifierKey } from '@/hooks/useModifierKey';
@@ -45,6 +46,7 @@ function initializeServices(): void {
 
   try {
     keybindingService.registerMany(defaultKeybindings, 'default');
+    userKeybindingsService.initialize();
   } catch (error) {
     logger.error('[KeyboardProvider] Failed to register default keybindings:', error);
   }

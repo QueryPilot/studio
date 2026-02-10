@@ -59,6 +59,9 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
       }
 
       update(update: ViewUpdate) {
+        // Skip DOM work for unfocused editors
+        if (!update.view.hasFocus) return;
+
         const nextDiagCount = diagnosticCount(update.state);
         const diagnosticsChanged = nextDiagCount !== this.lastDiagCount;
         if (diagnosticsChanged) {

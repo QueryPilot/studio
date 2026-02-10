@@ -9,6 +9,7 @@ import {
 } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { EditorView } from "@codemirror/view";
+import { StateEffect } from "@codemirror/state";
 import { useTheme } from "@/components/theme-provider";
 import { getThemeExtensions } from "./themes";
 import { getEditorExtensions } from "./extensions";
@@ -55,6 +56,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
     const disableExecuteKeymap = Boolean(keyboardServices);
     const scopeId = useScopedKeybindings();
     const [isFocused, setIsFocused] = useState(false);
+    const [hasSelection, setHasSelection] = useState(false);
     const isQueryEditor = Boolean(onExecute);
 
     // FIX: Use uncontrolled mode to avoid "typing latch" bug in @uiw/react-codemirror
@@ -89,11 +91,17 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
       resetOnUnmount: true,
     });
 
+    useContextKey("hasSelection", isFocused && hasSelection, {
+      scopeId,
+      resetOnUnmount: true,
+    });
+
     useEffect(() => {
       return () => {
         focusCleanupRef.current?.();
         focusCleanupRef.current = null;
         setIsFocused(false);
+        setHasSelection(false);
       };
     }, []);
 
@@ -279,6 +287,10 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
           onCreateEditor={(view) => {
             focusCleanupRef.current?.();
             editorRef.current = view;
+            const updateSelectionState = () => {
+              const selection = view.state.selection.main;
+              setHasSelection(selection.from !== selection.to);
+            };
             const handleFocus = () => {
               setIsFocused(true);
             };
@@ -292,6 +304,17 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
               view.dom.removeEventListener("blur", handleBlur, true);
             };
             setIsFocused(view.hasFocus);
+            updateSelectionState();
+            view.dispatch({
+              effects: StateEffect.appendConfig.of(
+                EditorView.updateListener.of((update) => {
+                  if (update.selectionSet) {
+                    const selection = update.state.selection.main;
+                    setHasSelection(selection.from !== selection.to);
+                  }
+                }),
+              ),
+            });
             // Auto-focus when editor is created if autoFocus is true
             if (autoFocus) {
               setTimeout(() => {

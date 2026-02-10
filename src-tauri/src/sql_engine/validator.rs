@@ -1,9 +1,10 @@
 //! SQL Validation for syntax and semantic errors.
 
-use super::parser::{ParsedDocument, ParsedStatement};
+use super::parser::{ParsedDocument, ParsedStatement, TableReference};
 use super::schema_store::CachedSchema;
 use super::semantic::{validate_column_references, validate_table_references};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 // =============================================================================
 // String Similarity for Fuzzy Matching
@@ -128,6 +129,28 @@ fn find_span_in_statement(stmt: &ParsedStatement, needle: &str) -> Option<(usize
     }
 
     None
+}
+
+fn loaded_schema_names(schema: &CachedSchema) -> HashSet<String> {
+    schema
+        .tables
+        .iter()
+        .filter_map(|t| t.schema.as_ref())
+        .map(|schema_name| schema_name.to_lowercase())
+        .collect()
+}
+
+fn is_reference_outside_loaded_schemas(table_ref: &TableReference, schema: &CachedSchema) -> bool {
+    let Some(ref_schema) = table_ref.schema.as_ref() else {
+        return false;
+    };
+
+    let loaded_schemas = loaded_schema_names(schema);
+    if loaded_schemas.is_empty() {
+        return false;
+    }
+
+    !loaded_schemas.contains(&ref_schema.to_lowercase())
 }
 
 /// Error severity level.
@@ -519,6 +542,10 @@ impl<'a> LintRule for FuzzyReferenceRule<'a> {
         if let Some(schema) = self.schema {
             // Check for table name typos
             for table_ref in &stmt.tables {
+                if is_reference_outside_loaded_schemas(table_ref, schema) {
+                    continue;
+                }
+
                 let table_exists = existing_table_names
                     .iter()
                     .any(|t| t.eq_ignore_ascii_case(&table_ref.name));
@@ -637,6 +664,12 @@ impl<'a> LintRule for FuzzyReferenceRule<'a> {
 
         // Check for CTE reference typos (works even when no schema is available)
         for table_ref in &stmt.tables {
+            if let Some(schema) = self.schema {
+                if is_reference_outside_loaded_schemas(table_ref, schema) {
+                    continue;
+                }
+            }
+
             let is_real_table = existing_table_names
                 .iter()
                 .any(|t| t.eq_ignore_ascii_case(&table_ref.name));
@@ -1246,6 +1279,54 @@ mod tests {
         assert!(warnings
             .iter()
             .any(|m| m.contains("active_user") && m.contains("Did you mean")));
+    }
+
+    #[test]
+    fn test_out_of_scope_schema_reference_does_not_emit_missing_table_diagnostics() {
+        use crate::sql_engine::schema_store::{
+            CachedSchemaBuilder, ColumnInfo, TableInfo, TableType,
+        };
+
+        let schema = CachedSchemaBuilder::new()
+            .add_table(TableInfo {
+                name: "users".to_string(),
+                schema: Some("public".to_string()),
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .add_columns(
+                "users",
+                vec![ColumnInfo {
+                    name: "id".to_string(),
+                    data_type: "INT".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    is_primary_key: true,
+                    is_unique: true,
+                    comment: None,
+                    enum_values: None,
+                    ordinal: 1,
+                    precision: None,
+                    scale: None,
+                }],
+            )
+            .build();
+
+        let doc = parse_document(
+            "SELECT relid FROM pg_catalog.pg_statio_user_tables",
+            SqlDialect::PostgreSQL,
+        );
+        let result = validate_document(&doc, Some(&schema), None);
+
+        assert!(!result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("pg_statio_user_tables")));
+        assert!(!result
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("pg_statio_user_tables")));
     }
 
     #[test]

@@ -22,13 +22,12 @@ import { useConnectionAutoReconnect } from "@/hooks/useConnectionAutoReconnect";
 import { useSchemaPreload } from "@/hooks/useSchemaPreload";
 import { PreferencesDialog } from "@/components/Preferences/PreferencesDialog";
 import { DebugKeybindings } from "@/components/DebugKeybindings";
-import { FeatureErrorBoundary } from "@/components/FeatureErrorBoundary";
 import { useCrudStore } from "@/stores/crudStore";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauri } from "@/utils/tauri";
 import { windowChannelTracker } from "@/services/windowChannelTracker";
-import { windowManager } from "@/services/windowManager";
 import { useMenuEventListener } from "@/hooks/useMenuEventListener";
+import { DbType } from "@/types/connection";
 
 // Default sidebars state - using a constant to avoid creating new objects
 const DEFAULT_SIDEBARS = { left: true, right: false };
@@ -272,13 +271,13 @@ export function WorkspaceScreen() {
         let defaultSchema = profile?.default_schema;
         if (!defaultSchema) {
           const dbType = profile?.db_type;
-          if (dbType === "MySQL") {
+          if (dbType === DbType.MySQL || dbType === DbType.MariaDB) {
             // MySQL: use current database name as schema
             defaultSchema = profile?.database || "";
-          } else if (dbType === "SQLite") {
+          } else if (dbType === DbType.SQLite) {
             // SQLite: always use 'main' as the schema (profile.database is the file path)
             defaultSchema = "main";
-          } else if (dbType === "SQLServer") {
+          } else if (dbType === DbType.SQLServer) {
             defaultSchema = "dbo";
           } else {
             defaultSchema = "public";
@@ -330,34 +329,6 @@ export function WorkspaceScreen() {
     };
   }, [connectionId, initWorkspace, initializePanels]);
 
-  // Handle keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Only handle Cmd/Ctrl + N combinations
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") {
-        if (event.shiftKey) {
-          // Cmd+Shift+N: Open new main window
-          event.preventDefault();
-          logger.info(
-            "[WorkspaceScreen] Opening new main window (Cmd+Shift+N)",
-          );
-          void windowManager.openNewMainWindow();
-        } else {
-          // Cmd+N: Open new table UI
-          event.preventDefault();
-          logger.info("[WorkspaceScreen] Opening new table UI (Cmd+N)");
-          // TODO: Implement new table UI action
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, []);
-
   // Handle browser beforeunload for pending changes (web dev mode)
   useEffect(() => {
     if (!connectionId) return;
@@ -373,10 +344,6 @@ export function WorkspaceScreen() {
       if (hasPendingChanges) {
         // Standard way to trigger "unsaved changes" dialog
         event.preventDefault();
-        // Chrome requires returnValue to be set
-        event.returnValue =
-          "You have unsaved changes. Are you sure you want to leave?";
-        return event.returnValue;
       }
     };
 
@@ -576,7 +543,7 @@ export function WorkspaceScreen() {
       <PreferencesDialog />
 
       {/* Debug panel for keyboard shortcuts (Cmd+Shift+K to toggle) */}
-      <DebugKeybindings />
+      {process.env.NODE_ENV === "development" ? <DebugKeybindings /> : null}
     </div>
   );
 }

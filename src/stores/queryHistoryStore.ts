@@ -6,6 +6,7 @@
  */
 
 import { create } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 import { subscribeWithSelector } from "zustand/middleware";
 import {
   addHistoryEntry,
@@ -185,26 +186,32 @@ export const useQueryHistoryStore = create<QueryHistoryState>()(
 // ============ Memoized Selectors ============
 
 export const useFilteredHistory = () => {
-  return useQueryHistoryStore((state) => {
-    const { recentHistory, searchQuery } = state;
-    if (!searchQuery) return recentHistory;
+  return useQueryHistoryStore(
+    useShallow((state) => {
+      const { recentHistory, searchQuery } = state;
+      if (!searchQuery) return recentHistory;
 
-    const lower = searchQuery.toLowerCase();
-    return recentHistory.filter((h) => h.query.toLowerCase().includes(lower));
-  });
+      const lower = searchQuery.toLowerCase();
+      return recentHistory.filter((h) =>
+        h.query.toLowerCase().includes(lower),
+      );
+    }),
+  );
 };
 
 export const useFilteredSavedQueries = () => {
-  return useQueryHistoryStore((state) => {
-    const { savedQueries, searchQuery } = state;
-    if (!searchQuery) return savedQueries;
+  return useQueryHistoryStore(
+    useShallow((state) => {
+      const { savedQueries, searchQuery } = state;
+      if (!searchQuery) return savedQueries;
 
-    const lower = searchQuery.toLowerCase();
-    return savedQueries.filter(
-      (q) =>
-        q.name.toLowerCase().includes(lower) ||
-        q.query.toLowerCase().includes(lower) ||
-        q.tags.some((t) => t.toLowerCase().includes(lower))
-    );
-  });
+      const lower = searchQuery.toLowerCase();
+      return savedQueries.filter(
+        (q) =>
+          q.name.toLowerCase().includes(lower) ||
+          q.query.toLowerCase().includes(lower) ||
+          q.tags.some((t) => t.toLowerCase().includes(lower)),
+      );
+    }),
+  );
 };

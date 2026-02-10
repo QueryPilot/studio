@@ -17,8 +17,11 @@ import { eventBus } from "@/services/eventBus";
 
 export function QueryHistoryPanel() {
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const { activeTab, setActiveTab, searchQuery, setSearchQuery, setFilterProfileIds } =
-    useQueryHistoryStore();
+  const activeTab = useQueryHistoryStore((s) => s.activeTab);
+  const setActiveTab = useQueryHistoryStore((s) => s.setActiveTab);
+  const searchQuery = useQueryHistoryStore((s) => s.searchQuery);
+  const setSearchQuery = useQueryHistoryStore((s) => s.setSearchQuery);
+  const setFilterProfileIds = useQueryHistoryStore((s) => s.setFilterProfileIds);
   const connectionIds = useWorkspaceBundleStore(
     (s) => s.activeWorkspace?.config.connectionIds ?? null,
   );

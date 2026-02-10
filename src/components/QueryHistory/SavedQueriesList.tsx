@@ -30,8 +30,10 @@ import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 
 export function SavedQueriesList() {
   const savedQueries = useFilteredSavedQueries();
-  const { loadSavedQueries, toggleStarred, deleteSaved, isLoading } =
-    useQueryHistoryStore();
+  const loadSavedQueries = useQueryHistoryStore((s) => s.loadSavedQueries);
+  const toggleStarred = useQueryHistoryStore((s) => s.toggleStarred);
+  const deleteSaved = useQueryHistoryStore((s) => s.deleteSaved);
+  const isLoading = useQueryHistoryStore((s) => s.isLoading);
 
   useEffect(() => {
     void loadSavedQueries();

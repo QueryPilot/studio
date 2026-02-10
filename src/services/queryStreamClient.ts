@@ -296,9 +296,11 @@ export class QueryStreamClient {
               ipcSendMs: typedMessage.ipc_send_ms,
             };
 
-            callbacks.onSuccess?.(result);
-
-            // Ensure all pending decode tasks are flushed before resolving
+            // Wait for all pending decode tasks to complete BEFORE
+            // notifying onSuccess. Data batches arrive on a separate IPC
+            // channel and may still be decoding when "success" metadata
+            // arrives. Calling onSuccess too early causes the consumer's
+            // mapping queue to miss pending batches, leading to empty data.
             pendingDecode
               .catch((error) => {
                 logger.error(
@@ -307,6 +309,7 @@ export class QueryStreamClient {
                 );
               })
               .finally(() => {
+                callbacks.onSuccess?.(result);
                 settleResolve(result);
               });
             break;

@@ -131,6 +131,7 @@ fn main() {
             commands::disconnect_all,
             commands::test_connection,
             commands::test_ssh_connection,
+            commands::update_safe_mode,
             // Query execution
             commands::query,
             commands::execute_query,
