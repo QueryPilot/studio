@@ -38,11 +38,11 @@ export function createUnifiedLinter(config: UnifiedLinterConfig): Extension {
       // Skip IPC validation for unfocused editors — return stale diagnostics
       if (!view.hasFocus) return Promise.resolve(lastDiagnostics);
 
-      // Cancel any pending request from this editor
+      // Cancel any pending request from this editor and settle its promise
       cancelPending?.();
 
       return new Promise((resolve) => {
-        cancelPending = linterCoordinator.requestLint(
+        const coordinatorCancel = linterCoordinator.requestLint(
           {
             sql,
             dialect: config.dialect,
@@ -77,6 +77,11 @@ export function createUnifiedLinter(config: UnifiedLinterConfig): Extension {
             resolve(mappedDiagnostics);
           },
         );
+        // Wrap cancel to also settle the promise (prevents dangling promises)
+        cancelPending = () => {
+          coordinatorCancel();
+          resolve(lastDiagnostics);
+        };
       });
     },
     {

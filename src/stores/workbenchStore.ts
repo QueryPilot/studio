@@ -469,6 +469,17 @@ const useWorkbenchStore = create<WorkbenchStore>()(
             panelContents: contents,
             historyIndex: newIndex,
           });
+
+          // Sync panelFocusStore: ensure focusedPanelId still exists in restored tree
+          const focusStore = usePanelFocusStore.getState();
+          if (!contents.has(focusStore.focusedPanelId ?? "")) {
+            const firstPanelId = panels[0]?.id;
+            if (firstPanelId) {
+              focusStore.focusPanel(firstPanelId);
+            } else {
+              focusStore.clearFocus();
+            }
+          }
         }
       }
     },
@@ -490,6 +501,17 @@ const useWorkbenchStore = create<WorkbenchStore>()(
             panelContents: contents,
             historyIndex: newIndex,
           });
+
+          // Sync panelFocusStore: ensure focusedPanelId still exists in restored tree
+          const focusStore = usePanelFocusStore.getState();
+          if (!contents.has(focusStore.focusedPanelId ?? "")) {
+            const firstPanelId = panels[0]?.id;
+            if (firstPanelId) {
+              focusStore.focusPanel(firstPanelId);
+            } else {
+              focusStore.clearFocus();
+            }
+          }
         }
       }
     },

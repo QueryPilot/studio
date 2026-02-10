@@ -45,11 +45,17 @@ export function useSqlEditorCompartments({
   // Track pending reconfigurations for unfocused editors (keyed by compartment name)
   // Using a Map ensures only the latest reconfiguration per compartment is applied on focus
   const pendingRef = useRef<Map<string, () => void>>(new Map());
+  const listenerAttachedRef = useRef(false);
 
-  // Flush pending reconfigurations when editor gains focus
+  // Attach focusin listener to flush pending reconfigurations.
+  // Re-runs when viewRef changes or when compartment effects trigger (viewRef.current may be
+  // null on the first run if the EditorView hasn't been created yet; the compartment effects
+  // will re-trigger this attachment once the view exists via their dependency arrays).
   useEffect(() => {
     const view = viewRef.current;
-    if (!view) return;
+    if (!view || listenerAttachedRef.current) return;
+
+    listenerAttachedRef.current = true;
 
     const handleFocus = () => {
       const pending = pendingRef.current;
@@ -62,8 +68,11 @@ export function useSqlEditorCompartments({
     };
 
     view.dom.addEventListener("focusin", handleFocus);
-    return () => view.dom.removeEventListener("focusin", handleFocus);
-  }, [viewRef]);
+    return () => {
+      view.dom.removeEventListener("focusin", handleFocus);
+      listenerAttachedRef.current = false;
+    };
+  });
 
   // Helper: dispatch immediately if focused, defer if not
   const dispatchOrDefer = useCallback(

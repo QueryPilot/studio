@@ -490,7 +490,13 @@ export const SqlEditor = memo(
 
     // Reconfigure phase2 compartment when dialect changes so formatter/refactoring
     // extensions pick up the new dialect instead of using the stale initial closure.
+    // Skip initial mount — the phasing hook handles initial loading via its 2s timer.
+    const dialectMountedRef = useRef(false);
     useEffect(() => {
+      if (!dialectMountedRef.current) {
+        dialectMountedRef.current = true;
+        return;
+      }
       const view = viewRef.current;
       if (!view) return;
       view.dispatch({
@@ -515,7 +521,6 @@ export const SqlEditor = memo(
           }),
         ]),
       });
-      // Only reconfigure when dialect actually changes (skip initial mount — phasing handles that)
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [effectiveDialect]);
 
