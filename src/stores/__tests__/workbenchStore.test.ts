@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import useWorkbenchStore from "../workbenchStore";
+import { usePanelFocusStore } from "../panelFocusStore";
 
 // Create a mock clearQueryState function
 const mockClearQueryState = vi.fn();
@@ -21,7 +22,6 @@ describe("workbenchStore", () => {
     // Reset store to initial state
     useWorkbenchStore.setState({
       layoutTree: null,
-      focusedPanelId: null,
       panelContents: new Map(),
       layoutHistory: [],
       historyIndex: -1,
@@ -34,6 +34,9 @@ describe("workbenchStore", () => {
         dropPosition: null,
       },
     });
+
+    // Reset panel focus store
+    usePanelFocusStore.setState({ focusedPanelId: null });
 
     vi.clearAllMocks();
     mockClearQueryState.mockClear();
@@ -48,7 +51,7 @@ describe("workbenchStore", () => {
       const state = useWorkbenchStore.getState();
       expect(state.layoutTree).toBeTruthy();
       expect(state.layoutTree?.type).toBe("leaf");
-      expect(state.focusedPanelId).toBeTruthy();
+      expect(usePanelFocusStore.getState().focusedPanelId).toBeTruthy();
       expect(state.panelContents.size).toBe(1);
       expect(state.layoutHistory.length).toBe(1);
       expect(state.historyIndex).toBe(0);
@@ -71,14 +74,14 @@ describe("workbenchStore", () => {
       // Initialize layout first
       store.initializeLayout();
       store.setConnectionId("conn-1");
-      const firstPanelId = useWorkbenchStore.getState().focusedPanelId;
+      const firstPanelId = usePanelFocusStore.getState().focusedPanelId;
 
       // Add a tab to verify it persists
       store.addTab(firstPanelId!, "test-tab");
 
       // Switch connections - layout should be preserved
       store.setConnectionId("conn-2");
-      const secondPanelId = useWorkbenchStore.getState().focusedPanelId;
+      const secondPanelId = usePanelFocusStore.getState().focusedPanelId;
 
       // Panel ID should be the SAME (layout preserved)
       expect(firstPanelId).toBe(secondPanelId);
@@ -92,7 +95,7 @@ describe("workbenchStore", () => {
 
       store.initializeLayout();
       store.setConnectionId("conn-1");
-      const firstPanelId = useWorkbenchStore.getState().focusedPanelId;
+      const firstPanelId = usePanelFocusStore.getState().focusedPanelId;
 
       // Add a tab to verify state is preserved
       store.addTab(firstPanelId!, "test-tab");
@@ -112,7 +115,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const initialPanelId = useWorkbenchStore.getState().focusedPanelId!;
+      const initialPanelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.splitPanelAction({
         targetPanelId: initialPanelId,
@@ -135,7 +138,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const initialPanelId = useWorkbenchStore.getState().focusedPanelId!;
+      const initialPanelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.splitPanelAction({
         targetPanelId: initialPanelId,
@@ -157,7 +160,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const initialPanelId = useWorkbenchStore.getState().focusedPanelId!;
+      const initialPanelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.splitPanelAction({
         targetPanelId: initialPanelId,
@@ -199,27 +202,27 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panelId = useWorkbenchStore.getState().focusedPanelId!;
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.closePanelAction(panelId);
 
       const state = useWorkbenchStore.getState();
       // Should auto-initialize with new panel
       expect(state.layoutTree).toBeTruthy();
-      expect(state.focusedPanelId).not.toBe(panelId);
+      expect(usePanelFocusStore.getState().focusedPanelId).not.toBe(panelId);
     });
 
     it("should close panel without auto-init when preventAutoInit is true", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panelId = useWorkbenchStore.getState().focusedPanelId!;
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.closePanelAction(panelId, true);
 
       const state = useWorkbenchStore.getState();
       expect(state.layoutTree).toBeNull();
-      expect(state.focusedPanelId).toBeNull();
+      expect(usePanelFocusStore.getState().focusedPanelId).toBeNull();
       expect(state.panelContents.size).toBe(0);
     });
 
@@ -227,7 +230,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const initialPanelId = useWorkbenchStore.getState().focusedPanelId!;
+      const initialPanelId = usePanelFocusStore.getState().focusedPanelId!;
 
       // Split to create 2 panels
       store.splitPanelAction({
@@ -255,7 +258,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panelId = useWorkbenchStore.getState().focusedPanelId!;
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
 
       // Add a tab
       store.addTab(panelId, "tab-1");
@@ -273,7 +276,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const initialPanelId = useWorkbenchStore.getState().focusedPanelId!;
+      const initialPanelId = usePanelFocusStore.getState().focusedPanelId!;
 
       // Split to create resizable panels
       store.splitPanelAction({
@@ -308,7 +311,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panel1Id = useWorkbenchStore.getState().focusedPanelId!;
+      const panel1Id = usePanelFocusStore.getState().focusedPanelId!;
 
       // Split to create second panel
       store.splitPanelAction({
@@ -345,7 +348,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panel1Id = useWorkbenchStore.getState().focusedPanelId!;
+      const panel1Id = usePanelFocusStore.getState().focusedPanelId!;
 
       store.splitPanelAction({
         targetPanelId: panel1Id,
@@ -373,7 +376,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panel1Id = useWorkbenchStore.getState().focusedPanelId!;
+      const panel1Id = usePanelFocusStore.getState().focusedPanelId!;
 
       store.splitPanelAction({
         targetPanelId: panel1Id,
@@ -402,7 +405,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panel1Id = useWorkbenchStore.getState().focusedPanelId!;
+      const panel1Id = usePanelFocusStore.getState().focusedPanelId!;
 
       // Add a tab to panel1 so it doesn't get closed
       store.addTab(panel1Id, "real-tab");
@@ -438,7 +441,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panel1Id = useWorkbenchStore.getState().focusedPanelId!;
+      const panel1Id = usePanelFocusStore.getState().focusedPanelId!;
 
       store.splitPanelAction({
         targetPanelId: panel1Id,
@@ -453,29 +456,29 @@ describe("workbenchStore", () => {
 
       store.focusPanel(panel1Id);
 
-      expect(useWorkbenchStore.getState().focusedPanelId).toBe(panel1Id);
+      expect(usePanelFocusStore.getState().focusedPanelId).toBe(panel1Id);
     });
 
     it("should not focus non-existent panel", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const currentFocus = useWorkbenchStore.getState().focusedPanelId;
+      const currentFocus = usePanelFocusStore.getState().focusedPanelId;
 
       store.focusPanel("non-existent");
 
-      expect(useWorkbenchStore.getState().focusedPanelId).toBe(currentFocus);
+      expect(usePanelFocusStore.getState().focusedPanelId).toBe(currentFocus);
     });
 
     it("should auto-focus root panel if target not found", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const rootPanelId = useWorkbenchStore.getState().focusedPanelId!;
+      const rootPanelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.focusPanel("non-existent");
 
-      expect(useWorkbenchStore.getState().focusedPanelId).toBe(rootPanelId);
+      expect(usePanelFocusStore.getState().focusedPanelId).toBe(rootPanelId);
     });
   });
 
@@ -484,7 +487,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panel1Id = useWorkbenchStore.getState().focusedPanelId!;
+      const panel1Id = usePanelFocusStore.getState().focusedPanelId!;
 
       store.splitPanelAction({
         targetPanelId: panel1Id,
@@ -501,19 +504,18 @@ describe("workbenchStore", () => {
       store.focusAdjacentPanel("right");
 
       // Should focus the adjacent panel (implementation-dependent)
-      const state = useWorkbenchStore.getState();
-      expect(state.focusedPanelId).toBeTruthy();
+      expect(usePanelFocusStore.getState().focusedPanelId).toBeTruthy();
     });
 
     it("should not change focus if no adjacent panel", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const currentFocus = useWorkbenchStore.getState().focusedPanelId;
+      const currentFocus = usePanelFocusStore.getState().focusedPanelId;
 
       store.focusAdjacentPanel("left");
 
-      expect(useWorkbenchStore.getState().focusedPanelId).toBe(currentFocus);
+      expect(usePanelFocusStore.getState().focusedPanelId).toBe(currentFocus);
     });
   });
 
@@ -567,7 +569,7 @@ describe("workbenchStore", () => {
 
       expect(useWorkbenchStore.getState().layoutHistory.length).toBe(1);
 
-      const panelId = useWorkbenchStore.getState().focusedPanelId!;
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.splitPanelAction({
         targetPanelId: panelId,
@@ -587,7 +589,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panelId = useWorkbenchStore.getState().focusedPanelId!;
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.splitPanelAction({
         targetPanelId: panelId,
@@ -611,7 +613,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panelId = useWorkbenchStore.getState().focusedPanelId!;
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.splitPanelAction({
         targetPanelId: panelId,
@@ -700,7 +702,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panelId = useWorkbenchStore.getState().focusedPanelId!;
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.splitPanelAction({
         targetPanelId: panelId,
@@ -725,7 +727,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panelId = useWorkbenchStore.getState().focusedPanelId!;
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.addTab(panelId, "tab-1", { label: "Test Tab" });
 
@@ -741,7 +743,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panelId = useWorkbenchStore.getState().focusedPanelId!;
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.addTab(panelId, "tab-1");
       store.addTab(panelId, "tab-2");
@@ -757,7 +759,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panelId = useWorkbenchStore.getState().focusedPanelId!;
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.addTab(panelId, "tab-1");
       store.addTab(panelId, "tab-2");
@@ -775,7 +777,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panelId = useWorkbenchStore.getState().focusedPanelId!;
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.addTab(panelId, "tab-1");
       store.addTab(panelId, "tab-2");
@@ -792,7 +794,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panel1Id = useWorkbenchStore.getState().focusedPanelId!;
+      const panel1Id = usePanelFocusStore.getState().focusedPanelId!;
 
       store.splitPanelAction({
         targetPanelId: panel1Id,
@@ -820,7 +822,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panelId = useWorkbenchStore.getState().focusedPanelId!;
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.addTab(panelId, "tab-1");
       store.addTab(panelId, "tab-2");
@@ -836,7 +838,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panelId = useWorkbenchStore.getState().focusedPanelId!;
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.addTab(panelId, "tab-1");
       store.addTab(panelId, "tab-2");
@@ -853,7 +855,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panelId = useWorkbenchStore.getState().focusedPanelId!;
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.addTab(panelId, "tab-1");
 
@@ -874,7 +876,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panelId = useWorkbenchStore.getState().focusedPanelId!;
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.addTab(panelId, "tab-1", { label: "Original" });
 
@@ -890,7 +892,7 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
 
-      const panelId = useWorkbenchStore.getState().focusedPanelId!;
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
 
       store.addTab(panelId, "tab-1", {
         label: "Original",

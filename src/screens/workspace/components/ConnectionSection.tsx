@@ -58,6 +58,7 @@ import {
 import { useCrudStore } from "@/stores/crudStore";
 import { usePanelStore } from "@/stores/panelStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -221,12 +222,8 @@ export const ConnectionSection = forwardRef<
       activePanelId: s.activePanelId,
     })),
   );
-  const { focusedPanelId, panelContents } = useWorkbenchStore(
-    useShallow((s) => ({
-      focusedPanelId: s.focusedPanelId,
-      panelContents: s.panelContents,
-    })),
-  );
+  const panelContents = useWorkbenchStore((s) => s.panelContents);
+  const focusedPanelId = usePanelFocusStore((s) => s.focusedPanelId);
 
   // Pre-compute lookup maps for O(1) access
   const tablesByKey = useMemo(() => {
@@ -1413,12 +1410,11 @@ export const ConnectionSection = forwardRef<
                         onClick={() => {
                           setFocusedConnection(connectionId);
                           const {
-                            focusedPanelId,
                             addTab,
                             panelContents,
                             focusPanel,
                           } = useWorkbenchStore.getState();
-                          let targetPanelId = focusedPanelId;
+                          let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
                           if (!targetPanelId && panelContents.size > 0) {
                             const firstPanelId = Array.from(
                               panelContents.keys(),
@@ -1474,12 +1470,11 @@ export const ConnectionSection = forwardRef<
                       onClick={() => {
                         setFocusedConnection(connectionId);
                         const {
-                          focusedPanelId,
                           addTab,
                           panelContents,
                           focusPanel,
                         } = useWorkbenchStore.getState();
-                        let targetPanelId = focusedPanelId;
+                        let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
                         if (!targetPanelId && panelContents.size > 0) {
                           const firstPanelId = Array.from(
                             panelContents.keys()

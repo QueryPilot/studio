@@ -6,6 +6,7 @@ import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import { useDialogStore } from "@/stores/ui/dialogStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useTabStateStore } from "@/stores/tabStateStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
@@ -209,7 +210,7 @@ export const defaultCommands: Command[] = [
         return;
       }
       const firstId = panelIds[0] ?? "";
-      const currentId = store.focusedPanelId ?? firstId;
+      const currentId = usePanelFocusStore.getState().focusedPanelId ?? firstId;
       const currentIndex = panelIds.indexOf(currentId);
       const nextIndex =
         currentIndex >= 0 ? (currentIndex + 1) % panelIds.length : 0;
@@ -231,7 +232,7 @@ export const defaultCommands: Command[] = [
         return;
       }
       const firstId = panelIds[0] ?? "";
-      const currentId = store.focusedPanelId ?? firstId;
+      const currentId = usePanelFocusStore.getState().focusedPanelId ?? firstId;
       const currentIndex = panelIds.indexOf(currentId);
       const prevIndex =
         currentIndex >= 0
@@ -250,7 +251,7 @@ export const defaultCommands: Command[] = [
     when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
-      const panelId = store.focusedPanelId;
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
       if (!panelId) return;
       const panel = store.panelContents.get(panelId);
       if (!panel) return;
@@ -436,7 +437,7 @@ export const defaultCommands: Command[] = [
     when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
-      const panelId = store.focusedPanelId;
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
       if (!panelId) return;
       const panel = store.panelContents.get(panelId);
       if (!panel || panel.tabIds.length <= 1) return;
@@ -456,7 +457,7 @@ export const defaultCommands: Command[] = [
     when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
-      const panelId = store.focusedPanelId;
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
       if (!panelId) return;
       const panel = store.panelContents.get(panelId);
       if (!panel || panel.tabIds.length <= 1) return;
@@ -479,7 +480,7 @@ export const defaultCommands: Command[] = [
     when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
-      const panelId = store.focusedPanelId;
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
       if (!panelId) return;
       store.splitPanelAction({ targetPanelId: panelId, direction: "right" });
     },
@@ -491,7 +492,7 @@ export const defaultCommands: Command[] = [
     when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
-      const panelId = store.focusedPanelId;
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
       if (!panelId) return;
       store.splitPanelAction({ targetPanelId: panelId, direction: "down" });
     },
@@ -503,7 +504,7 @@ export const defaultCommands: Command[] = [
     when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
-      const panelId = store.focusedPanelId;
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
       if (!panelId) return;
       store.splitPanelAction({ targetPanelId: panelId, direction: "left" });
     },
@@ -515,7 +516,7 @@ export const defaultCommands: Command[] = [
     when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
-      const panelId = store.focusedPanelId;
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
       if (!panelId) return;
       store.splitPanelAction({ targetPanelId: panelId, direction: "up" });
     },
@@ -548,7 +549,7 @@ export const defaultCommands: Command[] = [
       const workbench = useWorkbenchStore.getState();
       const panels = workbench.panelContents;
       const focusedPanelId =
-        workbench.focusedPanelId ?? panels.keys().next().value;
+        usePanelFocusStore.getState().focusedPanelId ?? panels.keys().next().value;
       if (!focusedPanelId) {
         return;
       }

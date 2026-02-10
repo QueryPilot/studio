@@ -37,6 +37,7 @@ import { type TabMetadata } from "@/types/workbench";
 import { ERDPanel } from "@/components/Erd";
 import { TableDesigner } from "@/components/TableDesigner";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { useTabStateStore } from "@/stores/tabStateStore";
 import { FeatureErrorBoundary } from "@/components/FeatureErrorBoundary";
 import { writeClipboardText } from "@/lib/clipboard";
@@ -67,7 +68,12 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       (state) => state.connectionId,
     );
     const getConnection = useConnectionStore((state) => state.getConnection);
-    const focusedPanelId = useWorkbenchStore((state) => state.focusedPanelId);
+    const isPanelFocused = usePanelFocusStore(
+      useCallback(
+        (state: { focusedPanelId: string | null }) => state.focusedPanelId === panelId,
+        [panelId],
+      ),
+    );
 
     // Visibility guard: defer heavy content rendering to allow instant tab switching
     const [contentReady, setContentReady] = useState(false);
@@ -92,7 +98,6 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     const connectionId = metadata?.connectionId || activeConnectionId || "";
     const connection = getConnection(connectionId);
     const dbType = connection?.profile.db_type;
-    const isPanelFocused = focusedPanelId === panelId;
     const type = metadata?.type || "table";
 
     // For table tabs, load/persist viewType to tabStateStore

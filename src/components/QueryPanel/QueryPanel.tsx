@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import { tableStreamingService } from "@/services/tableStreamingService";
 import { cn } from "@/lib/utils";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useTabStateStore, type QueryResult } from "@/stores/tabStateStore";
 import type { ColumnMeta } from "@/types/database";
@@ -78,7 +79,7 @@ export const QueryPanel = memo(function QueryPanel({
   );
   const globalState = useTabStateStore((state) => state.queryStates.get(tabId));
   // Subscribe to boolean only — avoids re-rendering when another panel gets focused
-  const isPanelFocused = useWorkbenchStore(
+  const isPanelFocused = usePanelFocusStore(
     (state) => state.focusedPanelId === panelId,
   );
 
@@ -988,19 +989,19 @@ export const QueryPanel = memo(function QueryPanel({
   useEffect(() => {
     const handleFormat = () => {
       // Check if THIS panel should handle the event
-      if (useWorkbenchStore.getState().focusedPanelId !== panelId) return;
+      if (usePanelFocusStore.getState().focusedPanelId !== panelId) return;
       logger.info("🟢 QueryPanel handling format event");
       handleBeautify();
     };
 
     const handleExecuteEvent = () => {
-      if (useWorkbenchStore.getState().focusedPanelId !== panelId) return;
+      if (usePanelFocusStore.getState().focusedPanelId !== panelId) return;
       logger.info("🟢 QueryPanel handling execute event");
       void handleExecute();
     };
 
     const handleSaveQuery = () => {
-      if (useWorkbenchStore.getState().focusedPanelId !== panelId) return;
+      if (usePanelFocusStore.getState().focusedPanelId !== panelId) return;
       if (!queryRef.current.trim()) {
         toast.error("No query to save");
         return;
@@ -1010,7 +1011,7 @@ export const QueryPanel = memo(function QueryPanel({
     };
 
     const handleToggleResults = () => {
-      if (useWorkbenchStore.getState().focusedPanelId !== panelId) return;
+      if (usePanelFocusStore.getState().focusedPanelId !== panelId) return;
       logger.info("🟢 QueryPanel handling toggle results event");
       toggleResults();
     };
