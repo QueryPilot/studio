@@ -111,6 +111,7 @@ import { useQueryHistoryStore } from "@/stores/queryHistoryStore";
 import { useSqlEditorSetup } from "./hooks/useSqlEditorSetup";
 import { useSqlEditorEffects } from "./hooks/useSqlEditorEffects";
 import { useSqlEditorCompartments } from "./hooks/useSqlEditorCompartments";
+import { useExtensionPhasing } from "./hooks/useExtensionPhasing";
 
 import type { SqlDialect } from "./types";
 
@@ -444,6 +445,49 @@ export const SqlEditor = memo(
       schema: defaultSchema,
     });
 
+    // --- Extension phasing: split non-critical extensions into phases ---
+    const phase1Extensions = useMemo(
+      () => [
+        scrollPastEnd(),
+        codeFolding({ placeholderText: "..." }),
+        sqlFoldService,
+        foldGutter(),
+        createMultiCursorExtension(),
+      ],
+      [],
+    );
+
+    const phase2Extensions = useMemo(
+      () => [
+        createSnippetExtension(),
+        createParameterHintsExtension(),
+        createFormatterExtension(effectiveDialect),
+        createGotoDefinitionExtension(),
+        createRefactoringExtension({
+          dialect: effectiveDialect,
+          onExtractCte: (selectionSpan) => {
+            setExtractCteSelection(selectionSpan);
+            setExtractCteDialogOpen(true);
+          },
+        }),
+        createFormatOnPasteExtension(effectiveDialect),
+        createQueryHistoryNavExtension({
+          getHistory: () =>
+            useQueryHistoryStore
+              .getState()
+              .recentHistory.map((h) => h.query),
+        }),
+      ],
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [],
+    );
+
+    const phasingCompartments = useExtensionPhasing(
+      viewRef,
+      phase1Extensions,
+      phase2Extensions,
+    );
+
     // Imperative handle
     useImperativeHandle(
       ref,
@@ -560,15 +604,11 @@ export const SqlEditor = memo(
           }),
           indentOnInput(),
           indentUnit.of("  "),
-          codeFolding({ placeholderText: "..." }),
-          sqlFoldService,
 
           lineNumbers(),
           highlightActiveLineGutter(),
           highlightActiveLine(),
-          foldGutter(),
 
-          scrollPastEnd(),
           search({ top: true }),
 
           Prec.high(keymap.of(historyKeymap)),
@@ -608,28 +648,9 @@ export const SqlEditor = memo(
             placeholder ? placeholderExt(placeholder) : [],
           ),
 
-          createMultiCursorExtension(),
-          createSnippetExtension(),
-          createParameterHintsExtension(),
-          createFormatterExtension(effectiveDialect),
-          createGotoDefinitionExtension(),
-
-          createRefactoringExtension({
-            dialect: effectiveDialect,
-            onExtractCte: (selectionSpan) => {
-              setExtractCteSelection(selectionSpan);
-              setExtractCteDialogOpen(true);
-            },
-          }),
-
-          createFormatOnPasteExtension(effectiveDialect),
-
-          createQueryHistoryNavExtension({
-            getHistory: () =>
-              useQueryHistoryStore
-                .getState()
-                .recentHistory.map((h) => h.query),
-          }),
+          // Phased extension placeholders — populated by useExtensionPhasing
+          phasingCompartments.phase1.of([]),
+          phasingCompartments.phase2.of([]),
 
           ...(onExecute
             ? [
