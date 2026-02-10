@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { GridRowModel } from "../types";
+import type { GridRowModel } from "@/components/DataGrid/types";
 
 export interface UseRowPinningOptions {
   rows: GridRowModel[];
