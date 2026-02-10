@@ -6,7 +6,6 @@ import { GridRenderer } from "./GridRenderer";
 import { Panel } from "./PanelDnd";
 import { type Direction } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
-import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { useShallow } from "zustand/react/shallow";
 import {
   DndContext,
@@ -42,8 +41,6 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
   const initializeLayout = useWorkbenchStore((s) => s.initializeLayout);
   const splitPanelAction = useWorkbenchStore((s) => s.splitPanelAction);
   const moveTab = useWorkbenchStore((s) => s.moveTab);
-  const focusedPanelId = usePanelFocusStore((s) => s.focusedPanelId);
-
   // Get stable list of panel IDs - useShallow does shallow array comparison
   // so this only re-renders when panels are added/removed, not when tab content changes
   const panelIds = useWorkbenchStore(
@@ -246,9 +243,6 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
     );
   }
 
-  // Count total panels for focus border styling
-  const totalPanels = panelIds.length;
-
   return (
     <PanelPortalProvider>
       <DndContext
@@ -267,19 +261,12 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
         {/* Render all panels at a stable position in the tree */}
         {/* They will be portaled into their containers in GridRenderer */}
         {/* Each Panel subscribes to its own content via usePanelContent(panelId) */}
+        {/* Focus border is handled inside Panel via boolean selectors (no re-render here on focus switch) */}
         {panelIds.map((panelId) => (
           <PanelPortal key={panelId} panelId={panelId}>
             <Panel
               panelId={panelId}
-              className={cn(
-                "h-full rounded-xl overflow-hidden border-[3px]",
-                {
-                  "border-primary/30":
-                    totalPanels > 1 && panelId === focusedPanelId,
-                  "border-background":
-                    totalPanels <= 1 || panelId !== focusedPanelId,
-                },
-              )}
+              className="h-full rounded-xl overflow-hidden"
             />
           </PanelPortal>
         ))}
