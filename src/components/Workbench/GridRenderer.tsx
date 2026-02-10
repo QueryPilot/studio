@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useRef } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { type GridNode } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import {
@@ -25,6 +25,15 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
   const panelGroupRef = useRef<ImperativePanelGroupHandle | null>(null);
   const isSyncingRef = useRef(false);
   const resizeRafRef = useRef<number | null>(null);
+
+  // Cancel pending RAF on unmount to prevent stale store updates
+  useEffect(() => {
+    return () => {
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+      }
+    };
+  }, []);
 
   const handlePanelResize = useCallback(
     (sizes: number[]) => {

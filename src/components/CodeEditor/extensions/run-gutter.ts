@@ -69,14 +69,15 @@ const statementsUpdater = ViewPlugin.fromClass(
         if (this.destroyed) return;
         this.pendingUpdate = null;
         const state = this.view.state;
-        if (state.doc.length === 0) return;
 
         const newMap = new Map<number, StatementBoundary>();
-        const statements = getAllStatements(state);
-        statements.forEach((stmt) => {
-          const lineNum = state.doc.lineAt(stmt.from).number;
-          newMap.set(lineNum, stmt);
-        });
+        if (state.doc.length > 0) {
+          const statements = getAllStatements(state);
+          statements.forEach((stmt) => {
+            const lineNum = state.doc.lineAt(stmt.from).number;
+            newMap.set(lineNum, stmt);
+          });
+        }
 
         this.view.dispatch({ effects: updateStatementsEffect.of(newMap) });
       }, 100);

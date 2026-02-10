@@ -125,6 +125,11 @@ class LinterCoordinator {
         }
       } catch (error) {
         console.error("[LinterCoordinator] IPC failed:", error);
+        // Resolve all callbacks with empty diagnostics so promises don't hang
+        const emptyResult: LintResult = { diagnostics: [] };
+        for (const cb of callbacks) {
+          cb(emptyResult);
+        }
       }
     }
   }

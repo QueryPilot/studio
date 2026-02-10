@@ -488,6 +488,37 @@ export const SqlEditor = memo(
       phase2Extensions,
     );
 
+    // Reconfigure phase2 compartment when dialect changes so formatter/refactoring
+    // extensions pick up the new dialect instead of using the stale initial closure.
+    useEffect(() => {
+      const view = viewRef.current;
+      if (!view) return;
+      view.dispatch({
+        effects: phasingCompartments.phase2.reconfigure([
+          createSnippetExtension(),
+          createParameterHintsExtension(),
+          createFormatterExtension(effectiveDialect),
+          createGotoDefinitionExtension(),
+          createRefactoringExtension({
+            dialect: effectiveDialect,
+            onExtractCte: (selectionSpan) => {
+              setExtractCteSelection(selectionSpan);
+              setExtractCteDialogOpen(true);
+            },
+          }),
+          createFormatOnPasteExtension(effectiveDialect),
+          createQueryHistoryNavExtension({
+            getHistory: () =>
+              useQueryHistoryStore
+                .getState()
+                .recentHistory.map((h) => h.query),
+          }),
+        ]),
+      });
+      // Only reconfigure when dialect actually changes (skip initial mount — phasing handles that)
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [effectiveDialect]);
+
     // Imperative handle
     useImperativeHandle(
       ref,
