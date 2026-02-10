@@ -6,7 +6,6 @@ import { SidebarConnectionList } from "./components/SidebarConnectionList";
 import { WorkbenchLayout } from "@/components/Workbench";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { useShallow } from "zustand/react/shallow";
-import { usePanelStore } from "@/stores/panelStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
@@ -77,8 +76,6 @@ export function WorkspaceScreen() {
     const workspace = state.workspaces.get(state.activeConnectionId || "");
     return workspace?.sidebars ?? DEFAULT_SIDEBARS;
   });
-
-  const { initialize: initializePanels } = usePanelStore();
 
   const [isLoading, setIsLoading] = useState(true);
 
@@ -307,7 +304,6 @@ export function WorkspaceScreen() {
     if (connectionId) {
       // Initialize workspace for this connection
       initWorkspace(connectionId);
-      initializePanels(connectionId);
 
       // Register this window with the connection tracker (BroadcastChannel)
       void windowChannelTracker.registerWindow(connectionId);
@@ -327,7 +323,7 @@ export function WorkspaceScreen() {
       // React may unmount for other reasons (hot reload, route change) where
       // we don't want to disconnect. Only actual window close should disconnect.
     };
-  }, [connectionId, initWorkspace, initializePanels]);
+  }, [connectionId, initWorkspace]);
 
   // Handle browser beforeunload for pending changes (web dev mode)
   useEffect(() => {

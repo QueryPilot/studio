@@ -56,7 +56,6 @@ import {
   type StarredItemType,
 } from "@/stores/starredItemsStore";
 import { useCrudStore } from "@/stores/crudStore";
-import { usePanelStore } from "@/stores/panelStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { Button } from "@/components/ui/button";
@@ -216,12 +215,6 @@ export const ConnectionSection = forwardRef<
   );
   const { toggleStarred, getStarredItems } = useStarredItemsStore();
   const stagedCommands = useCrudStore((s) => s.stagedCommands);
-  const { panels, activePanelId } = usePanelStore(
-    useShallow((s) => ({
-      panels: s.panels,
-      activePanelId: s.activePanelId,
-    })),
-  );
   const panelContents = useWorkbenchStore((s) => s.panelContents);
   const focusedPanelId = usePanelFocusStore((s) => s.focusedPanelId);
 
@@ -361,96 +354,46 @@ export const ConnectionSection = forwardRef<
 
   // Check if table/view is active
   const isTableActive = (tableName: string, tableSchema: string): boolean => {
-    if (focusedPanelId) {
-      const focusedPanel = panelContents.get(focusedPanelId);
-      if (focusedPanel && focusedPanel.activeTabId) {
-        const metadata = focusedPanel.metadata?.[focusedPanel.activeTabId];
-        if (
-          metadata?.type === "table" &&
-          metadata.table === tableName &&
-          metadata.schema === tableSchema &&
-          metadata.connectionId === connectionId
-        ) {
-          return true;
-        }
-      }
-    }
-
-    const activePanel = panels.get(activePanelId);
-    if (!activePanel || !activePanel.activeTabId) return false;
-
-    const activeTab = activePanel.tabs.get(activePanel.activeTabId);
-    if (!activeTab || activeTab.type !== "table") return false;
-
+    if (!focusedPanelId) return false;
+    const focusedPanel = panelContents.get(focusedPanelId);
+    if (!focusedPanel || !focusedPanel.activeTabId) return false;
+    const metadata = focusedPanel.metadata?.[focusedPanel.activeTabId];
     return (
-      activeTab.payload.tableName === tableName &&
-      activeTab.payload.schema === tableSchema
-    );
+      metadata?.type === "table" &&
+      metadata.table === tableName &&
+      metadata.schema === tableSchema &&
+      metadata.connectionId === connectionId
+    ) ?? false;
   };
 
   const isFunctionActive = (
     functionName: string,
     functionSchema: string,
   ): boolean => {
-    if (focusedPanelId) {
-      const focusedPanel = panelContents.get(focusedPanelId);
-      if (focusedPanel && focusedPanel.activeTabId) {
-        const [type, ...parts] = focusedPanel.activeTabId.split("-");
-        if (type === "function") {
-          const metadata = focusedPanel.metadata?.[focusedPanel.activeTabId];
-          if (
-            metadata?.schema === functionSchema &&
-            parts.includes(functionName) &&
-            metadata.connectionId === connectionId
-          ) {
-            return true;
-          }
-        }
-      }
-    }
-
-    const activePanel = panels.get(activePanelId);
-    if (!activePanel || !activePanel.activeTabId) return false;
-
-    const activeTab = activePanel.tabs.get(activePanel.activeTabId);
-    if (!activeTab || activeTab.type !== "function") return false;
-
+    if (!focusedPanelId) return false;
+    const focusedPanel = panelContents.get(focusedPanelId);
+    if (!focusedPanel || !focusedPanel.activeTabId) return false;
+    const metadata = focusedPanel.metadata?.[focusedPanel.activeTabId];
     return (
-      activeTab.payload.functionName === functionName &&
-      activeTab.payload.schema === functionSchema
-    );
+      metadata?.type === "function" &&
+      metadata.schema === functionSchema &&
+      metadata.functionName === functionName &&
+      metadata.connectionId === connectionId
+    ) ?? false;
   };
 
   const isMongoCollectionActive = (collectionName: string): boolean => {
-    if (!database) return false;
-
-    if (focusedPanelId) {
-      const focusedPanel = panelContents.get(focusedPanelId);
-      const focusedTabId = focusedPanel?.activeTabId;
-      if (focusedPanel && focusedTabId) {
-        const metadata = focusedPanel.metadata?.[focusedTabId];
-        if (
-          metadata?.type === "mongo-collection" &&
-          metadata.connectionId === connectionId &&
-          metadata.database === database &&
-          metadata.table === collectionName
-        ) {
-          return true;
-        }
-      }
-    }
-
-    const activePanel = panels.get(activePanelId);
-    if (!activePanel || !activePanel.activeTabId) return false;
-
-    const activeTab = activePanel.tabs.get(activePanel.activeTabId);
-    if (!activeTab || activeTab.type !== "mongo-collection") return false;
-
+    if (!database || !focusedPanelId) return false;
+    const focusedPanel = panelContents.get(focusedPanelId);
+    const focusedTabId = focusedPanel?.activeTabId;
+    if (!focusedPanel || !focusedTabId) return false;
+    const metadata = focusedPanel.metadata?.[focusedTabId];
     return (
-      activeTab.payload.connectionId === connectionId &&
-      activeTab.payload.database === database &&
-      activeTab.payload.tableName === collectionName
-    );
+      metadata?.type === "mongo-collection" &&
+      metadata.connectionId === connectionId &&
+      metadata.database === database &&
+      metadata.table === collectionName
+    ) ?? false;
   };
 
   const isProcedure = (func: FunctionMeta): boolean =>

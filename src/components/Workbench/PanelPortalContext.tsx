@@ -3,6 +3,7 @@ import React, {
   useContext,
   useRef,
   useCallback,
+  useMemo,
   useState,
   useLayoutEffect,
   useEffect,
@@ -162,10 +163,14 @@ export function PanelPortalProvider({
     };
   }, [updateRect]);
 
+  // Memoize context value to prevent unnecessary re-renders of all consumers
+  const contextValue = useMemo(
+    () => ({ registerContainer, getPanelRect, subscribeToRect, getRootContainer }),
+    [registerContainer, getPanelRect, subscribeToRect, getRootContainer]
+  );
+
   return (
-    <PanelPortalContext.Provider
-      value={{ registerContainer, getPanelRect, subscribeToRect, getRootContainer }}
-    >
+    <PanelPortalContext.Provider value={contextValue}>
       <div ref={rootRef} className="relative h-full w-full">
         {children}
       </div>
@@ -218,32 +223,15 @@ export function PanelPortal({
   children: React.ReactNode;
 }) {
   const { getPanelRect, subscribeToRect, getRootContainer } = usePanelPortal();
-  const portalRef = useRef<HTMLDivElement>(null);
-  const [initialRect] = useState<PanelRect | null>(() => getPanelRect(panelId));
+  const [rect, setRect] = useState<PanelRect | null>(() => getPanelRect(panelId));
 
   useLayoutEffect(() => {
-    const el = portalRef.current;
-    if (!el) return;
+    // Get initial rect (may have been registered by PanelContainer already)
+    setRect(getPanelRect(panelId));
 
-    // Apply initial rect via DOM mutation
-    const rect = getPanelRect(panelId);
-    if (rect) {
-      el.style.top = `${rect.top}px`;
-      el.style.left = `${rect.left}px`;
-      el.style.width = `${rect.width}px`;
-      el.style.height = `${rect.height}px`;
-      el.style.visibility = "visible";
-    }
-
-    // Subscribe to updates — mutate DOM directly, skip React re-renders
+    // Subscribe to updates — React state drives re-renders for position changes
     return subscribeToRect(panelId, () => {
-      const newRect = getPanelRect(panelId);
-      if (!newRect || !el) return;
-      el.style.top = `${newRect.top}px`;
-      el.style.left = `${newRect.left}px`;
-      el.style.width = `${newRect.width}px`;
-      el.style.height = `${newRect.height}px`;
-      el.style.visibility = "visible";
+      setRect(getPanelRect(panelId));
     });
   }, [panelId, getPanelRect, subscribeToRect]);
 
@@ -254,17 +242,15 @@ export function PanelPortal({
 
   // Always render into the same root container (stable portal target)
   // Position absolutely to match the PanelContainer location
-  // Initial render uses React style; subsequent updates use direct DOM mutation (zero re-renders)
   return createPortal(
     <div
-      ref={portalRef}
       style={{
         position: "absolute",
-        top: initialRect?.top ?? 0,
-        left: initialRect?.left ?? 0,
-        width: initialRect?.width ?? 0,
-        height: initialRect?.height ?? 0,
-        visibility: initialRect ? "visible" : "hidden",
+        top: rect?.top ?? 0,
+        left: rect?.left ?? 0,
+        width: rect?.width ?? 0,
+        height: rect?.height ?? 0,
+        visibility: rect ? "visible" : "hidden",
         overflow: "hidden",
       }}
       data-panel-portal={panelId}
