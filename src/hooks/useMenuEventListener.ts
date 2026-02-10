@@ -14,6 +14,8 @@ import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { eventBus } from "@/services/eventBus";
 import { databaseService } from "@/services/databaseService";
 import { windowManager } from "@/services/windowManager";
+import { commandService } from "@/services/commandService";
+import { menuActionCommandMap } from "@/data/menuActionCommandMap";
 import { v4 as uuidv4 } from "uuid";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -27,6 +29,19 @@ export function useMenuEventListener() {
     const unlistenPromise = listen<string>("menu_action", async (event) => {
       const action = event.payload;
       logger.info(`[MenuAction] Received: ${action}`);
+
+      const mappedCommandId = menuActionCommandMap[action];
+      if (mappedCommandId && commandService.has(mappedCommandId)) {
+        try {
+          await commandService.execute(mappedCommandId);
+          return;
+        } catch (error) {
+          logger.error(
+            `[MenuAction] Failed to execute mapped command ${mappedCommandId}:`,
+            error,
+          );
+        }
+      }
 
       // Get current context
       const workspaceStore = useWorkspaceScreenStore.getState();

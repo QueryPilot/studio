@@ -2,7 +2,7 @@
 //!
 //! Validates SQL against schema metadata.
 
-use super::parser::ParsedStatement;
+use super::parser::{ParsedStatement, TableReference};
 use super::schema_store::CachedSchema;
 use super::validator::{ErrorSeverity, ErrorSource, SqlError};
 use std::collections::HashSet;
@@ -62,6 +62,28 @@ fn get_existing_statement_tables(stmt: &ParsedStatement, schema: &CachedSchema) 
             }
         })
         .collect()
+}
+
+fn loaded_schema_names(schema: &CachedSchema) -> HashSet<String> {
+    schema
+        .tables
+        .iter()
+        .filter_map(|t| t.schema.as_ref())
+        .map(|name| name.to_lowercase())
+        .collect()
+}
+
+fn is_reference_outside_loaded_schemas(table_ref: &TableReference, schema: &CachedSchema) -> bool {
+    let Some(ref_schema) = table_ref.schema.as_ref() else {
+        return false;
+    };
+
+    let loaded = loaded_schema_names(schema);
+    if loaded.is_empty() {
+        return false;
+    }
+
+    !loaded.contains(&ref_schema.to_lowercase())
 }
 
 fn is_identifier_char(byte: u8) -> bool {
@@ -154,6 +176,13 @@ pub fn validate_table_references(stmt: &ParsedStatement, schema: &CachedSchema) 
     let mut errors = Vec::new();
 
     for table_ref in &stmt.tables {
+        // When schema cache is scoped to a schema (for example `public`), references to
+        // other explicit schemas (for example `pg_catalog.*`) are out-of-scope for strict
+        // existence checks and should not be flagged as missing.
+        if is_reference_outside_loaded_schemas(table_ref, schema) {
+            continue;
+        }
+
         // Skip if it's a CTE reference
         if stmt
             .ctes
@@ -562,5 +591,37 @@ mod tests {
         assert!(!errors
             .iter()
             .any(|e| e.message.contains("item_count") && e.message.contains("does not exist")));
+    }
+
+    #[test]
+    fn test_explicit_table_from_out_of_scope_schema_is_not_reported_missing() {
+        let schema = test_schema();
+        let doc = parse_document(
+            "SELECT relid FROM pg_catalog.pg_statio_user_tables",
+            SqlDialect::PostgreSQL,
+        );
+        let stmt = doc
+            .statements
+            .first()
+            .expect("expected one parsed statement");
+
+        let errors = validate_table_references(stmt, &schema);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_explicit_table_from_loaded_schema_still_validates_existence() {
+        let schema = test_schema();
+        let doc = parse_document("SELECT * FROM public.missing_table", SqlDialect::PostgreSQL);
+        let stmt = doc
+            .statements
+            .first()
+            .expect("expected one parsed statement");
+
+        let errors = validate_table_references(stmt, &schema);
+        assert!(!errors.is_empty());
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("missing_table") && e.severity == ErrorSeverity::Error));
     }
 }

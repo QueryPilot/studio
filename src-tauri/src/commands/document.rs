@@ -100,6 +100,14 @@ pub async fn mongo_insert_document(
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Safe mode guard
+    crate::core::safe_mode::check_safe_mode(
+        conn.profile.safe_mode,
+        crate::core::safe_mode::OperationKind::Insert,
+        "Insert",
+    )?;
+
     let adapter = conn
         .adapter
         .as_mongo()
@@ -124,6 +132,14 @@ pub async fn mongo_update_document(
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Safe mode guard
+    crate::core::safe_mode::check_safe_mode(
+        conn.profile.safe_mode,
+        crate::core::safe_mode::OperationKind::Update,
+        "Update",
+    )?;
+
     let adapter = conn
         .adapter
         .as_mongo()
@@ -147,6 +163,14 @@ pub async fn mongo_delete_document(
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Safe mode guard
+    crate::core::safe_mode::check_safe_mode(
+        conn.profile.safe_mode,
+        crate::core::safe_mode::OperationKind::Delete,
+        "Delete",
+    )?;
+
     let adapter = conn
         .adapter
         .as_mongo()
@@ -170,6 +194,15 @@ pub async fn mongo_aggregate(
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Safe mode guard: check for $out / $merge stages that write data
+    let op_kind = crate::core::safe_mode::classify_aggregation_pipeline(&pipeline);
+    crate::core::safe_mode::check_safe_mode(
+        conn.profile.safe_mode,
+        op_kind,
+        &format!("{:?}", op_kind),
+    )?;
+
     let adapter = conn
         .adapter
         .as_mongo()
@@ -243,6 +276,14 @@ pub async fn mongo_create_index(
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Safe mode guard
+    crate::core::safe_mode::check_safe_mode(
+        conn.profile.safe_mode,
+        crate::core::safe_mode::OperationKind::Ddl,
+        "CreateIndex",
+    )?;
+
     let adapter = conn
         .adapter
         .as_mongo()
@@ -266,6 +307,14 @@ pub async fn mongo_drop_index(
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Safe mode guard
+    crate::core::safe_mode::check_safe_mode(
+        conn.profile.safe_mode,
+        crate::core::safe_mode::OperationKind::Ddl,
+        "DropIndex",
+    )?;
+
     let adapter = conn
         .adapter
         .as_mongo()
@@ -479,6 +528,11 @@ pub async fn document_execute(
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Safe mode guard
+    let op_kind = crate::core::safe_mode::classify_document_op(&operation);
+    crate::core::safe_mode::check_safe_mode(conn.profile.safe_mode, op_kind, &format!("{:?}", operation))?;
+
     let adapter = conn
         .adapter
         .as_mongo()

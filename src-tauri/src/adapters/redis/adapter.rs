@@ -1466,6 +1466,7 @@ mod tests {
             bastion: None,
             options: HashMap::new(),
             group: None,
+            safe_mode: None,
         };
 
         let config = RedisAdapter::build_config(&profile);
@@ -1506,6 +1507,7 @@ mod tests {
             bastion: None,
             options: HashMap::new(),
             group: None,
+            safe_mode: None,
         };
 
         let adapter = RedisAdapter::new();

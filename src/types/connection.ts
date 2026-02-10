@@ -15,6 +15,7 @@ export interface ConnectionProfile {
   options: Record<string, string>;
   group?: string; // Optional group name for organizing related connections
   default_schema?: string; // Default schema for PostgreSQL/SQLServer (e.g., "myschema" instead of "public")
+  safe_mode?: SafeMode; // Per-connection safe mode (defaults to "full_access")
 }
 
 export enum DbType {
@@ -103,6 +104,9 @@ export function getDefaultSchema(dbType: DbType, database?: string): string | nu
       return null;
   }
 }
+
+/** Per-connection safe mode restricting allowed operations */
+export type SafeMode = "read_only" | "read_write" | "read_write_update" | "full_access";
 
 export enum SslMode {
   Disable = "Disable",

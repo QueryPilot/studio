@@ -272,6 +272,16 @@ impl McpHandler {
 
         let start = Instant::now();
 
+        // MCP bridge is always read-only - block all non-read operations
+        let op_kind = crate::core::safe_mode::classify_sql(&params.query);
+        if !matches!(op_kind, crate::core::safe_mode::OperationKind::Read) {
+            return JsonRpcResponse::error(
+                id,
+                error_codes::PERMISSION_DENIED,
+                "MCP bridge only allows read operations (SELECT, EXPLAIN, SHOW).".to_string(),
+            );
+        }
+
         // Get connection
         let conn = match self.manager.get_connection(&params.connection_id) {
             Some(c) => c,
@@ -1085,6 +1095,22 @@ impl McpHandler {
                 );
             }
         };
+
+        // When ANALYZE is requested, the underlying query is actually executed.
+        // Block non-read queries to prevent mutations via EXPLAIN ANALYZE.
+        if params.analyze {
+            let op_kind = crate::core::safe_mode::classify_sql(&params.query);
+            if op_kind != crate::core::safe_mode::OperationKind::Read {
+                return JsonRpcResponse::error(
+                    id,
+                    error_codes::QUERY_FAILED,
+                    format!(
+                        "EXPLAIN ANALYZE is not allowed for {:?} operations (the statement would be executed)",
+                        op_kind
+                    ),
+                );
+            }
+        }
 
         // Build EXPLAIN query based on database type
         let db_type = conn.adapter.db_type();

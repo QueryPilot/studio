@@ -790,6 +790,39 @@ impl ConnectionManager {
         }
     }
 
+    /// Update the safe mode level on a live connection.
+    ///
+    /// Propagates the change to:
+    /// 1. The stored profile (so reconnections inherit the new mode)
+    /// 2. The base connection entry
+    /// 3. All tab-specific connections (key format: `{conn_id}:{tab_id}`)
+    pub fn update_safe_mode(&self, conn_id: &str, safe_mode: SafeMode) -> Result<()> {
+        // Update the stored profile so reconnections/new tabs inherit the mode
+        if let Some(mut profile) = self.profiles.get_mut(conn_id) {
+            profile.safe_mode = Some(safe_mode);
+        }
+
+        // Update all live connections: the base connection and any tab-specific ones
+        let prefix = format!("{}:", conn_id);
+        let mut found = false;
+        for mut entry in self.connections.iter_mut() {
+            let key = entry.key();
+            if key == conn_id || key.starts_with(&prefix) {
+                entry.value_mut().profile.safe_mode = Some(safe_mode);
+                found = true;
+            }
+        }
+
+        if found {
+            Ok(())
+        } else {
+            Err(AppError::internal(format!(
+                "Connection {} not found",
+                conn_id
+            )))
+        }
+    }
+
     pub async fn ping_connection(&self, conn_id: &str) -> Result<bool> {
         if let Some(conn) = self.connections.get(conn_id) {
             Ok(conn.adapter.is_connected())

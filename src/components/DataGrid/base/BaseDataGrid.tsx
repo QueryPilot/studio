@@ -39,10 +39,10 @@ import { UnifiedContextMenu } from "../components/UnifiedContextMenu";
 import { FKPreviewPopover } from "../components/FKPreviewPopover";
 import { buildGridCellV2 } from "../utils/cellFactory";
 import { cn } from "@/lib/utils";
-import { useCommand } from "@/hooks/useCommand";
 import { useContextKey, useScopedKeybindings } from "@/hooks/useContextKey";
 import { openTableObject } from "@/utils/workbench/openers";
 import { quoteIdentifier } from "@/adapters/formatting";
+import { dataGridRegistry } from "@/services/dataGridRegistry";
 
 // Hooks
 import { useQuickFilter } from "../hooks/useQuickFilter";
@@ -571,9 +571,25 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const [gridSelection, setGridSelection] = useState<GridSelection | undefined>(
     undefined,
   );
+  const hasSelection = useMemo(() => {
+    const selection = gridSelection?.current;
+    if (!selection) return false;
+    if (selection.range && selection.range.width > 0 && selection.range.height > 0) {
+      return true;
+    }
+    if (selection.cell) {
+      return true;
+    }
+    return false;
+  }, [gridSelection]);
 
   const gridSelectionRef = useRef<GridSelection | undefined>(undefined);
   const contextMenuTargetRef = useRef<ContextMenuTarget | null>(null);
+
+  useContextKey("selectionEmpty", !hasSelection, {
+    scopeId,
+    resetOnUnmount: true,
+  });
 
   // --- Column State from Store ---
   const preferences = useGridPreferencesStore((s) => s.preferences[gridId]);
@@ -660,7 +676,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const handleFocusCapture = useCallback(() => {
     isGridFocusedRef.current = true;
     setIsGridFocused(true);
-  }, []);
+    dataGridRegistry.setFocused(gridId);
+  }, [gridId]);
 
   const handleBlurCapture = useCallback((e: React.FocusEvent) => {
     const currentTarget = e.currentTarget as HTMLElement;
@@ -694,41 +711,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     setIsGridFocused(false);
     setIsEditingCell(false);
     isEditingCellRef.current = false;
-  }, []);
-
-  // --- Keyboard Shortcuts for Quick Filter ---
-  // Only respond if THIS grid instance is focused (critical for multi-panel)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Check if THIS grid is focused using refs for synchronous, accurate state
-      // This is critical for multi-panel scenarios
-      const hasActiveElementInGrid = wrapperRef.current?.contains(
-        document.activeElement,
-      );
-      if (!isGridFocusedRef.current && !hasActiveElementInGrid) return;
-
-      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
-        e.preventDefault();
-        effectiveQuickFilterRef.current?.focus();
-        return;
-      }
-
-      if (
-        e.key === "/" &&
-        document.activeElement?.tagName !== "INPUT" &&
-        document.activeElement?.tagName !== "TEXTAREA" &&
-        !document.activeElement?.hasAttribute("contenteditable")
-      ) {
-        e.preventDefault();
-        effectiveQuickFilterRef.current?.focus();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [effectiveQuickFilterRef]);
+    dataGridRegistry.clearFocused(gridId);
+  }, [gridId]);
 
   // --- Column Management ---
   const reorderColumns = useCallback(
@@ -1410,62 +1394,12 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     return [];
   }, []);
 
-  const { copySelection, handleKeyboardCopy } = useClipboardBridge({
+  const { copySelection } = useClipboardBridge({
     toText: toTextCallback,
     toJson: toJsonCallback,
     onCopySuccess: () => {},
     onCopyError: () => {},
   });
-
-  // --- Keyboard Copy Handler (Cmd+C, Cmd+Shift+C) ---
-  useEffect(() => {
-    if (!enableClipboard) return;
-
-    const handleCopyKeyDown = async (e: KeyboardEvent) => {
-      // Only handle copy shortcuts
-      if (!((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c")) return;
-
-      // Don't intercept if a cell editor is active (check DOM directly for reliability)
-      if (isCellEditorActive()) return;
-
-      // Check if our grid is focused using REFS for synchronous, accurate state
-      // This is critical for multi-panel scenarios where state updates are async
-      const hasActiveElementInGrid = wrapperRef.current?.contains(
-        document.activeElement,
-      );
-      if (!isGridFocusedRef.current && !hasActiveElementInGrid) return;
-
-      // Don't intercept if editing a cell (use ref for synchronous check)
-      if (isEditingCellRef.current) return;
-
-      // Get current selection
-      const selection = gridSelectionRef.current;
-      if (!selection) return;
-
-      // Handle the copy
-      await handleKeyboardCopy(e, selection);
-    };
-
-    window.addEventListener("keydown", handleCopyKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleCopyKeyDown);
-    };
-  }, [enableClipboard, handleKeyboardCopy, isCellEditorActive]);
-
-  useCommand(
-    "dataGrid.action.copyAsJson",
-    enableClipboard
-      ? async () => {
-          if (gridSelectionRef.current) {
-            await copySelection(gridSelectionRef.current, "json");
-          }
-        }
-      : async () => {},
-    {
-      label: "Copy as JSON",
-      category: "DataGrid",
-    },
-  );
 
   // --- Export to CSV ---
   // TODO: Implement export to CSV
@@ -1923,6 +1857,38 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     [readOnly, commandFactory, handleBatchEdit],
   );
 
+  const handleClearSelection = useCallback(() => {
+    if (readOnly || !commandFactory || isCellEditorActive()) return;
+
+    const hasActiveElementInGrid = wrapperRef.current?.contains(
+      document.activeElement,
+    );
+    if (!isGridFocusedRef.current && !hasActiveElementInGrid) return;
+    if (isEditingCellRef.current) return;
+
+    const selection = gridSelectionRef.current;
+    if (!selection?.current?.range) return;
+
+    const { range } = selection.current;
+    const { x: startCol, y: startRow, width, height } = range;
+
+    const cells: Item[] = [];
+    for (let row = startRow; row < startRow + height; row++) {
+      for (let col = startCol; col < startCol + width; col++) {
+        const column = finalColumnsRef.current[col];
+        if (column?.meta?.is_pk) continue;
+        cells.push([col, row]);
+      }
+    }
+
+    if (cells.length > 0) {
+      handleBatchClear(cells);
+      toast.success(`${cells.length} cell(s) staged for clearing`);
+    } else {
+      toast.info("Cannot clear read-only columns");
+    }
+  }, [readOnly, commandFactory, isCellEditorActive, handleBatchClear]);
+
   // Paste handler for clipboard data (called from context menu)
   const handlePaste = useCallback(async () => {
     if (readOnly || !commandFactory) return;
@@ -2183,112 +2149,70 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   });
 
   useEffect(() => {
-    if (!enableFillOperations) return;
-    const handleFillKeyDown = (e: KeyboardEvent) => {
-      // Don't intercept if a cell editor is active (check DOM directly for reliability)
-      if (isCellEditorActive()) return;
-      // Use refs for synchronous, accurate focus state
-      if (!isGridFocusedRef.current || isEditingCellRef.current) return;
-      if (e.ctrlKey && !e.metaKey && e.key === "d") {
-        e.preventDefault();
-        fillDown(gridSelection);
-      }
-      if (e.ctrlKey && !e.metaKey && e.key === "r") {
-        e.preventDefault();
-        fillRight(gridSelection);
-      }
-    };
-    window.addEventListener("keydown", handleFillKeyDown);
+    dataGridRegistry.register({
+      id: gridId,
+      focusFilter: () => {
+        if (!isGridFocusedRef.current) return;
+        effectiveQuickFilterRef.current?.focus();
+      },
+      copySelection: async () => {
+        if (!enableClipboard || isCellEditorActive() || isEditingCellRef.current) {
+          return;
+        }
+        const selection = gridSelectionRef.current;
+        if (selection) {
+          await copySelection(selection, "text");
+        }
+      },
+      copySelectionAsJson: async () => {
+        if (!enableClipboard || isCellEditorActive() || isEditingCellRef.current) {
+          return;
+        }
+        const selection = gridSelectionRef.current;
+        if (selection) {
+          await copySelection(selection, "json");
+        }
+      },
+      fillDown: () => {
+        if (!enableFillOperations || isCellEditorActive() || isEditingCellRef.current) {
+          return;
+        }
+        fillDown(gridSelectionRef.current);
+      },
+      fillRight: () => {
+        if (!enableFillOperations || isCellEditorActive() || isEditingCellRef.current) {
+          return;
+        }
+        fillRight(gridSelectionRef.current);
+      },
+      duplicateRows: () => {
+        if (readOnly || !commandFactory || isCellEditorActive()) {
+          return;
+        }
+        handleDuplicateRows();
+      },
+      clearSelection: () => {
+        handleClearSelection();
+      },
+    });
+
     return () => {
-      window.removeEventListener("keydown", handleFillKeyDown);
+      dataGridRegistry.unregister(gridId);
     };
   }, [
+    commandFactory,
+    copySelection,
+    enableClipboard,
     enableFillOperations,
     fillDown,
     fillRight,
-    gridSelection,
+    gridId,
+    handleClearSelection,
+    handleDuplicateRows,
     isCellEditorActive,
+    readOnly,
+    effectiveQuickFilterRef,
   ]);
-
-  // Cmd+D shortcut for duplicate rows
-  useEffect(() => {
-    if (readOnly || !commandFactory) return;
-
-    const handleDuplicateKeyDown = (e: KeyboardEvent) => {
-      // Cmd+D (Mac) or Meta+D - duplicate rows
-      if ((e.metaKey || (e.ctrlKey && !e.metaKey)) && e.key === "d") {
-        // Ctrl+D is fillDown, only handle Cmd+D (metaKey on Mac)
-        if (!e.metaKey) return;
-
-        // Don't intercept if a cell editor is active
-        if (isCellEditorActive()) return;
-        // Use refs for synchronous, accurate focus state
-        if (!isGridFocusedRef.current || isEditingCellRef.current) return;
-
-        e.preventDefault();
-        handleDuplicateRows();
-      }
-    };
-
-    window.addEventListener("keydown", handleDuplicateKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleDuplicateKeyDown);
-    };
-  }, [readOnly, commandFactory, handleDuplicateRows, isCellEditorActive]);
-
-  // Delete key handler for batch clear
-  useEffect(() => {
-    if (readOnly || !commandFactory) return;
-
-    const handleDeleteKeyDown = (e: KeyboardEvent) => {
-      // Only Delete or Backspace key
-      if (e.key !== "Delete" && e.key !== "Backspace") return;
-
-      // Don't intercept if a cell editor is active (check DOM directly for reliability)
-      if (isCellEditorActive()) return;
-
-      // Check if our grid is focused using REFS for synchronous, accurate state
-      // This is critical for multi-panel scenarios where state updates are async
-      const hasActiveElementInGrid = wrapperRef.current?.contains(
-        document.activeElement,
-      );
-      if (!isGridFocusedRef.current && !hasActiveElementInGrid) return;
-
-      // Don't intercept if editing a cell (use ref for synchronous check)
-      if (isEditingCellRef.current) return;
-
-      // Get current selection and build cell list
-      const selection = gridSelectionRef.current;
-      if (!selection?.current?.range) return;
-
-      e.preventDefault();
-
-      const { range } = selection.current;
-      const { x: startCol, y: startRow, width, height } = range;
-
-      const cells: Item[] = [];
-      for (let row = startRow; row < startRow + height; row++) {
-        for (let col = startCol; col < startCol + width; col++) {
-          // Skip read-only columns (e.g., PK columns)
-          const column = finalColumnsRef.current[col];
-          if (column?.meta?.is_pk) continue;
-          cells.push([col, row]);
-        }
-      }
-
-      if (cells.length > 0) {
-        handleBatchClear(cells);
-        toast.success(`${cells.length} cell(s) staged for clearing`);
-      } else {
-        toast.info("Cannot clear read-only columns");
-      }
-    };
-
-    window.addEventListener("keydown", handleDeleteKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleDeleteKeyDown);
-    };
-  }, [readOnly, commandFactory, handleBatchClear, isCellEditorActive]);
 
   // --- Filter by Column (from context menu) ---
   const handleFilterByColumn = useCallback(

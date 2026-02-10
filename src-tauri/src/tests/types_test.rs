@@ -489,6 +489,7 @@ mod connection_types_tests {
             bastion: None,
             options: std::collections::HashMap::new(),
             group: None,
+            safe_mode: None,
         };
 
         assert_eq!(profile.id, "test-123");

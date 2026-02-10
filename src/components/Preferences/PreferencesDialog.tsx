@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 // Lazy load the shortcuts panel (it might be heavy)
-const ShortcutsPanel = lazy(() => import("./panels/EditorPanel"));
+const ShortcutsPanel = lazy(() => import("./panels/KeyboardShortcutsPanel"));
 
 interface PreferencesDialogProps {
   open?: boolean;

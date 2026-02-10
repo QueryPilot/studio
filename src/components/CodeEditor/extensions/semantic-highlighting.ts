@@ -409,7 +409,8 @@ function createSemanticHighlightingPlugin() {
 
       update(update: ViewUpdate) {
         if (update.docChanged || update.viewportChanged) {
-          this.decorations = Decoration.none;
+          // Skip analysis for unfocused editors — keep stale decorations
+          if (!update.view.hasFocus) return;
 
           if (this.pendingUpdate) {
             clearTimeout(this.pendingUpdate);

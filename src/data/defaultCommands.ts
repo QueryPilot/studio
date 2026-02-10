@@ -11,6 +11,7 @@ import { useTabStateStore } from "@/stores/tabStateStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { tabGroupRegistry } from "@/services/tabGroupRegistry";
+import { dataGridRegistry } from "@/services/dataGridRegistry";
 import { clearAllCaches } from "@/lib/cacheManager";
 import { useCrudStore } from "@/stores/crudStore";
 import { toast } from "sonner";
@@ -119,6 +120,65 @@ export const defaultCommands: Command[] = [
     category: "Help",
     handler: () => {
       dialogStore.openKeyboardShortcuts();
+    },
+  },
+  {
+    id: "help.action.openDocs",
+    label: "Open Documentation",
+    category: "Help",
+    handler: () => {
+      window.open("https://querypilot.dev/docs", "_blank");
+    },
+  },
+  {
+    id: "help.action.reportIssue",
+    label: "Report Issue",
+    category: "Help",
+    handler: () => {
+      window.open(
+        "https://github.com/querypilot/querypilot/issues/new",
+        "_blank",
+      );
+    },
+  },
+  {
+    id: "editor.action.find",
+    label: "Find in Editor",
+    category: "Editor",
+    handler: () => {
+      eventBus.emit("query-editor:find", {});
+    },
+  },
+  {
+    id: "editor.action.replace",
+    label: "Replace in Editor",
+    category: "Editor",
+    handler: () => {
+      eventBus.emit("query-editor:replace", {});
+    },
+  },
+  {
+    id: "window.action.newMainWindow",
+    label: "New Main Window",
+    category: "Window",
+    handler: () => {
+      void windowManager.openNewMainWindow();
+    },
+  },
+  {
+    id: "database.action.backupRestore",
+    label: "Backup/Restore",
+    category: "Database",
+    handler: () => {
+      const workspaceStore = useWorkspaceScreenStore.getState();
+      const activeConnectionId = workspaceStore.activeConnectionId;
+      let profileId: string | undefined;
+      if (activeConnectionId) {
+        const bundleStore = useWorkspaceBundleStore.getState();
+        const connection = bundleStore.getConnectionById(activeConnectionId);
+        profileId = connection?.profile.id;
+      }
+      void windowManager.openBackupRestore(profileId);
     },
   },
   {
@@ -783,6 +843,16 @@ export const defaultCommands: Command[] = [
     },
   },
   {
+    id: "connection.setSafeMode",
+    label: "Set Safe Mode",
+    category: "Connection",
+    description: "Restrict allowed operations on this connection",
+    handler: () => {
+      const store = useCommandPaletteStore.getState();
+      store.setNestedMode({ type: "set-safe-mode" });
+    },
+  },
+  {
     id: "workspace.switch",
     label: "Switch Workspace",
     category: "Workspace",
@@ -874,14 +944,68 @@ export const defaultCommands: Command[] = [
       tabGroupRegistry.switchToTab(8);
     },
   },
-  // Data Grid Commands (registered dynamically by component via useCommand)
+  // Data Grid Commands (routed to focused grid instance)
+  {
+    id: "dataGrid.action.focusFilter",
+    label: "Focus Grid Filter",
+    category: "Data Grid",
+    when: "dataGridFocus && !editingCell",
+    handler: () => {
+      dataGridRegistry.getFocused()?.focusFilter?.();
+    },
+  },
+  {
+    id: "dataGrid.action.copySelection",
+    label: "Copy Selection",
+    category: "Data Grid",
+    when: "dataGridFocus && !selectionEmpty && !editingCell",
+    handler: () => {
+      void dataGridRegistry.getFocused()?.copySelection?.();
+    },
+  },
   {
     id: "dataGrid.action.copyAsJson",
     label: "Copy Selection as JSON",
     category: "Data Grid",
     when: "dataGridFocus && !selectionEmpty && !editingCell",
     handler: () => {
-      // Actual handler registered in TableDataGrid component
+      void dataGridRegistry.getFocused()?.copySelectionAsJson?.();
+    },
+  },
+  {
+    id: "dataGrid.action.fillDown",
+    label: "Fill Down",
+    category: "Data Grid",
+    when: "dataGridFocus && !editingCell",
+    handler: () => {
+      dataGridRegistry.getFocused()?.fillDown?.();
+    },
+  },
+  {
+    id: "dataGrid.action.fillRight",
+    label: "Fill Right",
+    category: "Data Grid",
+    when: "dataGridFocus && !editingCell",
+    handler: () => {
+      dataGridRegistry.getFocused()?.fillRight?.();
+    },
+  },
+  {
+    id: "dataGrid.action.duplicateRows",
+    label: "Duplicate Rows",
+    category: "Data Grid",
+    when: "dataGridFocus && !editingCell",
+    handler: () => {
+      dataGridRegistry.getFocused()?.duplicateRows?.();
+    },
+  },
+  {
+    id: "dataGrid.action.clearSelection",
+    label: "Clear Selection",
+    category: "Data Grid",
+    when: "dataGridFocus && !editingCell",
+    handler: () => {
+      dataGridRegistry.getFocused()?.clearSelection?.();
     },
   },
   // Query Editor Commands (Event-Driven)

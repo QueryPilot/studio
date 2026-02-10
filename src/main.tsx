@@ -16,6 +16,7 @@ import customParseFormat from "dayjs/plugin/customParseFormat";
 import { KeyboardProvider } from "./components/KeyboardProvider";
 import { CommandPalette } from "./components/CommandPalette/CommandPalette";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { KeyboardShortcutsHelp } from "./components/KeyboardShortcutsHelp/KeyboardShortcutsHelp";
 import { initializeSentry } from "./utils/sentry";
 import { usePreferencesStore } from "./stores/preferencesStore";
 import { useTabStateStore } from "./stores/tabStateStore";
@@ -72,8 +73,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
             <ThemeSync />
             <TooltipProvider delay={300}>
               <App />
-              <Toaster richColors closeButton position="top-right" />
+              <Toaster richColors closeButton position="bottom-left" />
               <CommandPalette />
+              <KeyboardShortcutsHelp />
             </TooltipProvider>
           </ThemeProvider>
         </QueryClientProvider>

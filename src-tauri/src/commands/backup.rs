@@ -303,6 +303,13 @@ pub async fn start_restore(
         .await
         .map_err(|e| e.to_string())?;
 
+    // Safe mode guard — restore is a destructive DDL-level operation
+    crate::core::safe_mode::check_safe_mode(
+        conn.profile.safe_mode,
+        crate::core::safe_mode::OperationKind::Ddl,
+        "Restore",
+    )?;
+
     let backup_adapter = conn.adapter.as_backup().ok_or_else(|| {
         format!(
             "Connection '{}' does not support backup/restore",

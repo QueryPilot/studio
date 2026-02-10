@@ -41,7 +41,7 @@ export function SaveQueryDialog({
   const [tagsInput, setTagsInput] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
-  const { saveCurrentQuery } = useQueryHistoryStore();
+  const saveCurrentQuery = useQueryHistoryStore((s) => s.saveCurrentQuery);
 
   const handleSave = async () => {
     if (!name.trim()) {

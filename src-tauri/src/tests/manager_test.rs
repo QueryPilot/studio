@@ -29,6 +29,7 @@ async fn test_connection_manager_empty_id_error() {
         bastion: None,
         options: HashMap::new(),
         group: None,
+        safe_mode: None,
     };
 
     let result = manager.get_or_create_connection(&profile).await;
@@ -139,6 +140,7 @@ async fn test_connection_profile_types() {
         bastion: None,
         options: HashMap::new(),
         group: None,
+        safe_mode: None,
     };
 
     let _result = manager.get_or_create_connection(&postgres_profile).await;
@@ -170,6 +172,7 @@ async fn test_connection_with_options() {
         bastion: None,
         options,
         group: None,
+        safe_mode: None,
     };
 
     let _result = manager.get_or_create_connection(&profile).await;
@@ -194,6 +197,7 @@ async fn test_connection_with_no_password() {
         bastion: None,
         options: HashMap::new(),
         group: None,
+        safe_mode: None,
     };
 
     let _result = manager.get_or_create_connection(&profile).await;
@@ -218,6 +222,7 @@ async fn test_connection_different_ports() {
         bastion: None,
         options: HashMap::new(),
         group: None,
+        safe_mode: None,
     };
 
     let profile2 = ConnectionProfile {
@@ -235,6 +240,7 @@ async fn test_connection_different_ports() {
         bastion: None,
         options: HashMap::new(),
         group: None,
+        safe_mode: None,
     };
 
     let _id1 = manager.get_or_create_connection(&profile1).await;
@@ -262,6 +268,7 @@ async fn test_connection_special_characters_in_name() {
         bastion: None,
         options: HashMap::new(),
         group: None,
+        safe_mode: None,
     };
 
     let _result = manager.get_or_create_connection(&profile).await;
@@ -286,6 +293,7 @@ async fn test_connection_unicode_in_fields() {
         bastion: None,
         options: HashMap::new(),
         group: None,
+        safe_mode: None,
     };
 
     let _result = manager.get_or_create_connection(&profile).await;
@@ -352,6 +360,7 @@ async fn test_connection_color_codes() {
             bastion: None,
             options: HashMap::new(),
             group: None,
+            safe_mode: None,
         };
 
         let _result = manager.get_or_create_connection(&profile).await;
@@ -375,5 +384,6 @@ fn create_test_profile(id: &str) -> ConnectionProfile {
         bastion: None,
         options: HashMap::new(),
         group: None,
+        safe_mode: None,
     }
 }

@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { SafeMode } from "@/types/connection";
 import {
   Popover,
   PopoverContent,
@@ -191,6 +192,9 @@ export function ConnectionForm() {
   );
   const [sslMode, setSslMode] = useState<SslMode>(
     connection?.profile.ssl_mode || SslMode.Disable,
+  );
+  const [safeMode, setSafeMode] = useState<SafeMode>(
+    connection?.profile.safe_mode || "full_access",
   );
   const [selectedTags, setSelectedTags] = useState<string[]>(() => {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
@@ -564,6 +568,7 @@ export function ConnectionForm() {
       bastion: undefined,
       options: parseConnectionOptions(connectionOptions),
       default_schema: defaultSchema || undefined,
+      safe_mode: safeMode,
     };
 
     if (useSSH) {
@@ -1281,6 +1286,28 @@ export function ConnectionForm() {
               </RadioGroup>
             </div>
           )}
+
+          {/* Safe Mode */}
+          <div>
+            <Label className="flex items-center gap-1.5 text-xs">
+              <IconShield className="h-3 w-3 text-muted-foreground" />
+              Safe Mode
+            </Label>
+            <Select
+              value={safeMode}
+              onValueChange={(value) => setSafeMode(value as SafeMode)}
+            >
+              <SelectTrigger className="mt-2 h-8 text-xs">
+                <SelectValue placeholder="Select safe mode" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="full_access">Full Access</SelectItem>
+                <SelectItem value="read_write_update">Read + Write + Update</SelectItem>
+                <SelectItem value="read_write">Read + Write</SelectItem>
+                <SelectItem value="read_only">Read Only</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
           {/* Connection Options */}
           {dbType !== "sqlite" && (

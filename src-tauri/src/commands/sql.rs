@@ -163,6 +163,10 @@ pub async fn query(
         .await
         .map_err(|e| e.to_string())?;
 
+    // Safe mode guard
+    let op_kind = crate::core::safe_mode::classify_sql(&sql);
+    crate::core::safe_mode::check_safe_mode(conn.profile.safe_mode, op_kind, &format!("{:?}", op_kind))?;
+
     // Default timeout: 5 minutes (300 seconds)
     // Can be overridden per-query via timeout_secs parameter
     let timeout_duration = std::time::Duration::from_secs(timeout_secs.unwrap_or(300));
@@ -1244,6 +1248,10 @@ pub async fn execute_query(
         .get_connection_with_retry(&connection_key, 3)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Safe mode guard
+    let op_kind = crate::core::safe_mode::classify_sql(&sql);
+    crate::core::safe_mode::check_safe_mode(conn.profile.safe_mode, op_kind, &format!("{:?}", op_kind))?;
 
     tracing::info!("==========================================");
     tracing::info!("FAST PATH (query_raw streaming)");
