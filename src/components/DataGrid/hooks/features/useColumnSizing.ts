@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GridColumn } from "@glideapps/glide-data-grid";
-import type { GridColumnV2 } from "../types";
+import type { GridColumnV2 } from "@/components/DataGrid/types";
 
 export interface UseColumnSizingOptions {
   columns: GridColumnV2[];
@@ -112,7 +112,7 @@ export function useColumnSizing(
   const setColumnWidth = useCallback<UseColumnSizingResult["setColumnWidth"]>(
     (columnId, width) => {
       const nextWidth = clampWidth(width, minColumnWidth, maxColumnWidth);
-      
+
       // Direct state update - our ref optimizations prevent expensive downstream work
       setWidthOverrides((prev) => {
         if (prev[columnId] === nextWidth) return prev;
@@ -137,41 +137,38 @@ export function useColumnSizing(
 
   const handleColumnResize = useCallback<
     UseColumnSizingResult["handleColumnResize"]
-  >(
-    (column, newSize) => {
-      if (!column.id || newSize <= 0 || Number.isNaN(newSize)) return;
-      isDraggingRef.current = true;
-      
-      // Always store the latest value
-      pendingResizeRef.current[column.id] = Math.round(newSize);
+  >((column, newSize) => {
+    if (!column.id || newSize <= 0 || Number.isNaN(newSize)) return;
+    isDraggingRef.current = true;
 
-      // Time-based throttle: skip if updated recently
-      const now = performance.now();
-      if (now - lastUpdateTimeRef.current < THROTTLE_MS) return;
-      lastUpdateTimeRef.current = now;
-      
-      // Batch update: apply all pending widths in single state update
-      const pending = pendingResizeRef.current;
-      if (Object.keys(pending).length === 0) return;
-      
-      setWidthOverrides((prev) => {
-        let changed = false;
-        const next = { ...prev };
-        
-        for (const [columnId, width] of Object.entries(pending)) {
-          if (prev[columnId] !== width) {
-            next[columnId] = width;
-            changed = true;
-          }
+    // Always store the latest value
+    pendingResizeRef.current[column.id] = Math.round(newSize);
+
+    // Time-based throttle: skip if updated recently
+    const now = performance.now();
+    if (now - lastUpdateTimeRef.current < THROTTLE_MS) return;
+    lastUpdateTimeRef.current = now;
+
+    // Batch update: apply all pending widths in single state update
+    const pending = pendingResizeRef.current;
+    if (Object.keys(pending).length === 0) return;
+
+    setWidthOverrides((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      for (const [columnId, width] of Object.entries(pending)) {
+        if (prev[columnId] !== width) {
+          next[columnId] = width;
+          changed = true;
         }
-        
-        if (!changed) return prev;
-        committedWidthsRef.current = next;
-        return next;
-      });
-    },
-    [],
-  );
+      }
+
+      if (!changed) return prev;
+      committedWidthsRef.current = next;
+      return next;
+    });
+  }, []);
 
   const handleColumnResizeEnd = useCallback<
     UseColumnSizingResult["handleColumnResizeEnd"]
@@ -179,20 +176,20 @@ export function useColumnSizing(
     (column, newSize) => {
       if (!column.id) return;
       if (newSize <= 0) return;
-      
+
       // Clear dragging flag FIRST
       isDraggingRef.current = false;
-      
+
       // Reset throttle timer
       lastUpdateTimeRef.current = 0;
-      
+
       // Get all pending width changes (including the final size)
       const pendingWidths = { ...pendingResizeRef.current };
       pendingWidths[column.id] = Math.round(newSize);
-      
+
       // Clear pending ref
       pendingResizeRef.current = {};
-      
+
       // Commit final widths with persistence
       if (Object.keys(pendingWidths).length > 0) {
         setWidthOverrides((prev) => {
@@ -253,9 +250,11 @@ export function useColumnSizing(
       // Reuse cached column if width and base column haven't changed
       if (cached && cached.width === targetWidth && cached.id === column.id) {
         // Check if base column properties changed (other than width)
-        if (cached.title === column.title &&
-            cached.icon === column.icon &&
-            cached.hasMenu === column.hasMenu) {
+        if (
+          cached.title === column.title &&
+          cached.icon === column.icon &&
+          cached.hasMenu === column.hasMenu
+        ) {
           return cached;
         }
       }
@@ -267,7 +266,7 @@ export function useColumnSizing(
 
     // Clean up stale cache entries
     if (cache.size > columns.length) {
-      const columnIds = new Set(columns.map(c => c.id));
+      const columnIds = new Set(columns.map((c) => c.id));
       for (const key of cache.keys()) {
         if (!columnIds.has(key)) {
           cache.delete(key);
