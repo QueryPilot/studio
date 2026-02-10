@@ -31,6 +31,7 @@ import {
 import type { QueryHistoryEntry } from "@/lib/db/queryHistory";
 import { toast } from "sonner";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { SaveQueryDialog } from "./SaveQueryDialog";
 
@@ -122,11 +123,12 @@ function HistoryItem({
   const truncatedQuery = entry.query.slice(0, 80).replace(/\s+/g, " ");
   const workbench = useWorkbenchStore();
   const workspaceSelection = useWorkspaceSelectionStore();
+  const focusedPanelIdFromStore = usePanelFocusStore((s) => s.focusedPanelId);
 
   const handleOpenInTab = () => {
     const panels = workbench.panelContents;
     const focusedPanelId =
-      workbench.focusedPanelId ?? panels.keys().next().value;
+      focusedPanelIdFromStore ?? panels.keys().next().value;
 
     if (!focusedPanelId) {
       toast.error("No panel available");

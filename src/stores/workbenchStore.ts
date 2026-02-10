@@ -10,6 +10,7 @@ import {
   type DragDropContext,
 } from "@/types/workbench";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import {
   splitPanel,
   closePanel,
@@ -24,7 +25,6 @@ import { clearTabCache } from "@/lib/cacheManager";
 
 interface WorkbenchStore {
   layoutTree: GridNode | null;
-  focusedPanelId: string | null;
   panelContents: Map<string, PanelContent>;
   layoutHistory: GridNode[];
   historyIndex: number;
@@ -80,7 +80,6 @@ const useWorkbenchStore = create<WorkbenchStore>()(
   // persist(
   (set, get) => ({
     layoutTree: null,
-    focusedPanelId: null,
     panelContents: new Map(),
     layoutHistory: [],
     historyIndex: -1,
@@ -141,11 +140,11 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       if (defaultPanel.content) {
         set({
           layoutTree: defaultPanel,
-          focusedPanelId: defaultPanel.id,
           panelContents: new Map([[defaultPanel.id, defaultPanel.content]]),
           layoutHistory: [defaultPanel],
           historyIndex: 0,
         });
+        usePanelFocusStore.getState().focusPanel(defaultPanel.id);
       }
     },
 
@@ -184,8 +183,8 @@ const useWorkbenchStore = create<WorkbenchStore>()(
           panelContents: newContents,
           layoutHistory: newHistory,
           historyIndex: newHistory.length - 1,
-          focusedPanelId: newPanelId, // Focus the newly created panel
         });
+        usePanelFocusStore.getState().focusPanel(newPanelId); // Focus the newly created panel
       } else {
         logger.error("❌ splitPanel returned null - split failed!", {
           targetPanelId: action.targetPanelId,
@@ -245,8 +244,13 @@ const useWorkbenchStore = create<WorkbenchStore>()(
           panelContents: newContents,
           layoutHistory: newHistory,
           historyIndex: newHistory.length - 1,
-          focusedPanelId: panels[0]?.id || null,
         });
+        const nextFocusId = panels[0]?.id;
+        if (nextFocusId) {
+          usePanelFocusStore.getState().focusPanel(nextFocusId);
+        } else {
+          usePanelFocusStore.getState().clearFocus();
+        }
       } else {
         logger.info("🔥 [STORE DEBUG] newTree is null - last panel closed!");
         // Only auto-initialize if not preventing it
@@ -268,8 +272,8 @@ const useWorkbenchStore = create<WorkbenchStore>()(
           set({
             layoutTree: null,
             panelContents: new Map(),
-            focusedPanelId: null,
           });
+          usePanelFocusStore.getState().clearFocus();
         }
       }
 
@@ -278,7 +282,7 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       logger.info("📊 [STORE DEBUG] Final state after closePanelAction:", {
         layoutTreeExists: !!finalState.layoutTree,
         panelCount: finalState.panelContents.size,
-        focusedPanelId: finalState.focusedPanelId,
+        focusedPanelId: usePanelFocusStore.getState().focusedPanelId,
         preventAutoInit: finalState.preventAutoInit,
       });
 
@@ -352,12 +356,14 @@ const useWorkbenchStore = create<WorkbenchStore>()(
     },
 
     focusPanel: (panelId) => {
-      const { layoutTree, focusedPanelId: current } = get();
+      const { layoutTree } = get();
+      const focusStore = usePanelFocusStore.getState();
+      const current = focusStore.focusedPanelId;
       // Skip if already focused — avoids unnecessary re-renders of all panels
       if (current === panelId) return;
       // Verify the panel exists in the tree
       if (layoutTree && findNodePath(layoutTree, panelId) !== null) {
-        set({ focusedPanelId: panelId });
+        focusStore.focusPanel(panelId);
       } else {
         logger.warn(
           `❌ Cannot focus panel ${panelId} - not found in tree. Tree ID: ${layoutTree?.id}`,
@@ -365,13 +371,15 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         // If we can't find the panel, focus the tree root if it's a leaf
         if (layoutTree?.type === "leaf" && current !== layoutTree.id) {
           logger.info(`🔄 Auto-focusing root panel: ${layoutTree.id}`);
-          set({ focusedPanelId: layoutTree.id });
+          focusStore.focusPanel(layoutTree.id);
         }
       }
     },
 
     focusAdjacentPanel: (direction) => {
-      const { layoutTree, focusedPanelId } = get();
+      const { layoutTree } = get();
+      const focusStore = usePanelFocusStore.getState();
+      const focusedPanelId = focusStore.focusedPanelId;
       if (!layoutTree || !focusedPanelId) return;
 
       const adjacentId = getAdjacentPanel(
@@ -380,7 +388,7 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         direction,
       );
       if (adjacentId && adjacentId !== focusedPanelId) {
-        set({ focusedPanelId: adjacentId });
+        focusStore.focusPanel(adjacentId);
       }
     },
 
@@ -426,8 +434,13 @@ const useWorkbenchStore = create<WorkbenchStore>()(
           set({
             layoutTree: tree,
             panelContents: contents,
-            focusedPanelId: panels[0]?.id || null,
           });
+          const firstPanelId = panels[0]?.id;
+          if (firstPanelId) {
+            usePanelFocusStore.getState().focusPanel(firstPanelId);
+          } else {
+            usePanelFocusStore.getState().clearFocus();
+          }
         } catch (e) {
           logger.error("Failed to restore layout:", e);
           get().initializeLayout();
@@ -763,8 +776,13 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         set({
           layoutTree: data.layoutTree,
           panelContents: panelContentsMap,
-          focusedPanelId: panels[0]?.id ?? null,
         });
+        const firstPanelId = panels[0]?.id;
+        if (firstPanelId) {
+          usePanelFocusStore.getState().focusPanel(firstPanelId);
+        } else {
+          usePanelFocusStore.getState().clearFocus();
+        }
 
         logger.info(`[Workbench] Restored layout for connection: ${connectionId}`);
         return true;

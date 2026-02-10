@@ -6,6 +6,7 @@ import { GridRenderer } from "./GridRenderer";
 import { Panel } from "./PanelDnd";
 import { type Direction } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import {
   DndContext,
   PointerSensor,
@@ -37,12 +38,12 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
   const {
     layoutTree,
     panelContents,
-    focusedPanelId,
     setConnectionId,
     initializeLayout,
     splitPanelAction,
     moveTab,
   } = useWorkbenchStore();
+  const focusedPanelId = usePanelFocusStore((s) => s.focusedPanelId);
 
   // Get stable list of panel IDs for rendering
   const panelIds = Array.from(panelContents.keys());

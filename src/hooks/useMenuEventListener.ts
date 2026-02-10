@@ -9,6 +9,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { isTauri } from "@/utils/tauri";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { eventBus } from "@/services/eventBus";
@@ -50,7 +51,7 @@ export function useMenuEventListener() {
 
       // Debug: Log context for all database-related actions
       if (["connect", "disconnect", "refresh", "execute", "execute_selection", "export", "import", "erd", "new_query", "new_erd"].includes(action)) {
-        logger.info(`[MenuAction] Context for '${action}': activeConnectionId=${activeConnectionId}, focusedPanel=${workbenchStore.focusedPanelId}`);
+        logger.info(`[MenuAction] Context for '${action}': activeConnectionId=${activeConnectionId}, focusedPanel=${usePanelFocusStore.getState().focusedPanelId}`);
       }
 
       switch (action) {
@@ -215,8 +216,8 @@ function handleNewQuery(
   connectionId: string,
   workbenchStore: ReturnType<typeof useWorkbenchStore.getState>,
 ) {
-  const { focusedPanelId, panelContents, addTab, focusPanel } = workbenchStore;
-  let targetPanelId: string | null = focusedPanelId;
+  const { panelContents, addTab, focusPanel } = workbenchStore;
+  let targetPanelId: string | null = usePanelFocusStore.getState().focusedPanelId;
 
   // If no panel focused, use first available
   if (!targetPanelId && panelContents.size > 0) {
@@ -241,8 +242,8 @@ function handleNewErd(
   connectionId: string,
   workbenchStore: ReturnType<typeof useWorkbenchStore.getState>,
 ) {
-  const { focusedPanelId, panelContents, addTab, focusPanel } = workbenchStore;
-  let targetPanelId: string | null = focusedPanelId;
+  const { panelContents, addTab, focusPanel } = workbenchStore;
+  let targetPanelId: string | null = usePanelFocusStore.getState().focusedPanelId;
 
   if (!targetPanelId && panelContents.size > 0) {
     const firstPanelId = Array.from(panelContents.keys())[0];
@@ -265,7 +266,8 @@ function handleNewErd(
 function handleCloseTab(
   workbenchStore: ReturnType<typeof useWorkbenchStore.getState>,
 ) {
-  const { focusedPanelId, panelContents, removeTab } = workbenchStore;
+  const { panelContents, removeTab } = workbenchStore;
+  const focusedPanelId = usePanelFocusStore.getState().focusedPanelId;
   if (!focusedPanelId) return;
 
   const panel = panelContents.get(focusedPanelId);
