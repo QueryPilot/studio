@@ -6,43 +6,88 @@
  */
 
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
-import { StateField, type Extension } from "@codemirror/state";
+import { StateEffect, StateField, type Extension } from "@codemirror/state";
 import { diagnosticCount, forEachDiagnostic, lintGutter } from "@codemirror/lint";
 import { getAllStatements, type StatementBoundary } from "../core/query-utils";
 
 /**
- * StateField to track statement boundaries
- * Maps line number (1-based) -> statement for FIRST LINE of each statement
+ * StateEffect to trigger statement boundary updates.
+ * Only dispatched by `statementsUpdater` when the editor is focused.
+ */
+const updateStatementsEffect =
+  StateEffect.define<Map<number, StatementBoundary>>();
+
+/**
+ * StateField to track statement boundaries.
+ * Maps line number (1-based) -> statement for FIRST LINE of each statement.
+ *
+ * Updates are driven exclusively by `updateStatementsEffect` so that
+ * unfocused editors skip the expensive `getAllStatements()` parse.
  */
 const statementsField = StateField.define<Map<number, StatementBoundary>>({
   create(state) {
     const map = new Map<number, StatementBoundary>();
-    // Don't track statements if document is empty
     if (state.doc.length === 0) return map;
 
     const statements = getAllStatements(state);
     statements.forEach((stmt) => {
-      const lineNum = state.doc.lineAt(stmt.from).number; // 1-based
+      const lineNum = state.doc.lineAt(stmt.from).number;
       map.set(lineNum, stmt);
     });
     return map;
   },
   update(map, tr) {
-    if (tr.docChanged) {
-      const newMap = new Map<number, StatementBoundary>();
-      // Don't track statements if document is empty
-      if (tr.state.doc.length === 0) return newMap;
-
-      const statements = getAllStatements(tr.state);
-      statements.forEach((stmt) => {
-        const lineNum = tr.state.doc.lineAt(stmt.from).number; // 1-based
-        newMap.set(lineNum, stmt);
-      });
-      return newMap;
+    for (const effect of tr.effects) {
+      if (effect.is(updateStatementsEffect)) {
+        return effect.value;
+      }
     }
     return map;
   },
 });
+
+/**
+ * ViewPlugin that recomputes statement boundaries only when the editor
+ * is focused, then dispatches an effect to update `statementsField`.
+ * Debounces by 100ms to avoid re-parsing on every keystroke.
+ */
+const statementsUpdater = ViewPlugin.fromClass(
+  class {
+    private pendingUpdate: ReturnType<typeof setTimeout> | null = null;
+    private destroyed = false;
+
+    constructor(private view: EditorView) {}
+
+    update(update: ViewUpdate) {
+      // Trigger on doc change while focused, OR when gaining focus
+      const gainedFocus = update.focusChanged && update.view.hasFocus;
+      if (!update.docChanged && !gainedFocus) return;
+      if (!update.view.hasFocus) return;
+
+      if (this.pendingUpdate) clearTimeout(this.pendingUpdate);
+      this.pendingUpdate = setTimeout(() => {
+        if (this.destroyed) return;
+        this.pendingUpdate = null;
+        const state = this.view.state;
+        if (state.doc.length === 0) return;
+
+        const newMap = new Map<number, StatementBoundary>();
+        const statements = getAllStatements(state);
+        statements.forEach((stmt) => {
+          const lineNum = state.doc.lineAt(stmt.from).number;
+          newMap.set(lineNum, stmt);
+        });
+
+        this.view.dispatch({ effects: updateStatementsEffect.of(newMap) });
+      }, 100);
+    }
+
+    destroy() {
+      this.destroyed = true;
+      if (this.pendingUpdate) clearTimeout(this.pendingUpdate);
+    }
+  },
+);
 
 /**
  * ViewPlugin that injects play buttons into lint gutter
@@ -180,6 +225,7 @@ export function createRunGutterExtension(
 
     // Track statements
     statementsField,
+    statementsUpdater,
 
     // Inject play buttons
     createRunGutterPlugin(onExecute),
