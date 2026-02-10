@@ -218,15 +218,32 @@ export function PanelPortal({
   children: React.ReactNode;
 }) {
   const { getPanelRect, subscribeToRect, getRootContainer } = usePanelPortal();
-  const [rect, setRect] = useState<PanelRect | null>(() => getPanelRect(panelId));
+  const portalRef = useRef<HTMLDivElement>(null);
+  const [initialRect] = useState<PanelRect | null>(() => getPanelRect(panelId));
 
   useLayoutEffect(() => {
-    // Get initial rect
-    setRect(getPanelRect(panelId));
+    const el = portalRef.current;
+    if (!el) return;
 
-    // Subscribe to updates
+    // Apply initial rect via DOM mutation
+    const rect = getPanelRect(panelId);
+    if (rect) {
+      el.style.top = `${rect.top}px`;
+      el.style.left = `${rect.left}px`;
+      el.style.width = `${rect.width}px`;
+      el.style.height = `${rect.height}px`;
+      el.style.visibility = "visible";
+    }
+
+    // Subscribe to updates — mutate DOM directly, skip React re-renders
     return subscribeToRect(panelId, () => {
-      setRect(getPanelRect(panelId));
+      const newRect = getPanelRect(panelId);
+      if (!newRect || !el) return;
+      el.style.top = `${newRect.top}px`;
+      el.style.left = `${newRect.left}px`;
+      el.style.width = `${newRect.width}px`;
+      el.style.height = `${newRect.height}px`;
+      el.style.visibility = "visible";
     });
   }, [panelId, getPanelRect, subscribeToRect]);
 
@@ -237,15 +254,17 @@ export function PanelPortal({
 
   // Always render into the same root container (stable portal target)
   // Position absolutely to match the PanelContainer location
+  // Initial render uses React style; subsequent updates use direct DOM mutation (zero re-renders)
   return createPortal(
     <div
+      ref={portalRef}
       style={{
         position: "absolute",
-        top: rect?.top ?? 0,
-        left: rect?.left ?? 0,
-        width: rect?.width ?? 0,
-        height: rect?.height ?? 0,
-        visibility: rect ? "visible" : "hidden",
+        top: initialRect?.top ?? 0,
+        left: initialRect?.left ?? 0,
+        width: initialRect?.width ?? 0,
+        height: initialRect?.height ?? 0,
+        visibility: initialRect ? "visible" : "hidden",
         overflow: "hidden",
       }}
       data-panel-portal={panelId}
