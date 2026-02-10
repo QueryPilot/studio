@@ -248,7 +248,9 @@ interface PanelProps {
 
 export const Panel: React.FC<PanelProps> = ({ content, className }) => {
   // Use proper selectors to avoid subscribing to entire store
-  const focusedPanelId = useWorkbenchStore((state) => state.focusedPanelId);
+  const isFocused = useWorkbenchStore(
+    useCallback((state: { focusedPanelId: string | null }) => state.focusedPanelId === content.id, [content.id])
+  );
   const focusPanel = useWorkbenchStore((state) => state.focusPanel);
   const closePanelAction = useWorkbenchStore((state) => state.closePanelAction);
   const splitPanelAction = useWorkbenchStore((state) => state.splitPanelAction);
@@ -263,7 +265,9 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
   const draggedTab = useWorkbenchStore(
     (state) => state.dragDropContext.draggedTab,
   );
-  const panelCount = useWorkbenchStore((state) => state.panelContents.size);
+  const isOnlyPanel = useWorkbenchStore(
+    useCallback((state: { panelContents: Map<string, unknown> }) => state.panelContents.size <= 1, [])
+  );
   const isDragActive = useWorkbenchStore(
     (state) => state.dragDropContext.draggedTab !== null,
   );
@@ -272,9 +276,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
   const showSplitZones = isDragActive;
   // Show center zone only on non-source panels (dropping on source center is a no-op)
   // Exception: show center on source if it's the only panel (for consistency)
-  const showCenterZone = isDragActive && (!isSourcePanel || panelCount === 1);
-
-  const isFocused = focusedPanelId === content.id;
+  const showCenterZone = isDragActive && (!isSourcePanel || isOnlyPanel);
 
   // Get workspace connection IDs for tab color grouping
   const workspaceConnectionIds = useWorkspaceBundleStore(
@@ -334,7 +336,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
       showSplitZones,
       showCenterZone,
       draggedTab,
-      panelCount,
+      panelCount: isOnlyPanel,
       contentId: content.id,
     });
   }, [
@@ -343,7 +345,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
     showSplitZones,
     showCenterZone,
     draggedTab,
-    panelCount,
+    isOnlyPanel,
     content.id,
   ]);
 
