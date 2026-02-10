@@ -103,6 +103,8 @@ pub mod error_codes {
     pub const UNSUPPORTED_OPERATION: i32 = -32002;
     /// Query timeout
     pub const QUERY_TIMEOUT: i32 = -32003;
+    /// Permission denied (e.g. MCP bridge is read-only)
+    pub const PERMISSION_DENIED: i32 = -32004;
 }
 
 #[cfg(test)]

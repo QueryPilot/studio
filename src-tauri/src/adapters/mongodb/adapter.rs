@@ -1222,6 +1222,7 @@ mod tests {
             bastion: None,
             options: HashMap::new(),
             group: None,
+            safe_mode: None,
         };
 
         let conn_str = MongoDbAdapter::build_connection_string(&profile);
@@ -1247,6 +1248,7 @@ mod tests {
             bastion: None,
             options: HashMap::new(),
             group: None,
+            safe_mode: None,
         };
 
         let conn_str = MongoDbAdapter::build_connection_string(&profile);
@@ -1275,6 +1277,7 @@ mod tests {
             bastion: None,
             options,
             group: None,
+            safe_mode: None,
         };
 
         let conn_str = MongoDbAdapter::build_connection_string(&profile);
@@ -1313,6 +1316,7 @@ mod tests {
             bastion: None,
             options,
             group: None,
+            safe_mode: None,
         };
 
         let conn_str = MongoDbAdapter::build_connection_string(&profile);

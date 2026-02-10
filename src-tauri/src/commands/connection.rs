@@ -168,6 +168,20 @@ pub async fn ping(
     }
 }
 
+/// Update the safe mode level on a live connection.
+/// The frontend calls this after persisting the change to the vault so that the
+/// backend's in-memory connection also reflects the new level.
+#[tauri::command]
+pub async fn update_safe_mode(
+    conn_id: String,
+    safe_mode: SafeMode,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    manager
+        .update_safe_mode(&conn_id, safe_mode)
+        .map_err(|e| e.to_string())
+}
+
 /// Update the Window menu to reflect current open windows
 /// Called by frontend when workspace windows are opened or closed
 #[tauri::command]

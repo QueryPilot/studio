@@ -27,6 +27,10 @@ export const defaultKeybindings: Keybinding[] = [
     key: 'cmd+shift+/',
   },
   {
+    command: 'window.action.newMainWindow',
+    key: 'cmd+shift+n',
+  },
+  {
     command: 'workbench.action.toggleLeftSidebar',
     key: 'cmd+b',
   },
@@ -124,9 +128,49 @@ export const defaultKeybindings: Keybinding[] = [
   },
   // Data Grid keybindings
   {
+    command: 'dataGrid.action.focusFilter',
+    key: 'cmd+f',
+    when: 'dataGridFocus && !editingCell',
+  },
+  {
+    command: 'dataGrid.action.focusFilter',
+    key: '/',
+    when: 'dataGridFocus && !editingCell',
+  },
+  {
+    command: 'dataGrid.action.copySelection',
+    key: 'cmd+c',
+    when: 'dataGridFocus && !editingCell && !selectionEmpty',
+  },
+  {
     command: 'dataGrid.action.copyAsJson',
     key: 'cmd+shift+c',
     when: 'dataGridFocus && !editingCell && !selectionEmpty',
+  },
+  {
+    command: 'dataGrid.action.fillDown',
+    key: 'ctrl+d',
+    when: 'dataGridFocus && !editingCell && !isMac',
+  },
+  {
+    command: 'dataGrid.action.fillRight',
+    key: 'ctrl+r',
+    when: 'dataGridFocus && !editingCell && !isMac',
+  },
+  {
+    command: 'dataGrid.action.duplicateRows',
+    key: 'cmd+d',
+    when: 'dataGridFocus && !editingCell && isMac',
+  },
+  {
+    command: 'dataGrid.action.clearSelection',
+    key: 'delete',
+    when: 'dataGridFocus && !editingCell',
+  },
+  {
+    command: 'dataGrid.action.clearSelection',
+    key: 'backspace',
+    when: 'dataGridFocus && !editingCell',
   },
   {
     command: 'workspace.commitAll',

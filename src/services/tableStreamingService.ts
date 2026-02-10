@@ -243,6 +243,10 @@ export async function streamEntityPage(
         },
         onBatch: (batch, _totalSoFar) => {
           if (!resolvedColumns) {
+            logger.warn(
+              "stream-service",
+              `Batch with ${batch.rows.length} rows arrived before columns resolved — dropped`,
+            );
             return;
           }
 

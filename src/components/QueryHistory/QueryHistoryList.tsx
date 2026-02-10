@@ -37,7 +37,8 @@ import { SaveQueryDialog } from "./SaveQueryDialog";
 export function QueryHistoryList() {
   const parentRef = useRef<HTMLDivElement>(null);
   const history = useFilteredHistory();
-  const { loadHistory, isLoading } = useQueryHistoryStore();
+  const loadHistory = useQueryHistoryStore((s) => s.loadHistory);
+  const isLoading = useQueryHistoryStore((s) => s.isLoading);
   const [saveDialogEntry, setSaveDialogEntry] = useState<QueryHistoryEntry | null>(null);
 
   useEffect(() => {

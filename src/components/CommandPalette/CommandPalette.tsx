@@ -56,6 +56,7 @@ import { NestedSchemaList } from "./NestedSchemaList";
 import { NestedConnectionList } from "./NestedConnectionList";
 import { NestedWorkspaceList } from "./NestedWorkspaceList";
 import { NestedSavedQueriesList } from "./NestedSavedQueriesList";
+import { NestedSafeModeList } from "./NestedSafeModeList";
 import { ActionsPopover } from "./ActionsPopover";
 import type { SavedQuery } from "@/lib/db/queryHistory";
 import {
@@ -824,6 +825,8 @@ export function CommandPalette(): React.ReactElement {
         return "Select connection for new query...";
       case "search-saved-queries":
         return "Search saved queries...";
+      case "set-safe-mode":
+        return "Search connections or safe mode levels...";
     }
   };
 
@@ -882,6 +885,12 @@ export function CommandPalette(): React.ReactElement {
               listRef={listRef}
               query={query}
               onSelect={handleSavedQuerySelect}
+              onClose={closePalette}
+            />
+          ) : nestedMode.type === "set-safe-mode" ? (
+            <NestedSafeModeList
+              listRef={listRef}
+              query={query}
               onClose={closePalette}
             />
           ) : (

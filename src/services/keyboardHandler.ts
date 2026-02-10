@@ -5,8 +5,14 @@ import { detectPlatform, type RuntimePlatform } from '@/lib/platform';
 import { type CommandService, commandService } from './commandService';
 import { type ContextService, contextService } from './contextService';
 import { type KeybindingService, keybindingService } from './keybindingService';
+import { keyboardTelemetry } from './keyboardTelemetry';
 
 const DEFAULT_CHORD_TIMEOUT = 1000;
+const nowMs = (): number => (
+  typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now()
+);
 
 export interface KeyboardHandlerOptions {
   chordTimeoutMs?: number;
@@ -21,6 +27,7 @@ export class KeyboardHandler {
   private readonly chordTimeoutMs: number;
   private readonly preventDefault: boolean;
   private windowListener?: (event: KeyboardEvent) => void;
+  private windowKeyUpListener?: (event: KeyboardEvent) => void;
   private chordSequence: string[] = [];
   private chordTimer?: number;
   private initialized = false;
@@ -46,16 +53,19 @@ export class KeyboardHandler {
     }
 
     this.windowListener = (event) => { this.handleKeydown(event); };
+    this.windowKeyUpListener = (event) => { this.handleKeyup(event); };
     window.addEventListener('keydown', this.windowListener, true);
+    window.addEventListener('keyup', this.windowKeyUpListener, true);
     this.initialized = true;
   }
 
   dispose(): void {
-    if (!this.initialized || !this.windowListener) {
+    if (!this.initialized || !this.windowListener || !this.windowKeyUpListener) {
       return;
     }
 
     window.removeEventListener('keydown', this.windowListener, true);
+    window.removeEventListener('keyup', this.windowKeyUpListener, true);
     if (this.chordTimer) {
       window.clearTimeout(this.chordTimer);
     }
@@ -64,7 +74,13 @@ export class KeyboardHandler {
   }
 
   private handleKeydown(event: KeyboardEvent): void {
+    keyboardTelemetry.recordKeyEvent("keydown");
+
     if (event.defaultPrevented) {
+      return;
+    }
+
+    if (event.isComposing) {
       return;
     }
 
@@ -82,8 +98,10 @@ export class KeyboardHandler {
       return;
     }
 
+    const hadChordInProgress = this.chordSequence.length > 0;
     const nextSequence = [...this.chordSequence, dispatch];
     const activeScopes = this.contextService.getActiveScopes();
+    const resolveStart = nowMs();
 
     // Temporarily set editorTextFocus for native inputs during keybinding resolution
     // This ensures keybindings with "!editorTextFocus" don't fire when typing in inputs
@@ -93,39 +111,60 @@ export class KeyboardHandler {
     }
 
     const { match, isChordPending } = this.keybindingService.resolve(nextSequence, activeScopes);
+    keyboardTelemetry.recordResolve(nowMs() - resolveStart, Boolean(match));
 
     // Restore previous value
     if (isNativeTextInput && !prevEditorTextFocus) {
       this.contextService.setValue('editorTextFocus', prevEditorTextFocus ?? false);
     }
 
+    if (match) {
+      this.execute(match.command, match.resolved.args);
+      this.resetChord();
+      if (hadChordInProgress) {
+        keyboardTelemetry.recordChordComplete();
+      }
+      if (this.preventDefault) {
+        event.preventDefault();
+        keyboardTelemetry.recordPreventDefault();
+      }
+      return;
+    }
+
     if (isChordPending) {
       this.startChord(nextSequence);
       if (this.preventDefault) {
         event.preventDefault();
+        keyboardTelemetry.recordPreventDefault();
       }
       return;
     }
 
-    if (match) {
-      this.execute(match.command, match.resolved.args);
-      this.resetChord();
-      if (this.preventDefault) {
-        event.preventDefault();
-      }
-      return;
+    if (this.chordSequence.length > 0) {
+      keyboardTelemetry.recordChordCancel();
     }
-
     this.resetChord();
   }
 
+  private handleKeyup(_event: KeyboardEvent): void {
+    keyboardTelemetry.recordKeyEvent("keyup");
+  }
+
   private execute(commandId: string, args: unknown): void {
-    void this.commandService.execute(commandId, args).catch((error: unknown) => {
-      logger.error(`[keyboardHandler] Failed to execute command ${commandId}:`, error);
-    });
+    const executeStart = nowMs();
+    void (async () => {
+      try {
+        await this.commandService.execute(commandId, args);
+        keyboardTelemetry.recordCommand(commandId, nowMs() - executeStart, true);
+      } catch (error: unknown) {
+        keyboardTelemetry.recordCommand(commandId, nowMs() - executeStart, false);
+        logger.error(`[keyboardHandler] Failed to execute command ${commandId}:`, error);
+      }
+    })();
   }
 
   private startChord(sequence: string[]): void {
+    keyboardTelemetry.recordChordStart();
     this.chordSequence = sequence;
     this.contextService.setValue('keyboardChordPending', true);
     if (this.chordTimer) {

@@ -21,6 +21,7 @@ type KeybindingConflictListener = (conflict: KeybindingConflict) => void;
 
 export class KeybindingService {
   private bindings: ResolvedKeybinding[] = [];
+  private removalBindings: ResolvedKeybinding[] = [];
   private readonly contextService: ContextService;
   private readonly platform: RuntimePlatform;
   private readonly registerListeners = new Set<KeybindingListener>();
@@ -49,6 +50,12 @@ export class KeybindingService {
       whenExpr: this.contextService.parseExpression(binding.when),
     };
 
+    if (resolved.command.startsWith('-')) {
+      this.removalBindings.push(resolved);
+      this.emitChange();
+      return;
+    }
+
     this.detectConflicts(resolved);
     this.bindings.push(resolved);
     this.emitRegister(resolved);
@@ -64,6 +71,8 @@ export class KeybindingService {
   unregister(predicate: (binding: ResolvedKeybinding) => boolean): void {
     const retained: ResolvedKeybinding[] = [];
     const removed: ResolvedKeybinding[] = [];
+    const retainedRemovals: ResolvedKeybinding[] = [];
+    let removedRemovalCount = 0;
 
     for (const binding of this.bindings) {
       if (predicate(binding)) {
@@ -73,12 +82,30 @@ export class KeybindingService {
       }
     }
 
-    this.bindings = retained;
+    for (const binding of this.removalBindings) {
+      if (predicate(binding)) {
+        removedRemovalCount += 1;
+      } else {
+        retainedRemovals.push(binding);
+      }
+    }
 
-    if (removed.length > 0) {
+    this.bindings = retained;
+    this.removalBindings = retainedRemovals;
+
+    if (removed.length > 0 || removedRemovalCount > 0) {
       removed.forEach((binding) => { this.emitUnregister(binding); });
       this.emitChange();
     }
+  }
+
+  clearSource(source: KeybindingSource): void {
+    this.unregister((binding) => binding.source === source);
+  }
+
+  replaceSourceBindings(bindings: Keybinding[], source: KeybindingSource): void {
+    this.clearSource(source);
+    this.registerMany(bindings, source);
   }
 
   resolve(dispatchSequence: string[], scopes?: string[]): MatchResult {
@@ -113,7 +140,15 @@ export class KeybindingService {
   }
 
   list(): ResolvedKeybinding[] {
-    return [...this.bindings];
+    return this.bindings.filter((binding) => !this.isRemoved(binding));
+  }
+
+  listWithRemovals(): ResolvedKeybinding[] {
+    return [...this.bindings, ...this.removalBindings];
+  }
+
+  listRemovals(): ResolvedKeybinding[] {
+    return [...this.removalBindings];
   }
 
   onDidRegister(listener: KeybindingListener): () => void {
@@ -138,6 +173,10 @@ export class KeybindingService {
 
   private findPotentialBindings(dispatchSequence: string[]): ResolvedKeybinding[] {
     return this.bindings.filter((binding) => {
+      if (this.isRemoved(binding)) {
+        return false;
+      }
+
       if (binding.dispatchParts.length < dispatchSequence.length) {
         return false;
       }
@@ -154,10 +193,16 @@ export class KeybindingService {
 
   private pickBestMatch(bindings: ResolvedKeybinding[], scopes?: string[]): ResolvedKeybinding | undefined {
     let best: ResolvedKeybinding | undefined;
+    let bestIndex = -1;
+    const bindingOrder = new Map<ResolvedKeybinding, number>();
+    this.bindings.forEach((binding, index) => {
+      bindingOrder.set(binding, index);
+    });
     const snapshot = this.contextService.snapshot(scopes);
 
     for (const binding of bindings) {
       let whenMatches = true;
+      const currentOrder = bindingOrder.get(binding) ?? -1;
 
       if (binding.whenExpr) {
         whenMatches = binding.whenExpr.evaluate(snapshot);
@@ -169,12 +214,37 @@ export class KeybindingService {
         continue;
       }
 
-      if (!best || binding.weight > best.weight) {
+      if (
+        !best ||
+        binding.weight > best.weight ||
+        (binding.weight === best.weight && currentOrder > bestIndex)
+      ) {
         best = binding;
+        bestIndex = currentOrder;
       }
     }
 
     return best;
+  }
+
+  private isRemoved(binding: ResolvedKeybinding): boolean {
+    for (const removal of this.removalBindings) {
+      const targetCommand = removal.command.slice(1);
+      if (!targetCommand || targetCommand !== binding.command) {
+        continue;
+      }
+
+      if (removal.dispatchParts.join(' ') !== binding.dispatchParts.join(' ')) {
+        continue;
+      }
+
+      if (removal.when && (removal.when ?? '') !== (binding.when ?? '')) {
+        continue;
+      }
+
+      return true;
+    }
+    return false;
   }
 
   private detectConflicts(incoming: ResolvedKeybinding): void {
@@ -188,7 +258,7 @@ export class KeybindingService {
         continue;
       }
 
-      if ((existing.weight ?? 0) >= (incoming.weight ?? 0)) {
+      if (existing.weight >= incoming.weight) {
         this.emitConflict({
           existing,
           incoming,

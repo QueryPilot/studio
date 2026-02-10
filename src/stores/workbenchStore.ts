@@ -352,7 +352,9 @@ const useWorkbenchStore = create<WorkbenchStore>()(
     },
 
     focusPanel: (panelId) => {
-      const { layoutTree } = get();
+      const { layoutTree, focusedPanelId: current } = get();
+      // Skip if already focused — avoids unnecessary re-renders of all panels
+      if (current === panelId) return;
       // Verify the panel exists in the tree
       if (layoutTree && findNodePath(layoutTree, panelId) !== null) {
         set({ focusedPanelId: panelId });
@@ -361,7 +363,7 @@ const useWorkbenchStore = create<WorkbenchStore>()(
           `❌ Cannot focus panel ${panelId} - not found in tree. Tree ID: ${layoutTree?.id}`,
         );
         // If we can't find the panel, focus the tree root if it's a leaf
-        if (layoutTree?.type === "leaf") {
+        if (layoutTree?.type === "leaf" && current !== layoutTree.id) {
           logger.info(`🔄 Auto-focusing root panel: ${layoutTree.id}`);
           set({ focusedPanelId: layoutTree.id });
         }
@@ -377,7 +379,7 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         focusedPanelId,
         direction,
       );
-      if (adjacentId) {
+      if (adjacentId && adjacentId !== focusedPanelId) {
         set({ focusedPanelId: adjacentId });
       }
     },

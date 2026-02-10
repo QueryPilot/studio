@@ -77,7 +77,10 @@ export const QueryPanel = memo(function QueryPanel({
     (state) => state.loadTabStateAsync,
   );
   const globalState = useTabStateStore((state) => state.queryStates.get(tabId));
-  const focusedPanelId = useWorkbenchStore((state) => state.focusedPanelId);
+  // Subscribe to boolean only — avoids re-rendering when another panel gets focused
+  const isPanelFocused = useWorkbenchStore(
+    (state) => state.focusedPanelId === panelId,
+  );
 
   // Load persisted tab state from IndexedDB on mount
   useEffect(() => {
@@ -86,7 +89,6 @@ export const QueryPanel = memo(function QueryPanel({
 
   // Track if we've synced from persistence
   const hasLoadedFromPersistence = useRef(false);
-  const isPanelFocused = focusedPanelId === panelId;
 
   const [query, setQueryInternal] = useState<string>(
     globalState?.query ?? initialSql,
@@ -1050,11 +1052,21 @@ export const QueryPanel = memo(function QueryPanel({
     }
   }, [panelId]);
 
-  // Auto-focus editor when this panel becomes focused (e.g., via Cmd+[ or Cmd+])
+  // Auto-focus editor when this panel becomes focused via keyboard navigation (Cmd+[ / Cmd+])
+  // but NOT when focus is already within the panel (e.g., user clicked a search input in results)
+  const panelContainerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (isPanelFocused) {
-      // Use requestAnimationFrame to ensure DOM is ready and avoid race conditions
       requestAnimationFrame(() => {
+        // Don't steal focus if something within this panel is already focused
+        const activeEl = document.activeElement;
+        if (
+          activeEl &&
+          panelContainerRef.current?.contains(activeEl) &&
+          activeEl !== panelContainerRef.current
+        ) {
+          return;
+        }
         editorRef.current?.focus();
       });
     }
@@ -1062,9 +1074,9 @@ export const QueryPanel = memo(function QueryPanel({
 
   return (
     <div
+      ref={panelContainerRef}
       className={cn("flex flex-col h-full", className)}
       onMouseDown={handleFocusPanel}
-      onFocus={handleFocusPanel}
     >
       {/* Main Content */}
       <div className="flex-1 min-h-0 overflow-hidden">

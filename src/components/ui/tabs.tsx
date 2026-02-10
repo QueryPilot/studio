@@ -1,8 +1,17 @@
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
 import { cva, type VariantProps } from "class-variance-authority";
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 
+import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
+import { tabGroupRegistry } from "@/services/tabGroupRegistry";
 import { cn } from "@/lib/utils";
+
+function createTabGroupId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `tabs-${crypto.randomUUID()}`;
+  }
+  return `tabs-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 // Extended props for backwards compatibility with custom shortcut features
 type TabsProps = TabsPrimitive.Root.Props & {
@@ -16,56 +25,83 @@ function Tabs({
   className,
   orientation = "horizontal",
   enableShortcuts = false,
-  tabGroupId: _tabGroupId,
+  tabGroupId,
   focused = false,
-  enableGlobalShortcuts: _enableGlobalShortcuts,
+  enableGlobalShortcuts = true,
   onValueChange,
   children,
   ...props
 }: TabsProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const services = useKeyboardServicesOptional();
+  const contextService = services?.contextService;
+  const [effectiveTabGroupId] = useState(() => tabGroupId ?? createTabGroupId());
 
-  // Handle Cmd+1/2/3/etc keyboard shortcuts
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      // Only handle if shortcuts are enabled and panel is focused
-      if (!enableShortcuts || !focused) return;
-
-      // Check for Cmd/Ctrl + number (1-9)
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
-        const num = parseInt(e.key, 10);
-        if (num >= 1 && num <= 9) {
-          const container = containerRef.current;
-          if (!container) return;
-
-          // Find all tab triggers in order
-          const triggers = container.querySelectorAll<HTMLButtonElement>(
-            '[data-slot="tabs-trigger"]'
-          );
-          const index = num - 1; // Convert 1-based to 0-based index
-
-          if (index < triggers.length) {
-            const trigger = triggers[index];
-            // Get the value from the trigger's data attribute
-            const value = trigger.getAttribute("data-value");
-            if (value && onValueChange) {
-              e.preventDefault();
-              e.stopPropagation();
-              onValueChange(value);
-            }
-          }
-        }
-      }
-    },
-    [enableShortcuts, focused, onValueChange]
-  );
+  const switchToTab = useCallback((index: number) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const triggers = container.querySelectorAll<HTMLButtonElement>(
+      '[data-slot="tabs-trigger"]'
+    );
+    if (index < 0 || index >= triggers.length) return;
+    triggers[index]?.click();
+  }, []);
 
   useEffect(() => {
     if (!enableShortcuts) return;
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [enableShortcuts, handleKeyDown]);
+    tabGroupRegistry.register({
+      tabGroupId: effectiveTabGroupId,
+      switchToTab,
+      getTabCount: () => {
+        const container = containerRef.current;
+        if (!container) return 0;
+        return container.querySelectorAll('[data-slot="tabs-trigger"]').length;
+      },
+    });
+    return () => {
+      tabGroupRegistry.unregister(effectiveTabGroupId);
+    };
+  }, [enableShortcuts, effectiveTabGroupId, switchToTab]);
+
+  useEffect(() => {
+    if (!enableShortcuts || !enableGlobalShortcuts || !contextService) {
+      return;
+    }
+
+    if (focused) {
+      tabGroupRegistry.setFocusedGroup(effectiveTabGroupId);
+      contextService.setValue("focusedTabGroupId", effectiveTabGroupId);
+      contextService.setValue("tabGroupFocused", true);
+      return;
+    }
+
+    const currentFocusedId = contextService.getValue("focusedTabGroupId");
+    if (currentFocusedId === effectiveTabGroupId) {
+      tabGroupRegistry.clearFocusedGroup(effectiveTabGroupId);
+      contextService.setValue("focusedTabGroupId", null);
+      contextService.setValue("tabGroupFocused", false);
+    }
+  }, [
+    contextService,
+    enableGlobalShortcuts,
+    enableShortcuts,
+    focused,
+    effectiveTabGroupId,
+  ]);
+
+  useEffect(() => {
+    if (!contextService) {
+      return;
+    }
+    return () => {
+      const currentFocusedId = contextService.getValue("focusedTabGroupId");
+      if (currentFocusedId === effectiveTabGroupId) {
+        contextService.setValue("focusedTabGroupId", null);
+        contextService.setValue("tabGroupFocused", false);
+      }
+    };
+  }, [contextService, effectiveTabGroupId]);
 
   return (
     <TabsPrimitive.Root

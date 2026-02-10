@@ -232,6 +232,9 @@ export function createRefactoringExtension(options: RefactorOptions): Extension 
       }
 
       update(update: ViewUpdate) {
+        // Only run expensive IPC for the focused editor
+        if (!update.view.hasFocus) return;
+
         // Debounce updates when cursor moves
         if (update.selectionSet || update.docChanged) {
           if (this.pendingUpdate) {
@@ -239,7 +242,7 @@ export function createRefactoringExtension(options: RefactorOptions): Extension 
           }
 
           this.pendingUpdate = setTimeout(async () => {
-            if (update.view.dom.isConnected) {
+            if (update.view.dom.isConnected && update.view.hasFocus) {
               await this.updateLightbulbs(update.view);
               this.pendingUpdate = null;
             }

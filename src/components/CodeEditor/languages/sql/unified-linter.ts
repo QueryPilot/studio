@@ -102,6 +102,8 @@ export function createUnifiedLinter(config: UnifiedLinterConfig): Extension {
       const sql = view.state.doc.toString();
       if (!sql.trim()) return [];
       if (sql === lastSql) return lastDiagnostics;
+      // Skip IPC validation for unfocused editors — return stale diagnostics
+      if (!view.hasFocus) return lastDiagnostics;
 
       try {
         const diagnostics = await lintWithRust(

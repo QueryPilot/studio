@@ -49,6 +49,14 @@ pub async fn redis_set(
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Safe mode guard
+    crate::core::safe_mode::check_safe_mode(
+        conn.profile.safe_mode,
+        crate::core::safe_mode::OperationKind::Insert,
+        "Set",
+    )?;
+
     let adapter = conn
         .adapter
         .as_redis()
@@ -71,6 +79,14 @@ pub async fn redis_delete(
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Safe mode guard
+    crate::core::safe_mode::check_safe_mode(
+        conn.profile.safe_mode,
+        crate::core::safe_mode::OperationKind::Delete,
+        "Delete",
+    )?;
+
     let adapter = conn
         .adapter
         .as_redis()
@@ -110,6 +126,14 @@ pub async fn redis_expire(
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Safe mode guard
+    crate::core::safe_mode::check_safe_mode(
+        conn.profile.safe_mode,
+        crate::core::safe_mode::OperationKind::Update,
+        "Expire",
+    )?;
+
     let adapter = conn
         .adapter
         .as_redis()
@@ -234,6 +258,14 @@ pub async fn redis_hset(
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Safe mode guard
+    crate::core::safe_mode::check_safe_mode(
+        conn.profile.safe_mode,
+        crate::core::safe_mode::OperationKind::Insert,
+        "HashSet",
+    )?;
+
     let adapter = conn
         .adapter
         .as_redis()
@@ -526,6 +558,11 @@ pub async fn keyvalue_execute(
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Safe mode guard
+    let op_kind = crate::core::safe_mode::classify_keyvalue_op(&operation);
+    crate::core::safe_mode::check_safe_mode(conn.profile.safe_mode, op_kind, &format!("{:?}", operation))?;
+
     let adapter = conn
         .adapter
         .as_redis()
