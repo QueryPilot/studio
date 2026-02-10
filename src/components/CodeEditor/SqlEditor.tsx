@@ -20,7 +20,7 @@ import {
   useCallback,
   memo,
 } from "react";
-import { EditorState, Prec, Transaction } from "@codemirror/state";
+import { EditorState, Prec } from "@codemirror/state";
 import {
   EditorView,
   keymap,
@@ -488,6 +488,35 @@ export const SqlEditor = memo(
       phase2Extensions,
     );
 
+    // === Editor sleep/wake for unfocused performance ===
+    // When an editor loses focus, strip all heavy extensions (linter, completions,
+    // code folding, hover, etc.) to make the unfocused editor near-zero-cost.
+    // On regain focus, restore everything. This eliminates cross-editor interference
+    // when multiple split editors are open.
+    const sleepingRef = useRef(false);
+    const wakeExtRef = useRef({
+      sqlLang,
+      effectiveDialect,
+      connectionId,
+      defaultSchema,
+      dialectExtensions,
+      completionExtension,
+      phase1Extensions,
+      phase2Extensions,
+    });
+    useEffect(() => {
+      wakeExtRef.current = {
+        sqlLang,
+        effectiveDialect,
+        connectionId,
+        defaultSchema,
+        dialectExtensions,
+        completionExtension,
+        phase1Extensions,
+        phase2Extensions,
+      };
+    }, [sqlLang, effectiveDialect, connectionId, defaultSchema, dialectExtensions, completionExtension, phase1Extensions, phase2Extensions]);
+
     // Reconfigure phase2 compartment when dialect changes so formatter/refactoring
     // extensions pick up the new dialect instead of using the stale initial closure.
     // Skip initial mount — the phasing hook handles initial loading via its 2s timer.
@@ -720,19 +749,25 @@ export const SqlEditor = memo(
       };
       view.dom.addEventListener("goto-definition", handleGotoDefinition);
 
-      // Close hover/lint tooltips when clicking outside editor and tooltip surfaces.
+      // Close hover tooltips when clicking outside this editor.
+      // Only dispatches to THIS editor when the click is outside its DOM tree,
+      // preventing unnecessary CM6 update cycles on other editors.
       const ownerDocument = containerRef.current.ownerDocument;
       const handleOutsidePointerDown = (event: PointerEvent) => {
         const target = event.target as Element | null;
         if (!target) return;
-        const tooltipTarget = target.closest(".cm-tooltip");
+
+        // Skip if click is inside this editor — CM6 handles it natively
+        if (view.dom.contains(target)) return;
 
         // Keep lint tooltip interactive so users can select/copy diagnostic text.
-        if (tooltipTarget?.classList.contains("cm-tooltip-lint")) return;
+        if (target.closest(".cm-tooltip-lint")) return;
 
-        // Dismiss hover/lint popups on editor clicks, cursor moves, and outside clicks.
+        // Only dismiss tooltips for this editor if it actually had focus
+        // (unfocused editors won't have visible hover tooltips)
+        if (!view.hasFocus) return;
+
         view.dispatch({
-          annotations: Transaction.userEvent.of("select.pointer"),
           effects: closeHoverTooltips,
         });
       };
@@ -741,6 +776,31 @@ export const SqlEditor = memo(
         handleOutsidePointerDown,
         true,
       );
+
+      // === Sleep/Wake: strip heavy extensions on blur, restore on focus ===
+      // WAKE handler runs in capture phase so it fires BEFORE
+      // useSqlEditorCompartments' bubble-phase pending flush (correct ordering:
+      // wake restores saved state → pending flush may overwrite with newer values).
+      const handleWake = () => {
+        if (sleepingRef.current) {
+          sleepingRef.current = false;
+          const ext = wakeExtRef.current;
+          view.dispatch({
+            effects: [
+              compartments.dialect.reconfigure([
+                ...createDialectLinter(ext.effectiveDialect, {
+                  connectionId: ext.connectionId,
+                  schema: ext.defaultSchema,
+                }),
+                ...ext.dialectExtensions,
+              ]),
+              compartments.completion.reconfigure(ext.completionExtension),
+              phasingCompartments.phase1.reconfigure(ext.phase1Extensions),
+              phasingCompartments.phase2.reconfigure(ext.phase2Extensions),
+            ],
+          });
+        }
+      };
 
       // Track focus state for keyboard shortcuts
       const handleFocus = () => {
@@ -760,8 +820,24 @@ export const SqlEditor = memo(
           hasLocalEditsSinceFocusRef.current = false;
           contextServiceRef.current?.setValue("editorTextFocus", false);
           contextServiceRef.current?.setValue("queryEditor", false);
+
+          // SLEEP: Strip heavy extensions from unfocused editor.
+          // Keeps only syntax highlighting (sqlLang) for near-zero-cost display.
+          if (!sleepingRef.current) {
+            sleepingRef.current = true;
+            const ext = wakeExtRef.current;
+            view.dispatch({
+              effects: [
+                compartments.dialect.reconfigure([ext.sqlLang]),
+                compartments.completion.reconfigure([]),
+                phasingCompartments.phase1.reconfigure([]),
+                phasingCompartments.phase2.reconfigure([]),
+              ],
+            });
+          }
         }
       };
+      view.dom.addEventListener("focusin", handleWake, true); // capture: wake before other listeners
       view.dom.addEventListener("focusin", handleFocus);
       view.dom.addEventListener("focusout", handleBlur);
 
@@ -770,6 +846,24 @@ export const SqlEditor = memo(
           view.focus();
         });
       }
+
+      // Auto-sleep unfocused editors after phase2 loads (3s).
+      // Catches editors created unfocused (e.g., from panel split) that
+      // never receive a blur event to trigger the sleep path above.
+      const autoSleepTimer = setTimeout(() => {
+        if (view.dom.isConnected && !view.hasFocus && !sleepingRef.current) {
+          sleepingRef.current = true;
+          const ext = wakeExtRef.current;
+          view.dispatch({
+            effects: [
+              compartments.dialect.reconfigure([ext.sqlLang]),
+              compartments.completion.reconfigure([]),
+              phasingCompartments.phase1.reconfigure([]),
+              phasingCompartments.phase2.reconfigure([]),
+            ],
+          });
+        }
+      }, 3000);
 
       return () => {
         if (rafId !== null) {
@@ -783,6 +877,8 @@ export const SqlEditor = memo(
           handleOutsidePointerDown,
           true,
         );
+        clearTimeout(autoSleepTimer);
+        view.dom.removeEventListener("focusin", handleWake, true);
         view.dom.removeEventListener("focusin", handleFocus);
         view.dom.removeEventListener("focusout", handleBlur);
         contextServiceRef.current?.setValue("editorTextFocus", false);

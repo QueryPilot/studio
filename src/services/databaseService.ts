@@ -24,7 +24,14 @@ import { IntrospectionService } from "./introspectionService";
 export interface ConnectionConfig {
   id: string;
   name: string;
-  db_type: "PostgreSQL" | "MySQL" | "MariaDB" | "SQLite" | "SQLServer" | "MongoDB" | "Redis";
+  db_type:
+    | "PostgreSQL"
+    | "MySQL"
+    | "MariaDB"
+    | "SQLite"
+    | "SQLServer"
+    | "MongoDB"
+    | "Redis";
   host: string;
   port: number;
   database: string;
@@ -174,28 +181,43 @@ class DatabaseService {
         };
 
         // Ensure any stale backend connection with same id is cleanly closed before reconnect
-        logger.info(`[DatabaseService] Cleaning up stale connection for ${connectionId}`);
+        logger.info(
+          `[DatabaseService] Cleaning up stale connection for ${connectionId}`,
+        );
         try {
           await BackendAPI.disconnect(connectionId);
-          logger.info(`[DatabaseService] Stale connection cleanup completed for ${connectionId}`);
+          logger.info(
+            `[DatabaseService] Stale connection cleanup completed for ${connectionId}`,
+          );
         } catch {
           // Ignore if not connected
-          logger.info(`[DatabaseService] No stale connection to cleanup for ${connectionId}`);
+          logger.info(
+            `[DatabaseService] No stale connection to cleanup for ${connectionId}`,
+          );
         }
 
         // Ask backend to connect using the complete profile (id is authoritative)
-        logger.info(`[DatabaseService] Calling BackendAPI.connect for ${connectionId}`);
+        logger.info(
+          `[DatabaseService] Calling BackendAPI.connect for ${connectionId}`,
+        );
         const backendInfo = await BackendAPI.connect(profile);
-        logger.info(`[DatabaseService] BackendAPI.connect returned for ${connectionId}:`, backendInfo);
+        logger.info(
+          `[DatabaseService] BackendAPI.connect returned for ${connectionId}:`,
+          backendInfo,
+        );
 
         const response: ConnectResponse = {
           connection_id: backendInfo.id,
           server_version: backendInfo.version || null,
         };
 
-        logger.info(`[DatabaseService] Setting activeConnections for ${connectionId}`);
+        logger.info(
+          `[DatabaseService] Setting activeConnections for ${connectionId}`,
+        );
         this.activeConnections.set(connectionId, response);
-        logger.info(`[DatabaseService] Starting health monitoring for ${connectionId}`);
+        logger.info(
+          `[DatabaseService] Starting health monitoring for ${connectionId}`,
+        );
         this.startHealthMonitoring(connectionId);
 
         // Emit successful connection health
@@ -204,10 +226,14 @@ class DatabaseService {
           status: "ready",
           healthy: true,
         };
-        logger.info(`[DatabaseService] Emitting ready health status for ${connectionId}`);
+        logger.info(
+          `[DatabaseService] Emitting ready health status for ${connectionId}`,
+        );
         this.notifyHealthListeners(connectionId, health);
 
-        logger.info(`[DatabaseService] Connection complete, returning response for ${connectionId}`);
+        logger.info(
+          `[DatabaseService] Connection complete, returning response for ${connectionId}`,
+        );
         return response;
       } catch (error) {
         logger.error("Failed to connect to database:", error);
@@ -449,11 +475,9 @@ class DatabaseService {
 
       // Store version info for adapters to use
       if (result.success && result.version) {
-        useVersionStore.getState().setVersion(
-          connectionId,
-          result.version,
-          result.detected_db_type
-        );
+        useVersionStore
+          .getState()
+          .setVersion(connectionId, result.version, result.detected_db_type);
       }
 
       return result.success;
@@ -468,17 +492,21 @@ class DatabaseService {
    */
   async getConnectionHealth(connectionId: string): Promise<ConnectionHealth> {
     try {
-      // Use debug level for routine health checks (run every 5s)
-      logger.debug(`[DatabaseService] Getting health for ${connectionId}`);
       const health = await BackendAPI.getConnectionHealth(connectionId);
-      
+
       // Only log if unhealthy or at debug level
       if (!health.healthy) {
-        logger.warn(`[DatabaseService] Unhealthy connection ${connectionId}:`, health);
+        logger.warn(
+          `[DatabaseService] Unhealthy connection ${connectionId}:`,
+          health,
+        );
       } else {
-        logger.debug(`[DatabaseService] Health response for ${connectionId}:`, health);
+        logger.debug(
+          `[DatabaseService] Health response for ${connectionId}:`,
+          health,
+        );
       }
-      
+
       return {
         connectionId: health.connection_id,
         status: health.status as "ready" | "degraded" | "error",
@@ -487,7 +515,10 @@ class DatabaseService {
         error: health.error,
       };
     } catch (error) {
-      logger.error(`[DatabaseService] Health check failed for ${connectionId}:`, error);
+      logger.error(
+        `[DatabaseService] Health check failed for ${connectionId}:`,
+        error,
+      );
       return {
         connectionId,
         status: "error",
@@ -576,18 +607,24 @@ class DatabaseService {
     schema: string,
   ): Promise<TableMeta[]> {
     try {
-      logger.info(`[DatabaseService] listTables called for ${connectionId}, schema: ${schema}`);
+      logger.info(
+        `[DatabaseService] listTables called for ${connectionId}, schema: ${schema}`,
+      );
       const [tables, views] = await Promise.all([
-        IntrospectionService.getTables(connectionId, schema).then(t => {
-          logger.info(`[DatabaseService] getTables returned ${t.length} tables`);
+        IntrospectionService.getTables(connectionId, schema).then((t) => {
+          logger.info(
+            `[DatabaseService] getTables returned ${t.length} tables`,
+          );
           return t;
         }),
-        IntrospectionService.getViews(connectionId, schema).then(v => {
+        IntrospectionService.getViews(connectionId, schema).then((v) => {
           logger.info(`[DatabaseService] getViews returned ${v.length} views`);
           return v;
         }),
       ]);
-      logger.info(`[DatabaseService] listTables completed: ${tables.length} tables, ${views.length} views`);
+      logger.info(
+        `[DatabaseService] listTables completed: ${tables.length} tables, ${views.length} views`,
+      );
 
       const tableMetas: TableMeta[] = [
         ...tables.map((t) => ({
@@ -717,7 +754,8 @@ class DatabaseService {
           is_computed: (c as unknown as { is_computed?: boolean }).is_computed,
           is_identity: (c as unknown as { is_identity?: boolean }).is_identity,
           // MySQL/MariaDB specific
-          character_set: (c as unknown as { character_set?: string | null }).character_set,
+          character_set: (c as unknown as { character_set?: string | null })
+            .character_set,
           collation: (c as unknown as { collation?: string | null }).collation,
           extra: (c as unknown as { extra?: string | null }).extra,
         }),
@@ -748,18 +786,18 @@ class DatabaseService {
         def: string,
       ): { method: string; where?: string } => {
         logger.debug("[DatabaseService] Parsing index definition:", def);
-        
+
         // More permissive regex to capture method (including spaces/symbols) until WHERE or end
         // Allow for "USING BTREE", "USING CLUSTERED", "USING NONCLUSTERED", etc.
         const usingMatch = def.match(/\bUSING\s+(.+?)(?:\s+WHERE|$)/i);
         const whereMatch = def.match(/\bWHERE\s+([\s\S]+)$/i);
-        
+
         let where: string | undefined;
         if (whereMatch && typeof whereMatch[1] === "string") {
           where = whereMatch[1].trim();
         }
         if (where && where.endsWith(";")) where = where.slice(0, -1).trim();
-        
+
         // Strip redundant outer parentheses like ((expr))
         const stripParens = (s: string): string => {
           let out = s.trim();
@@ -791,12 +829,15 @@ class DatabaseService {
 
         // Extract method
         let method = (usingMatch?.[1] || "btree").trim().toUpperCase();
-        
+
         // MSSQL Detection Heuristics
         // If the definition string contains explicit MSSQL keywords, override the parsed method if it defaulted to BTREE
         // or if we want to be sure we caught the right keyword.
         const upperDef = def.toUpperCase();
-        if (upperDef.includes("CLUSTERED") && !upperDef.includes("NONCLUSTERED")) {
+        if (
+          upperDef.includes("CLUSTERED") &&
+          !upperDef.includes("NONCLUSTERED")
+        ) {
           method = "CLUSTERED";
         } else if (upperDef.includes("NONCLUSTERED")) {
           method = "NONCLUSTERED";
@@ -862,9 +903,8 @@ class DatabaseService {
       }
 
       // Fetch using dialect-aware introspection
-      const types = await IntrospectionService.getSupportedIndexTypes(
-        connectionId,
-      );
+      const types =
+        await IntrospectionService.getSupportedIndexTypes(connectionId);
 
       // Cache the result
       this.indexTypeCache.set(connectionId, {
@@ -906,9 +946,8 @@ class DatabaseService {
       }
 
       // Fetch using dialect-aware introspection
-      const types = await IntrospectionService.getSupportedColumnTypes(
-        connectionId,
-      );
+      const types =
+        await IntrospectionService.getSupportedColumnTypes(connectionId);
 
       // Cache the result
       this.columnTypeCache.set(connectionId, {
@@ -1292,8 +1331,8 @@ class DatabaseService {
             error instanceof Error
               ? error
               : typeof error === "string"
-              ? error
-              : (error as { message: string }).message;
+                ? error
+                : (error as { message: string }).message;
           options.onError(errMsg);
         }
       },

@@ -259,11 +259,6 @@ class DBMLLinter {
       }
     }
 
-    // REMOVED: Foreign key index suggestion (not always necessary)
-
-    // REMOVED: Documentation check (too opinionated)
-    // REMOVED: Naming convention check (too opinionated)
-
     // Check for reserved keywords
     const reserved = [
       "user",
