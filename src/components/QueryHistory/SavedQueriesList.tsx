@@ -83,14 +83,12 @@ function SavedQueryItem({
   onToggleStar: () => void;
   onDelete: () => void;
 }) {
-  const workbench = useWorkbenchStore();
-  const workspaceSelection = useWorkspaceSelectionStore();
-  const focusedPanelIdFromStore = usePanelFocusStore((s) => s.focusedPanelId);
-
   const handleOpenInTab = () => {
+    const workbench = useWorkbenchStore.getState();
+    const workspaceSelection = useWorkspaceSelectionStore.getState();
     const panels = workbench.panelContents;
     const focusedPanelId =
-      focusedPanelIdFromStore ?? panels.keys().next().value;
+      usePanelFocusStore.getState().focusedPanelId ?? panels.keys().next().value;
 
     if (!focusedPanelId) {
       toast.error("No panel available");
