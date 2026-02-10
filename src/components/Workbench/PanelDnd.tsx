@@ -421,7 +421,8 @@ export const Panel: React.FC<PanelProps> = ({ panelId, className }) => {
       ref={panelRef}
       tabIndex={0}
       className={cn(
-        "panel flex flex-col bg-background h-full overflow-hidden relative rounded-xl outline-none",
+        "panel flex flex-col bg-background h-full overflow-hidden relative rounded-xl outline-none border-[3px]",
+        isFocused && !isOnlyPanel ? "border-primary/30" : "border-background",
         className,
       )}
       onClick={handleClick}

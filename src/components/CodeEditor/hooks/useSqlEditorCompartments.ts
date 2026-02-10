@@ -42,8 +42,9 @@ export function useSqlEditorCompartments({
   connectionId,
   schema,
 }: UseSqlEditorCompartmentsOptions) {
-  // Track pending reconfigurations for unfocused editors
-  const pendingRef = useRef<Array<() => void>>([]);
+  // Track pending reconfigurations for unfocused editors (keyed by compartment name)
+  // Using a Map ensures only the latest reconfiguration per compartment is applied on focus
+  const pendingRef = useRef<Map<string, () => void>>(new Map());
 
   // Flush pending reconfigurations when editor gains focus
   useEffect(() => {
@@ -52,11 +53,11 @@ export function useSqlEditorCompartments({
 
     const handleFocus = () => {
       const pending = pendingRef.current;
-      if (pending.length > 0) {
-        for (const apply of pending) {
+      if (pending.size > 0) {
+        for (const apply of pending.values()) {
           apply();
         }
-        pendingRef.current = [];
+        pendingRef.current = new Map();
       }
     };
 
@@ -66,11 +67,11 @@ export function useSqlEditorCompartments({
 
   // Helper: dispatch immediately if focused, defer if not
   const dispatchOrDefer = useCallback(
-    (fn: () => void) => {
+    (key: string, fn: () => void) => {
       if (viewRef.current?.hasFocus) {
         fn();
       } else {
-        pendingRef.current.push(fn);
+        pendingRef.current.set(key, fn);
       }
     },
     [viewRef],
@@ -79,7 +80,7 @@ export function useSqlEditorCompartments({
   // Update theme
   useEffect(() => {
     const actualTheme = resolvedTheme === "dark" ? "dark" : "light";
-    dispatchOrDefer(() => {
+    dispatchOrDefer("theme", () => {
       viewRef.current?.dispatch({
         effects: compartments.theme.reconfigure(
           getThemeExtensions(actualTheme),
@@ -90,7 +91,7 @@ export function useSqlEditorCompartments({
 
   // Update dialect extensions (heavy - only when dialect changes)
   useEffect(() => {
-    dispatchOrDefer(() => {
+    dispatchOrDefer("dialect", () => {
       viewRef.current?.dispatch({
         effects: compartments.dialect.reconfigure([
           ...createDialectLinter(effectiveDialect, { connectionId, schema }),
@@ -110,7 +111,7 @@ export function useSqlEditorCompartments({
 
   // Update completion extension (lightweight - separate from dialect)
   useEffect(() => {
-    dispatchOrDefer(() => {
+    dispatchOrDefer("completion", () => {
       viewRef.current?.dispatch({
         effects: compartments.completion.reconfigure(completionExtension),
       });
@@ -119,7 +120,7 @@ export function useSqlEditorCompartments({
 
   // Update read-only
   useEffect(() => {
-    dispatchOrDefer(() => {
+    dispatchOrDefer("readOnly", () => {
       viewRef.current?.dispatch({
         effects: compartments.readOnly.reconfigure(
           EditorViewClass.editable.of(!readOnly),
@@ -130,7 +131,7 @@ export function useSqlEditorCompartments({
 
   // Update placeholder
   useEffect(() => {
-    dispatchOrDefer(() => {
+    dispatchOrDefer("placeholder", () => {
       viewRef.current?.dispatch({
         effects: compartments.placeholder.reconfigure(
           placeholder ? placeholderExt(placeholder) : [],
