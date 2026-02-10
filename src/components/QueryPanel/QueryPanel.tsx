@@ -985,37 +985,22 @@ export const QueryPanel = memo(function QueryPanel({
   }, [isExecuting, result]);
 
   // Subscribe to event bus for keyboard shortcuts
-  // Track if this panel is focused using a ref to avoid re-subscribing
-  const isFocusedRef = useRef(false);
-
-  useEffect(() => {
-    // Update focus state
-    isFocusedRef.current =
-      panelId === useWorkbenchStore.getState().focusedPanelId;
-
-    const unsubscribe = useWorkbenchStore.subscribe((state) => {
-      isFocusedRef.current = panelId === state.focusedPanelId;
-    });
-
-    return unsubscribe;
-  }, [panelId]);
-
   useEffect(() => {
     const handleFormat = () => {
-      // IconCheck if THIS panel should handle the event
-      if (!isFocusedRef.current) return;
+      // Check if THIS panel should handle the event
+      if (useWorkbenchStore.getState().focusedPanelId !== panelId) return;
       logger.info("🟢 QueryPanel handling format event");
       handleBeautify();
     };
 
     const handleExecuteEvent = () => {
-      if (!isFocusedRef.current) return;
+      if (useWorkbenchStore.getState().focusedPanelId !== panelId) return;
       logger.info("🟢 QueryPanel handling execute event");
       void handleExecute();
     };
 
     const handleSaveQuery = () => {
-      if (!isFocusedRef.current) return;
+      if (useWorkbenchStore.getState().focusedPanelId !== panelId) return;
       if (!queryRef.current.trim()) {
         toast.error("No query to save");
         return;
@@ -1025,7 +1010,7 @@ export const QueryPanel = memo(function QueryPanel({
     };
 
     const handleToggleResults = () => {
-      if (!isFocusedRef.current) return;
+      if (useWorkbenchStore.getState().focusedPanelId !== panelId) return;
       logger.info("🟢 QueryPanel handling toggle results event");
       toggleResults();
     };
