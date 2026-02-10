@@ -253,7 +253,9 @@ export function createRefactoringExtension(options: RefactorOptions): Extension 
 
           this.pendingUpdate = setTimeout(async () => {
             if (update.view.dom.isConnected && update.view.hasFocus) {
-              this.lastAnalyzedLine = currentLine;
+              // Read line from current view state, not the stale closure
+              const currentPos = update.view.state.selection.main.from;
+              this.lastAnalyzedLine = update.view.state.doc.lineAt(currentPos).number;
               await this.updateLightbulbs(update.view);
               this.pendingUpdate = null;
             }
