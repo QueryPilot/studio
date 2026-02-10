@@ -9,7 +9,6 @@ import React, {
 } from "react";
 import { cn } from "@/lib/utils";
 import {
-  type PanelContent,
   type DropPosition,
   type TabMetadata,
 } from "@/types/workbench";
@@ -41,6 +40,7 @@ import { DraggableTab } from "./DraggableTab";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import type { DbType } from "@/types/connection";
+import { usePanelContent } from "@/hooks/usePanelContent";
 
 import { normalizeKeybindingLabel } from "@/lib/keyboardDispatch";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
@@ -242,15 +242,17 @@ const MemoizedPanelContent = React.memo(function MemoizedPanelContent({
 });
 
 interface PanelProps {
-  content: PanelContent;
+  panelId: string;
   path?: number[];
   className?: string;
 }
 
-export const Panel: React.FC<PanelProps> = ({ content, className }) => {
+export const Panel: React.FC<PanelProps> = ({ panelId, className }) => {
+  const content = usePanelContent(panelId);
+
   // Use dedicated focus store to avoid subscribing to entire workbench store
   const isFocused = usePanelFocusStore(
-    useCallback((state: { focusedPanelId: string | null }) => state.focusedPanelId === content.id, [content.id])
+    useCallback((state: { focusedPanelId: string | null }) => state.focusedPanelId === panelId, [panelId])
   );
   const focusPanel = useWorkbenchStore((state) => state.focusPanel);
   const closePanelAction = useWorkbenchStore((state) => state.closePanelAction);
@@ -272,7 +274,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
   const isDragActive = useWorkbenchStore(
     (state) => state.dragDropContext.draggedTab !== null,
   );
-  const isSourcePanel = draggedTab?.panelId === content.id;
+  const isSourcePanel = draggedTab?.panelId === panelId;
   // Show split zones (top/bottom/left/right) on ALL panels when dragging
   const showSplitZones = isDragActive;
   // Show center zone only on non-source panels (dropping on source center is a no-op)
@@ -295,15 +297,18 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
   // Track recently accessed tabs - keeps last N tabs mounted for instant switching
   // isPending is true while a non-cached tab is loading (React 19 transition)
   const { mountedTabs, isPending } = useRecentTabs(
-    content.activeTabId,
-    content.tabIds,
+    content?.activeTabId ?? null,
+    content?.tabIds ?? [],
   );
 
   // Memoize connection lookups to avoid O(n*m) connection searches during render
+  const tabIds = content?.tabIds;
+  const metadata = content?.metadata;
   const connectionInfoByConnectionId = useMemo(() => {
     const map = new Map<string, { dbType: DbType; name: string }>();
-    content.tabIds.forEach((tabId) => {
-      const connectionId = content.metadata?.[tabId]?.connectionId;
+    if (!tabIds) return map;
+    tabIds.forEach((tabId) => {
+      const connectionId = metadata?.[tabId]?.connectionId;
       if (connectionId && !map.has(connectionId)) {
         const conn = useConnectionStore.getState().getConnection(connectionId);
         if (conn) {
@@ -315,7 +320,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
       }
     });
     return map;
-  }, [content.tabIds, content.metadata]);
+  }, [tabIds, metadata]);
 
   // Focus the panel itself when it becomes logically focused
   // Note: We intentionally don't focus the inner grid content to avoid
@@ -331,14 +336,14 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
   // Removed auto-scroll logic - using sticky positioning instead
 
   useEffect(() => {
-    logger.info(`Panel ${content.id} - Drag state:`, {
+    logger.info(`Panel ${panelId} - Drag state:`, {
       isDragActive,
       isSourcePanel,
       showSplitZones,
       showCenterZone,
       draggedTab,
       panelCount: isOnlyPanel,
-      contentId: content.id,
+      panelId,
     });
   }, [
     isDragActive,
@@ -347,22 +352,22 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
     showCenterZone,
     draggedTab,
     isOnlyPanel,
-    content.id,
+    panelId,
   ]);
 
   const handleClick = useCallback(() => {
-    focusPanel(content.id);
-  }, [focusPanel, content.id]);
+    focusPanel(panelId);
+  }, [focusPanel, panelId]);
 
   const handleSplit = useCallback(
     (direction: "up" | "down" | "left" | "right") => {
       splitPanelAction({
-        targetPanelId: content.id,
+        targetPanelId: panelId,
         direction,
         splitRatio: 0.5,
       });
     },
-    [splitPanelAction, content.id],
+    [splitPanelAction, panelId],
   );
 
   const handleNewQueryTab = useCallback(() => {
@@ -397,7 +402,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
     const title =
       totalQueryCount > 0 ? `Query ${totalQueryCount + 1}` : "New Query";
 
-    addTab(content.id, tabId, {
+    addTab(panelId, tabId, {
       type: "query",
       title,
       connectionId,
@@ -405,9 +410,11 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
       schema: selectedSchema || "",
       sql: "",
     });
-    setActiveTab(content.id, tabId);
-    focusPanel(content.id);
-  }, [addTab, content.id, focusPanel, setActiveTab]);
+    setActiveTab(panelId, tabId);
+    focusPanel(panelId);
+  }, [addTab, panelId, focusPanel, setActiveTab]);
+
+  if (!content) return null;
 
   return (
     <div
@@ -419,7 +426,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
       )}
       onClick={handleClick}
       onFocus={() => {
-        focusPanel(content.id);
+        focusPanel(panelId);
       }}
     >
       <div className="panel-header flex items-center justify-between bg-secondary">
@@ -450,7 +457,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                 <DraggableTab
                   key={tabId}
                   tabId={tabId}
-                  panelId={content.id}
+                  panelId={panelId}
                   displayName={displayName}
                   isActive={content.activeTabId === tabId}
                   isFocused={isFocused}
@@ -473,8 +480,8 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                   tabIndex={index}
                   totalTabs={content.tabIds.length}
                   onActivate={() => {
-                    setActiveTab(content.id, tabId);
-                    focusPanel(content.id);
+                    setActiveTab(panelId, tabId);
+                    focusPanel(panelId);
 
                     // If this tab belongs to a different connection, update focused connection
                     const tabConnectionId = metadata?.connectionId;
@@ -483,13 +490,13 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                     }
                   }}
                   onClose={() => {
-                    removeTab(content.id, tabId);
+                    removeTab(panelId, tabId);
                   }}
                   onCloseOthers={() => {
                     // Close all tabs except this one
                     content.tabIds.forEach((tid) => {
                       if (tid !== tabId) {
-                        removeTab(content.id, tid);
+                        removeTab(panelId, tid);
                       }
                     });
                   }}
@@ -497,13 +504,13 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                     // Close all tabs to the right of this one
                     const tabsToClose = content.tabIds.slice(index + 1);
                     tabsToClose.forEach((tid) => {
-                      removeTab(content.id, tid);
+                      removeTab(panelId, tid);
                     });
                   }}
                   onCloseAll={() => {
                     // Close all tabs
                     content.tabIds.forEach((tid) => {
-                      removeTab(content.id, tid);
+                      removeTab(panelId, tid);
                     });
                   }}
                   onCopyName={() => {
@@ -582,7 +589,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation();
-                  closePanelAction(content.id);
+                  closePanelAction(panelId);
                 }}
                 className="text-destructive focus:text-destructive"
               >
@@ -617,7 +624,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
             return (
               <div key={tabId} className={cn("absolute inset-0")}>
                 <MemoizedPanelContent
-                  panelId={content.id}
+                  panelId={panelId}
                   tabId={tabId}
                   metadata={metadata}
                 />
@@ -649,27 +656,27 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
 
         {/* Drop Zones */}
         <DroppableZone
-          panelId={content.id}
+          panelId={panelId}
           position="top"
           isVisible={showSplitZones}
         />
         <DroppableZone
-          panelId={content.id}
+          panelId={panelId}
           position="bottom"
           isVisible={showSplitZones}
         />
         <DroppableZone
-          panelId={content.id}
+          panelId={panelId}
           position="left"
           isVisible={showSplitZones}
         />
         <DroppableZone
-          panelId={content.id}
+          panelId={panelId}
           position="right"
           isVisible={showSplitZones}
         />
         <DroppableZone
-          panelId={content.id}
+          panelId={panelId}
           position="center"
           isVisible={showCenterZone}
         />

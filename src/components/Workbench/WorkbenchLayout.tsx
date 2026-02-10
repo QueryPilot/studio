@@ -7,6 +7,7 @@ import { Panel } from "./PanelDnd";
 import { type Direction } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
+import { useShallow } from "zustand/react/shallow";
 import {
   DndContext,
   PointerSensor,
@@ -35,18 +36,19 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
   className,
   connectionId,
 }) => {
-  const {
-    layoutTree,
-    panelContents,
-    setConnectionId,
-    initializeLayout,
-    splitPanelAction,
-    moveTab,
-  } = useWorkbenchStore();
+  // Use granular selectors to avoid re-rendering when unrelated store fields change
+  const layoutTree = useWorkbenchStore((s) => s.layoutTree);
+  const setConnectionId = useWorkbenchStore((s) => s.setConnectionId);
+  const initializeLayout = useWorkbenchStore((s) => s.initializeLayout);
+  const splitPanelAction = useWorkbenchStore((s) => s.splitPanelAction);
+  const moveTab = useWorkbenchStore((s) => s.moveTab);
   const focusedPanelId = usePanelFocusStore((s) => s.focusedPanelId);
 
-  // Get stable list of panel IDs for rendering
-  const panelIds = Array.from(panelContents.keys());
+  // Get stable list of panel IDs - useShallow does shallow array comparison
+  // so this only re-renders when panels are added/removed, not when tab content changes
+  const panelIds = useWorkbenchStore(
+    useShallow((s) => Array.from(s.panelContents.keys())),
+  );
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeTabInfo, setActiveTabInfo] = useState<{
@@ -264,26 +266,23 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
 
         {/* Render all panels at a stable position in the tree */}
         {/* They will be portaled into their containers in GridRenderer */}
-        {panelIds.map((panelId) => {
-          const content = panelContents.get(panelId);
-          if (!content) return null;
-          return (
-            <PanelPortal key={panelId} panelId={panelId}>
-              <Panel
-                content={content}
-                className={cn(
-                  "h-full rounded-xl overflow-hidden border-[3px]",
-                  {
-                    "border-primary/30":
-                      totalPanels > 1 && panelId === focusedPanelId,
-                    "border-background":
-                      totalPanels <= 1 || panelId !== focusedPanelId,
-                  },
-                )}
-              />
-            </PanelPortal>
-          );
-        })}
+        {/* Each Panel subscribes to its own content via usePanelContent(panelId) */}
+        {panelIds.map((panelId) => (
+          <PanelPortal key={panelId} panelId={panelId}>
+            <Panel
+              panelId={panelId}
+              className={cn(
+                "h-full rounded-xl overflow-hidden border-[3px]",
+                {
+                  "border-primary/30":
+                    totalPanels > 1 && panelId === focusedPanelId,
+                  "border-background":
+                    totalPanels <= 1 || panelId !== focusedPanelId,
+                },
+              )}
+            />
+          </PanelPortal>
+        ))}
 
       </DndContext>
 
