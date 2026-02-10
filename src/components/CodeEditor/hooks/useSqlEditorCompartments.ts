@@ -4,7 +4,7 @@
  * Handles the 5 dynamic reconfiguration useEffects for CodeMirror compartments.
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import type { EditorView } from "@codemirror/view";
 import {
   EditorView as EditorViewClass,
@@ -42,23 +42,61 @@ export function useSqlEditorCompartments({
   connectionId,
   schema,
 }: UseSqlEditorCompartmentsOptions) {
+  // Track pending reconfigurations for unfocused editors
+  const pendingRef = useRef<Array<() => void>>([]);
+
+  // Flush pending reconfigurations when editor gains focus
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+
+    const handleFocus = () => {
+      const pending = pendingRef.current;
+      if (pending.length > 0) {
+        for (const apply of pending) {
+          apply();
+        }
+        pendingRef.current = [];
+      }
+    };
+
+    view.dom.addEventListener("focusin", handleFocus);
+    return () => view.dom.removeEventListener("focusin", handleFocus);
+  }, [viewRef]);
+
+  // Helper: dispatch immediately if focused, defer if not
+  const dispatchOrDefer = useCallback(
+    (fn: () => void) => {
+      if (viewRef.current?.hasFocus) {
+        fn();
+      } else {
+        pendingRef.current.push(fn);
+      }
+    },
+    [viewRef],
+  );
+
   // Update theme
   useEffect(() => {
     const actualTheme = resolvedTheme === "dark" ? "dark" : "light";
-    viewRef.current?.dispatch({
-      effects: compartments.theme.reconfigure(
-        getThemeExtensions(actualTheme),
-      ),
+    dispatchOrDefer(() => {
+      viewRef.current?.dispatch({
+        effects: compartments.theme.reconfigure(
+          getThemeExtensions(actualTheme),
+        ),
+      });
     });
-  }, [resolvedTheme, compartments, viewRef]);
+  }, [resolvedTheme, compartments, viewRef, dispatchOrDefer]);
 
   // Update dialect extensions (heavy - only when dialect changes)
   useEffect(() => {
-    viewRef.current?.dispatch({
-      effects: compartments.dialect.reconfigure([
-        ...createDialectLinter(effectiveDialect, { connectionId, schema }),
-        ...dialectExtensions,
-      ]),
+    dispatchOrDefer(() => {
+      viewRef.current?.dispatch({
+        effects: compartments.dialect.reconfigure([
+          ...createDialectLinter(effectiveDialect, { connectionId, schema }),
+          ...dialectExtensions,
+        ]),
+      });
     });
   }, [
     effectiveDialect,
@@ -67,30 +105,37 @@ export function useSqlEditorCompartments({
     connectionId,
     schema,
     viewRef,
+    dispatchOrDefer,
   ]);
 
   // Update completion extension (lightweight - separate from dialect)
   useEffect(() => {
-    viewRef.current?.dispatch({
-      effects: compartments.completion.reconfigure(completionExtension),
+    dispatchOrDefer(() => {
+      viewRef.current?.dispatch({
+        effects: compartments.completion.reconfigure(completionExtension),
+      });
     });
-  }, [completionExtension, compartments, viewRef]);
+  }, [completionExtension, compartments, viewRef, dispatchOrDefer]);
 
   // Update read-only
   useEffect(() => {
-    viewRef.current?.dispatch({
-      effects: compartments.readOnly.reconfigure(
-        EditorViewClass.editable.of(!readOnly),
-      ),
+    dispatchOrDefer(() => {
+      viewRef.current?.dispatch({
+        effects: compartments.readOnly.reconfigure(
+          EditorViewClass.editable.of(!readOnly),
+        ),
+      });
     });
-  }, [readOnly, compartments, viewRef]);
+  }, [readOnly, compartments, viewRef, dispatchOrDefer]);
 
   // Update placeholder
   useEffect(() => {
-    viewRef.current?.dispatch({
-      effects: compartments.placeholder.reconfigure(
-        placeholder ? placeholderExt(placeholder) : [],
-      ),
+    dispatchOrDefer(() => {
+      viewRef.current?.dispatch({
+        effects: compartments.placeholder.reconfigure(
+          placeholder ? placeholderExt(placeholder) : [],
+        ),
+      });
     });
-  }, [placeholder, compartments, viewRef]);
+  }, [placeholder, compartments, viewRef, dispatchOrDefer]);
 }
