@@ -26,6 +26,7 @@ import {
 import type { SavedQuery } from "@/lib/db/queryHistory";
 import { toast } from "sonner";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 
 export function SavedQueriesList() {
@@ -84,11 +85,12 @@ function SavedQueryItem({
 }) {
   const workbench = useWorkbenchStore();
   const workspaceSelection = useWorkspaceSelectionStore();
+  const focusedPanelIdFromStore = usePanelFocusStore((s) => s.focusedPanelId);
 
   const handleOpenInTab = () => {
     const panels = workbench.panelContents;
     const focusedPanelId =
-      workbench.focusedPanelId ?? panels.keys().next().value;
+      focusedPanelIdFromStore ?? panels.keys().next().value;
 
     if (!focusedPanelId) {
       toast.error("No panel available");

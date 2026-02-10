@@ -14,6 +14,7 @@ import {
   type TabMetadata,
 } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import {
   IconX,
   IconLayoutGrid,
@@ -247,8 +248,8 @@ interface PanelProps {
 }
 
 export const Panel: React.FC<PanelProps> = ({ content, className }) => {
-  // Use proper selectors to avoid subscribing to entire store
-  const isFocused = useWorkbenchStore(
+  // Use dedicated focus store to avoid subscribing to entire workbench store
+  const isFocused = usePanelFocusStore(
     useCallback((state: { focusedPanelId: string | null }) => state.focusedPanelId === content.id, [content.id])
   );
   const focusPanel = useWorkbenchStore((state) => state.focusPanel);

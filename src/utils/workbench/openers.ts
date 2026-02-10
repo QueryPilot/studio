@@ -1,5 +1,6 @@
 import { type TableMeta, type FunctionMeta } from '@/services/databaseService';
 import useWorkbenchStore from '@/stores/workbenchStore';
+import { usePanelFocusStore } from '@/stores/panelFocusStore';
 import { usePanelStore } from '@/stores/panelStore';
 import { nanoid } from 'nanoid';
 import { DbType } from '@/types/connection';
@@ -164,10 +165,10 @@ export function openQueryWithSql({
   sql,
   title,
 }: OpenQueryWithSqlParams): void {
-  const { focusedPanelId, addTab, panelContents, focusPanel } =
+  const { addTab, panelContents, focusPanel } =
     useWorkbenchStore.getState();
 
-  let targetPanelId = focusedPanelId;
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
   if (!targetPanelId && panelContents.size > 0) {
     const firstPanelId = Array.from(panelContents.keys())[0];
     if (firstPanelId) {
@@ -202,10 +203,10 @@ export function openQueryWithTemplate({
   schema,
   objectType,
 }: OpenQueryWithTemplateParams): void {
-  const { focusedPanelId, addTab, panelContents, focusPanel } =
+  const { addTab, panelContents, focusPanel } =
     useWorkbenchStore.getState();
 
-  let targetPanelId = focusedPanelId;
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
   if (!targetPanelId && panelContents.size > 0) {
     const firstPanelId = Array.from(panelContents.keys())[0];
     if (firstPanelId) {
@@ -247,10 +248,10 @@ export function openTableDesigner({
   database,
   schema,
 }: OpenTableDesignerParams): void {
-  const { focusedPanelId, addTab, panelContents, focusPanel } =
+  const { addTab, panelContents, focusPanel } =
     useWorkbenchStore.getState();
 
-  let targetPanelId = focusedPanelId;
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
   if (!targetPanelId && panelContents.size > 0) {
     const firstPanelId = Array.from(panelContents.keys())[0];
     if (firstPanelId) {
@@ -311,13 +312,13 @@ export function openTableObject({
   sourcePanelId,
 }: OpenTableParams): void {
   const {
-    focusedPanelId,
     addTab,
     panelContents,
     focusPanel,
     setActiveTab,
     updateTabMetadata,
   } = useWorkbenchStore.getState();
+  const { focusedPanelId } = usePanelFocusStore.getState();
 
   const baseTabId = `table-${connectionId}-${table.schema}-${table.name}`;
 
@@ -455,10 +456,10 @@ export function openFunctionObject({
   connectionId,
   database,
 }: OpenFunctionParams): void {
-  const { focusedPanelId, addTab, panelContents, focusPanel } =
+  const { addTab, panelContents, focusPanel } =
     useWorkbenchStore.getState();
 
-  let targetPanelId = focusedPanelId;
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
   if (!targetPanelId) {
     const firstPanel = Array.from(panelContents.entries())[0];
     if (firstPanel) {
@@ -537,10 +538,10 @@ export function openTableInSplitRight({
   database,
   viewType = 'data',
 }: OpenInSplitParams): void {
-  const { focusedPanelId, splitPanelAction, panelContents, focusPanel } =
+  const { splitPanelAction, panelContents, focusPanel } =
     useWorkbenchStore.getState();
 
-  let targetPanelId = focusedPanelId;
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
   if (!targetPanelId && panelContents.size > 0) {
     targetPanelId = Array.from(panelContents.keys())[0] ?? null;
   }
@@ -586,10 +587,10 @@ export function openFunctionInSplitRight({
   connectionId,
   database,
 }: OpenFunctionInSplitParams): void {
-  const { focusedPanelId, splitPanelAction, panelContents, focusPanel } =
+  const { splitPanelAction, panelContents, focusPanel } =
     useWorkbenchStore.getState();
 
-  let targetPanelId = focusedPanelId;
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
   if (!targetPanelId && panelContents.size > 0) {
     targetPanelId = Array.from(panelContents.keys())[0] ?? null;
   }
@@ -654,7 +655,6 @@ export function openErdView({
   schema,
 }: OpenErdParams): void {
   const {
-    focusedPanelId,
     addTab,
     panelContents,
     focusPanel,
@@ -673,7 +673,7 @@ export function openErdView({
   }
 
   // Not found — create in focused panel
-  let targetPanelId = focusedPanelId;
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
   if (!targetPanelId && panelContents.size > 0) {
     const firstPanelId = Array.from(panelContents.keys())[0];
     if (firstPanelId) {
@@ -702,10 +702,10 @@ export function openErdInSplitRight({
   database,
   schema,
 }: OpenErdParams): void {
-  const { focusedPanelId, splitPanelAction, panelContents, focusPanel } =
+  const { splitPanelAction, panelContents, focusPanel } =
     useWorkbenchStore.getState();
 
-  let targetPanelId = focusedPanelId;
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
   if (!targetPanelId && panelContents.size > 0) {
     targetPanelId = Array.from(panelContents.keys())[0] ?? null;
   }

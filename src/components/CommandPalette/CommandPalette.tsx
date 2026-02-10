@@ -46,6 +46,7 @@ import {
   openFunctionInSplitRight,
 } from "@/utils/workbench/openers";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { getParadigm } from "@/types/connection";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
 import type { TabMetadata } from "@/types/workbench";
@@ -501,12 +502,12 @@ export function CommandPalette(): React.ReactElement {
       ) => {
         const workbench = useWorkbenchStore.getState();
         const panels = workbench.panelContents;
-        let targetPanelId = workbench.focusedPanelId ?? panels.keys().next().value;
+        let targetPanelId = usePanelFocusStore.getState().focusedPanelId ?? panels.keys().next().value;
         if (!targetPanelId) return;
 
-        if (!workbench.focusedPanelId) {
+        if (!usePanelFocusStore.getState().focusedPanelId) {
           workbench.focusPanel(targetPanelId);
-          targetPanelId = workbench.focusedPanelId ?? targetPanelId;
+          targetPanelId = usePanelFocusStore.getState().focusedPanelId ?? targetPanelId;
         }
 
         workbench.addTab(targetPanelId, tabId, metadata);
@@ -639,7 +640,7 @@ export function CommandPalette(): React.ReactElement {
     (savedQuery: SavedQuery) => {
       const workbench = useWorkbenchStore.getState();
       const panels = workbench.panelContents;
-      const focusedPanelId = workbench.focusedPanelId ?? panels.keys().next().value;
+      const focusedPanelId = usePanelFocusStore.getState().focusedPanelId ?? panels.keys().next().value;
 
       if (!focusedPanelId) {
         closePalette();
@@ -689,7 +690,7 @@ export function CommandPalette(): React.ReactElement {
 
       const workbench = useWorkbenchStore.getState();
       const panels = workbench.panelContents;
-      const focusedPanelId = workbench.focusedPanelId ?? panels.keys().next().value;
+      const focusedPanelId = usePanelFocusStore.getState().focusedPanelId ?? panels.keys().next().value;
 
       if (!focusedPanelId) {
         closePalette();
