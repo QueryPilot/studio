@@ -1,7 +1,6 @@
 import { type TableMeta, type FunctionMeta } from '@/services/databaseService';
 import useWorkbenchStore from '@/stores/workbenchStore';
 import { usePanelFocusStore } from '@/stores/panelFocusStore';
-import { usePanelStore } from '@/stores/panelStore';
 import { nanoid } from 'nanoid';
 import { DbType } from '@/types/connection';
 
@@ -389,66 +388,20 @@ export function openTableObject({
     }
   }
 
-  if (targetPanelId) {
-    addTab(targetPanelId, tabId, {
-      type: 'table',
-      title: table.name,
-      connectionId,
-      database,
-      schema: table.schema,
-      table: table.name,
-      isView: table.kind !== 'Table',
-      kind: table.kind,
-      viewType,
-      initialFilter,
-    });
-    return;
-  }
+  if (!targetPanelId) return;
 
-  const {
-    getPrimaryPanel,
-    addTabToPanel,
-    setActiveTabInPanel,
-    updateTabInPanel,
-  } = usePanelStore.getState();
-
-  const primaryPanel = getPrimaryPanel();
-  if (!primaryPanel) {
-    return;
-  }
-
-  const existingTab = Array.from(primaryPanel.tabs.values()).find(
-    (tab) =>
-      tab.type === 'table' &&
-      tab.payload.tableName === table.name &&
-      tab.payload.schema === table.schema
-  );
-
-  if (existingTab) {
-    setActiveTabInPanel(primaryPanel.id, existingTab.id);
-    updateTabInPanel(primaryPanel.id, existingTab.id, {
-      payload: {
-        ...existingTab.payload,
-        database,
-        activeView: viewType,
-        kind: table.kind,
-      },
-    });
-  } else {
-    addTabToPanel(primaryPanel.id, {
-      type: 'table',
-      connectionId,
-      title: table.name,
-      payload: {
-        database,
-        schema: table.schema,
-        tableName: table.name,
-        isView: table.kind !== 'Table',
-        kind: table.kind,
-        activeView: viewType,
-      },
-    });
-  }
+  addTab(targetPanelId, tabId, {
+    type: 'table',
+    title: table.name,
+    connectionId,
+    database,
+    schema: table.schema,
+    table: table.name,
+    isView: table.kind !== 'Table',
+    kind: table.kind,
+    viewType,
+    initialFilter,
+  });
 }
 
 export function openFunctionObject({
@@ -468,64 +421,23 @@ export function openFunctionObject({
     }
   }
 
-  if (targetPanelId) {
-    const objectType =
-      func.routine_type === 'PROCEDURE' ||
-      (!func.routine_type && func.return_type === 'void')
-        ? 'procedure'
-        : 'function';
-    const tabId = `function-${connectionId}-${func.schema}-${func.name}`;
-    addTab(targetPanelId, tabId, {
-      type: 'function',
-      title: func.name,
-      connectionId,
-      database,
-      schema: func.schema,
-      functionName: func.name,
-      returnType: func.return_type,
-      objectType,
-    });
-    return;
-  }
+  if (!targetPanelId) return;
 
-  const {
-    getPrimaryPanel,
-    addTabToPanel,
-    setActiveTabInPanel,
-  } = usePanelStore.getState();
-
-  const primaryPanel = getPrimaryPanel();
-  if (!primaryPanel) {
-    return;
-  }
-
-  const existingTab = Array.from(primaryPanel.tabs.values()).find(
-    (tab) =>
-      tab.type === 'function' &&
-      tab.payload.functionName === func.name &&
-      tab.payload.schema === func.schema
-  );
-
-  if (existingTab) {
-    setActiveTabInPanel(primaryPanel.id, existingTab.id);
-    return;
-  }
-
-  addTabToPanel(primaryPanel.id, {
+  const objectType =
+    func.routine_type === 'PROCEDURE' ||
+    (!func.routine_type && func.return_type === 'void')
+      ? 'procedure'
+      : 'function';
+  const tabId = `function-${connectionId}-${func.schema}-${func.name}`;
+  addTab(targetPanelId, tabId, {
     type: 'function',
-    connectionId,
     title: func.name,
-    payload: {
-      database,
-      schema: func.schema,
-      functionName: func.name,
-      returnType: func.return_type,
-      objectType:
-        func.routine_type === 'PROCEDURE' ||
-        (!func.routine_type && func.return_type === 'void')
-          ? 'procedure'
-          : 'function',
-    },
+    connectionId,
+    database,
+    schema: func.schema,
+    functionName: func.name,
+    returnType: func.return_type,
+    objectType,
   });
 }
 

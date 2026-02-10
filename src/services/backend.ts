@@ -505,7 +505,3 @@ export interface RawQueryResult {
 
 // Alias for convenience (matches naming convention in other parts of codebase)
 export const Backend = BackendAPI;
-
-// REMOVED: Legacy helper functions for old CellValue interface
-// The new CellValue is a primitive type union (null | boolean | number | string | array | object)
-// Use formatters.ts for display formatting instead

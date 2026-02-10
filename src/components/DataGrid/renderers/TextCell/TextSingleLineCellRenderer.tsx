@@ -70,16 +70,9 @@ const TextSingleLineCellRenderer: CustomCellRenderer<TextSingleLineCustomCell> =
     },
 
     provideEditor: (cell) => {
-      console.log('[TextSingleLineCellRenderer] provideEditor called:', {
-        readonly: cell.readonly,
-        dataKind: cell.data.kind,
-        dataValue: cell.data.value,
-      });
       if (cell.readonly) {
-        console.log('[TextSingleLineCellRenderer] Cell is readonly, no editor');
         return undefined;
       }
-      console.log('[TextSingleLineCellRenderer] Providing editor');
       return {
         editor: TextMultiLineCellEditorWithProps,
         disablePadding: true,

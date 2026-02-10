@@ -1,4 +1,3 @@
-import { logger } from "@/lib/logger";
 import React, {
   useCallback,
   useEffect,
@@ -247,7 +246,7 @@ interface PanelProps {
   className?: string;
 }
 
-export const Panel: React.FC<PanelProps> = ({ panelId, className }) => {
+export const Panel: React.FC<PanelProps> = React.memo(({ panelId, className }) => {
   const content = usePanelContent(panelId);
 
   // Use dedicated focus store to avoid subscribing to entire workbench store
@@ -332,28 +331,6 @@ export const Panel: React.FC<PanelProps> = ({ panelId, className }) => {
       panelRef.current.focus({ preventScroll: true });
     }
   }, [isFocused]);
-
-  // Removed auto-scroll logic - using sticky positioning instead
-
-  useEffect(() => {
-    logger.info(`Panel ${panelId} - Drag state:`, {
-      isDragActive,
-      isSourcePanel,
-      showSplitZones,
-      showCenterZone,
-      draggedTab,
-      panelCount: isOnlyPanel,
-      panelId,
-    });
-  }, [
-    isDragActive,
-    isSourcePanel,
-    showSplitZones,
-    showCenterZone,
-    draggedTab,
-    isOnlyPanel,
-    panelId,
-  ]);
 
   const handleClick = useCallback(() => {
     focusPanel(panelId);
@@ -684,4 +661,6 @@ export const Panel: React.FC<PanelProps> = ({ panelId, className }) => {
       </div>
     </div>
   );
-};
+});
+
+Panel.displayName = "Panel";

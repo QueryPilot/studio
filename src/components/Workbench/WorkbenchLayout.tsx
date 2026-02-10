@@ -1,5 +1,5 @@
 import { logger } from "@/lib/logger";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, memo } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { GridRenderer } from "./GridRenderer";
@@ -14,7 +14,6 @@ import {
   useSensors,
   type DragStartEvent,
   type DragEndEvent,
-  type DragOverEvent,
   type DragMoveEvent,
 } from "@dnd-kit/core";
 import {
@@ -24,6 +23,26 @@ import {
   IconBrandTabler,
 } from "@tabler/icons-react";
 import { PanelPortalProvider, PanelPortal } from "./PanelPortalContext";
+
+/**
+ * Memoized panel portals — prevents re-rendering all panels when layoutTree changes during resize.
+ * panelIds from useShallow is reference-stable when panels don't change,
+ * so this component skips re-renders entirely during resize drag.
+ */
+const PanelPortals = memo(function PanelPortals({ panelIds }: { panelIds: string[] }) {
+  return (
+    <>
+      {panelIds.map((panelId) => (
+        <PanelPortal key={panelId} panelId={panelId}>
+          <Panel
+            panelId={panelId}
+            className="h-full rounded-xl overflow-hidden"
+          />
+        </PanelPortal>
+      ))}
+    </>
+  );
+});
 
 interface WorkbenchLayoutProps {
   className?: string;
@@ -111,7 +130,6 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
       });
     }
 
-    logger.info("🚀 Global drag started:", active.id, active.data.current);
   };
 
   const handleDragMove = useCallback((event: DragMoveEvent) => {
@@ -127,20 +145,8 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
     }
   }, []);
 
-  const handleDragOver = (event: DragOverEvent) => {
-    const { active, over } = event;
-    logger.info("🔄 Drag over:", { active: active.id, over: over?.id });
-  };
-
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-
-    logger.info("🏁 Global drag ended:", {
-      active: active.id,
-      over: over?.id,
-      activeData: active.data.current,
-      overData: over?.data.current,
-    });
 
     setActiveId(null);
     setActiveTabInfo(null);
@@ -160,10 +166,6 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
 
     const { tabId, panelId: sourcePanelId } = activeData;
     const { panelId: targetPanelId, position } = overData;
-
-    logger.info(
-      `💧 Processing drop: ${tabId} from ${sourcePanelId} to ${targetPanelId} at ${position}`,
-    );
 
     if (position === "center") {
       // Move tab to existing panel (only if different panels)
@@ -197,14 +199,6 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
         .toString(36)
         .substring(2, 11)}`;
 
-      // Always create the split with the tab in the new panel
-      logger.info(`🔨 Calling splitPanelAction:`, {
-        targetPanelId,
-        direction,
-        newPanelId,
-      });
-
-      // Always create the split with the tab in the new panel
       splitPanelAction({
         targetPanelId,
         direction,
@@ -249,7 +243,6 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
         sensors={sensors}
         onDragStart={handleDragStart}
         onDragMove={handleDragMove}
-        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
         <div
@@ -258,18 +251,8 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
           <GridRenderer node={layoutTree} className="h-full" />
         </div>
 
-        {/* Render all panels at a stable position in the tree */}
-        {/* They will be portaled into their containers in GridRenderer */}
-        {/* Each Panel subscribes to its own content via usePanelContent(panelId) */}
-        {/* Focus border is handled inside Panel via boolean selectors (no re-render here on focus switch) */}
-        {panelIds.map((panelId) => (
-          <PanelPortal key={panelId} panelId={panelId}>
-            <Panel
-              panelId={panelId}
-              className="h-full rounded-xl overflow-hidden"
-            />
-          </PanelPortal>
-        ))}
+        {/* Panel portals memoized separately — immune to layoutTree changes during resize */}
+        <PanelPortals panelIds={panelIds} />
 
       </DndContext>
 

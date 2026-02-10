@@ -256,7 +256,7 @@ export function createParameterHintsExtension(): Extension[] {
     parameterHintTooltip,
     // Auto-trigger on typing ( or ,
     EditorView.updateListener.of((update) => {
-      if (!update.docChanged) return;
+      if (!update.docChanged || !update.view.hasFocus) return;
 
       update.changes.iterChanges((_fromA, _toA, _fromB, _toB, inserted) => {
         const text = inserted.toString();
