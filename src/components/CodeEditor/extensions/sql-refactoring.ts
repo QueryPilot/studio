@@ -227,7 +227,6 @@ export function createRefactoringExtension(options: RefactorOptions): Extension 
       decorations: DecorationSet = Decoration.none;
       pendingUpdate: ReturnType<typeof setTimeout> | null = null;
       lastAnalyzedLine: number = -1;
-      lastDocVersion: number = -1;
 
       constructor(_view: EditorView) {
         // Don't update on construction to avoid initial flash
@@ -242,10 +241,9 @@ export function createRefactoringExtension(options: RefactorOptions): Extension 
           // Check if we've moved to a different line
           const pos = update.state.selection.main.from;
           const currentLine = update.state.doc.lineAt(pos).number;
-          const docVersion = update.state.doc.length; // Proxy for version
 
-          // Skip IPC if same line and doc hasn't changed
-          if (currentLine === this.lastAnalyzedLine && docVersion === this.lastDocVersion) {
+          // Skip IPC if cursor stayed on same line and doc didn't change
+          if (currentLine === this.lastAnalyzedLine && !update.docChanged) {
             return;
           }
 
@@ -256,7 +254,6 @@ export function createRefactoringExtension(options: RefactorOptions): Extension 
           this.pendingUpdate = setTimeout(async () => {
             if (update.view.dom.isConnected && update.view.hasFocus) {
               this.lastAnalyzedLine = currentLine;
-              this.lastDocVersion = docVersion;
               await this.updateLightbulbs(update.view);
               this.pendingUpdate = null;
             }
