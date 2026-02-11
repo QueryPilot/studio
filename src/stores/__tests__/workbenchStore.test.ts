@@ -290,10 +290,12 @@ describe("workbenchStore", () => {
         },
       });
 
-      store.resizePanelAction([0], 0.7);
+      store.resizePanelAction([], 0.7);
 
       const state = useWorkbenchStore.getState();
       expect(state.layoutTree).toBeTruthy();
+      expect(state.layoutTree?.type).toBe("branch");
+      expect(state.layoutTree?.splitRatio).toBeCloseTo(0.7);
     });
 
     it("should not resize if no layout tree", () => {

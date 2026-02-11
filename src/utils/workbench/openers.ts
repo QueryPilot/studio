@@ -188,6 +188,7 @@ export function openQueryWithSql({
     schema: schema ?? undefined,
     sql,
   });
+  focusPanel(targetPanelId);
 }
 
 interface OpenTableDesignerParams {
@@ -240,6 +241,7 @@ export function openQueryWithTemplate({
     schema: schema ?? undefined,
     sql: template,
   });
+  focusPanel(targetPanelId);
 }
 
 export function openTableDesigner({
@@ -270,6 +272,7 @@ export function openTableDesigner({
     database: database ?? undefined,
     schema: schema ?? undefined,
   });
+  focusPanel(targetPanelId);
 }
 
 interface OpenTableParams {
@@ -402,6 +405,7 @@ export function openTableObject({
     viewType,
     initialFilter,
   });
+  focusPanel(targetPanelId);
 }
 
 export function openFunctionObject({
@@ -439,6 +443,7 @@ export function openFunctionObject({
     returnType: func.return_type,
     objectType,
   });
+  focusPanel(targetPanelId);
 }
 
 /**
@@ -602,6 +607,7 @@ export function openErdView({
     database,
     schema,
   });
+  focusPanel(targetPanelId);
 }
 
 /**
