@@ -117,7 +117,9 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
             <GridRenderer node={node.children[0]} path={[...path, 0]} />
           )}
         </ResizablePanel>
-        <ResizableHandle />
+        <ResizableHandle
+          style={{ cursor: node.orientation === "vertical" ? "row-resize" : "col-resize" }}
+        />
         <ResizablePanel
           defaultSize={defaultSizes[1]}
           minSize={10}
