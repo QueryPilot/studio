@@ -32,11 +32,12 @@ export function createUnifiedLinter(config: UnifiedLinterConfig): Extension {
 
   return linter(
     (view: EditorView): Promise<Diagnostic[]> => {
+      // Fast path: skip unfocused editors before serializing the document
+      if (!view.hasFocus) return Promise.resolve(lastDiagnostics);
+
       const sql = view.state.doc.toString();
       if (!sql.trim()) return Promise.resolve([]);
       if (sql === lastSql) return Promise.resolve(lastDiagnostics);
-      // Skip IPC validation for unfocused editors — return stale diagnostics
-      if (!view.hasFocus) return Promise.resolve(lastDiagnostics);
 
       // Cancel any pending request from this editor and settle its promise
       cancelPending?.();

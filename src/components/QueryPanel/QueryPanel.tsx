@@ -6,7 +6,6 @@ import {
   useEffect,
   useMemo,
   useRef,
-  startTransition,
   useDeferredValue,
 } from "react";
 import { QueryEditor } from "./QueryEditor";
@@ -24,6 +23,7 @@ import { tableStreamingService } from "@/services/tableStreamingService";
 import { cn } from "@/lib/utils";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
+import { useShallow } from "zustand/react/shallow";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useTabStateStore, type QueryResult } from "@/stores/tabStateStore";
 import type { ColumnMeta } from "@/types/database";
@@ -77,7 +77,26 @@ export const QueryPanel = memo(function QueryPanel({
   const loadTabStateAsync = useTabStateStore(
     (state) => state.loadTabStateAsync,
   );
-  const globalState = useTabStateStore((state) => state.queryStates.get(tabId));
+  // Shallow comparison prevents re-render when only result/isExecuting/isStreaming change.
+  // Those fields are tracked in local state and written TO the store — not read back reactively.
+  // Without useShallow, every setQueryState call creates a new object ref → double render.
+  const globalState = useTabStateStore(
+    useShallow((state) => {
+      const qs = state.queryStates.get(tabId);
+      if (!qs) return null;
+      return {
+        query: qs.query,
+        result: qs.result, // initial hydration only (when tab moves between panels)
+        isExecuting: qs.isExecuting,
+        isStreaming: qs.isStreaming,
+        viewMode: qs.viewMode,
+        selectedDialect: qs.selectedDialect,
+        inTransaction: qs.inTransaction,
+        lastExecutedQuery: qs.lastExecutedQuery,
+        lastSelectQuery: qs.lastSelectQuery,
+      };
+    }),
+  );
   // Subscribe to boolean only — avoids re-rendering when another panel gets focused
   const isPanelFocused = usePanelFocusStore(
     (state) => state.focusedPanelId === panelId,
@@ -277,17 +296,27 @@ export const QueryPanel = memo(function QueryPanel({
   const isInitialQuerySync = useRef(true);
   const querySyncTimerRef = useRef<number | null>(null);
 
+  // Sync execution state to tabStateStore. `result` is intentionally NOT a
+  // dependency — during streaming, every batch triggers setResult which would
+  // fire this effect, calling setQueryState (new Map + AI sync) per batch.
+  // Result is synced once when isStreaming flips to false (see resultRef usage
+  // below) and again in handleExecute after final setResult.
+  const resultRef = useRef(result);
+  resultRef.current = result;
+
   useEffect(() => {
     if (isInitialStateSync.current) {
       isInitialStateSync.current = false;
       return;
     }
 
-    // Sync non-query state immediately for accurate execution/status UI.
+    // When streaming ends, include the final result in the sync.
+    // During streaming or executing, skip result to avoid churning the store.
+    const includeResult = !isStreaming && !isExecuting;
     setQueryState(
       tabId,
       {
-        result,
+        ...(includeResult ? { result: resultRef.current } : {}),
         isExecuting,
         isStreaming,
         viewMode,
@@ -299,7 +328,6 @@ export const QueryPanel = memo(function QueryPanel({
       { connectionId: effectiveConnectionId, database, schema },
     );
   }, [
-    result,
     isExecuting,
     isStreaming,
     viewMode,
@@ -459,10 +487,18 @@ export const QueryPanel = memo(function QueryPanel({
 
       setIsExecuting(true);
       setIsStreaming(true);
-      setResult(null);
+      // Keep previous result so the grid stays MOUNTED (avoids expensive remount
+      // of GlideDataGrid canvas + 20 hooks in BaseDataGrid). The first streaming
+      // batch will overwrite it with new data. Only clear if previous was an error
+      // or had no rows (grid wasn't mounted anyway).
+      setResult((prev) => {
+        if (prev && !prev.error && prev.rows.length > 0) return prev;
+        return null;
+      });
 
       let executionTime = 0;
       let errorMessage: string | undefined;
+      const t0 = performance.now();
 
       try {
         // Stream results directly; no wrapping/pagination or SQL rewriting
@@ -536,7 +572,7 @@ export const QueryPanel = memo(function QueryPanel({
                 });
               };
 
-              // First render is synchronous to avoid flash, subsequent use startTransition
+              // First render is synchronous to avoid flash
               if (!hasRenderedOnce.current) {
                 hasRenderedOnce.current = true;
                 renderedCountRef.current = total;
@@ -550,10 +586,10 @@ export const QueryPanel = memo(function QueryPanel({
 
               renderedCountRef.current = total;
 
-              // Use startTransition for streaming updates to keep UI responsive
-              startTransition(() => {
-                commitSnapshot();
-              });
+              // Direct commit — throttle is already handled by MIN_UPDATE_INTERVAL_MS + RAF.
+              // startTransition made React defer these as low-priority, adding seconds of
+              // delay when the main thread was busy (CodeMirror, store syncs, etc.).
+              commitSnapshot();
             });
           }, delay);
         };
@@ -572,14 +608,14 @@ export const QueryPanel = memo(function QueryPanel({
               started = true;
               currentColumns = progress.columns.map((c) => c.name);
               currentColumnMeta = progress.columns as unknown as ColumnMeta[];
-              // Don't render empty table - wait for first batch
+              logger.info("[QueryPanel perf] columns received", { ms: Math.round(performance.now() - t0) });
             }
             if (progress.newRows && progress.newRows.length > 0) {
-              // Accumulate rows
               accumulatedRows.push(...progress.newRows);
               rowCount = accumulatedRows.length;
-
-              // Schedule throttled update (max 60 FPS)
+              if (!hasRenderedOnce.current) {
+                logger.info("[QueryPanel perf] first batch", { rows: progress.newRows.length, ms: Math.round(performance.now() - t0) });
+              }
               scheduleUpdate();
             }
           },
@@ -596,6 +632,7 @@ export const QueryPanel = memo(function QueryPanel({
         );
 
         const final = await streamPromise;
+        logger.info("[QueryPanel perf] stream resolved", { rows: accumulatedRows.length, ms: Math.round(performance.now() - t0) });
 
         if (pendingTimeout !== undefined) {
           clearTimeout(pendingTimeout);
@@ -704,6 +741,8 @@ export const QueryPanel = memo(function QueryPanel({
           conversionMs: final.conversionMs,
           ipcSendMs: final.ipcSendMs,
         });
+
+        logger.info("[QueryPanel perf] final setResult done", { ms: Math.round(performance.now() - t0) });
 
         // Streaming complete - stop streaming indicator
         setIsStreaming(false);

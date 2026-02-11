@@ -27,6 +27,7 @@ import type { CellValue } from "@/types";
 import { useDataGridRenderers } from "../renderers";
 import { inferValueType } from "../utils/valueHelpers";
 import { navigateToCell, type NavigationBounds } from "../utils/keyboardNavigation";
+import { dataGridRegistry } from "@/services/dataGridRegistry";
 
 const isPromise = <T,>(value: unknown): value is Promise<T> =>
   typeof value === "object" &&
@@ -307,9 +308,17 @@ export const EditableDataGrid = forwardRef<
       // Only handle cmd+delete or cmd+backspace
       if (!e.metaKey || (e.key !== 'Delete' && e.key !== 'Backspace')) return;
 
-      // Check if focus is within our grid
-      if (!wrapperRef.current?.contains(document.activeElement) &&
-          document.activeElement !== wrapperRef.current) {
+      // Primary focus signal: focused-grid registry (works even when canvas focus is transient)
+      const focusedGridId = dataGridRegistry.getFocused()?.id;
+      const isFocusedByRegistry = focusedGridId === tableKey;
+
+      // Fallback for cases where registry wasn't updated yet
+      const activeElement = document.activeElement;
+      const isFocusedByDom =
+        !!wrapperRef.current?.contains(activeElement) ||
+        activeElement === wrapperRef.current;
+
+      if (!isFocusedByRegistry && !isFocusedByDom) {
         return;
       }
 
