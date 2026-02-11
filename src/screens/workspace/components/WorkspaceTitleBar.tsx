@@ -3,8 +3,6 @@ import { Button } from "@/components/ui/button";
 import {
   IconHome,
   IconRefresh,
-  IconLock,
-  IconLockOpen,
   IconSettings,
   IconLayoutSidebar,
   IconCheck,
@@ -25,7 +23,6 @@ import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useCrudStore } from "@/stores/crudStore";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
-import type { SafeMode } from "@/types/connection";
 import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
@@ -124,7 +121,7 @@ export function WorkspaceTitleBar({
 
   const [showGlobalChanges, setShowGlobalChanges] = useState(false);
   const [commitProgress, setCommitProgress] = useState(0);
-  const commitProgressRef = useRef<NodeJS.Timeout | null>(null);
+  const commitProgressRef = useRef<number | null>(null);
 
   // IconKeyboard shortcuts
   useCommand(
@@ -140,24 +137,27 @@ export function WorkspaceTitleBar({
         setIsCommittingAll(true);
         setCommitProgress(0);
 
-        // Start progress animation with different speeds:
+        // Start progress animation with rAF for smooth rendering
         // 0-80%: fast, 80-90%: slower, 90-98%: much slower, then wait
         let progress = 0;
-        commitProgressRef.current = setInterval(() => {
+        let lastTime = performance.now();
+        const animateProgress = (now: number) => {
+          const dt = now - lastTime;
+          lastTime = now;
+          // Scale increments by elapsed time (~50ms baseline)
+          const scale = dt / 50;
           if (progress < 80) {
-            // Fast: 0-80%
-            progress += 4;
+            progress += 4 * scale;
           } else if (progress < 90) {
-            // Slower: 80-90%
-            progress += 0.5;
+            progress += 0.5 * scale;
           } else if (progress < 98) {
-            // Much slower: 90-98%
-            progress += 0.1;
+            progress += 0.1 * scale;
           }
-          // Stop at 98% and wait for completion
           if (progress > 98) progress = 98;
           setCommitProgress(progress);
-        }, 50);
+          commitProgressRef.current = requestAnimationFrame(animateProgress);
+        };
+        commitProgressRef.current = requestAnimationFrame(animateProgress);
 
         try {
           logger.info(
@@ -200,7 +200,7 @@ export function WorkspaceTitleBar({
 
           // Complete progress to 100%
 
-          clearInterval(commitProgressRef.current);
+          if (commitProgressRef.current !== null) cancelAnimationFrame(commitProgressRef.current);
           setCommitProgress(100);
 
           toast.success("All changes committed", {
@@ -214,7 +214,7 @@ export function WorkspaceTitleBar({
         } catch (error) {
           // Stop progress on error
 
-          clearInterval(commitProgressRef.current);
+          if (commitProgressRef.current !== null) cancelAnimationFrame(commitProgressRef.current);
           setCommitProgress(0);
 
           toast.error("Commit failed", {
@@ -227,7 +227,7 @@ export function WorkspaceTitleBar({
           setIsCommittingAll(false);
           setCommitProgress(0);
 
-          clearInterval(commitProgressRef.current);
+          if (commitProgressRef.current !== null) cancelAnimationFrame(commitProgressRef.current);
           commitProgressRef.current = null;
         }
       }
@@ -349,20 +349,27 @@ export function WorkspaceTitleBar({
 
   // Get server version from active connection
   useEffect(() => {
-    const updateServerVersion = () => {
-      const activeConnection =
-        databaseService.getActiveConnection(connectionId);
-      if (activeConnection?.server_version) {
-        // Extract major version from server string
-        const match = activeConnection.server_version.match(/\d+\.?\d*/);
+    const activeConnection =
+      databaseService.getActiveConnection(connectionId);
+    if (activeConnection?.server_version) {
+      const match = activeConnection.server_version.match(/\d+\.?\d*/);
+      setServerVersion(match ? match[0] : null);
+      return;
+    }
+
+    // Connection might not be ready yet — poll briefly, then stop
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts++;
+      const conn = databaseService.getActiveConnection(connectionId);
+      if (conn?.server_version) {
+        const match = conn.server_version.match(/\d+\.?\d*/);
         setServerVersion(match ? match[0] : null);
+        clearInterval(interval);
+      } else if (attempts >= 10) {
+        clearInterval(interval);
       }
-    };
-
-    updateServerVersion();
-
-    // Also check periodically as connection might not be immediately ready
-    const interval = setInterval(updateServerVersion, 1000);
+    }, 1000);
 
     return () => {
       clearInterval(interval);
@@ -620,62 +627,6 @@ export function WorkspaceTitleBar({
           <IconRefresh className="size-4!" />
         </Button>
 
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => {
-                  const { openPalette, setNestedMode } =
-                    useCommandPaletteStore.getState();
-                  openPalette();
-                  setTimeout(
-                    () => setNestedMode({ type: "set-safe-mode" }),
-                    0,
-                  );
-                }}
-              >
-                {(() => {
-                  const safeMode: SafeMode =
-                    storedConnection?.profile.safe_mode ?? "full_access";
-                  switch (safeMode) {
-                    case "read_only":
-                      return <IconLock className="size-4! text-red-500" />;
-                    case "read_write":
-                      return <IconLock className="size-4! text-orange-500" />;
-                    case "read_write_update":
-                      return <IconLock className="size-4! text-yellow-500" />;
-                    case "full_access":
-                    default:
-                      return (
-                        <IconLockOpen className="size-4! text-green-500" />
-                      );
-                  }
-                })()}
-              </Button>
-            }
-          />
-          <TooltipContent side="bottom">
-            Safe Mode:{" "}
-            {(() => {
-              const safeMode: SafeMode =
-                storedConnection?.profile.safe_mode ?? "full_access";
-              switch (safeMode) {
-                case "read_only":
-                  return "Read Only";
-                case "read_write":
-                  return "Read + Write";
-                case "read_write_update":
-                  return "Read + Write + Update";
-                case "full_access":
-                default:
-                  return "Full Access";
-              }
-            })()}
-          </TooltipContent>
-        </Tooltip>
-
         <Button
           variant="ghost"
           size="icon-sm"
@@ -757,8 +708,8 @@ export function WorkspaceTitleBar({
 
       {/* Center Section - Absolute positioning for true center, shrinks when space is limited */}
       <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-1.5 text-xs max-w-[50%] min-w-0 select-none">
-        {/* Workspace Name (if named workspace) */}
-        {activeWorkspace && !activeWorkspace.isTemporary && (
+        {/* Workspace Name (if named, multi-connection workspace) */}
+        {activeWorkspace && !activeWorkspace.isTemporary && activeWorkspace.config.connectionIds.length > 1 ? (
           <>
             <span
               className="font-medium text-xs truncate"
@@ -766,48 +717,68 @@ export function WorkspaceTitleBar({
             >
               {activeWorkspace.config.name}
             </span>
-            <div
-              className="h-3 w-px bg-border shrink-0"
-              data-tauri-drag-region
-            />
-          </>
-        )}
-
-        {/* IconDatabase Name with Type */}
-        <div
-          className="flex items-center gap-1 min-w-0 flex-shrink"
-          data-tauri-drag-region
-        >
-          <span
-            className={cn(
-              "text-xs truncate",
-              activeWorkspace?.isTemporary
-                ? "font-medium"
-                : "text-muted-foreground",
-            )}
-            data-tauri-drag-region
-          >
-            {selectedDatabase || connection?.database || "Loading..."}
-          </span>
-          <span
-            className="text-muted-foreground whitespace-nowrap hidden lg:inline text-[10px]"
-            data-tauri-drag-region
-          >
-            {connection?.db_type}
-            {serverVersion && ` ${serverVersion}`}
-          </span>
-        </div>
-
-        {/* Connection Details - Hidden on smaller screens */}
-        {connection?.host && (
-          <>
-            <div className="h-3 w-px bg-border shrink-0 hidden xl:block" />
             <span
-              className="text-muted-foreground truncate min-w-0 hidden xl:inline text-[10px]"
+              className="text-muted-foreground whitespace-nowrap text-[10px]"
               data-tauri-drag-region
             >
-              {connection.host}:{connection.port}
+              {activeWorkspace.config.connectionIds.length} connections
             </span>
+          </>
+        ) : (
+          <>
+            {/* Single-connection workspace: show workspace name if named */}
+            {activeWorkspace && !activeWorkspace.isTemporary && (
+              <>
+                <span
+                  className="font-medium text-xs truncate"
+                  data-tauri-drag-region
+                >
+                  {activeWorkspace.config.name}
+                </span>
+                <div
+                  className="h-3 w-px bg-border shrink-0"
+                  data-tauri-drag-region
+                />
+              </>
+            )}
+
+            {/* Database Name with Type */}
+            <div
+              className="flex items-center gap-1 min-w-0 flex-shrink"
+              data-tauri-drag-region
+            >
+              <span
+                className={cn(
+                  "text-xs truncate",
+                  activeWorkspace?.isTemporary
+                    ? "font-medium"
+                    : "text-muted-foreground",
+                )}
+                data-tauri-drag-region
+              >
+                {selectedDatabase || connection?.database || "Loading..."}
+              </span>
+              <span
+                className="text-muted-foreground whitespace-nowrap hidden lg:inline text-[10px]"
+                data-tauri-drag-region
+              >
+                {connection?.db_type}
+                {serverVersion && ` ${serverVersion}`}
+              </span>
+            </div>
+
+            {/* Connection Details - Hidden on smaller screens */}
+            {connection?.host && (
+              <>
+                <div className="h-3 w-px bg-border shrink-0 hidden xl:block" />
+                <span
+                  className="text-muted-foreground truncate min-w-0 hidden xl:inline text-[10px]"
+                  data-tauri-drag-region
+                >
+                  {connection.host}:{connection.port}
+                </span>
+              </>
+            )}
           </>
         )}
 

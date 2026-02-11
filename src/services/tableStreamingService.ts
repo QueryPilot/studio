@@ -148,6 +148,9 @@ export async function streamEntityPage(
       : columnsHint ?? null;
     const rows: TableDataRow[] = [];
     let executionTimeMs: number | undefined;
+    // Event-driven batch completion: onSuccess sets the target, onBatch checks after each mapping
+    let expectedRowCount: number | null = null;
+    let onAllBatchesMapped: (() => void) | null = null;
     // Normalize invalid estimates (reltuples can be -1 for unanalyzed tables)
     let estimatedTotal: number | undefined =
       estimatedTotalHint != null && estimatedTotalHint > 0
@@ -283,6 +286,16 @@ export async function streamEntityPage(
                   totalRows: estimatedTotal,
                 });
               }
+
+              // Event-driven: check if this was the last batch needed
+              if (
+                expectedRowCount !== null &&
+                rows.length >= expectedRowCount &&
+                onAllBatchesMapped
+              ) {
+                onAllBatchesMapped();
+                onAllBatchesMapped = null;
+              }
             })
             .catch((error) => {
               logger.error(
@@ -311,92 +324,72 @@ export async function streamEntityPage(
                 });
               }
 
-              // CRITICAL FIX: Poll until all batches are accumulated
-              // The backend sends success before all batch messages are processed
-              const expectedRows = result.totalRows;
-              const pollInterval = setInterval(() => {
-                if (rows.length >= expectedRows) {
-                  clearInterval(pollInterval);
-
-                  try {
-                    if (signal) {
-                      signal.removeEventListener("abort", abortHandler);
-                    }
-
-                    if (!resolvedColumns) {
-                      resolvedColumns = columnsHint ?? [];
-                    }
-
-                    const limitReached =
-                      (rowLimit != null && offset + rows.length >= rowLimit) ||
-                      limitReachedByRowCap === true;
-                    // If we got fewer rows than requested, we've definitely reached the end
-                    // This is critical when filters are applied since estimatedTotal is unfiltered count
-                    const fetchedFullPage = rows.length === fetchLimit;
-                    // PRIMARY INDICATOR: If we got a full page, there's likely more data
-                    // Don't rely on estimatedTotal as it can be inaccurate (based on pg_class.reltuples)
-                    // Only stop when: (1) explicit limit reached, or (2) got partial page (actual end of data)
-                    let hasMore = !limitReached && fetchedFullPage;
-                    if (!isEstimatedCount && estimatedTotal != null) {
-                      hasMore =
-                        !limitReached &&
-                        offset + rows.length < estimatedTotal;
-                    }
-
-                    // When we reach the end (no more data), we have the EXACT count
-                    // Update estimatedTotal to actual total and mark as exact
-                    if (!hasMore) {
-                      const actualTotal = offset + rows.length;
-                      estimatedTotal = actualTotal;
-                      isEstimatedCount = false; // Now we have exact count
-                    }
-
-                    logger.debug("stream-service", "hasMore calculation", {
-                      rowsLength: rows.length,
-                      fetchLimit,
-                      offset,
-                      estimatedTotal: estimatedTotal ?? "unknown",
-                      isEstimatedCount,
-                      limitReached,
-                      fetchedFullPage,
-                      hasMore,
-                      note: "Relying on fetchedFullPage, not estimatedTotal (can be inaccurate)",
-                    });
-
-                    resolve({
-                      columns: resolvedColumns,
-                      rows,
-                      hasMore,
-                      estimatedTotal,
-                      isEstimatedCount,
-                      executionTimeMs,
-                    });
-                  } catch (error) {
-                    reject(
-                      error instanceof Error ? error : new Error(String(error)),
-                    );
+              // Wait until all batches are mapped (event-driven, no polling)
+              // The backend sends success before all batch messages are processed,
+              // so onBatch callbacks may still be in the mapping queue.
+              const finalize = () => {
+                try {
+                  if (signal) {
+                    signal.removeEventListener("abort", abortHandler);
                   }
-                }
-              }, 10);
 
-              // Safety timeout: resolve after 5 seconds even if count doesn't match
-              setTimeout(() => {
-                clearInterval(pollInterval);
-                logger.warn(
-                  "stream-service",
-                  `Timeout waiting for batches: expected ${expectedRows}, got ${rows.length}`,
-                );
-                // On timeout, we have exact count of what we received
-                const actualTotal = offset + rows.length;
-                resolve({
-                  columns: resolvedColumns ?? columnsHint ?? [],
-                  rows,
-                  hasMore: false,
-                  estimatedTotal: actualTotal,
-                  isEstimatedCount: false, // Exact count of loaded rows
-                  executionTimeMs,
-                });
-              }, 5000);
+                  if (!resolvedColumns) {
+                    resolvedColumns = columnsHint ?? [];
+                  }
+
+                  const limitReached =
+                    (rowLimit != null && offset + rows.length >= rowLimit) ||
+                    limitReachedByRowCap === true;
+                  const fetchedFullPage = rows.length === fetchLimit;
+                  let hasMore = !limitReached && fetchedFullPage;
+                  if (!isEstimatedCount && estimatedTotal != null) {
+                    hasMore =
+                      !limitReached &&
+                      offset + rows.length < estimatedTotal;
+                  }
+
+                  if (!hasMore) {
+                    const actualTotal = offset + rows.length;
+                    estimatedTotal = actualTotal;
+                    isEstimatedCount = false;
+                  }
+
+                  resolve({
+                    columns: resolvedColumns,
+                    rows,
+                    hasMore,
+                    estimatedTotal,
+                    isEstimatedCount,
+                    executionTimeMs,
+                  });
+                } catch (error) {
+                  reject(
+                    error instanceof Error ? error : new Error(String(error)),
+                  );
+                }
+              };
+
+              const expectedRows = result.totalRows;
+              if (rows.length >= expectedRows) {
+                // All batches already mapped
+                finalize();
+              } else {
+                // Tell onBatch to notify us when rows reach expected count
+                expectedRowCount = expectedRows;
+                const batchTimeout = setTimeout(() => {
+                  onAllBatchesMapped = null;
+                  logger.warn(
+                    "stream-service",
+                    `Timeout waiting for batches: expected ${expectedRows}, got ${rows.length}`,
+                  );
+                  finalize();
+                }, 5000);
+
+                onAllBatchesMapped = () => {
+                  clearTimeout(batchTimeout);
+                  finalize();
+                };
+              }
             });
         },
         onError: (error) => {

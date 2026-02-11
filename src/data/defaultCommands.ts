@@ -1001,6 +1001,24 @@ export const defaultCommands: Command[] = [
     },
   },
   {
+    id: "dataGrid.action.deleteRows",
+    label: "Delete Rows",
+    category: "Data Grid",
+    when: "dataGridFocus && !editingCell && dataGridEditable",
+    handler: () => {
+      dataGridRegistry.getFocused()?.deleteRows?.();
+    },
+  },
+  {
+    id: "dataGrid.action.showContextMenu",
+    label: "Show Context Menu",
+    category: "Data Grid",
+    when: "dataGridFocus && !editingCell",
+    handler: () => {
+      dataGridRegistry.getFocused()?.showContextMenu?.();
+    },
+  },
+  {
     id: "dataGrid.action.clearSelection",
     label: "Clear Selection",
     category: "Data Grid",

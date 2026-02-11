@@ -13,7 +13,9 @@ export interface DataGridController {
   fillDown?: () => void;
   fillRight?: () => void;
   duplicateRows?: () => void;
+  deleteRows?: () => void;
   clearSelection?: () => void;
+  showContextMenu?: () => void;
 }
 
 class DataGridRegistry {

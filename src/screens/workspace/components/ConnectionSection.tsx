@@ -27,6 +27,8 @@ import {
   IconDatabaseExport,
   IconCopy,
   IconDatabase,
+  IconLock,
+  IconLockOpen,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useQuery } from "@tanstack/react-query";
@@ -34,7 +36,8 @@ import { getDatabaseLogo } from "@/utils/databaseLogos";
 import { buildConnectionUri } from "@/utils/connectionParser";
 import { useSchemaData } from "@/hooks/useSchemaData";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
-import { isMySQLCompatible, getParadigm } from "@/types/connection";
+import { isMySQLCompatible, getParadigm, type SafeMode } from "@/types/connection";
+import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import type { CollectionInfo } from "@/adapters/types/mongodb";
 import type { OpenConnection } from "@/types/workspace";
 import {
@@ -815,6 +818,43 @@ export const ConnectionSection = forwardRef<
               />
             </div>
           )}
+
+          {/* Safe mode indicator */}
+          {(() => {
+            const safeMode: SafeMode = profile.safe_mode ?? "full_access";
+            const safeModeLabel = {
+              read_only: "Read Only",
+              read_write: "Read + Write",
+              read_write_update: "Read + Write + Update",
+              full_access: "Full Access",
+            }[safeMode];
+            return (
+              <button
+                className="shrink-0 p-0.5 rounded hover:bg-muted/80 transition-colors"
+                title={`Safe Mode: ${safeModeLabel}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const { openPalette, setNestedMode } =
+                    useCommandPaletteStore.getState();
+                  openPalette();
+                  setTimeout(
+                    () => setNestedMode({ type: "set-safe-mode" }),
+                    0,
+                  );
+                }}
+              >
+                {safeMode === "full_access" ? (
+                  <IconLockOpen className="h-3 w-3 text-green-500" />
+                ) : safeMode === "read_only" ? (
+                  <IconLock className="h-3 w-3 text-red-500" />
+                ) : safeMode === "read_write" ? (
+                  <IconLock className="h-3 w-3 text-orange-500" />
+                ) : (
+                  <IconLock className="h-3 w-3 text-yellow-500" />
+                )}
+              </button>
+            );
+          })()}
 
           {/* Status indicator */}
           <span

@@ -730,51 +730,57 @@ export function useCellHoverIcons(
       }
     };
 
-    // Track button hover state for visual feedback
+    // Track button hover state for visual feedback (throttled via rAF)
+    let rafId: number | null = null;
     const handleMouseMove = (event: MouseEvent) => {
-      if (!hoveredCell) {
-        if (hoveredButton !== null) {
-          setHoveredButton(null);
+      if (rafId !== null) return; // already scheduled
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+
+        if (!hoveredCell) {
+          if (hoveredButton !== null) {
+            setHoveredButton(null);
+          }
+          return;
         }
-        return;
-      }
 
-      const [col, row] = hoveredCell;
-      const cellKey = `${col},${row}`;
-      const iconBounds = iconBoundsRef.current.get(cellKey);
+        const [col, row] = hoveredCell;
+        const cellKey = `${col},${row}`;
+        const iconBounds = iconBoundsRef.current.get(cellKey);
 
-      if (!iconBounds || iconBounds.length === 0) {
-        if (hoveredButton !== null) {
-          setHoveredButton(null);
+        if (!iconBounds || iconBounds.length === 0) {
+          if (hoveredButton !== null) {
+            setHoveredButton(null);
+          }
+          return;
         }
-        return;
-      }
 
-      // Get mouse position relative to container
-      const rect = container.getBoundingClientRect();
-      const mouseX = event.clientX - rect.left;
-      const mouseY = event.clientY - rect.top;
+        // Get mouse position relative to container
+        const rect = container.getBoundingClientRect();
+        const mouseX = event.clientX - rect.left;
+        const mouseY = event.clientY - rect.top;
 
-      // Check if mouse is over any button
-      let foundButton: string | null = null;
-      for (const { action, bounds } of iconBounds) {
-        if (
-          mouseX >= bounds.x &&
-          mouseX <= bounds.x + bounds.width &&
-          mouseY >= bounds.y &&
-          mouseY <= bounds.y + bounds.height
-        ) {
-          foundButton = action;
-          break;
+        // Check if mouse is over any button
+        let foundButton: string | null = null;
+        for (const { action, bounds } of iconBounds) {
+          if (
+            mouseX >= bounds.x &&
+            mouseX <= bounds.x + bounds.width &&
+            mouseY >= bounds.y &&
+            mouseY <= bounds.y + bounds.height
+          ) {
+            foundButton = action;
+            break;
+          }
         }
-      }
 
-      if (foundButton !== hoveredButton) {
-        setHoveredButton(foundButton);
-      }
+        if (foundButton !== hoveredButton) {
+          setHoveredButton(foundButton);
+        }
 
-      // Update cursor style
-      container.style.cursor = foundButton ? "pointer" : "";
+        // Update cursor style
+        container.style.cursor = foundButton ? "pointer" : "";
+      });
     };
 
     // Use capture phase to intercept before Glide handles it
@@ -786,6 +792,7 @@ export function useCellHoverIcons(
       container.removeEventListener("click", handleClick, true);
       container.removeEventListener("mousedown", handleMouseDown, true);
       container.removeEventListener("mousemove", handleMouseMove);
+      if (rafId !== null) cancelAnimationFrame(rafId);
       container.style.cursor = "";
     };
   }, [enabled, containerRef, hoveredCell, hoveredButton, columns, rows, onOpenReference, enableFKPreview]);
