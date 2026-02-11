@@ -754,6 +754,9 @@ export const SqlEditor = memo(
       // preventing unnecessary CM6 update cycles on other editors.
       const ownerDocument = containerRef.current.ownerDocument;
       const handleOutsidePointerDown = (event: PointerEvent) => {
+        // Fast path: unfocused editors can't have visible hover tooltips
+        if (!view.hasFocus) return;
+
         const target = event.target as Element | null;
         if (!target) return;
 
@@ -762,10 +765,6 @@ export const SqlEditor = memo(
 
         // Keep lint tooltip interactive so users can select/copy diagnostic text.
         if (target.closest(".cm-tooltip-lint")) return;
-
-        // Only dismiss tooltips for this editor if it actually had focus
-        // (unfocused editors won't have visible hover tooltips)
-        if (!view.hasFocus) return;
 
         view.dispatch({
           effects: closeHoverTooltips,
