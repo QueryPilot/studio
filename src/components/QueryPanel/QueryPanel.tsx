@@ -511,84 +511,66 @@ export const QueryPanel = memo(function QueryPanel({
         let rafId: number | undefined;
         let pendingTimeout: number | undefined;
 
-        // Throttle updates using requestAnimationFrame with a minimum spacing
+        // Throttle progressive renders. First batch renders SYNCHRONOUSLY
+        // (no setTimeout/RAF delay) so data appears as fast as possible.
+        // Subsequent batches are coalesced into RAF frames with a minimum gap.
         const renderedCountRef = { current: 0 };
         const hasRenderedOnce = { current: false };
-        const MIN_UPDATE_INTERVAL_MS = 120;
+        const MIN_UPDATE_INTERVAL_MS = 32; // ~2 frames — was 120ms, way too sluggish
         let lastUpdateTime = 0;
 
-        const scheduleUpdate = (force = false) => {
-          if (pendingTimeout !== undefined && !force) return; // Update already queued
+        const commitSnapshot = () => {
+          const latestTotal = accumulatedRows.length;
+          setResult((prev) => {
+            if (!prev) {
+              return {
+                columns: currentColumns,
+                columnMeta: currentColumnMeta,
+                rows: accumulatedRows,
+                rowCount: latestTotal,
+                executionTime: 0,
+              };
+            }
+            return {
+              ...prev,
+              columns: currentColumns,
+              columnMeta: currentColumnMeta,
+              rows: accumulatedRows,
+              rowCount: latestTotal,
+            };
+          });
+        };
+
+        const scheduleUpdate = () => {
+          const total = accumulatedRows.length;
+          if (total === 0) return;
+
+          // First render: commit IMMEDIATELY — no setTimeout/RAF indirection.
+          // This shaves ~20ms off time-to-first-pixel.
+          if (!hasRenderedOnce.current) {
+            hasRenderedOnce.current = true;
+            renderedCountRef.current = total;
+            lastUpdateTime = performance.now();
+            commitSnapshot();
+            return;
+          }
+
+          // Already have a pending update queued — let it coalesce more rows.
+          if (pendingTimeout !== undefined) return;
 
           const now = performance.now();
-          const delay = force
-            ? 0
-            : Math.max(MIN_UPDATE_INTERVAL_MS - (now - lastUpdateTime), 0);
-
-          if (pendingTimeout !== undefined && force) {
-            clearTimeout(pendingTimeout);
-            pendingTimeout = undefined;
-          }
+          const delay = Math.max(MIN_UPDATE_INTERVAL_MS - (now - lastUpdateTime), 0);
 
           pendingTimeout = window.setTimeout(() => {
             pendingTimeout = undefined;
             lastUpdateTime = performance.now();
 
-            if (!force && rafId !== undefined) return; // Already scheduled in this frame
-
-            if (rafId !== undefined && force) {
-              cancelAnimationFrame(rafId);
-              rafId = undefined;
-            }
-
+            if (rafId !== undefined) return;
             rafId = requestAnimationFrame(() => {
               rafId = undefined;
-
-              // Don't render until we have rows - keeps skeleton visible
-              const total = accumulatedRows.length;
-              if (total === 0) {
-                return;
-              }
-
-              const commitSnapshot = () => {
-                const latestTotal = accumulatedRows.length;
-                setResult((prev) => {
-                  if (!prev) {
-                    return {
-                      columns: currentColumns,
-                      columnMeta: currentColumnMeta,
-                      rows: accumulatedRows,
-                      rowCount: latestTotal,
-                      executionTime: 0,
-                    };
-                  }
-                  return {
-                    ...prev,
-                    columns: currentColumns,
-                    columnMeta: currentColumnMeta,
-                    rows: accumulatedRows,
-                    rowCount: latestTotal,
-                  };
-                });
-              };
-
-              // First render is synchronous to avoid flash
-              if (!hasRenderedOnce.current) {
-                hasRenderedOnce.current = true;
-                renderedCountRef.current = total;
-                commitSnapshot();
-                return;
-              }
-
-              if (total <= renderedCountRef.current) {
-                return;
-              }
-
-              renderedCountRef.current = total;
-
-              // Direct commit — throttle is already handled by MIN_UPDATE_INTERVAL_MS + RAF.
-              // startTransition made React defer these as low-priority, adding seconds of
-              // delay when the main thread was busy (CodeMirror, store syncs, etc.).
+              const currentTotal = accumulatedRows.length;
+              if (currentTotal <= renderedCountRef.current) return;
+              renderedCountRef.current = currentTotal;
               commitSnapshot();
             });
           }, delay);

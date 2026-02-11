@@ -513,7 +513,10 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         clearTimeout(timeoutId);
       }
     };
-  }, [focused, autoFocus, effectiveQuickFilterRef, columns.length, rows.length]);
+    // rows.length intentionally excluded — during streaming, every batch changes
+    // row count which would re-trigger this effect needlessly. The internal retry
+    // logic (MAX_ATTEMPTS) handles the case where gridRef isn't mounted yet.
+  }, [focused, autoFocus, effectiveQuickFilterRef, columns.length]);
 
   // Scoped keybindings for this grid instance
   const scopeId = useScopedKeybindings(gridId);
@@ -1050,14 +1053,19 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     getRowKey: commandFactory?.getRowKey ?? getRowKey,
   });
 
-  const deferredDisplayRows = useDeferredValue(
-    enableStagedChanges && commandFactory
-      ? displayRowsWithOptimistic
-      : displayRows,
-  );
-  const rowsRef = useRef(deferredDisplayRows);
+  const activeRows = enableStagedChanges && commandFactory
+    ? displayRowsWithOptimistic
+    : displayRows;
+  // useDeferredValue helps keep the UI responsive when optimistic rows change
+  // during CRUD editing. For read-only grids (query results), skip the deferral
+  // — streaming throttle already handles frame pacing, and deferral adds latency.
+  const deferredActiveRows = useDeferredValue(activeRows);
+  const effectiveDisplayRows = (enableStagedChanges && commandFactory)
+    ? deferredActiveRows
+    : activeRows;
+  const rowsRef = useRef(effectiveDisplayRows);
   // Update synchronously during render (not in useEffect) to avoid delay
-  rowsRef.current = deferredDisplayRows;
+  rowsRef.current = effectiveDisplayRows;
 
   // --- Infinite Loading ---
   // Update ref when isLoadingMore changes
@@ -1114,7 +1122,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     database: database ?? "",
     schema: schema ?? "",
     table: tableName ?? "",
-    rows: deferredDisplayRows,
+    rows: effectiveDisplayRows,
     columns: finalColumns,
   });
 
@@ -1154,7 +1162,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
     // Build PK string for each row
     const rowPkToIndex = new Map<string, number>();
-    deferredDisplayRows.forEach((row, index) => {
+    effectiveDisplayRows.forEach((row, index) => {
       const sortedPkColumns = [...effectivePkColumns].sort((a, b) =>
         a.name.localeCompare(b.name),
       );
@@ -1205,14 +1213,14 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     }
 
     return map;
-  }, [enableStagedChanges, pendingChanges, finalColumns, deferredDisplayRows]);
+  }, [enableStagedChanges, pendingChanges, finalColumns, effectiveDisplayRows]);
 
   const stagedValuesMapRef = useRef(stagedValuesMap);
   stagedValuesMapRef.current = stagedValuesMap;
 
   // --- Cell Hover Icons (Copy button, FK preview) ---
   // Only use internal hook if no external hoverIconsDrawCell is provided
-  const isLargeDataset = deferredDisplayRows.length > 5000;
+  const isLargeDataset = effectiveDisplayRows.length > 5000;
   const {
     onItemHovered: handleCellHovered,
     drawCell: internalDrawCellWithHoverIcons,
@@ -1220,7 +1228,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     clearFkPreview,
   } = useCellHoverIcons({
     columns: finalColumns,
-    rows: deferredDisplayRows,
+    rows: effectiveDisplayRows,
     enabled: enableHoverCellIcons && !hoverIconsDrawCell && !isLargeDataset,
     containerRef: containerRef,
     enableFKPreview: paradigm === "sql",
@@ -1424,13 +1432,13 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   //   if (!enableExport) return;
   //   const handleExport = () => {
   //     if (isGridFocused) {
-  //       void exportToCSV(deferredDisplayRows, finalColumns, `${tableName ?? 'export'}.csv`);
+  //       void exportToCSV(effectiveDisplayRows, finalColumns, `${tableName ?? 'export'}.csv`);
   //       toast.success('Export started');
   //     }
   //   };
   //   eventBus.on('data-grid:export-csv', handleExport);
   //   return () => eventBus.off('data-grid:export-csv', handleExport);
-  // }, [enableExport, deferredDisplayRows, finalColumns, tableName, isGridFocused]);
+  // }, [enableExport, effectiveDisplayRows, finalColumns, tableName, isGridFocused]);
 
   // --- getCellContent ---
   // Internal cell content builder (used when props.getCellContent is not provided)
@@ -1574,14 +1582,14 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
       return baseCell;
     },
-    // Include deferredDisplayRows in deps to invalidate Glide's cell cache when data changes
+    // Include effectiveDisplayRows in deps to invalidate Glide's cell cache when data changes
     // Include stagedChanges and stagedValuesMap to refresh cells when staged changes update
     // The actual data access uses refs for performance, but the dependency array change
     // forces Glide Data Grid to re-query getCellContent for all cells
     [
       internalGetCellContent,
       enableStagedChanges,
-      deferredDisplayRows,
+      effectiveDisplayRows,
       stagedChanges,
       stagedValuesMap,
     ],
@@ -2158,11 +2166,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     onBatchEdit:
       enableFillOperations && commandFactory && !readOnly
         ? (edits) => {
-            handleBatchEdit(edits, deferredDisplayRows);
+            handleBatchEdit(edits, effectiveDisplayRows);
           }
         : undefined,
     columnCount: finalColumns.length,
-    rowCount: deferredDisplayRows.length,
+    rowCount: effectiveDisplayRows.length,
   });
 
   useEffect(() => {
@@ -2574,7 +2582,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       <UnifiedContextMenu
         selectedRows={selectedRowsData}
         selectedRowKeys={selectedRowKeys}
-        allRows={deferredDisplayRows}
+        allRows={effectiveDisplayRows}
         columns={finalColumns}
         pinnedRowKeys={pinnedRowIds}
         tableName={tableName}
@@ -2619,7 +2627,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         <EditableDataGrid
           ref={gridRef}
           tableKey={gridId}
-          rows={deferredDisplayRows}
+          rows={effectiveDisplayRows}
           columns={finalColumns}
           getCellContent={getCellContent}
           drawHeader={drawHeader}
@@ -2812,7 +2820,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
       {/* Status bar */}
       <DataGridStatusBar
-        loadedRows={deferredDisplayRows.length}
+        loadedRows={effectiveDisplayRows.length}
         estimatedTotal={props.estimatedTotal}
         isEstimatedCount={props.isEstimatedCount}
         hasMore={props.hasMore}
@@ -2820,7 +2828,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         selectedRows={selectedRowCount}
         selectedRowsData={selectedRowsData}
         selectedRowIndices={selectedRowsSet}
-        allRows={deferredDisplayRows}
+        allRows={effectiveDisplayRows}
         columns={finalColumns}
         gridSelection={gridSelection as any}
         readOnlyReason={readOnlyReason}
