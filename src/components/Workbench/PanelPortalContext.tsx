@@ -95,10 +95,17 @@ export function PanelPortalProvider({
       containersRef.current.set(panelId, element);
       updateRect(panelId, element);
 
-      // Set up ResizeObserver to track size changes for this container
+      // Set up ResizeObserver to track size changes for this container.
+      // RAF-batched to avoid layout thrashing during panel resize drag.
       if (element) {
+        let resizeRaf: number | null = null;
         const observer = new ResizeObserver(() => {
-          updateRect(panelId, element);
+          if (resizeRaf === null) {
+            resizeRaf = requestAnimationFrame(() => {
+              resizeRaf = null;
+              updateRect(panelId, element);
+            });
+          }
         });
         observer.observe(element);
         observersRef.current.set(panelId, observer);

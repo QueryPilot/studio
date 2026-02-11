@@ -533,79 +533,35 @@ class TableStreamingService {
             },
             onSuccess: (streamResult) => {
               if (gen !== this.generation) return; // stale — ignore
-              // NOTE: Keep abort listener active during polling so cancel()
-              // can still reject the promise. Only remove it when settling.
+              // queryStreamClient guarantees all onBatch callbacks have completed
+              // before calling onSuccess (via pendingDecode chain). Resolve immediately.
+              controller.signal.removeEventListener("abort", onAbort);
+              this.isStreaming = false;
 
-              // CRITICAL FIX: Poll until all batches are accumulated
-              // The backend sends success before all batch messages are processed
-              // This is the same proven pattern used in streamEntityPage
-              const expectedRows = streamResult.totalRows;
-              const pollInterval = setInterval(() => {
-                // Check staleness inside the poll too — reject so the promise settles
-                if (gen !== this.generation) {
-                  clearInterval(pollInterval);
-                  // Don't reject here — the abort listener already rejected
-                  return;
-                }
-                if (this.accumulatedRows.length >= expectedRows) {
-                  clearInterval(pollInterval);
-                  controller.signal.removeEventListener("abort", onAbort);
-                  this.isStreaming = false;
-
-                  const finalResult: StreamingTableResult = {
-                    columns: mapBackendColumnsToColumnMeta(
-                      streamResult.columns,
-                    ),
-                    rows: this.accumulatedRows,
-                    isComplete: true,
-                    totalRows: streamResult.totalRows,
-                    executionTimeMs: streamResult.executionTimeMs,
-                    cursorSetupMs: streamResult.cursorSetupMs,
-                    totalStreamingMs: streamResult.totalStreamingMs,
-                    fetchCount: streamResult.fetchCount,
-                    networkMs: streamResult.networkMs,
-                    conversionMs: streamResult.conversionMs,
-                    ipcSendMs: streamResult.ipcSendMs,
-                  };
-                  if (onProgress) {
-                    onProgress({
-                      rowsFetched: streamResult.totalRows,
-                      totalRows: streamResult.totalRows,
-                      executionTimeMs: streamResult.executionTimeMs,
-                      completed: true,
-                    });
-                  }
-                  resolve(finalResult);
-                }
-              }, 10);
-
-              // Safety timeout: resolve after 5 seconds even if count doesn't match.
-              // NOTE: If cancel() fires between the generation check and removeEventListener,
-              // onAbort may reject while this path resolves. This is safe — JS Promises
-              // can only settle once, so the second call (resolve or reject) is a no-op.
-              setTimeout(() => {
-                clearInterval(pollInterval);
-                if (gen !== this.generation) return; // stale — abort listener handles rejection
-                controller.signal.removeEventListener("abort", onAbort);
-                this.isStreaming = false;
-                logger.warn(
-                  `streamQuery timeout waiting for batches: expected ${expectedRows}, got ${this.accumulatedRows.length}`,
-                );
-                const finalResult: StreamingTableResult = {
-                  columns: mapBackendColumnsToColumnMeta(streamResult.columns),
-                  rows: this.accumulatedRows,
-                  isComplete: true,
+              const finalResult: StreamingTableResult = {
+                columns: mapBackendColumnsToColumnMeta(
+                  streamResult.columns,
+                ),
+                rows: this.accumulatedRows,
+                isComplete: true,
+                totalRows: streamResult.totalRows,
+                executionTimeMs: streamResult.executionTimeMs,
+                cursorSetupMs: streamResult.cursorSetupMs,
+                totalStreamingMs: streamResult.totalStreamingMs,
+                fetchCount: streamResult.fetchCount,
+                networkMs: streamResult.networkMs,
+                conversionMs: streamResult.conversionMs,
+                ipcSendMs: streamResult.ipcSendMs,
+              };
+              if (onProgress) {
+                onProgress({
+                  rowsFetched: streamResult.totalRows,
                   totalRows: streamResult.totalRows,
                   executionTimeMs: streamResult.executionTimeMs,
-                  cursorSetupMs: streamResult.cursorSetupMs,
-                  totalStreamingMs: streamResult.totalStreamingMs,
-                  fetchCount: streamResult.fetchCount,
-                  networkMs: streamResult.networkMs,
-                  conversionMs: streamResult.conversionMs,
-                  ipcSendMs: streamResult.ipcSendMs,
-                };
-                resolve(finalResult);
-              }, 5000);
+                  completed: true,
+                });
+              }
+              resolve(finalResult);
             },
             onError: (err) => {
               if (gen !== this.generation) return; // stale — ignore

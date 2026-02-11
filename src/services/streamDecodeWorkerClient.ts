@@ -43,7 +43,7 @@ class StreamDecodeWorkerManager {
     }
   >();
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
-  private static IDLE_TIMEOUT_MS = 10_000; // Tear down the worker after 10s idle
+  private static IDLE_TIMEOUT_MS = 60_000; // Tear down the worker after 60s idle
 
   private ensureWorker(): void {
     if (this.worker) return;

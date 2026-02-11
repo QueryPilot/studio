@@ -85,54 +85,59 @@ class LinterCoordinator {
     const requests = new Map(this.pendingRequests);
     this.pendingRequests.clear();
 
-    for (const [cacheKey, { request, callbacks }] of requests) {
-      if (callbacks.length === 0) continue;
+    // Process all pending requests in parallel — IPC calls are independent
+    await Promise.allSettled(
+      Array.from(requests.entries()).map(
+        async ([cacheKey, { request, callbacks }]) => {
+          if (callbacks.length === 0) return;
 
-      try {
-        const response = await invoke<{
-          valid: boolean;
-          errors: Array<{
-            from: number;
-            to: number;
-            message: string;
-            severity: string;
-            source: string;
-          }>;
-          warnings: Array<{
-            from: number;
-            to: number;
-            message: string;
-            severity: string;
-            source: string;
-          }>;
-        }>("sql_validate", { request });
+          try {
+            const response = await invoke<{
+              valid: boolean;
+              errors: Array<{
+                from: number;
+                to: number;
+                message: string;
+                severity: string;
+                source: string;
+              }>;
+              warnings: Array<{
+                from: number;
+                to: number;
+                message: string;
+                severity: string;
+                source: string;
+              }>;
+            }>("sql_validate", { request });
 
-        const result: LintResult = {
-          diagnostics: [...response.errors, ...response.warnings],
-        };
+            const result: LintResult = {
+              diagnostics: [...response.errors, ...response.warnings],
+            };
 
-        // Cache result
-        this.cache.set(cacheKey, { result, timestamp: Date.now() });
+            // Cache result
+            this.cache.set(cacheKey, { result, timestamp: Date.now() });
 
-        // Evict old cache entries
-        if (this.cache.size > 20) {
-          const oldest = this.cache.keys().next().value;
-          if (oldest) this.cache.delete(oldest);
-        }
+            // Evict old cache entries
+            if (this.cache.size > 20) {
+              const oldest = this.cache.keys().next().value;
+              if (oldest) this.cache.delete(oldest);
+            }
 
-        // Notify all callbacks
-        for (const cb of callbacks) {
-          cb(result);
-        }
-      } catch (error) {
-        logger.error("[LinterCoordinator] IPC failed:", error);
-        // Resolve all callbacks with empty diagnostics so promises don't hang
-        const emptyResult: LintResult = { diagnostics: [] };
-        for (const cb of callbacks) {
-          cb(emptyResult);
-        }
-      }
-    }
+            // Notify all callbacks
+            for (const cb of callbacks) {
+              cb(result);
+            }
+          } catch (error) {
+            logger.error("[LinterCoordinator] IPC failed:", error);
+            // Resolve all callbacks with empty diagnostics so promises don't hang
+            const emptyResult: LintResult = { diagnostics: [] };
+            for (const cb of callbacks) {
+              cb(emptyResult);
+            }
+          }
+        },
+      ),
+    );
   }
 
   private getCacheKey(request: LintRequest): string {

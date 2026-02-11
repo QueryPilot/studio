@@ -140,7 +140,7 @@ describe("TableStreamingService cancellation", () => {
     await expect(promise).rejects.toThrow("Query cancelled");
   });
 
-  it("rejects with AbortError when cancel() is called after onSuccess but before poll resolves", async () => {
+  it("resolves immediately on onSuccess even if cancel() is called afterwards", async () => {
     const callbacks = captureCallbacks();
 
     const promise = tableStreamingService.streamQuery(
@@ -149,13 +149,15 @@ describe("TableStreamingService cancellation", () => {
       "SELECT 1",
     );
 
-    // Fire onSuccess but with 0 accumulated rows (poll will wait)
-    callbacks.onSuccess?.({ ...STREAM_RESULT, totalRows: 100 });
+    // Fire onBatch + onSuccess — promise resolves immediately (no polling)
+    callbacks.onBatch?.({ rows: [[1]], rowOffset: 0 }, 1);
+    callbacks.onSuccess?.({ ...STREAM_RESULT, totalRows: 1 });
 
-    // Cancel during the poll window
+    // Cancel after success — no-op since promise already resolved
     tableStreamingService.cancel();
 
-    await expect(promise).rejects.toThrow("Query cancelled");
+    const result = await promise;
+    expect(result.isComplete).toBe(true);
   });
 
   it("ignores stale onBatch callbacks after cancel via generation counter", async () => {
@@ -278,40 +280,28 @@ describe("TableStreamingService cancellation", () => {
     await expect(promise).rejects.toThrow("Query cancelled");
   });
 
-  it("resolves with partial data after 5s safety timeout when not all rows arrive", async () => {
-    vi.useFakeTimers();
+  it("resolves immediately with accumulated rows on onSuccess (no polling)", async () => {
+    const callbacks = captureCallbacks();
 
-    try {
-      const callbacks = captureCallbacks();
+    const promise = tableStreamingService.streamQuery(
+      "conn-1",
+      "tab-1",
+      "SELECT 1",
+    );
 
-      const promise = tableStreamingService.streamQuery(
-        "conn-1",
-        "tab-1",
-        "SELECT 1",
-      );
+    // Backend says 100 rows total but only 50 arrive via onBatch
+    callbacks.onStarted?.([{ name: "id" }], 100);
+    callbacks.onBatch?.({ rows: Array.from({ length: 50 }, (_, i) => [i]), rowOffset: 0 }, 50);
+    callbacks.onSuccess?.({
+      columns: [{ name: "id" }],
+      totalRows: 100,
+      executionTimeMs: 200,
+    });
 
-      // Backend says 100 rows total but only 50 arrive
-      callbacks.onStarted?.([{ name: "id" }], 100);
-      callbacks.onBatch?.({ rows: Array.from({ length: 50 }, (_, i) => [i]), rowOffset: 0 }, 50);
-      callbacks.onSuccess?.({
-        columns: [{ name: "id" }],
-        totalRows: 100,
-        executionTimeMs: 200,
-      });
-
-      // Advance past the 10ms poll intervals — rows won't reach 100
-      await vi.advanceTimersByTimeAsync(100);
-
-      // Advance past the 5-second safety timeout
-      await vi.advanceTimersByTimeAsync(5000);
-
-      const result = await promise;
-      // Should resolve with partial data (50 rows, not 100)
-      expect(result.isComplete).toBe(true);
-      expect(result.rows).toHaveLength(50);
-      expect(result.totalRows).toBe(100);
-    } finally {
-      vi.useRealTimers();
-    }
+    // Resolves immediately with whatever rows are accumulated
+    const result = await promise;
+    expect(result.isComplete).toBe(true);
+    expect(result.rows).toHaveLength(50);
+    expect(result.totalRows).toBe(100);
   });
 });

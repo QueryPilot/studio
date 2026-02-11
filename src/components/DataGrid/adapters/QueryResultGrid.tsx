@@ -18,7 +18,6 @@ import { DataGridSkeleton } from '../components/DataGridSkeleton';
 import type { ColumnMeta } from '@/types';
 import {
   deriveValueType,
-  normalizeBackendValue,
 } from '@/services/tableDataTransform';
 import type { CellValue as BackendCellValue } from '@/services/backend';
 
@@ -118,9 +117,10 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
       for (let index = 0; index < numColumns; index++) {
         const col = columnMeta?.[index];
         const rawValue = row[index];
-        const normalizedValue = normalizeBackendValue(rawValue);
+        // Data is already normalized by tableStreamingService.normalizeRawRows
+        // (BigInt→string, objects deep-copied). Skip redundant normalizeBackendValue.
         tableRow[`col_${index}`] = {
-          value: normalizedValue ?? null,
+          value: rawValue ?? null,
           db_type: col?.db_type ?? 'text',
           value_type: deriveValueType(rawValue, col?.db_type ?? 'text'),
           is_truncated: false,
@@ -129,7 +129,8 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
       return tableRow;
     });
 
-    cache.transformed = [...cache.transformed, ...newTransformed];
+    // Mutate in place to avoid O(n) copy on each progressive render
+    cache.transformed.push(...newTransformed);
     cache.transformedCount = rawRows.length;
     cache.sourceRows = rawRows;
 

@@ -663,9 +663,10 @@ export class ContextService {
       this.createScope(undefined, scopeId);
     }
 
-    if (!this.activeScopes.includes(scopeId)) {
-      this.activeScopes.push(scopeId);
-    }
+    // Move scope to the end to mark it as most-recently active.
+    // Snapshot resolution applies later scopes last, so this ensures focused scopes win.
+    this.activeScopes = this.activeScopes.filter((id) => id !== scopeId);
+    this.activeScopes.push(scopeId);
   }
 
   exitScope(scopeId: ScopeId): void {

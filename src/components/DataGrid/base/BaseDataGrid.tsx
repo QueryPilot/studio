@@ -43,6 +43,7 @@ import { useContextKey, useScopedKeybindings } from "@/hooks/useContextKey";
 import { openTableObject } from "@/utils/workbench/openers";
 import { quoteIdentifier } from "@/adapters/formatting";
 import { dataGridRegistry } from "@/services/dataGridRegistry";
+import { contextService } from "@/services/contextService";
 
 // Hooks
 import { useQuickFilter } from "../hooks/useQuickFilter";
@@ -573,8 +574,20 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   );
   const hasSelection = useMemo(() => {
     const selection = gridSelection?.current;
+    const hasRowSelection = (gridSelection?.rows?.toArray().length ?? 0) > 0;
+    const hasColumnSelection =
+      (gridSelection?.columns?.toArray().length ?? 0) > 0;
+
+    if (hasRowSelection || hasColumnSelection) {
+      return true;
+    }
+
     if (!selection) return false;
-    if (selection.range && selection.range.width > 0 && selection.range.height > 0) {
+    if (
+      selection.range &&
+      selection.range.width > 0 &&
+      selection.range.height > 0
+    ) {
       return true;
     }
     if (selection.cell) {
@@ -674,10 +687,13 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   // Use capture phase to track focus state synchronously via ref
   // This ensures keyboard handlers always have accurate focus state
   const handleFocusCapture = useCallback(() => {
+    // Keep the focused grid scope last so scoped keybindings/context resolve to this grid.
+    contextService.enterScope(scopeId);
+    contextService.setValue("dataGridFocus", true, scopeId);
     isGridFocusedRef.current = true;
     setIsGridFocused(true);
     dataGridRegistry.setFocused(gridId);
-  }, [gridId]);
+  }, [gridId, scopeId]);
 
   const handleBlurCapture = useCallback((e: React.FocusEvent) => {
     const currentTarget = e.currentTarget as HTMLElement;
@@ -707,12 +723,13 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     }
 
     // Focus is leaving the grid - update synchronously
+    contextService.setValue("dataGridFocus", false, scopeId);
     isGridFocusedRef.current = false;
     setIsGridFocused(false);
     setIsEditingCell(false);
     isEditingCellRef.current = false;
     dataGridRegistry.clearFocused(gridId);
-  }, [gridId]);
+  }, [gridId, scopeId]);
 
   // --- Column Management ---
   const reorderColumns = useCallback(
@@ -2152,7 +2169,6 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     dataGridRegistry.register({
       id: gridId,
       focusFilter: () => {
-        if (!isGridFocusedRef.current) return;
         effectiveQuickFilterRef.current?.focus();
       },
       copySelection: async () => {
@@ -2212,6 +2228,97 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     isCellEditorActive,
     readOnly,
     effectiveQuickFilterRef,
+  ]);
+
+  // Keyboard fallback for DataGrid shortcuts.
+  // This keeps critical shortcuts working even if global keybinding context resolution
+  // is temporarily out of sync across multiple mounted grid scopes.
+  useEffect(() => {
+    const handleDataGridShortcuts = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+
+      const key = event.key.toLowerCase();
+      const isMod = event.metaKey || event.ctrlKey;
+      const target = event.target as HTMLElement | null;
+      const isTextInputTarget =
+        !!target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
+
+      const focusedGridId = dataGridRegistry.getFocused()?.id;
+      const activeElement = document.activeElement;
+      const isFocusedByRegistry = focusedGridId === gridId;
+      const isFocusedByDom =
+        !!activeElement &&
+        !!wrapperRef.current?.contains(activeElement);
+      const isFocused =
+        isFocusedByRegistry || isFocusedByDom || isGridFocusedRef.current;
+
+      if (!isFocused) {
+        return;
+      }
+
+      // Cmd/Ctrl + F -> focus quick filter
+      if (isMod && key === "f") {
+        event.preventDefault();
+        event.stopPropagation();
+        effectiveQuickFilterRef.current?.focus();
+        return;
+      }
+
+      // Don't override native text-input behavior for copy/delete.
+      if (isTextInputTarget) {
+        return;
+      }
+
+      // Cmd/Ctrl + C / Cmd/Ctrl + Shift + C
+      if (
+        enableClipboard &&
+        isMod &&
+        key === "c" &&
+        !isEditingCellRef.current &&
+        !isCellEditorActive()
+      ) {
+        const selection = gridSelectionRef.current;
+        if (!selection) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        void copySelection(selection, event.shiftKey ? "json" : "text");
+        return;
+      }
+
+      // Cmd + Delete / Cmd + Backspace -> delete rows
+      if (
+        event.metaKey &&
+        (key === "delete" || key === "backspace") &&
+        !readOnly &&
+        !!commandFactoryRef.current &&
+        !isEditingCellRef.current &&
+        !isCellEditorActive()
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        handleDeleteRows();
+      }
+    };
+
+    document.addEventListener("keydown", handleDataGridShortcuts, true);
+    return () => {
+      document.removeEventListener("keydown", handleDataGridShortcuts, true);
+    };
+  }, [
+    commandFactory,
+    copySelection,
+    effectiveQuickFilterRef,
+    enableClipboard,
+    gridId,
+    handleDeleteRows,
+    isCellEditorActive,
+    readOnly,
   ]);
 
   // --- Filter by Column (from context menu) ---
@@ -2451,9 +2558,17 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       onFocusCapture={handleFocusCapture}
       onBlurCapture={handleBlurCapture}
       onPaste={handleNativePaste}
-      onMouseDown={() => {
+      onMouseDown={(e) => {
+        // Canvas interactions don't always emit a focus event on the wrapper.
+        // Route commands to this grid immediately on pointer interaction.
+        contextService.enterScope(scopeId);
+        contextService.setValue("dataGridFocus", true, scopeId);
+        dataGridRegistry.setFocused(gridId);
         isGridFocusedRef.current = true;
         setIsGridFocused(true);
+        if (e.currentTarget instanceof HTMLElement) {
+          e.currentTarget.focus();
+        }
       }}
     >
       <UnifiedContextMenu
