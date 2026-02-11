@@ -33,25 +33,25 @@ const SAFE_MODE_ITEMS: SafeModeItem[] = [
     value: "read_only",
     label: "Read Only",
     description: "SELECT, EXPLAIN, SHOW only",
-    icon: <IconLock className="size-4 text-red-500" />,
+    icon: <IconLock className="size-4! text-red-500" />,
   },
   {
     value: "read_write",
     label: "Read + Write",
     description: "Above + INSERT",
-    icon: <IconShieldLock className="size-4 text-orange-500" />,
+    icon: <IconShieldLock className="size-4! text-orange-500" />,
   },
   {
     value: "read_write_update",
     label: "Read + Write + Update",
     description: "Above + UPDATE",
-    icon: <IconPencil className="size-4 text-yellow-500" />,
+    icon: <IconPencil className="size-4! text-yellow-500" />,
   },
   {
     value: "full_access",
     label: "Full Access",
     description: "All operations including DELETE, DDL",
-    icon: <IconLockOpen className="size-4 text-green-500" />,
+    icon: <IconLockOpen className="size-4! text-green-500" />,
   },
 ];
 
@@ -177,24 +177,19 @@ export function NestedSafeModeList({
     SAFE_MODE_ITEMS.find((i) => i.value === mode)?.label ?? mode;
 
   return (
-    <CommandList ref={listRef} className="h-[300px]">
+    <CommandList ref={listRef} className="h-[500px]">
       <CommandEmpty>No matching connections or safe modes.</CommandEmpty>
       {filteredGroups.map((group) => (
         <CommandGroup
           key={group.connectionId}
           heading={
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 sticky top-0 z-10">
               <img
                 src={getDatabaseLogo(group.dbType)}
                 alt={group.dbType}
-                className="size-3.5"
+                className="size-3.5!"
               />
               <span className="truncate">{group.name}</span>
-              {group.database && (
-                <span className="font-normal text-muted-foreground/60">
-                  / {group.database}
-                </span>
-              )}
               <span className="ml-auto text-[10px] font-normal">
                 <span className={MODE_BADGE_COLORS[group.currentMode]}>
                   {getModeLabel(group.currentMode)}
@@ -214,13 +209,13 @@ export function NestedSafeModeList({
               <div className="flex items-center gap-3 w-full">
                 {item.icon}
                 <div className="flex flex-col flex-1 min-w-0">
-                  <span className="text-sm font-medium">{item.label}</span>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-xs font-medium">{item.label}</span>
+                  <span className="text-[11px] text-muted-foreground">
                     {item.description}
                   </span>
                 </div>
                 {item.value === group.currentMode && (
-                  <IconCheck className="size-4 text-primary shrink-0" />
+                  <IconCheck className="size-4! text-primary shrink-0" />
                 )}
               </div>
             </CommandItem>
