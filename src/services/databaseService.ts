@@ -100,6 +100,7 @@ class DatabaseService {
   private healthMonitors: Map<string, NodeJS.Timeout> = new Map();
   private healthListeners: Map<string, ((health: ConnectionHealth) => void)[]> =
     new Map();
+  private healthStatus: Map<string, string> = new Map();
   // Track in-flight connect calls to dedupe concurrent attempts
   private inflightConnects: Map<string, Promise<ConnectResponse>> = new Map();
 
@@ -493,19 +494,6 @@ class DatabaseService {
   async getConnectionHealth(connectionId: string): Promise<ConnectionHealth> {
     try {
       const health = await BackendAPI.getConnectionHealth(connectionId);
-
-      // Only log if unhealthy or at debug level
-      if (!health.healthy) {
-        logger.warn(
-          `[DatabaseService] Unhealthy connection ${connectionId}:`,
-          health,
-        );
-      } else {
-        logger.debug(
-          `[DatabaseService] Health response for ${connectionId}:`,
-          health,
-        );
-      }
 
       return {
         connectionId: health.connection_id,
@@ -1192,11 +1180,18 @@ class DatabaseService {
     // Clear existing monitor if any
     this.stopHealthMonitoring(connectionId);
 
-    // Monitor health every 5 seconds
+    // Monitor health every 5 seconds, only notify on status transitions
     const monitor = setInterval(() => {
       void this.getConnectionHealth(connectionId)
         .then((health) => {
-          this.notifyHealthListeners(connectionId, health);
+          const prev = this.healthStatus.get(connectionId);
+          if (prev !== health.status) {
+            logger.info(
+              `[HealthCheck] ${connectionId}: ${prev ?? "initial"} → ${health.status}${health.rttMs != null ? ` (${health.rttMs}ms)` : ""}`,
+            );
+            this.healthStatus.set(connectionId, health.status);
+            this.notifyHealthListeners(connectionId, health);
+          }
         })
         .catch((error: unknown) => {
           logger.warn("database-service", "Health check failed", {
@@ -1208,8 +1203,15 @@ class DatabaseService {
 
     this.healthMonitors.set(connectionId, monitor);
 
-    // Do immediate health check
+    // Do immediate health check (always notify for first check)
     void this.getConnectionHealth(connectionId).then((health) => {
+      const prev = this.healthStatus.get(connectionId);
+      if (prev !== health.status) {
+        logger.info(
+          `[HealthCheck] ${connectionId}: ${prev ?? "initial"} → ${health.status}${health.rttMs != null ? ` (${health.rttMs}ms)` : ""}`,
+        );
+        this.healthStatus.set(connectionId, health.status);
+      }
       this.notifyHealthListeners(connectionId, health);
     });
   }
@@ -1237,6 +1239,7 @@ class DatabaseService {
       clearInterval(monitor);
       this.healthMonitors.delete(connectionId);
     }
+    this.healthStatus.delete(connectionId);
   }
 
   /**
@@ -1254,9 +1257,14 @@ class DatabaseService {
     // Immediately provide current health if connection is active
     if (this.isConnectionActive(connectionId)) {
       void this.getConnectionHealth(connectionId)
-        .then(listener)
+        .then((health) => {
+          // Keep healthStatus in sync so interval transition detection is accurate
+          this.healthStatus.set(connectionId, health.status);
+          listener(health);
+        })
         .catch(() => {
           // If health check fails, emit error status
+          this.healthStatus.set(connectionId, "error");
           listener({
             connectionId,
             status: "error",
@@ -1840,6 +1848,7 @@ class DatabaseService {
     });
     this.healthMonitors.clear();
     this.healthListeners.clear();
+    this.healthStatus.clear();
 
     // Disconnect all active connections in backend first to avoid leaks
     if (isTauri()) {

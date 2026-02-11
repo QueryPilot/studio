@@ -7,7 +7,7 @@ import {
 } from "@tauri-apps/api/core";
 import type { ColumnMeta, CellValue, StreamMessage } from "./backend";
 import { isTauri } from "../utils/tauri";
-import { getStreamDecodeWorker } from "./streamDecodeWorkerClient";
+import { getStreamDecodeWorker, prewarmStreamDecodeWorker } from "./streamDecodeWorkerClient";
 
 export interface QueryStreamParams {
   connId: string;
@@ -387,3 +387,8 @@ export class QueryStreamClient {
 
 // Singleton instance for convenience
 export const queryStreamClient = new QueryStreamClient();
+
+// Pre-warm the decode worker so the first query doesn't pay ~500ms init cost
+if (typeof Worker !== "undefined") {
+  prewarmStreamDecodeWorker();
+}

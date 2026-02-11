@@ -1,7 +1,7 @@
 import { Decoder } from "msgpackr";
 import type { ColumnMeta } from "@/types/database";
 import type { TableDataRow } from "./tableDataTypes";
-import type { CellValue as BackendCellValue } from "./backend";
+import type { CellValue as BackendCellValue, RawCellValue } from "./backend";
 import {
   mapRowsToTableData,
   normalizeBackendValue,
@@ -38,16 +38,64 @@ interface MapRowsNormalizedRequest {
   columns: ColumnMeta[];
 }
 
+interface WarmupRequest {
+  id: number;
+  type: "warmup";
+}
+
 type StreamWorkerRequest =
   | DecodeRequest
   | MapRowsRequest
-  | MapRowsNormalizedRequest;
+  | MapRowsNormalizedRequest
+  | WarmupRequest;
 
 interface StreamWorkerResponse {
   id: number;
-  type: "decoded" | "mapped" | "mappedNormalized" | "error";
+  type: "decoded" | "mapped" | "mappedNormalized" | "warmup" | "error";
   rows?: BackendCellValue[][] | TableDataRow[];
   error?: string;
+}
+
+// Fast BigInt → string normalizer. Runs in the worker so the main thread
+// skips the per-cell normalizeBackendValue() call entirely.
+// Uses RawCellValue (which includes bigint) instead of deprecated BackendCellValue.
+function normalizeBigIntCell(value: RawCellValue): RawCellValue {
+  if (value === null) return value;
+  if (typeof value === "bigint") return value.toString();
+  if (Array.isArray(value)) {
+    let changed = false;
+    const out = value.map((item) => {
+      const n = normalizeBigIntCell(item);
+      if (n !== item) changed = true;
+      return n;
+    });
+    return changed ? out : value;
+  }
+  if (typeof value === "object") {
+    let changed = false;
+    const entries = Object.entries(value).map(([k, v]) => {
+      const n = normalizeBigIntCell(v);
+      if (n !== v) changed = true;
+      return [k, n] as const;
+    });
+    return changed ? Object.fromEntries(entries) as RawCellValue : value;
+  }
+  return value; // string | number | boolean — pass through
+}
+
+function normalizeBigIntRows(rows: RawCellValue[][]): RawCellValue[][] {
+  let anyChanged = false;
+  const out = rows.map((row) => {
+    let rowChanged = false;
+    const newRow = row.map((cell) => {
+      const n = normalizeBigIntCell(cell);
+      if (n !== cell) rowChanged = true;
+      return n;
+    });
+    if (rowChanged) anyChanged = true;
+    return rowChanged ? newRow : row;
+  });
+  return anyChanged ? out : rows;
 }
 
 // Web Worker context
@@ -69,12 +117,17 @@ self.onmessage = (event: MessageEvent<StreamWorkerRequest>) => {
       // Decode MessagePack payload off the main thread (msgpackr is 2-3x faster)
       const rows = decoder.decode(
         new Uint8Array(message.buffer),
-      ) as BackendCellValue[][];
+      ) as RawCellValue[][];
+
+      // Normalize BigInt → string IN the worker so the main thread never
+      // has to run normalizeRawRows(). This moves ~1500 type-checks per batch
+      // off the critical path. Only recurse into cells that could contain BigInt.
+      const normalized = normalizeBigIntRows(rows);
 
       respond({
         id: message.id,
         type: "decoded",
-        rows,
+        rows: normalized,
       });
       return;
     }
@@ -119,6 +172,12 @@ self.onmessage = (event: MessageEvent<StreamWorkerRequest>) => {
         type: "mappedNormalized",
         rows: mapped,
       });
+      return;
+    }
+
+    if (message.type === "warmup") {
+      // No-op — just ACK so the caller's promise resolves and the worker thread stays alive
+      respond({ id: message.id, type: "warmup" });
       return;
     }
 

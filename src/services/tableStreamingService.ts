@@ -5,10 +5,7 @@ import type { TableDataRow } from "./tableDataTypes";
 import type { ColumnMeta } from "@/types/database";
 import type { FilterConfig, SortConfig } from "@/types/filter";
 import type { EmbeddedFKConfig } from "@/adapters/types";
-import {
-  mapBackendColumnsToColumnMeta,
-  normalizeBackendValue,
-} from "./tableDataTransform";
+import { mapBackendColumnsToColumnMeta } from "./tableDataTransform";
 import { type RawCellValue } from "./backend";
 import { getStreamDecodeWorker } from "./streamDecodeWorkerClient";
 import { getAdapterForConnection } from "@/adapters";
@@ -449,16 +446,6 @@ export interface StreamingTableResult {
   ipcSendMs?: number;
 }
 
-/**
- * Normalize raw rows containing BigInt values to JSON-serializable format.
- * JS can't JSON.stringify BigInt, which breaks React DevTools profiling.
- */
-function normalizeRawRows(rows: RawCellValue[][]): RawCellValue[][] {
-  return rows.map((row) =>
-    row.map((cell) => normalizeBackendValue(cell) as RawCellValue),
-  );
-}
-
 class TableStreamingService {
   private abortController: AbortController | null = null;
   private generation = 0;
@@ -520,13 +507,12 @@ class TableStreamingService {
             },
             onBatch: (batch, totalSoFar) => {
               if (gen !== this.generation) return; // stale — ignore
-              // Normalize BigInt values to strings (JS can't JSON.stringify BigInt)
-              const normalizedRows = normalizeRawRows(batch.rows);
-              this.accumulatedRows.push(...normalizedRows);
+              // BigInt→string normalization now happens in the Web Worker (streamDecode.worker.ts)
+              this.accumulatedRows.push(...batch.rows);
               if (onProgress) {
                 onProgress({
                   rowsFetched: totalSoFar,
-                  newRows: normalizedRows,
+                  newRows: batch.rows,
                   rowOffset: batch.rowOffset,
                 });
               }

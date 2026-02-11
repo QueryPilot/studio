@@ -117,8 +117,8 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
       for (let index = 0; index < numColumns; index++) {
         const col = columnMeta?.[index];
         const rawValue = row[index];
-        // Data is already normalized by tableStreamingService.normalizeRawRows
-        // (BigInt→string, objects deep-copied). Skip redundant normalizeBackendValue.
+        // BigInt→string normalization happens in the Web Worker (streamDecode.worker.ts).
+        // Skip redundant normalizeBackendValue — structured clone already deep-copies.
         tableRow[`col_${index}`] = {
           value: rawValue ?? null,
           db_type: col?.db_type ?? 'text',
@@ -135,7 +135,10 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
     cache.sourceRows = rawRows;
 
     return cache.transformed;
-  }, [data?.rows, data?.columnMeta, data?.columns]);
+    // data?.rowCount is critical: accumulatedRows is mutated in place during
+    // streaming (.push()), so data?.rows reference never changes. rowCount
+    // tracks the actual length so this memo re-runs for each progressive batch.
+  }, [data?.rows, data?.rowCount, data?.columnMeta, data?.columns]);
 
   // Build columns from metadata
   const columns = useMemo<GridColumnV2[]>(() => {
