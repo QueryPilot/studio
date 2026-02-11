@@ -337,8 +337,13 @@ export const Panel: React.FC<PanelProps> = React.memo(
     // on the grid to focus it and select a specific cell.
     useEffect(() => {
       if (isFocused && panelRef.current) {
-        // Only focus the panel container, not the inner content
-        panelRef.current.focus({ preventScroll: true });
+        // Only focus the panel container if focus isn't already inside it.
+        // Without this guard, clicking on an inner element (e.g. QuickFilter input)
+        // triggers focusPanel → isFocused changes → this effect steals focus back
+        // to the panel div, forcing the user to click twice.
+        if (!panelRef.current.contains(document.activeElement)) {
+          panelRef.current.focus({ preventScroll: true });
+        }
       }
     }, [isFocused]);
 
@@ -368,6 +373,7 @@ export const Panel: React.FC<PanelProps> = React.memo(
       <div
         ref={panelRef}
         tabIndex={0}
+        data-panel-id={panelId}
         className={cn(
           "panel flex flex-col bg-background h-full overflow-hidden relative rounded-xl outline-none border-[3px]",
           isFocused && !isOnlyPanel ? "border-primary/30" : "border-background",

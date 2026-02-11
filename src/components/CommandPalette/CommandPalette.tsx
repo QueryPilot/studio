@@ -209,6 +209,20 @@ export function CommandPalette(): React.ReactElement {
     contextService.setValue("inQuickOpen", isOpen);
     contextService.setValue("inCommandPalette", isOpen);
 
+    // When the palette closes, ensure the focused panel gets DOM focus.
+    // The dialog's built-in focus restoration can fail when the previously-focused
+    // element was unmounted (e.g. because the active tab changed).
+    if (!isOpen) {
+      requestAnimationFrame(() => {
+        const focusedPanelId = usePanelFocusStore.getState().focusedPanelId;
+        if (!focusedPanelId) return;
+        const panel = document.querySelector(`.panel[data-panel-id="${focusedPanelId}"]`) as HTMLElement | null;
+        if (panel && !panel.contains(document.activeElement)) {
+          panel.focus({ preventScroll: true });
+        }
+      });
+    }
+
     return () => {
       if (!isOpen) {
         contextService.setValue("inQuickOpen", false);
@@ -511,6 +525,7 @@ export function CommandPalette(): React.ReactElement {
         }
 
         workbench.addTab(targetPanelId, tabId, metadata);
+        workbench.focusPanel(targetPanelId);
       };
 
       if (item.type === "function" && item.func) {
