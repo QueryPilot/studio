@@ -7,10 +7,7 @@ import React, {
   useTransition,
 } from "react";
 import { cn } from "@/lib/utils";
-import {
-  type DropPosition,
-  type TabMetadata,
-} from "@/types/workbench";
+import { type DropPosition, type TabMetadata } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import {
@@ -42,13 +39,12 @@ import type { DbType } from "@/types/connection";
 import { usePanelContent } from "@/hooks/usePanelContent";
 
 import { normalizeKeybindingLabel } from "@/lib/keyboardDispatch";
-import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
+import { commandService } from "@/services/commandService";
 
 const EMPTY_PANEL_SHORTCUTS: Array<{ label: string; binding: string }> = [
   { label: "New query tab", binding: "cmd+t" },
   { label: "AI assistant", binding: "cmd+l" },
-  { label: "Quick panel", binding: "cmd+p" },
-  { label: "Command palette", binding: "cmd+shift+p" },
+  { label: "Command palette", binding: "cmd+p" },
   { label: "Split panel", binding: "cmd+\\" },
 ];
 
@@ -246,380 +242,360 @@ interface PanelProps {
   className?: string;
 }
 
-export const Panel: React.FC<PanelProps> = React.memo(({ panelId, className }) => {
-  const content = usePanelContent(panelId);
+export const Panel: React.FC<PanelProps> = React.memo(
+  ({ panelId, className }) => {
+    const content = usePanelContent(panelId);
 
-  // Use dedicated focus store to avoid subscribing to entire workbench store
-  const isFocused = usePanelFocusStore(
-    useCallback((state: { focusedPanelId: string | null }) => state.focusedPanelId === panelId, [panelId])
-  );
-  const focusPanel = useWorkbenchStore((state) => state.focusPanel);
-  const closePanelAction = useWorkbenchStore((state) => state.closePanelAction);
-  const splitPanelAction = useWorkbenchStore((state) => state.splitPanelAction);
-  const setActiveTab = useWorkbenchStore((state) => state.setActiveTab);
-  const removeTab = useWorkbenchStore((state) => state.removeTab);
-  const addTab = useWorkbenchStore((state) => state.addTab);
+    // Use dedicated focus store to avoid subscribing to entire workbench store
+    const isFocused = usePanelFocusStore(
+      useCallback(
+        (state: { focusedPanelId: string | null }) =>
+          state.focusedPanelId === panelId,
+        [panelId],
+      ),
+    );
+    const focusPanel = useWorkbenchStore((state) => state.focusPanel);
+    const closePanelAction = useWorkbenchStore(
+      (state) => state.closePanelAction,
+    );
+    const splitPanelAction = useWorkbenchStore(
+      (state) => state.splitPanelAction,
+    );
+    const setActiveTab = useWorkbenchStore((state) => state.setActiveTab);
+    const removeTab = useWorkbenchStore((state) => state.removeTab);
 
-  const panelRef = useRef<HTMLDivElement>(null);
-  const tabsContainerRef = useRef<HTMLDivElement>(null);
+    const panelRef = useRef<HTMLDivElement>(null);
+    const tabsContainerRef = useRef<HTMLDivElement>(null);
 
-  // Subscribe to drag state
-  const draggedTab = useWorkbenchStore(
-    (state) => state.dragDropContext.draggedTab,
-  );
-  const isOnlyPanel = useWorkbenchStore(
-    useCallback((state: { panelContents: Map<string, unknown> }) => state.panelContents.size <= 1, [])
-  );
-  const isDragActive = useWorkbenchStore(
-    (state) => state.dragDropContext.draggedTab !== null,
-  );
-  const isSourcePanel = draggedTab?.panelId === panelId;
-  // Show split zones (top/bottom/left/right) on ALL panels when dragging
-  const showSplitZones = isDragActive;
-  // Show center zone only on non-source panels (dropping on source center is a no-op)
-  // Exception: show center on source if it's the only panel (for consistency)
-  const showCenterZone = isDragActive && (!isSourcePanel || isOnlyPanel);
+    // Subscribe to drag state
+    const draggedTab = useWorkbenchStore(
+      (state) => state.dragDropContext.draggedTab,
+    );
+    const isOnlyPanel = useWorkbenchStore(
+      useCallback(
+        (state: { panelContents: Map<string, unknown> }) =>
+          state.panelContents.size <= 1,
+        [],
+      ),
+    );
+    const isDragActive = useWorkbenchStore(
+      (state) => state.dragDropContext.draggedTab !== null,
+    );
+    const isSourcePanel = draggedTab?.panelId === panelId;
+    // Show split zones (top/bottom/left/right) on ALL panels when dragging
+    const showSplitZones = isDragActive;
+    // Show center zone only on non-source panels (dropping on source center is a no-op)
+    // Exception: show center on source if it's the only panel (for consistency)
+    const showCenterZone = isDragActive && (!isSourcePanel || isOnlyPanel);
 
-  // Get workspace connection IDs for tab color grouping
-  const workspaceConnectionIds = useWorkspaceBundleStore(
-    (state) => state.activeWorkspace?.config.connectionIds ?? [],
-  );
-
-  // Get focused connection management for tab-sidebar sync
-  const focusedConnectionId = useWorkspaceBundleStore(
-    (state) => state.activeWorkspace?.focusedConnectionId,
-  );
-  const setFocusedConnection = useWorkspaceBundleStore(
-    (state) => state.setFocusedConnection,
-  );
-
-  // Track recently accessed tabs - keeps last N tabs mounted for instant switching
-  // isPending is true while a non-cached tab is loading (React 19 transition)
-  const { mountedTabs, isPending } = useRecentTabs(
-    content?.activeTabId ?? null,
-    content?.tabIds ?? [],
-  );
-
-  // Memoize connection lookups to avoid O(n*m) connection searches during render
-  const tabIds = content?.tabIds;
-  const metadata = content?.metadata;
-  const connectionInfoByConnectionId = useMemo(() => {
-    const map = new Map<string, { dbType: DbType; name: string }>();
-    if (!tabIds) return map;
-    tabIds.forEach((tabId) => {
-      const connectionId = metadata?.[tabId]?.connectionId;
-      if (connectionId && !map.has(connectionId)) {
-        const conn = useConnectionStore.getState().getConnection(connectionId);
-        if (conn) {
-          map.set(connectionId, {
-            dbType: conn.profile.db_type,
-            name: conn.profile.name,
-          });
-        }
-      }
-    });
-    return map;
-  }, [tabIds, metadata]);
-
-  // Focus the panel itself when it becomes logically focused
-  // Note: We intentionally don't focus the inner grid content to avoid
-  // triggering auto-selection of the first cell. The user should click
-  // on the grid to focus it and select a specific cell.
-  useEffect(() => {
-    if (isFocused && panelRef.current) {
-      // Only focus the panel container, not the inner content
-      panelRef.current.focus({ preventScroll: true });
-    }
-  }, [isFocused]);
-
-  const handleClick = useCallback(() => {
-    focusPanel(panelId);
-  }, [focusPanel, panelId]);
-
-  const handleSplit = useCallback(
-    (direction: "up" | "down" | "left" | "right") => {
-      splitPanelAction({
-        targetPanelId: panelId,
-        direction,
-        splitRatio: 0.5,
-      });
-    },
-    [splitPanelAction, panelId],
-  );
-
-  const handleNewQueryTab = useCallback(() => {
-    const uuid =
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `${Date.now().toString(36)}-${Math.random()
-            .toString(36)
-            .slice(2, 8)}`;
-    const tabId = `query-${uuid}`;
-
-    const { activeConnectionId, panelContents } = useWorkbenchStore.getState();
-    const { getConnection } = useConnectionStore.getState();
-    const { schema: selectedSchema } = useWorkspaceSelectionStore.getState();
-
-    const connectionId = activeConnectionId ?? "";
-    const connection = connectionId ? getConnection(connectionId) : null;
-
-    const totalQueryCount = Array.from(panelContents.values()).reduce(
-      (count, panelContent) => {
-        return (
-          count +
-          panelContent.tabIds.filter((id) => {
-            const metadata = panelContent.metadata?.[id];
-            return metadata?.type === "query" || id.startsWith("query-");
-          }).length
-        );
-      },
-      0,
+    // Get workspace connection IDs for tab color grouping
+    const workspaceConnectionIds = useWorkspaceBundleStore(
+      (state) => state.activeWorkspace?.config.connectionIds ?? [],
     );
 
-    const title =
-      totalQueryCount > 0 ? `Query ${totalQueryCount + 1}` : "New Query";
+    // Get focused connection management for tab-sidebar sync
+    const focusedConnectionId = useWorkspaceBundleStore(
+      (state) => state.activeWorkspace?.focusedConnectionId,
+    );
+    const setFocusedConnection = useWorkspaceBundleStore(
+      (state) => state.setFocusedConnection,
+    );
 
-    addTab(panelId, tabId, {
-      type: "query",
-      title,
-      connectionId,
-      database: connection?.profile.database || "",
-      schema: selectedSchema || "",
-      sql: "",
-    });
-    setActiveTab(panelId, tabId);
-    focusPanel(panelId);
-  }, [addTab, panelId, focusPanel, setActiveTab]);
+    // Track recently accessed tabs - keeps last N tabs mounted for instant switching
+    // isPending is true while a non-cached tab is loading (React 19 transition)
+    const { mountedTabs, isPending } = useRecentTabs(
+      content?.activeTabId ?? null,
+      content?.tabIds ?? [],
+    );
 
-  if (!content) return null;
+    // Memoize connection lookups to avoid O(n*m) connection searches during render
+    const tabIds = content?.tabIds;
+    const metadata = content?.metadata;
+    const connectionInfoByConnectionId = useMemo(() => {
+      const map = new Map<string, { dbType: DbType; name: string }>();
+      if (!tabIds) return map;
+      tabIds.forEach((tabId) => {
+        const connectionId = metadata?.[tabId]?.connectionId;
+        if (connectionId && !map.has(connectionId)) {
+          const conn = useConnectionStore
+            .getState()
+            .getConnection(connectionId);
+          if (conn) {
+            map.set(connectionId, {
+              dbType: conn.profile.db_type,
+              name: conn.profile.name,
+            });
+          }
+        }
+      });
+      return map;
+    }, [tabIds, metadata]);
 
-  return (
-    <div
-      ref={panelRef}
-      tabIndex={0}
-      className={cn(
-        "panel flex flex-col bg-background h-full overflow-hidden relative rounded-xl outline-none border-[3px]",
-        isFocused && !isOnlyPanel ? "border-primary/30" : "border-background",
-        className,
-      )}
-      onClick={handleClick}
-      onFocus={() => {
-        focusPanel(panelId);
-      }}
-    >
-      <div className="panel-header flex items-center justify-between bg-secondary">
-        <div className="overflow-x-auto relative scrollbar-none">
-          <div
-            ref={tabsContainerRef}
-            className="flex items-center relative overflow-hidden overflow-x-scroll scrollbar-none"
-          >
-            {content.tabIds.map((tabId, index) => {
+    // Focus the panel itself when it becomes logically focused
+    // Note: We intentionally don't focus the inner grid content to avoid
+    // triggering auto-selection of the first cell. The user should click
+    // on the grid to focus it and select a specific cell.
+    useEffect(() => {
+      if (isFocused && panelRef.current) {
+        // Only focus the panel container, not the inner content
+        panelRef.current.focus({ preventScroll: true });
+      }
+    }, [isFocused]);
+
+    const handleClick = useCallback(() => {
+      focusPanel(panelId);
+    }, [focusPanel, panelId]);
+
+    const handleSplit = useCallback(
+      (direction: "up" | "down" | "left" | "right") => {
+        splitPanelAction({
+          targetPanelId: panelId,
+          direction,
+          splitRatio: 0.5,
+        });
+      },
+      [splitPanelAction, panelId],
+    );
+
+    const handleNewQueryTab = useCallback(() => {
+      focusPanel(panelId);
+      void commandService.execute("workbench.action.newQueryTab");
+    }, [focusPanel, panelId]);
+
+    if (!content) return null;
+
+    return (
+      <div
+        ref={panelRef}
+        tabIndex={0}
+        className={cn(
+          "panel flex flex-col bg-background h-full overflow-hidden relative rounded-xl outline-none border-[3px]",
+          isFocused && !isOnlyPanel ? "border-primary/30" : "border-background",
+          className,
+        )}
+        onClick={handleClick}
+        onFocus={() => {
+          focusPanel(panelId);
+        }}
+      >
+        <div className="panel-header flex items-center justify-between bg-secondary">
+          <div className="overflow-x-auto relative scrollbar-none">
+            <div
+              ref={tabsContainerRef}
+              className="flex items-center relative overflow-hidden overflow-x-scroll scrollbar-none"
+            >
+              {content.tabIds.map((tabId, index) => {
+                const metadata = content.metadata?.[tabId];
+                const displayName =
+                  metadata?.table ||
+                  metadata?.title ||
+                  tabId.split("-").pop() ||
+                  tabId;
+
+                const nextTabId = content.tabIds[index + 1];
+                const isNextActive = nextTabId
+                  ? content.activeTabId === nextTabId
+                  : false;
+
+                // Use memoized connection info lookup
+                const connInfo = metadata?.connectionId
+                  ? connectionInfoByConnectionId.get(metadata.connectionId)
+                  : undefined;
+
+                return (
+                  <DraggableTab
+                    key={tabId}
+                    tabId={tabId}
+                    panelId={panelId}
+                    displayName={displayName}
+                    isActive={content.activeTabId === tabId}
+                    isFocused={isFocused}
+                    isLast={index === content.tabIds.length - 1}
+                    tabType={metadata?.type || "table"}
+                    isView={metadata?.isView}
+                    kind={metadata?.kind}
+                    returnType={metadata?.returnType as string | undefined}
+                    objectType={
+                      metadata?.objectType as
+                        | "function"
+                        | "procedure"
+                        | undefined
+                    }
+                    isNextActive={isNextActive}
+                    connectionId={metadata?.connectionId}
+                    workspaceConnectionIds={workspaceConnectionIds}
+                    databaseName={metadata?.database}
+                    dbType={connInfo?.dbType}
+                    connectionName={connInfo?.name}
+                    schemaName={metadata?.schema}
+                    isOnlyTab={content.tabIds.length === 1}
+                    tabIndex={index}
+                    totalTabs={content.tabIds.length}
+                    onActivate={() => {
+                      setActiveTab(panelId, tabId);
+                      focusPanel(panelId);
+
+                      // If this tab belongs to a different connection, update focused connection
+                      const tabConnectionId = metadata?.connectionId;
+                      if (
+                        tabConnectionId &&
+                        tabConnectionId !== focusedConnectionId
+                      ) {
+                        setFocusedConnection(tabConnectionId);
+                      }
+                    }}
+                    onClose={() => {
+                      removeTab(panelId, tabId);
+                    }}
+                    onCloseOthers={() => {
+                      // Close all tabs except this one
+                      content.tabIds.forEach((tid) => {
+                        if (tid !== tabId) {
+                          removeTab(panelId, tid);
+                        }
+                      });
+                    }}
+                    onCloseToRight={() => {
+                      // Close all tabs to the right of this one
+                      const tabsToClose = content.tabIds.slice(index + 1);
+                      tabsToClose.forEach((tid) => {
+                        removeTab(panelId, tid);
+                      });
+                    }}
+                    onCloseAll={() => {
+                      // Close all tabs
+                      content.tabIds.forEach((tid) => {
+                        removeTab(panelId, tid);
+                      });
+                    }}
+                    onCopyName={() => {
+                      navigator.clipboard.writeText(displayName);
+                      toast.success("Copied to clipboard", {
+                        description: displayName,
+                      });
+                    }}
+                  />
+                );
+              })}
+
+              {content.tabIds.length === 0 && (
+                <span className="text-muted-foreground px-2 h-8 flex items-center text-xs font-bold">
+                  Empty Panel
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 pr-1">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={handleNewQueryTab}
+              title="New query tab"
+            >
+              <IconPlus />
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button variant="ghost" size="icon-sm">
+                    <IconLayoutGrid />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end" className="w-48 text-xs">
+                <DropdownMenuItem
+                  onClick={() => {
+                    handleSplit("right");
+                  }}
+                >
+                  <IconLayoutSidebarRight className="mr-2 h-4 w-4" />
+                  Split Right
+                  <DropdownMenuShortcut>⌘\</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    handleSplit("down");
+                  }}
+                >
+                  <IconLayoutBottombar className="mr-2 h-4 w-4" />
+                  Split Down
+                  <DropdownMenuShortcut>⌘⇧\</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    handleSplit("left");
+                  }}
+                >
+                  <IconLayoutSidebar className="mr-2 h-4 w-4" />
+                  Split Left
+                  <DropdownMenuShortcut>⌘⌥←</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    handleSplit("up");
+                  }}
+                >
+                  <IconLayoutNavbar className="mr-2 h-4 w-4" />
+                  Split Up
+                  <DropdownMenuShortcut>⌘⌥↑</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closePanelAction(panelId);
+                  }}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <IconX className="mr-2 h-4 w-4 text-destructive" />
+                  Close Panel
+                  <DropdownMenuShortcut className="text-destructive">
+                    ⌘⇧W
+                  </DropdownMenuShortcut>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        <div className="panel-body flex-1 overflow-hidden relative">
+          {/* Subtle loading indicator when switching to non-cached tab */}
+          {isPending && (
+            <div className="absolute top-0 left-0 right-0 h-0.5 z-50 overflow-hidden">
+              <div className="h-full bg-primary/60 animate-pulse" />
+            </div>
+          )}
+
+          {/* Render recently accessed tabs - keeps last N mounted for instant switching */}
+          {/* Inactive tabs are hidden via CSS but remain mounted to preserve state */}
+          {content.tabIds
+            .filter((tabId) => mountedTabs.has(tabId))
+            .map((tabId) => {
+              const isActive = content.activeTabId === tabId;
               const metadata = content.metadata?.[tabId];
-              const displayName =
-                metadata?.table ||
-                metadata?.title ||
-                tabId.split("-").pop() ||
-                tabId;
-
-              const nextTabId = content.tabIds[index + 1];
-              const isNextActive = nextTabId
-                ? content.activeTabId === nextTabId
-                : false;
-
-              // Use memoized connection info lookup
-              const connInfo = metadata?.connectionId
-                ? connectionInfoByConnectionId.get(metadata.connectionId)
-                : undefined;
+              if (!metadata || !isActive) return null;
 
               return (
-                <DraggableTab
-                  key={tabId}
-                  tabId={tabId}
-                  panelId={panelId}
-                  displayName={displayName}
-                  isActive={content.activeTabId === tabId}
-                  isFocused={isFocused}
-                  isLast={index === content.tabIds.length - 1}
-                  tabType={metadata?.type || "table"}
-                  isView={metadata?.isView}
-                  kind={metadata?.kind}
-                  returnType={metadata?.returnType as string | undefined}
-                  objectType={
-                    metadata?.objectType as "function" | "procedure" | undefined
-                  }
-                  isNextActive={isNextActive}
-                  connectionId={metadata?.connectionId}
-                  workspaceConnectionIds={workspaceConnectionIds}
-                  databaseName={metadata?.database}
-                  dbType={connInfo?.dbType}
-                  connectionName={connInfo?.name}
-                  schemaName={metadata?.schema}
-                  isOnlyTab={content.tabIds.length === 1}
-                  tabIndex={index}
-                  totalTabs={content.tabIds.length}
-                  onActivate={() => {
-                    setActiveTab(panelId, tabId);
-                    focusPanel(panelId);
-
-                    // If this tab belongs to a different connection, update focused connection
-                    const tabConnectionId = metadata?.connectionId;
-                    if (tabConnectionId && tabConnectionId !== focusedConnectionId) {
-                      setFocusedConnection(tabConnectionId);
-                    }
-                  }}
-                  onClose={() => {
-                    removeTab(panelId, tabId);
-                  }}
-                  onCloseOthers={() => {
-                    // Close all tabs except this one
-                    content.tabIds.forEach((tid) => {
-                      if (tid !== tabId) {
-                        removeTab(panelId, tid);
-                      }
-                    });
-                  }}
-                  onCloseToRight={() => {
-                    // Close all tabs to the right of this one
-                    const tabsToClose = content.tabIds.slice(index + 1);
-                    tabsToClose.forEach((tid) => {
-                      removeTab(panelId, tid);
-                    });
-                  }}
-                  onCloseAll={() => {
-                    // Close all tabs
-                    content.tabIds.forEach((tid) => {
-                      removeTab(panelId, tid);
-                    });
-                  }}
-                  onCopyName={() => {
-                    navigator.clipboard.writeText(displayName);
-                    toast.success("Copied to clipboard", {
-                      description: displayName,
-                    });
-                  }}
-                />
+                <div key={tabId} className={cn("absolute inset-0")}>
+                  <MemoizedPanelContent
+                    panelId={panelId}
+                    tabId={tabId}
+                    metadata={metadata}
+                  />
+                </div>
               );
             })}
 
-            {content.tabIds.length === 0 && (
-              <span className="text-muted-foreground px-2 h-8 flex items-center text-xs font-bold">
-                Empty Panel
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1 pr-1">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={handleNewQueryTab}
-            title="New query tab"
-          >
-            <IconPlus />
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button variant="ghost" size="icon-sm">
-                  <IconLayoutGrid />
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="end" className="w-48 text-xs">
-              <DropdownMenuItem
-                onClick={() => {
-                  handleSplit("right");
-                }}
-              >
-                <IconLayoutSidebarRight className="mr-2 h-4 w-4" />
-                Split Right
-                <DropdownMenuShortcut>⌘\</DropdownMenuShortcut>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  handleSplit("down");
-                }}
-              >
-                <IconLayoutBottombar className="mr-2 h-4 w-4" />
-                Split Down
-                <DropdownMenuShortcut>⌘⇧\</DropdownMenuShortcut>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  handleSplit("left");
-                }}
-              >
-                <IconLayoutSidebar className="mr-2 h-4 w-4" />
-                Split Left
-                <DropdownMenuShortcut>⌘⌥←</DropdownMenuShortcut>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  handleSplit("up");
-                }}
-              >
-                <IconLayoutNavbar className="mr-2 h-4 w-4" />
-                Split Up
-                <DropdownMenuShortcut>⌘⌥↑</DropdownMenuShortcut>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  closePanelAction(panelId);
-                }}
-                className="text-destructive focus:text-destructive"
-              >
-                <IconX className="mr-2 h-4 w-4 text-destructive" />
-                Close Panel
-                <DropdownMenuShortcut className="text-destructive">
-                  ⌘⇧W
-                </DropdownMenuShortcut>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-
-      <div className="panel-body flex-1 overflow-hidden relative">
-        {/* Subtle loading indicator when switching to non-cached tab */}
-        {isPending && (
-          <div className="absolute top-0 left-0 right-0 h-0.5 z-50 overflow-hidden">
-            <div className="h-full bg-primary/60 animate-pulse" />
-          </div>
-        )}
-
-        {/* Render recently accessed tabs - keeps last N mounted for instant switching */}
-        {/* Inactive tabs are hidden via CSS but remain mounted to preserve state */}
-        {content.tabIds
-          .filter((tabId) => mountedTabs.has(tabId))
-          .map((tabId) => {
-            const isActive = content.activeTabId === tabId;
-            const metadata = content.metadata?.[tabId];
-            if (!metadata || !isActive) return null;
-
-            return (
-              <div key={tabId} className={cn("absolute inset-0")}>
-                <MemoizedPanelContent
-                  panelId={panelId}
-                  tabId={tabId}
-                  metadata={metadata}
-                />
-              </div>
-            );
-          })}
-
-        {content.tabIds.length === 0 && (
-          <div className="flex h-full w-full items-center justify-center p-6">
-            <div className="text-center space-y-3">
-              <div className="mt-3 grid grid-cols-1 gap-3">
+          {content.tabIds.length === 0 && (
+            <div className="flex h-full w-full items-center justify-center p-6">
+              <div className="mt-3 grid grid-cols-1 gap-3 w-full">
                 {EMPTY_PANEL_SHORTCUTS.map(({ label, binding }) => (
                   <div
                     key={binding}
-                    className="flex items-center justify-between gap-3"
+                    className="flex items-center justify-center gap-3 w-full"
                   >
-                    <div className="w-1/2 !text-xs text-foreground text-right">
+                    <div className="w-1/2 text-xs text-foreground text-right">
                       {label}
                     </div>
                     <div className="w-1/2">
@@ -629,38 +605,38 @@ export const Panel: React.FC<PanelProps> = React.memo(({ panelId, className }) =
                 ))}
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Drop Zones */}
-        <DroppableZone
-          panelId={panelId}
-          position="top"
-          isVisible={showSplitZones}
-        />
-        <DroppableZone
-          panelId={panelId}
-          position="bottom"
-          isVisible={showSplitZones}
-        />
-        <DroppableZone
-          panelId={panelId}
-          position="left"
-          isVisible={showSplitZones}
-        />
-        <DroppableZone
-          panelId={panelId}
-          position="right"
-          isVisible={showSplitZones}
-        />
-        <DroppableZone
-          panelId={panelId}
-          position="center"
-          isVisible={showCenterZone}
-        />
+          {/* Drop Zones */}
+          <DroppableZone
+            panelId={panelId}
+            position="top"
+            isVisible={showSplitZones}
+          />
+          <DroppableZone
+            panelId={panelId}
+            position="bottom"
+            isVisible={showSplitZones}
+          />
+          <DroppableZone
+            panelId={panelId}
+            position="left"
+            isVisible={showSplitZones}
+          />
+          <DroppableZone
+            panelId={panelId}
+            position="right"
+            isVisible={showSplitZones}
+          />
+          <DroppableZone
+            panelId={panelId}
+            position="center"
+            isVisible={showCenterZone}
+          />
+        </div>
       </div>
-    </div>
-  );
-});
+    );
+  },
+);
 
 Panel.displayName = "Panel";

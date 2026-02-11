@@ -49,6 +49,7 @@ class SchemaCache {
     processing: false,
   };
   private accessPatterns: Map<string, string[]> = new Map();
+  lastAccessTime = 0; // Tracks last cache read for idle detection
   private currentConnectionId: string | null = null;
 
   private readonly ttlConfig = {
@@ -738,6 +739,7 @@ class SchemaCache {
     // Update access info
     entry.lastAccessed = now;
     entry.accessCount++;
+    this.lastAccessTime = now;
 
     // Promote frequently accessed items
     if (entry.accessCount > 10 && entry.priority === "low") {
@@ -927,9 +929,12 @@ class SchemaCache {
 
 export const schemaCache = new SchemaCache();
 
-// Auto-refresh stale data every 5 minutes
+// Auto-refresh stale data every 5 minutes, but skip if cache hasn't been accessed recently
+const IDLE_THRESHOLD = 15 * 60 * 1000; // 15 minutes
 setInterval(() => {
-  schemaCache.refreshStale();
+  if (schemaCache.lastAccessTime > 0 && Date.now() - schemaCache.lastAccessTime < IDLE_THRESHOLD) {
+    schemaCache.refreshStale();
+  }
 }, 5 * 60 * 1000);
 
 export type { TableMeta };
