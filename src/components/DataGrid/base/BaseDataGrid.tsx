@@ -2215,10 +2215,70 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         }
         handleDuplicateRows();
       },
+      deleteRows: () => {
+        if (readOnly || !commandFactory || isCellEditorActive()) {
+          return;
+        }
+        handleDeleteRows();
+      },
       clearSelection: () => {
         handleClearSelection();
       },
+      showContextMenu: () => {
+        // Find the canvas inside the grid — events must originate from INSIDE
+        // the ContextMenuTrigger so they bubble UP to its onContextMenu handler.
+        const canvas = containerRef.current?.querySelector("canvas");
+        if (!canvas) return;
+
+        const sel = gridSelectionRef.current;
+        let x: number;
+        let y: number;
+
+        // Position context menu near the selected cell using grid's getBounds API
+        if (sel?.current?.cell && gridRef.current) {
+          const [colIndex, rowIndex] = sel.current.cell;
+          const cellBounds = gridRef.current.getBounds(colIndex, rowIndex);
+          if (cellBounds) {
+            // Place at the bottom-right of the selected cell
+            x = cellBounds.x + cellBounds.width;
+            y = cellBounds.y + cellBounds.height;
+          } else {
+            // Fallback to canvas center if cell bounds not available
+            const rect = canvas.getBoundingClientRect();
+            x = rect.left + rect.width / 2;
+            y = rect.top + rect.height / 2;
+          }
+          contextMenuTargetRef.current = {
+            type: "cell",
+            columnIndex: colIndex,
+            rowIndex,
+          };
+        } else {
+          // No cell selected — fallback to canvas center
+          const rect = canvas.getBoundingClientRect();
+          x = rect.left + rect.width / 2;
+          y = rect.top + rect.height / 2;
+        }
+
+        // Dispatch contextmenu on the canvas so it bubbles through the trigger
+        canvas.dispatchEvent(
+          new MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+            clientX: x,
+            clientY: y,
+          }),
+        );
+      },
     });
+
+    // Restore focused state after re-registration.
+    // When this effect re-runs (due to dependency changes like copySelection),
+    // the cleanup above called unregister() which cleared focusedGridId.
+    // If the grid is still focused, re-set it so command handlers can find it.
+    if (isGridFocusedRef.current) {
+      dataGridRegistry.setFocused(gridId);
+    }
 
     return () => {
       dataGridRegistry.unregister(gridId);
@@ -2232,6 +2292,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     fillRight,
     gridId,
     handleClearSelection,
+    handleDeleteRows,
     handleDuplicateRows,
     isCellEditorActive,
     readOnly,
@@ -2243,10 +2304,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   // is temporarily out of sync across multiple mounted grid scopes.
   useEffect(() => {
     const handleDataGridShortcuts = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-
       const key = event.key.toLowerCase();
       const isMod = event.metaKey || event.ctrlKey;
+
+      if (event.defaultPrevented) return;
+
       const target = event.target as HTMLElement | null;
       const isTextInputTarget =
         !!target &&
@@ -2275,8 +2337,10 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         return;
       }
 
-      // Don't override native text-input behavior for copy/delete.
-      if (isTextInputTarget) {
+      // Don't override native text-input behavior for copy/delete —
+      // UNLESS the target is GlideDataGrid's internal hidden <input>,
+      // which lives inside the grid wrapper. Skip only for external inputs.
+      if (isTextInputTarget && !wrapperRef.current?.contains(target)) {
         return;
       }
 
@@ -2299,18 +2363,38 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         return;
       }
 
+      // Guard remaining shortcuts against cell editing
+      if (isEditingCellRef.current || isCellEditorActive()) {
+        return;
+      }
+
       // Cmd + Delete / Cmd + Backspace -> delete rows
       if (
         event.metaKey &&
         (key === "delete" || key === "backspace") &&
         !readOnly &&
-        !!commandFactoryRef.current &&
-        !isEditingCellRef.current &&
-        !isCellEditorActive()
+        !!commandFactoryRef.current
       ) {
         event.preventDefault();
         event.stopPropagation();
         handleDeleteRows();
+        return;
+      }
+
+      // Cmd + D -> delete rows
+      if (isMod && key === "d" && !readOnly && !!commandFactoryRef.current) {
+        event.preventDefault();
+        event.stopPropagation();
+        handleDeleteRows();
+        return;
+      }
+
+      // Cmd + . -> show context menu
+      if (isMod && key === ".") {
+        event.preventDefault();
+        event.stopPropagation();
+        dataGridRegistry.getFocused()?.showContextMenu?.();
+        return;
       }
     };
 
@@ -2328,6 +2412,31 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     isCellEditorActive,
     readOnly,
   ]);
+
+  // Native copy event handler.
+  // On macOS, the native Edit > Copy menu item (PredefinedMenuItem::copy) intercepts
+  // Cmd+C at the OS level before JS keydown handlers can process it. The native menu
+  // dispatches a ClipboardEvent "copy" to the focused element instead. We listen for
+  // this event on the grid container to ensure copy works even when keydown is consumed.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !enableClipboard) return;
+
+    const handleNativeCopy = (event: ClipboardEvent) => {
+      if (isEditingCellRef.current || isCellEditorActive()) return;
+
+      const selection = gridSelectionRef.current;
+      if (!selection) return;
+
+      event.preventDefault();
+      void copySelection(selection, "text");
+    };
+
+    el.addEventListener("copy", handleNativeCopy);
+    return () => {
+      el.removeEventListener("copy", handleNativeCopy);
+    };
+  }, [enableClipboard, copySelection, isCellEditorActive]);
 
   // --- Filter by Column (from context menu) ---
   const handleFilterByColumn = useCallback(
@@ -2561,7 +2670,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const gridContainer = (
     <div
       ref={containerRef}
-      className="h-full px-1 min-h-0 outline-none"
+      className="h-full min-h-0 outline-none"
       tabIndex={-1}
       onFocusCapture={handleFocusCapture}
       onBlurCapture={handleBlurCapture}
@@ -2748,8 +2857,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(
             collapsible
             collapsedSize={0}
             order={2}
-            onCollapse={() => setInspectorOpen(false)}
-            onExpand={() => setInspectorOpen(true)}
+            onCollapse={() => { setInspectorOpen(false); }}
+            onExpand={() => { setInspectorOpen(true); }}
           >
             {activeInspectorPanel}
           </ResizablePanel>

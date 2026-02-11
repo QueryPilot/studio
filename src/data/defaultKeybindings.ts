@@ -158,9 +158,14 @@ export const defaultKeybindings: Keybinding[] = [
     when: 'dataGridFocus && !editingCell && !isMac',
   },
   {
-    command: 'dataGrid.action.duplicateRows',
+    command: 'dataGrid.action.deleteRows',
     key: 'cmd+d',
-    when: 'dataGridFocus && !editingCell && isMac',
+    when: 'dataGridFocus && !editingCell && dataGridEditable',
+  },
+  {
+    command: 'dataGrid.action.showContextMenu',
+    key: 'cmd+.',
+    when: 'dataGridFocus && !editingCell',
   },
   {
     command: 'dataGrid.action.clearSelection',
