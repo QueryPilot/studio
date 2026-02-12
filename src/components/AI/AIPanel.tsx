@@ -27,6 +27,7 @@ import {
 import { getMentionAtCursor, formatMention } from "@/utils/mentionParser";
 import type { AIContext } from "@/types/aiContext";
 import { AgentSelector } from "./AgentSelector";
+import { ImagePreviewPopover } from "./ImagePreviewPopover";
 import { ModelSelector } from "./ModelSelector";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -984,7 +985,6 @@ function MessageBubble({
 }: MessageBubbleProps) {
   const isUser = role === "user";
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   // Get AI context for resolving @ mentions to connections
   const aiContext = useAIContextWithSchema();
@@ -1188,32 +1188,19 @@ function MessageBubble({
           {isUser && images && images.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {images.map((img, idx) => (
-                <button
+                <ImagePreviewPopover
                   key={idx}
-                  type="button"
-                  className="overflow-hidden rounded-lg border border-border/60 hover:border-primary/50 transition-colors cursor-pointer"
-                  onClick={() => {
-                    setLightboxSrc(`data:${img.mimeType};base64,${img.data}`);
-                  }}
+                  src={`data:${img.mimeType};base64,${img.data}`}
+                  alt={`Attached image ${idx + 1}`}
                 >
                   <img
                     src={`data:${img.mimeType};base64,${img.data}`}
                     alt={`Attached image ${idx + 1}`}
                     className="max-h-[120px] max-w-[200px] object-cover"
                   />
-                </button>
+                </ImagePreviewPopover>
               ))}
             </div>
-          )}
-
-          {/* Lightbox */}
-          {lightboxSrc && (
-            <ImageLightbox
-              src={lightboxSrc}
-              onClose={() => {
-                setLightboxSrc(null);
-              }}
-            />
           )}
 
           {/* Thinking Block */}
@@ -1387,43 +1374,6 @@ function PlanBlock({ steps }: PlanBlockProps) {
   );
 }
 
-// ============================================================================
-// Image Lightbox
-// ============================================================================
-
-function ImageLightbox({
-  src,
-  onClose,
-}: {
-  src: string;
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    const handleKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [onClose]);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
-      onClick={onClose}
-    >
-      <img
-        src={src}
-        alt="Full size preview"
-        className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg"
-        onClick={(e) => {
-          e.stopPropagation();
-        }}
-      />
-    </div>
-  );
-}
 
 function getToolCallStatusText(status: ToolCallType["status"]): string {
   switch (status) {
@@ -1901,11 +1851,16 @@ const InputArea = ({
           <div className="flex flex-wrap gap-1.5 px-3 pt-2">
             {pendingImages.map((img) => (
               <div key={img.id} className="relative group/thumb">
-                <img
+                <ImagePreviewPopover
                   src={img.previewUrl}
-                  alt="Pending"
-                  className="h-16 w-16 rounded-md object-cover border border-border/60"
-                />
+                  alt="Pending image"
+                >
+                  <img
+                    src={img.previewUrl}
+                    alt="Pending"
+                    className="h-10 w-10 rounded object-cover"
+                  />
+                </ImagePreviewPopover>
                 <button
                   type="button"
                   onClick={() => {

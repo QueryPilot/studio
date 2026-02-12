@@ -295,7 +295,7 @@ pub struct ConnectionManager {
 pub struct LiveConnection {
     #[allow(dead_code)]
     pub id: String,
-    pub adapter: UnifiedAdapter,
+    pub adapter: Arc<UnifiedAdapter>,
     pub profile: ConnectionProfile,
     #[allow(dead_code)]
     pub created_at: Instant,
@@ -303,6 +303,36 @@ pub struct LiveConnection {
     #[allow(dead_code)]
     pub query_count: Arc<AtomicUsize>,
     pub active_queries: Arc<AtomicUsize>,
+}
+
+/// RAII guard that holds an `Arc<UnifiedAdapter>` and tracks active usage.
+///
+/// Increments `active_queries` on creation, decrements on drop.
+/// This prevents the idle reaper from removing the connection while in use
+/// and allows callers to hold the adapter across `.await` points without
+/// holding the DashMap read lock.
+pub struct AdapterHandle {
+    adapter: Arc<UnifiedAdapter>,
+    active_queries: Arc<AtomicUsize>,
+}
+
+impl AdapterHandle {
+    pub fn db_type(&self) -> DbType {
+        self.adapter.db_type()
+    }
+}
+
+impl std::ops::Deref for AdapterHandle {
+    type Target = UnifiedAdapter;
+    fn deref(&self) -> &UnifiedAdapter {
+        &self.adapter
+    }
+}
+
+impl Drop for AdapterHandle {
+    fn drop(&mut self) {
+        self.active_queries.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 enum TunnelStatus {
@@ -451,8 +481,17 @@ impl ConnectionManager {
                 }
 
                 for key in to_remove {
-                    if let Some((_, conn)) = connections.remove(&key) {
-                        let _ = conn.adapter.disconnect().await;
+                    // Re-check active_queries before removing to close the TOCTOU window:
+                    // a borrow_adapter() call between the scan and removal could have
+                    // started using this connection.
+                    let still_idle = connections
+                        .get(&key)
+                        .map(|e| e.active_queries.load(Ordering::SeqCst) == 0)
+                        .unwrap_or(false);
+                    if still_idle {
+                        if let Some((_, conn)) = connections.remove(&key) {
+                            let _ = conn.adapter.disconnect().await;
+                        }
                     }
                 }
             }
@@ -559,6 +598,21 @@ impl ConnectionManager {
                             let _ = tunnel.close().await;
                         }
                     }
+                    // Re-insert the connection even on failure so subsequent
+                    // reconnection attempts can find and retry it, rather than
+                    // permanently losing the connection from the map.
+                    self.connections.insert(
+                        conn_id.to_string(),
+                        LiveConnection {
+                            id: conn.id,
+                            adapter: conn.adapter,
+                            profile: profile.clone(),
+                            created_at: conn.created_at,
+                            last_used: conn.last_used,
+                            query_count: conn.query_count,
+                            active_queries: conn.active_queries,
+                        },
+                    );
                     return Err(err);
                 }
             }
@@ -606,7 +660,7 @@ impl ConnectionManager {
 
         let live_conn = LiveConnection {
             id: conn_id.to_string(),
-            adapter,
+            adapter: Arc::new(adapter),
             profile: profile.clone(),
             created_at: Instant::now(),
             last_used: Arc::new(RwLock::new(Instant::now())),
@@ -621,6 +675,10 @@ impl ConnectionManager {
         Ok(conn_id.to_string())
     }
 
+    /// **Deprecated**: Returns a DashMap `Ref` guard that holds a read lock.
+    /// Do NOT hold the returned value across `.await` points — this blocks
+    /// concurrent reconnection. Use `borrow_adapter()` instead.
+    #[cfg(test)]
     pub fn get_connection(
         &self,
         conn_id: &str,
@@ -628,10 +686,37 @@ impl ConnectionManager {
         self.connections.get(conn_id)
     }
 
+    /// Borrow a connection's adapter as an RAII handle.
+    ///
+    /// Unlike `get_connection`, this immediately releases the DashMap read lock
+    /// so callers can safely hold the adapter across `.await` points without
+    /// blocking concurrent reconnection attempts.
+    ///
+    /// The returned `AdapterHandle` increments `active_queries` to prevent the
+    /// idle reaper from removing the connection while in use, and decrements
+    /// it on drop.
+    pub fn borrow_adapter(&self, conn_id: &str) -> Option<AdapterHandle> {
+        self.connections.get(conn_id).map(|entry| {
+            entry.active_queries.fetch_add(1, Ordering::SeqCst);
+            // Update last_used to prevent idle reaper from removing actively-used connections.
+            // try_write() is non-blocking: if contended, skip — the connection is clearly active.
+            if let Ok(mut last_used) = entry.last_used.try_write() {
+                *last_used = Instant::now();
+            }
+            AdapterHandle {
+                adapter: Arc::clone(&entry.adapter),
+                active_queries: Arc::clone(&entry.active_queries),
+            }
+        })
+    }
+
     /// Touch connection to update last_used timestamp (prevents idle timeout)
-    pub async fn touch_connection(&self, conn_id: &str) -> Result<()> {
+    pub fn touch_connection(&self, conn_id: &str) -> Result<()> {
         if let Some(entry) = self.connections.get(conn_id) {
-            *entry.last_used.write().await = Instant::now();
+            // Use try_write() to avoid holding the DashMap read lock across an async yield.
+            if let Ok(mut last_used) = entry.last_used.try_write() {
+                *last_used = Instant::now();
+            }
             Ok(())
         } else {
             Err(AppError::internal(format!(
@@ -646,8 +731,24 @@ impl ConnectionManager {
         self.profiles.get(conn_id).map(|p| p.clone())
     }
 
-    /// Get connection with automatic retry and reconnect
-    /// If connection is not found, attempts to reconnect using stored profile
+    /// Get the safe_mode setting for a connection.
+    ///
+    /// Extracts the base connection ID from a composite key (e.g. `{conn_id}:{tab_id}`)
+    /// and looks up the profile's safe_mode. This is a synchronous, non-blocking operation
+    /// that does not hold any DashMap lock across await points.
+    pub fn get_safe_mode(&self, conn_id: &str) -> Option<SafeMode> {
+        let base_id = conn_id.split(':').next().unwrap_or(conn_id);
+        self.profiles.get(base_id).and_then(|p| p.safe_mode)
+    }
+
+    /// Get connection with automatic retry and reconnect.
+    ///
+    /// **Deprecated**: Returns a DashMap `Ref` guard that holds a read lock.
+    /// Do NOT hold the returned value across `.await` points — this blocks
+    /// concurrent reconnection. Use [`borrow_adapter_with_retry`] instead.
+    ///
+    /// If connection is not found, attempts to reconnect using stored profile.
+    #[deprecated(note = "Use borrow_adapter_with_retry() instead — this holds a DashMap read lock")]
     pub async fn get_connection_with_retry(
         &self,
         conn_id: &str,
@@ -709,6 +810,65 @@ impl ConnectionManager {
         }
 
         // All retries exhausted
+        Err(AppError::internal(format!(
+            "Connection {} not found after {} retries",
+            conn_id, max_retries
+        )))
+    }
+
+    /// Like `get_connection_with_retry` but returns an `AdapterHandle` that does
+    /// not hold the DashMap read lock. Safe to hold across `.await` points.
+    pub async fn borrow_adapter_with_retry(
+        &self,
+        conn_id: &str,
+        max_retries: usize,
+    ) -> Result<AdapterHandle> {
+        for attempt in 0..max_retries {
+            if let Some(handle) = self.borrow_adapter(conn_id) {
+                return Ok(handle);
+            }
+
+            // Connection not found, try to reconnect
+            if attempt < max_retries - 1 {
+                tracing::info!(
+                    "Connection {} not found, attempting reconnect (attempt {}/{})",
+                    conn_id,
+                    attempt + 1,
+                    max_retries
+                );
+
+                let base_conn_id = conn_id.split(':').next().unwrap_or(conn_id);
+
+                let mut profile = self
+                    .profiles
+                    .get(base_conn_id)
+                    .map(|p| p.clone())
+                    .ok_or_else(|| {
+                        AppError::internal(format!(
+                            "Cannot reconnect: profile for connection {} not found",
+                            conn_id
+                        ))
+                    })?;
+
+                profile.id = conn_id.to_string();
+
+                match self.get_or_create_connection(&profile).await {
+                    Ok(_) => {
+                        let delay_ms = match attempt {
+                            0 => 100,
+                            1 => 500,
+                            _ => 1000,
+                        };
+                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                        continue;
+                    }
+                    Err(e) => {
+                        tracing::warn!("Reconnect attempt {} failed: {}", attempt + 1, e);
+                    }
+                }
+            }
+        }
+
         Err(AppError::internal(format!(
             "Connection {} not found after {} retries",
             conn_id, max_retries

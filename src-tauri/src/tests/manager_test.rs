@@ -53,7 +53,7 @@ async fn test_get_nonexistent_connection() {
 async fn test_touch_nonexistent_connection() {
     let manager = ConnectionManager::new();
 
-    let result = manager.touch_connection("nonexistent-id").await;
+    let result = manager.touch_connection("nonexistent-id");
 
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("not found"));

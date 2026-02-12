@@ -2,19 +2,11 @@ import { type Keybinding } from '@/types/keybinding';
 
 export const defaultKeybindings: Keybinding[] = [
   {
-    command: 'commandPalette.open',
-    key: 'cmd+shift+p',
-  },
-  {
     command: 'quickOpen.show',
     key: 'cmd+p',
   },
   {
-    command: 'commandPalette.open',
-    key: 'f1',
-  },
-  {
-    command: 'commandPalette.close',
+    command: 'quickOpen.close',
     key: 'escape',
     when: 'inQuickOpen',
   },

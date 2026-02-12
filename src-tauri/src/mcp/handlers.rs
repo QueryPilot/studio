@@ -222,8 +222,13 @@ impl McpHandler {
                 format!("Unknown method: {}", method),
             ),
         };
-        if response.error.is_some() {
-            tracing::error!("[MCP Bridge] Request {} error: {:?}", id, response.error);
+        if let Some(ref err) = response.error {
+            // Permission-denied errors are expected (read-only enforcement) — log at WARN
+            if err.code == error_codes::PERMISSION_DENIED {
+                tracing::warn!("[MCP Bridge] Request {} denied: {:?}", id, err.message);
+            } else {
+                tracing::error!("[MCP Bridge] Request {} error: {:?}", id, response.error);
+            }
         } else {
             tracing::info!("[MCP Bridge] Request {} success", id);
         }
@@ -282,9 +287,11 @@ impl McpHandler {
             );
         }
 
-        // Get connection
-        let conn = match self.manager.get_connection(&params.connection_id) {
-            Some(c) => c,
+        // Clone the adapter Arc so we don't hold the DashMap read lock across
+        // the query execution `.await`. Holding the lock would block concurrent
+        // reconnection attempts that need a write lock.
+        let adapter = match self.manager.borrow_adapter(&params.connection_id) {
+            Some(a) => a,
             None => {
                 return JsonRpcResponse::error(
                     id,
@@ -296,7 +303,7 @@ impl McpHandler {
 
         // Apply limit (default 100, max 1000)
         let limit = params.limit.unwrap_or(100).min(1000);
-        let db_type = conn.adapter.db_type();
+        let db_type = adapter.db_type();
 
         // Dispatch based on database paradigm
         let result = match db_type {
@@ -305,11 +312,11 @@ impl McpHandler {
             | DbType::MariaDB
             | DbType::SQLite
             | DbType::SQLServer => {
-                self.execute_sql_query(&params.query, limit, &params.order, &conn)
+                self.execute_sql_query(&params.query, limit, &params.order, &adapter)
                     .await
             }
-            DbType::MongoDB => self.execute_document_query(&params, limit, &conn).await,
-            DbType::Redis => self.execute_keyvalue_query(&params, &conn).await,
+            DbType::MongoDB => self.execute_document_query(&params, limit, &adapter).await,
+            DbType::Redis => self.execute_keyvalue_query(&params, &adapter).await,
         };
 
         let execution_time_ms = start.elapsed().as_millis() as u64;
@@ -365,10 +372,9 @@ impl McpHandler {
         query: &str,
         limit: u64,
         order: &Option<Vec<OrderSpec>>,
-        conn: &crate::core::manager::LiveConnection,
+        adapter: &crate::core::manager::UnifiedAdapter,
     ) -> Result<(Vec<Vec<Value>>, Vec<ColumnInfo>, usize), String> {
-        let sql_adapter = conn
-            .adapter
+        let sql_adapter = adapter
             .as_sql()
             .ok_or_else(|| "Connection does not support SQL queries".to_string())?;
 
@@ -444,10 +450,9 @@ impl McpHandler {
         &self,
         params: &QueryParams,
         limit: u64,
-        conn: &crate::core::manager::LiveConnection,
+        adapter: &crate::core::manager::UnifiedAdapter,
     ) -> Result<(Vec<Vec<Value>>, Vec<ColumnInfo>, usize), String> {
-        let mongo_adapter = conn
-            .adapter
+        let mongo_adapter = adapter
             .as_mongo()
             .ok_or_else(|| "Connection does not support document queries".to_string())?;
 
@@ -534,10 +539,9 @@ impl McpHandler {
     async fn execute_keyvalue_query(
         &self,
         params: &QueryParams,
-        conn: &crate::core::manager::LiveConnection,
+        adapter: &crate::core::manager::UnifiedAdapter,
     ) -> Result<(Vec<Vec<Value>>, Vec<ColumnInfo>, usize), String> {
-        let redis_adapter = conn
-            .adapter
+        let redis_adapter = adapter
             .as_redis()
             .ok_or_else(|| "Connection does not support key-value queries".to_string())?;
 
@@ -595,8 +599,8 @@ impl McpHandler {
             }
         };
 
-        let conn = match self.manager.get_connection(&params.connection_id) {
-            Some(c) => c,
+        let adapter = match self.manager.borrow_adapter(&params.connection_id) {
+            Some(a) => a,
             None => {
                 return JsonRpcResponse::error(
                     id,
@@ -606,14 +610,14 @@ impl McpHandler {
             }
         };
 
-        let db_type = conn.adapter.db_type();
+        let db_type = adapter.db_type();
         let result = match db_type {
             DbType::PostgreSQL
             | DbType::MySQL
             | DbType::MariaDB
             | DbType::SQLite
-            | DbType::SQLServer => self.list_sql_tables(&params, &conn).await,
-            DbType::MongoDB => self.list_mongo_collections(&conn).await,
+            | DbType::SQLServer => self.list_sql_tables(&params, &adapter).await,
+            DbType::MongoDB => self.list_mongo_collections(&adapter).await,
             DbType::Redis => {
                 // Redis doesn't have tables/collections
                 Ok(ListTablesResult { tables: vec![] })
@@ -637,10 +641,9 @@ impl McpHandler {
     async fn list_sql_tables(
         &self,
         params: &ListTablesParams,
-        conn: &crate::core::manager::LiveConnection,
+        adapter: &crate::core::manager::UnifiedAdapter,
     ) -> Result<ListTablesResult, String> {
-        let sql_adapter = conn
-            .adapter
+        let sql_adapter = adapter
             .as_sql()
             .ok_or_else(|| "Connection does not support SQL queries".to_string())?;
 
@@ -652,7 +655,7 @@ impl McpHandler {
             return Err(format!("Invalid schema name: '{}'", schema));
         }
 
-        let db_type = conn.adapter.db_type();
+        let db_type = adapter.db_type();
 
         let query = match db_type {
             DbType::PostgreSQL => {
@@ -715,10 +718,9 @@ impl McpHandler {
     /// List MongoDB collections
     async fn list_mongo_collections(
         &self,
-        conn: &crate::core::manager::LiveConnection,
+        adapter: &crate::core::manager::UnifiedAdapter,
     ) -> Result<ListTablesResult, String> {
-        let mongo_adapter = conn
-            .adapter
+        let mongo_adapter = adapter
             .as_mongo()
             .ok_or_else(|| "Connection does not support document queries".to_string())?;
 
@@ -752,8 +754,8 @@ impl McpHandler {
             }
         };
 
-        let conn = match self.manager.get_connection(&params.connection_id) {
-            Some(c) => c,
+        let adapter = match self.manager.borrow_adapter(&params.connection_id) {
+            Some(a) => a,
             None => {
                 return JsonRpcResponse::error(
                     id,
@@ -763,14 +765,14 @@ impl McpHandler {
             }
         };
 
-        let db_type = conn.adapter.db_type();
+        let db_type = adapter.db_type();
         let result = match db_type {
             DbType::PostgreSQL
             | DbType::MySQL
             | DbType::MariaDB
             | DbType::SQLite
-            | DbType::SQLServer => self.describe_sql_table(&params, &conn).await,
-            DbType::MongoDB => self.describe_mongo_collection(&params.table, &conn).await,
+            | DbType::SQLServer => self.describe_sql_table(&params, &adapter).await,
+            DbType::MongoDB => self.describe_mongo_collection(&params.table, &adapter).await,
             DbType::Redis => Err("Redis does not support table description".to_string()),
         };
 
@@ -791,10 +793,9 @@ impl McpHandler {
     async fn describe_sql_table(
         &self,
         params: &DescribeTableParams,
-        conn: &crate::core::manager::LiveConnection,
+        adapter: &crate::core::manager::UnifiedAdapter,
     ) -> Result<DescribeTableResult, String> {
-        let sql_adapter = conn
-            .adapter
+        let sql_adapter = adapter
             .as_sql()
             .ok_or_else(|| "Connection does not support SQL queries".to_string())?;
 
@@ -820,7 +821,7 @@ impl McpHandler {
             return Err(format!("Invalid table name: '{}'", table));
         }
 
-        let db_type = conn.adapter.db_type();
+        let db_type = adapter.db_type();
 
         // Query for columns
         let columns_query = match db_type {
@@ -946,10 +947,9 @@ impl McpHandler {
     async fn describe_mongo_collection(
         &self,
         collection: &str,
-        conn: &crate::core::manager::LiveConnection,
+        adapter: &crate::core::manager::UnifiedAdapter,
     ) -> Result<DescribeTableResult, String> {
-        let mongo_adapter = conn
-            .adapter
+        let mongo_adapter = adapter
             .as_mongo()
             .ok_or_else(|| "Connection does not support document queries".to_string())?;
 
@@ -1084,8 +1084,8 @@ impl McpHandler {
             }
         };
 
-        let conn = match self.manager.get_connection(&params.connection_id) {
-            Some(c) => c,
+        let adapter = match self.manager.borrow_adapter(&params.connection_id) {
+            Some(a) => a,
             None => {
                 return JsonRpcResponse::error(
                     id,
@@ -1095,7 +1095,7 @@ impl McpHandler {
             }
         };
 
-        let sql_adapter = match conn.adapter.as_sql() {
+        let sql_adapter = match adapter.as_sql() {
             Some(a) => a,
             None => {
                 return JsonRpcResponse::error(
@@ -1123,7 +1123,7 @@ impl McpHandler {
         }
 
         // Build EXPLAIN query based on database type
-        let db_type = conn.adapter.db_type();
+        let db_type = adapter.db_type();
         let explain_query = match db_type {
             DbType::PostgreSQL => {
                 if params.analyze {

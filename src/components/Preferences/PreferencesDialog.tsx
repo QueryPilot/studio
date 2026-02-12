@@ -4,7 +4,6 @@ import { PreferencesSidebar } from "./PreferencesSidebar";
 import GeneralPanel from "./panels/GeneralPanel";
 import EditorPanel from "./panels/EditorPanel";
 import TelemetryPanel from "./panels/TelemetryPanel";
-import { GlobalShortcutsPanel } from "./panels/GlobalShortcutsPanel";
 import { Suspense, lazy } from "react";
 import { IconLoader2, IconChevronLeft } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
@@ -51,8 +50,6 @@ export function PreferencesDialog({
             <ShortcutsPanel />
           </Suspense>
         );
-      case "globalShortcuts":
-        return <GlobalShortcutsPanel />;
       case "telemetry":
         return <TelemetryPanel />;
       default:

@@ -54,42 +54,15 @@ export const defaultCommands: Command[] = [
     },
   },
   {
-    id: "commandPalette.open",
-    label: "Show Command Palette",
-    category: "Command Palette",
-    handler: () => {
-      contextService.setValue("inQuickOpen", true);
-      contextService.setValue("inCommandPalette", true);
-      commandPaletteStore.openPalette();
-    },
-    when: "!inQuickOpen || !inCommandPalette",
-  },
-  {
-    id: "commandPalette.close",
-    label: "Close Command Palette",
-    category: "Command Palette",
+    id: "quickOpen.close",
+    label: "Close Quick Open",
+    category: "Navigation",
     handler: () => {
       contextService.setValue("inQuickOpen", false);
       contextService.setValue("inCommandPalette", false);
       commandPaletteStore.closePalette();
     },
     when: "inQuickOpen",
-  },
-  {
-    id: "commandPalette.toggle",
-    label: "Toggle Command Palette",
-    category: "Command Palette",
-    handler: () => {
-      const state = useCommandPaletteStore.getState();
-      const nextOpen = !state.isOpen;
-      contextService.setValue("inQuickOpen", nextOpen);
-      contextService.setValue("inCommandPalette", nextOpen);
-      if (nextOpen) {
-        commandPaletteStore.openPalette();
-      } else {
-        commandPaletteStore.closePalette();
-      }
-    },
   },
   {
     id: "preferences.open",
