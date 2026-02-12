@@ -1,7 +1,6 @@
 import { logger } from "@/lib/logger";
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { useAppStore } from "@/stores/appStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useHomeScreenStore } from "@/screens/home/store/homeScreenStore";
 import { check } from "@tauri-apps/plugin-updater";
@@ -21,7 +20,6 @@ import { v4 as uuidv4 } from "uuid";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function useMenuEventListener() {
-  const { setTheme, toggleSidebar: toggleAppSidebar } = useAppStore();
   const { openPreferences } = usePreferencesStore();
   const { openConnectionForm } = useHomeScreenStore();
   const queryClient = useQueryClient();
@@ -77,38 +75,6 @@ export function useMenuEventListener() {
           break;
         case "close_tab":
           handleCloseTab(workbenchStore);
-          break;
-
-        // View Menu
-        case "toggle_sidebar":
-          if (activeConnectionId) {
-            workspaceStore.toggleSidebar("left");
-          } else {
-            toggleAppSidebar();
-          }
-          break;
-        case "toggle_ai":
-          if (activeConnectionId) {
-            workspaceStore.toggleSidebar("right");
-          }
-          break;
-        case "set_theme:light":
-          setTheme("light");
-          break;
-        case "set_theme:dark":
-          setTheme("dark");
-          break;
-        case "set_theme:system":
-          setTheme("system");
-          break;
-        case "zoom_in":
-          handleZoom(1.1);
-          break;
-        case "zoom_out":
-          handleZoom(0.9);
-          break;
-        case "zoom_reset":
-          handleZoom(1.0, true);
           break;
 
         // Edit Menu
@@ -204,8 +170,6 @@ export function useMenuEventListener() {
         });
     };
   }, [
-    setTheme,
-    toggleAppSidebar,
     openPreferences,
     openConnectionForm,
     queryClient,
@@ -273,20 +237,6 @@ function handleCloseTab(
   const panel = panelContents.get(focusedPanelId);
   if (panel && panel.activeTabId) {
     removeTab(focusedPanelId, panel.activeTabId);
-  }
-}
-
-function handleZoom(factor: number, reset = false) {
-  // Use CSS zoom as fallback/primary for now as it's safer than webview zoom
-  // which might affect the whole window including titlebar
-  try {
-    const currentZoom = parseFloat(document.body.style.zoom || "1");
-    const newZoom = reset ? 1 : currentZoom * factor;
-    // Clamp zoom
-    const clamped = Math.min(Math.max(newZoom, 0.5), 2.0);
-    document.body.style.zoom = clamped.toString();
-  } catch (e) {
-    logger.error("Failed to zoom", e);
   }
 }
 

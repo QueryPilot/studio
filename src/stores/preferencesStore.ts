@@ -3,7 +3,6 @@ import { persist } from "zustand/middleware";
 
 export type PreferenceCategory =
   | "general"
-  | "editor"
   | "shortcuts"
   | "telemetry";
 

@@ -19,12 +19,7 @@ describe("ThemeSync", () => {
     themeState.setTheme.mockClear();
     useAppStore.setState({
       theme: "system",
-      sidebarCollapsed: false,
-      preferences: {
-        autoSave: true,
-        fontSize: 14,
-        tabSize: 2,
-      },
+      zoomLevel: 100,
     });
   });
 
