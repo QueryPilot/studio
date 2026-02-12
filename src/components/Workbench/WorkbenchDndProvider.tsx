@@ -3,6 +3,7 @@ import React, { useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { type Direction } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import {
   DndContext,
   PointerSensor,
@@ -18,10 +19,37 @@ import {
   IconMathFunction,
   IconBrandTabler,
 } from "@tabler/icons-react";
+import { nanoid } from "nanoid";
+import type { SidebarItemDragData } from "@/screens/workspace/components/DatabaseSidebarItem";
+import {
+  openTableObject,
+  openFunctionObject,
+} from "@/utils/workbench/openers";
 
 interface WorkbenchDndProviderProps {
   children: React.ReactNode;
 }
+
+// ---------------------------------------------------------------------------
+// Drag info types - generalized to handle both tab drags and sidebar drags
+// ---------------------------------------------------------------------------
+
+interface TabDragInfo {
+  source: "tab";
+  tabId: string;
+  panelId: string;
+  displayName?: string;
+  tabType?: string;
+  isView?: boolean;
+  kind?: string;
+}
+
+interface SidebarDragInfo {
+  source: "sidebar";
+  data: SidebarItemDragData;
+}
+
+type ActiveDragInfo = TabDragInfo | SidebarDragInfo;
 
 /**
  * Provides the DndContext that wraps both sidebar and workbench areas,
@@ -34,14 +62,9 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
   children,
 }) => {
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [activeTabInfo, setActiveTabInfo] = useState<{
-    tabId: string;
-    panelId: string;
-    displayName?: string;
-    tabType?: string;
-    isView?: boolean;
-    kind?: string;
-  } | null>(null);
+  const [activeDragInfo, setActiveDragInfo] = useState<ActiveDragInfo | null>(
+    null,
+  );
   // Track current pointer position for custom drag overlay
   const [pointerPosition, setPointerPosition] = useState<{
     x: number;
@@ -72,9 +95,24 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
       });
     }
 
-    // Parse the tab and panel info from the draggable ID
-    if (active.data.current) {
-      const tabInfo = active.data.current as {
+    if (!active.data.current) return;
+
+    const data = active.data.current as Record<string, unknown>;
+
+    if (data.type === "sidebar-item") {
+      // ---- Sidebar item drag ----
+      const sidebarData = data as unknown as SidebarItemDragData;
+      setActiveDragInfo({ source: "sidebar", data: sidebarData });
+
+      // Set drag context so drop zones become visible.
+      // We use a synthetic "tab" identifier so the panel drop zones show.
+      const state = useWorkbenchStore.getState();
+      state.setDragContext({
+        draggedTab: { id: `sidebar-${sidebarData.name}`, panelId: "__sidebar__" },
+      });
+    } else {
+      // ---- Tab drag (existing behaviour) ----
+      const tabInfo = data as {
         tabId: string;
         panelId: string;
         displayName?: string;
@@ -82,9 +120,11 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
         isView?: boolean;
         kind?: string;
       };
-      setActiveTabInfo(tabInfo);
+      setActiveDragInfo({
+        source: "tab",
+        ...tabInfo,
+      });
 
-      // Update the global store so panels can react
       const state = useWorkbenchStore.getState();
       state.setDragContext({
         draggedTab: { id: tabInfo.tabId, panelId: tabInfo.panelId },
@@ -95,8 +135,6 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
   const handleDragMove = useCallback((event: DragMoveEvent) => {
     // Update pointer position during drag for custom overlay
     if (event.activatorEvent && "clientX" in event.activatorEvent) {
-      // The delta represents how much the pointer moved since drag started
-      // We need to add it to track the current position
       const activatorEvent = event.activatorEvent as PointerEvent;
       setPointerPosition({
         x: activatorEvent.clientX + event.delta.x,
@@ -109,7 +147,7 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
     const { active, over } = event;
 
     setActiveId(null);
-    setActiveTabInfo(null);
+    setActiveDragInfo(null);
     setPointerPosition(null);
 
     // Clear the global drag context
@@ -118,24 +156,144 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
 
     if (!over || !active.data.current || !over.data.current) return;
 
-    const activeData = active.data.current as {
-      tabId: string;
-      panelId: string;
-    };
     const overData = over.data.current as {
       panelId: string;
       position: string;
     };
-
-    const { tabId, panelId: sourcePanelId } = activeData;
     const { panelId: targetPanelId, position } = overData;
+    const activeData = active.data.current as Record<string, unknown>;
+
+    // =======================================================================
+    // Branch 1: Sidebar item drop
+    // =======================================================================
+    if (activeData.type === "sidebar-item") {
+      const sidebarData = activeData as unknown as SidebarItemDragData;
+
+      if (position === "center") {
+        // Open the object in the target panel.
+        // The openers use `usePanelFocusStore.focusedPanelId` to determine
+        // the target, so we focus the drop target panel first.
+        usePanelFocusStore.getState().focusPanel(targetPanelId);
+
+        if (
+          sidebarData.objectType === "table" ||
+          sidebarData.objectType === "view"
+        ) {
+          if (sidebarData.table) {
+            openTableObject({
+              table: sidebarData.table,
+              connectionId: sidebarData.connectionId,
+              database: sidebarData.database,
+            });
+          }
+        } else if (
+          sidebarData.objectType === "function" ||
+          sidebarData.objectType === "procedure"
+        ) {
+          if (sidebarData.func) {
+            openFunctionObject({
+              func: sidebarData.func,
+              connectionId: sidebarData.connectionId,
+              database: sidebarData.database,
+            });
+          }
+        }
+      } else {
+        // Edge drop: create a new split panel with the object
+        const directionMap: Record<string, Direction> = {
+          top: "up",
+          bottom: "down",
+          left: "left",
+          right: "right",
+        };
+        const direction = directionMap[position];
+        if (!direction) {
+          logger.error("Invalid drop position:", position);
+          return;
+        }
+
+        const s = useWorkbenchStore.getState();
+        const newPanelId = `panel-${Date.now()}-${Math.random()
+          .toString(36)
+          .substring(2, 11)}`;
+
+        // Build tab metadata matching what openers produce
+        let tabId: string;
+        let tabMetadata: Record<string, unknown>;
+
+        if (
+          sidebarData.objectType === "table" ||
+          sidebarData.objectType === "view"
+        ) {
+          const table = sidebarData.table;
+          if (!table) return;
+          const objectKey = `table-${sidebarData.connectionId}-${table.schema}-${table.name}`;
+          tabId = `${objectKey}:::${nanoid(6)}`;
+          tabMetadata = {
+            type: "table",
+            title: table.name,
+            connectionId: sidebarData.connectionId,
+            database: sidebarData.database,
+            schema: table.schema,
+            table: table.name,
+            isView: table.kind !== "Table",
+            kind: table.kind,
+            viewType: "data",
+            objectKey,
+          };
+        } else {
+          const func = sidebarData.func;
+          if (!func) return;
+          const objectKey = `function-${sidebarData.connectionId}-${func.schema}-${func.name}`;
+          tabId = `${objectKey}:::${nanoid(6)}`;
+          const objectType =
+            func.routine_type === "PROCEDURE" ||
+            (!func.routine_type && func.return_type === "void")
+              ? "procedure"
+              : "function";
+          tabMetadata = {
+            type: "function",
+            title: func.name,
+            connectionId: sidebarData.connectionId,
+            database: sidebarData.database,
+            schema: func.schema,
+            functionName: func.name,
+            returnType: func.return_type,
+            objectType,
+            objectKey,
+          };
+        }
+
+        s.splitPanelAction({
+          targetPanelId,
+          direction,
+          newPanelContent: {
+            id: newPanelId,
+            type: "editor",
+            tabIds: [tabId],
+            activeTabId: tabId,
+            metadata: { [tabId]: tabMetadata },
+          },
+        });
+
+        s.focusPanel(newPanelId);
+        s.setActiveTab(newPanelId, tabId);
+      }
+
+      return; // done handling sidebar item
+    }
+
+    // =======================================================================
+    // Branch 2: Tab drag (existing behaviour)
+    // =======================================================================
+    const tabData = activeData as { tabId: string; panelId: string };
+    const { tabId, panelId: sourcePanelId } = tabData;
 
     if (position === "center") {
       // Move tab to existing panel (only if different panels)
       if (sourcePanelId !== targetPanelId) {
         const s = useWorkbenchStore.getState();
         s.moveTab(tabId, sourcePanelId, targetPanelId);
-        // Focus the target panel and activate the moved tab
         s.focusPanel(targetPanelId);
         s.setActiveTab(targetPanelId, tabId);
       }
@@ -175,8 +333,6 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
       });
 
       // Remove from source panel after split is created
-      // Always remove the tab from source after successful split
-      // The split already created a new panel with the tab
       setTimeout(() => {
         const updatedState = useWorkbenchStore.getState();
         const sourcePanel = updatedState.panelContents.get(sourcePanelId);
@@ -185,12 +341,86 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
           updatedState.removeTab(sourcePanelId, tabId);
         }
 
-        // Focus the new panel and activate the moved tab
         updatedState.focusPanel(newPanelId);
         updatedState.setActiveTab(newPanelId, tabId);
       }, 50);
     }
   }, []);
+
+  // -----------------------------------------------------------------------
+  // Drag overlay rendering
+  // -----------------------------------------------------------------------
+  const renderOverlay = () => {
+    if (!activeId || !activeDragInfo || !pointerPosition) return null;
+
+    let Icon = IconTable;
+    let iconClass = "h-3.5 w-3.5 text-primary";
+    let label = "";
+
+    if (activeDragInfo.source === "sidebar") {
+      // --- Sidebar item overlay ---
+      const { data } = activeDragInfo;
+      label = data.name;
+
+      if (
+        data.objectType === "function" ||
+        data.objectType === "procedure"
+      ) {
+        Icon = IconMathFunction;
+        iconClass =
+          data.objectType === "procedure"
+            ? "h-3.5 w-3.5 text-orange-500"
+            : "h-3.5 w-3.5 text-purple-500";
+      } else if (data.objectType === "view") {
+        Icon = IconEye;
+        iconClass =
+          data.kind === "MaterializedView"
+            ? "h-3.5 w-3.5 text-blue-500"
+            : "h-3.5 w-3.5 text-green-500";
+      } else {
+        // table
+        Icon = IconTable;
+        iconClass = "h-3.5 w-3.5 text-primary";
+      }
+    } else {
+      // --- Tab overlay (existing) ---
+      const { tabType, isView, kind } = activeDragInfo;
+      label =
+        activeDragInfo.displayName ||
+        activeDragInfo.tabId.split("-").pop() ||
+        "";
+
+      if (tabType === "query") {
+        Icon = IconBrandTabler;
+      } else if (tabType === "function") {
+        Icon = IconMathFunction;
+        iconClass = "h-3.5 w-3.5 text-purple-500";
+      } else if (tabType === "table" && isView) {
+        Icon = IconEye;
+        iconClass =
+          kind === "MaterializedView"
+            ? "h-3.5 w-3.5 text-blue-500"
+            : "h-3.5 w-3.5 text-green-500";
+      }
+    }
+
+    return createPortal(
+      <div
+        className="fixed pointer-events-none z-[9999]"
+        style={{
+          left: pointerPosition.x,
+          top: pointerPosition.y,
+          transform: "translate(-50%, -50%)",
+        }}
+      >
+        <div className="flex items-center gap-1.5 px-2 py-1 text-xs rounded-md bg-background border border-border shadow-lg">
+          <Icon className={iconClass} />
+          <span className="whitespace-nowrap font-medium">{label}</span>
+        </div>
+      </div>,
+      document.body,
+    );
+  };
 
   return (
     <DndContext
@@ -202,47 +432,7 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
       {children}
 
       {/* Custom drag overlay that follows the cursor exactly using a portal */}
-      {activeId &&
-        activeTabInfo &&
-        pointerPosition &&
-        createPortal(
-          <div
-            className="fixed pointer-events-none z-[9999]"
-            style={{
-              left: pointerPosition.x,
-              top: pointerPosition.y,
-              transform: "translate(-50%, -50%)",
-            }}
-          >
-            <div className="flex items-center gap-1.5 px-2 py-1 text-xs rounded-md bg-background border border-border shadow-lg">
-              {(() => {
-                const { tabType, isView, kind } = activeTabInfo;
-                let Icon = IconTable;
-                let iconClass = "h-3.5 w-3.5 text-primary";
-
-                if (tabType === "query") {
-                  Icon = IconBrandTabler;
-                } else if (tabType === "function") {
-                  Icon = IconMathFunction;
-                  iconClass = "h-3.5 w-3.5 text-purple-500";
-                } else if (tabType === "table" && isView) {
-                  Icon = IconEye;
-                  iconClass =
-                    kind === "MaterializedView"
-                      ? "h-3.5 w-3.5 text-blue-500"
-                      : "h-3.5 w-3.5 text-green-500";
-                }
-
-                return <Icon className={iconClass} />;
-              })()}
-              <span className="whitespace-nowrap font-medium">
-                {activeTabInfo.displayName ||
-                  activeTabInfo.tabId.split("-").pop()}
-              </span>
-            </div>
-          </div>,
-          document.body,
-        )}
+      {renderOverlay()}
     </DndContext>
   );
 };
