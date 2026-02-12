@@ -72,7 +72,6 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(manager)
@@ -89,35 +88,6 @@ fn main() {
             app.on_menu_event(move |_app, event| {
                 query_pilot::menu::handle_menu_event(&app_handle, event);
             });
-
-            // Register default global shortcut to show/activate main window
-            #[cfg(target_os = "macos")]
-            let default_shortcut = "CommandOrControl+Shift+Space";
-            #[cfg(not(target_os = "macos"))]
-            let default_shortcut = "CommandOrControl+Shift+Space";
-
-            use tauri_plugin_global_shortcut::GlobalShortcutExt;
-
-            if let Err(e) =
-                app.global_shortcut()
-                    .on_shortcut(default_shortcut, |app, _shortcut, _event| {
-                        // Try to find main window or any existing window
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                            let _ = window.unminimize();
-                        } else if let Some((_, window)) = app.webview_windows().into_iter().next() {
-                            // If no main window, try to get any window
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                            let _ = window.unminimize();
-                        }
-                    })
-            {
-                tracing::warn!("Failed to register default global shortcut: {}", e);
-            } else {
-                tracing::info!("Registered global shortcut: {}", default_shortcut);
-            }
 
             Ok(())
         })

@@ -393,7 +393,44 @@ pub fn classify_document_op(op: &DocumentOperation) -> OperationKind {
 
         DocumentOperation::Delete { .. } => OperationKind::Delete,
 
-        DocumentOperation::RunCommand { .. } => OperationKind::Ddl,
+        DocumentOperation::RunCommand { command } => classify_mongo_run_command(command),
+    }
+}
+
+/// Classify a MongoDB `runCommand` by inspecting the first key of the command object.
+///
+/// Read-only commands (buildInfo, explain, serverStatus, etc.) are classified as
+/// `Read` so they work in safe mode. Write/delete/admin commands are classified
+/// appropriately. Unknown commands default to `Ddl` (fail-safe).
+fn classify_mongo_run_command(command: &serde_json::Value) -> OperationKind {
+    let cmd_name = command
+        .as_object()
+        .and_then(|obj| obj.keys().next())
+        .map(|k| k.to_lowercase());
+
+    match cmd_name.as_deref() {
+        // Read-only / diagnostic
+        Some(
+            "buildinfo" | "explain" | "serverstatus" | "dbstats" | "collstats"
+            | "connectionstatus" | "hostinfo" | "features" | "listcommands"
+            | "ping" | "whatsmyuri" | "ismaster" | "hello" | "getlog"
+            | "top" | "validate" | "datasize" | "count" | "distinct"
+            | "find" | "aggregate" | "listcollections" | "listindexes"
+            | "listdatabases" | "currentop" | "getmore"
+            | "collmod" | "profile" | "replsetgetstatus" | "replsetgetconfig"
+        ) => OperationKind::Read,
+
+        // Insert
+        Some("insert") => OperationKind::Insert,
+
+        // Update
+        Some("update" | "findandmodify") => OperationKind::Update,
+
+        // Delete
+        Some("delete") => OperationKind::Delete,
+
+        // DDL / admin — drop, create, reIndex, etc.
+        _ => OperationKind::Ddl,
     }
 }
 
@@ -437,8 +474,69 @@ pub fn classify_keyvalue_op(op: &KeyValueOperation) -> OperationKind {
         | KeyValueOperation::HashDelete { .. }
         | KeyValueOperation::SetRemove { .. } => OperationKind::Delete,
 
-        // DDL / raw (unrestricted)
-        KeyValueOperation::ExecuteRaw { .. } => OperationKind::Ddl,
+        // Raw commands: sub-classify by command name
+        KeyValueOperation::ExecuteRaw { command, .. } => classify_redis_raw_command(command),
+    }
+}
+
+/// Classify a raw Redis command name into an `OperationKind`.
+///
+/// Read-only commands (INFO, GET, SCAN, etc.) are classified as `Read` so they
+/// are permitted in safe mode. Write/delete/admin commands are classified
+/// appropriately. Unknown commands default to `Ddl` (fail-safe).
+fn classify_redis_raw_command(command: &str) -> OperationKind {
+    match command.to_ascii_uppercase().as_str() {
+        // Read-only
+        "PING" | "ECHO" | "INFO" | "DBSIZE" | "TIME" | "COMMAND"
+        | "GET" | "MGET" | "KEYS" | "SCAN" | "RANDOMKEY" | "OBJECT"
+        | "TYPE" | "TTL" | "PTTL" | "EXISTS" | "STRLEN" | "DUMP"
+        | "HGET" | "HMGET" | "HGETALL" | "HKEYS" | "HVALS" | "HLEN" | "HEXISTS" | "HSCAN"
+        | "LRANGE" | "LLEN" | "LINDEX" | "LPOS"
+        | "SMEMBERS" | "SCARD" | "SISMEMBER" | "SMISMEMBER" | "SRANDMEMBER" | "SSCAN"
+        | "ZRANGE" | "ZRANGEBYSCORE" | "ZRANGEBYLEX" | "ZREVRANGE" | "ZREVRANGEBYSCORE"
+        | "ZCARD" | "ZSCORE" | "ZMSCORE" | "ZRANK" | "ZREVRANK" | "ZCOUNT" | "ZLEXCOUNT" | "ZSCAN"
+        | "XLEN" | "XRANGE" | "XREVRANGE" | "XINFO" | "XREAD" | "XPENDING"
+        | "MEMORY" | "CLUSTER" | "LATENCY"
+        | "GEORADIUS_RO" | "GEORADIUSBYMEMBER_RO" | "GEOSEARCH" | "GEOPOS" | "GEODIST"
+        | "PFCOUNT" | "BITCOUNT" | "BITPOS" | "GETBIT" | "GETRANGE"
+        | "PUBSUB" | "SUBSCRIBE" | "PSUBSCRIBE" | "SSUBSCRIBE"
+        => OperationKind::Read,
+
+        // Write/insert
+        "SET" | "MSET" | "MSETNX" | "SETNX" | "SETEX" | "PSETEX" | "APPEND" | "INCR" | "INCRBY"
+        | "INCRBYFLOAT" | "DECR" | "DECRBY" | "SETRANGE" | "SETBIT"
+        | "HSET" | "HMSET" | "HSETNX" | "HINCRBY" | "HINCRBYFLOAT"
+        | "LPUSH" | "LPUSHX" | "RPUSH" | "RPUSHX" | "LSET" | "LINSERT"
+        | "SADD" | "SMOVE" | "SUNIONSTORE" | "SINTERSTORE" | "SDIFFSTORE"
+        | "ZADD" | "ZINCRBY" | "ZUNIONSTORE" | "ZINTERSTORE" | "ZDIFFSTORE"
+        | "XADD" | "XGROUP" | "XCLAIM" | "XAUTOCLAIM" | "XACK"
+        | "GEOADD" | "PFADD" | "PFMERGE" | "COPY"
+        | "PUBLISH" | "RPOPLPUSH" | "LMOVE" | "BRPOPLPUSH" | "BLMOVE"
+        => OperationKind::Insert,
+
+        // Update (TTL/expiry/rename)
+        // SORT is read-only without STORE, but we can't inspect args here
+        "EXPIRE" | "PEXPIRE" | "EXPIREAT" | "PEXPIREAT" | "PERSIST"
+        | "RENAME" | "RENAMENX" | "SORT" | "MOVE" | "GETSET"
+        => OperationKind::Update,
+
+        // Delete
+        "DEL" | "UNLINK" | "GETDEL" | "HDEL" | "LPOP" | "RPOP" | "BLPOP" | "BRPOP"
+        | "LREM" | "LTRIM" | "SREM" | "SPOP"
+        | "ZREM" | "ZREMRANGEBYSCORE" | "ZREMRANGEBYRANK" | "ZREMRANGEBYLEX" | "ZPOPMIN" | "ZPOPMAX"
+        | "XTRIM" | "XDEL" | "UNSUBSCRIBE" | "PUNSUBSCRIBE"
+        => OperationKind::Delete,
+
+        // DDL / dangerous — includes compound commands with destructive subcommands
+        // (CONFIG SET, CLIENT KILL, SLOWLOG RESET) that we can't distinguish here
+        "CONFIG" | "CLIENT" | "SLOWLOG"
+        | "FLUSHDB" | "FLUSHALL" | "SWAPDB" | "DEBUG" | "SHUTDOWN" | "BGSAVE" | "BGREWRITEAOF"
+        | "SCRIPT" | "EVAL" | "EVALSHA" | "MODULE" | "ACL" | "REPLICAOF" | "SLAVEOF"
+        | "FAILOVER" | "WAIT" | "RESET"
+        => OperationKind::Ddl,
+
+        // Unknown commands default to DDL (fail-safe)
+        _ => OperationKind::Ddl,
     }
 }
 
@@ -680,6 +778,66 @@ mod tests {
         assert_eq!(classify_document_op(&op), OperationKind::Delete);
     }
 
+    // ---- classify_document_op: RunCommand sub-classification ----
+
+    #[test]
+    fn test_classify_document_run_command_read() {
+        for cmd_name in ["buildInfo", "explain", "serverStatus", "dbStats", "collStats", "ping", "listCollections", "count", "find"] {
+            let op = DocumentOperation::RunCommand {
+                command: serde_json::json!({ cmd_name: 1 }),
+            };
+            assert_eq!(classify_document_op(&op), OperationKind::Read, "Expected Read for {}", cmd_name);
+        }
+    }
+
+    #[test]
+    fn test_classify_document_run_command_insert() {
+        let op = DocumentOperation::RunCommand {
+            command: serde_json::json!({ "insert": "users", "documents": [{"name": "test"}] }),
+        };
+        assert_eq!(classify_document_op(&op), OperationKind::Insert);
+    }
+
+    #[test]
+    fn test_classify_document_run_command_update() {
+        let op = DocumentOperation::RunCommand {
+            command: serde_json::json!({ "update": "users", "updates": [] }),
+        };
+        assert_eq!(classify_document_op(&op), OperationKind::Update);
+    }
+
+    #[test]
+    fn test_classify_document_run_command_findandmodify() {
+        let op = DocumentOperation::RunCommand {
+            command: serde_json::json!({ "findAndModify": "users", "query": {}, "update": {} }),
+        };
+        assert_eq!(classify_document_op(&op), OperationKind::Update);
+    }
+
+    #[test]
+    fn test_classify_document_run_command_delete() {
+        let op = DocumentOperation::RunCommand {
+            command: serde_json::json!({ "delete": "users", "deletes": [] }),
+        };
+        assert_eq!(classify_document_op(&op), OperationKind::Delete);
+    }
+
+    #[test]
+    fn test_classify_document_run_command_ddl() {
+        let op = DocumentOperation::RunCommand {
+            command: serde_json::json!({ "dropDatabase": 1 }),
+        };
+        assert_eq!(classify_document_op(&op), OperationKind::Ddl);
+    }
+
+    #[test]
+    fn test_classify_document_run_command_unknown_is_ddl() {
+        let op = DocumentOperation::RunCommand {
+            command: serde_json::json!({ "customCommand": 1 }),
+        };
+        assert_eq!(classify_document_op(&op), OperationKind::Ddl);
+    }
+
     // ---- classify_keyvalue_op ----
 
     #[test]
@@ -718,9 +876,71 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_kv_execute_raw() {
+    fn test_classify_kv_execute_raw_ddl() {
         let op = KeyValueOperation::ExecuteRaw {
             command: "FLUSHALL".into(),
+            args: vec![],
+        };
+        assert_eq!(classify_keyvalue_op(&op), OperationKind::Ddl);
+    }
+
+    #[test]
+    fn test_classify_kv_execute_raw_read() {
+        for cmd in ["INFO", "DBSIZE", "PING", "GET", "SCAN", "KEYS", "HGETALL", "LRANGE", "SMEMBERS", "ZRANGE"] {
+            let op = KeyValueOperation::ExecuteRaw {
+                command: cmd.into(),
+                args: vec![],
+            };
+            assert_eq!(classify_keyvalue_op(&op), OperationKind::Read, "Expected Read for {}", cmd);
+        }
+    }
+
+    #[test]
+    fn test_classify_kv_execute_raw_read_case_insensitive() {
+        let op = KeyValueOperation::ExecuteRaw {
+            command: "info".into(),
+            args: vec![],
+        };
+        assert_eq!(classify_keyvalue_op(&op), OperationKind::Read);
+    }
+
+    #[test]
+    fn test_classify_kv_execute_raw_insert() {
+        for cmd in ["SET", "HSET", "LPUSH", "SADD", "ZADD", "XADD"] {
+            let op = KeyValueOperation::ExecuteRaw {
+                command: cmd.into(),
+                args: vec![],
+            };
+            assert_eq!(classify_keyvalue_op(&op), OperationKind::Insert, "Expected Insert for {}", cmd);
+        }
+    }
+
+    #[test]
+    fn test_classify_kv_execute_raw_update() {
+        for cmd in ["EXPIRE", "RENAME", "PERSIST"] {
+            let op = KeyValueOperation::ExecuteRaw {
+                command: cmd.into(),
+                args: vec![],
+            };
+            assert_eq!(classify_keyvalue_op(&op), OperationKind::Update, "Expected Update for {}", cmd);
+        }
+    }
+
+    #[test]
+    fn test_classify_kv_execute_raw_delete() {
+        for cmd in ["DEL", "UNLINK", "HDEL", "LPOP", "SREM", "ZREM"] {
+            let op = KeyValueOperation::ExecuteRaw {
+                command: cmd.into(),
+                args: vec![],
+            };
+            assert_eq!(classify_keyvalue_op(&op), OperationKind::Delete, "Expected Delete for {}", cmd);
+        }
+    }
+
+    #[test]
+    fn test_classify_kv_execute_raw_unknown_is_ddl() {
+        let op = KeyValueOperation::ExecuteRaw {
+            command: "CUSTOMCMD".into(),
             args: vec![],
         };
         assert_eq!(classify_keyvalue_op(&op), OperationKind::Ddl);

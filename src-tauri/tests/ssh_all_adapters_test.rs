@@ -127,14 +127,14 @@ async fn assert_profile_connects_over_ssh(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let manager = ConnectionManager::new();
     let conn_id = manager.get_or_create_connection(&profile).await?;
-    let conn = manager.get_connection_with_retry(&conn_id, 2).await?;
-    let test_result = conn.adapter.test_connection().await?;
+    let adapter = manager.borrow_adapter_with_retry(&conn_id, 2).await?;
+    let test_result = adapter.test_connection().await?;
     assert!(
         test_result.success,
         "Connection test failed for {:?}: {}",
         profile.db_type, test_result.message
     );
-    drop(conn);
+    drop(adapter);
     manager.disconnect(&conn_id).await?;
     Ok(())
 }

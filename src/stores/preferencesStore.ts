@@ -5,7 +5,6 @@ export type PreferenceCategory =
   | "general"
   | "editor"
   | "shortcuts"
-  | "globalShortcuts"
   | "telemetry";
 
 export interface TelemetryPreferences {
