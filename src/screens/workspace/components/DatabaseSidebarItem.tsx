@@ -16,6 +16,8 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { useDraggable } from "@dnd-kit/core";
+import type { TableMeta, FunctionMeta } from "@/services/databaseService";
 
 interface SidebarSectionProps {
   title: string;
@@ -273,6 +275,66 @@ export function SidebarItem({
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Drag data type for sidebar items
+// ---------------------------------------------------------------------------
+
+export interface SidebarItemDragData {
+  type: "sidebar-item";
+  objectType: "table" | "view" | "function" | "procedure";
+  name: string;
+  table?: TableMeta;
+  func?: FunctionMeta;
+  connectionId: string;
+  database: string;
+  schema: string;
+  kind?: "Table" | "View" | "MaterializedView";
+}
+
+// ---------------------------------------------------------------------------
+// DraggableSidebarItem - wraps SidebarItem children with useDraggable
+// ---------------------------------------------------------------------------
+
+interface DraggableSidebarItemProps {
+  /** Unique draggable ID for dnd-kit (must be unique across all draggables) */
+  dragId: string;
+  /** Drag data payload describing the sidebar object */
+  dragData: SidebarItemDragData;
+  children: ReactNode;
+}
+
+/**
+ * Wrapper that makes a sidebar item draggable via @dnd-kit.
+ * Applies `useDraggable` listeners and ref to an outer div.
+ * The distance activation constraint (8px) on the PointerSensor in
+ * WorkbenchDndProvider ensures clicks still work normally.
+ */
+export function DraggableSidebarItem({
+  dragId,
+  dragData,
+  children,
+}: DraggableSidebarItemProps) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: dragId,
+    data: dragData,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      style={{ opacity: isDragging ? 0.4 : 1 }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ActionButton
+// ---------------------------------------------------------------------------
 
 interface ActionButtonProps {
   icon: ReactNode;

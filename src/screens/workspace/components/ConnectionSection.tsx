@@ -44,6 +44,8 @@ import {
   SidebarSection,
   SidebarItem,
   ActionButton,
+  DraggableSidebarItem,
+  type SidebarItemDragData,
 } from "./DatabaseSidebarItem";
 import { PartitionSubTree } from "./PartitionSubTree";
 import { type TableMeta, type FunctionMeta } from "@/services/databaseService";
@@ -1021,9 +1023,34 @@ export const ConnectionSection = forwardRef<
                             handleTableClick(itemData as TableMeta, "data");
                           };
 
+                    const starredDragData: SidebarItemDragData = item.type === "function"
+                      ? {
+                          type: "sidebar-item",
+                          objectType: isProcedure(itemData as FunctionMeta) ? "procedure" : "function",
+                          name: item.name,
+                          func: itemData as FunctionMeta,
+                          connectionId,
+                          database,
+                          schema: item.schema,
+                        }
+                      : {
+                          type: "sidebar-item",
+                          objectType: item.type as "table" | "view",
+                          name: item.name,
+                          table: itemData as TableMeta,
+                          connectionId,
+                          database,
+                          schema: item.schema,
+                          kind: (itemData as TableMeta).kind,
+                        };
+
                     return (
-                      <SidebarItem
+                      <DraggableSidebarItem
                         key={item.id}
+                        dragId={`sidebar-starred-${connectionId}-${item.type}-${item.schema}.${item.name}`}
+                        dragData={starredDragData}
+                      >
+                      <SidebarItem
                         icon={icon}
                         name={item.name}
                         isActive={isActive}
@@ -1044,6 +1071,7 @@ export const ConnectionSection = forwardRef<
                           pendingChangesSet.has(`${item.schema}.${item.name}`)
                         }
                       />
+                      </DraggableSidebarItem>
                     );
                   })}
                 </SidebarSection>
@@ -1071,8 +1099,22 @@ export const ConnectionSection = forwardRef<
                       table.isPartitioned === true && !isMySQLDb;
                     const isPartitionExpanded =
                       expandedPartitionedTables.has(tableKey);
+                    const tableDragData: SidebarItemDragData = {
+                      type: "sidebar-item",
+                      objectType: "table",
+                      name: table.name,
+                      table,
+                      connectionId,
+                      database,
+                      schema: table.schema,
+                      kind: table.kind,
+                    };
                     return (
-                      <div key={tableKey}>
+                      <DraggableSidebarItem
+                        key={tableKey}
+                        dragId={`sidebar-table-${connectionId}-${tableKey}`}
+                        dragData={tableDragData}
+                      >
                         <SidebarItem
                           icon={
                             <IconTable className="h-3.5 w-4 min-w-4 text-primary shrink-0" />
@@ -1156,7 +1198,7 @@ export const ConnectionSection = forwardRef<
                             ) => isTableActive(partitionName, partitionSchema)}
                           />
                         )}
-                      </div>
+                      </DraggableSidebarItem>
                     );
                   })}
                 </SidebarSection>
@@ -1177,9 +1219,24 @@ export const ConnectionSection = forwardRef<
                   onSelectAll={handleSelectAllViews}
                   onCopyAllNames={handleCopyAllViewNames}
                 >
-                  {filterItems(views, "view").map((view) => (
-                    <SidebarItem
+                  {filterItems(views, "view").map((view) => {
+                    const viewDragData: SidebarItemDragData = {
+                      type: "sidebar-item",
+                      objectType: "view",
+                      name: view.name,
+                      table: view,
+                      connectionId,
+                      database,
+                      schema: view.schema,
+                      kind: view.kind,
+                    };
+                    return (
+                    <DraggableSidebarItem
                       key={`${view.schema}.${view.name}`}
+                      dragId={`sidebar-view-${connectionId}-${view.schema}.${view.name}`}
+                      dragData={viewDragData}
+                    >
+                    <SidebarItem
                       icon={
                         <IconEye
                           className={cn(
@@ -1252,7 +1309,9 @@ export const ConnectionSection = forwardRef<
                         </>
                       }
                     />
-                  ))}
+                    </DraggableSidebarItem>
+                    );
+                  })}
                 </SidebarSection>
               )}
 
@@ -1271,9 +1330,23 @@ export const ConnectionSection = forwardRef<
                   onSelectAll={handleSelectAllFunctions}
                   onCopyAllNames={handleCopyAllFunctionNames}
                 >
-                  {filterItems(functions, "function").map((func) => (
-                    <SidebarItem
+                  {filterItems(functions, "function").map((func) => {
+                    const funcDragData: SidebarItemDragData = {
+                      type: "sidebar-item",
+                      objectType: isProcedure(func) ? "procedure" : "function",
+                      name: func.name,
+                      func,
+                      connectionId,
+                      database,
+                      schema: func.schema,
+                    };
+                    return (
+                    <DraggableSidebarItem
                       key={`${func.schema}.${func.name}`}
+                      dragId={`sidebar-func-${connectionId}-${func.schema}.${func.name}`}
+                      dragData={funcDragData}
+                    >
+                    <SidebarItem
                       icon={
                         <IconMathFunction
                           className={cn(
@@ -1307,7 +1380,9 @@ export const ConnectionSection = forwardRef<
                         );
                       }}
                     />
-                  ))}
+                    </DraggableSidebarItem>
+                    );
+                  })}
                 </SidebarSection>
               )}
 
