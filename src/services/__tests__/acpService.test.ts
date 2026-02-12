@@ -225,6 +225,7 @@ describe("AcpService", () => {
         "instance-123",
         "Hello",
         undefined,
+        undefined,
         { onChunk }
       );
 
@@ -257,6 +258,7 @@ describe("AcpService", () => {
         "instance-123",
         "Hello",
         undefined,
+        undefined,
         { onThinking }
       );
 
@@ -288,6 +290,7 @@ describe("AcpService", () => {
       const sessionId = await AcpService.sendPrompt(
         "instance-123",
         "Read a file",
+        undefined,
         undefined,
         { onToolCall }
       );
@@ -328,6 +331,7 @@ describe("AcpService", () => {
         "instance-123",
         "Done",
         undefined,
+        undefined,
         { onComplete }
       );
 
@@ -356,7 +360,7 @@ describe("AcpService", () => {
       const onError = vi.fn();
 
       await expect(
-        AcpService.sendPrompt("instance-123", "Hello", undefined, { onError })
+        AcpService.sendPrompt("instance-123", "Hello", undefined, undefined, { onError })
       ).rejects.toThrow("Network error");
 
       expect(onError).toHaveBeenCalledWith("Error: Network error");
@@ -376,6 +380,7 @@ describe("AcpService", () => {
       const sessionId = await AcpService.sendPrompt(
         "instance-123",
         "Hello",
+        undefined,
         undefined,
         { onChunk }
       );
@@ -452,6 +457,7 @@ describe("AcpService", () => {
         "instance-123",
         "Hello",
         undefined,
+        undefined,
         { onChunk }
       );
 
@@ -485,6 +491,7 @@ describe("AcpService", () => {
         "instance-123",
         "Hello",
         undefined,
+        undefined,
         { onChunk }
       );
 
@@ -516,6 +523,7 @@ describe("AcpService", () => {
       const sessionId = await AcpService.sendPrompt(
         "instance-123",
         "Execute",
+        undefined,
         undefined,
         { onToolCall }
       );

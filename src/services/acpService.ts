@@ -172,6 +172,7 @@ export const AcpService = {
     instanceId: string,
     prompt: string,
     contextJson?: string,
+    images?: Array<{ data: string; mimeType: string }>,
     callbacks?: {
       onChunk?: (text: string) => void;
       onThinking?: (text: string) => void;
@@ -288,6 +289,7 @@ export const AcpService = {
         instanceId,
         prompt,
         contextJson,
+        images: images && images.length > 0 ? images : null,
       });
       // Defensive guard: session ID must remain stable for this request.
       if (responseSessionId !== sessionId) {
@@ -453,7 +455,7 @@ export const AcpService = {
         });
 
         // Send prompt and collect streaming response
-        await this.sendPrompt(instanceId, prompt, contextJson, {
+        await this.sendPrompt(instanceId, prompt, contextJson, undefined, {
           onChunk: (text) => {
             responseText += text;
           },

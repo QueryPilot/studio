@@ -23,6 +23,8 @@ pub struct McpBridge {
     shutdown: Arc<Notify>,
     #[allow(dead_code)]
     ai_context: Arc<AiContextStore>,
+    /// Whether this instance created/owns the socket (for safe cleanup)
+    owns_socket: std::sync::atomic::AtomicBool,
 }
 
 impl McpBridge {
@@ -40,6 +42,7 @@ impl McpBridge {
             handler,
             shutdown,
             ai_context,
+            owns_socket: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -70,15 +73,31 @@ impl McpBridge {
         let listener = match UnixListener::bind(&self.socket_path) {
             Ok(l) => l,
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
-                tokio::fs::remove_file(&self.socket_path)
-                    .await
-                    .map_err(|e| format!("Failed to remove stale socket: {}", e))?;
-                UnixListener::bind(&self.socket_path)
-                    .map_err(|e| format!("Failed to bind after cleanup: {}", e))?
+                // Check if another instance is alive on this socket
+                match tokio::net::UnixStream::connect(&self.socket_path).await {
+                    Ok(_) => {
+                        // Another instance is alive — don't steal its socket
+                        tracing::error!(
+                            "Another Query Pilot instance is already running on {:?}. Skipping MCP bridge start.",
+                            self.socket_path
+                        );
+                        return Err("Another Query Pilot instance owns the MCP bridge socket".to_string());
+                    }
+                    Err(_) => {
+                        // Stale socket — safe to remove and rebind
+                        tracing::info!("Removing stale socket at {:?}", self.socket_path);
+                        tokio::fs::remove_file(&self.socket_path)
+                            .await
+                            .map_err(|e| format!("Failed to remove stale socket: {}", e))?;
+                        UnixListener::bind(&self.socket_path)
+                            .map_err(|e| format!("Failed to bind after cleanup: {}", e))?
+                    }
+                }
             }
             Err(e) => return Err(format!("Failed to bind socket: {}", e)),
         };
 
+        self.owns_socket.store(true, std::sync::atomic::Ordering::SeqCst);
         tracing::info!("MCP Bridge started on {:?}", self.socket_path);
 
         let handler = self.handler.clone();
@@ -203,8 +222,8 @@ impl McpBridge {
 
 impl Drop for McpBridge {
     fn drop(&mut self) {
-        // Attempt synchronous cleanup of socket file
-        if self.socket_path.exists() {
+        // Only remove the socket if this instance created it
+        if self.owns_socket.load(std::sync::atomic::Ordering::SeqCst) && self.socket_path.exists() {
             let _ = std::fs::remove_file(&self.socket_path);
         }
     }

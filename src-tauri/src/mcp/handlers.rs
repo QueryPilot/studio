@@ -798,14 +798,25 @@ impl McpHandler {
             .as_sql()
             .ok_or_else(|| "Connection does not support SQL queries".to_string())?;
 
-        let schema = params.schema.as_deref().unwrap_or("public");
-        let table = &params.table;
+        // Parse schema-qualified table names (e.g., "aaa.t_user" → schema="aaa", table="t_user")
+        let (schema, table) = if params.table.contains('.') {
+            let parts: Vec<&str> = params.table.splitn(2, '.').collect();
+            (
+                parts[0].to_string(),
+                parts[1].to_string(),
+            )
+        } else {
+            (
+                params.schema.clone().unwrap_or_else(|| "public".to_string()),
+                params.table.clone(),
+            )
+        };
 
         // Validate schema and table names to prevent SQL injection
-        if !is_valid_sql_identifier(schema) {
+        if !is_valid_sql_identifier(&schema) {
             return Err(format!("Invalid schema name: '{}'", schema));
         }
-        if !is_valid_sql_identifier(table) {
+        if !is_valid_sql_identifier(&table) {
             return Err(format!("Invalid table name: '{}'", table));
         }
 
@@ -1038,18 +1049,17 @@ impl McpHandler {
         }
     }
 
-    /// Get current active context
+    /// Get current active context (returns all contexts with primary)
     async fn handle_get_current_context(&self, id: String) -> JsonRpcResponse {
-        let context = self.ai_context.get_active_context().await;
+        let all_contexts = self.ai_context.get_all_active_contexts().await;
+        let primary = self.ai_context.get_active_context().await;
 
-        match serde_json::to_value(&context) {
-            Ok(value) => JsonRpcResponse::success(id, value),
-            Err(e) => JsonRpcResponse::error(
-                id,
-                error_codes::INTERNAL_ERROR,
-                format!("Serialization error: {}", e),
-            ),
-        }
+        let result = json!({
+            "contexts": all_contexts,
+            "primary": primary,
+        });
+
+        JsonRpcResponse::success(id, result)
     }
 
     /// Get execution plan (EXPLAIN) for a query

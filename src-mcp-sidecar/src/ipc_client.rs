@@ -159,7 +159,7 @@ impl IpcClient {
                             Ok(response) => {
                                 if let Some(tx) = pending_reader.lock().await.remove(&response.id) {
                                     let result = match response.error {
-                                        Some(err) => Err(anyhow::anyhow!("{}", err)),
+                                        Some(err) => Err(anyhow::anyhow!("{}", err.message)),
                                         None => Ok(response.result.unwrap_or(serde_json::Value::Null)),
                                     };
                                     let _ = tx.send(result);
@@ -191,7 +191,12 @@ impl IpcClient {
         })
     }
 
-    /// Send a request to the bridge and wait for response
+    /// Check if the connection to the bridge is still alive
+    pub fn is_connected(&self) -> bool {
+        !self.request_tx.is_closed()
+    }
+
+    /// Send a request to the bridge and wait for response (with 30s timeout)
     pub async fn request(
         &self,
         method: &str,
@@ -212,9 +217,11 @@ impl IpcClient {
             .await
             .map_err(|_| anyhow::anyhow!("Failed to send request: channel closed"))?;
 
-        response_rx
-            .await
-            .map_err(|_| anyhow::anyhow!("Failed to receive response: channel closed"))?
+        match tokio::time::timeout(std::time::Duration::from_secs(30), response_rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err(anyhow::anyhow!("Failed to receive response: channel closed")),
+            Err(_) => Err(anyhow::anyhow!("Request timed out after 30 seconds")),
+        }
     }
 
     /// Execute a SQL query
@@ -338,10 +345,12 @@ impl MockIpcClient {
         _database: Option<&str>,
         _schema: Option<&str>,
     ) -> Result<serde_json::Value> {
-        Ok(serde_json::json!([
-            {"schema": "public", "name": "users", "kind": "Regular"},
-            {"schema": "public", "name": "orders", "kind": "Regular"}
-        ]))
+        Ok(serde_json::json!({
+            "tables": [
+                {"schema": "public", "name": "users", "type": "TABLE"},
+                {"schema": "public", "name": "orders", "type": "TABLE"}
+            ]
+        }))
     }
 
     pub async fn describe_table(
@@ -351,15 +360,19 @@ impl MockIpcClient {
         _database: Option<&str>,
         _schema: Option<&str>,
     ) -> Result<serde_json::Value> {
-        Ok(serde_json::json!([
-            {"name": "id", "dataType": "integer", "nullable": false, "primaryKey": true},
-            {"name": "name", "dataType": "varchar(255)", "nullable": true, "primaryKey": false}
-        ]))
+        Ok(serde_json::json!({
+            "columns": [
+                {"name": "id", "type": "integer", "nullable": false, "primaryKey": true},
+                {"name": "name", "type": "varchar(255)", "nullable": true, "primaryKey": false}
+            ]
+        }))
     }
 
     pub async fn list_connections(&self) -> Result<serde_json::Value> {
-        Ok(serde_json::json!([
-            {"id": "conn-1", "name": "Local PostgreSQL", "dbType": "PostgreSQL", "database": "postgres", "connected": true}
-        ]))
+        Ok(serde_json::json!({
+            "connections": [
+                {"id": "conn-1", "name": "Local PostgreSQL", "dbType": "PostgreSQL", "database": "postgres"}
+            ]
+        }))
     }
 }

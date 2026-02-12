@@ -352,6 +352,12 @@ export function ConnectionsSection() {
   const getUncategorizedConnectionIds = useWorkspaceBundleStore(
     (s) => s.getUncategorizedConnectionIds,
   );
+  const addConnectionToSavedWorkspace = useWorkspaceBundleStore(
+    (s) => s.addConnectionToSavedWorkspace,
+  );
+  const removeConnectionFromSavedWorkspace = useWorkspaceBundleStore(
+    (s) => s.removeConnectionFromSavedWorkspace,
+  );
 
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(
@@ -506,6 +512,18 @@ export function ConnectionsSection() {
       if (conn) {
         conn.metadata.workspace_ids = newWorkspaceIds;
         await vaultStorage.updateMetadata(connectionId, conn.metadata);
+      }
+
+      // Keep workspace.connectionIds in sync (bidirectional)
+      // Remove from all previous workspaces
+      for (const wsId of currentWorkspaceIds) {
+        if (wsId !== targetWorkspaceId) {
+          await removeConnectionFromSavedWorkspace(wsId, connectionId);
+        }
+      }
+      // Add to target workspace
+      if (targetWorkspaceId) {
+        await addConnectionToSavedWorkspace(targetWorkspaceId, connectionId);
       }
 
       // Refresh connections to update UI

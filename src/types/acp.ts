@@ -65,6 +65,8 @@ export interface AcpMessage {
   timestamp: number;
   toolCalls?: ToolCall[];
   thinking?: string;
+  /** Images attached to user messages (base64 + mimeType) */
+  images?: Array<{ data: string; mimeType: string }>;
   /**
    * Ordered assistant output flow used to render true interleaving:
    * text chunk -> tool call -> text chunk, etc.

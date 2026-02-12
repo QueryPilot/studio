@@ -159,7 +159,7 @@ interface AcpState {
   loadSession: (sessionId: string) => Promise<void>;
   newConversation: () => void;
   deleteSession: (sessionId: string) => Promise<void>;
-  sendMessage: (content: string, contextJson?: string) => Promise<void>;
+  sendMessage: (content: string, contextJson?: string, images?: Array<{ data: string; mimeType: string }>) => Promise<void>;
   cancelGeneration: () => Promise<void>;
   appendChunk: (text: string) => void;
   appendThinking: (text: string) => void;
@@ -674,7 +674,7 @@ export const useAcpStore = create<AcpState>()(
       void get().loadRecentSessions(connectionId);
     },
 
-    sendMessage: async (content, contextJson) => {
+    sendMessage: async (content, contextJson, images) => {
       const { messages } = get();
 
       // Generate a temporary message ID for optimistic UI
@@ -688,6 +688,7 @@ export const useAcpStore = create<AcpState>()(
         role: "user",
         content,
         timestamp: Date.now(),
+        images: images && images.length > 0 ? images : undefined,
       };
 
       set((state) => ({
@@ -745,7 +746,7 @@ export const useAcpStore = create<AcpState>()(
       try {
         // sendPrompt returns sessionId and sets up event listeners
         // Callbacks are invoked as streaming events arrive
-        await AcpService.sendPrompt(activeInstanceId, content, contextJson, {
+        await AcpService.sendPrompt(activeInstanceId, content, contextJson, images, {
           onChunk: (text) => {
             get().appendChunk(text);
           },

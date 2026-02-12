@@ -164,26 +164,24 @@ fn format_history_result(result: serde_json::Value) -> ToolCallResult {
     ToolCallResult::text(output)
 }
 
-fn format_context_result(result: serde_json::Value) -> ToolCallResult {
-    let mut output = String::from("## Current Editor Context\n\n");
-
-    if let Some(conn) = result.get("connectionId").and_then(|v| v.as_str()) {
+fn format_single_context(ctx: &serde_json::Value, output: &mut String) {
+    if let Some(conn) = ctx.get("connectionId").and_then(|v| v.as_str()) {
         output.push_str(&format!("**Connection:** {}\n", conn));
     } else {
         output.push_str("**Connection:** None\n");
     }
 
-    if let Some(db) = result.get("database").and_then(|v| v.as_str()) {
+    if let Some(db) = ctx.get("database").and_then(|v| v.as_str()) {
         output.push_str(&format!("**Database:** {}\n", db));
     }
 
-    if let Some(schema) = result.get("schema").and_then(|v| v.as_str()) {
+    if let Some(schema) = ctx.get("schema").and_then(|v| v.as_str()) {
         output.push_str(&format!("**Schema:** {}\n", schema));
     }
 
     output.push('\n');
 
-    if let Some(query) = result.get("query").and_then(|v| v.as_str()) {
+    if let Some(query) = ctx.get("query").and_then(|v| v.as_str()) {
         if !query.is_empty() {
             output.push_str("**Current Query:**\n```sql\n");
             output.push_str(query);
@@ -191,13 +189,13 @@ fn format_context_result(result: serde_json::Value) -> ToolCallResult {
         }
     }
 
-    let has_results = result
+    let has_results = ctx
         .get("hasResults")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     if has_results {
-        let row_count = result.get("rowCount").and_then(|v| v.as_u64()).unwrap_or(0);
-        let col_count = result
+        let row_count = ctx.get("rowCount").and_then(|v| v.as_u64()).unwrap_or(0);
+        let col_count = ctx
             .get("columnCount")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
@@ -207,6 +205,34 @@ fn format_context_result(result: serde_json::Value) -> ToolCallResult {
         ));
     } else {
         output.push_str("**Results:** None\n");
+    }
+}
+
+fn format_context_result(result: serde_json::Value) -> ToolCallResult {
+    let mut output = String::from("## Current Editor Context\n\n");
+
+    // Handle multi-context response (new format with "primary" and "contexts")
+    if let Some(primary) = result.get("primary") {
+        format_single_context(primary, &mut output);
+
+        // Show other active connections if any
+        if let Some(contexts) = result.get("contexts").and_then(|v| v.as_array()) {
+            let primary_conn_id = primary.get("connectionId").and_then(|v| v.as_str());
+            let others: Vec<&serde_json::Value> = contexts
+                .iter()
+                .filter(|c| c.get("connectionId").and_then(|v| v.as_str()) != primary_conn_id)
+                .collect();
+            if !others.is_empty() {
+                output.push_str("\n---\n\n## Other Active Connections\n\n");
+                for ctx in others {
+                    format_single_context(ctx, &mut output);
+                    output.push_str("\n---\n\n");
+                }
+            }
+        }
+    } else {
+        // Backwards compatible: single context response
+        format_single_context(&result, &mut output);
     }
 
     ToolCallResult::text(output)

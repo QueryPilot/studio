@@ -107,8 +107,10 @@ fn parse_list_tables_input(
 }
 
 fn format_tables_result(result: serde_json::Value) -> ToolCallResult {
+    // Unwrap from wrapper object if needed (bridge sends {"tables": [...]})
+    let inner = result.get("tables").cloned().unwrap_or(result);
     // Try to parse as array of TableInfo
-    let tables: Vec<TableInfo> = match serde_json::from_value(result) {
+    let tables: Vec<TableInfo> = match serde_json::from_value(inner) {
         Ok(tables) => tables,
         Err(e) => return ToolCallResult::error(format!("Failed to parse tables: {}", e)),
     };
@@ -163,8 +165,10 @@ fn format_tables_result(result: serde_json::Value) -> ToolCallResult {
 }
 
 fn format_connections_result(result: serde_json::Value) -> ToolCallResult {
+    // Unwrap from wrapper object if needed (bridge sends {"connections": [...]})
+    let inner = result.get("connections").cloned().unwrap_or(result);
     // Try to parse as array of ConnectionListItem
-    let connections: Vec<ConnectionListItem> = match serde_json::from_value(result) {
+    let connections: Vec<ConnectionListItem> = match serde_json::from_value(inner) {
         Ok(conns) => conns,
         Err(e) => {
             return ToolCallResult::error(format!("Failed to parse connections: {}", e))
