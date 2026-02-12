@@ -3,7 +3,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { useEffect, useState, useCallback } from "react";
 import { WorkspaceTitleBar } from "./components/WorkspaceTitleBar";
 import { SidebarConnectionList } from "./components/SidebarConnectionList";
-import { WorkbenchLayout } from "@/components/Workbench";
+import { WorkbenchLayout, WorkbenchDndProvider } from "@/components/Workbench";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
@@ -466,6 +466,8 @@ export function WorkspaceScreen() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
+        {/* DnD context wraps both sidebar and workbench so sidebar items can drag to panel drop zones */}
+        <WorkbenchDndProvider>
         {/* Resizable Panels */}
         <ResizablePanelGroup
           direction="horizontal"
@@ -533,6 +535,7 @@ export function WorkspaceScreen() {
             </>
           )}
         </ResizablePanelGroup>
+        </WorkbenchDndProvider>
       </div>
 
       {/* Global Preferences Dialog */}
