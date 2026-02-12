@@ -2,7 +2,6 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { PreferencesSidebar } from "./PreferencesSidebar";
 import GeneralPanel from "./panels/GeneralPanel";
-import EditorPanel from "./panels/EditorPanel";
 import TelemetryPanel from "./panels/TelemetryPanel";
 import { Suspense, lazy } from "react";
 import { IconLoader2, IconChevronLeft } from "@tabler/icons-react";
@@ -36,8 +35,6 @@ export function PreferencesDialog({
     switch (activeCategory) {
       case "general":
         return <GeneralPanel />;
-      case "editor":
-        return <EditorPanel />;
       case "shortcuts":
         return (
           <Suspense

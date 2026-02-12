@@ -5,7 +5,6 @@ import {
 } from "@/stores/preferencesStore";
 import {
   IconSettings,
-  IconCode,
   IconKeyboard,
   IconActivity,
 } from "@tabler/icons-react";
@@ -15,11 +14,6 @@ const categories = [
     id: "general" as PreferenceCategory,
     label: "General",
     icon: IconSettings,
-  },
-  {
-    id: "editor" as PreferenceCategory,
-    label: "Editor",
-    icon: IconCode,
   },
   {
     id: "shortcuts" as PreferenceCategory,
