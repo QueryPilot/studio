@@ -286,10 +286,6 @@ export function findConnectionForMention(
   ref: MentionReference,
   context: AIContext
 ): { connectionId: string; schema: string } | null {
-  const focusedConn = context.connections.find(
-    (c) => c.id === context.focusedConnectionId
-  );
-
   // Helper to check if connection has the mentioned entity
   const hasEntity = (conn: AIConnectionContext): string | null => {
     if (conn.paradigm === "sql") {
@@ -322,7 +318,25 @@ export function findConnectionForMention(
     return null;
   };
 
-  // Prefer focused connection
+  // When connectionName is specified, resolve deterministically against that connection
+  if (ref.connectionName) {
+    const matchingConn = context.connections.find(
+      (c) => c.name === ref.connectionName
+    );
+    if (matchingConn) {
+      const schema = hasEntity(matchingConn);
+      if (schema !== null) {
+        return { connectionId: matchingConn.id, schema };
+      }
+    }
+    return null; // Connection specified but not found — don't fall back
+  }
+
+  // Unqualified mention: prefer focused connection, then search others
+  const focusedConn = context.connections.find(
+    (c) => c.id === context.focusedConnectionId
+  );
+
   if (focusedConn) {
     const schema = hasEntity(focusedConn);
     if (schema !== null) {
@@ -763,10 +777,13 @@ export function serializeAIContext(context: AIContext): string {
     mentions: context.mentions.map((m) => {
       // Serialize based on mention type
       switch (m.type) {
-        case "table":
+        case "table": {
+          const conn = context.connections.find((c) => c.id === m.connectionId);
           return {
             type: "table",
             name: `${m.schema}.${m.name}`,
+            connectionId: m.connectionId,
+            connectionName: conn?.name,
             columns: m.columns.map((c) => ({
               name: c.name,
               type: c.dataType,
@@ -784,6 +801,7 @@ export function serializeAIContext(context: AIContext): string {
               references: `${fk.referencedSchema ?? ""}.${fk.referencedTable}(${fk.referencedColumns.join(", ")})`,
             })),
           };
+        }
         case "view":
           return {
             type: "view",

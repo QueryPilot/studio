@@ -175,16 +175,40 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       // Connect to each connection in the workspace
       const connectionStore = useConnectionStore.getState();
 
-      for (const connectionId of config.connectionIds) {
-        const stored = connectionStore.getConnection(connectionId);
-
-        if (!stored) {
+      // Filter out orphaned connection IDs (connections that no longer exist in the store)
+      const validConnectionIds = config.connectionIds.filter((id) => {
+        const exists = !!connectionStore.getConnection(id);
+        if (!exists) {
           logger.warn(
-            `[WorkspaceBundleStore] Connection profile not found: ${connectionId}`,
+            `[WorkspaceBundleStore] Removing orphaned connection from workspace: ${id}`,
           );
-          // TODO: Prompt user to remove from workspace
-          continue;
         }
+        return exists;
+      });
+
+      // Update config if orphaned connections were found
+      if (validConnectionIds.length !== config.connectionIds.length) {
+        const cleanedConfig = {
+          ...config,
+          connectionIds: validConnectionIds,
+        };
+        set((s) => {
+          if (!s.activeWorkspace) return s;
+          return {
+            activeWorkspace: {
+              ...s.activeWorkspace,
+              config: cleanedConfig,
+            },
+          };
+        });
+        // Persist the cleaned config
+        void get().updateWorkspace(workspaceId, {
+          connectionIds: validConnectionIds,
+        });
+      }
+
+      for (const connectionId of validConnectionIds) {
+        const stored = connectionStore.getConnection(connectionId)!;
 
         const profile = stored.profile;
         const state = config.connectionStates[connectionId] || {
@@ -417,7 +441,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       const { activeWorkspace } = get();
       if (!activeWorkspace) return;
 
-      if (activeWorkspace.connections.has(connectionId)) {
+      if (activeWorkspace.connections.has(connectionId) || activeWorkspace.config.connectionIds.includes(connectionId)) {
         logger.warn(
           `[WorkspaceBundleStore] Connection already in workspace: ${connectionId}`,
         );

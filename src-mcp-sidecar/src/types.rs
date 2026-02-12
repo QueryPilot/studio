@@ -209,6 +209,14 @@ pub struct BridgeRequest {
     pub params: serde_json::Value,
 }
 
+/// Error from the Tauri bridge (JSON-RPC error object)
+#[derive(Debug, Clone, Deserialize)]
+pub struct BridgeError {
+    #[allow(dead_code)]
+    pub code: i32,
+    pub message: String,
+}
+
 /// Response from the Tauri bridge
 #[derive(Debug, Clone, Deserialize)]
 pub struct BridgeResponse {
@@ -216,7 +224,7 @@ pub struct BridgeResponse {
     #[serde(default)]
     pub result: Option<serde_json::Value>,
     #[serde(default)]
-    pub error: Option<String>,
+    pub error: Option<BridgeError>,
 }
 
 // ============================================================================
@@ -263,9 +271,12 @@ pub struct DescribeTableInput {
 
 /// Table info returned from list_tables
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TableInfo {
+    #[serde(default)]
     pub schema: String,
     pub name: String,
+    #[serde(alias = "type")]
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub row_count: Option<i64>,
@@ -275,8 +286,10 @@ pub struct TableInfo {
 
 /// Column info returned from describe_table
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ColumnInfo {
     pub name: String,
+    #[serde(alias = "type")]
     pub data_type: String,
     pub nullable: bool,
     pub primary_key: bool,
@@ -288,11 +301,13 @@ pub struct ColumnInfo {
 
 /// Connection info returned from list_connections
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConnectionListItem {
     pub id: String,
     pub name: String,
     pub db_type: String,
     pub database: String,
+    #[serde(default)]
     pub connected: bool,
 }
 

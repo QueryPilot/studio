@@ -238,6 +238,20 @@ class VaultStorageService {
       throw new Error("Cannot delete connection: keychain access denied. Please grant access and retry.");
     }
 
+    // Clean up workspace references to this connection
+    if (this.workspacesCache) {
+      let workspacesDirty = false;
+      for (const ws of this.workspacesCache) {
+        if (ws.connectionIds.includes(id)) {
+          ws.connectionIds = ws.connectionIds.filter((cid) => cid !== id);
+          workspacesDirty = true;
+        }
+      }
+      if (workspacesDirty) {
+        this.workspacesDirty = true;
+      }
+    }
+
     // Immediately update in-memory cache (synchronous)
     const index = await this.getIndex();
     const newIndex = index.filter((connId) => connId !== id);

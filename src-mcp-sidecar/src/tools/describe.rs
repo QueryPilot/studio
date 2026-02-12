@@ -95,8 +95,10 @@ fn parse_input(arguments: &HashMap<String, serde_json::Value>) -> Result<Describ
 }
 
 fn format_describe_result(table_name: &str, result: serde_json::Value) -> ToolCallResult {
+    // Unwrap from wrapper object if needed (bridge sends {"columns": [...]})
+    let inner = result.get("columns").cloned().unwrap_or(result);
     // Try to parse as array of ColumnInfo
-    let columns: Vec<ColumnInfo> = match serde_json::from_value(result) {
+    let columns: Vec<ColumnInfo> = match serde_json::from_value(inner) {
         Ok(cols) => cols,
         Err(e) => return ToolCallResult::error(format!("Failed to parse columns: {}", e)),
     };

@@ -13,6 +13,7 @@ import {
   useEffect,
   useRef,
   type KeyboardEvent,
+  type ClipboardEvent as ReactClipboardEvent,
 } from "react";
 import { useAcpStore } from "@/stores/acpStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
@@ -65,6 +66,7 @@ import {
   IconPlus,
   IconMessage,
   IconArrowDown,
+  IconPhoto,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
@@ -81,7 +83,16 @@ import { tableStreamingService } from "@/services/tableStreamingService";
 import { Kbd } from "../ui/kbd";
 import { eventBus, type AIGenerateSqlPayload } from "@/services/eventBus";
 import type { ParsedCommand } from "@/types/aiCommands";
-import type { AssistantFlowSegment } from "@/types/acp";
+import type { AssistantFlowSegment, AcpMessage } from "@/types/acp";
+import {
+  type PreparedImage,
+  resizeImage,
+  validateImageFile,
+  extractImagesFromPaste,
+  extractImagesFromDrop,
+  revokeImagePreviews,
+  MAX_IMAGES,
+} from "@/utils/imageUtils";
 
 // ============================================================================
 // Types
@@ -156,6 +167,41 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   const [inputValue, setInputValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [pendingImages, setPendingImages] = useState<PreparedImage[]>([]);
+
+  const handleAddImages = useCallback(
+    async (files: File[]) => {
+      for (const file of files) {
+        if (pendingImages.length >= MAX_IMAGES) {
+          setError(`Maximum ${MAX_IMAGES} images per message.`);
+          break;
+        }
+        const validationError = validateImageFile(file);
+        if (validationError) {
+          setError(validationError);
+          continue;
+        }
+        try {
+          const prepared = await resizeImage(file);
+          setPendingImages((prev) => {
+            if (prev.length >= MAX_IMAGES) return prev;
+            return [...prev, prepared];
+          });
+        } catch {
+          setError("Failed to process image.");
+        }
+      }
+    },
+    [pendingImages.length],
+  );
+
+  const handleRemoveImage = useCallback((id: string) => {
+    setPendingImages((prev) => {
+      const img = prev.find((i) => i.id === id);
+      if (img) URL.revokeObjectURL(img.previewUrl);
+      return prev.filter((i) => i.id !== id);
+    });
+  }, []);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [stickToBottom, setStickToBottom] = useState(true);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
@@ -290,6 +336,15 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
 
     setError(null);
     setInputValue("");
+
+    // Capture and clear pending images
+    const imagesToSend = pendingImages.map((img) => ({
+      data: img.data,
+      mimeType: img.mimeType,
+    }));
+    revokeImagePreviews(pendingImages);
+    setPendingImages([]);
+
     focusInput();
     scrollToBottom("auto");
 
@@ -311,7 +366,11 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
       };
       const contextJson = serializeAIContext(contextWithMentions);
 
-      await sendMessage(content, contextJson);
+      await sendMessage(
+        content,
+        contextJson,
+        imagesToSend.length > 0 ? imagesToSend : undefined,
+      );
     } catch (err) {
       console.error("Failed to send:", err);
       setError(err instanceof Error ? err.message : "Failed to send message");
@@ -320,6 +379,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   }, [
     inputValue,
     isStreaming,
+    pendingImages,
     activeSession,
     isWarmingUp,
     connectionId,
@@ -378,7 +438,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   );
   const hasInstalledAgents = installedAgents.length > 0;
   const hasMessages = messages.length > 0 || isStreaming;
-  const canSend = inputValue.trim().length > 0 && !isStreaming && hasInstalledAgents;
+  const canSend = (inputValue.trim().length > 0 || pendingImages.length > 0) && !isStreaming && hasInstalledAgents;
 
   return (
     <div
@@ -482,6 +542,9 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         disabled={!hasInstalledAgents}
         aiContext={aiContext}
         openTabs={openTabs}
+        pendingImages={pendingImages}
+        onAddImages={handleAddImages}
+        onRemoveImage={handleRemoveImage}
       />
     </div>
   );
@@ -695,6 +758,7 @@ interface MessageListProps {
     thinking?: string;
     toolCalls?: ToolCallType[];
     assistantFlow?: AssistantFlowSegment[];
+    images?: AcpMessage["images"];
   }>;
   isStreaming: boolean;
   streamingContent: string;
@@ -723,6 +787,7 @@ function MessageList({
             thinking={msg.thinking}
             toolCalls={msg.toolCalls}
             assistantFlow={msg.assistantFlow}
+            images={msg.images}
           />
         </Fragment>
       ))}
@@ -757,6 +822,7 @@ interface MessageBubbleProps {
   assistantFlow?: AssistantFlowSegment[];
   planSteps?: Array<{ id: string; description: string; status: string }>;
   isStreaming?: boolean;
+  images?: AcpMessage["images"];
 }
 
 type MessageContentSegment =
@@ -914,9 +980,11 @@ function MessageBubble({
   assistantFlow,
   planSteps,
   isStreaming,
+  images,
 }: MessageBubbleProps) {
   const isUser = role === "user";
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   // Get AI context for resolving @ mentions to connections
   const aiContext = useAIContextWithSchema();
@@ -1116,6 +1184,38 @@ function MessageBubble({
       <div className="max-w-full mx-auto">
         {/* Content */}
         <div className="space-y-2">
+          {/* Image Thumbnails */}
+          {isUser && images && images.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {images.map((img, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  className="overflow-hidden rounded-lg border border-border/60 hover:border-primary/50 transition-colors cursor-pointer"
+                  onClick={() => {
+                    setLightboxSrc(`data:${img.mimeType};base64,${img.data}`);
+                  }}
+                >
+                  <img
+                    src={`data:${img.mimeType};base64,${img.data}`}
+                    alt={`Attached image ${idx + 1}`}
+                    className="max-h-[120px] max-w-[200px] object-cover"
+                  />
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Lightbox */}
+          {lightboxSrc && (
+            <ImageLightbox
+              src={lightboxSrc}
+              onClose={() => {
+                setLightboxSrc(null);
+              }}
+            />
+          )}
+
           {/* Thinking Block */}
           {thinking && (
             <ThinkingBlock
@@ -1287,6 +1387,44 @@ function PlanBlock({ steps }: PlanBlockProps) {
   );
 }
 
+// ============================================================================
+// Image Lightbox
+// ============================================================================
+
+function ImageLightbox({
+  src,
+  onClose,
+}: {
+  src: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handleKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+      onClick={onClose}
+    >
+      <img
+        src={src}
+        alt="Full size preview"
+        className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg"
+        onClick={(e) => {
+          e.stopPropagation();
+        }}
+      />
+    </div>
+  );
+}
+
 function getToolCallStatusText(status: ToolCallType["status"]): string {
   switch (status) {
     case "pending":
@@ -1417,6 +1555,7 @@ interface MentionSuggestion {
   /** Breadcrumb like "connName › schema" or "connName › database" */
   breadcrumb: string;
   connectionId?: string;
+  connectionName?: string;
 }
 
 interface InputAreaProps {
@@ -1432,6 +1571,9 @@ interface InputAreaProps {
   disabled: boolean;
   aiContext: AIContext;
   openTabs: Array<{ id: string; name: string; type: string; panelId: string }>;
+  pendingImages: PreparedImage[];
+  onAddImages: (files: File[]) => void;
+  onRemoveImage: (id: string) => void;
 }
 
 const InputArea = ({
@@ -1447,6 +1589,9 @@ const InputArea = ({
   disabled,
   aiContext,
   openTabs,
+  pendingImages,
+  onAddImages,
+  onRemoveImage,
 }: InputAreaProps & { ref?: React.Ref<HTMLTextAreaElement> }) => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [showMentions, setShowMentions] = useState(false);
@@ -1454,7 +1599,55 @@ const InputArea = ({
   const [mentionStart, setMentionStart] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isFocused, setIsFocused] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
   const mentionListRef = useRef<HTMLDivElement>(null);
+
+  // Paste handler — extract images from clipboard
+  const handlePaste = useCallback(
+    (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
+      const files = extractImagesFromPaste(e.nativeEvent);
+      if (files.length > 0) {
+        e.preventDefault();
+        onAddImages(files);
+      }
+    },
+    [onAddImages],
+  );
+
+  // Drop handler
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      setIsDragOver(false);
+      dragCounterRef.current = 0;
+      const files = extractImagesFromDrop(e.nativeEvent);
+      if (files.length > 0) {
+        onAddImages(files);
+      }
+    },
+    [onAddImages],
+  );
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  }, []);
+
+  const handleDragEnter = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    dragCounterRef.current++;
+    if (dragCounterRef.current === 1) {
+      setIsDragOver(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setIsDragOver(false);
+    }
+  }, []);
 
   // Build suggestions from context - ALL connections in workspace
   const suggestions = useMemo((): MentionSuggestion[] => {
@@ -1496,6 +1689,7 @@ const InputArea = ({
               schema: schema.name,
               breadcrumb,
               connectionId: conn.id,
+              connectionName: conn.name,
             });
           }
         });
@@ -1508,6 +1702,7 @@ const InputArea = ({
               schema: schema.name,
               breadcrumb,
               connectionId: conn.id,
+              connectionName: conn.name,
             });
           }
         });
@@ -1520,6 +1715,7 @@ const InputArea = ({
               schema: schema.name,
               breadcrumb,
               connectionId: conn.id,
+              connectionName: conn.name,
             });
           }
         });
@@ -1585,12 +1781,18 @@ const InputArea = ({
   );
 
   // Insert selected mention
+  // When workspace has 2+ connections, include connection name for disambiguation
   const insertMention = useCallback(
     (suggestion: MentionSuggestion) => {
+      const connName =
+        aiContext.connections.length > 1
+          ? suggestion.connectionName
+          : undefined;
       const mention = formatMention(
         suggestion.type,
         suggestion.name,
         suggestion.schema,
+        connName,
       );
       const before = value.slice(0, mentionStart);
       const cursorPos = inputRef.current?.selectionStart ?? value.length;
@@ -1607,7 +1809,7 @@ const InputArea = ({
         inputRef.current?.focus();
       });
     },
-    [value, mentionStart, onChange],
+    [value, mentionStart, onChange, aiContext.connections.length],
   );
 
   // Handle keyboard navigation in mentions
@@ -1665,17 +1867,64 @@ const InputArea = ({
   };
 
   return (
-    <div className="p-1.5">
+    <div
+      className="p-1.5"
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+    >
       {/* Unified Input Container */}
       <div
         className={cn(
           "relative rounded-lg border-2 bg-background transition-all duration-200",
-          isFocused
-            ? "border-primary shadow-[0_0_0_3px_rgba(var(--primary-rgb),0.1)]"
-            : "border-border hover:border-border/80",
+          isDragOver
+            ? "border-dashed border-primary/50"
+            : isFocused
+              ? "border-primary shadow-[0_0_0_3px_rgba(var(--primary-rgb),0.1)]"
+              : "border-border hover:border-border/80",
           disabled && "opacity-50 pointer-events-none",
         )}
       >
+        {/* Drag overlay */}
+        {isDragOver && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-primary/5 pointer-events-none">
+            <div className="flex items-center gap-2 text-xs text-primary/70">
+              <IconPhoto className="h-4 w-4" />
+              <span>Drop image here</span>
+            </div>
+          </div>
+        )}
+
+        {/* Pending image thumbnails */}
+        {pendingImages.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-3 pt-2">
+            {pendingImages.map((img) => (
+              <div key={img.id} className="relative group/thumb">
+                <img
+                  src={img.previewUrl}
+                  alt="Pending"
+                  className="h-16 w-16 rounded-md object-cover border border-border/60"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    onRemoveImage(img.id);
+                  }}
+                  className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity"
+                >
+                  <IconX className="h-2.5 w-2.5" />
+                </button>
+              </div>
+            ))}
+            {pendingImages.length >= MAX_IMAGES && (
+              <div className="flex items-center px-1 text-[10px] text-muted-foreground">
+                Max {MAX_IMAGES}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* @ Mention Autocomplete Dropdown */}
         {showMentions && suggestions.length > 0 && (
           <div
@@ -1721,6 +1970,7 @@ const InputArea = ({
           value={value}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           onFocus={() => {
             setIsFocused(true);
           }}
