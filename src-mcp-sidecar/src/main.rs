@@ -23,7 +23,6 @@ mod ipc_client;
 mod tools;
 mod types;
 
-use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -54,7 +53,7 @@ impl McpServer {
         }
     }
 
-    /// Handle incoming JSON-RPC request
+    /// Handle incoming JSON-RPC request (takes &mut self for reconnection in tools/call)
     async fn handle_request(&mut self, request: JsonRpcRequest) -> JsonRpcResponse {
         debug!("Handling request: {} (id: {:?})", request.method, request.id);
 
@@ -139,7 +138,7 @@ impl McpServer {
 
     /// Handle tools/call request
     async fn handle_tools_call(
-        &self,
+        &mut self,
         id: Option<serde_json::Value>,
         params: Option<serde_json::Value>,
     ) -> JsonRpcResponse {
@@ -171,7 +170,26 @@ impl McpServer {
 
         debug!("Calling tool: {}", params.name);
 
-        // Check if we have a bridge connection
+        // Check if we have a bridge connection, attempt reconnect if dead
+        let needs_reconnect = match &self.client {
+            Some(c) => !c.is_connected(),
+            None => true,
+        };
+
+        if needs_reconnect {
+            info!("Bridge connection lost, attempting reconnect...");
+            match IpcClient::connect().await {
+                Ok(new_client) => {
+                    info!("Reconnected to Query Pilot bridge");
+                    self.client = Some(Arc::new(new_client));
+                }
+                Err(e) => {
+                    warn!("Reconnection failed: {}", e);
+                    self.client = None;
+                }
+            }
+        }
+
         let client = match &self.client {
             Some(c) => c,
             None => {
@@ -201,26 +219,18 @@ impl McpServer {
 
 /// Run the MCP server
 async fn run_server() -> Result<()> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
     let server = Arc::new(Mutex::new(McpServer::new()));
 
-    // Read from stdin, write to stdout
-    let stdin = io::stdin();
-    let stdout = io::stdout();
-
-    let stdin_handle = stdin.lock();
-    let mut stdout_handle = stdout.lock();
+    // Read from stdin, write to stdout (async)
+    let stdin = tokio::io::BufReader::new(tokio::io::stdin());
+    let mut stdout = tokio::io::stdout();
+    let mut lines = stdin.lines();
 
     info!("MCP server started, waiting for requests...");
 
-    for line in stdin_handle.lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(e) => {
-                error!("Error reading stdin: {}", e);
-                break;
-            }
-        };
-
+    while let Some(line) = lines.next_line().await? {
         if line.is_empty() {
             continue;
         }
@@ -234,8 +244,9 @@ async fn run_server() -> Result<()> {
                 error!("Failed to parse request: {}", e);
                 let response = JsonRpcResponse::error(None, JsonRpcError::parse_error());
                 let response_json = serde_json::to_string(&response)?;
-                writeln!(stdout_handle, "{}", response_json)?;
-                stdout_handle.flush()?;
+                stdout.write_all(response_json.as_bytes()).await?;
+                stdout.write_all(b"\n").await?;
+                stdout.flush().await?;
                 continue;
             }
         };
@@ -248,8 +259,9 @@ async fn run_server() -> Result<()> {
         // Send response
         let response_json = serde_json::to_string(&response)?;
         debug!("Sending: {}", response_json);
-        writeln!(stdout_handle, "{}", response_json)?;
-        stdout_handle.flush()?;
+        stdout.write_all(response_json.as_bytes()).await?;
+        stdout.write_all(b"\n").await?;
+        stdout.flush().await?;
     }
 
     info!("MCP server shutting down");

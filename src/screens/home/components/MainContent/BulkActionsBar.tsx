@@ -45,6 +45,12 @@ export function BulkActionsBar({
   const loadSavedWorkspaces = useWorkspaceBundleStore(
     (s) => s.loadSavedWorkspaces
   );
+  const addConnectionToSavedWorkspace = useWorkspaceBundleStore(
+    (s) => s.addConnectionToSavedWorkspace
+  );
+  const removeConnectionFromSavedWorkspace = useWorkspaceBundleStore(
+    (s) => s.removeConnectionFromSavedWorkspace
+  );
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -82,6 +88,20 @@ export function BulkActionsBar({
       for (const connectionId of selectedIds) {
         const conn = await vaultStorage.getConnection(connectionId);
         if (conn) {
+          // Remove from previous workspaces (workspace.connectionIds side)
+          const previousWorkspaceIds = conn.metadata.workspace_ids || [];
+          for (const wsId of previousWorkspaceIds) {
+            if (wsId !== workspace?.id) {
+              await removeConnectionFromSavedWorkspace(wsId, connectionId);
+            }
+          }
+
+          // Add to target workspace (workspace.connectionIds side)
+          if (workspace) {
+            await addConnectionToSavedWorkspace(workspace.id, connectionId);
+          }
+
+          // Update connection metadata side
           conn.metadata.workspace_ids = targetWorkspaceIds;
           await vaultStorage.updateMetadata(connectionId, conn.metadata);
         }

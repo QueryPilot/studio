@@ -45,6 +45,7 @@ export function WorkspaceForm() {
   const closeWorkspaceForm = useHomeScreenStore((s) => s.closeWorkspaceForm);
 
   const connections = useConnectionStore((s) => s.connections);
+  const fetchConnections = useConnectionStore((s) => s.fetchConnections);
   const {
     createWorkspace,
     updateWorkspace,
@@ -127,6 +128,12 @@ export function WorkspaceForm() {
           description: "Workspace created successfully",
         });
       }
+
+      // Refresh connection store — vault's syncWorkspaceConnectionIds already
+      // updated connection.metadata.workspace_ids, but the zustand store needs
+      // to reload to reflect the changes in the UI
+      await fetchConnections();
+      await loadSavedWorkspaces();
 
       closeWorkspaceForm();
     } catch (error) {

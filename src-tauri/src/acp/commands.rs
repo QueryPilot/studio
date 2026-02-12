@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use agent_client_protocol::{ContentBlock, SessionUpdate, TextContent};
+use agent_client_protocol::{ContentBlock, ImageContent, SessionUpdate, TextContent};
 use tauri::{Emitter, State};
 
 use super::discovery::AgentInfo;
@@ -270,12 +270,21 @@ If MCP tools fail, explain the error and ask the user to check their connection.
 
 "#;
 
+/// Image data passed from the frontend
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageData {
+    pub data: String,
+    pub mime_type: String,
+}
+
 /// Send a prompt to an agent and stream responses via Tauri events
 #[tauri::command]
 pub async fn acp_send_prompt(
     instance_id: String,
     prompt: String,
     context_json: Option<String>, // Database schema as JSON
+    images: Option<Vec<ImageData>>,
     app_handle: tauri::AppHandle,
     manager: State<'_, Arc<AcpManager>>,
 ) -> Result<String, String> {
@@ -300,6 +309,16 @@ pub async fn acp_send_prompt(
     }
 
     content.push(ContentBlock::Text(TextContent::new(prompt)));
+
+    // Append image blocks if provided
+    if let Some(imgs) = images {
+        for img in imgs {
+            content.push(ContentBlock::Image(ImageContent::new(
+                img.data,
+                img.mime_type,
+            )));
+        }
+    }
 
     // Get session ID for this prompt
     let session_id = manager.get_session_id(&instance_id).await?;

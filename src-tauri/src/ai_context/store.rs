@@ -9,6 +9,9 @@ use tokio::sync::RwLock;
 /// Maximum number of history entries to keep
 const MAX_HISTORY_ENTRIES: usize = 100;
 
+/// Maximum number of active contexts to track (one per connection/window)
+const MAX_ACTIVE_CONTEXTS: usize = 10;
+
 /// A query execution record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,14 +46,14 @@ pub struct ActiveContext {
 /// Thread-safe AI context store
 pub struct AiContextStore {
     history: RwLock<VecDeque<QueryHistoryEntry>>,
-    active_context: RwLock<ActiveContext>,
+    active_contexts: RwLock<Vec<ActiveContext>>,
 }
 
 impl AiContextStore {
     pub fn new() -> Self {
         Self {
             history: RwLock::new(VecDeque::with_capacity(MAX_HISTORY_ENTRIES)),
-            active_context: RwLock::new(ActiveContext::default()),
+            active_contexts: RwLock::new(Vec::new()),
         }
     }
 
@@ -78,15 +81,44 @@ impl AiContextStore {
             .collect()
     }
 
-    /// Update active editor context
+    /// Update active editor context (upserts by connection_id)
     pub async fn set_active_context(&self, context: ActiveContext) {
-        let mut active = self.active_context.write().await;
-        *active = context;
+        let mut contexts = self.active_contexts.write().await;
+
+        // Upsert: if a context with the same connection_id exists, update it
+        if let Some(conn_id) = &context.connection_id {
+            if let Some(existing) = contexts.iter_mut().find(|c| c.connection_id.as_ref() == Some(conn_id)) {
+                *existing = context;
+                return;
+            }
+        }
+
+        // Push new context, evict oldest if at capacity
+        if contexts.len() >= MAX_ACTIVE_CONTEXTS {
+            // Remove the one with the oldest updated_at
+            if let Some(oldest_idx) = contexts.iter().enumerate().min_by_key(|(_, c)| c.updated_at).map(|(i, _)| i) {
+                contexts.remove(oldest_idx);
+            }
+        }
+        contexts.push(context);
     }
 
-    /// Get current active context
+    /// Get most recent active context (backwards compatible)
     pub async fn get_active_context(&self) -> ActiveContext {
-        self.active_context.read().await.clone()
+        let contexts = self.active_contexts.read().await;
+        contexts
+            .iter()
+            .max_by_key(|c| c.updated_at)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Get all active contexts, sorted by updated_at descending (most recent first)
+    pub async fn get_all_active_contexts(&self) -> Vec<ActiveContext> {
+        let contexts = self.active_contexts.read().await;
+        let mut sorted = contexts.clone();
+        sorted.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        sorted
     }
 
     /// Clear all history
@@ -225,6 +257,126 @@ mod tests {
         assert_eq!(context.database, Some("mydb".to_string()));
         assert!(context.has_results);
         assert_eq!(context.row_count, Some(10));
+    }
+
+    #[tokio::test]
+    async fn test_active_context_upsert_by_connection_id() {
+        let store = AiContextStore::new();
+
+        // Insert first context
+        store
+            .set_active_context(ActiveContext {
+                connection_id: Some("conn-1".to_string()),
+                database: Some("db1".to_string()),
+                schema: None,
+                query: Some("SELECT 1".to_string()),
+                last_executed_query: None,
+                has_results: false,
+                row_count: None,
+                column_count: None,
+                updated_at: 100,
+            })
+            .await;
+
+        // Insert second context with same connection_id (should update, not add)
+        store
+            .set_active_context(ActiveContext {
+                connection_id: Some("conn-1".to_string()),
+                database: Some("db1_updated".to_string()),
+                schema: None,
+                query: Some("SELECT 2".to_string()),
+                last_executed_query: None,
+                has_results: true,
+                row_count: Some(5),
+                column_count: Some(2),
+                updated_at: 200,
+            })
+            .await;
+
+        let all = store.get_all_active_contexts().await;
+        assert_eq!(all.len(), 1, "Should have 1 context (upserted), got {}", all.len());
+        assert_eq!(all[0].query, Some("SELECT 2".to_string()));
+        assert_eq!(all[0].database, Some("db1_updated".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_active_context_multiple_connections() {
+        let store = AiContextStore::new();
+
+        store
+            .set_active_context(ActiveContext {
+                connection_id: Some("conn-1".to_string()),
+                database: Some("db1".to_string()),
+                schema: None,
+                query: None,
+                last_executed_query: None,
+                has_results: false,
+                row_count: None,
+                column_count: None,
+                updated_at: 100,
+            })
+            .await;
+
+        store
+            .set_active_context(ActiveContext {
+                connection_id: Some("conn-2".to_string()),
+                database: Some("db2".to_string()),
+                schema: None,
+                query: None,
+                last_executed_query: None,
+                has_results: false,
+                row_count: None,
+                column_count: None,
+                updated_at: 200,
+            })
+            .await;
+
+        let all = store.get_all_active_contexts().await;
+        assert_eq!(all.len(), 2);
+        // Most recent first
+        assert_eq!(all[0].connection_id, Some("conn-2".to_string()));
+        assert_eq!(all[1].connection_id, Some("conn-1".to_string()));
+
+        // get_active_context returns most recent
+        let primary = store.get_active_context().await;
+        assert_eq!(primary.connection_id, Some("conn-2".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_active_context_eviction() {
+        let store = AiContextStore::new();
+
+        // Insert MAX_ACTIVE_CONTEXTS + 1 contexts
+        for i in 0..=MAX_ACTIVE_CONTEXTS {
+            store
+                .set_active_context(ActiveContext {
+                    connection_id: Some(format!("conn-{}", i)),
+                    database: Some(format!("db-{}", i)),
+                    schema: None,
+                    query: None,
+                    last_executed_query: None,
+                    has_results: false,
+                    row_count: None,
+                    column_count: None,
+                    updated_at: i as u64,
+                })
+                .await;
+        }
+
+        let all = store.get_all_active_contexts().await;
+        assert_eq!(all.len(), MAX_ACTIVE_CONTEXTS);
+
+        // The oldest (conn-0 with updated_at=0) should have been evicted
+        assert!(
+            !all.iter().any(|c| c.connection_id == Some("conn-0".to_string())),
+            "conn-0 should have been evicted"
+        );
+
+        // The most recent should still be there
+        assert!(
+            all.iter().any(|c| c.connection_id == Some(format!("conn-{}", MAX_ACTIVE_CONTEXTS))),
+            "Most recent context should still be present"
+        );
     }
 
     #[tokio::test]

@@ -141,16 +141,20 @@ class WindowManager {
       }
     }
 
-    // Only hide main window if we're currently in the main window
+    // Hide/close the current main window when opening a workspace
     try {
       const currentWindow = WebviewWindow.getCurrent();
       const currentLabel = currentWindow.label;
 
       if (currentLabel === "main") {
+        // Original main window: hide it (will be shown when all workspaces close)
         const mainWindow = await WebviewWindow.getByLabel("main");
         if (mainWindow) {
           await mainWindow.hide();
         }
+      } else if (currentLabel.startsWith("main-")) {
+        // Secondary main window (from Cmd+Shift+N): close it
+        await currentWindow.close();
       }
     } catch (error) {
       logger.error("Failed to check/hide main window:", error);

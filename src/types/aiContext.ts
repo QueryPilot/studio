@@ -202,6 +202,8 @@ export interface MentionReference {
   name: string;
   schema?: string;
   connectionId?: string;
+  /** Parsed from @ConnName/... format for deterministic connection resolution */
+  connectionName?: string;
   /** Original text in input (e.g., "@users" or "@public.users") */
   raw: string;
   /** Start position in input string */
