@@ -30,6 +30,10 @@ export interface TabMetadata {
   connectionId?: string;
   viewType?: string;
   sql?: string;
+  /** Stable key identifying the logical object (e.g. `table-connId-schema-name`).
+   *  Used for per-panel dedup: the same objectKey can exist in different panels
+   *  but only once per panel. */
+  objectKey?: string;
   [key: string]: unknown;
 }
 
