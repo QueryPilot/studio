@@ -11,6 +11,10 @@ export const menuActionCommandMap: Record<string, string> = {
   "set_theme:dark": "appearance.setThemeDark",
   "set_theme:system": "appearance.setThemeSystem",
 
+  zoom_in: "appearance.zoomIn",
+  zoom_out: "appearance.zoomOut",
+  zoom_reset: "appearance.resetZoom",
+
   execute: "query.execute",
   execute_selection: "query.executeSelection",
   find: "editor.action.find",

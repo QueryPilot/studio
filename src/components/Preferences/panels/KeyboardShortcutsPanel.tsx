@@ -195,11 +195,11 @@ function InAppShortcutsList({ query }: { query: string }) {
         </div>
       ) : null}
 
-      <div className="rounded-md border overflow-y-auto max-h-[calc(100vh-220px)]">
+      <div className="rounded-md border overflow-y-auto max-h-[calc(100vh-155px)]">
         {grouped.map(({ category, items }, groupIndex) => (
           <section key={category}>
             {groupIndex > 0 && <div className="border-t" />}
-            <header className="flex items-center justify-between px-3 py-1.5 bg-muted/50 sticky top-0 z-[1]">
+            <header className="flex items-center justify-between px-3 py-1.5 bg-muted/50 backdrop-blur-md sticky top-0 z-10">
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
                 {category}
               </span>

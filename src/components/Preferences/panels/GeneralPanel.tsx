@@ -1,7 +1,6 @@
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAppStore } from "@/stores/appStore";
@@ -20,15 +19,9 @@ import type { Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
 export default function GeneralPanel() {
-  const {
-    theme,
-    setTheme,
-    sidebarCollapsed,
-    toggleSidebar,
-    preferences,
-    updatePreferences,
-  } = useAppStore();
-  const { setUnsavedChanges, queryTimeoutSecs, setQueryTimeoutSecs } = usePreferencesStore();
+  const { theme, setTheme, zoomLevel, setZoomLevel } = useAppStore();
+  const { setUnsavedChanges, queryTimeoutSecs, setQueryTimeoutSecs } =
+    usePreferencesStore();
 
   const [updateStatus, setUpdateStatus] = useState<
     | "idle"
@@ -63,9 +56,12 @@ export default function GeneralPanel() {
     void getVersion().then(setAppVersion);
   }, [setUnsavedChanges]);
 
-  useEffect(() => () => {
-    void closePendingUpdate();
-  }, [closePendingUpdate]);
+  useEffect(
+    () => () => {
+      void closePendingUpdate();
+    },
+    [closePendingUpdate],
+  );
 
   const handleCheckUpdate = async () => {
     try {
@@ -116,20 +112,16 @@ export default function GeneralPanel() {
     setUnsavedChanges(true);
   };
 
-  const handleFontSizeChange = (value: number[]) => {
-    updatePreferences({ fontSize: value[0] });
-    setUnsavedChanges(true);
-  };
-
-  const handleSidebarToggle = (checked: boolean) => {
-    if (checked !== sidebarCollapsed) {
-      toggleSidebar();
+  const handleZoomChange = (value: number[]) => {
+    const level = value[0];
+    if (level !== undefined) {
+      setZoomLevel(level);
       setUnsavedChanges(true);
     }
   };
 
   return (
-    <div className="max-w-3xl space-y-6 max-h-[calc(100vh - 32px)] overflow-y-scroll -mx-4 px-4">
+    <div className="max-w-3xl space-y-6 max-h-[calc(100vh-32px)] overflow-y-scroll -mx-4 px-4">
       <div className="sticky top-0 bg-background z-10 pb-2">
         <h2 className="text-base font-semibold">General Settings</h2>
         <p className="text-xs text-muted-foreground">
@@ -168,37 +160,30 @@ export default function GeneralPanel() {
 
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <Label className="text-base">Font Size</Label>
+            <Label className="text-base">Zoom Level</Label>
             <span className="text-xs font-medium tabular-nums">
-              {preferences.fontSize}px
+              {zoomLevel}%
             </span>
           </div>
           <Slider
-            value={[preferences.fontSize]}
-            onValueChange={handleFontSizeChange}
-            min={12}
-            max={20}
-            step={1}
+            value={[zoomLevel]}
+            onValueChange={handleZoomChange}
+            min={75}
+            max={150}
+            step={5}
             className="w-full"
           />
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>12px</span>
-            <span>16px</span>
-            <span>20px</span>
+          <div className="relative h-4 text-[10px] text-muted-foreground">
+            {[75, 90, 100, 110, 125, 150].map((stop) => (
+              <span
+                key={stop}
+                className="absolute -translate-x-1/2 tabular-nums"
+                style={{ left: `${((stop - 75) / 75) * 100}%` }}
+              >
+                {stop}%
+              </span>
+            ))}
           </div>
-        </div>
-
-        <div className="flex items-center justify-between py-3 border rounded-xl px-4">
-          <div className="space-y-0.5">
-            <Label className="text-base">Sidebar Collapsed</Label>
-            <p className="text-xs text-muted-foreground">
-              Keep the sidebar collapsed by default
-            </p>
-          </div>
-          <Switch
-            checked={sidebarCollapsed}
-            onCheckedChange={handleSidebarToggle}
-          />
         </div>
 
         <div className="space-y-3 pt-4 border-t">
@@ -229,7 +214,8 @@ export default function GeneralPanel() {
             </div>
           </div>
           <p className="text-xs text-muted-foreground px-1">
-            Recommended: 300 seconds (5 minutes). Long-running analytics queries may need more time.
+            Recommended: 300 seconds (5 minutes). Long-running analytics queries
+            may need more time.
           </p>
         </div>
 
@@ -246,8 +232,8 @@ export default function GeneralPanel() {
                     updateStatus === "error"
                       ? "text-destructive"
                       : updateStatus === "uptodate"
-                      ? "text-green-600"
-                      : "text-muted-foreground"
+                        ? "text-green-600"
+                        : "text-muted-foreground"
                   }`}
                 >
                   {updateMessage}
@@ -262,7 +248,8 @@ export default function GeneralPanel() {
                   onClick={handleInstallUpdate}
                 >
                   <IconDownload className="h-4 w-4 mr-2" />
-                  Install {availableVersion ? `v${availableVersion}` : "Update"}
+                  Install{" "}
+                  {availableVersion ? `v${availableVersion}` : "Update"}
                 </Button>
               )}
               <Button
@@ -286,8 +273,8 @@ export default function GeneralPanel() {
                 {updateStatus === "checking"
                   ? "Checking..."
                   : updateStatus === "installing"
-                  ? "Installing..."
-                  : "Check for Updates"}
+                    ? "Installing..."
+                    : "Check for Updates"}
               </Button>
             </div>
           </div>
