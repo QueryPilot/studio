@@ -24,16 +24,15 @@ pub async fn redis_get(
     key: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<Option<String>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-    let adapter = conn
-        .adapter
+    let redis = adapter
         .as_redis()
         .ok_or_else(|| "Not a Redis connection".to_string())?;
 
-    adapter.get_string(&key).await.map_err(|e| e.to_string())
+    redis.get_string(&key).await.map_err(|e| e.to_string())
 }
 
 /// Set a string value in Redis
@@ -45,24 +44,22 @@ pub async fn redis_set(
     ttl_seconds: Option<u64>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<(), String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
     // Safe mode guard
     crate::core::safe_mode::check_safe_mode(
-        conn.profile.safe_mode,
+        manager.get_safe_mode(&conn_id),
         crate::core::safe_mode::OperationKind::Insert,
         "Set",
     )?;
 
-    let adapter = conn
-        .adapter
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
+    let redis = adapter
         .as_redis()
         .ok_or_else(|| "Not a Redis connection".to_string())?;
 
-    adapter
+    redis
         .set_string(&key, &value, ttl_seconds)
         .await
         .map_err(|e| e.to_string())
@@ -75,24 +72,22 @@ pub async fn redis_delete(
     key: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<u64, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
     // Safe mode guard
     crate::core::safe_mode::check_safe_mode(
-        conn.profile.safe_mode,
+        manager.get_safe_mode(&conn_id),
         crate::core::safe_mode::OperationKind::Delete,
         "Delete",
     )?;
 
-    let adapter = conn
-        .adapter
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
+    let redis = adapter
         .as_redis()
         .ok_or_else(|| "Not a Redis connection".to_string())?;
 
-    adapter.delete_key(&key).await.map_err(|e| e.to_string())
+    redis.delete_key(&key).await.map_err(|e| e.to_string())
 }
 
 /// Get TTL of a key in Redis
@@ -102,16 +97,15 @@ pub async fn redis_ttl(
     key: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<i64, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-    let adapter = conn
-        .adapter
+    let redis = adapter
         .as_redis()
         .ok_or_else(|| "Not a Redis connection".to_string())?;
 
-    adapter.key_ttl(&key).await.map_err(|e| e.to_string())
+    redis.key_ttl(&key).await.map_err(|e| e.to_string())
 }
 
 /// Set TTL on a key in Redis
@@ -122,24 +116,22 @@ pub async fn redis_expire(
     seconds: u64,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<bool, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
     // Safe mode guard
     crate::core::safe_mode::check_safe_mode(
-        conn.profile.safe_mode,
+        manager.get_safe_mode(&conn_id),
         crate::core::safe_mode::OperationKind::Update,
         "Expire",
     )?;
 
-    let adapter = conn
-        .adapter
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
+    let redis = adapter
         .as_redis()
         .ok_or_else(|| "Not a Redis connection".to_string())?;
 
-    adapter
+    redis
         .set_key_ttl(&key, seconds)
         .await
         .map_err(|e| e.to_string())
@@ -152,16 +144,15 @@ pub async fn redis_exists(
     key: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<bool, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-    let adapter = conn
-        .adapter
+    let redis = adapter
         .as_redis()
         .ok_or_else(|| "Not a Redis connection".to_string())?;
 
-    adapter.key_exists(&key).await.map_err(|e| e.to_string())
+    redis.key_exists(&key).await.map_err(|e| e.to_string())
 }
 
 /// Get database size (number of keys)
@@ -170,16 +161,15 @@ pub async fn redis_dbsize(
     conn_id: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<u64, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-    let adapter = conn
-        .adapter
+    let redis = adapter
         .as_redis()
         .ok_or_else(|| "Not a Redis connection".to_string())?;
 
-    adapter.dbsize().await.map_err(|e| e.to_string())
+    redis.dbsize().await.map_err(|e| e.to_string())
 }
 
 /// Get server info
@@ -188,16 +178,15 @@ pub async fn redis_info(
     conn_id: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<String, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-    let adapter = conn
-        .adapter
+    let redis = adapter
         .as_redis()
         .ok_or_else(|| "Not a Redis connection".to_string())?;
 
-    adapter
+    redis
         .get_server_info_raw()
         .await
         .map_err(|e| e.to_string())
@@ -210,16 +199,15 @@ pub async fn redis_type(
     key: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<String, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-    let adapter = conn
-        .adapter
+    let redis = adapter
         .as_redis()
         .ok_or_else(|| "Not a Redis connection".to_string())?;
 
-    adapter.key_type(&key).await.map_err(|e| e.to_string())
+    redis.key_type(&key).await.map_err(|e| e.to_string())
 }
 
 // ============================================================================
@@ -233,16 +221,15 @@ pub async fn redis_hgetall(
     key: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<HashMap<String, String>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-    let adapter = conn
-        .adapter
+    let redis = adapter
         .as_redis()
         .ok_or_else(|| "Not a Redis connection".to_string())?;
 
-    adapter.hash_get_all(&key).await.map_err(|e| e.to_string())
+    redis.hash_get_all(&key).await.map_err(|e| e.to_string())
 }
 
 /// Set a hash field
@@ -254,24 +241,22 @@ pub async fn redis_hset(
     value: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<bool, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
     // Safe mode guard
     crate::core::safe_mode::check_safe_mode(
-        conn.profile.safe_mode,
+        manager.get_safe_mode(&conn_id),
         crate::core::safe_mode::OperationKind::Insert,
         "HashSet",
     )?;
 
-    let adapter = conn
-        .adapter
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
+    let redis = adapter
         .as_redis()
         .ok_or_else(|| "Not a Redis connection".to_string())?;
 
-    adapter
+    redis
         .hash_set_field(&key, &field, &value)
         .await
         .map_err(|e| e.to_string())
@@ -290,16 +275,15 @@ pub async fn redis_lrange(
     stop: i64,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<Vec<String>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-    let adapter = conn
-        .adapter
+    let redis = adapter
         .as_redis()
         .ok_or_else(|| "Not a Redis connection".to_string())?;
 
-    adapter
+    redis
         .list_range(&key, start, stop)
         .await
         .map_err(|e| e.to_string())
@@ -316,16 +300,15 @@ pub async fn redis_smembers(
     key: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<Vec<String>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-    let adapter = conn
-        .adapter
+    let redis = adapter
         .as_redis()
         .ok_or_else(|| "Not a Redis connection".to_string())?;
 
-    adapter.set_members(&key).await.map_err(|e| e.to_string())
+    redis.set_members(&key).await.map_err(|e| e.to_string())
 }
 
 // ============================================================================
@@ -344,16 +327,15 @@ pub async fn redis_scan_stream(
     let start = Instant::now();
     let count_per_scan = count.unwrap_or(100);
 
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-    let adapter = conn
-        .adapter
+    let redis = adapter
         .as_redis()
         .ok_or_else(|| "Not a Redis connection".to_string())?;
 
-    let estimated_keys = adapter.dbsize().await.ok();
+    let estimated_keys = redis.dbsize().await.ok();
 
     metadata_channel
         .send(KeyValueStreamMessage::Started {
@@ -367,7 +349,7 @@ pub async fn redis_scan_stream(
     let mut total_keys = 0;
 
     loop {
-        let scan_result = adapter
+        let scan_result = redis
             .scan_keys(&pattern, cursor, count_per_scan)
             .await
             .map_err(|e| e.to_string())?;
@@ -554,24 +536,22 @@ pub async fn keyvalue_execute(
     operation: KeyValueOperation,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<KeyValueResult, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    // Safe mode guard (synchronous lookup — no DashMap lock held across await)
+    let op_kind = crate::core::safe_mode::classify_keyvalue_op(&operation);
+    crate::core::safe_mode::check_safe_mode(manager.get_safe_mode(&conn_id), op_kind, &format!("{:?}", operation))?;
+
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-
-    // Safe mode guard
-    let op_kind = crate::core::safe_mode::classify_keyvalue_op(&operation);
-    crate::core::safe_mode::check_safe_mode(conn.profile.safe_mode, op_kind, &format!("{:?}", operation))?;
-
-    let adapter = conn
-        .adapter
+    let redis = adapter
         .as_redis()
         .ok_or_else(|| "Not a Redis connection".to_string())?;
 
     match operation {
         // Basic operations
         KeyValueOperation::Get { key } => {
-            let value = adapter.get_key(&key).await.map_err(|e| e.to_string())?;
+            let value = redis.get_key(&key).await.map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Value(value))
         }
         KeyValueOperation::Set {
@@ -579,21 +559,21 @@ pub async fn keyvalue_execute(
             value,
             options,
         } => {
-            adapter
+            redis
                 .set_key(&key, value, options)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Ok)
         }
         KeyValueOperation::Delete { keys } => {
-            let count = adapter
+            let count = redis
                 .delete_keys(&keys)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Count(count))
         }
         KeyValueOperation::Exists { keys } => {
-            let count = KeyValueOperable::key_exists(adapter, &keys)
+            let count = KeyValueOperable::key_exists(redis, &keys)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Count(count))
@@ -603,7 +583,7 @@ pub async fn keyvalue_execute(
             cursor,
             count,
         } => {
-            let result = adapter
+            let result = redis
                 .scan_keys(&pattern, cursor, count)
                 .await
                 .map_err(|e| e.to_string())?;
@@ -614,53 +594,53 @@ pub async fn keyvalue_execute(
             cursor,
             count,
         } => {
-            let result = adapter
+            let result = redis
                 .scan_keys_with_previews(&pattern, cursor, count)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::ScanWithPreviews(result))
         }
         KeyValueOperation::Type { key } => {
-            let key_type = adapter
+            let key_type = redis
                 .get_key_type(&key)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::KeyType(key_type))
         }
         KeyValueOperation::Ttl { key } => {
-            let ttl = adapter.get_key_ttl(&key).await.map_err(|e| e.to_string())?;
+            let ttl = redis.get_key_ttl(&key).await.map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Ttl(ttl))
         }
         KeyValueOperation::SetTtl { key, seconds } => {
-            let success = adapter
+            let success = redis
                 .set_key_ttl(&key, seconds)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Bool(success))
         }
         KeyValueOperation::ExecuteRaw { command, args } => {
-            let value = adapter
+            let value = redis
                 .execute_raw(&command, &args)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Value(Some(value)))
         }
         KeyValueOperation::DbSize => {
-            let size = adapter
+            let size = redis
                 .get_database_size()
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Count(size))
         }
         KeyValueOperation::SelectDb { index } => {
-            adapter
+            redis
                 .select_database(index)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Ok)
         }
         KeyValueOperation::ServerInfo { section } => {
-            let info = adapter
+            let info = redis
                 .get_server_info(section.as_deref())
                 .await
                 .map_err(|e| e.to_string())?;
@@ -668,21 +648,21 @@ pub async fn keyvalue_execute(
         }
         // Rich operations - Hash
         KeyValueOperation::HashGetAll { key } => {
-            let hash = adapter
+            let hash = redis
                 .hash_get_all(&key)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Hash(hash))
         }
         KeyValueOperation::HashSet { key, fields } => {
-            let count = adapter
+            let count = redis
                 .hash_set(&key, fields)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Count(count))
         }
         KeyValueOperation::HashDelete { key, fields } => {
-            let count = adapter
+            let count = redis
                 .hash_delete(&key, &fields)
                 .await
                 .map_err(|e| e.to_string())?;
@@ -690,36 +670,36 @@ pub async fn keyvalue_execute(
         }
         // Rich operations - List
         KeyValueOperation::ListRange { key, start, stop } => {
-            let list = adapter
+            let list = redis
                 .list_range(&key, start, stop)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::List(list))
         }
         KeyValueOperation::ListPush { key, values, side } => {
-            let count = adapter
+            let count = redis
                 .list_push(&key, &values, side)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Count(count))
         }
         KeyValueOperation::ListLen { key } => {
-            let len = adapter.list_len(&key).await.map_err(|e| e.to_string())?;
+            let len = redis.list_len(&key).await.map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Count(len))
         }
         // Rich operations - Set
         KeyValueOperation::SetMembers { key } => {
-            let members = adapter.set_members(&key).await.map_err(|e| e.to_string())?;
+            let members = redis.set_members(&key).await.map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Set(members))
         }
         KeyValueOperation::SetAdd { key, members } => {
-            let count = RichKeyValueOperable::set_add(adapter, &key, &members)
+            let count = RichKeyValueOperable::set_add(redis, &key, &members)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Count(count))
         }
         KeyValueOperation::SetRemove { key, members } => {
-            let count = RichKeyValueOperable::set_remove(adapter, &key, &members)
+            let count = RichKeyValueOperable::set_remove(redis, &key, &members)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Count(count))
@@ -731,14 +711,14 @@ pub async fn keyvalue_execute(
             stop,
             with_scores,
         } => {
-            let members = adapter
+            let members = redis
                 .zset_range(&key, start, stop, with_scores)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::ZSet(members))
         }
         KeyValueOperation::ZSetAdd { key, members } => {
-            let count = RichKeyValueOperable::zset_add(adapter, &key, &members)
+            let count = RichKeyValueOperable::zset_add(redis, &key, &members)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Count(count))
@@ -750,14 +730,14 @@ pub async fn keyvalue_execute(
             end,
             count,
         } => {
-            let entries = adapter
+            let entries = redis
                 .stream_range(&key, &start, &end, count)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Stream(entries))
         }
         KeyValueOperation::StreamLen { key } => {
-            let len = adapter.stream_len(&key).await.map_err(|e| e.to_string())?;
+            let len = redis.stream_len(&key).await.map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Count(len))
         }
     }

@@ -88,13 +88,12 @@ pub async fn test_connection(
     conn_id: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<ConnectionTestResult, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
 
-    let result = conn
-        .adapter
+    let result = adapter
         .test_connection()
         .await
         .map_err(|e| e.to_string())?;
@@ -104,7 +103,7 @@ pub async fn test_connection(
         message: result.message,
         version: result.server_version,
         warnings: vec![],
-        detected_db_type: Some(conn.adapter.db_type()),
+        detected_db_type: Some(adapter.db_type()),
     })
 }
 
@@ -113,8 +112,11 @@ pub async fn get_connection_health(
     conn_id: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<ConnectionHealth, String> {
-    let conn = match manager.get_connection(&conn_id) {
-        Some(c) => c,
+    // Use borrow_adapter to avoid holding DashMap read lock across the
+    // async test_connection call — holding the lock would block concurrent
+    // reconnection attempts.
+    let adapter = match manager.borrow_adapter(&conn_id) {
+        Some(a) => a,
         None => {
             return Ok(ConnectionHealth {
                 connection_id: conn_id,
@@ -126,8 +128,7 @@ pub async fn get_connection_health(
         }
     };
 
-    let test_result = conn
-        .adapter
+    let test_result = adapter
         .test_connection()
         .await
         .map_err(|e| e.to_string())?;

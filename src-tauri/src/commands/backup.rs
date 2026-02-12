@@ -124,12 +124,12 @@ pub async fn get_backup_capability(
         .await
         .map_err(|e| e.to_string())?;
 
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
 
-    let backup_adapter = conn.adapter.as_backup().ok_or_else(|| {
+    let backup_adapter = adapter.as_backup().ok_or_else(|| {
         format!(
             "Connection '{}' does not support backup/restore",
             profile.name
@@ -209,12 +209,12 @@ pub async fn get_backup_preview(
         .await
         .map_err(|e| e.to_string())?;
 
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
 
-    let backup_adapter = conn.adapter.as_backup().ok_or_else(|| {
+    let backup_adapter = adapter.as_backup().ok_or_else(|| {
         format!(
             "Connection '{}' does not support backup/restore",
             profile.name
@@ -246,12 +246,12 @@ pub async fn start_backup(
         .await
         .map_err(|e| e.to_string())?;
 
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
 
-    let backup_adapter = conn.adapter.as_backup().ok_or_else(|| {
+    let backup_adapter = adapter.as_backup().ok_or_else(|| {
         format!(
             "Connection '{}' does not support backup/restore",
             profile.name
@@ -298,19 +298,19 @@ pub async fn start_restore(
         .await
         .map_err(|e| e.to_string())?;
 
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // Safe mode guard — restore is a destructive DDL-level operation
+    // Safe mode guard (synchronous lookup — no DashMap lock held across await)
     crate::core::safe_mode::check_safe_mode(
-        conn.profile.safe_mode,
+        manager.get_safe_mode(&conn_id),
         crate::core::safe_mode::OperationKind::Ddl,
         "Restore",
     )?;
 
-    let backup_adapter = conn.adapter.as_backup().ok_or_else(|| {
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let backup_adapter = adapter.as_backup().ok_or_else(|| {
         format!(
             "Connection '{}' does not support backup/restore",
             profile.name

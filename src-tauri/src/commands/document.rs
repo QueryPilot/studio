@@ -24,16 +24,15 @@ pub async fn mongo_list_databases(
     conn_id: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<Vec<crate::core::capabilities::DatabaseInfo>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-    let adapter = conn
-        .adapter
+    let mongo = adapter
         .as_mongo()
         .ok_or_else(|| "Not a MongoDB connection".to_string())?;
 
-    adapter.list_databases().await.map_err(|e| e.to_string())
+    mongo.list_databases().await.map_err(|e| e.to_string())
 }
 
 /// List collections in the current MongoDB database
@@ -42,16 +41,15 @@ pub async fn mongo_list_collections(
     conn_id: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<Vec<crate::core::capabilities::CollectionInfo>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-    let adapter = conn
-        .adapter
+    let mongo = adapter
         .as_mongo()
         .ok_or_else(|| "Not a MongoDB connection".to_string())?;
 
-    adapter.list_collections().await.map_err(|e| e.to_string())
+    mongo.list_collections().await.map_err(|e| e.to_string())
 }
 
 /// Find documents in a MongoDB collection
@@ -66,12 +64,11 @@ pub async fn mongo_find_documents(
     projection: Option<serde_json::Value>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<Vec<serde_json::Value>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-    let adapter = conn
-        .adapter
+    let mongo = adapter
         .as_mongo()
         .ok_or_else(|| "Not a MongoDB connection".to_string())?;
 
@@ -82,7 +79,7 @@ pub async fn mongo_find_documents(
         projection,
     };
 
-    adapter
+    mongo
         .find_documents(&collection, filter, options)
         .await
         .map_err(|e| e.to_string())
@@ -96,24 +93,22 @@ pub async fn mongo_insert_document(
     document: serde_json::Value,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<crate::core::capabilities::InsertResult, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
     // Safe mode guard
     crate::core::safe_mode::check_safe_mode(
-        conn.profile.safe_mode,
+        manager.get_safe_mode(&conn_id),
         crate::core::safe_mode::OperationKind::Insert,
         "Insert",
     )?;
 
-    let adapter = conn
-        .adapter
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mongo = adapter
         .as_mongo()
         .ok_or_else(|| "Not a MongoDB connection".to_string())?;
 
-    adapter
+    mongo
         .insert_document(&collection, document)
         .await
         .map_err(|e| e.to_string())
@@ -128,24 +123,22 @@ pub async fn mongo_update_document(
     update: serde_json::Value,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<crate::core::capabilities::UpdateResult, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
     // Safe mode guard
     crate::core::safe_mode::check_safe_mode(
-        conn.profile.safe_mode,
+        manager.get_safe_mode(&conn_id),
         crate::core::safe_mode::OperationKind::Update,
         "Update",
     )?;
 
-    let adapter = conn
-        .adapter
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mongo = adapter
         .as_mongo()
         .ok_or_else(|| "Not a MongoDB connection".to_string())?;
 
-    adapter
+    mongo
         .update_document(&collection, filter, update)
         .await
         .map_err(|e| e.to_string())
@@ -159,24 +152,22 @@ pub async fn mongo_delete_document(
     filter: serde_json::Value,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<crate::core::capabilities::DeleteResult, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
     // Safe mode guard
     crate::core::safe_mode::check_safe_mode(
-        conn.profile.safe_mode,
+        manager.get_safe_mode(&conn_id),
         crate::core::safe_mode::OperationKind::Delete,
         "Delete",
     )?;
 
-    let adapter = conn
-        .adapter
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mongo = adapter
         .as_mongo()
         .ok_or_else(|| "Not a MongoDB connection".to_string())?;
 
-    adapter
+    mongo
         .delete_document(&collection, filter)
         .await
         .map_err(|e| e.to_string())
@@ -190,25 +181,23 @@ pub async fn mongo_aggregate(
     pipeline: Vec<serde_json::Value>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<Vec<serde_json::Value>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
     // Safe mode guard: check for $out / $merge stages that write data
     let op_kind = crate::core::safe_mode::classify_aggregation_pipeline(&pipeline);
     crate::core::safe_mode::check_safe_mode(
-        conn.profile.safe_mode,
+        manager.get_safe_mode(&conn_id),
         op_kind,
         &format!("{:?}", op_kind),
     )?;
 
-    let adapter = conn
-        .adapter
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mongo = adapter
         .as_mongo()
         .ok_or_else(|| "Not a MongoDB connection".to_string())?;
 
-    adapter
+    mongo
         .aggregate(&collection, pipeline)
         .await
         .map_err(|e| e.to_string())
@@ -222,16 +211,15 @@ pub async fn mongo_count_documents(
     filter: Option<serde_json::Value>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<u64, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-    let adapter = conn
-        .adapter
+    let mongo = adapter
         .as_mongo()
         .ok_or_else(|| "Not a MongoDB connection".to_string())?;
 
-    adapter
+    mongo
         .count_documents(&collection, filter)
         .await
         .map_err(|e| e.to_string())
@@ -248,16 +236,15 @@ pub async fn mongo_list_indexes(
     collection: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<Vec<serde_json::Value>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-    let adapter = conn
-        .adapter
+    let mongo = adapter
         .as_mongo()
         .ok_or_else(|| "Not a MongoDB connection".to_string())?;
 
-    adapter
+    mongo
         .list_indexes(&collection)
         .await
         .map_err(|e| e.to_string())
@@ -272,24 +259,22 @@ pub async fn mongo_create_index(
     options: Option<serde_json::Value>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<String, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
     // Safe mode guard
     crate::core::safe_mode::check_safe_mode(
-        conn.profile.safe_mode,
+        manager.get_safe_mode(&conn_id),
         crate::core::safe_mode::OperationKind::Ddl,
         "CreateIndex",
     )?;
 
-    let adapter = conn
-        .adapter
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mongo = adapter
         .as_mongo()
         .ok_or_else(|| "Not a MongoDB connection".to_string())?;
 
-    adapter
+    mongo
         .create_index(&collection, keys, options)
         .await
         .map_err(|e| e.to_string())
@@ -303,24 +288,22 @@ pub async fn mongo_drop_index(
     index_name: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<(), String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
     // Safe mode guard
     crate::core::safe_mode::check_safe_mode(
-        conn.profile.safe_mode,
+        manager.get_safe_mode(&conn_id),
         crate::core::safe_mode::OperationKind::Ddl,
         "DropIndex",
     )?;
 
-    let adapter = conn
-        .adapter
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mongo = adapter
         .as_mongo()
         .ok_or_else(|| "Not a MongoDB connection".to_string())?;
 
-    adapter
+    mongo
         .drop_index(&collection, &index_name)
         .await
         .map_err(|e| e.to_string())
@@ -347,16 +330,15 @@ pub async fn mongo_find_documents_stream(
     let start = Instant::now();
     let batch_size = batch_size.unwrap_or(100);
 
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-    let adapter = conn
-        .adapter
+    let mongo = adapter
         .as_mongo()
         .ok_or_else(|| "Not a MongoDB connection".to_string())?;
 
-    let estimated_count = adapter
+    let estimated_count = mongo
         .count_documents(&collection, Some(filter.clone()))
         .await
         .ok();
@@ -375,7 +357,7 @@ pub async fn mongo_find_documents_stream(
         projection,
     };
 
-    let documents = adapter
+    let documents = mongo
         .find_documents(&collection, filter, options)
         .await
         .map_err(|e| e.to_string())?;
@@ -524,17 +506,15 @@ pub async fn document_execute(
     #[allow(unused_imports)]
     use crate::core::capabilities::DocumentQueryable;
 
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    // Safe mode guard (synchronous lookup — no DashMap lock held across await)
+    let op_kind = crate::core::safe_mode::classify_document_op(&operation);
+    crate::core::safe_mode::check_safe_mode(manager.get_safe_mode(&conn_id), op_kind, &format!("{:?}", operation))?;
+
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-
-    // Safe mode guard
-    let op_kind = crate::core::safe_mode::classify_document_op(&operation);
-    crate::core::safe_mode::check_safe_mode(conn.profile.safe_mode, op_kind, &format!("{:?}", operation))?;
-
-    let adapter = conn
-        .adapter
+    let mongo = adapter
         .as_mongo()
         .ok_or_else(|| "Not a MongoDB connection".to_string())?;
 
@@ -544,7 +524,7 @@ pub async fn document_execute(
             filter,
             options,
         } => {
-            let docs = adapter
+            let docs = mongo
                 .find_documents(&collection, filter, options)
                 .await
                 .map_err(|e| e.to_string())?;
@@ -556,7 +536,7 @@ pub async fn document_execute(
             options,
             cursor,
         } => {
-            let page = adapter
+            let page = mongo
                 .find_documents_page(&collection, filter, options, cursor)
                 .await
                 .map_err(|e| e.to_string())?;
@@ -566,7 +546,7 @@ pub async fn document_execute(
             collection,
             document,
         } => {
-            let result = adapter
+            let result = mongo
                 .insert_document(&collection, document)
                 .await
                 .map_err(|e| e.to_string())?;
@@ -576,7 +556,7 @@ pub async fn document_execute(
             collection,
             documents,
         } => {
-            let result = adapter
+            let result = mongo
                 .insert_documents(&collection, documents)
                 .await
                 .map_err(|e| e.to_string())?;
@@ -587,14 +567,14 @@ pub async fn document_execute(
             filter,
             update,
         } => {
-            let result = adapter
+            let result = mongo
                 .update_document(&collection, filter, update)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(DocumentResult::Update(result))
         }
         DocumentOperation::Delete { collection, filter } => {
-            let result = adapter
+            let result = mongo
                 .delete_document(&collection, filter)
                 .await
                 .map_err(|e| e.to_string())?;
@@ -604,14 +584,14 @@ pub async fn document_execute(
             collection,
             pipeline,
         } => {
-            let docs = adapter
+            let docs = mongo
                 .aggregate(&collection, pipeline)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(DocumentResult::Documents(docs))
         }
         DocumentOperation::Count { collection, filter } => {
-            let count = adapter
+            let count = mongo
                 .count_documents(&collection, filter)
                 .await
                 .map_err(|e| e.to_string())?;
@@ -623,7 +603,7 @@ pub async fn document_execute(
             sample_size,
             max_depth,
         } => {
-            let result = adapter
+            let result = mongo
                 .sample_collection_schema(
                     &collection,
                     filter,
@@ -635,14 +615,14 @@ pub async fn document_execute(
             Ok(DocumentResult::SchemaSample(result))
         }
         DocumentOperation::ListCollections => {
-            let collections = adapter
+            let collections = mongo
                 .list_collections()
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(DocumentResult::Collections(collections))
         }
         DocumentOperation::RunCommand { command } => {
-            let result = adapter
+            let result = mongo
                 .run_command(command)
                 .await
                 .map_err(|e| e.to_string())?;

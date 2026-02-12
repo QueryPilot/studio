@@ -19,7 +19,8 @@ import {
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
-import type { SafeMode, DbType } from "@/types/connection";
+import type { SafeMode, DbType, DatabaseParadigm } from "@/types/connection";
+import { getParadigm } from "@/types/connection";
 
 interface SafeModeItem {
   value: SafeMode;
@@ -28,32 +29,50 @@ interface SafeModeItem {
   icon: React.ReactNode;
 }
 
-const SAFE_MODE_ITEMS: SafeModeItem[] = [
-  {
-    value: "read_only",
-    label: "Read Only",
-    description: "SELECT, EXPLAIN, SHOW only",
-    icon: <IconLock className="size-4! text-red-500" />,
+const SAFE_MODE_ICONS: Record<SafeMode, React.ReactNode> = {
+  read_only: <IconLock className="size-4! text-red-500" />,
+  read_write: <IconShieldLock className="size-4! text-orange-500" />,
+  read_write_update: <IconPencil className="size-4! text-yellow-500" />,
+  full_access: <IconLockOpen className="size-4! text-green-500" />,
+};
+
+const SAFE_MODE_LABELS: Record<SafeMode, string> = {
+  read_only: "Read Only",
+  read_write: "Read + Write",
+  read_write_update: "Read + Write + Update",
+  full_access: "Full Access",
+};
+
+const PARADIGM_DESCRIPTIONS: Record<DatabaseParadigm, Record<SafeMode, string>> = {
+  sql: {
+    read_only: "SELECT, EXPLAIN, SHOW only",
+    read_write: "Above + INSERT",
+    read_write_update: "Above + UPDATE",
+    full_access: "All operations including DELETE, DDL",
   },
-  {
-    value: "read_write",
-    label: "Read + Write",
-    description: "Above + INSERT",
-    icon: <IconShieldLock className="size-4! text-orange-500" />,
+  document: {
+    read_only: "Find, Aggregate only",
+    read_write: "Above + Insert",
+    read_write_update: "Above + Update",
+    full_access: "All operations including Delete, RunCommand",
   },
-  {
-    value: "read_write_update",
-    label: "Read + Write + Update",
-    description: "Above + UPDATE",
-    icon: <IconPencil className="size-4! text-yellow-500" />,
+  keyvalue: {
+    read_only: "GET, SCAN, INFO, DBSIZE only",
+    read_write: "Above + SET, PUSH, ADD",
+    read_write_update: "Above + EXPIRE, RENAME",
+    full_access: "All operations including DEL, raw commands",
   },
-  {
-    value: "full_access",
-    label: "Full Access",
-    description: "All operations including DELETE, DDL",
-    icon: <IconLockOpen className="size-4! text-green-500" />,
-  },
-];
+};
+
+function getSafeModeItems(paradigm: DatabaseParadigm): SafeModeItem[] {
+  const descriptions = PARADIGM_DESCRIPTIONS[paradigm];
+  return (Object.keys(SAFE_MODE_LABELS) as SafeMode[]).map((mode) => ({
+    value: mode,
+    label: SAFE_MODE_LABELS[mode],
+    description: descriptions[mode],
+    icon: SAFE_MODE_ICONS[mode],
+  }));
+}
 
 const MODE_BADGE_COLORS: Record<SafeMode, string> = {
   read_only: "text-red-500",
@@ -113,7 +132,10 @@ export function NestedSafeModeList({
   const filteredGroups = useMemo(() => {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) {
-      return connectionGroups.map((g) => ({ ...g, modes: SAFE_MODE_ITEMS }));
+      return connectionGroups.map((g) => ({
+        ...g,
+        modes: getSafeModeItems(getParadigm(g.dbType)),
+      }));
     }
 
     const matchingConnections = matchSorter(connectionGroups, trimmedQuery, {
@@ -124,17 +146,19 @@ export function NestedSafeModeList({
       matchingConnections.map((c) => c.connectionId),
     );
 
-    const matchingModes = matchSorter(SAFE_MODE_ITEMS, trimmedQuery, {
-      keys: ["label", "description"],
-      threshold: rankings.CONTAINS,
-    });
-
     const result: Array<ConnectionGroup & { modes: SafeModeItem[] }> = [];
     for (const group of connectionGroups) {
+      const items = getSafeModeItems(getParadigm(group.dbType));
       if (matchingConnIds.has(group.connectionId)) {
-        result.push({ ...group, modes: SAFE_MODE_ITEMS });
-      } else if (matchingModes.length > 0) {
-        result.push({ ...group, modes: matchingModes });
+        result.push({ ...group, modes: items });
+      } else {
+        const matchingModes = matchSorter(items, trimmedQuery, {
+          keys: ["label", "description"],
+          threshold: rankings.CONTAINS,
+        });
+        if (matchingModes.length > 0) {
+          result.push({ ...group, modes: matchingModes });
+        }
       }
     }
     return result;
@@ -155,12 +179,30 @@ export function NestedSafeModeList({
         const updatedProfile = { ...stored.profile, safe_mode: newMode };
         await updateConnection(connectionId, updatedProfile);
 
+        // Sync to workspaceBundleStore so sidebar icon updates reactively
+        useWorkspaceBundleStore.setState((s) => {
+          if (!s.activeWorkspace) return s;
+          const conn = s.activeWorkspace.connections.get(connectionId);
+          if (!conn) return s;
+          const newConnections = new Map(s.activeWorkspace.connections);
+          newConnections.set(connectionId, {
+            ...conn,
+            profile: updatedProfile,
+          });
+          return {
+            activeWorkspace: {
+              ...s.activeWorkspace,
+              connections: newConnections,
+            },
+          };
+        });
+
         await invoke("update_safe_mode", {
           connId: connectionId,
           safeMode: newMode,
         });
 
-        const label = SAFE_MODE_ITEMS.find((i) => i.value === newMode)?.label;
+        const label = SAFE_MODE_LABELS[newMode];
         toast.success(`${stored.profile.name}: safe mode set to ${label}`);
       } catch (err) {
         toast.error(
@@ -174,7 +216,7 @@ export function NestedSafeModeList({
   );
 
   const getModeLabel = (mode: SafeMode): string =>
-    SAFE_MODE_ITEMS.find((i) => i.value === mode)?.label ?? mode;
+    SAFE_MODE_LABELS[mode] ?? mode;
 
   return (
     <CommandList ref={listRef} className="h-[500px]">

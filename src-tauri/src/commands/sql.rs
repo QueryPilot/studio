@@ -99,12 +99,11 @@ pub async fn switch_database(
         .map_err(|e| e.to_string())?;
 
     // Verify we're connected to the correct database
-    let conn = manager
-        .get_connection(&conn_id)
+    let adapter = manager
+        .borrow_adapter(&conn_id)
         .ok_or_else(|| "Connection not found after reconnect".to_string())?;
 
-    let sql_adapter = conn
-        .adapter
+    let sql_adapter = adapter
         .as_sql()
         .ok_or_else(|| "switch_database is only supported for SQL databases".to_string())?;
 
@@ -158,21 +157,20 @@ pub async fn query(
     timeout_secs: Option<u64>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<crate::types::QueryResult, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+    // Safe mode guard (synchronous lookup — no DashMap lock held across await)
+    let op_kind = crate::core::safe_mode::classify_sql(&sql);
+    crate::core::safe_mode::check_safe_mode(manager.get_safe_mode(&conn_id), op_kind, &format!("{:?}", op_kind))?;
+
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
-
-    // Safe mode guard
-    let op_kind = crate::core::safe_mode::classify_sql(&sql);
-    crate::core::safe_mode::check_safe_mode(conn.profile.safe_mode, op_kind, &format!("{:?}", op_kind))?;
 
     // Default timeout: 5 minutes (300 seconds)
     // Can be overridden per-query via timeout_secs parameter
     let timeout_duration = std::time::Duration::from_secs(timeout_secs.unwrap_or(300));
 
-    let sql_adapter = conn
-        .adapter
+    let sql_adapter = adapter
         .as_sql()
         .ok_or_else(|| "query command only supports SQL databases".to_string())?;
 
@@ -321,18 +319,18 @@ async fn execute_single_fetch_stream(
     sql: &str,
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
-    conn: &crate::core::manager::LiveConnection,
+    adapter: &crate::core::manager::UnifiedAdapter,
 ) -> std::result::Result<(), String> {
     // Dispatch to database-specific streaming implementation
-    match conn.profile.db_type {
+    match adapter.db_type() {
         DbType::PostgreSQL => {
-            execute_postgres_stream(sql, metadata_channel, data_channel, conn).await
+            execute_postgres_stream(sql, metadata_channel, data_channel, adapter).await
         }
         DbType::MySQL | DbType::MariaDB => {
-            execute_mysql_stream(sql, metadata_channel, data_channel, conn).await
+            execute_mysql_stream(sql, metadata_channel, data_channel, adapter).await
         }
-        DbType::SQLite => execute_generic_stream(sql, metadata_channel, data_channel, conn).await,
-        DbType::SQLServer => execute_mssql_stream(sql, metadata_channel, data_channel, conn).await,
+        DbType::SQLite => execute_generic_stream(sql, metadata_channel, data_channel, adapter).await,
+        DbType::SQLServer => execute_mssql_stream(sql, metadata_channel, data_channel, adapter).await,
         // Non-SQL databases don't use SQL streaming - handled by their own commands
         DbType::MongoDB | DbType::Redis => {
             Err("SQL streaming not supported for non-SQL databases".to_string())
@@ -346,12 +344,11 @@ async fn execute_generic_stream(
     sql: &str,
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
-    conn: &crate::core::manager::LiveConnection,
+    adapter: &crate::core::manager::UnifiedAdapter,
 ) -> std::result::Result<(), String> {
     let start_time = std::time::Instant::now();
 
-    let sql_adapter = conn
-        .adapter
+    let sql_adapter = adapter
         .as_sql()
         .ok_or_else(|| "execute_generic_stream only supports SQL databases".to_string())?;
 
@@ -430,12 +427,11 @@ async fn execute_mysql_stream(
     sql: &str,
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
-    conn: &crate::core::manager::LiveConnection,
+    adapter: &crate::core::manager::UnifiedAdapter,
 ) -> std::result::Result<(), String> {
     use mysql_async::prelude::*;
 
-    let mysql_adapter = conn
-        .adapter
+    let mysql_adapter = adapter
         .as_mysql()
         .ok_or_else(|| "MySQL adapter not available".to_string())?;
     let pool = mysql_adapter
@@ -541,13 +537,12 @@ async fn execute_mssql_stream(
     sql: &str,
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
-    conn: &crate::core::manager::LiveConnection,
+    adapter: &crate::core::manager::UnifiedAdapter,
 ) -> std::result::Result<(), String> {
     use futures::FutureExt;
     use std::panic::AssertUnwindSafe;
 
-    let mssql_adapter = conn
-        .adapter
+    let mssql_adapter = adapter
         .as_mssql()
         .ok_or_else(|| "MSSQL adapter not available".to_string())?;
     let pool = mssql_adapter
@@ -680,12 +675,11 @@ async fn execute_sqlite_query(
     sql: &str,
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
-    conn: &crate::core::manager::LiveConnection,
+    adapter: &crate::core::manager::UnifiedAdapter,
 ) -> std::result::Result<(), String> {
     let start = std::time::Instant::now();
 
-    let sql_adapter = conn
-        .adapter
+    let sql_adapter = adapter
         .as_sql()
         .ok_or_else(|| "execute_sqlite_query only supports SQL databases".to_string())?;
 
@@ -740,13 +734,12 @@ async fn execute_postgres_stream(
     sql: &str,
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
-    conn: &crate::core::manager::LiveConnection,
+    adapter: &crate::core::manager::UnifiedAdapter,
 ) -> std::result::Result<(), String> {
     use futures::StreamExt;
 
     // Get pool from PostgresAdapter
-    let postgres_adapter = conn
-        .adapter
+    let postgres_adapter = adapter
         .as_postgres()
         .ok_or_else(|| "PostgreSQL adapter not available".to_string())?;
     let pool = postgres_adapter
@@ -1244,14 +1237,14 @@ pub async fn execute_query(
     // Use composite key for tab-specific connection (transaction isolation)
     let connection_key = format!("{}:{}", conn_id, tab_id);
 
-    let conn = manager
-        .get_connection_with_retry(&connection_key, 3)
+    // Safe mode guard (synchronous lookup — no DashMap lock held across await)
+    let op_kind = crate::core::safe_mode::classify_sql(&sql);
+    crate::core::safe_mode::check_safe_mode(manager.get_safe_mode(&connection_key), op_kind, &format!("{:?}", op_kind))?;
+
+    let adapter = manager
+        .borrow_adapter_with_retry(&connection_key, 3)
         .await
         .map_err(|e| e.to_string())?;
-
-    // Safe mode guard
-    let op_kind = crate::core::safe_mode::classify_sql(&sql);
-    crate::core::safe_mode::check_safe_mode(conn.profile.safe_mode, op_kind, &format!("{:?}", op_kind))?;
 
     tracing::info!("==========================================");
     tracing::info!("FAST PATH (query_raw streaming)");
@@ -1265,10 +1258,10 @@ pub async fn execute_query(
 
     // Route based on database type
     // SQLite uses the adapter's query() method, PostgreSQL uses streaming
-    match conn.profile.db_type {
+    match adapter.db_type() {
         crate::types::DbType::SQLite => tokio::time::timeout(
             timeout_duration,
-            execute_sqlite_query(&sql, &metadata_channel, &data_channel, &conn),
+            execute_sqlite_query(&sql, &metadata_channel, &data_channel, &adapter),
         )
         .await
         .map_err(|_| {
@@ -1281,7 +1274,7 @@ pub async fn execute_query(
             // PostgreSQL and other databases use the streaming path
             tokio::time::timeout(
                 timeout_duration,
-                execute_single_fetch_stream(&sql, &metadata_channel, &data_channel, &conn),
+                execute_single_fetch_stream(&sql, &metadata_channel, &data_channel, &adapter),
             )
             .await
             .map_err(|_| {
