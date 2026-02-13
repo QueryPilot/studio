@@ -44,6 +44,7 @@ import { openTableObject } from "@/utils/workbench/openers";
 import { quoteIdentifier } from "@/adapters/formatting";
 import { dataGridRegistry } from "@/services/dataGridRegistry";
 import { contextService } from "@/services/contextService";
+import { commandService } from "@/services/commandService";
 
 // Hooks
 import { useQuickFilter } from "../hooks/useQuickFilter";
@@ -76,6 +77,7 @@ import {
   type ColumnTypeHint,
 } from "../utils/pasteUtils";
 import { readClipboardText } from "@/lib/clipboard";
+import { logger } from "@/lib/logger";
 import { Button } from "@/components/ui/button";
 import {
   ResizableHandle,
@@ -2365,6 +2367,43 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
       // Guard remaining shortcuts against cell editing
       if (isEditingCellRef.current || isCellEditorActive()) {
+        return;
+      }
+
+      // Workspace shortcuts fallback for Glide's internal hidden input focus.
+      if (isMod && !event.shiftKey && key === "s") {
+        event.preventDefault();
+        event.stopPropagation();
+        void commandService.execute("workspace.commitAll").catch((error: unknown) => {
+          logger.error(
+            "[BaseDataGrid] Failed to execute workspace.commitAll fallback",
+            error,
+          );
+        });
+        return;
+      }
+
+      if (isMod && event.shiftKey && key === "g") {
+        event.preventDefault();
+        event.stopPropagation();
+        void commandService.execute("workspace.reviewChanges").catch((error: unknown) => {
+          logger.error(
+            "[BaseDataGrid] Failed to execute workspace.reviewChanges fallback",
+            error,
+          );
+        });
+        return;
+      }
+
+      if (isMod && event.shiftKey && key === "d") {
+        event.preventDefault();
+        event.stopPropagation();
+        void commandService.execute("workspace.discardAll").catch((error: unknown) => {
+          logger.error(
+            "[BaseDataGrid] Failed to execute workspace.discardAll fallback",
+            error,
+          );
+        });
         return;
       }
 

@@ -21,8 +21,7 @@ import {
 import { BaseDataGrid } from "../base/BaseDataGrid";
 import { BreadcrumbNav } from "../components/BreadcrumbNav";
 import { useDocumentData } from "../hooks/useDocumentData";
-import { useCrudStore } from "@/stores/crudStore";
-import type { GridActivationEvent, GridEditCommitEvent } from "../types";
+import type { GridActivationEvent } from "../types";
 import { cn } from "@/lib/utils";
 import { logger } from "@/lib/logger";
 import {
@@ -82,7 +81,6 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   className,
   focused,
 }: DocumentDataGridProps) {
-  const stageCommand = useCrudStore((s) => s.stageCommand);
   const quickFilterRef = useRef<QuickFilterRef>(null);
   const lastDrilledCellRef = useRef<string | null>(null);
 
@@ -295,19 +293,6 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   useEffect(() => {
     lastDrilledCellRef.current = null;
   }, [data.currentPath]);
-
-  // Handle cell edit commit
-  const handleCellEditCommit = useCallback(
-    (event: GridEditCommitEvent) => {
-      const cmd = data.createEditCommand(event);
-      if (cmd) {
-        stageCommand(cmd);
-        logger.info("document-grid", "Staged edit command");
-      }
-      return undefined;
-    },
-    [data, stageCommand],
-  );
 
   // Breadcrumb navigation toolbar with optional filter
   const topToolbar = (
@@ -531,7 +516,6 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       executionTime={data.executionTime}
       onCellActivated={handleCellActivated}
       onCellClicked={handleCellClicked}
-      onCellEditCommit={handleCellEditCommit}
       // Command factory for CRUD operations (insert/delete documents)
       // Returns undefined when in nested path (read-only mode)
       commandFactory={data.commandFactory}

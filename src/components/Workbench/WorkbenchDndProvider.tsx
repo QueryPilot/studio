@@ -1,7 +1,7 @@
 import { logger } from "@/lib/logger";
 import React, { useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { type Direction } from "@/types/workbench";
+import { type Direction, type TabMetadata } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import {
@@ -86,11 +86,7 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
     setActiveId(active.id as string);
 
     // Set initial pointer position from the activator event
-    if (
-      activatorEvent &&
-      "clientX" in activatorEvent &&
-      "clientY" in activatorEvent
-    ) {
+    if ("clientX" in activatorEvent && "clientY" in activatorEvent) {
       setPointerPosition({
         x: activatorEvent.clientX as number,
         y: activatorEvent.clientY as number,
@@ -136,7 +132,7 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
 
   const handleDragMove = useCallback((event: DragMoveEvent) => {
     // Update pointer position during drag for custom overlay
-    if (event.activatorEvent && "clientX" in event.activatorEvent) {
+    if ("clientX" in event.activatorEvent) {
       const activatorEvent = event.activatorEvent as PointerEvent;
       setPointerPosition({
         x: activatorEvent.clientX + event.delta.x,
@@ -199,10 +195,7 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
               database: sidebarData.database,
             });
           }
-        } else if (
-          sidebarData.objectType === "mongo-collection" ||
-          sidebarData.objectType === "redis-key"
-        ) {
+        } else {
           // MongoDB collections and Redis databases use inline addTab
           const s = useWorkbenchStore.getState();
           if (sidebarData.objectType === "mongo-collection") {
@@ -221,8 +214,7 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
               type: "redis-key",
               title: sidebarData.name,
               connectionId: sidebarData.connectionId,
-              // Redis passes db number — matches existing click handler pattern
-              database: redisDb as unknown as string,
+              database: String(redisDb),
             });
           }
           s.focusPanel(targetPanelId);
@@ -248,7 +240,7 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
 
         // Build tab metadata matching what openers produce
         let tabId: string;
-        let tabMetadata: Record<string, unknown>;
+        let tabMetadata: TabMetadata;
 
         if (
           sidebarData.objectType === "table" ||
@@ -305,12 +297,13 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
           };
         } else {
           // redis-key
-          tabId = `redis-key-${sidebarData.connectionId}-db${sidebarData.redisDb ?? 0}`;
+          const redisDb = sidebarData.redisDb ?? 0;
+          tabId = `redis-key-${sidebarData.connectionId}-db${redisDb}`;
           tabMetadata = {
             type: "redis-key",
             title: sidebarData.name,
             connectionId: sidebarData.connectionId,
-            database: sidebarData.redisDb,
+            database: String(redisDb),
           };
         }
 
