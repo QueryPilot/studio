@@ -36,6 +36,7 @@ import { Skeleton } from "../ui/skeleton";
 import { type TabMetadata } from "@/types/workbench";
 import { ERDPanel } from "@/components/Erd";
 import { TableDesigner } from "@/components/TableDesigner";
+import { CollectionDesigner } from "@/components/CollectionDesigner";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { useTabStateStore } from "@/stores/tabStateStore";
@@ -46,6 +47,11 @@ interface PanelContentRendererProps {
   panelId: string;
   tabId: string;
   metadata?: TabMetadata;
+}
+
+/** Per-tab sort key. Returns undefined when sync is ON (default), per-tab key when explicitly OFF. */
+function perTabSortGridId(baseGridId: string, tabId: string, syncSort: boolean | undefined): string | undefined {
+  return syncSort === false ? `${baseGridId}:::tab:::${tabId}` : undefined;
 }
 
 // Loading skeleton for tab content
@@ -273,6 +279,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
             collection={metadata.table || ""}
             className="h-full"
             focused={isPanelFocused}
+            sortGridId={perTabSortGridId(mongoGridId, tabId, metadata.syncSort)}
           />
         </FeatureErrorBoundary>
       );
@@ -290,6 +297,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
             initialKey={metadata.table}
             className="h-full"
             focused={isPanelFocused}
+            sortGridId={perTabSortGridId(redisGridId, tabId, metadata.syncSort)}
           />
         </FeatureErrorBoundary>
       );
@@ -347,9 +355,46 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
           database={metadata?.database || ""}
           schema={metadata?.schema}
           className="h-full"
-          onSave={(tableName, columns) => {
-            // TODO: Execute CREATE TABLE SQL
-            logger.info("Create table:", tableName, columns);
+          onSave={(tableName, sql) => {
+            const tableSchema = metadata?.schema || "public";
+            const tableConnectionId =
+              metadata?.connectionId || activeConnectionId || "";
+
+            updateTabMetadata(panelId, tabId, {
+              type: "table",
+              title: tableName,
+              table: tableName,
+              schema: tableSchema,
+              connectionId: tableConnectionId,
+              database: metadata?.database || "",
+              kind: "Table",
+              isView: false,
+              viewType: "data",
+              objectKey: `table-${tableConnectionId}-${tableSchema}-${tableName}`,
+              sql,
+            });
+          }}
+        />
+      );
+    }
+
+    if (type === "collection-design") {
+      return (
+        <CollectionDesigner
+          panelId={panelId}
+          tabId={tabId}
+          connectionId={metadata?.connectionId || activeConnectionId || ""}
+          database={metadata?.database || ""}
+          className="h-full"
+          onSave={(collectionName) => {
+            updateTabMetadata(panelId, tabId, {
+              type: "mongo-collection",
+              title: collectionName,
+              table: collectionName,
+              connectionId: metadata?.connectionId || activeConnectionId || "",
+              database: metadata?.database || "",
+              schema: "",
+            });
           }}
         />
       );
@@ -467,6 +512,11 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                       initialFilter={metadata.initialFilter as string | undefined}
                       panelId={panelId}
                       focused={isPanelFocused}
+                      sortGridId={perTabSortGridId(
+                        `${metadata.connectionId || activeConnectionId || ""}:${metadata.database || ""}:${metadata.schema}:${metadata.table || ""}`,
+                        tabId,
+                        metadata.syncSort,
+                      )}
                     />
                   </FeatureErrorBoundary>
                 )}

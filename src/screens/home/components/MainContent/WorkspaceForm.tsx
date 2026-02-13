@@ -246,7 +246,7 @@ export function WorkspaceForm() {
                         }
                         onClick={(e) => e.stopPropagation()}
                       />
-                      <div className="w-6 h-6 shrink-0">{logo}</div>
+                      <img src={logo} alt="" className="w-6 h-6 shrink-0" />
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium truncate">
                           {connection.profile.name}

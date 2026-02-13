@@ -248,6 +248,83 @@ impl MongoDbAdapter {
             None => Err(AppError::DatabaseError("Not connected".to_string())),
         }
     }
+
+    /// Resolve which database to use: explicit override or the adapter's current database.
+    /// Returns a lightweight `Database` handle without modifying adapter state.
+    pub async fn resolve_db(&self, db_override: Option<&str>) -> Result<Database, AppError> {
+        match db_override {
+            Some(name) => {
+                let client = self.client.read().await;
+                match client.as_ref() {
+                    Some(c) => Ok(c.database(name)),
+                    None => Err(AppError::DatabaseError("Not connected".to_string())),
+                }
+            }
+            None => {
+                let db = self.database.read().await;
+                db.clone()
+                    .ok_or_else(|| AppError::DatabaseError("No database selected".to_string()))
+            }
+        }
+    }
+
+    /// List collections on a specific database (does not modify adapter state).
+    pub async fn list_collections_on_db(&self, database: &Database) -> Result<Vec<CollectionInfo>, AppError> {
+        let collections = database.list_collection_names().await.map_err(|e| {
+            AppError::DatabaseError(format!("Failed to list collections: {}", e))
+        })?;
+
+        let mut result = Vec::new();
+        for name in collections {
+            let stats = database.run_command(doc! { "collStats": &name }).await.ok();
+
+            let (doc_count, size_bytes) = match stats {
+                Some(s) => (
+                    s.get_i64("count").ok().map(|c| c as u64),
+                    s.get_i64("size").ok().map(|s| s as u64),
+                ),
+                None => (None, None),
+            };
+
+            result.push(CollectionInfo {
+                name,
+                doc_count,
+                size_bytes,
+            });
+        }
+
+        Ok(result)
+    }
+
+    /// Run a command on a specific database (does not modify adapter state).
+    pub async fn run_command_on_db(&self, database: &Database, command: Value) -> Result<Value, AppError> {
+        let cmd_doc = Self::json_to_bson_doc(&command)?;
+        let result = database
+            .run_command(cmd_doc)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Command failed: {}", e)))?;
+        Ok(Self::bson_doc_to_json(result))
+    }
+
+    /// Insert a document on a specific database (does not modify adapter state).
+    pub async fn insert_document_on_db(
+        &self,
+        database: &Database,
+        collection: &str,
+        document: Value,
+    ) -> Result<InsertResult, AppError> {
+        let coll = database.collection::<Document>(collection);
+        let doc = Self::json_to_bson_doc(&document)?;
+
+        let result = coll
+            .insert_one(doc)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Insert failed: {}", e)))?;
+
+        Ok(InsertResult {
+            inserted_id: result.inserted_id.to_string(),
+        })
+    }
 }
 
 impl Default for MongoDbAdapter {

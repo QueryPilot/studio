@@ -48,6 +48,10 @@ import { toast } from "sonner";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
+import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
+import type { CrudOperationType, TableCreatePayload } from "@/types/crud";
+import { eventBus } from "@/services/eventBus";
 import {
   Tooltip,
   TooltipContent,
@@ -59,6 +63,34 @@ interface WorkspaceTitleBarProps {
   connectionId: string;
   isConnecting?: boolean;
 }
+
+const SCHEMA_INVALIDATION_TYPES = new Set<CrudOperationType>([
+  "table.create",
+  "table.drop",
+  "table.duplicate",
+  "table.truncate",
+  "table.rename",
+  "view.create",
+  "view.drop",
+  "view.rename",
+  "sequence.create",
+  "sequence.drop",
+  "sequence.rename",
+]);
+
+const parseDesignerTag = (
+  tags: string[] | undefined,
+): { panelId: string; tabId: string } | null => {
+  const tag = tags?.find((item) => item.startsWith("table-designer:"));
+  if (!tag) return null;
+
+  const parts = tag.split(":");
+  if (parts.length < 3) return null;
+  const panelId = parts[1];
+  const tabId = parts[2];
+  if (!panelId || !tabId) return null;
+  return { panelId, tabId };
+};
 
 export function WorkspaceTitleBar({
   connectionId,
@@ -166,6 +198,67 @@ export function WorkspaceTitleBar({
 
           // Get all staged commands before committing
           const stagedCommandsSnapshot = Array.from(stagedCommands.entries());
+          const schemaInvalidations = new Set<string>();
+          const tableInvalidations = new Set<string>();
+          const designerTransitions = new Map<
+            string,
+            {
+              panelId: string;
+              tabId: string;
+              connectionId: string;
+              database: string;
+              schema: string;
+              table: string;
+              timestamp: number;
+            }
+          >();
+
+          stagedCommandsSnapshot.forEach(([tableKey, commands]) => {
+            const [connId, db, sch = "public", tbl] = tableKey.split(":");
+            if (!connId || !db) return;
+
+            const hasSchemaChanges = commands.some((cmd) =>
+              SCHEMA_INVALIDATION_TYPES.has(cmd.type),
+            );
+
+            if (hasSchemaChanges) {
+              schemaInvalidations.add(`${connId}:${db}:${sch}`);
+            } else if (tbl) {
+              tableInvalidations.add(`${connId}:${db}:${sch}:${tbl}`);
+            }
+
+            commands.forEach((command) => {
+              if (command.type !== "table.create") return;
+
+              const location = parseDesignerTag(command.metadata.tags);
+              if (!location) return;
+
+              const payload = command.payload as TableCreatePayload;
+              const payloadName = payload.tableName.trim();
+              const targetName = (command.target.table || "").trim();
+              const table = payloadName || targetName;
+              if (!table || table.startsWith("__new_table_")) return;
+
+              const designerSchema =
+                (command.target.schema || "public").trim() || "public";
+              const transitionKey = `${location.panelId}:${location.tabId}`;
+              const timestampMs = Date.parse(command.metadata.timestamp);
+              const timestamp = Number.isNaN(timestampMs) ? 0 : timestampMs;
+              const existing = designerTransitions.get(transitionKey);
+
+              if (!existing || timestamp >= existing.timestamp) {
+                designerTransitions.set(transitionKey, {
+                  panelId: location.panelId,
+                  tabId: location.tabId,
+                  connectionId: command.target.connectionId,
+                  database: command.target.database || "",
+                  schema: designerSchema,
+                  table,
+                  timestamp,
+                });
+              }
+            });
+          });
 
           const results = await commitAll();
           const totalCommitted = Object.values(results).reduce(
@@ -180,27 +273,60 @@ export function WorkspaceTitleBar({
           // Small delay to ensure database transaction is fully committed
           await new Promise((resolve) => setTimeout(resolve, 100));
 
-          // Broadcast invalidation for all affected tables
-          const { invalidateTable } = useDataInvalidationStore.getState();
+          // Broadcast invalidation for all affected tables/schemas
+          const { invalidateTable, invalidateSchema } =
+            useDataInvalidationStore.getState();
           const { clearCommittedChanges } = useCrudStore.getState();
+
+          schemaInvalidations.forEach((schemaKey) => {
+            const [connId, db, sch] = schemaKey.split(":");
+            if (!connId || !db || !sch) return;
+
+            logger.info(
+              `[WorkspaceTitleBar] Invalidating schema: ${db}.${sch}`,
+            );
+            invalidateSchema(connId, db, sch);
+          });
+
+          tableInvalidations.forEach((tableInvalidationKey) => {
+            const [connId, db, sch, tbl] = tableInvalidationKey.split(":");
+            if (!connId || !db || !sch || !tbl) return;
+            if (schemaInvalidations.has(`${connId}:${db}:${sch}`)) return;
+
+            logger.info(
+              `[WorkspaceTitleBar] Invalidating table: ${db}.${sch}.${tbl}`,
+            );
+            invalidateTable(connId, db, sch, tbl);
+          });
+
           stagedCommandsSnapshot.forEach(([tableKey]) => {
-            const parts = tableKey.split(":");
-            const [connId, db, sch, tbl] = parts;
-            if (connId && db && tbl) {
-              logger.info(
-                `[WorkspaceTitleBar] Invalidating table: ${db}.${
-                  sch ?? "public"
-                }.${tbl}`,
-              );
-              invalidateTable(connId, db, sch ?? "public", tbl);
-            }
-            // Clear committed changes from store
             clearCommittedChanges(tableKey);
+          });
+
+          const { updateTabMetadata } = useWorkbenchStore.getState();
+          designerTransitions.forEach((transition) => {
+            const panel = useWorkbenchStore
+              .getState()
+              .panelContents.get(transition.panelId);
+            if (!panel || !panel.tabIds.includes(transition.tabId)) return;
+
+            updateTabMetadata(transition.panelId, transition.tabId, {
+              type: "table",
+              title: transition.table,
+              table: transition.table,
+              schema: transition.schema,
+              connectionId: transition.connectionId,
+              database: transition.database,
+              kind: "Table",
+              isView: false,
+              viewType: "data",
+              objectKey: `table-${transition.connectionId}-${transition.schema}-${transition.table}`,
+            });
           });
 
           // Complete progress to 100%
 
-          if (commitProgressRef.current !== null) cancelAnimationFrame(commitProgressRef.current);
+          cancelAnimationFrame(commitProgressRef.current);
           setCommitProgress(100);
 
           toast.success("All changes committed", {
@@ -214,7 +340,7 @@ export function WorkspaceTitleBar({
         } catch (error) {
           // Stop progress on error
 
-          if (commitProgressRef.current !== null) cancelAnimationFrame(commitProgressRef.current);
+          cancelAnimationFrame(commitProgressRef.current);
           setCommitProgress(0);
 
           toast.error("Commit failed", {
@@ -227,8 +353,27 @@ export function WorkspaceTitleBar({
           setIsCommittingAll(false);
           setCommitProgress(0);
 
-          if (commitProgressRef.current !== null) cancelAnimationFrame(commitProgressRef.current);
+          cancelAnimationFrame(commitProgressRef.current);
           commitProgressRef.current = null;
+        }
+      } else {
+        const workbenchState = useWorkbenchStore.getState();
+        const focusedPanelId = usePanelFocusStore.getState().focusedPanelId;
+        const fallbackPanelId =
+          focusedPanelId ?? Array.from(workbenchState.panelContents.keys())[0];
+        if (!fallbackPanelId) return;
+
+        const panel = workbenchState.panelContents.get(fallbackPanelId);
+        if (!panel) return;
+        const activeTabId = panel.activeTabId;
+        if (!activeTabId) return;
+
+        const activeMetadata = panel.metadata?.[activeTabId];
+        if (activeMetadata?.type === "collection-design") {
+          eventBus.emit("collection-designer:save", {
+            panelId: fallbackPanelId,
+            tabId: activeTabId,
+          });
         }
       }
     },

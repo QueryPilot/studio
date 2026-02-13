@@ -53,10 +53,11 @@ export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
     return ['document-queryable', 'schema-introspectable'];
   }
 
-  private async execute<T>(operation: DocumentOperation): Promise<T> {
+  private async execute<T>(operation: DocumentOperation, database?: string): Promise<T> {
     const result = await invoke<DocumentResult>('document_execute', {
       connId: this.connectionId,
       operation,
+      database: database ?? null,
     });
     return result.data as T;
   }
@@ -107,12 +108,12 @@ export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
     });
   }
 
-  async insertDocument(collection: string, document: object): Promise<InsertResult> {
+  async insertDocument(collection: string, document: object, database?: string): Promise<InsertResult> {
     return this.execute<InsertResult>({
       type: 'insert',
       collection,
       document,
-    });
+    }, database);
   }
 
   async insertDocuments(collection: string, documents: object[]): Promise<InsertManyResult> {
@@ -160,17 +161,17 @@ export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
     });
   }
 
-  async listCollections(): Promise<CollectionInfo[]> {
+  async listCollections(database?: string): Promise<CollectionInfo[]> {
     return this.execute<CollectionInfo[]>({
       type: 'listCollections',
-    });
+    }, database);
   }
 
-  async runCommand(command: object): Promise<object> {
+  async runCommand(command: object, database?: string): Promise<object> {
     return this.execute<object>({
       type: 'runCommand',
       command,
-    });
+    }, database);
   }
 
   async listDatabases(): Promise<MongoDatabaseInfo[]> {

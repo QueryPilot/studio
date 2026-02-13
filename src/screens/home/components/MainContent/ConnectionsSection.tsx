@@ -16,12 +16,12 @@ import {
   IconChevronRight,
   IconPlayerPlay,
   IconLayout2,
-  IconPlus,
   IconTrash,
   IconAlertTriangle,
   IconDatabase,
   IconCheckbox,
   IconSquare,
+  IconPencil,
 } from "@tabler/icons-react";
 import { Kbd } from "@/components/ui/kbd";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,13 @@ import type { StoredConnection } from "@/types/connection";
 import type { WorkspaceConfig } from "@/types/workspace";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
 import { BulkActionsBar } from "./BulkActionsBar";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "@/components/ui/context-menu";
 
 type ViewMode = "hybrid" | "grid" | "list";
 
@@ -127,7 +134,7 @@ function DroppableWorkspaceGroup({
   viewMode,
   isCollapsed,
   onToggleCollapse,
-  onAddConnection,
+  onEditWorkspace,
   onDeleteWorkspace,
   isOver,
   selectionMode,
@@ -138,7 +145,7 @@ function DroppableWorkspaceGroup({
   viewMode: ViewMode;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
-  onAddConnection: (workspaceId: string) => void;
+  onEditWorkspace: (workspaceId: string) => void;
   onDeleteWorkspace: (workspace: WorkspaceConfig) => void;
   isOver: boolean;
   selectionMode: boolean;
@@ -158,6 +165,49 @@ function DroppableWorkspaceGroup({
     );
   };
 
+  const headerContent = (
+    <div className="flex items-center gap-2 mb-2 w-full text-left group hover:bg-accent/50 rounded-md px-2 py-1.5 transition-colors">
+      <button
+        type="button"
+        onClick={onToggleCollapse}
+        className="flex items-center gap-2 flex-1"
+      >
+        <IconChevronRight
+          className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${
+            isCollapsed ? "" : "rotate-90"
+          }`}
+        />
+        {group.workspace ? (
+          <IconLayout2 className="h-3.5 w-3.5 text-muted-foreground" />
+        ) : (
+          <IconDatabase className="h-3.5 w-3.5 text-muted-foreground" />
+        )}
+        <span className="text-sm font-medium">
+          {group.workspace?.name ?? "Uncategorized"}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          ({group.connections.length})
+        </span>
+      </button>
+      {group.workspace && (
+        <div className="flex items-center gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleOpenWorkspace();
+            }}
+            className="h-6 px-2 text-xs"
+          >
+            <IconPlayerPlay className="h-3 w-3 mr-1" />
+            Open
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div
       className={cn(
@@ -165,77 +215,41 @@ function DroppableWorkspaceGroup({
         isOver && "bg-primary/5 ring-2 ring-primary/30 ring-inset",
       )}
     >
-      <div className="flex items-center gap-2 mb-2 w-full text-left group hover:bg-accent/50 rounded-md px-2 py-1.5 transition-colors">
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          className="flex items-center gap-2 flex-1"
-        >
-          <IconChevronRight
-            className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${
-              isCollapsed ? "" : "rotate-90"
-            }`}
-          />
-          {group.workspace ? (
-            <IconLayout2 className="h-3.5 w-3.5 text-muted-foreground" />
-          ) : (
-            <IconDatabase className="h-3.5 w-3.5 text-muted-foreground" />
-          )}
-          <span className="text-sm font-medium">
-            {group.workspace?.name ?? "Uncategorized"}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            ({group.connections.length})
-          </span>
-        </button>
-        <div className="flex items-center gap-1">
-          {group.workspace &&
-            (() => {
-              const workspace = group.workspace;
-              return (
-                <>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onAddConnection(workspace.id);
-                    }}
-                    className="h-6 px-2 text-xs"
-                    title="Add connection to workspace"
-                  >
-                    <IconPlus className="h-3 w-3 mr-1" />
-                    Add
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void handleOpenWorkspace();
-                    }}
-                    className="h-6 px-2 text-xs"
-                  >
-                    <IconPlayerPlay className="h-3 w-3 mr-1" />
-                    Open
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDeleteWorkspace(workspace);
-                    }}
-                    className="h-6 px-2 text-xs text-destructive hover:text-destructive"
-                    title="Delete workspace"
-                  >
-                    <IconTrash className="h-3 w-3" />
-                  </Button>
-                </>
-              );
-            })()}
-        </div>
-      </div>
+      {group.workspace ? (
+        <ContextMenu>
+          <ContextMenuTrigger>{headerContent}</ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem
+              onClick={() => {
+                void handleOpenWorkspace();
+              }}
+            >
+              <IconPlayerPlay className="h-3.5 w-3.5 mr-2" />
+              Open
+            </ContextMenuItem>
+            <ContextMenuItem
+              onClick={() => {
+                onEditWorkspace(group.workspace!.id);
+              }}
+            >
+              <IconPencil className="h-3.5 w-3.5 mr-2" />
+              Edit
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              variant="destructive"
+              onClick={() => {
+                onDeleteWorkspace(group.workspace!);
+              }}
+            >
+              <IconTrash className="h-3.5 w-3.5 mr-2" />
+              Delete
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+      ) : (
+        headerContent
+      )}
 
       {!isCollapsed && (
         <div className="pl-7 pb-3 pr-3">
@@ -288,7 +302,7 @@ function DroppableGroup({
   viewMode: ViewMode;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
-  onAddConnection: (workspaceId: string) => void;
+  onEditWorkspace: (workspaceId: string) => void;
   onDeleteWorkspace: (workspace: WorkspaceConfig) => void;
   selectionMode: boolean;
   selectedIds: Set<string>;
@@ -339,7 +353,7 @@ export function ConnectionsSection() {
   const fetchConnections = useConnectionStore((s) => s.fetchConnections);
   const deleteConnection = useConnectionStore((s) => s.deleteConnection);
   const activeEnvFilters = useHomeScreenStore((s) => s.activeEnvFilters);
-  const openConnectionForm = useHomeScreenStore((s) => s.openConnectionForm);
+  const openWorkspaceForm = useHomeScreenStore((s) => s.openWorkspaceForm);
 
   const savedWorkspaces = useWorkspaceBundleStore((s) => s.savedWorkspaces);
   const loadSavedWorkspaces = useWorkspaceBundleStore(
@@ -673,8 +687,8 @@ export function ConnectionsSection() {
                     group.workspace?.id ?? "uncategorized",
                   );
                 }}
-                onAddConnection={(workspaceId) => {
-                  openConnectionForm("create", undefined, workspaceId);
+                onEditWorkspace={(workspaceId) => {
+                  openWorkspaceForm("edit", workspaceId);
                 }}
                 onDeleteWorkspace={(workspace) => {
                   setDeleteDialog({ isOpen: true, workspace });

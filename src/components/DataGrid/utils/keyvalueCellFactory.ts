@@ -22,6 +22,8 @@ export interface KeyValueCellOptions {
   column: GridColumnV2;
   /** Whether the cell is read-only */
   readOnly?: boolean;
+  /** Allow editing primary-key columns (used for optimistic inserted rows) */
+  allowPrimaryKeyEdit?: boolean;
   /** Redis key type */
   keyType?: RedisType;
 }
@@ -293,14 +295,24 @@ function mapUnknownToRows(data: unknown): GridRowModel[] {
  * Build a GridCell for a Redis value
  */
 export function buildKeyValueCell(opts: KeyValueCellOptions): GridCell {
-  const { value, column, readOnly = false, keyType } = opts;
+  const {
+    value,
+    column,
+    readOnly = false,
+    allowPrimaryKeyEdit = false,
+    keyType,
+  } = opts;
 
   const cellValue = value as CellValue | null | undefined;
   const rawValue = cellValue?.value;
   const isPrimaryKey = column.meta?.is_pk ?? false;
   const isTypeReadOnly = keyType === 'list' || keyType === 'set' || keyType === 'stream';
   const isZsetReadOnly = keyType === 'zset' && column.field !== 'score';
-  const isReadOnly = readOnly || isPrimaryKey || isTypeReadOnly || isZsetReadOnly;
+  const isReadOnly =
+    readOnly ||
+    (isPrimaryKey && !allowPrimaryKeyEdit) ||
+    isTypeReadOnly ||
+    isZsetReadOnly;
 
   // Debug logging for cell editability
   logger.info('keyvalue-cell', 'buildKeyValueCell', {

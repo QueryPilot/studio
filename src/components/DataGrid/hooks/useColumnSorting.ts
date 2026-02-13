@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useEffect } from "react";
 import type { GridRowModel, SortColumn, GridColumnV2 } from "../types";
 import { useGridPreferencesStore } from "../stores/gridPreferencesStore";
 
@@ -7,6 +7,8 @@ const EMPTY_SORT_COLUMNS: SortColumn[] = [];
 interface UseColumnSortingOptions {
   gridId: string;
   columns: GridColumnV2[];
+  /** When set, sort changes are also written to this key (write-through for per-tab sort isolation). */
+  writeThroughGridId?: string;
 }
 
 interface UseColumnSortingResult {
@@ -21,12 +23,29 @@ interface UseColumnSortingResult {
 export function useColumnSorting({
   gridId,
   columns,
+  writeThroughGridId,
 }: UseColumnSortingOptions): UseColumnSortingResult {
   const sortColumns = useGridPreferencesStore(
     (state) => state.preferences[gridId]?.sortColumns ?? EMPTY_SORT_COLUMNS
   );
   const toggleColumnSort = useGridPreferencesStore((state) => state.toggleColumnSort);
   const clearSortAction = useGridPreferencesStore((state) => state.clearSort);
+
+  // Initialize per-tab sort from shared key when the tab has no sort state yet
+  const sharedSortColumns = useGridPreferencesStore(
+    (state) => writeThroughGridId
+      ? state.preferences[writeThroughGridId]?.sortColumns ?? EMPTY_SORT_COLUMNS
+      : EMPTY_SORT_COLUMNS
+  );
+
+  useEffect(() => {
+    if (!writeThroughGridId || writeThroughGridId === gridId) return;
+    if (sortColumns.length > 0) return; // Already has sort state
+    if (sharedSortColumns.length === 0) return; // Nothing to copy
+    useGridPreferencesStore.getState().upsert(gridId, (draft) => {
+      draft.sortColumns = [...sharedSortColumns];
+    });
+  }, [gridId, writeThroughGridId, sortColumns.length, sharedSortColumns]);
 
   const columnMap = useMemo(() => {
     const map = new Map<string, GridColumnV2>();
@@ -90,13 +109,20 @@ export function useColumnSorting({
   const toggleSort = useCallback(
     (columnId: string, multiSort?: boolean) => {
       toggleColumnSort(gridId, columnId, multiSort ?? false);
+      // Write-through: also update the shared key so new tabs inherit the latest sort
+      if (writeThroughGridId && writeThroughGridId !== gridId) {
+        toggleColumnSort(writeThroughGridId, columnId, multiSort ?? false);
+      }
     },
-    [gridId, toggleColumnSort]
+    [gridId, writeThroughGridId, toggleColumnSort]
   );
 
   const clearSort = useCallback(() => {
     clearSortAction(gridId);
-  }, [gridId, clearSortAction]);
+    if (writeThroughGridId && writeThroughGridId !== gridId) {
+      clearSortAction(writeThroughGridId);
+    }
+  }, [gridId, writeThroughGridId, clearSortAction]);
 
   const getSortIndex = useCallback(
     (columnId: string): number => {

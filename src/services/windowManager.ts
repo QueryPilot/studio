@@ -141,23 +141,22 @@ class WindowManager {
       }
     }
 
-    // Hide/close the current main window when opening a workspace
-    try {
-      const currentWindow = WebviewWindow.getCurrent();
-      const currentLabel = currentWindow.label;
+    // Determine what to do with the current main window BEFORE creating the new one
+    const currentWindow = WebviewWindow.getCurrent();
+    const currentLabel = currentWindow.label;
+    const shouldHideMain = currentLabel === "main";
+    const shouldCloseSecondary = currentLabel.startsWith("main-");
 
-      if (currentLabel === "main") {
-        // Original main window: hide it (will be shown when all workspaces close)
+    // Hide primary main window immediately (safe - it stays alive)
+    if (shouldHideMain) {
+      try {
         const mainWindow = await WebviewWindow.getByLabel("main");
         if (mainWindow) {
           await mainWindow.hide();
         }
-      } else if (currentLabel.startsWith("main-")) {
-        // Secondary main window (from Cmd+Shift+N): close it
-        await currentWindow.close();
+      } catch (error) {
+        logger.error("Failed to hide main window:", error);
       }
-    } catch (error) {
-      logger.error("Failed to check/hide main window:", error);
     }
 
     // Create window options with traffic light position
@@ -171,7 +170,7 @@ class WindowManager {
         windowTitle = `${connectionName} (${dbType} @ ${host})`;
       }
     }
-    
+
     const windowOptions: Record<string, unknown> = {
       url: targetUrl,
       title: windowTitle,
@@ -216,6 +215,16 @@ class WindowManager {
         // Ignore
       }
       throw error;
+    }
+
+    // Close secondary main window AFTER new window is created
+    // (closing before would kill the JS context and prevent window creation)
+    if (shouldCloseSecondary) {
+      try {
+        await currentWindow.close();
+      } catch (error) {
+        logger.error("Failed to close secondary main window:", error);
+      }
     }
 
     // Register window metadata (for titles and local lookups)
@@ -513,22 +522,27 @@ class WindowManager {
       return label;
     }
 
-    // Hide main window
-    try {
-      const currentWindow = WebviewWindow.getCurrent();
-      if (currentWindow.label === "main") {
+    // Determine what to do with the current main window BEFORE creating the new one
+    const currentWindow = WebviewWindow.getCurrent();
+    const currentLabel = currentWindow.label;
+    const shouldHideMain = currentLabel === "main";
+    const shouldCloseSecondary = currentLabel.startsWith("main-");
+
+    // Hide primary main window immediately (safe - it stays alive)
+    if (shouldHideMain) {
+      try {
         const mainWindow = await WebviewWindow.getByLabel("main");
         if (mainWindow) {
           await mainWindow.hide();
         }
+      } catch (error) {
+        logger.error("Failed to hide main window:", error);
       }
-    } catch (error) {
-      logger.error("Failed to hide main window:", error);
     }
 
     // Create workspace window
-    const windowTitle = options.icon 
-      ? `${options.icon} ${workspaceName}` 
+    const windowTitle = options.icon
+      ? `${options.icon} ${workspaceName}`
       : workspaceName;
 
     const windowOptions: Record<string, unknown> = {
@@ -573,6 +587,16 @@ class WindowManager {
         // Ignore
       }
       throw error;
+    }
+
+    // Close secondary main window AFTER new window is created
+    // (closing before would kill the JS context and prevent window creation)
+    if (shouldCloseSecondary) {
+      try {
+        await currentWindow.close();
+      } catch (error) {
+        logger.error("Failed to close secondary main window:", error);
+      }
     }
 
     // Register window metadata with workspace ID
