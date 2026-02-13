@@ -20,6 +20,7 @@ import type {
   CrudCommandFactory,
   SortColumn,
   GridActivationEvent,
+  GridCellContentContext,
 } from '../types';
 import type { DocumentDataHookResult, PathSegment } from '../sources/types';
 import type { CrudCommand, DataUpdatePayload, DataInsertPayload, DataDeletePayload, JsonValue } from '@/types/crud';
@@ -583,10 +584,10 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
   // Get cell content for grid
   const getCellContent = useCallback(
-    (cell: Item): GridCell => {
+    (cell: Item, context?: GridCellContentContext): GridCell => {
       const [colIndex, rowIndex] = cell;
-      const column = columns[colIndex];
-      const row = rows[rowIndex];
+      const column = context?.column ?? columns[colIndex];
+      const row = context?.row ?? rows[rowIndex];
 
       if (!column || !row) {
         return {

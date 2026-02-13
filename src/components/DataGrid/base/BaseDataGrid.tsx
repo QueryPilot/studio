@@ -25,6 +25,7 @@ import type {
   GridActivationEvent,
   GridRowInsertEvent,
   CrudCommandFactory,
+  GridCellContentGetter,
 } from "../types";
 import type { ContextMenuTarget } from "../components/UnifiedContextMenu";
 import type { QuickFilterRef } from "../components/QuickFilter";
@@ -147,7 +148,7 @@ export interface BaseDataGridProps {
     rect: Rectangle,
   ) => void;
   customGetCellContent?: (cell: Item, baseCell: GridCell) => GridCell; // For paradigm-specific overrides
-  getCellContent?: (cell: Item) => GridCell; // Complete override of cell content (Document/KeyValue paradigms)
+  getCellContent?: GridCellContentGetter; // Complete override of cell content (Document/KeyValue paradigms)
 
   // Metadata (for context menu, filtering, etc.)
   connectionId: string;
@@ -257,6 +258,10 @@ export interface BaseDataGridProps {
    * (e.g., SqlDataGrid with enableFiltering={false}).
    */
   externalQuickFilterRef?: React.RefObject<QuickFilterRef | null>;
+
+  /** Override grid ID used for sort preferences (for per-tab sort isolation).
+   *  When set, sort reads/writes use this key; changes are also written through to gridId. */
+  sortGridId?: string;
 }
 
 export const BaseDataGrid = memo(function BaseDataGrid(
@@ -320,6 +325,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     // External QuickFilter ref (for parent-managed QuickFilter)
     externalQuickFilterRef,
     loadMoreMinRows = 100,
+    // Per-tab sort isolation
+    sortGridId,
   } = props;
 
   // --- CRUD Store Integration ---
@@ -979,8 +986,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     toggleSort,
     sortedData,
   } = useColumnSorting({
-    gridId,
+    gridId: sortGridId ?? gridId,
     columns: finalColumns,
+    writeThroughGridId: sortGridId ? gridId : undefined,
   });
 
   // Apply sorting to rows BEFORE pinning (so unpinned rows are sorted)
@@ -1509,7 +1517,12 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         // If we have a mapping, use the original index; otherwise fall back to visual index
         const mappedCell: Item =
           originalColIdx !== undefined ? [originalColIdx, rowIdx] : cell;
-        baseCell = propGetCellContentRef.current(mappedCell);
+        baseCell = propGetCellContentRef.current(mappedCell, {
+          rowIndex: rowIdx,
+          columnIndex: visualColIdx,
+          row: rowsRef.current[rowIdx],
+          column: finalColumnsRef.current[visualColIdx],
+        });
       } else {
         baseCell = internalGetCellContent(cell);
       }

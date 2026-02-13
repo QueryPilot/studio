@@ -84,6 +84,8 @@ export interface SqlDataGridProps {
   panelId?: string;
   /** Whether this grid's panel is focused (for auto-focus) */
   focused?: boolean;
+  /** Override grid ID used for sort preferences (for per-tab sort isolation) */
+  sortGridId?: string;
 }
 
 export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
@@ -100,6 +102,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
   } = props;
 
   const gridId = `${connectionId}:${database}:${schema}:${table}`;
+  const sortGridId = props.sortGridId ?? gridId;
   const tableName = table;
 
   // Ref for QuickFilter - passed to BaseDataGrid for Cmd+F handling
@@ -363,8 +366,9 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
 
   // --- Sort Configuration ---
   // Get sort state from grid preferences and convert to SortConfig format
+  // Uses sortGridId for per-tab sort isolation (initialization handled by useColumnSorting in BaseDataGrid)
   const sortColumns = useGridPreferencesStore(
-    (state) => state.preferences[gridId]?.sortColumns ?? EMPTY_SORT_COLUMNS,
+    (state) => state.preferences[sortGridId]?.sortColumns ?? EMPTY_SORT_COLUMNS,
   );
 
   const sorts = useMemo<SortConfig[]>(() => {
@@ -874,6 +878,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
       {/* BaseDataGrid handles all CRUD operations internally */}
       <BaseDataGrid
         gridId={gridId}
+        sortGridId={sortGridId !== gridId ? sortGridId : undefined}
         rows={rows}
         columns={columns}
         connectionId={connectionId}

@@ -139,6 +139,18 @@ export interface GridRowDeleteEvent {
   rows: GridRowModel[];
 }
 
+export interface GridCellContentContext {
+  rowIndex: number;
+  columnIndex: number;
+  row: GridRowModel | undefined;
+  column: GridColumnV2 | undefined;
+}
+
+export type GridCellContentGetter = (
+  cell: Item,
+  context?: GridCellContentContext,
+) => GridCell;
+
 export interface GridCallbacks {
   onColumnsChange?: (state: GridColumnsState) => void;
   onSelectionChange?: (selection: GridSelection) => void;

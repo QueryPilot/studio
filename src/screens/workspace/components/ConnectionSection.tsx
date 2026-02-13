@@ -53,6 +53,7 @@ import {
   openFunctionObject,
   openTableObject,
   openTableDesigner,
+  openCollectionDesigner,
   openQueryWithTemplate,
   openErdView,
 } from "@/utils/workbench/openers";
@@ -63,6 +64,7 @@ import {
 import { useCrudStore } from "@/stores/crudStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
+import type { TableCreatePayload } from "@/types/crud";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -96,6 +98,29 @@ interface ConnectionSectionProps {
   ) => void;
   onFunctionClick?: (connectionId: string, func: FunctionMeta) => void;
 }
+
+interface DraftTableItem {
+  key: string;
+  schema: string;
+  name: string;
+  displayName: string;
+  panelId?: string;
+  tabId?: string;
+  timestamp: number;
+}
+
+const parseDesignerTag = (
+  tags: string[] | undefined,
+): { panelId: string; tabId: string } | null => {
+  const tag = tags?.find((item) => item.startsWith("table-designer:"));
+  if (!tag) return null;
+  const parts = tag.split(":");
+  if (parts.length < 3) return null;
+  const panelId = parts[1];
+  const tabId = parts[2];
+  if (!panelId || !tabId) return null;
+  return { panelId, tabId };
+};
 
 export const ConnectionSection = forwardRef<
   HTMLDivElement,
@@ -221,6 +246,8 @@ export const ConnectionSection = forwardRef<
   const { toggleStarred, getStarredItems } = useStarredItemsStore();
   const stagedCommands = useCrudStore((s) => s.stagedCommands);
   const panelContents = useWorkbenchStore((s) => s.panelContents);
+  const setActiveTab = useWorkbenchStore((s) => s.setActiveTab);
+  const focusWorkbenchPanel = useWorkbenchStore((s) => s.focusPanel);
   const focusedPanelId = usePanelFocusStore((s) => s.focusedPanelId);
 
   // Pre-compute lookup maps for O(1) access
@@ -267,6 +294,99 @@ export const ConnectionSection = forwardRef<
     return set;
   }, [stagedCommands, connectionId]);
 
+  const draftTables = useMemo(() => {
+    const drafts = new Map<string, DraftTableItem>();
+
+    stagedCommands.forEach((commands) => {
+      commands.forEach((command) => {
+        if (command.type !== "table.create") return;
+        const target = command.target;
+        if (target.connectionId !== connectionId) return;
+        if (target.database !== database) return;
+
+        const payload = command.payload as TableCreatePayload;
+        const payloadName = payload.tableName.trim();
+        const targetName = (target.table || "").trim();
+        const schemaName =
+          (target.schema || schema || "public").trim();
+        const resolvedName = payloadName || targetName;
+        if (!resolvedName) return;
+
+        const existsAsTable = tables.some(
+          (table) => table.schema === schemaName && table.name === resolvedName,
+        );
+        const existsAsView = views.some(
+          (view) => view.schema === schemaName && view.name === resolvedName,
+        );
+        if (existsAsTable || existsAsView) return;
+
+        const location = parseDesignerTag(command.metadata.tags);
+        const displayName =
+          payloadName ||
+          (targetName.startsWith("__new_table_") ? "New Table" : targetName);
+        const key = `${schemaName}.${resolvedName}`;
+        const timestampMs = Date.parse(command.metadata.timestamp);
+        const timestamp = Number.isNaN(timestampMs) ? 0 : timestampMs;
+        const existing = drafts.get(key);
+
+        if (!existing || timestamp >= existing.timestamp) {
+          drafts.set(key, {
+            key,
+            schema: schemaName,
+            name: resolvedName,
+            displayName,
+            panelId: location?.panelId,
+            tabId: location?.tabId,
+            timestamp,
+          });
+        }
+      });
+    });
+
+    return Array.from(drafts.values()).sort((a, b) => {
+      if (a.timestamp !== b.timestamp) return b.timestamp - a.timestamp;
+      return a.key.localeCompare(b.key);
+    });
+  }, [stagedCommands, connectionId, database, schema, tables, views]);
+
+  const sidebarDraftTables = useMemo(() => {
+    const merged = new Map<string, DraftTableItem>();
+    draftTables.forEach((draft) => {
+      merged.set(draft.key, draft);
+    });
+
+    pendingChangesSet.forEach((pendingKey) => {
+      if (merged.has(pendingKey)) return;
+      const dotIndex = pendingKey.indexOf(".");
+      if (dotIndex <= 0 || dotIndex === pendingKey.length - 1) return;
+
+      const schemaName = pendingKey.slice(0, dotIndex);
+      const tableName = pendingKey.slice(dotIndex + 1);
+      const existsAsTable = tables.some(
+        (table) => table.schema === schemaName && table.name === tableName,
+      );
+      const existsAsView = views.some(
+        (view) => view.schema === schemaName && view.name === tableName,
+      );
+      if (existsAsTable || existsAsView) return;
+
+      merged.set(pendingKey, {
+        key: pendingKey,
+        schema: schemaName,
+        name: tableName,
+        displayName: tableName.startsWith("__new_table_")
+          ? "New Table"
+          : tableName,
+        timestamp: 0,
+      });
+    });
+
+    return Array.from(merged.values()).sort((a, b) => {
+      if (a.timestamp !== b.timestamp) return b.timestamp - a.timestamp;
+      return a.key.localeCompare(b.key);
+    });
+  }, [draftTables, pendingChangesSet, tables, views]);
+
   // Compute non-starred counts
   const nonStarredCounts = useMemo(
     () => ({
@@ -281,6 +401,7 @@ export const ConnectionSection = forwardRef<
     }),
     [tables, views, functions, starredSet],
   );
+  const tableSectionCount = nonStarredCounts.tables + sidebarDraftTables.length;
 
   // Auto-expand sections when data is loaded
   useEffect(() => {
@@ -368,7 +489,7 @@ export const ConnectionSection = forwardRef<
       metadata.table === tableName &&
       metadata.schema === tableSchema &&
       metadata.connectionId === connectionId
-    ) ?? false;
+    );
   };
 
   const isFunctionActive = (
@@ -384,7 +505,7 @@ export const ConnectionSection = forwardRef<
       metadata.schema === functionSchema &&
       metadata.functionName === functionName &&
       metadata.connectionId === connectionId
-    ) ?? false;
+    );
   };
 
   const isMongoCollectionActive = (collectionName: string): boolean => {
@@ -398,7 +519,7 @@ export const ConnectionSection = forwardRef<
       metadata.connectionId === connectionId &&
       metadata.database === database &&
       metadata.table === collectionName
-    ) ?? false;
+    );
   };
 
   const isProcedure = (func: FunctionMeta): boolean =>
@@ -498,6 +619,14 @@ export const ConnectionSection = forwardRef<
       database,
       schema,
       objectType: "function",
+    });
+  };
+
+  const handleCreateCollection = () => {
+    setFocusedConnection(connectionId);
+    openCollectionDesigner({
+      connectionId,
+      database,
     });
   };
 
@@ -840,7 +969,9 @@ export const ConnectionSection = forwardRef<
                     useCommandPaletteStore.getState();
                   openPalette();
                   setTimeout(
-                    () => setNestedMode({ type: "set-safe-mode" }),
+                    () => {
+                      setNestedMode({ type: "set-safe-mode" });
+                    },
                     0,
                   );
                 }}
@@ -1035,7 +1166,7 @@ export const ConnectionSection = forwardRef<
                         }
                       : {
                           type: "sidebar-item",
-                          objectType: item.type as "table" | "view",
+                          objectType: item.type,
                           name: item.name,
                           table: itemData as TableMeta,
                           connectionId,
@@ -1078,10 +1209,10 @@ export const ConnectionSection = forwardRef<
               )}
 
               {/* Tables Section */}
-              {(nonStarredCounts.tables > 0 || isLoadingData) && (
+              {(tableSectionCount > 0 || isLoadingData) && (
                 <SidebarSection
                   title="Tables"
-                  count={nonStarredCounts.tables}
+                  count={tableSectionCount}
                   isExpanded={expandedNodes.has("tables")}
                   onToggle={() => {
                     toggleNode("tables");
@@ -1092,6 +1223,32 @@ export const ConnectionSection = forwardRef<
                   onSelectAll={handleSelectAllTables}
                   onCopyAllNames={handleCopyAllTableNames}
                 >
+                  {sidebarDraftTables.map((draft) => {
+                    const isDraftActive = Boolean(
+                      draft.panelId &&
+                        draft.tabId &&
+                        focusedPanelId === draft.panelId &&
+                        panelContents.get(draft.panelId)?.activeTabId ===
+                          draft.tabId,
+                    );
+                    return (
+                      <SidebarItem
+                        key={`draft:${draft.key}`}
+                        icon={
+                          <IconTable className="h-3.5 w-4 min-w-4 text-emerald-600 shrink-0" />
+                        }
+                        name={draft.displayName}
+                        badge="draft"
+                        isActive={isDraftActive}
+                        onClick={() => {
+                          if (!draft.panelId || !draft.tabId) return;
+                          focusWorkbenchPanel(draft.panelId);
+                          setActiveTab(draft.panelId, draft.tabId);
+                        }}
+                        className="bg-emerald-500/10 border-l-emerald-500"
+                      />
+                    );
+                  })}
                   {filterItems(tables, "table").map((table) => {
                     const tableKey = `${table.schema}.${table.name}`;
                     // MySQL/MariaDB don't support browsing partition tables yet
@@ -1434,6 +1591,8 @@ export const ConnectionSection = forwardRef<
                   toggleNode("collections");
                 }}
                 stickyClass=""
+                onAdd={handleCreateCollection}
+                addTooltip="Create new collection"
               >
                 {isLoadingCollections ? (
                   <div className="pl-2 pr-1 py-2">
@@ -1445,8 +1604,16 @@ export const ConnectionSection = forwardRef<
                     Failed to load collections
                   </div>
                 ) : mongoCollections.length === 0 ? (
-                  <div className="text-center py-3 text-xs text-muted-foreground">
-                    No collections found
+                  <div className="text-center py-3 text-xs text-muted-foreground space-y-2">
+                    <div>No collections found</div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 text-xs"
+                      onClick={handleCreateCollection}
+                    >
+                      Create Collection
+                    </Button>
                   </div>
                 ) : (
                   mongoCollections

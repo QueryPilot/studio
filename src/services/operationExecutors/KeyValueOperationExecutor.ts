@@ -122,25 +122,27 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
       redisType?: string;
     };
 
-    // Prefer primaryKeys.key (browser mode stores actual key there),
-    // fall back to target.table (key view mode uses table as key name)
-    const pkKey = payload.primaryKeys?.key;
-    const key = (pkKey != null && String(pkKey) !== '') ? String(pkKey) : command.target.table;
+    const redisType = payload.redisType ?? 'string';
+    const values = payload.values ?? {};
+
+    // Prefer primaryKeys.key, then payload.values.key (browser-mode insert),
+    // then target.table (key view mode where table is the key name).
+    const pkKey = this.toNonEmptyString(payload.primaryKeys?.key);
+    const valueKey = this.toNonEmptyString(values.key);
+    const isBrowserPseudoTable = /^db\d+_keys$/.test(command.target.table);
+    const key = pkKey ?? valueKey ?? (isBrowserPseudoTable ? null : command.target.table);
     if (!key) return null;
 
     switch (command.type) {
       case 'data.insert': {
-        const redisType = payload.redisType ?? 'string';
-        return this.createInsertOperation(key, payload.values ?? {}, redisType);
+        return this.createInsertOperation(key, values, redisType);
       }
 
       case 'data.update': {
-        const redisType = payload.redisType ?? 'string';
         return this.createUpdateOperation(key, payload, redisType);
       }
 
       case 'data.delete': {
-        const redisType = payload.redisType ?? 'string';
         return this.createDeleteOperation(key, payload, redisType);
       }
 
@@ -155,12 +157,21 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
     redisType: string
   ): RedisOperation {
     switch (redisType) {
-      case 'hash':
+      case 'hash': {
+        const field = this.toNonEmptyString(values.field);
+        if (field) {
+          return {
+            type: 'hset',
+            key,
+            fields: { [field]: String(values.value ?? '') },
+          };
+        }
         return {
           type: 'hset',
           key,
           fields: this.toStringRecord(values),
         };
+      }
 
       case 'list':
         return {
@@ -197,6 +208,12 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
           value: this.toRedisValue(values.value ?? JSON.stringify(values)),
         };
     }
+  }
+
+  private toNonEmptyString(value: unknown): string | null {
+    if (value == null) return null;
+    const str = String(value).trim();
+    return str.length > 0 ? str : null;
   }
 
   private createUpdateOperation(

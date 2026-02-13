@@ -1,5 +1,10 @@
-import type { GridCell, Item } from '@glideapps/glide-data-grid';
-import type { GridColumnV2, GridRowModel, CrudCommandFactory, GridActivationEvent } from '../types';
+import type {
+  GridColumnV2,
+  GridRowModel,
+  CrudCommandFactory,
+  GridActivationEvent,
+  GridCellContentGetter,
+} from '../types';
 import type { CrudCommand, JsonValue } from '@/types/crud';
 import type { GridEditCommitEvent } from '../types';
 import type { RedisType } from '@/adapters/types/redis';
@@ -17,7 +22,7 @@ export interface BaseDataHookResult {
   // EditableDataGrid-compatible props
   rows: GridRowModel[];
   columns: GridColumnV2[];
-  getCellContent: (cell: Item) => GridCell;
+  getCellContent: GridCellContentGetter;
 
   // Loading state
   isLoading: boolean;

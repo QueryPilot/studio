@@ -497,10 +497,15 @@ pub enum DocumentResult {
 
 /// Execute a document database operation (MongoDB, etc.)
 /// This is a paradigm-level command that routes to the appropriate trait method.
+///
+/// The optional `database` parameter allows targeting a specific database
+/// without modifying the adapter's default database state. When omitted,
+/// the adapter's current database is used.
 #[tauri::command]
 pub async fn document_execute(
     conn_id: String,
     operation: DocumentOperation,
+    database: Option<String>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<DocumentResult, String> {
     #[allow(unused_imports)]
@@ -517,6 +522,18 @@ pub async fn document_execute(
     let mongo = adapter
         .as_mongo()
         .ok_or_else(|| "Not a MongoDB connection".to_string())?;
+
+    // When a database override is provided, resolve a standalone Database handle
+    // that does NOT modify the adapter's shared state.
+    let db_override = match &database {
+        Some(name) => Some(
+            mongo
+                .resolve_db(Some(name))
+                .await
+                .map_err(|e| e.to_string())?,
+        ),
+        None => None,
+    };
 
     match operation {
         DocumentOperation::Find {
@@ -546,10 +563,17 @@ pub async fn document_execute(
             collection,
             document,
         } => {
-            let result = mongo
-                .insert_document(&collection, document)
-                .await
-                .map_err(|e| e.to_string())?;
+            let result = if let Some(ref db) = db_override {
+                mongo
+                    .insert_document_on_db(db, &collection, document)
+                    .await
+                    .map_err(|e| e.to_string())?
+            } else {
+                mongo
+                    .insert_document(&collection, document)
+                    .await
+                    .map_err(|e| e.to_string())?
+            };
             Ok(DocumentResult::Insert(result))
         }
         DocumentOperation::InsertMany {
@@ -615,17 +639,31 @@ pub async fn document_execute(
             Ok(DocumentResult::SchemaSample(result))
         }
         DocumentOperation::ListCollections => {
-            let collections = mongo
-                .list_collections()
-                .await
-                .map_err(|e| e.to_string())?;
+            let collections = if let Some(ref db) = db_override {
+                mongo
+                    .list_collections_on_db(db)
+                    .await
+                    .map_err(|e| e.to_string())?
+            } else {
+                mongo
+                    .list_collections()
+                    .await
+                    .map_err(|e| e.to_string())?
+            };
             Ok(DocumentResult::Collections(collections))
         }
         DocumentOperation::RunCommand { command } => {
-            let result = mongo
-                .run_command(command)
-                .await
-                .map_err(|e| e.to_string())?;
+            let result = if let Some(ref db) = db_override {
+                mongo
+                    .run_command_on_db(db, command)
+                    .await
+                    .map_err(|e| e.to_string())?
+            } else {
+                mongo
+                    .run_command(command)
+                    .await
+                    .map_err(|e| e.to_string())?
+            };
             Ok(DocumentResult::Command(result))
         }
     }

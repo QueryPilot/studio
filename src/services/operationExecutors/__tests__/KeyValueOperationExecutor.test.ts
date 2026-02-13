@@ -112,6 +112,39 @@ describe('KeyValueOperationExecutor', () => {
       });
     });
 
+    it('should execute HSET command for hash insert using field/value payload', async () => {
+      const commands = [
+        createCommand('data.insert', 'user:1', {
+          values: { field: 'name', value: 'John' },
+          redisType: 'hash',
+        }),
+      ];
+
+      const result = await executor.execute(commands);
+
+      expect(result.success).toBe(true);
+      expect(mockAdapter.hashSet).toHaveBeenCalledWith('user:1', {
+        name: 'John',
+      });
+    });
+
+    it('should use payload.values.key when target table is browser pseudo table', async () => {
+      const commands = [
+        createCommand('data.insert', 'db0_keys', {
+          values: { key: 'new:key', value: 'hello world' },
+          redisType: 'string',
+        }),
+      ];
+
+      const result = await executor.execute(commands);
+
+      expect(result.success).toBe(true);
+      expect(mockAdapter.setKey).toHaveBeenCalledWith(
+        'new:key',
+        { type: 'string', value: 'hello world' },
+      );
+    });
+
     it('should execute RPUSH command for list insert', async () => {
       const commands = [
         createCommand('data.insert', 'mylist', {
