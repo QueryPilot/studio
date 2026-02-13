@@ -18,6 +18,8 @@ import {
   IconEye,
   IconMathFunction,
   IconBrandTabler,
+  IconLayout2,
+  IconDatabase,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
 import type { SidebarItemDragData } from "@/screens/workspace/components/DatabaseSidebarItem";
@@ -197,6 +199,33 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
               database: sidebarData.database,
             });
           }
+        } else if (
+          sidebarData.objectType === "mongo-collection" ||
+          sidebarData.objectType === "redis-key"
+        ) {
+          // MongoDB collections and Redis databases use inline addTab
+          const s = useWorkbenchStore.getState();
+          if (sidebarData.objectType === "mongo-collection") {
+            const tabId = `mongo-${sidebarData.database}-${sidebarData.name}`;
+            s.addTab(targetPanelId, tabId, {
+              type: "mongo-collection",
+              title: sidebarData.name,
+              connectionId: sidebarData.connectionId,
+              database: sidebarData.database,
+              table: sidebarData.name,
+            });
+          } else {
+            const redisDb = sidebarData.redisDb ?? 0;
+            const tabId = `redis-key-${sidebarData.connectionId}-db${redisDb}`;
+            s.addTab(targetPanelId, tabId, {
+              type: "redis-key",
+              title: sidebarData.name,
+              connectionId: sidebarData.connectionId,
+              // Redis passes db number — matches existing click handler pattern
+              database: redisDb as unknown as string,
+            });
+          }
+          s.focusPanel(targetPanelId);
         }
       } else {
         // Edge drop: create a new split panel with the object
@@ -241,7 +270,10 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
             viewType: "data",
             objectKey,
           };
-        } else {
+        } else if (
+          sidebarData.objectType === "function" ||
+          sidebarData.objectType === "procedure"
+        ) {
           const func = sidebarData.func;
           if (!func) return;
           const objectKey = `function-${sidebarData.connectionId}-${func.schema}-${func.name}`;
@@ -261,6 +293,24 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
             returnType: func.return_type,
             objectType,
             objectKey,
+          };
+        } else if (sidebarData.objectType === "mongo-collection") {
+          tabId = `mongo-${sidebarData.database}-${sidebarData.name}`;
+          tabMetadata = {
+            type: "mongo-collection",
+            title: sidebarData.name,
+            connectionId: sidebarData.connectionId,
+            database: sidebarData.database,
+            table: sidebarData.name,
+          };
+        } else {
+          // redis-key
+          tabId = `redis-key-${sidebarData.connectionId}-db${sidebarData.redisDb ?? 0}`;
+          tabMetadata = {
+            type: "redis-key",
+            title: sidebarData.name,
+            connectionId: sidebarData.connectionId,
+            database: sidebarData.redisDb,
           };
         }
 
@@ -377,6 +427,12 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
           data.kind === "MaterializedView"
             ? "h-3.5 w-3.5 text-blue-500"
             : "h-3.5 w-3.5 text-green-500";
+      } else if (data.objectType === "mongo-collection") {
+        Icon = IconLayout2;
+        iconClass = "h-3.5 w-3.5 text-emerald-600";
+      } else if (data.objectType === "redis-key") {
+        Icon = IconDatabase;
+        iconClass = "h-3.5 w-3.5 text-orange-500";
       } else {
         // table
         Icon = IconTable;
