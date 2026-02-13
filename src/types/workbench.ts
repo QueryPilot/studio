@@ -34,6 +34,9 @@ export interface TabMetadata {
    *  Used for per-panel dedup: the same objectKey can exist in different panels
    *  but only once per panel. */
   objectKey?: string;
+  /** When false, sort state is isolated per tab.
+   *  Default (undefined/true) = sort is shared across all tabs of the same table. */
+  syncSort?: boolean;
   [key: string]: unknown;
 }
 

@@ -197,6 +197,11 @@ interface OpenTableDesignerParams {
   schema: string | null;
 }
 
+interface OpenCollectionDesignerParams {
+  connectionId: string;
+  database: string | null;
+}
+
 export function openQueryWithTemplate({
   connectionId,
   database,
@@ -271,6 +276,35 @@ export function openTableDesigner({
     connectionId,
     database: database ?? undefined,
     schema: schema ?? undefined,
+  });
+  focusPanel(targetPanelId);
+}
+
+export function openCollectionDesigner({
+  connectionId,
+  database,
+}: OpenCollectionDesignerParams): void {
+  const { addTab, panelContents, focusPanel } =
+    useWorkbenchStore.getState();
+
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
+  if (!targetPanelId && panelContents.size > 0) {
+    const firstPanelId = Array.from(panelContents.keys())[0];
+    if (firstPanelId) {
+      targetPanelId = firstPanelId;
+      focusPanel(firstPanelId);
+    }
+  }
+
+  if (!targetPanelId) return;
+
+  const tabId = `collection-design-${Date.now()}`;
+
+  addTab(targetPanelId, tabId, {
+    type: "collection-design",
+    title: "New Collection",
+    connectionId,
+    database: database ?? undefined,
   });
   focusPanel(targetPanelId);
 }

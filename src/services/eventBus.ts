@@ -61,6 +61,9 @@ type Events = {
 
   // Query Panel events
   "query-panel:toggle-results": KeyboardEventPayload;
+
+  // Collection Designer events
+  "collection-designer:save": KeyboardEventPayload;
 };
 
 export const eventBus = mitt<Events>();

@@ -224,6 +224,7 @@ const MemoizedPanelContent = React.memo(function MemoizedPanelContent({
       (metadata as Record<string, unknown>)?.functionName,
       (metadata as Record<string, unknown>)?.returnType,
       (metadata as Record<string, unknown>)?.objectType,
+      metadata?.syncSort,
     ],
   );
 
@@ -263,6 +264,7 @@ export const Panel: React.FC<PanelProps> = React.memo(
     );
     const setActiveTab = useWorkbenchStore((state) => state.setActiveTab);
     const removeTab = useWorkbenchStore((state) => state.removeTab);
+    const updateTabMetadata = useWorkbenchStore((state) => state.updateTabMetadata);
 
     const panelRef = useRef<HTMLDivElement>(null);
     const tabsContainerRef = useRef<HTMLDivElement>(null);
@@ -403,6 +405,8 @@ export const Panel: React.FC<PanelProps> = React.memo(
                   ? content.activeTabId === nextTabId
                   : false;
 
+                const hasDataGrid = metadata?.type === "table" || metadata?.type === "mongo-collection" || metadata?.type === "redis-key";
+
                 // Use memoized connection info lookup
                 const connInfo = metadata?.connectionId
                   ? connectionInfoByConnectionId.get(metadata.connectionId)
@@ -480,6 +484,12 @@ export const Panel: React.FC<PanelProps> = React.memo(
                         description: displayName,
                       });
                     }}
+                    syncSort={hasDataGrid ? metadata?.syncSort !== false : undefined}
+                    onToggleSyncSort={
+                      hasDataGrid
+                        ? () => { updateTabMetadata(panelId, tabId, { syncSort: metadata?.syncSort === false ? true : false }); }
+                        : undefined
+                    }
                   />
                 );
               })}

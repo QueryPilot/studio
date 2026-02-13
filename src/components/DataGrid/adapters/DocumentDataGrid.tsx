@@ -15,6 +15,7 @@ import {
   IconBrackets,
   IconSparkles,
   IconChevronRight,
+  IconPlus,
   IconLayoutSidebarRightCollapse,
   IconLayoutSidebarRightExpand,
 } from "@tabler/icons-react";
@@ -37,6 +38,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { openCollectionDesigner } from "@/utils/workbench/openers";
 
 // ============================================================================
 // Types
@@ -57,6 +59,8 @@ export interface DocumentDataGridProps {
   className?: string;
   /** Whether this grid's panel is focused (for auto-focus) */
   focused?: boolean;
+  /** Override grid ID used for sort preferences (for per-tab sort isolation) */
+  sortGridId?: string;
 }
 
 interface DocumentGridView {
@@ -80,6 +84,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   pageSize = 50,
   className,
   focused,
+  sortGridId,
 }: DocumentDataGridProps) {
   const quickFilterRef = useRef<QuickFilterRef>(null);
   const lastDrilledCellRef = useRef<string | null>(null);
@@ -310,6 +315,20 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
+          variant="outline"
+          className="h-7 text-[11px]"
+          onClick={() => {
+            openCollectionDesigner({
+              connectionId,
+              database,
+            });
+          }}
+        >
+          <IconPlus className="h-3.5 w-3.5 mr-1" />
+          New Collection
+        </Button>
+        <Button
+          size="sm"
           variant={flattenMode ? "default" : "outline"}
           className="h-7 text-[11px]"
           onClick={() => {
@@ -502,6 +521,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   return (
     <BaseDataGrid
       gridId={gridId}
+      sortGridId={sortGridId}
       rows={data.rows}
       columns={data.columns}
       getCellContent={data.getCellContent}

@@ -6,6 +6,7 @@ import {
   IconEye,
   IconMathFunction,
   IconBrandTabler,
+  IconLayout2,
   IconArrowRight,
   IconCopy,
 } from "@tabler/icons-react";
@@ -19,6 +20,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuCheckboxItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
@@ -67,6 +69,10 @@ interface DraggableTabProps {
   onCloseAll?: () => void;
   /** Copy the tab name to clipboard */
   onCopyName?: () => void;
+  /** Whether sort is synced across tabs of the same table */
+  syncSort?: boolean;
+  /** Toggle sort sync for this tab */
+  onToggleSyncSort?: () => void;
 }
 
 export const DraggableTab: React.FC<DraggableTabProps> = ({
@@ -97,6 +103,8 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
   onCloseToRight,
   onCloseAll,
   onCopyName,
+  syncSort,
+  onToggleSyncSort,
 }) => {
   const draggableId = `tab-${panelId}-${tabId}`;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -123,6 +131,9 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
         return IconMathFunction;
       case "query":
         return IconBrandTabler;
+      case "mongo-collection":
+      case "collection-design":
+        return IconLayout2;
       default:
         return IconTable;
     }
@@ -162,6 +173,12 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
       return cn(
         "h-3.5 w-3.5",
         isActive && isFocused ? "text-purple-500" : "text-purple-500/60",
+      );
+    }
+    if (tabType === "mongo-collection" || tabType === "collection-design") {
+      return cn(
+        "h-3.5 w-3.5",
+        isActive && isFocused ? "text-emerald-600" : "text-emerald-600/60",
       );
     }
     return "h-3.5 w-3.5";
@@ -285,6 +302,19 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
             <IconCopy className="h-4 w-4 mr-2" />
             Copy Name
           </ContextMenuItem>
+          {onToggleSyncSort && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuCheckboxItem
+                checked={syncSort ?? false}
+                onCheckedChange={() => {
+                  onToggleSyncSort();
+                }}
+              >
+                Sync Sort Across Tabs
+              </ContextMenuCheckboxItem>
+            </>
+          )}
         </ContextMenuContent>
       </ContextMenu>
 

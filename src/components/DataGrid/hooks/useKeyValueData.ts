@@ -18,6 +18,7 @@ import type {
   GridRowModel,
   GridEditCommitEvent,
   CrudCommandFactory,
+  GridCellContentContext,
 } from "../types";
 import type { KeyValueDataHookResult, KeyMetadata } from "../sources/types";
 import type {
@@ -460,10 +461,10 @@ export function useKeyValueData(
 
   // Get cell content for grid
   const getCellContent = useCallback(
-    (cell: Item): GridCell => {
+    (cell: Item, context?: GridCellContentContext): GridCell => {
       const [colIndex, rowIndex] = cell;
-      const column = columns[colIndex];
-      const row = rows[rowIndex];
+      const column = context?.column ?? columns[colIndex];
+      const row = context?.row ?? rows[rowIndex];
 
       if (!column || !row) {
         return {
@@ -476,6 +477,7 @@ export function useKeyValueData(
       }
 
       const cellValue = row[column.field];
+      const isInsertedRow = Boolean(row["__insert_temp_id__"]);
 
       // Browser mode: use custom cells with proper renderers
       if (isBrowserMode) {
@@ -506,7 +508,7 @@ export function useKeyValueData(
             },
             copyData: strValue,
             allowOverlay: true,
-            readonly: true,
+            readonly: !isInsertedRow,
           };
         }
 
@@ -636,6 +638,7 @@ export function useKeyValueData(
         value: cellValue,
         column,
         readOnly: false,
+        allowPrimaryKeyEdit: isInsertedRow,
         keyType: currentKey?.type,
       });
     },
@@ -798,18 +801,31 @@ export function useKeyValueData(
         return null;
       }
 
+      const tempIdCell = rowData["__insert_temp_id__"] as
+        | CellValue
+        | null
+        | undefined;
+      const insertTempId = tempIdCell?.value
+        ? String(tempIdCell.value)
+        : undefined;
+      const isInsertedRow = Boolean(insertTempId);
+
       if (
         currentKey.type === "list" ||
         currentKey.type === "set" ||
         currentKey.type === "stream"
       ) {
-        logger.info("keyvalue-data", "createEditCommand: type not editable", {
-          type: currentKey.type,
-        });
-        return null;
+        // Existing list/set/stream entries are not editable, but newly inserted
+        // optimistic rows should be editable so users can populate payload values.
+        if (!isInsertedRow || currentKey.type === "stream") {
+          logger.info("keyvalue-data", "createEditCommand: type not editable", {
+            type: currentKey.type,
+          });
+          return null;
+        }
       }
 
-      if (currentKey.type === "zset" && column.field !== "score") {
+      if (currentKey.type === "zset" && column.field !== "score" && !isInsertedRow) {
         logger.info(
           "keyvalue-data",
           "createEditCommand: zset only score editable",
@@ -820,7 +836,9 @@ export function useKeyValueData(
       const rowKey = getRedisRowKey(rowData, currentKey.type);
       const updateColumn =
         currentKey.type === "hash"
-          ? String((rowKey as { field?: unknown }).field ?? column.field)
+          ? isInsertedRow
+            ? column.field
+            : String((rowKey as { field?: unknown }).field ?? column.field)
           : column.field;
 
       // Extract old value
@@ -853,9 +871,10 @@ export function useKeyValueData(
       const payload: DataUpdatePayload = {
         column: updateColumn,
         redisType: currentKey.type,
-        primaryKeys: { key: selectedKeyName, ...rowKey },
+        primaryKeys: insertTempId ? {} : { key: selectedKeyName, ...rowKey },
         oldValue: oldValueJson,
         newValue: newValueJson,
+        ...(insertTempId ? { tempId: insertTempId } : {}),
       };
 
       const command: CrudCommand = {
@@ -891,38 +910,63 @@ export function useKeyValueData(
     (values: Record<string, unknown>): CrudCommand => {
       const keyType = currentKey?.type ?? "string";
       const insertValues: Record<string, JsonValue> = {};
+      const tempId = nanoid();
+      const readValue = (
+        source: Record<string, unknown>,
+        ...keys: string[]
+      ): unknown => {
+        for (const key of keys) {
+          if (key in source) return source[key];
+        }
+        return undefined;
+      };
 
       switch (keyType) {
         case "hash": {
-          const field = values.field;
-          if (field !== undefined && field !== null && field !== "") {
-            insertValues[String(field)] = (values.value ?? null) as JsonValue;
-          }
+          const field = readValue(values, "field", "Field");
+          const value = readValue(values, "value", "Value");
+          insertValues.field =
+            field === undefined || field === null ? "" : String(field);
+          insertValues.value = (value ?? "") as JsonValue;
           break;
         }
-        case "list":
-          insertValues.value = (values.value ?? null) as JsonValue;
+        case "list": {
+          const value = readValue(values, "value", "Value");
+          insertValues.value = (value ?? "") as JsonValue;
           break;
-        case "set":
-          insertValues.member = (values.member ?? null) as JsonValue;
+        }
+        case "set": {
+          const member = readValue(values, "member", "Member");
+          insertValues.member =
+            member === undefined || member === null ? "" : String(member);
           break;
-        case "zset":
-          insertValues.member = (values.member ?? null) as JsonValue;
-          insertValues.score = (values.score ?? null) as JsonValue;
+        }
+        case "zset": {
+          const member = readValue(values, "member", "Member");
+          const score = readValue(values, "score", "Score");
+          insertValues.member =
+            member === undefined || member === null ? "" : String(member);
+          insertValues.score = (score ?? 0) as JsonValue;
           break;
+        }
         case "stream":
           break;
         case "string":
         case "unknown":
         default:
-          insertValues.value = (values.value ?? null) as JsonValue;
+          insertValues.value =
+            (readValue(values, "value", "Value") ?? "") as JsonValue;
           break;
       }
 
       // Convert values to JsonValue record
-      const payload: DataInsertPayload & { redisType?: string } = {
+      const payload: DataInsertPayload & {
+        redisType?: string;
+        tempId?: string;
+      } = {
         values: insertValues,
         redisType: keyType,
+        tempId,
       };
 
       return {
@@ -1048,9 +1092,18 @@ export function useKeyValueData(
           const { column, row: rowData, newValue } = event;
           if (!rowData) return null;
 
-          const keyName = String(extractCellRaw(rowData["col_0"]) ?? "");
-          if (!keyName) return null;
+          const keyNameRaw = extractCellRaw(rowData["col_0"]);
+          const keyName =
+            keyNameRaw === null || keyNameRaw === undefined
+              ? ""
+              : String(keyNameRaw);
           const rowType = String(extractCellRaw(rowData["col_1"]) ?? "unknown");
+          const tempIdRaw = extractCellRaw(rowData["__insert_temp_id__"]);
+          const insertTempId =
+            tempIdRaw === null || tempIdRaw === undefined
+              ? undefined
+              : String(tempIdRaw);
+          const isInsertedRow = Boolean(insertTempId);
 
           // Extract new value from GridCell
           let newValueRaw: unknown = null;
@@ -1068,9 +1121,37 @@ export function useKeyValueData(
             }
           }
 
+          // Key edit (col_0) — only for inserted rows
+          if (column.field === "col_0") {
+            if (!isInsertedRow) return null;
+            return {
+              id: nanoid(),
+              type: "data.update",
+              target: {
+                connectionId,
+                database: String(database),
+                table: browserTable,
+              },
+              payload: {
+                column: "key",
+                primaryKeys: {},
+                oldValue: (keyNameRaw ?? null) as JsonValue,
+                newValue: (newValueRaw ?? null) as JsonValue,
+                redisType: "string",
+                tempId: insertTempId,
+              },
+              metadata: {
+                timestamp: new Date().toISOString(),
+                description: "Set key name",
+              },
+              state: "staged",
+            };
+          }
+
           // Value edit (col_2) — only for string-type keys
           if (column.field === "col_2") {
             if (rowType !== "string") return null;
+            if (!isInsertedRow && !keyName) return null;
             const oldValue = extractCellRaw(rowData["col_2"]);
             return {
               id: nanoid(),
@@ -1082,10 +1163,11 @@ export function useKeyValueData(
               },
               payload: {
                 column: "value",
-                primaryKeys: { key: keyName },
+                primaryKeys: isInsertedRow ? {} : { key: keyName },
                 oldValue: (oldValue ?? null) as JsonValue,
                 newValue: (newValueRaw ?? null) as JsonValue,
                 redisType: "string",
+                ...(isInsertedRow ? { tempId: insertTempId } : {}),
               },
               metadata: {
                 timestamp: new Date().toISOString(),
@@ -1097,6 +1179,7 @@ export function useKeyValueData(
 
           // TTL edit (col_3)
           if (column.field === "col_3") {
+            if (!isInsertedRow && !keyName) return null;
             const oldTtl = extractCellRaw(rowData["col_3"]);
             const ttlStr = String(newValueRaw ?? "");
             const seconds = parseInt(ttlStr, 10);
@@ -1110,12 +1193,13 @@ export function useKeyValueData(
               },
               payload: {
                 column: "ttl",
-                primaryKeys: { key: keyName },
+                primaryKeys: isInsertedRow ? {} : { key: keyName },
                 oldValue: (oldTtl ?? null) as JsonValue,
                 newValue: (Number.isFinite(seconds)
                   ? seconds
                   : -1) as JsonValue,
                 redisType: rowType,
+                ...(isInsertedRow ? { tempId: insertTempId } : {}),
               },
               metadata: {
                 timestamp: new Date().toISOString(),
@@ -1132,12 +1216,21 @@ export function useKeyValueData(
         },
 
         createInsertCommand: (_data?: Record<string, unknown>): CrudCommand => {
-          // New key creation from browser grid is not supported
+          const tempId = nanoid();
           return {
             id: nanoid(),
             type: "data.insert",
-            target: { connectionId, database: String(database), table: "" },
-            payload: { values: {} },
+            target: { connectionId, database: String(database), table: browserTable },
+            payload: {
+              values: {
+                key: "",
+                type: "string",
+                value: "",
+                ttl: -1,
+              },
+              redisType: "string",
+              tempId,
+            },
             metadata: {
               timestamp: new Date().toISOString(),
               description: "New key",
@@ -1205,8 +1298,8 @@ export function useKeyValueData(
         return createEditCommand(event);
       },
 
-      createInsertCommand: (_data?: Record<string, unknown>) => {
-        return createInsertCommand({});
+      createInsertCommand: (data?: Record<string, unknown>) => {
+        return createInsertCommand(data ?? {});
       },
 
       createDeleteCommand: (row: GridRowModel, _rowKey: string) => {

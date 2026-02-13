@@ -137,6 +137,12 @@ const resolveTableName = (value: string, fallback: string): string =>
 const quoteIdentifier = (value: string): string =>
   `"${value.replace(/"/g, '""')}"`;
 
+const getCommandTimestamp = (command: CrudCommand): number => {
+  const raw = command.metadata.timestamp;
+  const timestamp = raw ? Date.parse(raw) : Number.NaN;
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+};
+
 const trailingRowTheme = {
   bgIconHeader: "#D4A52B",
 };
@@ -269,10 +275,17 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
     return commands;
   }, [designerTag, stagedCommands]);
 
-  const tableCreateCommand = useMemo(
-    () => designerCommands.find((cmd) => cmd.type === "table.create"),
+  const tableCreateCommands = useMemo(
+    () => designerCommands.filter((cmd) => cmd.type === "table.create"),
     [designerCommands],
   );
+
+  const tableCreateCommand = useMemo(() => {
+    if (tableCreateCommands.length === 0) return undefined;
+    return [...tableCreateCommands].sort(
+      (a, b) => getCommandTimestamp(b) - getCommandTimestamp(a),
+    )[0];
+  }, [tableCreateCommands]);
 
   const fkCommands = useMemo(
     () => designerCommands.filter((cmd) => cmd.type === "fk.add"),
@@ -296,6 +309,46 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
   }, [tableName]);
 
   useEffect(() => {
+    if (tableCreateCommands.length <= 1) return;
+    const sorted = [...tableCreateCommands].sort(
+      (a, b) => getCommandTimestamp(b) - getCommandTimestamp(a),
+    );
+    const canonical = sorted[0];
+    if (!canonical) return;
+
+    const duplicateIds = tableCreateCommands
+      .filter((cmd) => cmd.id !== canonical.id)
+      .map((cmd) => cmd.id);
+    if (duplicateIds.length > 0) {
+      unstageCommands(duplicateIds);
+    }
+  }, [tableCreateCommands, unstageCommands]);
+
+  const buildDesignerCreateCommand = useCallback(
+    (
+      target: CrudCommandTarget,
+      payload: {
+        tableName: string;
+        columns: ColumnDefinitionInput[];
+        primaryKey?: string[];
+        ifNotExists?: boolean;
+      },
+    ) => {
+      const createCommand = createTableCreateCommand(target, payload);
+      return {
+        ...createCommand,
+        // Stable ID keeps initialization idempotent under StrictMode/effect replay.
+        id: `${designerTag}:table.create`,
+        metadata: {
+          ...createCommand.metadata,
+          tags: ensureTags(createCommand.metadata.tags, [designerTag]),
+        },
+      };
+    },
+    [designerTag],
+  );
+
+  useEffect(() => {
     if (!connectionId || !database || tableCreateCommand) return;
 
     const target: CrudCommandTarget = {
@@ -315,26 +368,18 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       },
     ] satisfies ColumnDefinitionInput[];
 
-    const createCommand = createTableCreateCommand(target, {
+    const createCommand = buildDesignerCreateCommand(target, {
       tableName: "",
       columns: defaultColumns,
       primaryKey: ["id"],
     });
 
-    stageBatchWithSingleHistoryEntry([
-      {
-        ...createCommand,
-        metadata: {
-          ...createCommand.metadata,
-          tags: ensureTags(createCommand.metadata.tags, [designerTag]),
-        },
-      },
-    ]);
+    stageBatchWithSingleHistoryEntry([createCommand]);
   }, [
+    buildDesignerCreateCommand,
     connectionId,
     database,
     draftTableName,
-    designerTag,
     schema,
     stageBatchWithSingleHistoryEntry,
     tableCreateCommand,
@@ -969,21 +1014,13 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
           },
         ] satisfies ColumnDefinitionInput[];
 
-        const createCommand = createTableCreateCommand(target, {
+        const createCommand = buildDesignerCreateCommand(target, {
           tableName: nextName.trim(),
           columns: defaultColumns,
           primaryKey: ["id"],
         });
 
-        stageBatchWithSingleHistoryEntry([
-          {
-            ...createCommand,
-            metadata: {
-              ...createCommand.metadata,
-              tags: ensureTags(createCommand.metadata.tags, [designerTag]),
-            },
-          },
-        ]);
+        stageBatchWithSingleHistoryEntry([createCommand]);
         return;
       }
       if (nextName === tableName) return;
@@ -1024,12 +1061,12 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       stageBatchWithSingleHistoryEntry(updatedCommands);
     },
     [
+      buildDesignerCreateCommand,
       buildForeignKeyCommand,
       buildTableCreateCommand,
       columns,
       connectionId,
       database,
-      designerTag,
       fkCommands,
       fkTagPrefix,
       resolveTargetTableName,

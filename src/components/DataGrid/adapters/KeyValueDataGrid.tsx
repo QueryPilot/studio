@@ -44,6 +44,8 @@ export interface KeyValueDataGridProps {
   className?: string;
   /** Whether this grid's panel is focused (for auto-focus) */
   focused?: boolean;
+  /** Override grid ID used for sort preferences (for per-tab sort isolation) */
+  sortGridId?: string;
 }
 
 // ============================================================================
@@ -253,6 +255,7 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
   initialKey,
   className,
   focused,
+  sortGridId,
 }: KeyValueDataGridProps) {
   const stageCommand = useCrudStore((s) => s.stageCommand);
 
@@ -455,6 +458,7 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
   return (
     <BaseDataGrid
       gridId={gridId}
+      sortGridId={sortGridId}
       rows={data.rows}
       columns={data.columns}
       getCellContent={data.getCellContent}
