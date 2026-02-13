@@ -233,6 +233,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
 }) => {
   const tableNameInputRef = useRef<HTMLInputElement>(null);
   const [globalChangesDialogOpen, setGlobalChangesDialogOpen] = useState(false);
+  const [tableNameDraft, setTableNameDraft] = useState("");
   const updateTabMetadata = useWorkbenchStore((s) => s.updateTabMetadata);
   const stagedCommands = useCrudStore((state) => state.stagedCommands);
   const stageBatchWithSingleHistoryEntry = useCrudStore(
@@ -282,31 +283,16 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
     (tableCreateCommand?.payload as TableCreatePayload | undefined)
       ?.tableName ?? "";
   const tableTargetName = tableCreateCommand?.target.table ?? draftTableName;
-
-  const tableKey = useMemo(
-    () =>
-      buildCrudTableKey({
-        connectionId,
-        database,
-        schema,
-        table: tableTargetName,
-      }),
-    [connectionId, database, schema, tableTargetName],
-  );
+  const effectiveTableName = tableNameDraft.trim() || tableName.trim();
 
   // Auto-focus on table name input
   useEffect(() => {
     tableNameInputRef.current?.focus();
   }, []);
 
-  // Sync input value when tableName changes from external source (e.g., undo/redo)
+  // Sync table name draft when staged value changes from external source (e.g., undo/redo)
   useEffect(() => {
-    if (
-      tableNameInputRef.current &&
-      tableNameInputRef.current.value !== tableName
-    ) {
-      tableNameInputRef.current.value = tableName;
-    }
+    setTableNameDraft(tableName);
   }, [tableName]);
 
   useEffect(() => {
@@ -1054,92 +1040,100 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
     ],
   );
 
+  const commitTableNameDraft = useCallback(
+    (nextName: string) => {
+      const trimmedName = nextName.trim();
+      if (nextName !== tableName) {
+        handleTableNameChange(nextName);
+      }
+      updateTabMetadata(panelId, tabId, {
+        title: trimmedName || "New Table",
+        table: trimmedName || undefined,
+      });
+    },
+    [handleTableNameChange, panelId, tabId, tableName, updateTabMetadata],
+  );
+
   // Handle blur - update crud store and tab title
   const handleTableNameBlur = useCallback(() => {
-    const inputValue = tableNameInputRef.current?.value ?? "";
-    const trimmedName = inputValue.trim();
-
-    // Update crud store if changed
-    if (inputValue !== tableName) {
-      handleTableNameChange(inputValue);
-    }
-
-    // Update tab title
-    updateTabMetadata(panelId, tabId, {
-      title: trimmedName || "New Table",
-      table: trimmedName || undefined,
-    });
-  }, [handleTableNameChange, panelId, tabId, tableName, updateTabMetadata]);
+    commitTableNameDraft(tableNameDraft);
+  }, [commitTableNameDraft, tableNameDraft]);
 
   // Generate SQL
-  const generateSQL = useCallback(() => {
-    if (!tableName.trim() || gridRows.length === 0) return "";
+  const generateSQL = useCallback(
+    (tableNameOverride?: string) => {
+      const resolvedTableName = (
+        tableNameOverride ?? tableName
+      ).trim();
+      if (!resolvedTableName || gridRows.length === 0) return "";
 
-    const pkColumns = gridRows
-      .filter((r) => r.column_meta.is_pk)
-      .map((r) => r.column_name);
+      const pkColumns = gridRows
+        .filter((r) => r.column_meta.is_pk)
+        .map((r) => r.column_name);
 
-    const columnDefs = gridRows
-      .map((col) => {
-        let def = `  ${quoteIdentifier(col.column_name)} ${col.db_type}`;
-        if (col.nullable === "NO") def += " NOT NULL";
-        if (col.default?.trim()) def += ` DEFAULT ${col.default.trim()}`;
-        if (col.check_constraint?.trim()) {
-          def += ` CHECK (${normalizeCheckConstraint(col.check_constraint)})`;
-        }
-        return def;
-      })
-      .join(",\n");
+      const columnDefs = gridRows
+        .map((col) => {
+          let def = `  ${quoteIdentifier(col.column_name)} ${col.db_type}`;
+          if (col.nullable === "NO") def += " NOT NULL";
+          if (col.default?.trim()) def += ` DEFAULT ${col.default.trim()}`;
+          if (col.check_constraint?.trim()) {
+            def += ` CHECK (${normalizeCheckConstraint(col.check_constraint)})`;
+          }
+          return def;
+        })
+        .join(",\n");
 
-    const pkConstraint =
-      pkColumns.length > 0
-        ? `,\n  PRIMARY KEY (${pkColumns
-            .map((c) => quoteIdentifier(c))
-            .join(", ")})`
-        : "";
+      const pkConstraint =
+        pkColumns.length > 0
+          ? `,\n  PRIMARY KEY (${pkColumns
+              .map((c) => quoteIdentifier(c))
+              .join(", ")})`
+          : "";
 
-    const foreignKeyConstraints = gridRows
-      .map((col) => {
-        if (!col.foreign_key) return null;
-        const parsed = parseForeignKeyValue(col.foreign_key);
-        if (!parsed) return null;
-        const tableRef = parsed.schema
-          ? `${quoteIdentifier(parsed.schema)}.${quoteIdentifier(parsed.table)}`
-          : quoteIdentifier(parsed.table);
-        return `  FOREIGN KEY (${quoteIdentifier(
-          col.column_name,
-        )}) REFERENCES ${tableRef} (${quoteIdentifier(parsed.column)})`;
-      })
-      .filter((constraint): constraint is string => Boolean(constraint))
-      .join(",\n");
+      const foreignKeyConstraints = gridRows
+        .map((col) => {
+          if (!col.foreign_key) return null;
+          const parsed = parseForeignKeyValue(col.foreign_key);
+          if (!parsed) return null;
+          const tableRef = parsed.schema
+            ? `${quoteIdentifier(parsed.schema)}.${quoteIdentifier(parsed.table)}`
+            : quoteIdentifier(parsed.table);
+          return `  FOREIGN KEY (${quoteIdentifier(
+            col.column_name,
+          )}) REFERENCES ${tableRef} (${quoteIdentifier(parsed.column)})`;
+        })
+        .filter((constraint): constraint is string => Boolean(constraint))
+        .join(",\n");
 
-    const allConstraints = [pkConstraint.trim(), foreignKeyConstraints]
-      .filter(Boolean)
-      .map((constraint) =>
-        constraint.startsWith(",") ? constraint : `,\n${constraint}`,
-      )
-      .join("");
+      const allConstraints = [pkConstraint.trim(), foreignKeyConstraints]
+        .filter(Boolean)
+        .map((constraint) =>
+          constraint.startsWith(",") ? constraint : `,\n${constraint}`,
+        )
+        .join("");
 
-    const createTable = `CREATE TABLE ${quoteIdentifier(
-      schema,
-    )}.${quoteIdentifier(tableName)} (\n${columnDefs}${allConstraints}\n);`;
+      const createTable = `CREATE TABLE ${quoteIdentifier(
+        schema,
+      )}.${quoteIdentifier(resolvedTableName)} (\n${columnDefs}${allConstraints}\n);`;
 
-    const commentStatements = gridRows
-      .map((col) => {
-        if (!col.comment || !col.comment.trim()) return null;
-        const columnRef = `${quoteIdentifier(schema)}.${quoteIdentifier(
-          tableName,
-        )}.${quoteIdentifier(col.column_name)}`;
-        const escaped = col.comment.replace(/'/g, "''");
-        return `COMMENT ON COLUMN ${columnRef} IS '${escaped}';`;
-      })
-      .filter((statement): statement is string => Boolean(statement));
+      const commentStatements = gridRows
+        .map((col) => {
+          if (!col.comment || !col.comment.trim()) return null;
+          const columnRef = `${quoteIdentifier(schema)}.${quoteIdentifier(
+            resolvedTableName,
+          )}.${quoteIdentifier(col.column_name)}`;
+          const escaped = col.comment.replace(/'/g, "''");
+          return `COMMENT ON COLUMN ${columnRef} IS '${escaped}';`;
+        })
+        .filter((statement): statement is string => Boolean(statement));
 
-    return [createTable, ...commentStatements].join("\n");
-  }, [tableName, gridRows, schema]);
+      return [createTable, ...commentStatements].join("\n");
+    },
+    [tableName, gridRows, schema],
+  );
 
   const handleSave = useCallback(() => {
-    if (!tableName.trim()) {
+    if (!effectiveTableName) {
       toast.error("Please enter a table name");
       tableNameInputRef.current?.focus();
       return;
@@ -1174,8 +1168,20 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       });
       return;
     }
+
+    if (tableNameDraft !== tableName) {
+      commitTableNameDraft(tableNameDraft);
+    }
+
     setGlobalChangesDialogOpen(true);
-  }, [tableName, columns, gridRows]);
+  }, [
+    columns,
+    commitTableNameDraft,
+    effectiveTableName,
+    gridRows,
+    tableName,
+    tableNameDraft,
+  ]);
 
   const handleCancel = useCallback(() => {
     if (designerCommands.length > 0) {
@@ -1192,9 +1198,31 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
         <Input
           ref={tableNameInputRef}
           id="tableName"
-          defaultValue={tableName}
+          value={tableNameDraft}
+          onChange={(e) => {
+            setTableNameDraft(e.target.value);
+          }}
           onBlur={handleTableNameBlur}
           onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commitTableNameDraft(e.currentTarget.value);
+              e.currentTarget.blur();
+              return;
+            }
+
+            if (e.key === "Tab") {
+              commitTableNameDraft(e.currentTarget.value);
+              return;
+            }
+
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setTableNameDraft(tableName);
+              e.currentTarget.blur();
+              return;
+            }
+
             if (e.key === " ") {
               e.preventDefault();
               const input = e.currentTarget;
@@ -1203,6 +1231,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
               input.value =
                 input.value.slice(0, start) + "_" + input.value.slice(end);
               input.setSelectionRange(start + 1, start + 1);
+              setTableNameDraft(input.value);
             }
           }}
           placeholder="Enter table name"
@@ -1241,7 +1270,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
         <Button
           size="sm"
           onClick={handleSave}
-          disabled={!tableName.trim() || columns.length === 0}
+          disabled={!effectiveTableName || columns.length === 0}
         >
           Create Table
         </Button>
@@ -1255,9 +1284,16 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
         schema={schema}
         table={tableTargetName}
         onCommitSuccess={() => {
-          const sql = generateSQL();
-          onSave?.(tableName, sql);
-          discardChanges(tableKey);
+          const finalTableName = effectiveTableName;
+          const sql = generateSQL(finalTableName);
+          onSave?.(finalTableName, sql);
+          const committedTableKey = buildCrudTableKey({
+            connectionId,
+            database,
+            schema,
+            table: resolveTargetTableName(finalTableName),
+          });
+          discardChanges(committedTableKey);
           setGlobalChangesDialogOpen(false);
         }}
       />

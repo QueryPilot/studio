@@ -116,7 +116,20 @@ function flattenDocumentRecord(
 
 function flattenDocumentForGrid(doc: Record<string, unknown>, maxDepth: number): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  flattenDocumentRecord(doc, '', 0, maxDepth, out);
+
+  // Always preserve _id at the top level so edit/delete commands can
+  // reliably resolve the document primary key even in flattened mode.
+  if (Object.prototype.hasOwnProperty.call(doc, '_id')) {
+    out._id = doc._id;
+  }
+
+  for (const [key, value] of Object.entries(doc)) {
+    if (key === '_id') {
+      continue;
+    }
+    flattenDocumentRecord(value, key, 1, maxDepth, out);
+  }
+
   return out;
 }
 

@@ -143,6 +143,14 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     getTableKey,
   ]);
 
+  // Keep parent open state in sync when undo/discard removes every staged command.
+  // Without this, the dialog unmounts while `open` stays true and reappears on next edit.
+  useEffect(() => {
+    if (open && connectionCommands.length === 0) {
+      onOpenChange(false);
+    }
+  }, [open, connectionCommands.length, onOpenChange]);
+
   // Group commands by row ID only, preserving user edit order
   const groupedByRow = useMemo(() => {
     // Collect all commands with metadata
