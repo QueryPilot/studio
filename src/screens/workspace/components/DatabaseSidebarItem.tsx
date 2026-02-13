@@ -282,7 +282,7 @@ export function SidebarItem({
 
 export interface SidebarItemDragData {
   type: "sidebar-item";
-  objectType: "table" | "view" | "function" | "procedure";
+  objectType: "table" | "view" | "function" | "procedure" | "mongo-collection" | "redis-key";
   name: string;
   table?: TableMeta;
   func?: FunctionMeta;
@@ -290,6 +290,8 @@ export interface SidebarItemDragData {
   database: string;
   schema: string;
   kind?: "Table" | "View" | "MaterializedView";
+  /** Redis database number (for redis-key objectType) */
+  redisDb?: number;
 }
 
 // ---------------------------------------------------------------------------

@@ -1458,43 +1458,55 @@ export const ConnectionSection = forwardRef<
                         : true,
                     )
                     .map((collection) => (
-                      <SidebarItem
+                      <DraggableSidebarItem
                         key={collection.name}
-                        icon={
-                          <IconLayout2 className="h-3.5 w-4 min-w-4 text-emerald-600 shrink-0" />
-                        }
-                        name={collection.name}
-                        isActive={isMongoCollectionActive(collection.name)}
-                        onClick={() => {
-                          setFocusedConnection(connectionId);
-                          const {
-                            addTab,
-                            panelContents,
-                            focusPanel,
-                          } = useWorkbenchStore.getState();
-                          let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
-                          if (!targetPanelId && panelContents.size > 0) {
-                            const firstPanelId = Array.from(
-                              panelContents.keys(),
-                            )[0];
-                            if (firstPanelId) {
-                              targetPanelId = firstPanelId;
-                              focusPanel(firstPanelId);
-                            }
-                          }
-                          if (targetPanelId) {
-                            const tabId = `mongo-${database}-${collection.name}`;
-                            addTab(targetPanelId, tabId, {
-                              type: "mongo-collection",
-                              title: collection.name,
-                              connectionId,
-                              database,
-                              table: collection.name,
-                            });
-                          }
+                        dragId={`sidebar-mongo-${connectionId}-${database}-${collection.name}`}
+                        dragData={{
+                          type: "sidebar-item",
+                          objectType: "mongo-collection",
+                          name: collection.name,
+                          connectionId,
+                          database,
+                          schema: "",
                         }}
-                        rowCount={collection.docCount}
-                      />
+                      >
+                        <SidebarItem
+                          icon={
+                            <IconLayout2 className="h-3.5 w-4 min-w-4 text-emerald-600 shrink-0" />
+                          }
+                          name={collection.name}
+                          isActive={isMongoCollectionActive(collection.name)}
+                          onClick={() => {
+                            setFocusedConnection(connectionId);
+                            const {
+                              addTab,
+                              panelContents,
+                              focusPanel,
+                            } = useWorkbenchStore.getState();
+                            let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
+                            if (!targetPanelId && panelContents.size > 0) {
+                              const firstPanelId = Array.from(
+                                panelContents.keys(),
+                              )[0];
+                              if (firstPanelId) {
+                                targetPanelId = firstPanelId;
+                                focusPanel(firstPanelId);
+                              }
+                            }
+                            if (targetPanelId) {
+                              const tabId = `mongo-${database}-${collection.name}`;
+                              addTab(targetPanelId, tabId, {
+                                type: "mongo-collection",
+                                title: collection.name,
+                                connectionId,
+                                database,
+                                table: collection.name,
+                              });
+                            }
+                          }}
+                          rowCount={collection.docCount}
+                        />
+                      </DraggableSidebarItem>
                     ))
                 )}
               </SidebarSection>
@@ -1517,41 +1529,54 @@ export const ConnectionSection = forwardRef<
                     panelContents.get(focusedPanelId)?.activeTabId === dbTabId;
 
                   return (
-                    <SidebarItem
+                    <DraggableSidebarItem
                       key={dbInfo.db}
-                      icon={
-                        <IconDatabase className="h-3.5 w-4 min-w-4 text-orange-500 shrink-0" />
-                      }
-                      name={`db${dbInfo.db}`}
-                      rowCount={dbInfo.keys}
-                      isActive={isActive}
-                      onClick={() => {
-                        setFocusedConnection(connectionId);
-                        const {
-                          addTab,
-                          panelContents,
-                          focusPanel,
-                        } = useWorkbenchStore.getState();
-                        let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
-                        if (!targetPanelId && panelContents.size > 0) {
-                          const firstPanelId = Array.from(
-                            panelContents.keys()
-                          )[0];
-                          if (firstPanelId) {
-                            targetPanelId = firstPanelId;
-                            focusPanel(firstPanelId);
-                          }
-                        }
-                        if (targetPanelId) {
-                          addTab(targetPanelId, dbTabId, {
-                            type: "redis-key",
-                            title: `db${dbInfo.db}`,
-                            connectionId,
-                            database: dbInfo.db,
-                          });
-                        }
+                      dragId={`sidebar-redis-${connectionId}-db${dbInfo.db}`}
+                      dragData={{
+                        type: "sidebar-item",
+                        objectType: "redis-key",
+                        name: `db${dbInfo.db}`,
+                        connectionId,
+                        database: String(dbInfo.db),
+                        schema: "",
+                        redisDb: dbInfo.db,
                       }}
-                    />
+                    >
+                      <SidebarItem
+                        icon={
+                          <IconDatabase className="h-3.5 w-4 min-w-4 text-orange-500 shrink-0" />
+                        }
+                        name={`db${dbInfo.db}`}
+                        rowCount={dbInfo.keys}
+                        isActive={isActive}
+                        onClick={() => {
+                          setFocusedConnection(connectionId);
+                          const {
+                            addTab,
+                            panelContents,
+                            focusPanel,
+                          } = useWorkbenchStore.getState();
+                          let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
+                          if (!targetPanelId && panelContents.size > 0) {
+                            const firstPanelId = Array.from(
+                              panelContents.keys()
+                            )[0];
+                            if (firstPanelId) {
+                              targetPanelId = firstPanelId;
+                              focusPanel(firstPanelId);
+                            }
+                          }
+                          if (targetPanelId) {
+                            addTab(targetPanelId, dbTabId, {
+                              type: "redis-key",
+                              title: `db${dbInfo.db}`,
+                              connectionId,
+                              database: dbInfo.db,
+                            });
+                          }
+                        }}
+                      />
+                    </DraggableSidebarItem>
                   );
                 })
               )}
