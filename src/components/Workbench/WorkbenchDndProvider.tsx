@@ -20,12 +20,15 @@ import {
   IconBrandTabler,
   IconLayout2,
   IconDatabase,
+  IconSitemap,
+  IconHistory,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
 import type { SidebarItemDragData } from "@/screens/workspace/components/DatabaseSidebarItem";
 import {
   openTableObject,
   openFunctionObject,
+  openErdView,
 } from "@/utils/workbench/openers";
 
 interface WorkbenchDndProviderProps {
@@ -195,6 +198,26 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
               database: sidebarData.database,
             });
           }
+        } else if (sidebarData.objectType === "erd") {
+          openErdView({
+            connectionId: sidebarData.connectionId,
+            connectionName: sidebarData.connectionName ?? "",
+            database: sidebarData.database,
+            schema: sidebarData.schema,
+          });
+        } else if (sidebarData.objectType === "history") {
+          const s = useWorkbenchStore.getState();
+          const tabId = `query-${crypto.randomUUID()}`;
+          s.addTab(targetPanelId, tabId, {
+            type: "query",
+            title: "Query from History",
+            connectionId: sidebarData.connectionId,
+            database: sidebarData.database,
+            schema: sidebarData.schema,
+            sql: sidebarData.historyQuery,
+          });
+          s.setActiveTab(targetPanelId, tabId);
+          s.focusPanel(targetPanelId);
         } else {
           // MongoDB collections and Redis databases use inline addTab
           const s = useWorkbenchStore.getState();
@@ -285,6 +308,27 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
             returnType: func.return_type,
             objectType,
             objectKey,
+          };
+        } else if (sidebarData.objectType === "erd") {
+          const objectKey = `erd-${sidebarData.connectionId}`;
+          tabId = `${objectKey}:::${nanoid(6)}`;
+          tabMetadata = {
+            type: "erd",
+            title: `${sidebarData.connectionName ?? ""} ERD`,
+            connectionId: sidebarData.connectionId,
+            database: sidebarData.database,
+            schema: sidebarData.schema,
+            objectKey,
+          };
+        } else if (sidebarData.objectType === "history") {
+          tabId = `query-${crypto.randomUUID()}`;
+          tabMetadata = {
+            type: "query",
+            title: "Query from History",
+            connectionId: sidebarData.connectionId,
+            database: sidebarData.database,
+            schema: sidebarData.schema,
+            sql: sidebarData.historyQuery,
           };
         } else if (sidebarData.objectType === "mongo-collection") {
           tabId = `mongo-${sidebarData.database}-${sidebarData.name}`;
@@ -426,6 +470,12 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
       } else if (data.objectType === "redis-key") {
         Icon = IconDatabase;
         iconClass = "h-3.5 w-3.5 text-orange-500";
+      } else if (data.objectType === "erd") {
+        Icon = IconSitemap;
+        iconClass = "h-3.5 w-3.5 text-blue-500";
+      } else if (data.objectType === "history") {
+        Icon = IconHistory;
+        iconClass = "h-3.5 w-3.5 text-amber-500";
       } else {
         // table
         Icon = IconTable;

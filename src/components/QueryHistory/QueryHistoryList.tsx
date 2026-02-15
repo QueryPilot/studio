@@ -34,6 +34,10 @@ import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { SaveQueryDialog } from "./SaveQueryDialog";
+import {
+  DraggableSidebarItem,
+  type SidebarItemDragData,
+} from "@/screens/workspace/components/DatabaseSidebarItem";
 
 export function QueryHistoryList() {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -151,68 +155,84 @@ function HistoryItem({
     toast.success("Query copied to clipboard");
   };
 
+  const workspaceSelection = useWorkspaceSelectionStore.getState();
+  const dragData: SidebarItemDragData = {
+    type: "sidebar-item",
+    objectType: "history",
+    name: truncatedQuery,
+    connectionId: entry.connectionId,
+    database: entry.database,
+    schema: entry.schema || workspaceSelection.schema || "",
+    historyQuery: entry.query,
+  };
+
   return (
-    <ContextMenu>
-      <ContextMenuTrigger
-        render={
-          <div
-            style={style}
-            className={cn(
-              "px-2 py-1.5 border-b cursor-pointer hover:bg-accent",
-              "flex flex-col gap-0.5"
-            )}
-            onClick={handleOpenInTab}
-          >
-            {/* Query preview */}
-            <code className="text-xs font-mono truncate">
-              {truncatedQuery}
-              {entry.query.length > 80 && "..."}
-            </code>
-
-            {/* Metadata row */}
-            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-              {entry.success ? (
-                <IconCheck className="h-3 w-3 text-green-500" />
-              ) : (
-                <IconX className="h-3 w-3 text-red-500" />
+    <DraggableSidebarItem
+      dragId={`sidebar-history-${entry.id}`}
+      dragData={dragData}
+    >
+      <ContextMenu>
+        <ContextMenuTrigger
+          render={
+            <div
+              style={style}
+              className={cn(
+                "px-2 py-1.5 border-b cursor-pointer hover:bg-accent",
+                "flex flex-col gap-0.5"
               )}
+              onClick={handleOpenInTab}
+            >
+              {/* Query preview */}
+              <code className="text-xs font-mono truncate">
+                {truncatedQuery}
+                {entry.query.length > 80 && "..."}
+              </code>
 
-              <span className="flex items-center gap-0.5">
-                <IconClock className="h-2.5 w-2.5" />
-                {formatDistanceToNow(entry.executedAt, { addSuffix: true })}
-              </span>
+              {/* Metadata row */}
+              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                {entry.success ? (
+                  <IconCheck className="h-3 w-3 text-green-500" />
+                ) : (
+                  <IconX className="h-3 w-3 text-red-500" />
+                )}
 
-              {entry.executionTimeMs !== undefined && (
-                <span>{entry.executionTimeMs}ms</span>
-              )}
+                <span className="flex items-center gap-0.5">
+                  <IconClock className="h-2.5 w-2.5" />
+                  {formatDistanceToNow(entry.executedAt, { addSuffix: true })}
+                </span>
 
-              {entry.rowCount !== undefined && (
-                <span>{entry.rowCount} rows</span>
-              )}
+                {entry.executionTimeMs !== undefined && (
+                  <span>{entry.executionTimeMs}ms</span>
+                )}
 
-              <span className="flex items-center gap-0.5 ml-auto">
-                <IconDatabase className="h-2.5 w-2.5" />
-                {entry.database}
-              </span>
+                {entry.rowCount !== undefined && (
+                  <span>{entry.rowCount} rows</span>
+                )}
+
+                <span className="flex items-center gap-0.5 ml-auto">
+                  <IconDatabase className="h-2.5 w-2.5" />
+                  {entry.database}
+                </span>
+              </div>
             </div>
-          </div>
-        }
-      />
+          }
+        />
 
-      <ContextMenuContent>
-        <ContextMenuItem onClick={handleOpenInTab}>
-          <IconPlayerPlay className="h-3 w-3 mr-2" />
-          Open in New Tab
-        </ContextMenuItem>
-        <ContextMenuItem onClick={onSave}>
-          <IconBookmarkPlus className="h-3 w-3 mr-2" />
-          Save Query
-        </ContextMenuItem>
-        <ContextMenuItem onClick={handleCopy}>
-          <IconCopy className="h-3 w-3 mr-2" />
-          Copy SQL
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={handleOpenInTab}>
+            <IconPlayerPlay className="h-3 w-3 mr-2" />
+            Open in New Tab
+          </ContextMenuItem>
+          <ContextMenuItem onClick={onSave}>
+            <IconBookmarkPlus className="h-3 w-3 mr-2" />
+            Save Query
+          </ContextMenuItem>
+          <ContextMenuItem onClick={handleCopy}>
+            <IconCopy className="h-3 w-3 mr-2" />
+            Copy SQL
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    </DraggableSidebarItem>
   );
 }

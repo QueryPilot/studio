@@ -379,6 +379,85 @@ impl MssqlAdapter {
         result
     }
 
+    /// Rewrite SQL to handle unsupported column types (sql_variant, geography, geometry, hierarchyid).
+    /// Performs a preflight check using sys.dm_exec_describe_first_result_set, then rewrites
+    /// SELECT queries to cast/convert unsupported types. Returns the (possibly rewritten) SQL.
+    pub async fn rewrite_for_unsupported_types(
+        conn: &mut bb8::PooledConnection<'_, bb8_tiberius::ConnectionManager>,
+        sql: &str,
+    ) -> Result<String, AppError> {
+        let escaped_sql = sql.replace('\'', "''");
+        let describe_sql = format!(
+            "SELECT column_ordinal, name, system_type_name, error_number, error_message \
+             FROM sys.dm_exec_describe_first_result_set(N'{}', NULL, 1)",
+            escaped_sql
+        );
+        let mut unsupported_columns: Vec<String> = Vec::new();
+        let mut preflight_ok = false;
+
+        if let Ok(describe_result) = conn.simple_query(describe_sql.as_str()).await {
+            if let Ok(rows) = describe_result.into_first_result().await {
+                preflight_ok = true;
+                for row in rows {
+                    let error_number: Option<i32> = row.get(3);
+                    if error_number.is_some() {
+                        preflight_ok = false;
+                        unsupported_columns.clear();
+                        break;
+                    }
+
+                    let system_type_name: Option<&str> = row.get(2);
+                    let type_name = system_type_name.unwrap_or("").to_ascii_lowercase();
+                    let is_variant = type_name.starts_with("sql_variant");
+                    let is_clr_udt =
+                        matches!(type_name.as_str(), "geography" | "geometry" | "hierarchyid");
+
+                    if is_variant || is_clr_udt {
+                        let column_name: Option<&str> = row.get(1);
+                        let ordinal: Option<i32> = row.get(0);
+                        let label = column_name
+                            .map(|name| name.to_string())
+                            .or_else(|| ordinal.map(|idx| format!("column_{}", idx)))
+                            .unwrap_or_else(|| "column".to_string());
+                        let display_type = system_type_name.unwrap_or("UNKNOWN");
+                        unsupported_columns.push(format!("{} ({})", label, display_type));
+                    }
+                }
+            }
+        }
+
+        let mut sql = sql.to_string();
+
+        if !preflight_ok {
+            if let Some(rewritten) =
+                Self::rewrite_select_star_with_casts(conn, sql.as_str()).await?
+            {
+                sql = rewritten;
+            } else if let Some(rewritten) =
+                Self::rewrite_explicit_columns_with_casts(conn, sql.as_str()).await?
+            {
+                sql = rewritten;
+            }
+        } else if !unsupported_columns.is_empty() {
+            if let Some(rewritten) =
+                Self::rewrite_select_star_with_casts(conn, sql.as_str()).await?
+            {
+                sql = rewritten;
+            } else if let Some(rewritten) =
+                Self::rewrite_explicit_columns_with_casts(conn, sql.as_str()).await?
+            {
+                sql = rewritten;
+            } else {
+                return Err(AppError::Unsupported(format!(
+                    "Unsupported SQL Server column types detected: {}. Cast them to NVARCHAR/VARBINARY or exclude them from the query.",
+                    unsupported_columns.join(", ")
+                )));
+            }
+        }
+
+        Ok(sql)
+    }
+
     /// Extract simple column name from expression (handles col, [col], table.col, etc.)
     fn extract_simple_column_name(expr: &str) -> Option<String> {
         let trimmed = expr.trim();
@@ -521,77 +600,8 @@ impl SqlQueryable for MssqlAdapter {
             .get()
             .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
-        let escaped_sql = sql.replace('\'', "''");
-        let describe_sql = format!(
-            "SELECT column_ordinal, name, system_type_name, error_number, error_message \
-             FROM sys.dm_exec_describe_first_result_set(N'{}', NULL, 1)",
-            escaped_sql
-        );
-        let mut unsupported_columns: Vec<String> = Vec::new();
-        let mut preflight_ok = false;
 
-        if let Ok(describe_result) = conn.simple_query(describe_sql.as_str()).await {
-            if let Ok(rows) = describe_result.into_first_result().await {
-                preflight_ok = true;
-                for row in rows {
-                    let error_number: Option<i32> = row.get(3);
-                    if error_number.is_some() {
-                        preflight_ok = false;
-                        unsupported_columns.clear();
-                        break;
-                    }
-
-                    let system_type_name: Option<&str> = row.get(2);
-                    let type_name = system_type_name.unwrap_or("").to_ascii_lowercase();
-                    let is_variant = type_name.starts_with("sql_variant");
-                    let is_clr_udt =
-                        matches!(type_name.as_str(), "geography" | "geometry" | "hierarchyid");
-
-                    if is_variant || is_clr_udt {
-                        let column_name: Option<&str> = row.get(1);
-                        let ordinal: Option<i32> = row.get(0);
-                        let label = column_name
-                            .map(|name| name.to_string())
-                            .or_else(|| ordinal.map(|idx| format!("column_{}", idx)))
-                            .unwrap_or_else(|| "column".to_string());
-                        let display_type = system_type_name.unwrap_or("UNKNOWN");
-                        unsupported_columns.push(format!("{} ({})", label, display_type));
-                    }
-                }
-            }
-        }
-
-        let mut sql = sql.to_string();
-
-        if !preflight_ok {
-            // Try SELECT * rewrite first, then explicit column rewrite
-            if let Some(rewritten) =
-                Self::rewrite_select_star_with_casts(&mut conn, sql.as_str()).await?
-            {
-                sql = rewritten;
-            } else if let Some(rewritten) =
-                Self::rewrite_explicit_columns_with_casts(&mut conn, sql.as_str()).await?
-            {
-                sql = rewritten;
-            }
-        } else if !unsupported_columns.is_empty() {
-            // Try SELECT * rewrite first
-            if let Some(rewritten) =
-                Self::rewrite_select_star_with_casts(&mut conn, sql.as_str()).await?
-            {
-                sql = rewritten;
-            } else if let Some(rewritten) =
-                Self::rewrite_explicit_columns_with_casts(&mut conn, sql.as_str()).await?
-            {
-                // Try explicit column rewrite
-                sql = rewritten;
-            } else {
-                return Err(AppError::Unsupported(format!(
-                    "Unsupported SQL Server column types detected: {}. Cast them to NVARCHAR/VARBINARY or exclude them from the query.",
-                    unsupported_columns.join(", ")
-                )));
-            }
-        }
+        let sql = Self::rewrite_for_unsupported_types(&mut conn, sql).await?;
 
         let query_result =
             AssertUnwindSafe(async move {

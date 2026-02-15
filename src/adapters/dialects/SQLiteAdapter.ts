@@ -349,6 +349,8 @@ export class SQLiteAdapter extends SqlAdapter {
   }
 
   getTablesQuery(_schema: string): string {
+    // Column order must match IntrospectionService.getTables expectations:
+    // [0] schema_name, [1] table_name, [2] kind, [3] owner, [4] size, [5] row_count, [6] comment
     return `
 SELECT
     'main' as schema_name,
@@ -356,7 +358,8 @@ SELECT
     'regular' as kind,
     NULL as owner,
     NULL as size,
-    NULL as row_count
+    NULL as row_count,
+    NULL as comment
 FROM sqlite_master
 WHERE type = 'table'
     AND name NOT LIKE 'sqlite_%'
@@ -364,11 +367,16 @@ ORDER BY name`;
   }
 
   getViewsQuery(_schema: string): string {
+    // Column order must match IntrospectionService.getViews expectations:
+    // [0] schema_name, [1] view_name, [2] owner, [3] definition, [4] is_materialized, [5] comment
     return `
 SELECT
     'main' as schema_name,
     name as view_name,
-    sql as definition
+    NULL as owner,
+    sql as definition,
+    0 as is_materialized,
+    NULL as comment
 FROM sqlite_master
 WHERE type = 'view'
 ORDER BY name`;
@@ -446,11 +454,19 @@ ORDER BY cid`;
   }
 
   getTriggersQuery(_schema: string, table: string): string {
+    // Column order must match IntrospectionService.getTriggers expectations:
+    // [0] name, [1] schema, [2] table_name, [3] timing, [4] event, [5] level,
+    // [6] function, [7] enabled, [8] condition
     return `
 SELECT
     name as trigger_name,
     'main' as schema_name,
     '${this.escapeString(table)}' as table_name,
+    NULL as timing,
+    NULL as event,
+    NULL as level,
+    NULL as function_name,
+    1 as enabled,
     sql as definition
 FROM sqlite_master
 WHERE type = 'trigger'

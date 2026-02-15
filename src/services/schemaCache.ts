@@ -844,7 +844,9 @@ class SchemaCache {
     for (const key of this.cache.keys()) {
       if (
         key.startsWith(`tables:${connectionId}:${schema}`) ||
-        key.startsWith(`columns:${connectionId}:${schema}.`)
+        key.startsWith(`columns:${connectionId}:${schema}.`) ||
+        key.startsWith(`functions:${connectionId}:${schema}`) ||
+        key.startsWith(`relationships:${connectionId}:${schema}`)
       ) {
         this.cache.delete(key);
       }

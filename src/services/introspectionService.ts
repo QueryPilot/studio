@@ -694,6 +694,7 @@ export const IntrospectionService = {
       data_length: getNumber(row[13]),
       index_length: getNumber(row[14]),
       partition_comment: getString(row[15]) || undefined,
+      partition_function_name: getString(row[16]) || undefined,
     }));
   },
 };
