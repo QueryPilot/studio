@@ -867,23 +867,29 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         return null;
       }
 
-      // Get document ID for the update filter
-      let docId: DocumentId | undefined;
-      if (currentPath.length === 0) {
-        const idCell = rowData._id;
-        const id = idCell && typeof idCell === 'object' && 'value' in idCell
-          ? (idCell as { value?: unknown }).value
-          : idCell;
-        if (id !== undefined && id !== null) {
-          docId = id as DocumentId;
-        }
-      } else {
-        docId = currentDocumentId || undefined;
-      }
+      // Check if this row is from an INSERT command (by checking for tempId metadata)
+      const tempIdCell = rowData["__insert_temp_id__"] as { value?: string | number } | undefined;
+      const insertTempId = tempIdCell?.value != null ? String(tempIdCell.value) : undefined;
 
-      if (!docId) {
-        logger.warn('document-data', 'Cannot create edit command: no document ID');
-        return null;
+      // Get document ID for the update filter (not needed for inserted rows)
+      let docId: DocumentId | undefined;
+      if (!insertTempId) {
+        if (currentPath.length === 0) {
+          const idCell = rowData._id;
+          const id = idCell && typeof idCell === 'object' && 'value' in idCell
+            ? (idCell as { value?: unknown }).value
+            : idCell;
+          if (id !== undefined && id !== null) {
+            docId = id as DocumentId;
+          }
+        } else {
+          docId = currentDocumentId || undefined;
+        }
+
+        if (!docId) {
+          logger.warn('document-data', 'Cannot create edit command: no document ID');
+          return null;
+        }
       }
 
       // Build the field path for nested updates
@@ -924,9 +930,10 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
       const payload: DataUpdatePayload = {
         column: fieldPath,
-        primaryKeys: { _id: docId as JsonValue },
+        primaryKeys: insertTempId ? {} : { _id: docId as JsonValue },
         oldValue: oldValueJson,
         newValue: newValueJson,
+        ...(insertTempId ? { tempId: insertTempId } : {}),
       };
 
       return {
@@ -1062,9 +1069,8 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         return createEditCommand(event);
       },
 
-      createInsertCommand: (_data?: Record<string, unknown>) => {
-        // Create empty document - user will fill in values
-        return createInsertCommand({});
+      createInsertCommand: (data?: Record<string, unknown>) => {
+        return createInsertCommand(data ?? {});
       },
 
       createDeleteCommand: (row: GridRowModel, _rowKey: string) => {

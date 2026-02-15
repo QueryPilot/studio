@@ -457,6 +457,8 @@ export class MSSQLAdapter extends SqlAdapter {
   }
 
   getTablesQuery(schema: string): string {
+    // Column order must match IntrospectionService.getTables expectations:
+    // [0] schema_name, [1] table_name, [2] kind, [3] owner, [4] size, [5] row_count, [6] comment
     // Uses COLLATE DATABASE_DEFAULT to avoid collation conflicts
     // Aggregates partition rows to avoid duplicate table entries
     // Detects partitioned tables by checking if clustered index uses partition scheme
@@ -470,24 +472,31 @@ SELECT
     END as kind,
     NULL as owner,
     NULL as size,
-    SUM(p.rows) as row_count
+    SUM(p.rows) as row_count,
+    CAST(ep.value AS NVARCHAR(MAX)) COLLATE DATABASE_DEFAULT as comment
 FROM sys.tables t
 JOIN sys.schemas s ON t.schema_id = s.schema_id
 LEFT JOIN sys.partitions p ON t.object_id = p.object_id AND p.index_id < 2
 LEFT JOIN sys.indexes i ON t.object_id = i.object_id AND i.index_id < 2
 LEFT JOIN sys.partition_schemes ps ON i.data_space_id = ps.data_space_id
+LEFT JOIN sys.extended_properties ep ON ep.major_id = t.object_id AND ep.minor_id = 0 AND ep.name = 'MS_Description'
 WHERE s.name = '${this.escapeString(schema)}'
-GROUP BY s.name, t.name, ps.name
+GROUP BY s.name, t.name, ps.name, CAST(ep.value AS NVARCHAR(MAX))
 ORDER BY t.name`;
   }
 
   getViewsQuery(schema: string): string {
+    // Column order must match IntrospectionService.getViews expectations:
+    // [0] schema_name, [1] view_name, [2] owner, [3] definition, [4] is_materialized, [5] comment
     // Uses COLLATE DATABASE_DEFAULT to avoid collation conflicts
     return `
 SELECT
     s.name COLLATE DATABASE_DEFAULT as schema_name,
     v.name COLLATE DATABASE_DEFAULT as view_name,
-    CAST(m.definition AS NVARCHAR(MAX)) COLLATE DATABASE_DEFAULT as definition
+    NULL as owner,
+    CAST(m.definition AS NVARCHAR(MAX)) COLLATE DATABASE_DEFAULT as definition,
+    CAST(0 AS BIT) as is_materialized,
+    NULL as comment
 FROM sys.views v
 JOIN sys.schemas s ON v.schema_id = s.schema_id
 LEFT JOIN sys.sql_modules m ON v.object_id = m.object_id
@@ -709,13 +718,24 @@ ORDER BY c.column_id`;
   }
 
   getTriggersQuery(schema: string, table: string): string {
+    // Column order must match IntrospectionService.getTriggers expectations:
+    // [0] name, [1] schema, [2] table_name, [3] timing, [4] event, [5] level,
+    // [6] function, [7] enabled, [8] condition
     // Uses COLLATE DATABASE_DEFAULT to avoid collation conflicts
     return `
 SELECT
     tr.name COLLATE DATABASE_DEFAULT as trigger_name,
     s.name COLLATE DATABASE_DEFAULT as schema_name,
     t.name COLLATE DATABASE_DEFAULT as table_name,
-    tr.is_disabled,
+    CASE WHEN tr.is_instead_of_trigger = 1 THEN 'INSTEAD OF' ELSE 'AFTER' END as timing,
+    STUFF((
+        SELECT ',' + te.type_desc COLLATE DATABASE_DEFAULT
+        FROM sys.trigger_events te
+        WHERE te.object_id = tr.object_id
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, '') as events,
+    'STATEMENT' as level,
+    tr.name COLLATE DATABASE_DEFAULT as function_name,
+    CASE WHEN tr.is_disabled = 0 THEN 1 ELSE 0 END as enabled,
     CAST(m.definition AS NVARCHAR(MAX)) COLLATE DATABASE_DEFAULT as definition
 FROM sys.triggers tr
 JOIN sys.tables t ON tr.parent_id = t.object_id
@@ -755,11 +775,12 @@ SELECT
             THEN '< ' + CAST(prv_right.value AS NVARCHAR(100))
         ELSE 'DEFAULT'
     END as partition_description,
-    p.rows as table_rows,
+    p.row_count as table_rows,
     NULL as avg_row_length,
     (p.used_page_count * 8 * 1024) as data_length,
     (p.reserved_page_count - p.used_page_count) * 8 * 1024 as index_length,
-    NULL as partition_comment
+    NULL as partition_comment,
+    pf.name COLLATE DATABASE_DEFAULT as partition_function_name
 FROM sys.tables t
 JOIN sys.schemas s ON t.schema_id = s.schema_id
 JOIN sys.indexes i ON t.object_id = i.object_id AND i.index_id < 2

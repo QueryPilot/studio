@@ -162,7 +162,6 @@ class VaultStorageService {
         use_count: 0,
         tags: [],
         is_favorite: false,
-        workspace_ids: [], // Initialize as empty array
       },
     };
 
@@ -428,23 +427,6 @@ class VaultStorageService {
       const workspaces: WorkspaceConfig[] = workspacesJson ? JSON.parse(workspacesJson) : [];
       this.workspacesCache = workspaces;
       logger.info(`[VaultStorage] Migrated ${workspaces.length} workspaces`);
-
-      // CRITICAL: Add workspace_ids to connection metadata (bidirectional sync)
-      for (const workspace of workspaces) {
-        for (const connectionId of workspace.connectionIds) {
-          const conn = this.connectionCache.get(connectionId);
-          if (conn) {
-            if (!conn.metadata.workspace_ids) {
-              conn.metadata.workspace_ids = [];
-            }
-            if (!conn.metadata.workspace_ids.includes(workspace.id)) {
-              conn.metadata.workspace_ids.push(workspace.id);
-              this.dirtyIds.add(connectionId);
-            }
-          }
-        }
-      }
-      logger.info("[VaultStorage] Synced workspace_ids to connection metadata");
     } catch (err) {
       logger.warn("Failed to migrate workspaces", err);
       this.workspacesCache = [];
@@ -589,9 +571,6 @@ class VaultStorageService {
     this.workspacesCache = [...workspaces];
     this.workspacesDirty = true;
 
-    // Update connection metadata with workspace_ids (bidirectional sync)
-    await this.syncWorkspaceConnectionIds(config);
-
     await this.flushPendingChanges();  // Immediate flush
     logger.info(`[VaultStorage] Stored workspace: ${config.name} (${config.id})`);
     return config.id;
@@ -617,61 +596,18 @@ class VaultStorageService {
       workspaces[index] = updated;
       this.workspacesCache = [...workspaces];
       this.workspacesDirty = true;
-
-      if (updates.connectionIds) {
-        await this.syncWorkspaceConnectionIds(updated);
-      }
       this.scheduleSave();
     }
   }
 
   async deleteWorkspace(id: string): Promise<void> {
     await this.ensureInitialized();
-    const workspace = (this.workspacesCache || []).find(ws => ws.id === id);
-
-    // Remove workspace_id from all connections
-    if (workspace) {
-      for (const connectionId of workspace.connectionIds) {
-        const conn = this.connectionCache.get(connectionId);
-        if (conn?.metadata.workspace_ids) {
-          conn.metadata.workspace_ids = conn.metadata.workspace_ids.filter(
-            wsId => wsId !== id
-          );
-          this.dirtyIds.add(connectionId);
-        }
-      }
-    }
-
     this.workspacesCache = (this.workspacesCache || []).filter(ws => ws.id !== id);
     this.workspacesDirty = true;
     await this.flushPendingChanges();
     logger.info(`[VaultStorage] Deleted workspace: ${id}`);
   }
 
-  private async syncWorkspaceConnectionIds(workspace: WorkspaceConfig): Promise<void> {
-    // Add workspace_id to connections in this workspace
-    for (const connectionId of workspace.connectionIds) {
-      const conn = this.connectionCache.get(connectionId);
-      if (conn) {
-        if (!conn.metadata.workspace_ids) conn.metadata.workspace_ids = [];
-        if (!conn.metadata.workspace_ids.includes(workspace.id)) {
-          conn.metadata.workspace_ids.push(workspace.id);
-          this.dirtyIds.add(connectionId);
-        }
-      }
-    }
-
-    // Remove workspace_id from connections no longer in workspace
-    for (const [connId, conn] of this.connectionCache.entries()) {
-      if (conn.metadata.workspace_ids?.includes(workspace.id) &&
-          !workspace.connectionIds.includes(connId)) {
-        conn.metadata.workspace_ids = conn.metadata.workspace_ids.filter(
-          id => id !== workspace.id
-        );
-        this.dirtyIds.add(connId);
-      }
-    }
-  }
 }
 
 export const vaultStorage = new VaultStorageService();

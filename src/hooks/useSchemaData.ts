@@ -170,6 +170,9 @@ export function useSchemaData(overrideConnectionId?: string): SchemaData {
       schema,
       () => {
         logger.info(`[useSchemaData] Schema invalidated, refreshing: ${database}.${schema}`);
+        // Clear the schema cache so refetch gets fresh data from the database
+        // Without this, schemaCache.getTables() returns stale cached data
+        schemaCache.invalidateSchema(connectionId, schema);
         void refetch();
       }
     );

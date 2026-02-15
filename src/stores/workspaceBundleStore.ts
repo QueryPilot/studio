@@ -854,18 +854,6 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
     },
 
     getWorkspacesForConnection: (connectionId: string) => {
-      const connectionStore = useConnectionStore.getState();
-      const conn = connectionStore.getConnection(connectionId);
-
-      // Prefer connection metadata (new way)
-      if (conn?.metadata.workspace_ids) {
-        const { savedWorkspaces } = get();
-        return savedWorkspaces.filter(ws =>
-          conn.metadata.workspace_ids!.includes(ws.id)
-        );
-      }
-
-      // Fallback to workspace.connectionIds (legacy)
       const { savedWorkspaces } = get();
       return savedWorkspaces.filter((ws) =>
         ws.connectionIds.includes(connectionId),
@@ -873,32 +861,25 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
     },
 
     getConnectionsByWorkspace: () => {
-      const connectionStore = useConnectionStore.getState();
       const result = new Map<string, string[]>();
-
-      // Initialize with empty arrays
       const { savedWorkspaces } = get();
       for (const ws of savedWorkspaces) {
-        result.set(ws.id, []);
+        result.set(ws.id, [...ws.connectionIds]);
       }
-
-      // Build from connection metadata
-      for (const conn of connectionStore.connections) {
-        const workspaceIds = conn.metadata.workspace_ids || [];
-        for (const wsId of workspaceIds) {
-          const existing = result.get(wsId) || [];
-          existing.push(conn.profile.id);
-          result.set(wsId, existing);
-        }
-      }
-
       return result;
     },
 
     getUncategorizedConnectionIds: () => {
+      const { savedWorkspaces } = get();
+      const categorizedIds = new Set<string>();
+      for (const ws of savedWorkspaces) {
+        for (const id of ws.connectionIds) {
+          categorizedIds.add(id);
+        }
+      }
       const allConnections = useConnectionStore.getState().connections;
       return allConnections
-        .filter(c => !c.metadata.workspace_ids || c.metadata.workspace_ids.length === 0)
+        .filter(c => !categorizedIds.has(c.profile.id))
         .map(c => c.profile.id);
     },
 

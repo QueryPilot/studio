@@ -318,6 +318,7 @@ export interface Partition {
   data_length?: number;
   index_length?: number;
   partition_comment?: string;
+  partition_function_name?: string;
 }
 
 export interface TableDataResult {

@@ -306,7 +306,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
             <>
               <ContextMenuSeparator />
               <ContextMenuCheckboxItem
-                checked={syncSort ?? false}
+                checked={!!syncSort}
                 onCheckedChange={() => {
                   onToggleSyncSort();
                 }}

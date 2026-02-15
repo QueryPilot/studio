@@ -23,7 +23,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
-import { vaultStorage } from "@/services/vaultStorage";
 import { toast } from "sonner";
 import type { WorkspaceConfig } from "@/types/workspace";
 
@@ -40,7 +39,6 @@ export function BulkActionsBar({
 }: BulkActionsBarProps) {
   const deleteConnection = useConnectionStore((s) => s.deleteConnection);
   const connections = useConnectionStore((s) => s.connections);
-  const fetchConnections = useConnectionStore((s) => s.fetchConnections);
   const savedWorkspaces = useWorkspaceBundleStore((s) => s.savedWorkspaces);
   const loadSavedWorkspaces = useWorkspaceBundleStore(
     (s) => s.loadSavedWorkspaces
@@ -83,31 +81,22 @@ export function BulkActionsBar({
   const handleMoveToWorkspace = async (workspace: WorkspaceConfig | null) => {
     setIsMoving(true);
     try {
-      const targetWorkspaceIds = workspace ? [workspace.id] : [];
-
       for (const connectionId of selectedIds) {
-        const conn = await vaultStorage.getConnection(connectionId);
-        if (conn) {
-          // Remove from previous workspaces (workspace.connectionIds side)
-          const previousWorkspaceIds = conn.metadata.workspace_ids || [];
-          for (const wsId of previousWorkspaceIds) {
-            if (wsId !== workspace?.id) {
-              await removeConnectionFromSavedWorkspace(wsId, connectionId);
-            }
+        // Derive previous workspaces from savedWorkspaces (single source of truth)
+        const previousWorkspaces = savedWorkspaces.filter(ws =>
+          ws.connectionIds.includes(connectionId),
+        );
+        for (const ws of previousWorkspaces) {
+          if (ws.id !== workspace?.id) {
+            await removeConnectionFromSavedWorkspace(ws.id, connectionId);
           }
+        }
 
-          // Add to target workspace (workspace.connectionIds side)
-          if (workspace) {
-            await addConnectionToSavedWorkspace(workspace.id, connectionId);
-          }
-
-          // Update connection metadata side
-          conn.metadata.workspace_ids = targetWorkspaceIds;
-          await vaultStorage.updateMetadata(connectionId, conn.metadata);
+        if (workspace) {
+          await addConnectionToSavedWorkspace(workspace.id, connectionId);
         }
       }
 
-      await fetchConnections();
       await loadSavedWorkspaces();
 
       const targetName = workspace?.name ?? "Uncategorized";

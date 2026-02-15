@@ -573,7 +573,13 @@ async fn execute_mssql_stream(
     tracing::info!("  🔍 MSSQL query running on SPID: {}", spid);
 
     let start_time = std::time::Instant::now();
-    let sql_owned = sql.to_string();
+
+    // Rewrite SQL to handle unsupported column types (sql_variant, geography, geometry, hierarchyid)
+    let sql_owned = crate::adapters::mssql::MssqlAdapter::rewrite_for_unsupported_types(
+        &mut query_conn, sql,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
 
     // Execute the query on the SAME connection we got the SPID from
     let query_future = async {

@@ -37,6 +37,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { type TableMeta, type FunctionMeta } from "@/services/databaseService";
+import { DraggableSidebarItem, type SidebarItemDragData } from "./DatabaseSidebarItem";
 import {
   Tooltip,
   TooltipContent,
@@ -345,24 +346,22 @@ export function SidebarConnectionList({
                       {/* ERD Views - shown when expanded */}
                       {isExpanded && (
                         <div className="ml-5">
-                          {/* Main view (default) — right-click for "Open in Split Right" */}
-                          <ContextMenu>
-                            <ContextMenuTrigger
-                              className="w-full flex items-center gap-1.5 px-2 py-1 text-xs hover:bg-muted/50 transition-colors text-left rounded"
-                              onClick={() => {
-                                openErdView({
-                                  connectionId: connection.id,
-                                  connectionName: connection.profile.name,
-                                  database: connection.database,
-                                  schema: connection.schema || "public",
-                                });
-                              }}
-                            >
-                              <IconLayoutDashboard className="h-3.5 w-3.5 text-blue-500 shrink-0" />
-                              <span className="truncate">main</span>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent>
-                              <ContextMenuItem
+                          {/* Main view (default) — draggable + right-click for "Open in Split Right" */}
+                          <DraggableSidebarItem
+                            dragId={`sidebar-erd-${connection.id}`}
+                            dragData={{
+                              type: "sidebar-item",
+                              objectType: "erd",
+                              name: `${connection.profile.name} ERD`,
+                              connectionId: connection.id,
+                              connectionName: connection.profile.name,
+                              database: connection.database,
+                              schema: connection.schema || "public",
+                            } satisfies SidebarItemDragData}
+                          >
+                            <ContextMenu>
+                              <ContextMenuTrigger
+                                className="w-full flex items-center gap-1.5 px-2 py-1 text-xs hover:bg-muted/50 transition-colors text-left rounded"
                                 onClick={() => {
                                   openErdView({
                                     connectionId: connection.id,
@@ -372,24 +371,39 @@ export function SidebarConnectionList({
                                   });
                                 }}
                               >
-                                <IconSitemap className="h-4 w-4 mr-2" />
-                                Open ERD
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                onClick={() => {
-                                  openErdInSplitRight({
-                                    connectionId: connection.id,
-                                    connectionName: connection.profile.name,
-                                    database: connection.database,
-                                    schema: connection.schema || "public",
-                                  });
-                                }}
-                              >
-                                <IconColumns className="h-4 w-4 mr-2" />
-                                Open in Split Right
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
+                                <IconLayoutDashboard className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                                <span className="truncate">main</span>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent>
+                                <ContextMenuItem
+                                  onClick={() => {
+                                    openErdView({
+                                      connectionId: connection.id,
+                                      connectionName: connection.profile.name,
+                                      database: connection.database,
+                                      schema: connection.schema || "public",
+                                    });
+                                  }}
+                                >
+                                  <IconSitemap className="h-4 w-4 mr-2" />
+                                  Open ERD
+                                </ContextMenuItem>
+                                <ContextMenuItem
+                                  onClick={() => {
+                                    openErdInSplitRight({
+                                      connectionId: connection.id,
+                                      connectionName: connection.profile.name,
+                                      database: connection.database,
+                                      schema: connection.schema || "public",
+                                    });
+                                  }}
+                                >
+                                  <IconColumns className="h-4 w-4 mr-2" />
+                                  Open in Split Right
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
+                          </DraggableSidebarItem>
                         </div>
                       )}
                     </div>

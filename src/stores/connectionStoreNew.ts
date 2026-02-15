@@ -111,7 +111,6 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
           use_count: 0,
           tags: uniqueTags,
           is_favorite: false,
-          workspace_ids: [], // Initialize as empty array
         },
       };
       set((state) => ({ connections: [...state.connections, newConnection] }));

@@ -3,13 +3,14 @@ import { usePartitionsQuery } from "@/hooks/usePartitionsQuery";
 import { SidebarItem } from "./DatabaseSidebarItem";
 import { DbType } from "@/types/connection";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { Partition } from "@/services/backend";
 
 interface PartitionSubTreeProps {
   connectionId: string;
   schema: string;
   tableName: string;
   dbType: DbType;
-  onPartitionClick: (partitionName: string, schema: string) => void;
+  onPartitionClick: (partition: Partition) => void;
   isPartitionActive?: (partitionName: string, schema: string) => boolean;
 }
 
@@ -72,7 +73,7 @@ export function PartitionSubTree({
           isActive={
             isPartitionActive?.(partition.partition_name, schema) ?? false
           }
-          onClick={() => onPartitionClick(partition.partition_name, schema)}
+          onClick={() => onPartitionClick(partition)}
           rowCount={partition.table_rows}
           level={1}
         />
