@@ -539,6 +539,7 @@ async fn execute_mssql_stream(
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
     adapter: &crate::core::manager::UnifiedAdapter,
 ) -> std::result::Result<(), String> {
+    use crate::adapters::mssql::DirectMsgPackEncoder;
     use futures::FutureExt;
     use std::panic::AssertUnwindSafe;
 
@@ -581,7 +582,8 @@ async fn execute_mssql_stream(
     .await
     .map_err(|e| e.to_string())?;
 
-    // Execute the query on the SAME connection we got the SPID from
+    // Execute the query on the SAME connection we got the SPID from.
+    // Collect rows eagerly (tiberius limitation) then process in progressive batches.
     let query_future = async {
         let query_result = AssertUnwindSafe(async {
             let mut result = query_conn
@@ -589,39 +591,48 @@ async fn execute_mssql_stream(
                 .await
                 .map_err(|e| format!("Query failed: {}", e))?;
 
+            // Extract column metadata directly into ColumnMeta (bypassing CapabilityColumnMeta)
             let columns_opt = result
                 .columns()
                 .await
                 .map_err(|e| format!("Failed to get columns: {}", e))?;
 
-            let columns: Vec<crate::core::capabilities::CapabilityColumnMeta> = columns_opt
+            let columns: Vec<ColumnMeta> = columns_opt
                 .map(|cols| {
                     cols.iter()
-                        .map(|col| crate::core::capabilities::CapabilityColumnMeta {
+                        .map(|col| ColumnMeta {
                             name: col.name().to_string(),
                             data_type:
+                                crate::adapters::mssql::types::MssqlTypeConverter::column_type_to_cell_type(
+                                    &col.column_type(),
+                                ),
+                            db_type:
                                 crate::adapters::mssql::types::MssqlTypeConverter::column_type_to_string(
                                     &col.column_type(),
                                 ),
+                            nullable: true,
+                            primary_key: false,
+                            type_oid: None,
+                            default_value: None,
+                            comment: None,
+                            enum_values: None,
+                            type_category: None,
+                            precision: None,
+                            scale: None,
                         })
                         .collect()
                 })
                 .unwrap_or_default();
 
+            let column_count = columns.len();
+
+            // Collect all rows (tiberius doesn't support row-by-row streaming)
             let rows: Vec<tiberius::Row> = result
                 .into_first_result()
                 .await
                 .map_err(|e| format!("Failed to collect rows: {}", e))?;
 
-            let json_rows: Vec<Vec<serde_json::Value>> = rows
-                .iter()
-                .map(crate::adapters::mssql::simple_converter::SimpleConverter::row_to_json)
-                .collect();
-
-            Ok::<_, String>(crate::core::capabilities::CapabilityQueryResult {
-                columns,
-                rows: json_rows,
-            })
+            Ok::<_, String>((columns, column_count, rows))
         })
         .catch_unwind()
         .await;
@@ -635,7 +646,7 @@ async fn execute_mssql_stream(
         }
     };
 
-    let cap_result = tokio::select! {
+    let (columns, column_count, rows) = tokio::select! {
         result = query_future => result?,
         _ = wait_for_channel_close(data_channel) => {
             tracing::info!("  ⚠️  Channel closed (user cancelled MSSQL query)");
@@ -663,15 +674,141 @@ async fn execute_mssql_stream(
         }
     };
 
-    let result = capability_result_to_query_result(cap_result);
     let query_elapsed = start_time.elapsed().as_millis();
+    let total_rows = rows.len();
     tracing::info!(
         "  ⏱ MSSQL query execution: {}ms, {} rows",
         query_elapsed,
-        result.rows.len()
+        total_rows
     );
 
-    send_query_results(&result, start_time, query_elapsed, metadata_channel, data_channel)
+    // Send column metadata immediately
+    let _ = metadata_channel.send(StreamMessage::Started {
+        columns,
+        estimated_rows: Some(total_rows as i64),
+    });
+
+    // Direct encode to MessagePack with progressive batching
+    let encoder = DirectMsgPackEncoder::new(column_count);
+
+    // Progressive batch sizes: start tiny for instant feedback, scale up
+    const BATCH_SIZES: [usize; 5] = [16, 64, 256, 1024, 2048];
+
+    let mut conversion_time_ms = 0u64;
+    let mut send_time_ms = 0u64;
+    let mut send_count = 0usize;
+    let mut offset = 0usize;
+    let mut batch_index = 0usize;
+
+    while offset < total_rows {
+        let batch_size = BATCH_SIZES[batch_index.min(BATCH_SIZES.len() - 1)];
+        let end = (offset + batch_size).min(total_rows);
+        let batch = &rows[offset..end];
+
+        // Direct encode to MessagePack (no JSON intermediate!)
+        let convert_start = std::time::Instant::now();
+        let rows_msgpack = encoder.encode_batch(batch).unwrap_or_else(|e| {
+            tracing::error!(
+                "  ❌ MSSQL batch encode failed (rows {}-{}): {}",
+                offset,
+                end,
+                e
+            );
+            Vec::new()
+        });
+        conversion_time_ms += convert_start.elapsed().as_millis() as u64;
+
+        // Send raw binary via Response (ZERO serialization overhead!)
+        let send_start = std::time::Instant::now();
+        let send_result = data_channel.send(tauri::ipc::Response::new(rows_msgpack));
+        send_time_ms += send_start.elapsed().as_millis() as u64;
+        send_count += 1;
+
+        // Check if channel closed (user cancelled) - stop streaming early
+        if send_result.is_err() {
+            tracing::info!("  ⚠️  Channel closed (user cancelled), stopping stream early");
+
+            if spid > 0 {
+                tracing::info!("  🛑 Sending KILL {} to MSSQL", spid);
+                let kill_pool = pool.clone();
+                tokio::spawn(async move {
+                    match kill_pool.get().await {
+                        Ok(mut kill_conn) => {
+                            let kill_sql = format!("KILL {}", spid);
+                            match kill_conn.simple_query(&kill_sql).await {
+                                Ok(_) => tracing::info!("  ✅ Successfully killed MSSQL query"),
+                                Err(e) => {
+                                    tracing::warn!("  ⚠️  Failed to kill MSSQL query: {}", e)
+                                }
+                            }
+                        }
+                        Err(e) => tracing::warn!("  ⚠️  Failed to get kill connection: {}", e),
+                    }
+                });
+            }
+
+            let _ = metadata_channel.send(StreamMessage::Interrupted {
+                resumable: false,
+                message: "Query cancelled by user".to_string(),
+            });
+            return Err("Query cancelled by user".to_string());
+        }
+
+        offset = end;
+        batch_index += 1;
+    }
+
+    let total_time = start_time.elapsed().as_millis() as u64;
+    let network_time_ms = total_time.saturating_sub(conversion_time_ms);
+
+    tracing::info!("==========================================");
+    tracing::info!("MSSQL STREAMING COMPLETE: {} rows", total_rows);
+    tracing::info!("  Total time: {}ms", total_time);
+    if total_time > 0 {
+        tracing::info!(
+            "  Rows/sec: {:.0}",
+            (total_rows as f64 / total_time as f64) * 1000.0
+        );
+    }
+    tracing::info!("  ┌─ Performance Breakdown:");
+    tracing::info!(
+        "  │  Network/DB: {}ms ({:.1}%)",
+        network_time_ms,
+        if total_time > 0 {
+            (network_time_ms as f64 / total_time as f64) * 100.0
+        } else {
+            0.0
+        }
+    );
+    tracing::info!(
+        "  │  Conversion+Serialization: {}ms ({:.1}%)",
+        conversion_time_ms,
+        if total_time > 0 {
+            (conversion_time_ms as f64 / total_time as f64) * 100.0
+        } else {
+            0.0
+        }
+    );
+    tracing::info!(
+        "  │  IPC: {}ms queue, {} batches | Format: direct msgpack",
+        send_time_ms,
+        send_count
+    );
+    tracing::info!("  └─ Batch sizes: 16→64→256→1024→2048 (progressive)");
+    tracing::info!("==========================================");
+
+    let _ = metadata_channel.send(StreamMessage::Success {
+        total_rows,
+        execution_time_ms: total_time,
+        cursor_setup_ms: None,
+        total_streaming_ms: Some(total_time),
+        fetch_count: Some(send_count as u64),
+        network_ms: Some(network_time_ms),
+        conversion_ms: Some(conversion_time_ms),
+        ipc_send_ms: Some(send_time_ms),
+    });
+
+    Ok(())
 }
 
 /// SQLite-specific query execution using the adapter's query() method
