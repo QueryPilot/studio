@@ -1,24 +1,10 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { IconTrash, IconKey } from "@tabler/icons-react";
-import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/cn";
-import type { GeometryCustomCell, GeometryType } from "./types";
-import {
-  parseGeometry,
-  formatWkt,
-  GEOMETRY_TYPES,
-  COMMON_SRIDS,
-  getExampleCoordinates,
-} from "./utils";
+import type { GeometryCustomCell } from "./types";
+import { parseGeometry } from "./utils";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { CodeEditor } from "@/components/CodeEditor";
 
 interface GeometryCellEditorProps {
   value: GeometryCustomCell;
@@ -32,61 +18,39 @@ export const GeometryCellEditor: React.FC<GeometryCellEditorProps> = ({
   value,
   onFinishedEditing,
 }) => {
-  const initialValue = useMemo(
-    () => value.data.value ?? "",
-    [value.data.value],
-  );
-  const parsedInitial = useMemo(
-    () => parseGeometry(initialValue),
-    [initialValue],
-  );
-
-  const [geometryType, setGeometryType] = useState<GeometryType | null>(
-    parsedInitial.type,
-  );
-  const [srid, setSrid] = useState<number | null>(parsedInitial.srid);
-  const [coordinates, setCoordinates] = useState(parsedInitial.coordinates);
-  const [rawMode, setRawMode] = useState(false);
-  const [rawValue, setRawValue] = useState(initialValue);
+  const initialValue = value.data.value ?? "";
+  const [text, setText] = useState(initialValue);
+  const [isValid, setIsValid] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
 
   const finishedRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 400, height: 300 });
 
   const nullable = Boolean(value.data.nullable);
   const { columnName, isPrimaryKey, dbType } = value.data;
 
-  // Validation
-  const validation = useMemo(() => {
-    if (rawMode) {
-      return parseGeometry(rawValue);
+  const validate = useCallback((wkt: string) => {
+    if (!wkt.trim()) {
+      setIsValid(true);
+      setErrorMessage("");
+      return true;
     }
-    if (!geometryType) {
-      return {
-        isValid: true,
-        type: null,
-        srid: null,
-        coordinates: "",
-        error: undefined,
-      };
-    }
-    return parseGeometry(formatWkt(geometryType, coordinates, srid));
-  }, [rawMode, rawValue, geometryType, coordinates, srid]);
+    const parsed = parseGeometry(wkt);
+    setIsValid(parsed.isValid);
+    setErrorMessage(parsed.error ?? "");
+    return parsed.isValid;
+  }, []);
 
-  const getCurrentValue = useCallback(() => {
-    if (rawMode) {
-      return rawValue.trim() || null;
-    }
-    if (!geometryType) {
-      return null;
-    }
-    return formatWkt(geometryType, coordinates.trim(), srid);
-  }, [rawMode, rawValue, geometryType, coordinates, srid]);
+  const handleChange = (newText: string) => {
+    setText(newText);
+    validate(newText);
+  };
 
   const commit = useCallback(
     (nextValue: string | null) => {
       if (finishedRef.current) return;
       finishedRef.current = true;
-
-      const copyData = nextValue == null ? "NULL" : nextValue;
 
       const newCell: GeometryCustomCell = {
         kind: value.kind,
@@ -94,7 +58,7 @@ export const GeometryCellEditor: React.FC<GeometryCellEditorProps> = ({
           ...value.data,
           value: nextValue,
         },
-        copyData,
+        copyData: nextValue ?? "NULL",
         allowOverlay: value.allowOverlay,
         readonly: value.readonly,
       };
@@ -104,32 +68,39 @@ export const GeometryCellEditor: React.FC<GeometryCellEditorProps> = ({
     [onFinishedEditing, value],
   );
 
-  const commitCurrentValue = useCallback(() => {
-    const currentValue = getCurrentValue();
-    const hasChanged = currentValue !== initialValue;
+  const commitCurrentText = useCallback(() => {
+    const trimmed = text.trim();
+    const currentValue = trimmed || null;
 
+    const hasChanged = currentValue !== (initialValue || null);
     if (!hasChanged) {
       finishedRef.current = true;
       onFinishedEditing(undefined);
       return;
     }
 
-    if (!validation.isValid && currentValue) {
-      // Don't commit invalid values
-      return;
+    if (!trimmed && nullable) {
+      commit(null);
+    } else if (!trimmed && !nullable) {
+      // Can't set non-nullable column to NULL, discard the edit
+      finishedRef.current = true;
+      onFinishedEditing(undefined);
+    } else if (isValid) {
+      commit(currentValue);
+    } else {
+      finishedRef.current = true;
+      onFinishedEditing(undefined);
     }
+  }, [commit, isValid, text, initialValue, nullable, onFinishedEditing]);
 
-    commit(currentValue);
-  }, [
-    commit,
-    getCurrentValue,
-    initialValue,
-    validation.isValid,
-    onFinishedEditing,
-  ]);
+  const handleEnter = useCallback(() => {
+    if (finishedRef.current) return false;
+    commitCurrentText();
+    return true;
+  }, [commitCurrentText]);
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (finishedRef.current) return;
 
       if (e.key === "Escape") {
@@ -137,54 +108,74 @@ export const GeometryCellEditor: React.FC<GeometryCellEditorProps> = ({
         e.stopPropagation();
         finishedRef.current = true;
         onFinishedEditing(undefined);
-      } else if (e.key === "Enter" && e.ctrlKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        commitCurrentValue();
       }
-    },
-    [commitCurrentValue, onFinishedEditing],
-  );
+    };
 
-  useCommitOnUnmount(finishedRef, commitCurrentValue);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onFinishedEditing]);
 
-  const handleClear = () => {
-    if (!nullable) return;
-    commit(null);
-  };
+  useCommitOnUnmount(finishedRef, commitCurrentText);
 
-  const handleTypeChange = (type: string) => {
-    const newType = type as GeometryType;
-    setGeometryType(newType);
+  // Resize handling
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
 
-    // Pre-fill with example if coordinates are empty
-    if (!coordinates.trim()) {
-      setCoordinates(getExampleCoordinates(newType));
-    }
-  };
+    let isResizing = false;
+    let startX = 0;
+    let startY = 0;
+    let startWidth = 0;
+    let startHeight = 0;
 
-  const handleSridChange = (sridStr: string) => {
-    setSrid(sridStr === "none" ? null : parseInt(sridStr, 10));
-  };
+    const handleMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.classList.contains("resize-handle")) {
+        isResizing = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        startWidth = container.offsetWidth;
+        startHeight = container.offsetHeight;
+        e.preventDefault();
+      }
+    };
 
-  const toggleRawMode = () => {
-    if (rawMode) {
-      // Switching to structured mode
-      const parsed = parseGeometry(rawValue);
-      setGeometryType(parsed.type);
-      setSrid(parsed.srid);
-      setCoordinates(parsed.coordinates);
-    } else {
-      // Switching to raw mode
-      setRawValue(getCurrentValue() || "");
-    }
-    setRawMode(!rawMode);
-  };
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      const newWidth = Math.max(300, Math.min(800, startWidth + (e.clientX - startX)));
+      const newHeight = Math.max(200, Math.min(500, startHeight + (e.clientY - startY)));
+      setSize({ width: newWidth, height: newHeight });
+    };
+
+    const handleMouseUp = () => {
+      isResizing = false;
+    };
+
+    container.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      container.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, []);
 
   return (
-    <div className="w-full flex flex-col relative click-outside-ignore z-50 min-w-[400px] gdg-editor-shell">
+    <div
+      ref={containerRef}
+      className="flex flex-col gdg-editor-shell click-outside-ignore"
+      style={{
+        width: `${size.width}px`,
+        height: `${size.height}px`,
+        position: "relative",
+      }}
+    >
       {/* Header with column info */}
-      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
+      <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (
           <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
         )}
@@ -198,162 +189,50 @@ export const GeometryCellEditor: React.FC<GeometryCellEditorProps> = ({
         )}
       </div>
 
-      {/* Mode toggle */}
-      <div className="px-2 py-1 border-b border-border/30 flex items-center gap-2">
-        <Button
-          variant={rawMode ? "ghost" : "secondary"}
-          size="sm"
-          className="h-5 text-[10px] px-2"
-          onClick={() => !rawMode && toggleRawMode()}
-        >
-          Structured
-        </Button>
-        <Button
-          variant={rawMode ? "secondary" : "ghost"}
-          size="sm"
-          className="h-5 text-[10px] px-2"
-          onClick={() => rawMode && toggleRawMode()}
-        >
-          Raw WKT
-        </Button>
-        <div className="flex-1" />
-        {validation.isValid ? (
-          <span className="text-[9px] text-green-600">✓ Valid</span>
-        ) : (
-          <span className="text-[9px] text-destructive">✗ Invalid</span>
-        )}
+      <div className="flex-1 overflow-hidden">
+        <CodeEditor
+          value={text}
+          onChange={handleChange}
+          onEnter={handleEnter}
+          language="text"
+          autoFocus={true}
+          lineNumbers={false}
+          height="100%"
+          placeholder="SRID=4326;POINT(0 0)"
+        />
       </div>
 
-      {rawMode ? (
-        /* Raw WKT mode */
-        <div className="px-2 py-1.5">
-          <textarea
-            className={cn(
-              "w-full h-32 bg-transparent text-xs font-mono outline-none p-2 border rounded resize-none",
-              !validation.isValid ? "border-destructive" : "border-border/50",
-            )}
-            value={rawValue}
-            onChange={(e) => {
-              setRawValue(e.target.value);
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder="SRID=4326;POINT(0 0)"
-            autoFocus
-          />
+      <div className="flex items-center justify-between text-xs text-muted-foreground px-2 py-1 shrink-0 sticky bottom-0 bg-popover">
+        <div className="flex-1">
+          {!isValid && errorMessage ? (
+            <span className="text-destructive">{errorMessage}</span>
+          ) : (
+            "Enter to save, Shift+Enter for new line, Esc to cancel"
+          )}
         </div>
-      ) : (
-        /* Structured mode */
-        <>
-          {/* Type and SRID selectors */}
-          <div className="px-2 py-1.5 border-b border-border/30 flex items-center gap-2">
-            <div className="flex-1">
-              <Label className="text-[9px] text-muted-foreground">Type</Label>
-              <Select
-                value={geometryType || ""}
-                onValueChange={(value) => {
-                  if (value) {
-                    handleTypeChange(value);
-                  }
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {GEOMETRY_TYPES.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {type}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="w-32">
-              <Label className="text-[9px] text-muted-foreground">SRID</Label>
-              <Select
-                value={srid?.toString() || "none"}
-                onValueChange={(value) => {
-                  if (value) {
-                    handleSridChange(value);
-                  }
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No SRID</SelectItem>
-                  {COMMON_SRIDS.map(({ value: sridValue, label }) => (
-                    <SelectItem key={sridValue} value={sridValue.toString()}>
-                      {sridValue} - {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Coordinates input */}
-          <div className="px-2 py-1.5">
-            <Label className="text-[9px] text-muted-foreground mb-1 block">
-              Coordinates
-            </Label>
-            <textarea
-              className={cn(
-                "w-full h-20 bg-transparent text-xs font-mono outline-none p-2 border rounded resize-none",
-                !validation.isValid ? "border-destructive" : "border-border/50",
-              )}
-              value={coordinates}
-              onChange={(e) => {
-                setCoordinates(e.target.value);
-              }}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                geometryType
-                  ? getExampleCoordinates(geometryType)
-                  : "Select a geometry type first"
-              }
-              disabled={!geometryType}
-              autoFocus
-            />
-          </div>
-        </>
-      )}
-
-      {/* Preview */}
-      {getCurrentValue() && (
-        <div className="px-2 py-1 border-t border-border/30">
-          <Label className="text-[9px] text-muted-foreground">Output:</Label>
-          <code className="text-[9px] font-mono block break-all mt-0.5">
-            {getCurrentValue()}
-          </code>
-        </div>
-      )}
-
-      {/* Validation error */}
-      {!validation.isValid && validation.error && (
-        <div className="px-2 py-1 text-[10px] text-destructive bg-destructive/10">
-          {validation.error}
-        </div>
-      )}
-
-      {/* Footer */}
-      <div className="px-2 py-1 flex items-center gap-2 border-t border-border/30">
-        <span className="text-[9px] text-muted-foreground">
-          Ctrl+Enter to save, Esc to cancel
-        </span>
-        <div className="flex-1" />
         {nullable && (
           <Button
             variant="ghost"
-            className="h-5 w-5 p-0"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            onClick={() => { commit(null); }}
             title="Clear (NULL)"
-            onClick={handleClear}
           >
-            <IconTrash className="h-3 w-3" />
+            <IconTrash className="h-3 w-3 mr-1" />
+            Clear
           </Button>
         )}
       </div>
+
+      {/* Resize handle */}
+      <div
+        className="resize-handle absolute bottom-0 right-0 w-4 h-4 cursor-se-resize"
+        style={{
+          background:
+            "linear-gradient(135deg, transparent 50%, currentColor 50%)",
+          opacity: 0.3,
+        }}
+      />
     </div>
   );
 };

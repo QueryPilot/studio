@@ -37,7 +37,7 @@ import {
   IconShieldCheck,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
-import ReactDiffViewer from "react-diff-viewer-continued";
+import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import { useTheme } from "next-themes";
 import { writeClipboardText } from "@/lib/clipboard";
 
@@ -1170,7 +1170,12 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
       };
       const values = payload.values || {};
 
-      const newRow = Object.entries(values)
+      const entries = Object.entries(values);
+      if (entries.length === 0) {
+        return { old: "", new: "(new empty document)" };
+      }
+
+      const newRow = entries
         .map(([key, value]) => {
           const formatted = formatValue(value);
           // For long INSERT values, truncate in the middle
@@ -1349,6 +1354,7 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
             splitView={true}
             hideLineNumbers={true}
             showDiffOnly={false}
+            compareMethod={DiffMethod.WORDS}
             useDarkTheme={resolvedTheme === "dark"}
             styles={{
               variables: {

@@ -36,7 +36,7 @@ import { getDatabaseLogo } from "@/utils/databaseLogos";
 import { buildConnectionUri } from "@/utils/connectionParser";
 import { useSchemaData } from "@/hooks/useSchemaData";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
-import { isMySQLCompatible, getParadigm, type SafeMode } from "@/types/connection";
+import { isMySQLCompatible, getParadigm, DbType, type SafeMode } from "@/types/connection";
 import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import type { CollectionInfo } from "@/adapters/types/mongodb";
 import type { OpenConnection } from "@/types/workspace";
@@ -55,6 +55,7 @@ import {
   openTableDesigner,
   openCollectionDesigner,
   openQueryWithTemplate,
+  openQueryWithSql,
   openErdView,
 } from "@/utils/workbench/openers";
 import {
@@ -1338,16 +1339,33 @@ export const ConnectionSection = forwardRef<
                             schema={table.schema}
                             tableName={table.name}
                             dbType={dbType}
-                            onPartitionClick={(
-                              partitionName,
-                              partitionSchema,
-                            ) => {
-                              const partitionTable: TableMeta = {
-                                schema: partitionSchema,
-                                name: partitionName,
-                                kind: "Table",
-                              };
-                              handleTableClick(partitionTable, "data");
+                            onPartitionClick={(partition) => {
+                              if (
+                                dbType === DbType.SQLServer &&
+                                partition.partition_function_name &&
+                                partition.partition_expression
+                              ) {
+                                // MSSQL partitions are not separate tables - query parent table filtered by partition number
+                                const qi = (n: string) =>
+                                  `[${n.replace(/]/g, "]]")}]`;
+                                const tableRef = `${qi(partition.schema)}.${qi(partition.table_name)}`;
+                                const sql = `SELECT TOP 1000 * FROM ${tableRef}\nWHERE $PARTITION.${qi(partition.partition_function_name)}(${qi(partition.partition_expression)}) = ${partition.partition_ordinal_position}`;
+                                openQueryWithSql({
+                                  connectionId,
+                                  database,
+                                  schema: partition.schema,
+                                  sql,
+                                  title: `${partition.table_name} - ${partition.partition_name}`,
+                                });
+                              } else {
+                                // PostgreSQL partitions are actual child tables
+                                const partitionTable: TableMeta = {
+                                  schema: partition.schema,
+                                  name: partition.partition_name,
+                                  kind: "Table",
+                                };
+                                handleTableClick(partitionTable, "data");
+                              }
                             }}
                             isPartitionActive={(
                               partitionName,

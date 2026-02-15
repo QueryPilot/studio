@@ -596,14 +596,6 @@ export function ConnectionForm() {
   };
 
   const syncWorkspaceMemberships = async (connectionId: string) => {
-    // Update connection metadata with workspace_ids
-    const conn = await vaultStorage.getConnection(connectionId);
-    if (conn) {
-      conn.metadata.workspace_ids = selectedWorkspaceIds;
-      await vaultStorage.updateMetadata(connectionId, conn.metadata);
-    }
-
-    // Keep workspace.connectionIds in sync (for backward compatibility)
     const currentWorkspaces = getWorkspacesForConnection(connectionId);
     const currentWorkspaceIds = new Set(currentWorkspaces.map((ws) => ws.id));
     const selectedIds = new Set(selectedWorkspaceIds);

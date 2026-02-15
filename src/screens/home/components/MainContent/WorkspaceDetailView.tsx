@@ -33,7 +33,6 @@ export function WorkspaceDetailView() {
 
   const connections = useConnectionStore((s) => s.connections);
   const deleteConnection = useConnectionStore((s) => s.deleteConnection);
-  const fetchConnections = useConnectionStore((s) => s.fetchConnections);
 
   const selectedWorkspaceId = useHomeScreenStore((s) => s.selectedWorkspaceId);
   const setContentMode = useHomeScreenStore((s) => s.setContentMode);
@@ -224,8 +223,6 @@ export function WorkspaceDetailView() {
                           await updateWorkspace(workspace.id, {
                             connectionIds: newConnectionIds,
                           });
-                          // Refresh connection store so metadata.workspace_ids is in sync
-                          await fetchConnections();
                           toast.success("Removed connection from workspace");
                         } catch (error) {
                           toast.error("Failed to remove connection", {

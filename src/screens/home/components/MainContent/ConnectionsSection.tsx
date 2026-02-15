@@ -39,7 +39,6 @@ import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { ConnectionCard } from "../shared/ConnectionCard";
 import { ConnectionRow } from "../shared/ConnectionRow";
 import { windowManager } from "@/services/windowManager";
-import { vaultStorage } from "@/services/vaultStorage";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { StoredConnection } from "@/types/connection";
@@ -350,7 +349,6 @@ function DragOverlayContent({
 
 export function ConnectionsSection() {
   const connections = useConnectionStore((s) => s.connections);
-  const fetchConnections = useConnectionStore((s) => s.fetchConnections);
   const deleteConnection = useConnectionStore((s) => s.deleteConnection);
   const activeEnvFilters = useHomeScreenStore((s) => s.activeEnvFilters);
   const openWorkspaceForm = useHomeScreenStore((s) => s.openWorkspaceForm);
@@ -502,37 +500,26 @@ export function ConnectionsSection() {
     if (!over) return;
 
     const connectionId = active.id as string;
-    const connection = connectionMap.get(connectionId);
-    if (!connection) return;
+    if (!connectionMap.has(connectionId)) return;
 
     // Extract target workspace ID from droppable
     const targetWorkspaceId = over.data.current?.workspaceId as string | null;
 
-    // Get current workspace IDs for this connection
-    const currentWorkspaceIds = connection.metadata.workspace_ids || [];
+    // Derive source workspaces from savedWorkspaces (single source of truth)
+    // A connection may appear in multiple workspaces
+    const sourceWorkspaces = savedWorkspaces.filter(ws =>
+      ws.connectionIds.includes(connectionId),
+    );
 
-    // Find source workspace (first one in the list, or null for uncategorized)
-    const sourceWorkspaceId = currentWorkspaceIds[0] ?? null;
-
-    // If dropped on the same workspace, do nothing
-    if (targetWorkspaceId === sourceWorkspaceId) return;
+    // If only in the target workspace already (or uncategorized→uncategorized), do nothing
+    if (sourceWorkspaces.length === 1 && sourceWorkspaces[0]?.id === targetWorkspaceId) return;
+    if (sourceWorkspaces.length === 0 && targetWorkspaceId === null) return;
 
     try {
-      // Update the connection's workspace_ids
-      const newWorkspaceIds =
-        targetWorkspaceId === null ? [] : [targetWorkspaceId];
-
-      const conn = await vaultStorage.getConnection(connectionId);
-      if (conn) {
-        conn.metadata.workspace_ids = newWorkspaceIds;
-        await vaultStorage.updateMetadata(connectionId, conn.metadata);
-      }
-
-      // Keep workspace.connectionIds in sync (bidirectional)
-      // Remove from all previous workspaces
-      for (const wsId of currentWorkspaceIds) {
-        if (wsId !== targetWorkspaceId) {
-          await removeConnectionFromSavedWorkspace(wsId, connectionId);
+      // Remove from all source workspaces (except target if already there)
+      for (const ws of sourceWorkspaces) {
+        if (ws.id !== targetWorkspaceId) {
+          await removeConnectionFromSavedWorkspace(ws.id, connectionId);
         }
       }
       // Add to target workspace
@@ -540,8 +527,6 @@ export function ConnectionsSection() {
         await addConnectionToSavedWorkspace(targetWorkspaceId, connectionId);
       }
 
-      // Refresh connections to update UI
-      await fetchConnections();
       await loadSavedWorkspaces();
 
       const targetName =

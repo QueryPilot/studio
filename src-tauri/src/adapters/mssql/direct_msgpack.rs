@@ -130,6 +130,16 @@ impl DirectMsgPackEncoder {
             encode::write_str(buf, &s).map_err(Self::map_encode_err)?;
             return Ok(());
         }
+        // XML
+        if let Some(v) = row
+            .try_get::<&tiberius::xml::XmlData, _>(idx)
+            .ok()
+            .flatten()
+        {
+            let s = v.to_string();
+            encode::write_str(buf, &s).map_err(Self::map_encode_err)?;
+            return Ok(());
+        }
 
         // Fallback to null
         encode::write_nil(buf).map_err(Self::map_io_err)?;

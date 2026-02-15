@@ -31,21 +31,24 @@ export function useColumnSorting({
   const toggleColumnSort = useGridPreferencesStore((state) => state.toggleColumnSort);
   const clearSortAction = useGridPreferencesStore((state) => state.clearSort);
 
+
   // Initialize per-tab sort from shared key when the tab has no sort state yet
-  const sharedSortColumns = useGridPreferencesStore(
-    (state) => writeThroughGridId
-      ? state.preferences[writeThroughGridId]?.sortColumns ?? EMPTY_SORT_COLUMNS
-      : EMPTY_SORT_COLUMNS
+  const sharedSortSelector = useCallback(
+    (state: { preferences: Record<string, { sortColumns?: SortColumn[] } | undefined> }) =>
+      writeThroughGridId && writeThroughGridId !== gridId
+        ? state.preferences[writeThroughGridId]?.sortColumns ?? EMPTY_SORT_COLUMNS
+        : EMPTY_SORT_COLUMNS,
+    [writeThroughGridId, gridId]
   );
+  const sharedSortColumns = useGridPreferencesStore(sharedSortSelector);
 
   useEffect(() => {
-    if (!writeThroughGridId || writeThroughGridId === gridId) return;
+    if (sharedSortColumns === EMPTY_SORT_COLUMNS) return; // No write-through or nothing to copy
     if (sortColumns.length > 0) return; // Already has sort state
-    if (sharedSortColumns.length === 0) return; // Nothing to copy
     useGridPreferencesStore.getState().upsert(gridId, (draft) => {
       draft.sortColumns = [...sharedSortColumns];
     });
-  }, [gridId, writeThroughGridId, sortColumns.length, sharedSortColumns]);
+  }, [gridId, sortColumns.length, sharedSortColumns]);
 
   const columnMap = useMemo(() => {
     const map = new Map<string, GridColumnV2>();

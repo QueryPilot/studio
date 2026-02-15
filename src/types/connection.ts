@@ -147,7 +147,6 @@ export interface ConnectionMetadata {
   use_count: number;
   tags: string[];
   is_favorite: boolean;
-  workspace_ids?: string[]; // Bidirectional link to workspaces containing this connection
 }
 
 export interface GroupTag {
