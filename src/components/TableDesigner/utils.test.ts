@@ -3,6 +3,7 @@ import {
   getDesignerModifiedFields,
   generateIndexName,
   buildDesignerIndexRows,
+  syncIndexCommandsWithColumns,
   type DesignerGridRow,
 } from "./utils";
 import type { ColumnDefinitionInput, CrudCommand } from "@/types/crud";
@@ -211,5 +212,113 @@ describe("buildDesignerIndexRows", () => {
     const cmd = makeIndexCreateCommand({ where: undefined });
     const rows = buildDesignerIndexRows([cmd]);
     expect(rows[0]!.condition).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// syncIndexCommandsWithColumns
+// ---------------------------------------------------------------------------
+describe("syncIndexCommandsWithColumns", () => {
+  const makeIndexCmd = (
+    name: string,
+    columns: string[],
+    tempId: string,
+  ): CrudCommand => ({
+    id: `cmd-${tempId}`,
+    type: "index.create",
+    target: {
+      connectionId: "c1",
+      database: "db",
+      schema: "public",
+      table: "t",
+    },
+    payload: {
+      definition: { name, columns, unique: false, using: "btree" },
+      tempId,
+    },
+    metadata: { timestamp: "", description: "", tags: [] },
+    state: "staged",
+  });
+
+  it("returns null when no changes needed", () => {
+    const cmds = [makeIndexCmd("idx_t_a_b", ["a", "b"], "1")];
+    const result = syncIndexCommandsWithColumns(
+      cmds,
+      ["a", "b", "c"],
+      new Map(),
+    );
+    expect(result).toBeNull();
+  });
+
+  it("renames columns in index definitions", () => {
+    const cmds = [makeIndexCmd("idx_t_a_b", ["a", "b"], "1")];
+    const renames = new Map([["a", "alpha"]]);
+    const result = syncIndexCommandsWithColumns(
+      cmds,
+      ["alpha", "b", "c"],
+      renames,
+    );
+    expect(result).not.toBeNull();
+    expect(result).toHaveLength(1);
+    const payload = result![0]!.payload as { definition: { columns: string[] } };
+    expect(payload.definition.columns).toEqual(["alpha", "b"]);
+  });
+
+  it("removes columns no longer in the list", () => {
+    const cmds = [makeIndexCmd("idx_t_a_b", ["a", "b"], "1")];
+    // "b" has been deleted, only "a" and "c" remain
+    const result = syncIndexCommandsWithColumns(
+      cmds,
+      ["a", "c"],
+      new Map(),
+    );
+    expect(result).not.toBeNull();
+    expect(result).toHaveLength(1);
+    const payload = result![0]!.payload as { definition: { columns: string[] } };
+    expect(payload.definition.columns).toEqual(["a"]);
+  });
+
+  it("excludes commands that lose all columns", () => {
+    const cmds = [makeIndexCmd("idx_t_x", ["x"], "1")];
+    // "x" is gone, only "a" remains
+    const result = syncIndexCommandsWithColumns(
+      cmds,
+      ["a"],
+      new Map(),
+    );
+    expect(result).not.toBeNull();
+    expect(result).toHaveLength(0);
+  });
+
+  it("handles multiple commands — some changed, some not, some removed", () => {
+    const cmds = [
+      makeIndexCmd("idx_unchanged", ["a", "b"], "1"),
+      makeIndexCmd("idx_renamed", ["c", "d"], "2"),
+      makeIndexCmd("idx_removed", ["x"], "3"),
+    ];
+    const renames = new Map([["c", "charlie"]]);
+    // Available columns: a, b, charlie, d (no "x")
+    const result = syncIndexCommandsWithColumns(
+      cmds,
+      ["a", "b", "charlie", "d"],
+      renames,
+    );
+    expect(result).not.toBeNull();
+    // idx_unchanged stays (no changes), idx_renamed changed, idx_removed excluded
+    expect(result).toHaveLength(2);
+
+    // First command unchanged (same object reference)
+    expect(result![0]!.id).toBe("cmd-1");
+    const payload1 = result![0]!.payload as {
+      definition: { columns: string[] };
+    };
+    expect(payload1.definition.columns).toEqual(["a", "b"]);
+
+    // Second command renamed
+    expect(result![1]!.id).toBe("cmd-2");
+    const payload2 = result![1]!.payload as {
+      definition: { columns: string[] };
+    };
+    expect(payload2.definition.columns).toEqual(["charlie", "d"]);
   });
 });

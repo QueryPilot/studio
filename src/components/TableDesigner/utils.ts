@@ -1,4 +1,8 @@
-import type { ColumnDefinitionInput, CrudCommand, IndexCreatePayload } from "@/types/crud";
+import type {
+  ColumnDefinitionInput,
+  CrudCommand,
+  IndexCreatePayload,
+} from "@/types/crud";
 import type { IndexGridRow } from "@/components/TableIndexes/types";
 
 export interface DesignerGridRow {
@@ -122,4 +126,65 @@ export function buildDesignerIndexRows(
         _isPending: true,
       };
     });
+}
+
+// ---------------------------------------------------------------------------
+// Column ↔ Index sync
+// ---------------------------------------------------------------------------
+
+/**
+ * Sync index commands with current column state.
+ * Returns updated commands array, or null if no changes needed.
+ * Commands whose columns are all removed are excluded from the result
+ * (caller should unstage them).
+ */
+export function syncIndexCommandsWithColumns(
+  indexCommands: CrudCommand[],
+  currentColumnNames: string[],
+  renamedColumns: Map<string, string>,
+): CrudCommand[] | null {
+  const columnSet = new Set(currentColumnNames);
+  let anyChanged = false;
+
+  const result: CrudCommand[] = [];
+
+  for (const cmd of indexCommands) {
+    const payload = cmd.payload as IndexCreatePayload;
+    const originalColumns = payload.definition.columns;
+
+    // Apply renames, then filter to existing columns
+    const updatedColumns = originalColumns
+      .map((col) => renamedColumns.get(col) ?? col)
+      .filter((col) => columnSet.has(col));
+
+    // If all columns are gone, exclude this command (mark as changed)
+    if (updatedColumns.length === 0) {
+      anyChanged = true;
+      continue;
+    }
+
+    // Check if columns actually changed
+    const columnsChanged =
+      updatedColumns.length !== originalColumns.length ||
+      updatedColumns.some((col, i) => col !== originalColumns[i]);
+
+    if (columnsChanged) {
+      anyChanged = true;
+      result.push({
+        ...cmd,
+        payload: {
+          ...payload,
+          definition: {
+            ...payload.definition,
+            columns: updatedColumns,
+          },
+        },
+      });
+    } else {
+      // Unchanged — keep the original reference
+      result.push(cmd);
+    }
+  }
+
+  return anyChanged ? result : null;
 }
