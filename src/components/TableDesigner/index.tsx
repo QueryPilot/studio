@@ -34,6 +34,8 @@ import type {
   TableCreatePayload,
 } from "@/types/crud";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { IndexDesigner } from "./IndexDesigner";
 import { toast } from "sonner";
 import { useForeignKeyTargets } from "@/hooks/useForeignKeyTargets";
 import { CrudCommandFactory } from "@/services/crudCommandFactory";
@@ -485,6 +487,29 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       };
     });
   }, [columns, foreignKeyByColumnName, foreignKeyByIndex, primaryKeySet]);
+
+  // Column names for IndexDesigner's column picker
+  const availableColumnNames = useMemo(
+    () => columns.filter((c) => c.name.trim()).map((c) => c.name),
+    [columns],
+  );
+
+  // FK column names for auto-suggest
+  const foreignKeyColumnNames = useMemo(() => {
+    const fkCols: string[] = [];
+    fkCommands.forEach((cmd) => {
+      const payload = cmd.payload as ForeignKeyAddPayload;
+      const colName = payload.definition?.columns?.[0];
+      if (colName) fkCols.push(colName);
+    });
+    return fkCols;
+  }, [fkCommands]);
+
+  // Count index commands for tab badge
+  const indexCommandCount = useMemo(
+    () => designerCommands.filter((cmd) => cmd.type === "index.create").length,
+    [designerCommands],
+  );
 
   const fkCommandByIndex = useMemo(() => {
     const map = new Map<number, CrudCommand>();
@@ -1275,27 +1300,50 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
         />
       </div>
 
-      {/* Columns Editor */}
-      <div className="flex-1 min-h-0">
-        <DataGridBase
-          columns={sizedColumns}
-          rowCount={gridRows.length}
-          getCellContent={getCellContent}
-          onCellEdited={handleCellEdited}
-          customRenderers={customRenderers}
-          onColumnResize={handleColumnResize}
-          onColumnResizeEnd={handleColumnResizeEnd}
-          trailingRowOptions={{
-            sticky: false,
-            tint: false,
-          }}
-          onRowAppended={handleRowAppended}
-          smoothScrollX
-          smoothScrollY
-          rowSelect="none"
-          columnSelect="none"
-        />
-      </div>
+      {/* Tabbed Content */}
+      <Tabs defaultValue="columns" className="flex flex-col flex-1 min-h-0">
+        <TabsList className="mx-0.5 w-fit">
+          <TabsTrigger value="columns">Columns</TabsTrigger>
+          <TabsTrigger value="indexes">
+            Indexes{indexCommandCount > 0 ? ` (${indexCommandCount})` : ""}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="columns" className="flex-1 min-h-0 mt-0" keepMounted>
+          <DataGridBase
+            columns={sizedColumns}
+            rowCount={gridRows.length}
+            getCellContent={getCellContent}
+            onCellEdited={handleCellEdited}
+            customRenderers={customRenderers}
+            onColumnResize={handleColumnResize}
+            onColumnResizeEnd={handleColumnResizeEnd}
+            trailingRowOptions={{
+              sticky: false,
+              tint: false,
+            }}
+            onRowAppended={handleRowAppended}
+            smoothScrollX
+            smoothScrollY
+            rowSelect="none"
+            columnSelect="none"
+          />
+        </TabsContent>
+
+        <TabsContent value="indexes" className="flex-1 min-h-0 mt-0">
+          <IndexDesigner
+            panelId={panelId}
+            tabId={tabId}
+            connectionId={connectionId}
+            database={database}
+            schema={schema}
+            availableColumns={availableColumnNames}
+            tableName={effectiveTableName}
+            foreignKeyColumns={foreignKeyColumnNames}
+            designerTag={designerTag}
+          />
+        </TabsContent>
+      </Tabs>
 
       {/* Footer Actions */}
       <div className="flex-none p-3 border-t flex justify-end gap-2">
