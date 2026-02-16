@@ -222,22 +222,26 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
           // MongoDB collections and Redis databases use inline addTab
           const s = useWorkbenchStore.getState();
           if (sidebarData.objectType === "mongo-collection") {
-            const tabId = `mongo-${sidebarData.database}-${sidebarData.name}`;
+            const objectKey = `mongo-${sidebarData.connectionId}-${sidebarData.database}-${sidebarData.name}`;
+            const tabId = `${objectKey}:::${nanoid(6)}`;
             s.addTab(targetPanelId, tabId, {
               type: "mongo-collection",
               title: sidebarData.name,
               connectionId: sidebarData.connectionId,
               database: sidebarData.database,
               table: sidebarData.name,
+              objectKey,
             });
           } else {
             const redisDb = sidebarData.redisDb ?? 0;
-            const tabId = `redis-key-${sidebarData.connectionId}-db${redisDb}`;
+            const objectKey = `redis-${sidebarData.connectionId}-db${redisDb}`;
+            const tabId = `${objectKey}:::${nanoid(6)}`;
             s.addTab(targetPanelId, tabId, {
               type: "redis-key",
               title: sidebarData.name,
               connectionId: sidebarData.connectionId,
               database: String(redisDb),
+              objectKey,
             });
           }
           s.focusPanel(targetPanelId);
@@ -331,23 +335,27 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
             sql: sidebarData.historyQuery,
           };
         } else if (sidebarData.objectType === "mongo-collection") {
-          tabId = `mongo-${sidebarData.database}-${sidebarData.name}`;
+          const objectKey = `mongo-${sidebarData.connectionId}-${sidebarData.database}-${sidebarData.name}`;
+          tabId = `${objectKey}:::${nanoid(6)}`;
           tabMetadata = {
             type: "mongo-collection",
             title: sidebarData.name,
             connectionId: sidebarData.connectionId,
             database: sidebarData.database,
             table: sidebarData.name,
+            objectKey,
           };
         } else {
           // redis-key
           const redisDb = sidebarData.redisDb ?? 0;
-          tabId = `redis-key-${sidebarData.connectionId}-db${redisDb}`;
+          const objectKey = `redis-${sidebarData.connectionId}-db${redisDb}`;
+          tabId = `${objectKey}:::${nanoid(6)}`;
           tabMetadata = {
             type: "redis-key",
             title: sidebarData.name,
             connectionId: sidebarData.connectionId,
             database: String(redisDb),
+            objectKey,
           };
         }
 

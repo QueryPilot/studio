@@ -1,91 +1,186 @@
 //! Direct SQLite to MessagePack encoder for high-performance streaming.
 //!
-//! High-performance encoder for SQLite result sets.
+//! High-performance encoder optimized for SQLite result sets with:
+//! - Adaptive parallelism via rayon for large batches
+//! - Two-phase design: collect owned values (sequential), encode (parallel)
+//!
+//! rusqlite::Row is borrowed from the Statement and cannot be sent across
+//! threads. We work around this by collecting cell values into `OwnedCell`
+//! during the sequential iteration, then encoding them in parallel with rayon.
 
 use crate::error::{AppError, Result};
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
+use rayon::prelude::*;
 use rmp::encode;
 use rusqlite::types::ValueRef;
 use rusqlite::Row;
 use std::io::Write;
 
+/// Threshold for parallel processing - below this, sequential is faster
+const PARALLEL_THRESHOLD: usize = 64;
+
+/// Owned cell value extracted from a rusqlite Row.
+/// This is Send + Sync, unlike rusqlite::ValueRef which borrows from the Row.
+pub enum OwnedCell {
+    Null,
+    Integer(i64),
+    Real(f64),
+    Text(String),
+    Blob(Vec<u8>),
+}
+
+impl OwnedCell {
+    /// Extract an owned cell from a rusqlite row at the given index
+    pub fn from_row(row: &Row, idx: usize) -> Self {
+        match row.get_ref(idx).ok() {
+            None | Some(ValueRef::Null) => OwnedCell::Null,
+            Some(ValueRef::Integer(i)) => OwnedCell::Integer(i),
+            Some(ValueRef::Real(f)) => OwnedCell::Real(f),
+            Some(ValueRef::Text(bytes)) => match std::str::from_utf8(bytes) {
+                Ok(s) => OwnedCell::Text(s.to_string()),
+                Err(_) => OwnedCell::Text(BASE64_STANDARD.encode(bytes)),
+            },
+            Some(ValueRef::Blob(bytes)) => OwnedCell::Blob(bytes.to_vec()),
+        }
+    }
+}
+
+/// Calculate MessagePack array header size
+#[inline(always)]
+fn msgpack_array_header_size(len: usize) -> usize {
+    if len < 16 {
+        1
+    } else if len < 65536 {
+        3
+    } else {
+        5
+    }
+}
+
 /// Direct SQLite to MessagePack encoder
 pub struct DirectMsgPackEncoder {
     column_count: usize,
+    estimated_row_size: usize,
 }
 
 impl DirectMsgPackEncoder {
     /// Create new encoder with column count
     pub fn new(column_count: usize) -> Self {
-        Self { column_count }
-    }
-
-    /// Encode a single row to MessagePack bytes
-    pub fn encode_row(&self, row: &Row) -> Result<Vec<u8>> {
-        let estimated = self.column_count * 32 + 8;
-        let mut buffer = Vec::with_capacity(estimated);
-
-        encode::write_array_len(&mut buffer, self.column_count as u32)
-            .map_err(Self::map_encode_err)?;
-
-        for i in 0..self.column_count {
-            self.encode_cell(&mut buffer, row.get_ref(i).ok())?;
+        // SQLite has simple types, ~20 bytes per cell on average
+        let estimated_row_size = column_count * 20 + msgpack_array_header_size(column_count);
+        Self {
+            column_count,
+            estimated_row_size,
         }
-
-        Ok(buffer)
     }
 
-    /// Encode multiple rows to a single MessagePack array
-    pub fn encode_batch(&self, rows: &[Vec<u8>]) -> Result<Vec<u8>> {
+    /// Collect a rusqlite Row into a Vec of owned cell values.
+    /// This must be called sequentially (rusqlite Row is borrowed).
+    pub fn collect_row(&self, row: &Row) -> Vec<OwnedCell> {
+        (0..self.column_count)
+            .map(|i| OwnedCell::from_row(row, i))
+            .collect()
+    }
+
+    /// Encode a batch of owned rows to MessagePack with adaptive parallelism.
+    ///
+    /// - Small batches (< 64 rows): sequential encoding
+    /// - Large batches: parallel encoding with rayon
+    pub fn encode_owned_batch(&self, rows: &[Vec<OwnedCell>]) -> Result<Vec<u8>> {
         if rows.is_empty() {
             let mut buf = Vec::with_capacity(8);
             encode::write_array_len(&mut buf, 0).map_err(Self::map_encode_err)?;
             return Ok(buf);
         }
 
-        let total_size: usize = rows.iter().map(|r| r.len()).sum();
-        let header_size = if rows.len() < 16 {
-            1
-        } else if rows.len() < 65536 {
-            3
-        } else {
-            5
-        };
+        if rows.len() < PARALLEL_THRESHOLD {
+            return self.encode_owned_sequential(rows);
+        }
 
-        let mut buffer = Vec::with_capacity(header_size + total_size);
-        encode::write_array_len(&mut buffer, rows.len() as u32).map_err(Self::map_encode_err)?;
+        self.encode_owned_parallel(rows)
+    }
+
+    /// Sequential encoding for small batches
+    fn encode_owned_sequential(&self, rows: &[Vec<OwnedCell>]) -> Result<Vec<u8>> {
+        let estimated = self.estimated_row_size * rows.len() + 8;
+        let mut buffer = Vec::with_capacity(estimated);
+
+        encode::write_array_len(&mut buffer, rows.len() as u32)
+            .map_err(Self::map_encode_err)?;
 
         for row in rows {
-            buffer.extend_from_slice(row);
+            self.encode_owned_row(&mut buffer, row)?;
         }
 
         Ok(buffer)
     }
 
-    /// Encode a single cell value
+    /// Parallel encoding for large batches
+    fn encode_owned_parallel(&self, rows: &[Vec<OwnedCell>]) -> Result<Vec<u8>> {
+        let estimated = self.estimated_row_size;
+
+        let row_buffers: Vec<Vec<u8>> = rows
+            .par_iter()
+            .map(|row| {
+                let mut buf = Vec::with_capacity(estimated);
+                if let Err(e) = self.encode_owned_row(&mut buf, row) {
+                    tracing::warn!("SQLite row encode failed (parallel): {}", e);
+                    buf.clear();
+                    let _ = encode::write_array_len(&mut buf, self.column_count as u32);
+                    for _ in 0..self.column_count {
+                        let _ = encode::write_nil(&mut buf);
+                    }
+                }
+                buf
+            })
+            .collect();
+
+        let header_size = msgpack_array_header_size(rows.len());
+        let total_row_bytes: usize = row_buffers.iter().map(|b| b.len()).sum();
+        let total_size = header_size + total_row_bytes;
+
+        let mut buffer = Vec::with_capacity(total_size);
+        encode::write_array_len(&mut buffer, rows.len() as u32)
+            .map_err(Self::map_encode_err)?;
+
+        for row_buf in row_buffers {
+            buffer.extend_from_slice(&row_buf);
+        }
+
+        Ok(buffer)
+    }
+
+    /// Encode a single owned row as a MessagePack array
     #[inline]
-    fn encode_cell<W: Write>(&self, buf: &mut W, value: Option<ValueRef>) -> Result<()> {
-        match value {
-            None | Some(ValueRef::Null) => {
+    fn encode_owned_row<W: Write>(&self, buf: &mut W, cells: &[OwnedCell]) -> Result<()> {
+        encode::write_array_len(buf, cells.len() as u32)
+            .map_err(Self::map_encode_err)?;
+
+        for cell in cells {
+            self.encode_owned_cell(buf, cell)?;
+        }
+
+        Ok(())
+    }
+
+    /// Encode an owned cell value to MessagePack
+    #[inline]
+    fn encode_owned_cell<W: Write>(&self, buf: &mut W, cell: &OwnedCell) -> Result<()> {
+        match cell {
+            OwnedCell::Null => {
                 encode::write_nil(buf).map_err(Self::map_io_err)?;
             }
-            Some(ValueRef::Integer(i)) => {
-                encode::write_i64(buf, i).map_err(Self::map_encode_err)?;
+            OwnedCell::Integer(i) => {
+                encode::write_i64(buf, *i).map_err(Self::map_encode_err)?;
             }
-            Some(ValueRef::Real(f)) => {
-                encode::write_f64(buf, f).map_err(Self::map_encode_err)?;
+            OwnedCell::Real(f) => {
+                encode::write_f64(buf, *f).map_err(Self::map_encode_err)?;
             }
-            Some(ValueRef::Text(bytes)) => match std::str::from_utf8(bytes) {
-                Ok(s) => {
-                    encode::write_str(buf, s).map_err(Self::map_encode_err)?;
-                }
-                Err(_) => {
-                    let b64 = BASE64_STANDARD.encode(bytes);
-                    encode::write_str(buf, &b64).map_err(Self::map_encode_err)?;
-                }
-            },
-            Some(ValueRef::Blob(bytes)) => {
+            OwnedCell::Text(s) => {
+                encode::write_str(buf, s).map_err(Self::map_encode_err)?;
+            }
+            OwnedCell::Blob(bytes) => {
                 let b64 = BASE64_STANDARD.encode(bytes);
                 encode::write_str(buf, &b64).map_err(Self::map_encode_err)?;
             }
@@ -111,5 +206,36 @@ mod tests {
     fn test_encoder_creation() {
         let encoder = DirectMsgPackEncoder::new(5);
         assert_eq!(encoder.column_count, 5);
+    }
+
+    #[test]
+    fn test_msgpack_array_header_size() {
+        assert_eq!(msgpack_array_header_size(0), 1);
+        assert_eq!(msgpack_array_header_size(15), 1);
+        assert_eq!(msgpack_array_header_size(16), 3);
+        assert_eq!(msgpack_array_header_size(65536), 5);
+    }
+
+    #[test]
+    fn test_encode_owned_cells() {
+        let encoder = DirectMsgPackEncoder::new(3);
+        let row = vec![
+            OwnedCell::Integer(42),
+            OwnedCell::Text("hello".to_string()),
+            OwnedCell::Null,
+        ];
+        let rows = vec![row];
+        let result = encoder.encode_owned_batch(&rows).unwrap();
+        assert!(!result.is_empty());
+
+        // Decode and verify structure: outer array of 1 row, inner array of 3 cells
+        let decoded: rmpv::Value = rmpv::decode::read_value(&mut &result[..]).unwrap();
+        let outer = decoded.as_array().expect("outer should be array");
+        assert_eq!(outer.len(), 1);
+        let inner = outer[0].as_array().expect("row should be array");
+        assert_eq!(inner.len(), 3);
+        assert_eq!(inner[0].as_i64(), Some(42));
+        assert_eq!(inner[1].as_str(), Some("hello"));
+        assert!(inner[2].is_nil());
     }
 }

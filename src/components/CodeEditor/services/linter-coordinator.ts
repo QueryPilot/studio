@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { logger } from "@/lib/logger";
+import { syncSchemaToRust } from "@/hooks/useRustSchemaSync";
 
 interface LintRequest {
   sql: string;
@@ -48,7 +49,9 @@ class LinterCoordinator {
     // Check cache first
     const cached = this.cache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
-      queueMicrotask(() => callback(cached.result));
+      queueMicrotask(() => {
+        callback(cached.result);
+      });
       return () => {};
     }
 
@@ -92,6 +95,11 @@ class LinterCoordinator {
           if (callbacks.length === 0) return;
 
           try {
+            if (request.connectionId) {
+              const schemaName = request.schema?.trim() || "public";
+              await syncSchemaToRust(request.connectionId, schemaName);
+            }
+
             const response = await invoke<{
               valid: boolean;
               errors: Array<{

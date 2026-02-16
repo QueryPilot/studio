@@ -1080,6 +1080,47 @@ export const defaultCommands: Command[] = [
     label: "Clear Query History",
     category: "Query History",
     handler: async () => {
+      const confirmed = await new Promise<boolean>((resolve) => {
+        let resolved = false;
+
+        const handleConfirm = () => {
+          resolved = true;
+          toast.dismiss(toastId);
+          resolve(true);
+        };
+
+        const handleCancel = () => {
+          resolved = true;
+          toast.dismiss(toastId);
+          resolve(false);
+        };
+
+        const toastId = toast(
+          React.createElement(ConfirmationToast, {
+            title: "Clear query history?",
+            description: "This action cannot be undone.",
+            confirmLabel: "Clear History",
+            cancelLabel: "Cancel",
+            onConfirm: handleConfirm,
+            onCancel: handleCancel,
+          }),
+          {
+            duration: 12000,
+            onDismiss: () => {
+              if (!resolved) {
+                resolve(false);
+              }
+            },
+            onAutoClose: () => {
+              if (!resolved) {
+                resolve(false);
+              }
+            },
+          },
+        );
+      });
+
+      if (!confirmed) return;
       await useQueryHistoryStore.getState().clearHistory();
       toast.success("Query history cleared");
     },

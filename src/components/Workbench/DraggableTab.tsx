@@ -311,7 +311,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
                   onToggleSyncSort();
                 }}
               >
-                Sync Sort Across Tabs
+                Sync Grid State Across Tabs
               </ContextMenuCheckboxItem>
             </>
           )}

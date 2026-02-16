@@ -49,6 +49,7 @@ pub struct UnifiedAdapter {
     postgres: Option<*const PostgresAdapter>,
     mysql: Option<*const MySqlAdapter>,
     mssql: Option<*const MssqlAdapter>,
+    sqlite: Option<*const SqliteAdapter>,
     mongo: Option<*const MongoDbAdapter>,
     redis: Option<*const RedisAdapter>,
 
@@ -77,6 +78,7 @@ impl UnifiedAdapter {
             postgres: Some(ptr),
             mysql: None,
             mssql: None,
+            sqlite: None,
             mongo: None,
             redis: None,
             db_type: DbType::PostgreSQL,
@@ -98,6 +100,7 @@ impl UnifiedAdapter {
             postgres: None,
             mysql: Some(ptr),
             mssql: None,
+            sqlite: None,
             mongo: None,
             redis: None,
             db_type,
@@ -119,6 +122,7 @@ impl UnifiedAdapter {
             postgres: None,
             mysql: None,
             mssql: None,
+            sqlite: Some(ptr),
             mongo: None,
             redis: None,
             db_type: DbType::SQLite,
@@ -140,6 +144,7 @@ impl UnifiedAdapter {
             postgres: None,
             mysql: None,
             mssql: Some(ptr),
+            sqlite: None,
             mongo: None,
             redis: None,
             db_type: DbType::SQLServer,
@@ -161,6 +166,7 @@ impl UnifiedAdapter {
             postgres: None,
             mysql: None,
             mssql: None,
+            sqlite: None,
             mongo: Some(ptr),
             redis: None,
             db_type: DbType::MongoDB,
@@ -182,6 +188,7 @@ impl UnifiedAdapter {
             postgres: None,
             mysql: None,
             mssql: None,
+            sqlite: None,
             mongo: None,
             redis: Some(ptr),
             db_type: DbType::Redis,
@@ -244,6 +251,10 @@ impl UnifiedAdapter {
 
     pub fn as_mssql(&self) -> Option<&MssqlAdapter> {
         self.mssql.map(|p| unsafe { &*p })
+    }
+
+    pub fn as_sqlite(&self) -> Option<&SqliteAdapter> {
+        self.sqlite.map(|p| unsafe { &*p })
     }
 
     pub fn as_mongo(&self) -> Option<&MongoDbAdapter> {

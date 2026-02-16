@@ -698,7 +698,8 @@ async function fetchCompletions(
         // Extract table refs to resolve aliases (using connectionId for instance-scoped caching)
         const tables = extractTableRefs(context.state, connectionId);
         const resolved = resolveTableAlias(qualifier, tables);
-        const cacheKey = resolved.tableName.toLowerCase();
+        const resolvedSchema = (resolved.schema || defaultSchema).toLowerCase();
+        const cacheKey = `${resolvedSchema}:${resolved.tableName.toLowerCase()}`;
 
         // Check if this is a CTE with defined columns
         const cteRef = tables.find(t =>
@@ -752,7 +753,10 @@ async function fetchCompletions(
         }
 
         // Fetch fields using the resolved table name
-        const fields = await provider.listFields(resolved.tableName, resolved.schema || defaultSchema);
+        const fields = await provider.listFields(
+          resolved.tableName,
+          resolved.schema || defaultSchema,
+        );
 
         // If no fields found with resolved name, try qualifier as schema
         if (fields.length === 0) {
@@ -1092,22 +1096,36 @@ function generateAlias(tableName: string): string {
  * Clear completion cache
  */
 export function clearCompletionCache(connectionId?: string): void {
-  if (connectionId) {
+  if (connectionId === undefined) {
+    completionCache.clear();
+    metadataCache.clear();
+    inflightRequests.clear();
+    return;
+  }
+
+  const normalizedConnectionId = connectionId.trim();
+  if (!normalizedConnectionId) {
+    return;
+  }
+
+  if (normalizedConnectionId) {
     for (const key of completionCache.keys()) {
-      if (key.startsWith(`${connectionId}:`)) {
+      if (key.startsWith(`${normalizedConnectionId}:`)) {
         completionCache.delete(key);
       }
     }
     for (const key of metadataCache.keys()) {
-      if (key.startsWith(`${connectionId}:`)) {
+      if (key.startsWith(`${normalizedConnectionId}:`)) {
         metadataCache.delete(key);
       }
     }
-  } else {
-    completionCache.clear();
-    metadataCache.clear();
+
+    for (const key of inflightRequests.keys()) {
+      if (key.startsWith(`${normalizedConnectionId}:`)) {
+        inflightRequests.delete(key);
+      }
+    }
   }
-  inflightRequests.clear();
 }
 
 /**
