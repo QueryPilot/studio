@@ -7,6 +7,27 @@ import type {
   IndexDropPayload,
   IndexRenamePayload,
 } from "@/types/crud";
+import { DbType } from "@/types/connection";
+
+/**
+ * Convert DbType to SQL dialect string for the condition cell editor.
+ * Shared between TableIndexes and IndexDesigner.
+ */
+export function getDialectFromDbType(dbType: DbType): string {
+  switch (dbType) {
+    case DbType.PostgreSQL:
+      return "postgresql";
+    case DbType.MySQL:
+    case DbType.MariaDB:
+      return "mysql";
+    case DbType.SQLite:
+      return "sqlite";
+    case DbType.SQLServer:
+      return "mssql";
+    default:
+      return "postgresql";
+  }
+}
 
 export type IndexModifiedField =
   | "name"
