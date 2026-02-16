@@ -31,6 +31,7 @@ import type {
   CrudCommandTarget,
   ColumnDefinitionInput,
   ForeignKeyAddPayload,
+  IndexCreatePayload,
   TableCreatePayload,
 } from "@/types/crud";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
@@ -1255,9 +1256,27 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
         })
         .filter((statement): statement is string => Boolean(statement));
 
-      return [createTable, ...commentStatements].join("\n");
+      // Generate CREATE INDEX statements from staged index commands
+      const indexStatements = designerCommands
+        .filter((cmd) => cmd.type === "index.create")
+        .map((cmd) => {
+          const payload = cmd.payload as IndexCreatePayload;
+          const def = payload.definition;
+          if (!def.name || def.columns.length === 0) return null;
+
+          const uniqueKeyword = def.unique ? "UNIQUE " : "";
+          const cols = def.columns.map((c) => quoteIdentifier(c)).join(", ");
+          const tableRef = `${quoteIdentifier(schema)}.${quoteIdentifier(resolvedTableName)}`;
+          const usingClause = def.using && def.using !== "btree" ? ` USING ${def.using}` : "";
+          const whereClause = def.where ? ` WHERE ${def.where}` : "";
+
+          return `CREATE ${uniqueKeyword}INDEX ${quoteIdentifier(def.name)} ON ${tableRef}${usingClause} (${cols})${whereClause};`;
+        })
+        .filter((s): s is string => Boolean(s));
+
+      return [createTable, ...commentStatements, ...indexStatements].join("\n");
     },
-    [tableName, gridRows, schema],
+    [tableName, gridRows, schema, designerCommands],
   );
 
   const handleSave = useCallback(() => {
@@ -1297,14 +1316,54 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       return;
     }
 
+    // Validate indexes
+    const invalidIndexes: string[] = [];
+    const indexNames = new Set<string>();
+
+    const currentIndexCommands = designerCommands.filter(
+      (cmd) => cmd.type === "index.create",
+    );
+
+    currentIndexCommands.forEach((cmd) => {
+      const payload = cmd.payload as IndexCreatePayload;
+      const def = payload.definition;
+      if (!def.name.trim()) {
+        invalidIndexes.push("An index is missing a name");
+      }
+      if (def.columns.length === 0) {
+        invalidIndexes.push(`Index "${def.name || "(unnamed)"}" has no columns`);
+      }
+      const missingCols = def.columns.filter(
+        (c) => !availableColumnNames.includes(c),
+      );
+      if (missingCols.length > 0) {
+        invalidIndexes.push(
+          `Index "${def.name}" references non-existent column(s): ${missingCols.join(", ")}`,
+        );
+      }
+      if (def.name && indexNames.has(def.name)) {
+        invalidIndexes.push(`Duplicate index name: "${def.name}"`);
+      }
+      if (def.name) indexNames.add(def.name);
+    });
+
+    if (invalidIndexes.length > 0) {
+      toast.error("Invalid index definitions", {
+        description: invalidIndexes[0],
+      });
+      return;
+    }
+
     if (tableNameDraft !== tableName) {
       commitTableNameDraft(tableNameDraft);
     }
 
     setGlobalChangesDialogOpen(true);
   }, [
+    availableColumnNames,
     columns,
     commitTableNameDraft,
+    designerCommands,
     effectiveTableName,
     gridRows,
     tableName,
