@@ -42,6 +42,7 @@ import { CrudCommandFactory } from "@/services/crudCommandFactory";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import {
   getDesignerModifiedFields,
+  syncIndexCommandsWithColumns,
   type DesignerGridRow,
   type DesignerModifiedField,
 } from "./utils";
@@ -510,6 +511,71 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
     () => designerCommands.filter((cmd) => cmd.type === "index.create").length,
     [designerCommands],
   );
+
+  // Track previous column names for rename detection
+  const prevColumnNamesRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    const currentNames = availableColumnNames;
+    const prevNames = prevColumnNamesRef.current;
+    prevColumnNamesRef.current = currentNames;
+
+    // Skip first render or when no index commands
+    if (prevNames.length === 0 || indexCommandCount === 0) return;
+
+    // Build rename map: detect 1:1 positional renames
+    const renames = new Map<string, string>();
+    const minLen = Math.min(prevNames.length, currentNames.length);
+    for (let i = 0; i < minLen; i++) {
+      if (prevNames[i] && currentNames[i] && prevNames[i] !== currentNames[i]) {
+        // Only treat as rename if old name no longer exists anywhere
+        if (!currentNames.includes(prevNames[i]!)) {
+          renames.set(prevNames[i]!, currentNames[i]!);
+        }
+      }
+    }
+
+    // Get current index commands from designerCommands
+    const currentIndexCommands = designerCommands.filter(
+      (cmd) => cmd.type === "index.create",
+    );
+
+    if (currentIndexCommands.length === 0) return;
+
+    const synced = syncIndexCommandsWithColumns(
+      currentIndexCommands,
+      currentNames,
+      renames,
+    );
+
+    if (!synced) return;
+
+    // Find removed command IDs (commands excluded from synced result)
+    const syncedIds = new Set(synced.map((c) => c.id));
+    const removedIds = currentIndexCommands
+      .filter((c) => !syncedIds.has(c.id))
+      .map((c) => c.id);
+
+    if (removedIds.length > 0) {
+      unstageCommands(removedIds);
+    }
+
+    // Stage only commands that actually changed
+    const updatedCommands = synced.filter((c) => {
+      const original = currentIndexCommands.find((orig) => orig.id === c.id);
+      return original !== c; // reference equality — changed commands are new objects
+    });
+
+    if (updatedCommands.length > 0) {
+      stageBatchWithSingleHistoryEntry(updatedCommands);
+    }
+  }, [
+    availableColumnNames,
+    designerCommands,
+    indexCommandCount,
+    stageBatchWithSingleHistoryEntry,
+    unstageCommands,
+  ]);
 
   const fkCommandByIndex = useMemo(() => {
     const map = new Map<number, CrudCommand>();
