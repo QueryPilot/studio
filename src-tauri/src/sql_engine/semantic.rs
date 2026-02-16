@@ -5,7 +5,7 @@
 use super::parser::{ParsedStatement, TableReference};
 use super::schema_store::CachedSchema;
 use super::validator::{ErrorSeverity, ErrorSource, SqlError};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 fn normalize_table_name(name: &str) -> String {
     name.rsplit('.')
@@ -152,6 +152,28 @@ fn find_reference_span(stmt: &ParsedStatement, candidates: &[String]) -> Option<
     None
 }
 
+fn cte_column_exists(columns: &[String], column_name: &str) -> bool {
+    columns
+        .iter()
+        .any(|col| col.eq_ignore_ascii_case(column_name))
+}
+
+fn suggest_similar_cte_columns(column_name: &str, columns: &[String]) -> Vec<String> {
+    let column_lower = column_name.to_lowercase();
+
+    columns
+        .iter()
+        .filter(|candidate| {
+            let candidate_lower = candidate.to_lowercase();
+            candidate_lower.contains(&column_lower)
+                || column_lower.contains(&candidate_lower)
+                || levenshtein_distance(&column_lower, &candidate_lower) <= 2
+        })
+        .take(5)
+        .cloned()
+        .collect()
+}
+
 /// Check if a table exists in the schema.
 pub fn table_exists(table_name: &str, schema: &CachedSchema) -> bool {
     schema
@@ -233,6 +255,21 @@ pub fn validate_column_references(stmt: &ParsedStatement, schema: &CachedSchema)
     let mut errors = Vec::new();
     let existing_tables = get_existing_statement_tables(stmt, schema);
     let cte_names: HashSet<String> = stmt.ctes.iter().map(|c| c.name.to_lowercase()).collect();
+    let cte_columns_by_name: HashMap<String, Vec<String>> = stmt
+        .ctes
+        .iter()
+        .filter(|cte| !cte.columns.is_empty())
+        .map(|cte| (cte.name.to_lowercase(), cte.columns.clone()))
+        .collect();
+    let referenced_ctes: HashSet<String> = stmt
+        .tables
+        .iter()
+        .map(|table_ref| normalize_table_name(&table_ref.name).to_lowercase())
+        .filter(|table_name| cte_names.contains(table_name))
+        .collect();
+    let has_unknown_referenced_cte_columns = referenced_ctes
+        .iter()
+        .any(|cte_name| !cte_columns_by_name.contains_key(cte_name));
     let output_aliases: HashSet<String> = stmt
         .output_aliases
         .iter()
@@ -246,10 +283,43 @@ pub fn validate_column_references(stmt: &ParsedStatement, schema: &CachedSchema)
 
         if let Some(table) = &col_ref.table {
             let actual_table = resolve_table_name_in_statement(stmt, table);
+            let actual_table_lower = actual_table.to_lowercase();
 
             // Check CTE first
-            if cte_names.contains(&actual_table.to_lowercase()) {
-                // Can't validate CTE columns without deeper analysis
+            if cte_names.contains(&actual_table_lower) {
+                let Some(cte_columns) = cte_columns_by_name.get(&actual_table_lower) else {
+                    // CTE output columns are unknown (for example wildcard expansion).
+                    continue;
+                };
+
+                if !cte_column_exists(cte_columns, &col_ref.name) {
+                    let span = find_reference_span(
+                        stmt,
+                        &[format!("{}.{}", table, col_ref.name), col_ref.name.clone()],
+                    )
+                    .unwrap_or((stmt.range.0, stmt.range.1));
+                    let suggestions = suggest_similar_cte_columns(&col_ref.name, cte_columns);
+                    let message = if let Some(suggestion) = suggestions.first() {
+                        format!(
+                            "Column '{}' does not exist in CTE '{}'. Did you mean '{}'?",
+                            col_ref.name, actual_table, suggestion
+                        )
+                    } else {
+                        format!(
+                            "Column '{}' does not exist in CTE '{}'",
+                            col_ref.name, actual_table
+                        )
+                    };
+
+                    errors.push(SqlError {
+                        from: span.0,
+                        to: span.1,
+                        message,
+                        severity: ErrorSeverity::Error,
+                        source: ErrorSource::Semantic,
+                    });
+                }
+
                 continue;
             }
 
@@ -290,24 +360,44 @@ pub fn validate_column_references(stmt: &ParsedStatement, schema: &CachedSchema)
                 continue;
             }
 
-            if existing_tables.is_empty() {
+            if existing_tables.is_empty() && referenced_ctes.is_empty() {
                 continue;
             }
 
-            let exists_in_any = existing_tables
+            let exists_in_any_table = existing_tables
                 .iter()
                 .any(|table| column_exists(table, &col_ref.name, schema));
-            if !exists_in_any {
-                let span = find_reference_span(stmt, &[col_ref.name.clone()])
+            let exists_in_any_cte = referenced_ctes.iter().any(|cte_name| {
+                cte_columns_by_name
+                    .get(cte_name)
+                    .map(|columns| cte_column_exists(columns, &col_ref.name))
+                    .unwrap_or(false)
+            });
+
+            if !exists_in_any_table && !exists_in_any_cte {
+                // Unknown CTE projections (for example SELECT *) could still provide this column.
+                if has_unknown_referenced_cte_columns {
+                    continue;
+                }
+
+                let span = find_reference_span(stmt, std::slice::from_ref(&col_ref.name))
                     .unwrap_or((stmt.range.0, stmt.range.1));
+                let message = if referenced_ctes.is_empty() {
+                    format!(
+                        "Column '{}' does not exist in any referenced table",
+                        col_ref.name
+                    )
+                } else {
+                    format!(
+                        "Column '{}' does not exist in any referenced table or CTE",
+                        col_ref.name
+                    )
+                };
 
                 errors.push(SqlError {
                     from: span.0,
                     to: span.1,
-                    message: format!(
-                        "Column '{}' does not exist in any referenced table",
-                        col_ref.name
-                    ),
+                    message,
                     severity: ErrorSeverity::Error,
                     source: ErrorSource::Semantic,
                 });
@@ -427,6 +517,156 @@ mod tests {
 
         schema.columns.insert(
             "users".to_string(),
+            vec![
+                ColumnInfo {
+                    name: "id".to_string(),
+                    data_type: "integer".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    is_primary_key: true,
+                    is_unique: true,
+                    comment: None,
+                    enum_values: None,
+                    ordinal: 1,
+                    precision: None,
+                    scale: None,
+                },
+                ColumnInfo {
+                    name: "name".to_string(),
+                    data_type: "varchar".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    is_primary_key: false,
+                    is_unique: false,
+                    comment: None,
+                    enum_values: None,
+                    ordinal: 2,
+                    precision: None,
+                    scale: None,
+                },
+            ],
+        );
+
+        schema
+    }
+
+    fn review_schema() -> CachedSchema {
+        let schema = CachedSchemaBuilder::new()
+            .add_table(TableInfo {
+                name: "reviews".to_string(),
+                schema: Some("public".to_string()),
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .add_table(TableInfo {
+                name: "customers".to_string(),
+                schema: Some("public".to_string()),
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .add_table(TableInfo {
+                name: "products".to_string(),
+                schema: Some("public".to_string()),
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .build();
+
+        schema.columns.insert(
+            "reviews".to_string(),
+            vec![
+                ColumnInfo {
+                    name: "id".to_string(),
+                    data_type: "integer".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    is_primary_key: true,
+                    is_unique: true,
+                    comment: None,
+                    enum_values: None,
+                    ordinal: 1,
+                    precision: None,
+                    scale: None,
+                },
+                ColumnInfo {
+                    name: "title".to_string(),
+                    data_type: "varchar".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    is_primary_key: false,
+                    is_unique: false,
+                    comment: None,
+                    enum_values: None,
+                    ordinal: 2,
+                    precision: None,
+                    scale: None,
+                },
+                ColumnInfo {
+                    name: "customer_id".to_string(),
+                    data_type: "integer".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    is_primary_key: false,
+                    is_unique: false,
+                    comment: None,
+                    enum_values: None,
+                    ordinal: 3,
+                    precision: None,
+                    scale: None,
+                },
+                ColumnInfo {
+                    name: "product_id".to_string(),
+                    data_type: "integer".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    is_primary_key: false,
+                    is_unique: false,
+                    comment: None,
+                    enum_values: None,
+                    ordinal: 4,
+                    precision: None,
+                    scale: None,
+                },
+            ],
+        );
+
+        schema.columns.insert(
+            "customers".to_string(),
+            vec![
+                ColumnInfo {
+                    name: "id".to_string(),
+                    data_type: "integer".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    is_primary_key: true,
+                    is_unique: true,
+                    comment: None,
+                    enum_values: None,
+                    ordinal: 1,
+                    precision: None,
+                    scale: None,
+                },
+                ColumnInfo {
+                    name: "last_name".to_string(),
+                    data_type: "varchar".to_string(),
+                    nullable: true,
+                    default_value: None,
+                    is_primary_key: false,
+                    is_unique: false,
+                    comment: None,
+                    enum_values: None,
+                    ordinal: 2,
+                    precision: None,
+                    scale: None,
+                },
+            ],
+        );
+
+        schema.columns.insert(
+            "products".to_string(),
             vec![
                 ColumnInfo {
                     name: "id".to_string(),
@@ -591,6 +831,98 @@ mod tests {
         assert!(!errors
             .iter()
             .any(|e| e.message.contains("item_count") && e.message.contains("does not exist")));
+    }
+
+    #[test]
+    fn test_missing_qualified_column_on_cte_is_reported() {
+        let schema = test_schema();
+        let doc = parse_document(
+            "WITH user_view AS (SELECT u.id AS user_id, u.name FROM users u) SELECT user_view.email FROM user_view",
+            SqlDialect::PostgreSQL,
+        );
+        let stmt = doc
+            .statements
+            .first()
+            .expect("expected one parsed statement");
+
+        let errors = validate_column_references(stmt, &schema);
+        assert!(errors.iter().any(|e| {
+            e.message
+                .contains("Column 'email' does not exist in CTE 'user_view'")
+        }));
+    }
+
+    #[test]
+    fn test_unqualified_column_on_cte_is_valid_when_column_exists() {
+        let schema = test_schema();
+        let doc = parse_document(
+            "WITH user_view AS (SELECT u.id AS user_id, u.name FROM users u) SELECT user_id FROM user_view",
+            SqlDialect::PostgreSQL,
+        );
+        let stmt = doc
+            .statements
+            .first()
+            .expect("expected one parsed statement");
+
+        let errors = validate_column_references(stmt, &schema);
+        assert!(!errors.iter().any(|e| e.message.contains("user_id")));
+    }
+
+    #[test]
+    fn test_unqualified_missing_column_on_cte_is_reported() {
+        let schema = test_schema();
+        let doc = parse_document(
+            "WITH user_view AS (SELECT u.id AS user_id, u.name FROM users u) SELECT email FROM user_view",
+            SqlDialect::PostgreSQL,
+        );
+        let stmt = doc
+            .statements
+            .first()
+            .expect("expected one parsed statement");
+
+        let errors = validate_column_references(stmt, &schema);
+        assert!(errors.iter().any(|e| {
+            e.message
+                .contains("Column 'email' does not exist in any referenced table or CTE")
+        }));
+    }
+
+    #[test]
+    fn test_missing_column_on_cte_with_explicit_alias_list_is_reported() {
+        let schema = test_schema();
+        let doc = parse_document(
+            "WITH user_view(user_id, user_name) AS (SELECT u.id, u.name FROM users u) SELECT uv.email FROM user_view uv",
+            SqlDialect::PostgreSQL,
+        );
+        let stmt = doc
+            .statements
+            .first()
+            .expect("expected one parsed statement");
+
+        let errors = validate_column_references(stmt, &schema);
+        assert!(errors.iter().any(|e| {
+            e.message
+                .contains("Column 'email' does not exist in CTE 'user_view'")
+        }));
+    }
+
+    #[test]
+    fn test_missing_joined_table_column_in_select_list_is_reported() {
+        let schema = review_schema();
+        let doc = parse_document(
+            "SELECT r.id, r.title, p.name, c.bepomap, c.last_name FROM reviews r LEFT JOIN customers c ON r.customer_id = c.id LEFT JOIN products p ON r.product_id = p.id",
+            SqlDialect::PostgreSQL,
+        );
+        let stmt = doc
+            .statements
+            .first()
+            .expect("expected one parsed statement");
+
+        let errors = validate_column_references(stmt, &schema);
+        assert!(errors.iter().any(|e| {
+            e.message
+                .contains("Column 'bepomap' does not exist in table 'customers'")
+        }));
     }
 
     #[test]

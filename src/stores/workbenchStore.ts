@@ -246,39 +246,66 @@ const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
     moveTab: (tabId, sourcePanelId, targetPanelId) => {
       const { panelContents, layoutTree } = get();
       if (!layoutTree) return;
+      if (sourcePanelId === targetPanelId) return;
 
       const sourcePanel = panelContents.get(sourcePanelId);
       const targetPanel = panelContents.get(targetPanelId);
 
       if (!sourcePanel || !targetPanel) return;
+      if (!sourcePanel.tabIds.includes(tabId)) return;
 
       // Get the tab metadata from source panel
       const tabMetadata = sourcePanel.metadata?.[tabId];
 
+      // If target already has this tab/object, activate it and only remove from source.
+      const existingTargetTabId =
+        targetPanel.tabIds.includes(tabId)
+          ? tabId
+          : tabMetadata?.objectKey
+            ? targetPanel.tabIds.find(
+                (id) => targetPanel.metadata?.[id]?.objectKey === tabMetadata.objectKey,
+              )
+            : undefined;
+
       const newSourceTabs = sourcePanel.tabIds.filter((id) => id !== tabId);
-      const newTargetTabs = [...targetPanel.tabIds, tabId];
+      const newSourceActiveTab =
+        sourcePanel.activeTabId === tabId
+          ? newSourceTabs[0] || ""
+          : sourcePanel.activeTabId;
+      const newTargetTabs = existingTargetTabId
+        ? targetPanel.tabIds
+        : [...targetPanel.tabIds, tabId];
 
       // Remove metadata from source panel
       const newSourceMetadata = { ...sourcePanel.metadata };
       Reflect.deleteProperty(newSourceMetadata, tabId);
 
       // Add metadata to target panel
+      const targetTabId = existingTargetTabId ?? tabId;
+      const existingTargetMetadata = targetPanel.metadata?.[targetTabId];
+      const mergedTargetMetadata =
+        existingTargetMetadata || tabMetadata
+          ? {
+              ...(tabMetadata ?? {}),
+              ...(existingTargetMetadata ?? {}),
+            }
+          : undefined;
       const newTargetMetadata = {
         ...targetPanel.metadata,
-        ...(tabMetadata ? { [tabId]: tabMetadata } : {}),
+        ...(mergedTargetMetadata ? { [targetTabId]: mergedTargetMetadata } : {}),
       };
 
       const newContents = new Map(panelContents);
       newContents.set(sourcePanelId, {
         ...sourcePanel,
         tabIds: newSourceTabs,
-        activeTabId: newSourceTabs[0] || "",
+        activeTabId: newSourceActiveTab,
         metadata: newSourceMetadata,
       });
       newContents.set(targetPanelId, {
         ...targetPanel,
         tabIds: newTargetTabs,
-        activeTabId: tabId,
+        activeTabId: targetTabId,
         metadata: newTargetMetadata,
       });
 
@@ -458,13 +485,25 @@ const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
       const panel = panelContents.get(panelId);
       if (!panel) return;
 
-      // Check if tab already exists
+      // Check if tab already exists by tabId
       if (panel.tabIds.includes(tabId)) {
+        const existingMetadata = panel.metadata?.[tabId];
+        const mergedMetadata =
+          existingMetadata || tabData
+            ? {
+                ...(existingMetadata ?? {}),
+                ...(tabData ?? {}),
+              }
+            : undefined;
+
         const newContents = new Map(panelContents);
         newContents.set(panelId, {
           ...panel,
           activeTabId: tabId,
-          metadata: { ...panel.metadata, [tabId]: tabData },
+          metadata: {
+            ...panel.metadata,
+            ...(mergedMetadata ? { [tabId]: mergedMetadata } : {}),
+          },
         });
 
         const updatedTree = updatePanelContents(layoutTree, newContents);
@@ -475,12 +514,55 @@ const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
         return;
       }
 
+      // Per-panel dedup by objectKey: reuse existing tab with same logical object
+      const incomingObjectKey = tabData?.objectKey;
+      if (incomingObjectKey) {
+        const existingTabId = panel.tabIds.find((id) => {
+          const meta = panel.metadata?.[id];
+          return meta?.objectKey === incomingObjectKey;
+        });
+        if (existingTabId) {
+          const existingMetadata = panel.metadata?.[existingTabId];
+          const mergedMetadata =
+            existingMetadata || tabData
+              ? {
+                  ...(existingMetadata ?? {}),
+                  ...(tabData ?? {}),
+                }
+              : undefined;
+
+          const newContents = new Map(panelContents);
+          newContents.set(panelId, {
+            ...panel,
+            activeTabId: existingTabId,
+            metadata: {
+              ...panel.metadata,
+              ...(mergedMetadata ? { [existingTabId]: mergedMetadata } : {}),
+            },
+          });
+
+          const updatedTree = updatePanelContents(layoutTree, newContents);
+          set({
+            layoutTree: updatedTree,
+            panelContents: newContents,
+          });
+          return;
+        }
+      }
+
+      const newMetadata =
+        tabData !== undefined
+          ? {
+              ...panel.metadata,
+              [tabId]: tabData,
+            }
+          : panel.metadata;
       const newContents = new Map(panelContents);
       newContents.set(panelId, {
         ...panel,
         tabIds: [...panel.tabIds, tabId],
         activeTabId: tabId,
-        metadata: { ...panel.metadata, [tabId]: tabData },
+        metadata: newMetadata,
       });
 
       const updatedTree = updatePanelContents(layoutTree, newContents);

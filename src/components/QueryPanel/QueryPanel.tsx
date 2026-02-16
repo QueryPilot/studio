@@ -738,6 +738,11 @@ export const QueryPanel = memo(function QueryPanel({
 
             // NEW: Broadcast invalidation to all components displaying affected tables
             const affectedTables = parseMutationTables(sql);
+            if (effectiveConnectionId.trim()) {
+              clearCompletionCache(effectiveConnectionId);
+              clearProviderCache(effectiveConnectionId);
+            }
+
             if (affectedTables.length > 0) {
               const { invalidateTable, invalidateSchema } =
                 useDataInvalidationStore.getState();
@@ -777,8 +782,6 @@ export const QueryPanel = memo(function QueryPanel({
                 );
               });
 
-              clearCompletionCache(effectiveConnectionId);
-              clearProviderCache(effectiveConnectionId);
             } else {
               logger.warn(
                 "[QueryPanel] Mutation detected but no tables parsed from SQL:",

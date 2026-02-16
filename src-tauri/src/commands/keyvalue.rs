@@ -388,6 +388,9 @@ pub async fn redis_scan_stream(
         })
         .map_err(|e| e.to_string())?;
 
+    // Trailing sentinel empty buffer. Consumers ignore zero-length payloads.
+    let _ = data_channel.send(tauri::ipc::Response::new(vec![]));
+
     Ok(())
 }
 

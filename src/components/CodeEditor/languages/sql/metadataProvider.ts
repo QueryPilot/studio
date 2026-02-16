@@ -361,14 +361,22 @@ export function createSqlMetadataProvider(
  * Clear the provider cache. Call when connections are closed or schema is refreshed.
  */
 export function clearProviderCache(connectionId?: string): void {
-  if (connectionId) {
+  if (connectionId === undefined) {
+    providerCache.clear();
+    return;
+  }
+
+  const normalizedConnectionId = connectionId.trim();
+  if (!normalizedConnectionId) {
+    return;
+  }
+
+  if (normalizedConnectionId) {
     // Clear entries for specific connection
     for (const key of providerCache.keys()) {
-      if (key.startsWith(`${connectionId}:`)) {
+      if (key.startsWith(`${normalizedConnectionId}:`)) {
         providerCache.delete(key);
       }
     }
-  } else {
-    providerCache.clear();
   }
 }

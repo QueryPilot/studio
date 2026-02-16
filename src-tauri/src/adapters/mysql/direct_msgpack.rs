@@ -2,13 +2,7 @@
 //!
 //! High-performance encoder optimized for large result sets with:
 //! - Adaptive parallelism (skip rayon overhead for small batches)
-//! - Fast timestamp/date/time formatting
-//! - SIMD-optimized hex encoding for binary data
-//!
-//! # Architecture
-//!
-//! This encoder is used by the `execute_query` Tauri command for MySQL connections.
-//! It encodes MySQL rows directly to MessagePack format.
+//! - Fast stack-buffer timestamp/date/time formatting (no format!())
 
 use crate::error::{AppError, Result};
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -24,6 +18,122 @@ const PARALLEL_THRESHOLD: usize = 64;
 /// Estimated average size per cell in bytes
 const ESTIMATED_CELL_SIZE: usize = 32;
 
+// ============================================================================
+// Fast formatting helpers (shared pattern with PG/MSSQL encoders)
+// ============================================================================
+
+/// Fast digit pair lookup table (00-99)
+static DIGIT_PAIRS: &[[u8; 2]; 100] = &[
+    *b"00", *b"01", *b"02", *b"03", *b"04", *b"05", *b"06", *b"07", *b"08", *b"09", *b"10",
+    *b"11", *b"12", *b"13", *b"14", *b"15", *b"16", *b"17", *b"18", *b"19", *b"20", *b"21",
+    *b"22", *b"23", *b"24", *b"25", *b"26", *b"27", *b"28", *b"29", *b"30", *b"31", *b"32",
+    *b"33", *b"34", *b"35", *b"36", *b"37", *b"38", *b"39", *b"40", *b"41", *b"42", *b"43",
+    *b"44", *b"45", *b"46", *b"47", *b"48", *b"49", *b"50", *b"51", *b"52", *b"53", *b"54",
+    *b"55", *b"56", *b"57", *b"58", *b"59", *b"60", *b"61", *b"62", *b"63", *b"64", *b"65",
+    *b"66", *b"67", *b"68", *b"69", *b"70", *b"71", *b"72", *b"73", *b"74", *b"75", *b"76",
+    *b"77", *b"78", *b"79", *b"80", *b"81", *b"82", *b"83", *b"84", *b"85", *b"86", *b"87",
+    *b"88", *b"89", *b"90", *b"91", *b"92", *b"93", *b"94", *b"95", *b"96", *b"97", *b"98",
+    *b"99",
+];
+
+#[inline(always)]
+fn write_2digits(dst: &mut [u8], offset: usize, val: u32) {
+    let pair = DIGIT_PAIRS[val as usize % 100];
+    dst[offset] = pair[0];
+    dst[offset + 1] = pair[1];
+}
+
+#[inline(always)]
+fn write_4digits(dst: &mut [u8], offset: usize, val: u32) {
+    write_2digits(dst, offset, val / 100);
+    write_2digits(dst, offset + 2, val % 100);
+}
+
+#[inline(always)]
+fn write_6digits(dst: &mut [u8], offset: usize, val: u32) {
+    write_2digits(dst, offset, val / 10000);
+    write_2digits(dst, offset + 2, (val / 100) % 100);
+    write_2digits(dst, offset + 4, val % 100);
+}
+
+/// Fast timestamp format: "YYYY-MM-DD HH:MM:SS.ffffff" (26 bytes)
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn format_datetime_fast(
+    dst: &mut [u8; 26],
+    year: u16,
+    month: u8,
+    day: u8,
+    hour: u8,
+    min: u8,
+    sec: u8,
+    micro: u32,
+) {
+    write_4digits(dst, 0, year as u32);
+    dst[4] = b'-';
+    write_2digits(dst, 5, month as u32);
+    dst[7] = b'-';
+    write_2digits(dst, 8, day as u32);
+    dst[10] = b' ';
+    write_2digits(dst, 11, hour as u32);
+    dst[13] = b':';
+    write_2digits(dst, 14, min as u32);
+    dst[16] = b':';
+    write_2digits(dst, 17, sec as u32);
+    dst[19] = b'.';
+    write_6digits(dst, 20, micro);
+}
+
+/// Fast date format: "YYYY-MM-DD" (10 bytes)
+#[inline]
+fn format_date_fast(dst: &mut [u8; 10], year: u16, month: u8, day: u8) {
+    write_4digits(dst, 0, year as u32);
+    dst[4] = b'-';
+    write_2digits(dst, 5, month as u32);
+    dst[7] = b'-';
+    write_2digits(dst, 8, day as u32);
+}
+
+/// Fast datetime without micros: "YYYY-MM-DD HH:MM:SS" (19 bytes)
+#[inline]
+fn format_datetime_no_micros(
+    dst: &mut [u8; 19],
+    year: u16,
+    month: u8,
+    day: u8,
+    hour: u8,
+    min: u8,
+    sec: u8,
+) {
+    write_4digits(dst, 0, year as u32);
+    dst[4] = b'-';
+    write_2digits(dst, 5, month as u32);
+    dst[7] = b'-';
+    write_2digits(dst, 8, day as u32);
+    dst[10] = b' ';
+    write_2digits(dst, 11, hour as u32);
+    dst[13] = b':';
+    write_2digits(dst, 14, min as u32);
+    dst[16] = b':';
+    write_2digits(dst, 17, sec as u32);
+}
+
+/// Calculate MessagePack array header size
+#[inline(always)]
+fn msgpack_array_header_size(len: usize) -> usize {
+    if len < 16 {
+        1
+    } else if len < 65536 {
+        3
+    } else {
+        5
+    }
+}
+
+// ============================================================================
+// DirectMsgPackEncoder
+// ============================================================================
+
 /// Direct MySQL to MessagePack encoder
 pub struct DirectMsgPackEncoder {
     column_count: usize,
@@ -35,7 +145,8 @@ impl DirectMsgPackEncoder {
     pub fn new(column_count: usize) -> Self {
         Self {
             column_count,
-            estimated_row_size: column_count * ESTIMATED_CELL_SIZE + 4,
+            estimated_row_size: column_count * ESTIMATED_CELL_SIZE
+                + msgpack_array_header_size(column_count),
         }
     }
 
@@ -53,7 +164,6 @@ impl DirectMsgPackEncoder {
             return Ok(buf);
         }
 
-        // Adaptive: use sequential for small batches
         if rows.len() < PARALLEL_THRESHOLD {
             return self.encode_sequential(rows);
         }
@@ -66,7 +176,8 @@ impl DirectMsgPackEncoder {
         let estimated = self.estimated_row_size * rows.len() + 8;
         let mut buffer = Vec::with_capacity(estimated);
 
-        encode::write_array_len(&mut buffer, rows.len() as u32).map_err(Self::map_encode_err)?;
+        encode::write_array_len(&mut buffer, rows.len() as u32)
+            .map_err(Self::map_encode_err)?;
 
         for row in rows {
             self.encode_row(&mut buffer, row)?;
@@ -77,27 +188,31 @@ impl DirectMsgPackEncoder {
 
     /// Parallel encoding for large batches
     fn encode_parallel(&self, rows: &[Row]) -> Result<Vec<u8>> {
+        let estimated = self.estimated_row_size;
+
         let row_buffers: Vec<Vec<u8>> = rows
             .par_iter()
             .map(|row| {
-                let mut buf = Vec::with_capacity(self.estimated_row_size);
-                let _ = self.encode_row(&mut buf, row);
+                let mut buf = Vec::with_capacity(estimated);
+                if let Err(e) = self.encode_row(&mut buf, row) {
+                    tracing::warn!("MySQL row encode failed (parallel): {}", e);
+                    buf.clear();
+                    let _ = encode::write_array_len(&mut buf, self.column_count as u32);
+                    for _ in 0..self.column_count {
+                        let _ = encode::write_nil(&mut buf);
+                    }
+                }
                 buf
             })
             .collect();
 
-        let header_size = if rows.len() < 16 {
-            1
-        } else if rows.len() < 65536 {
-            3
-        } else {
-            5
-        };
+        let header_size = msgpack_array_header_size(rows.len());
         let total_row_bytes: usize = row_buffers.iter().map(|b| b.len()).sum();
         let total_size = header_size + total_row_bytes;
 
         let mut buffer = Vec::with_capacity(total_size);
-        encode::write_array_len(&mut buffer, rows.len() as u32).map_err(Self::map_encode_err)?;
+        encode::write_array_len(&mut buffer, rows.len() as u32)
+            .map_err(Self::map_encode_err)?;
 
         for row_buf in row_buffers {
             buffer.extend_from_slice(&row_buf);
@@ -109,7 +224,8 @@ impl DirectMsgPackEncoder {
     /// Encode a single row as a MessagePack array
     #[inline]
     fn encode_row<W: Write>(&self, buf: &mut W, row: &Row) -> Result<()> {
-        encode::write_array_len(buf, self.column_count as u32).map_err(Self::map_encode_err)?;
+        encode::write_array_len(buf, self.column_count as u32)
+            .map_err(Self::map_encode_err)?;
 
         for i in 0..self.column_count {
             self.encode_cell(buf, row.as_ref(i))?;
@@ -118,7 +234,7 @@ impl DirectMsgPackEncoder {
         Ok(())
     }
 
-    /// Encode a single cell value
+    /// Encode a single cell value with fast stack-buffer formatters
     #[inline]
     fn encode_cell<W: Write>(&self, buf: &mut W, value: Option<&Value>) -> Result<()> {
         match value {
@@ -127,7 +243,6 @@ impl DirectMsgPackEncoder {
             }
 
             Some(Value::Bytes(bytes)) => {
-                // Try UTF-8 first, fallback to base64
                 match std::str::from_utf8(bytes) {
                     Ok(s) => {
                         encode::write_str(buf, s).map_err(Self::map_encode_err)?;
@@ -156,34 +271,63 @@ impl DirectMsgPackEncoder {
             }
 
             Some(Value::Date(year, month, day, hour, min, sec, micro)) => {
-                let s = if *micro > 0 {
-                    format!(
-                        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}",
-                        year, month, day, hour, min, sec, micro
-                    )
+                if *micro > 0 {
+                    let mut ts_buf = [0u8; 26];
+                    format_datetime_fast(
+                        &mut ts_buf, *year, *month, *day, *hour, *min, *sec, *micro,
+                    );
+                    let s = unsafe { std::str::from_utf8_unchecked(&ts_buf) };
+                    encode::write_str(buf, s).map_err(Self::map_encode_err)?;
                 } else if *hour == 0 && *min == 0 && *sec == 0 {
-                    format!("{:04}-{:02}-{:02}", year, month, day)
+                    let mut date_buf = [0u8; 10];
+                    format_date_fast(&mut date_buf, *year, *month, *day);
+                    let s = unsafe { std::str::from_utf8_unchecked(&date_buf) };
+                    encode::write_str(buf, s).map_err(Self::map_encode_err)?;
                 } else {
-                    format!(
-                        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-                        year, month, day, hour, min, sec
-                    )
-                };
-                encode::write_str(buf, &s).map_err(Self::map_encode_err)?;
+                    let mut ts_buf = [0u8; 19];
+                    format_datetime_no_micros(
+                        &mut ts_buf, *year, *month, *day, *hour, *min, *sec,
+                    );
+                    let s = unsafe { std::str::from_utf8_unchecked(&ts_buf) };
+                    encode::write_str(buf, s).map_err(Self::map_encode_err)?;
+                }
             }
 
             Some(Value::Time(is_neg, days, hours, mins, secs, micros)) => {
-                let total_hours = (*days as u32) * 24 + (*hours as u32);
-                let sign = if *is_neg { "-" } else { "" };
-                let s = if *micros > 0 {
-                    format!(
-                        "{}{:02}:{:02}:{:02}.{:06}",
-                        sign, total_hours, mins, secs, micros
-                    )
+                let total_hours = *days * 24 + (*hours as u32);
+                // Stack buffer: sign(1) + hours(up to 10 for u32) + :MM:SS(6) + .ffffff(7) = 24 max
+                let mut time_buf = [0u8; 26];
+                let mut pos = 0;
+                if *is_neg {
+                    time_buf[pos] = b'-';
+                    pos += 1;
+                }
+                if total_hours >= 100 {
+                    // Use itoa for large hour values
+                    let mut itoa_buf = itoa::Buffer::new();
+                    let s = itoa_buf.format(total_hours);
+                    time_buf[pos..pos + s.len()].copy_from_slice(s.as_bytes());
+                    pos += s.len();
                 } else {
-                    format!("{}{:02}:{:02}:{:02}", sign, total_hours, mins, secs)
-                };
-                encode::write_str(buf, &s).map_err(Self::map_encode_err)?;
+                    write_2digits(&mut time_buf, pos, total_hours);
+                    pos += 2;
+                }
+                time_buf[pos] = b':';
+                pos += 1;
+                write_2digits(&mut time_buf, pos, *mins as u32);
+                pos += 2;
+                time_buf[pos] = b':';
+                pos += 1;
+                write_2digits(&mut time_buf, pos, *secs as u32);
+                pos += 2;
+                if *micros > 0 {
+                    time_buf[pos] = b'.';
+                    pos += 1;
+                    write_6digits(&mut time_buf, pos, *micros);
+                    pos += 6;
+                }
+                let s = unsafe { std::str::from_utf8_unchecked(&time_buf[..pos]) };
+                encode::write_str(buf, s).map_err(Self::map_encode_err)?;
             }
         }
 
@@ -207,5 +351,37 @@ mod tests {
     fn test_encoder_creation() {
         let encoder = DirectMsgPackEncoder::new(5);
         assert_eq!(encoder.column_count, 5);
+    }
+
+    #[test]
+    fn test_format_datetime_fast() {
+        let mut buf = [0u8; 26];
+        format_datetime_fast(&mut buf, 2024, 3, 15, 14, 30, 45, 123456);
+        let s = std::str::from_utf8(&buf).unwrap();
+        assert_eq!(s, "2024-03-15 14:30:45.123456");
+    }
+
+    #[test]
+    fn test_format_date_fast() {
+        let mut buf = [0u8; 10];
+        format_date_fast(&mut buf, 2024, 1, 5);
+        let s = std::str::from_utf8(&buf).unwrap();
+        assert_eq!(s, "2024-01-05");
+    }
+
+    #[test]
+    fn test_format_datetime_no_micros() {
+        let mut buf = [0u8; 19];
+        format_datetime_no_micros(&mut buf, 2024, 12, 31, 23, 59, 59);
+        let s = std::str::from_utf8(&buf).unwrap();
+        assert_eq!(s, "2024-12-31 23:59:59");
+    }
+
+    #[test]
+    fn test_msgpack_array_header_size() {
+        assert_eq!(msgpack_array_header_size(0), 1);
+        assert_eq!(msgpack_array_header_size(15), 1);
+        assert_eq!(msgpack_array_header_size(16), 3);
+        assert_eq!(msgpack_array_header_size(65536), 5);
     }
 }

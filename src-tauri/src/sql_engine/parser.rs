@@ -857,15 +857,57 @@ fn extract_columns_from_expr(expr: &ast::Expr, columns: &mut Vec<ColumnReference
     }
 }
 
+fn infer_column_name_from_expr(expr: &ast::Expr) -> Option<String> {
+    match expr {
+        ast::Expr::Identifier(ident) => Some(ident.value.clone()),
+        ast::Expr::CompoundIdentifier(parts) => parts.last().map(|ident| ident.value.clone()),
+        ast::Expr::Nested(inner) => infer_column_name_from_expr(inner),
+        ast::Expr::Cast { expr, .. } => infer_column_name_from_expr(expr),
+        _ => None,
+    }
+}
+
+fn infer_column_name_from_select_item(item: &ast::SelectItem) -> Option<String> {
+    match item {
+        ast::SelectItem::ExprWithAlias { alias, .. } => Some(alias.value.clone()),
+        ast::SelectItem::UnnamedExpr(expr) => infer_column_name_from_expr(expr),
+        ast::SelectItem::QualifiedWildcard(_, _) | ast::SelectItem::Wildcard(_) => None,
+    }
+}
+
+fn infer_cte_projection_columns(query: &ast::Query) -> Vec<String> {
+    let SetExpr::Select(select) = query.body.as_ref() else {
+        return Vec::new();
+    };
+
+    let mut columns = Vec::new();
+    for item in &select.projection {
+        let Some(column_name) = infer_column_name_from_select_item(item) else {
+            // If projection cannot be mapped to stable output names (for example `*`),
+            // keep CTE columns unknown to avoid false missing-column diagnostics.
+            return Vec::new();
+        };
+        columns.push(column_name);
+    }
+
+    columns
+}
+
 fn extract_ctes(stmt: &Statement) -> Vec<CteDefinition> {
     let mut ctes = Vec::new();
 
     if let Statement::Query(query) = stmt {
         if let Some(with) = &query.with {
             for cte in &with.cte_tables {
+                let columns = if cte.alias.columns.is_empty() {
+                    infer_cte_projection_columns(&cte.query)
+                } else {
+                    cte.alias.columns.iter().map(|c| c.value.clone()).collect()
+                };
+
                 ctes.push(CteDefinition {
                     name: cte.alias.name.value.clone(),
-                    columns: cte.alias.columns.iter().map(|c| c.value.clone()).collect(),
+                    columns,
                 });
             }
         }
@@ -908,6 +950,34 @@ mod tests {
         );
         assert_eq!(doc.statements[0].ctes.len(), 1);
         assert_eq!(doc.statements[0].ctes[0].name, "active");
+    }
+
+    #[test]
+    fn test_parse_cte_infers_projection_columns_when_alias_list_missing() {
+        let doc = parse_document(
+            "WITH review_view AS (SELECT r.id AS review_id, r.title FROM reviews r) SELECT review_view.review_id FROM review_view",
+            SqlDialect::PostgreSQL,
+        );
+        let cte = &doc.statements[0].ctes[0];
+        assert_eq!(cte.name, "review_view");
+        assert_eq!(
+            cte.columns,
+            vec!["review_id".to_string(), "title".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_parse_cte_keeps_explicit_column_alias_list() {
+        let doc = parse_document(
+            "WITH review_view(review_id, review_title) AS (SELECT r.id, r.title FROM reviews r) SELECT review_id FROM review_view",
+            SqlDialect::PostgreSQL,
+        );
+        let cte = &doc.statements[0].ctes[0];
+        assert_eq!(cte.name, "review_view");
+        assert_eq!(
+            cte.columns,
+            vec!["review_id".to_string(), "review_title".to_string()]
+        );
     }
 
     #[test]

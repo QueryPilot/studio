@@ -376,6 +376,7 @@ export const SqlEditor = memo(
     );
 
     useEffect(() => {
+      if (!connectionId.trim()) return;
       clearCompletionCache(connectionId);
       clearProviderCache(connectionId);
     }, [connectionId, defaultSchema, effectiveDialect]);
