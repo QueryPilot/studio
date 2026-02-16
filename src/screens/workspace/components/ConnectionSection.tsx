@@ -32,6 +32,7 @@ import {
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useQuery } from "@tanstack/react-query";
+import { nanoid } from "nanoid";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
 import { buildConnectionUri } from "@/utils/connectionParser";
 import { useSchemaData } from "@/hooks/useSchemaData";
@@ -404,6 +405,69 @@ export const ConnectionSection = forwardRef<
   );
   const tableSectionCount = nonStarredCounts.tables + sidebarDraftTables.length;
 
+  // Auto-expand the section containing the focused panel's active object.
+  useEffect(() => {
+    if (!focusedPanelId) return;
+    const focusedPanel = panelContents.get(focusedPanelId);
+    if (!focusedPanel?.activeTabId) return;
+
+    const metadata = focusedPanel.metadata?.[focusedPanel.activeTabId];
+    if (!metadata || metadata.connectionId !== connectionId) return;
+
+    let sectionKey: string | null = null;
+    let starredKey: string | null = null;
+
+    if (metadata.type === "table") {
+      const tableName = typeof metadata.table === "string" ? metadata.table : "";
+      const schemaName =
+        typeof metadata.schema === "string" ? metadata.schema : "";
+      const isView =
+        !!tableName &&
+        !!schemaName &&
+        views.some((v) => v.name === tableName && v.schema === schemaName);
+
+      sectionKey = isView ? "views" : "tables";
+      if (tableName && schemaName) {
+        starredKey = `${isView ? "view" : "table"}:${schemaName}.${tableName}`;
+      }
+    } else if (metadata.type === "function") {
+      const functionName =
+        typeof metadata.functionName === "string" ? metadata.functionName : "";
+      const schemaName =
+        typeof metadata.schema === "string" ? metadata.schema : "";
+      sectionKey = "functions";
+      if (functionName && schemaName) {
+        starredKey = `function:${schemaName}.${functionName}`;
+      }
+    } else if (metadata.type === "mongo-collection") {
+      sectionKey = "collections";
+    }
+
+    const shouldExpandStarred = !!starredKey && starredSet.has(starredKey);
+    if (!sectionKey && !shouldExpandStarred) return;
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setExpandedNodes((prev) => {
+        const next = new Set(prev);
+        let changed = false;
+        if (sectionKey && !next.has(sectionKey)) {
+          next.add(sectionKey);
+          changed = true;
+        }
+        if (shouldExpandStarred && !next.has("starred")) {
+          next.add("starred");
+          changed = true;
+        }
+        return changed ? next : prev;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [focusedPanelId, panelContents, connectionId, views, starredSet]);
+
   // Auto-expand sections when data is loaded
   useEffect(() => {
     if (tables.length > 0 || views.length > 0 || functions.length > 0) {
@@ -520,6 +584,19 @@ export const ConnectionSection = forwardRef<
       metadata.connectionId === connectionId &&
       metadata.database === database &&
       metadata.table === collectionName
+    );
+  };
+
+  const isRedisDatabaseActive = (dbIndex: number): boolean => {
+    if (!focusedPanelId) return false;
+    const focusedPanel = panelContents.get(focusedPanelId);
+    const focusedTabId = focusedPanel?.activeTabId;
+    if (!focusedPanel || !focusedTabId) return false;
+    const metadata = focusedPanel.metadata?.[focusedTabId];
+    return (
+      metadata?.type === "redis-key" &&
+      metadata.connectionId === connectionId &&
+      metadata.database === String(dbIndex)
     );
   };
 
@@ -1679,13 +1756,15 @@ export const ConnectionSection = forwardRef<
                               }
                             }
                             if (targetPanelId) {
-                              const tabId = `mongo-${database}-${collection.name}`;
+                              const objectKey = `mongo-${connectionId}-${database}-${collection.name}`;
+                              const tabId = `${objectKey}:::${nanoid(6)}`;
                               addTab(targetPanelId, tabId, {
                                 type: "mongo-collection",
                                 title: collection.name,
                                 connectionId,
                                 database,
                                 table: collection.name,
+                                objectKey,
                               });
                             }
                           }}
@@ -1708,10 +1787,7 @@ export const ConnectionSection = forwardRef<
                 </div>
               ) : (
                 redisDatabases.map((dbInfo) => {
-                  const dbTabId = `redis-key-${connectionId}-db${dbInfo.db}`;
-                  const isActive =
-                    !!focusedPanelId &&
-                    panelContents.get(focusedPanelId)?.activeTabId === dbTabId;
+                  const isActive = isRedisDatabaseActive(dbInfo.db);
 
                   return (
                     <DraggableSidebarItem
@@ -1752,11 +1828,14 @@ export const ConnectionSection = forwardRef<
                             }
                           }
                           if (targetPanelId) {
-                            addTab(targetPanelId, dbTabId, {
+                            const objectKey = `redis-${connectionId}-db${dbInfo.db}`;
+                            const tabId = `${objectKey}:::${nanoid(6)}`;
+                            addTab(targetPanelId, tabId, {
                               type: "redis-key",
                               title: `db${dbInfo.db}`,
                               connectionId,
-                              database: dbInfo.db,
+                              database: String(dbInfo.db),
+                              objectKey,
                             });
                           }
                         }}

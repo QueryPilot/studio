@@ -15,6 +15,7 @@ import {
   IconDatabase,
   IconTerminal2,
 } from "@tabler/icons-react";
+import { nanoid } from "nanoid";
 import { matchSorter, rankings } from "match-sorter";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -216,7 +217,9 @@ export function CommandPalette(): React.ReactElement {
       requestAnimationFrame(() => {
         const focusedPanelId = usePanelFocusStore.getState().focusedPanelId;
         if (!focusedPanelId) return;
-        const panel = document.querySelector(`.panel[data-panel-id="${focusedPanelId}"]`) as HTMLElement | null;
+        const panel = document.querySelector<HTMLElement>(
+          `.panel[data-panel-id="${focusedPanelId}"]`,
+        );
         if (panel && !panel.contains(document.activeElement)) {
           panel.focus({ preventScroll: true });
         }
@@ -559,20 +562,27 @@ export function CommandPalette(): React.ReactElement {
           });
         }
       } else if (item.type === "collection" && item.collection) {
-        openInWorkbench(`mongo-${itemDatabase}-${item.collection.name}`, {
-          type: "mongo-collection",
-          title: item.collection.name,
-          connectionId: itemConnectionId,
-          database: itemDatabase,
-          table: item.collection.name,
-        });
+        const objectKey = `mongo-${itemConnectionId}-${itemDatabase}-${item.collection.name}`;
+        openInWorkbench(
+          `${objectKey}:::${nanoid(6)}`,
+          {
+            type: "mongo-collection",
+            title: item.collection.name,
+            connectionId: itemConnectionId,
+            database: itemDatabase,
+            table: item.collection.name,
+            objectKey,
+          },
+        );
       } else if (item.type === "redisDatabase" && item.redisDatabase) {
         const dbIndex = item.redisDatabase.db;
-        openInWorkbench(`redis-key-${itemConnectionId}-db${dbIndex}`, {
+        const objectKey = `redis-${itemConnectionId}-db${dbIndex}`;
+        openInWorkbench(`${objectKey}:::${nanoid(6)}`, {
           type: "redis-key",
           title: `db${dbIndex}`,
           connectionId: itemConnectionId,
           database: String(dbIndex),
+          objectKey,
         });
       }
 

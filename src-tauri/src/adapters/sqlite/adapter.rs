@@ -66,6 +66,102 @@ impl SqliteAdapter {
     pub(crate) fn get_db_path(&self) -> Arc<Mutex<Option<PathBuf>>> {
         self.db_path.clone()
     }
+
+    /// Execute a query and return results as owned cell values for rayon-parallel encoding.
+    ///
+    /// Unlike `execute_query()` which returns JSON via `CapabilityQueryResult`,
+    /// this method collects each row into `Vec<OwnedCell>` (owned, Send+Sync),
+    /// allowing the caller to encode batches in parallel with rayon via
+    /// `DirectMsgPackEncoder::encode_owned_batch()`.
+    pub async fn execute_query_streaming(
+        &self,
+        sql: &str,
+    ) -> Result<(Vec<ColumnMeta>, Vec<Vec<super::direct_msgpack::OwnedCell>>), AppError> {
+        use super::direct_msgpack::{DirectMsgPackEncoder, OwnedCell};
+
+        let sql = sql.to_string();
+
+        self.execute_blocking(move |conn| {
+            let trimmed = sql.trim();
+            let is_multi_statement = trimmed.matches(';').count() > 1
+                || trimmed.to_uppercase().contains("BEGIN")
+                || trimmed.to_uppercase().contains("COMMIT");
+
+            if is_multi_statement {
+                conn.execute_batch(&sql)
+                    .map_err(|e| AppError::DatabaseError(format!("Batch execute failed: {}", e)))?;
+
+                return Ok((
+                    vec![ColumnMeta {
+                        name: "result".to_string(),
+                        data_type: CellValueType::Text,
+                        db_type: "TEXT".to_string(),
+                        nullable: true,
+                        primary_key: false,
+                        type_oid: None,
+                        default_value: None,
+                        comment: None,
+                        enum_values: None,
+                        type_category: None,
+                        precision: None,
+                        scale: None,
+                    }],
+                    vec![],
+                ));
+            }
+
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
+
+            let column_count = stmt.column_count();
+
+            // Build ColumnMeta with proper types from declared column types
+            let stmt_columns = stmt.columns();
+            let columns: Vec<ColumnMeta> = (0..column_count)
+                .map(|i| {
+                    let name = stmt
+                        .column_name(i)
+                        .unwrap_or("?")
+                        .to_string();
+                    let declared_type = stmt_columns[i].decl_type();
+                    ColumnMeta {
+                        name,
+                        data_type: SqliteTypeConverter::declared_type_to_cell_type(declared_type),
+                        db_type: declared_type.unwrap_or("TEXT").to_string(),
+                        nullable: true,
+                        primary_key: false,
+                        type_oid: None,
+                        default_value: None,
+                        comment: None,
+                        enum_values: None,
+                        type_category: None,
+                        precision: None,
+                        scale: None,
+                    }
+                })
+                .collect();
+            drop(stmt_columns);
+
+            // Collect rows into owned cell values (sequential — Row is borrowed)
+            // These OwnedCell values are Send+Sync, enabling rayon parallel encoding later
+            let encoder = DirectMsgPackEncoder::new(column_count);
+            let mut owned_rows: Vec<Vec<OwnedCell>> = Vec::new();
+            let mut result_rows = stmt
+                .query([])
+                .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+
+            while let Some(row) = result_rows
+                .next()
+                .map_err(|e| AppError::DatabaseError(format!("Row fetch failed: {}", e)))?
+            {
+                owned_rows.push(encoder.collect_row(row));
+            }
+
+            Ok((columns, owned_rows))
+        })
+        .await
+    }
 }
 
 impl Default for SqliteAdapter {

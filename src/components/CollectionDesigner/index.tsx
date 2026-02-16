@@ -4,14 +4,8 @@ import { toast } from "sonner";
 
 import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Kbd } from "@/components/ui/kbd";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { eventBus } from "@/services/eventBus";
@@ -236,83 +230,99 @@ export const CollectionDesigner: React.FC<CollectionDesignerProps> = ({
   }, [handleSave, panelId, tabId]);
 
   return (
-    <div className={cn("flex h-full flex-col bg-muted/15", className)}>
+    <div className={cn("flex h-full flex-col", className)}>
       <div className="flex-1 overflow-auto">
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4">
+        <div className="mx-auto w-full max-w-5xl p-5">
           {/* Header */}
-          <Card className="border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 via-background to-background">
-            <CardHeader>
-              <CardTitle>Collection Designer</CardTitle>
-              <CardDescription>
-                Create a new collection in{" "}
-                <span className="font-medium text-foreground">
-                  {database || "the active database"}
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">
+                Collection Designer
+              </h2>
+              <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+                Create a new collection in
+                <code className="rounded-md bg-primary/10 px-1.5 py-0.5 text-xs font-semibold text-primary">
+                  {database || "..."}
+                </code>
+              </p>
+            </div>
+            <span className="mt-1 select-none rounded-md border bg-muted/50 px-2 py-0.5 font-mono text-[10px] text-muted-foreground/60">
+              draft
+            </span>
+          </div>
+
+          {/* Collection name — full width */}
+          <div className="mt-5 space-y-1.5">
+            <Label
+              htmlFor="collection-name"
+              className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+            >
+              Collection name
+            </Label>
+            <Input
+              id="collection-name"
+              value={state.collectionName}
+              onChange={(e) => {
+                dispatch({
+                  type: "SET_FIELD",
+                  field: "collectionName",
+                  value: e.target.value,
+                });
+              }}
+              placeholder="e.g. users"
+              className="h-9 font-mono"
+              autoFocus
+            />
+            <p className="text-[11px] text-muted-foreground/60">
+              Cannot start with <code className="text-[10px]">system.</code>
+            </p>
+          </div>
+
+          {/* Two-column: Configuration + Preview */}
+          <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+            {/* Configuration modules */}
+            <div>
+              <div className="mb-3 flex items-center gap-3">
+                <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
+                  Configuration
                 </span>
-                .
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex items-center justify-between gap-3 pt-1 text-xs text-muted-foreground">
-              <p className="truncate">
-                Use the form below, then save with Cmd/Ctrl+S.
-              </p>
-              <p className="shrink-0 rounded-md border bg-background px-2 py-1 font-mono text-[11px]">
-                draft tab
-              </p>
-            </CardContent>
-          </Card>
-
-          {/* Two-column layout */}
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-            {/* Left column: form */}
-            <div className="space-y-4">
-              {/* Collection name */}
-              <Card className="h-fit">
-                <CardContent className="pt-4 space-y-2">
-                  <Label htmlFor="collection-name">Collection name</Label>
-                  <Input
-                    id="collection-name"
-                    value={state.collectionName}
-                    onChange={(e) => {
-                      dispatch({
-                        type: "SET_FIELD",
-                        field: "collectionName",
-                        value: e.target.value,
-                      });
-                    }}
-                    placeholder="e.g. users"
-                    autoFocus
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    MongoDB names cannot start with <code>system.</code>
-                  </p>
-                </CardContent>
-              </Card>
-
-              {/* Feature sections */}
-              <SeedSection state={state} dispatch={dispatch} />
-              <CappedSection state={state} dispatch={dispatch} />
-              <TimeSeriesSection state={state} dispatch={dispatch} />
-              <ClusteredSection state={state} dispatch={dispatch} />
-              <CollationSection state={state} dispatch={dispatch} />
-              <ValidationSection state={state} dispatch={dispatch} />
+                <div className="h-px flex-1 bg-border/40" />
+              </div>
+              <div className="space-y-3">
+                <SeedSection state={state} dispatch={dispatch} />
+                <CappedSection state={state} dispatch={dispatch} />
+                <TimeSeriesSection state={state} dispatch={dispatch} />
+                <ClusteredSection state={state} dispatch={dispatch} />
+                <CollationSection state={state} dispatch={dispatch} />
+                <ValidationSection state={state} dispatch={dispatch} />
+              </div>
             </div>
 
-            {/* Right column: command preview */}
-            <CommandPreview state={state} />
+            {/* Preview */}
+            <div>
+              <div className="mb-3 flex items-center gap-3">
+                <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
+                  Preview
+                </span>
+                <div className="h-px flex-1 bg-border/40" />
+              </div>
+              <CommandPreview state={state} />
+            </div>
           </div>
         </div>
       </div>
 
       {/* Footer */}
-      <div className="border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+      <div className="border-t bg-background/95 px-4 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/75">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3">
-          <p className="text-[11px] text-muted-foreground">
-            Save with Cmd/Ctrl+S
-          </p>
+          <div className="flex items-center gap-1 text-muted-foreground/60">
+            <Kbd>⌘S</Kbd>
+            <span className="ml-1 text-[11px]">to save</span>
+          </div>
           <div className="flex items-center gap-2">
             {onCancel && (
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 onClick={onCancel}
                 disabled={state.isSaving}
@@ -325,7 +335,7 @@ export const CollectionDesigner: React.FC<CollectionDesignerProps> = ({
               onClick={() => void handleSave()}
               disabled={saveDisabled}
             >
-              {state.isSaving ? "Creating..." : "Create Collection"}
+              {state.isSaving ? "Creating\u2026" : "Create Collection"}
             </Button>
           </div>
         </div>

@@ -49,7 +49,7 @@ interface PanelContentRendererProps {
   metadata?: TabMetadata;
 }
 
-/** Per-tab sort key. Returns undefined when sync is ON (default), per-tab key when explicitly OFF. */
+/** Per-tab grid preferences key. Returns undefined when sync is ON (default). */
 function perTabSortGridId(baseGridId: string, tabId: string, syncSort: boolean | undefined): string | undefined {
   return syncSort === false ? `${baseGridId}:::tab:::${tabId}` : undefined;
 }
@@ -387,13 +387,17 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
           database={metadata?.database || ""}
           className="h-full"
           onSave={(collectionName) => {
+            const collectionConnectionId =
+              metadata?.connectionId || activeConnectionId || "";
+            const collectionDatabase = metadata?.database || "";
             updateTabMetadata(panelId, tabId, {
               type: "mongo-collection",
               title: collectionName,
               table: collectionName,
-              connectionId: metadata?.connectionId || activeConnectionId || "",
-              database: metadata?.database || "",
+              connectionId: collectionConnectionId,
+              database: collectionDatabase,
               schema: "",
+              objectKey: `mongo-${collectionConnectionId}-${collectionDatabase}-${collectionName}`,
             });
           }}
         />

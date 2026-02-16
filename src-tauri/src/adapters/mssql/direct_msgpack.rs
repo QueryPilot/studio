@@ -69,6 +69,7 @@ fn write_6digits(dst: &mut [u8], offset: usize, val: u32) {
 
 /// Fast timestamp format: "YYYY-MM-DD HH:MM:SS.ffffff" (26 bytes)
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn format_timestamp_fast(
     dst: &mut [u8; 26],
     year: i32,
@@ -96,6 +97,7 @@ fn format_timestamp_fast(
 
 /// Fast timestamptz format: "YYYY-MM-DD HH:MM:SS.ffffff+HH:MM" (32 bytes)
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn format_timestamptz_fast(
     dst: &mut [u8; 32],
     year: i32,
@@ -369,19 +371,26 @@ impl DirectMsgPackEncoder {
         }
         // NaiveDateTime - fast stack-buffer formatting
         if let Some(v) = row.try_get::<chrono::NaiveDateTime, _>(idx).ok().flatten() {
-            let mut ts_buf = [0u8; 26];
-            format_timestamp_fast(
-                &mut ts_buf,
-                v.year(),
-                v.month(),
-                v.day(),
-                v.hour(),
-                v.minute(),
-                v.second(),
-                v.nanosecond() / 1000,
-            );
-            let s = unsafe { std::str::from_utf8_unchecked(&ts_buf) };
-            encode::write_str(buf, s).map_err(Self::map_encode_err)?;
+            let year = v.year();
+            if !(0..=9999).contains(&year) {
+                // Fall back to chrono's Display for edge-case years (BC dates, etc.)
+                encode::write_str(buf, &v.to_string()).map_err(Self::map_encode_err)?;
+            } else {
+                let mut ts_buf = [0u8; 26];
+                format_timestamp_fast(
+                    &mut ts_buf,
+                    year,
+                    v.month(),
+                    v.day(),
+                    v.hour(),
+                    v.minute(),
+                    v.second(),
+                    v.nanosecond() / 1000,
+                );
+                // SAFETY: buffer contains only ASCII digits and separators
+                let s = unsafe { std::str::from_utf8_unchecked(&ts_buf) };
+                encode::write_str(buf, s).map_err(Self::map_encode_err)?;
+            }
             return Ok(());
         }
         // DateTime<FixedOffset> - fast stack-buffer formatting
@@ -390,24 +399,30 @@ impl DirectMsgPackEncoder {
             .ok()
             .flatten()
         {
-            let offset_secs = v.offset().local_minus_utc();
-            let tz_hours = offset_secs / 3600;
-            let tz_mins = (offset_secs % 3600).abs() / 60;
-            let mut ts_buf = [0u8; 32];
-            format_timestamptz_fast(
-                &mut ts_buf,
-                v.year(),
-                v.month(),
-                v.day(),
-                v.hour(),
-                v.minute(),
-                v.second(),
-                v.nanosecond() / 1000,
-                tz_hours,
-                tz_mins,
-            );
-            let s = unsafe { std::str::from_utf8_unchecked(&ts_buf) };
-            encode::write_str(buf, s).map_err(Self::map_encode_err)?;
+            let year = v.year();
+            if !(0..=9999).contains(&year) {
+                encode::write_str(buf, &v.to_string()).map_err(Self::map_encode_err)?;
+            } else {
+                let offset_secs = v.offset().local_minus_utc();
+                let tz_hours = offset_secs / 3600;
+                let tz_mins = (offset_secs % 3600).abs() / 60;
+                let mut ts_buf = [0u8; 32];
+                format_timestamptz_fast(
+                    &mut ts_buf,
+                    year,
+                    v.month(),
+                    v.day(),
+                    v.hour(),
+                    v.minute(),
+                    v.second(),
+                    v.nanosecond() / 1000,
+                    tz_hours,
+                    tz_mins,
+                );
+                // SAFETY: buffer contains only ASCII digits and separators
+                let s = unsafe { std::str::from_utf8_unchecked(&ts_buf) };
+                encode::write_str(buf, s).map_err(Self::map_encode_err)?;
+            }
             return Ok(());
         }
         // DateTime<Utc> - fast stack-buffer formatting
@@ -416,29 +431,41 @@ impl DirectMsgPackEncoder {
             .ok()
             .flatten()
         {
-            let mut ts_buf = [0u8; 32];
-            format_timestamptz_fast(
-                &mut ts_buf,
-                v.year(),
-                v.month(),
-                v.day(),
-                v.hour(),
-                v.minute(),
-                v.second(),
-                v.nanosecond() / 1000,
-                0,
-                0,
-            );
-            let s = unsafe { std::str::from_utf8_unchecked(&ts_buf) };
-            encode::write_str(buf, s).map_err(Self::map_encode_err)?;
+            let year = v.year();
+            if !(0..=9999).contains(&year) {
+                encode::write_str(buf, &v.to_string()).map_err(Self::map_encode_err)?;
+            } else {
+                let mut ts_buf = [0u8; 32];
+                format_timestamptz_fast(
+                    &mut ts_buf,
+                    year,
+                    v.month(),
+                    v.day(),
+                    v.hour(),
+                    v.minute(),
+                    v.second(),
+                    v.nanosecond() / 1000,
+                    0,
+                    0,
+                );
+                // SAFETY: buffer contains only ASCII digits and separators
+                let s = unsafe { std::str::from_utf8_unchecked(&ts_buf) };
+                encode::write_str(buf, s).map_err(Self::map_encode_err)?;
+            }
             return Ok(());
         }
         // NaiveDate - fast stack-buffer formatting
         if let Some(v) = row.try_get::<chrono::NaiveDate, _>(idx).ok().flatten() {
-            let mut date_buf = [0u8; 10];
-            format_date_fast(&mut date_buf, v.year(), v.month(), v.day());
-            let s = unsafe { std::str::from_utf8_unchecked(&date_buf) };
-            encode::write_str(buf, s).map_err(Self::map_encode_err)?;
+            let year = v.year();
+            if !(0..=9999).contains(&year) {
+                encode::write_str(buf, &v.to_string()).map_err(Self::map_encode_err)?;
+            } else {
+                let mut date_buf = [0u8; 10];
+                format_date_fast(&mut date_buf, year, v.month(), v.day());
+                // SAFETY: buffer contains only ASCII digits and separators
+                let s = unsafe { std::str::from_utf8_unchecked(&date_buf) };
+                encode::write_str(buf, s).map_err(Self::map_encode_err)?;
+            }
             return Ok(());
         }
         // NaiveTime - fast stack-buffer formatting

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import {
   IconChevronDown,
@@ -190,9 +190,17 @@ export function SidebarItem({
   badge,
 }: SidebarItemProps) {
   const paddingLeft = level > 0 ? `${level * 12}px` : undefined;
+  const itemRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isActive && itemRef.current) {
+      itemRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [isActive]);
 
   return (
     <div
+      ref={itemRef}
       className={cn(
         "group flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer overflow-hidden border-l-2",
         isActive

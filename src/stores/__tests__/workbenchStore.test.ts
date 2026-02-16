@@ -436,6 +436,49 @@ describe("workbenchStore", () => {
         panelCountBefore,
       );
     });
+
+    it("should deduplicate by objectKey when moving tab to a panel that already has the same object", () => {
+      const store = useWorkbenchStore.getState();
+      store.initializeLayout();
+
+      const panel1Id = usePanelFocusStore.getState().focusedPanelId!;
+
+      store.splitPanelAction({
+        targetPanelId: panel1Id,
+        direction: "right",
+        newPanelContent: {
+          id: "panel-2",
+          type: "editor",
+          tabIds: [],
+          activeTabId: "",
+        },
+      });
+
+      const panel2Id = Array.from(useWorkbenchStore.getState().panelContents.keys())
+        .find((id) => id !== panel1Id)!;
+
+      store.addTab(panel1Id, "tab-a", {
+        type: "table",
+        objectKey: "table-conn-1-public-users",
+        title: "Users (A)",
+      });
+      store.addTab(panel2Id, "tab-b", {
+        type: "table",
+        objectKey: "table-conn-1-public-users",
+        title: "Users (B)",
+        syncSort: false,
+      });
+
+      store.moveTab("tab-a", panel1Id, panel2Id);
+
+      const state = useWorkbenchStore.getState();
+      const panel2 = state.panelContents.get(panel2Id);
+
+      expect(state.panelContents.has(panel1Id)).toBe(false);
+      expect(panel2?.tabIds).toEqual(["tab-b"]);
+      expect(panel2?.activeTabId).toBe("tab-b");
+      expect(panel2?.metadata?.["tab-b"]?.syncSort).toBe(false);
+    });
   });
 
   describe("Focus Panel", () => {
@@ -755,6 +798,55 @@ describe("workbenchStore", () => {
       store.addTab(panelId, "tab-1");
 
       expect(useWorkbenchStore.getState().panelContents.get(panelId)?.activeTabId).toBe("tab-1");
+    });
+
+    it("should merge metadata when adding an existing tabId", () => {
+      const store = useWorkbenchStore.getState();
+      store.initializeLayout();
+
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
+
+      store.addTab(panelId, "tab-1", {
+        type: "table",
+        objectKey: "table-conn-1-public-users",
+        title: "Users",
+        syncSort: false,
+      });
+      store.addTab(panelId, "tab-1", {
+        title: "Users Updated",
+      });
+
+      const panel = useWorkbenchStore.getState().panelContents.get(panelId);
+      expect(panel?.metadata?.["tab-1"]?.title).toBe("Users Updated");
+      expect(panel?.metadata?.["tab-1"]?.syncSort).toBe(false);
+      expect(panel?.metadata?.["tab-1"]?.objectKey).toBe(
+        "table-conn-1-public-users",
+      );
+    });
+
+    it("should deduplicate by objectKey within the same panel", () => {
+      const store = useWorkbenchStore.getState();
+      store.initializeLayout();
+
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
+
+      store.addTab(panelId, "tab-1", {
+        type: "table",
+        objectKey: "table-conn-1-public-users",
+        title: "Users",
+        syncSort: false,
+      });
+      store.addTab(panelId, "tab-2", {
+        type: "table",
+        objectKey: "table-conn-1-public-users",
+        title: "Users Updated",
+      });
+
+      const panel = useWorkbenchStore.getState().panelContents.get(panelId);
+      expect(panel?.tabIds).toEqual(["tab-1"]);
+      expect(panel?.activeTabId).toBe("tab-1");
+      expect(panel?.metadata?.["tab-1"]?.title).toBe("Users Updated");
+      expect(panel?.metadata?.["tab-1"]?.syncSort).toBe(false);
     });
 
     it("should remove tab from panel", () => {

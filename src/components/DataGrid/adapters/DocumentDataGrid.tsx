@@ -86,6 +86,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   focused,
   sortGridId,
 }: DocumentDataGridProps) {
+  const preferenceGridId = sortGridId ?? gridId;
   const quickFilterRef = useRef<QuickFilterRef>(null);
   const lastDrilledCellRef = useRef<string | null>(null);
 
@@ -117,7 +118,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
 
   // Get document data with filter
   const data = useDocumentData({
-    gridId,
+    gridId: preferenceGridId,
     connectionId,
     database,
     collection,
@@ -141,6 +142,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
     columns: filterColumns,
     clientSideFiltering: false, // We handle both server and client filtering ourselves
     generateAIFilter: undefined,
+    gridId: preferenceGridId,
   });
 
   const savedViewStorageKey = `querypilot.document-grid.views.${gridId}`;

@@ -49,7 +49,6 @@ function createIpcChannel(handler: (message: unknown) => void): ChannelLike {
   const pending = new Map<number, unknown>();
   const callbackId = transformCallback(
     ({ message, id }: { message: unknown; id?: number }) => {
-      // Suppress ID warnings - messages are delivered sequentially anyway
       if (typeof id !== "number") {
         handler(message);
         return;
@@ -194,9 +193,81 @@ export class QueryStreamClient {
       let totalRows = 0;
       let settled = false;
       let pendingDecode = Promise.resolve<void>(undefined);
+      let invokeCompleted = false;
+      let successResult: StreamResult | null = null;
+      let finalizingSuccess = false;
 
       const normalizeError = (err: unknown): Error =>
         err instanceof Error ? err : new Error(String(err));
+
+      const sleep = (ms: number) =>
+        new Promise<void>((resolveSleep) => {
+          setTimeout(resolveSleep, ms);
+        });
+
+      const drainPendingDecode = async (
+        expectedRows: number,
+        expectedBatches?: number,
+      ) => {
+        const deadline = Date.now() + 2000;
+
+        while (true) {
+          const snapshot = pendingDecode;
+          await snapshot.catch((error) => {
+            logger.error(
+              "query-stream",
+              "Pending decode error while draining stream",
+              error,
+            );
+          });
+
+          const decodeQueueStable = snapshot === pendingDecode;
+          const haveExpectedRows = totalRows >= expectedRows;
+          const haveExpectedBatches =
+            expectedBatches === undefined || batchCount >= expectedBatches;
+
+          if (decodeQueueStable && haveExpectedRows && haveExpectedBatches) {
+            return;
+          }
+
+          if (Date.now() >= deadline) {
+            logger.warn(
+              "query-stream",
+              "Timed out waiting for trailing stream batches",
+              {
+                expectedRows,
+                decodedRows: totalRows,
+                expectedBatches,
+                decodedBatches: batchCount,
+              },
+            );
+            return;
+          }
+
+          await sleep(5);
+        }
+      };
+
+      const maybeFinalizeSuccess = () => {
+        if (settled || finalizingSuccess) return;
+        if (!invokeCompleted || !successResult) return;
+
+        finalizingSuccess = true;
+        const result = successResult;
+
+        void drainPendingDecode(result.totalRows, result.fetchCount)
+          .catch((error) => {
+            logger.error(
+              "query-stream",
+              "Failed while waiting for trailing batches",
+              error,
+            );
+          })
+          .finally(() => {
+            callbacks.onSuccess?.(result);
+            settleResolve(result);
+          });
+      };
 
       const settleResolve = (result: StreamResult) => {
         if (settled) return;
@@ -296,22 +367,11 @@ export class QueryStreamClient {
               ipcSendMs: typedMessage.ipc_send_ms,
             };
 
-            // Wait for all pending decode tasks to complete BEFORE
-            // notifying onSuccess. Data batches arrive on a separate IPC
-            // channel and may still be decoding when "success" metadata
-            // arrives. Calling onSuccess too early causes the consumer's
-            // mapping queue to miss pending batches, leading to empty data.
-            pendingDecode
-              .catch((error) => {
-                logger.error(
-                  "[QueryStreamClient] Pending decode error on success",
-                  error,
-                );
-              })
-              .finally(() => {
-                callbacks.onSuccess?.(result);
-                settleResolve(result);
-              });
+            // Success metadata can arrive before trailing data batches from the
+            // separate data channel. Defer completion until invoke() returns and
+            // decode queue is fully drained to avoid truncating rows.
+            successResult = result;
+            maybeFinalizeSuccess();
             break;
           }
 
@@ -357,11 +417,30 @@ export class QueryStreamClient {
           timeoutSecs,
           metadataChannel,
           dataChannel,
-        }).catch((error: unknown) => {
-          const normalized = normalizeError(error);
-          callbacks.onError?.(normalized);
-          settleReject(normalized);
-        });
+        })
+          .then(() => {
+            invokeCompleted = true;
+            maybeFinalizeSuccess();
+          })
+          .catch((error: unknown) => {
+            const normalized = normalizeError(error);
+            invokeCompleted = true;
+
+            // If success metadata already arrived, treat invoke rejection as a
+            // late channel-close artifact and finish with success after drain.
+            if (successResult) {
+              logger.warn(
+                "query-stream",
+                "invoke() rejected after success metadata; draining trailing batches",
+                normalized,
+              );
+              maybeFinalizeSuccess();
+              return;
+            }
+
+            callbacks.onError?.(normalized);
+            settleReject(normalized);
+          });
       } catch (error) {
         const normalized = normalizeError(error);
         callbacks.onError?.(normalized);

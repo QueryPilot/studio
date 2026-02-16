@@ -90,6 +90,7 @@ import {
   applyClientSideFilter,
   type FilterOptions,
 } from "../utils/clientSideFilter";
+import { buildIsolatedGridPreferenceSnapshot } from "../utils/gridPreferenceIsolation";
 
 const EMPTY_STAGED_CHANGES = {
   rowChanges: new Map<number, Set<string>>(),
@@ -259,8 +260,8 @@ export interface BaseDataGridProps {
    */
   externalQuickFilterRef?: React.RefObject<QuickFilterRef | null>;
 
-  /** Override grid ID used for sort preferences (for per-tab sort isolation).
-   *  When set, sort reads/writes use this key; changes are also written through to gridId. */
+  /** Override grid ID used for persisted grid preferences (sort/filter/columns/pinning).
+   *  Useful for per-tab isolation when sync is disabled. */
   sortGridId?: string;
 }
 
@@ -328,6 +329,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     // Per-tab sort isolation
     sortGridId,
   } = props;
+  const preferenceGridId = sortGridId ?? gridId;
 
   // --- CRUD Store Integration ---
   const {
@@ -617,8 +619,47 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   });
 
   // --- Column State from Store ---
-  const preferences = useGridPreferencesStore((s) => s.preferences[gridId]);
+  const preferences = useGridPreferencesStore(
+    (s) => s.preferences[preferenceGridId],
+  );
+  const sharedPreferences = useGridPreferencesStore(
+    useCallback(
+      (s) =>
+        preferenceGridId !== gridId ? s.preferences[gridId] : undefined,
+      [preferenceGridId, gridId],
+    ),
+  );
   const hydrated = useGridPreferencesHydrated();
+
+  const wasIsolatedRef = useRef(preferenceGridId !== gridId);
+
+  // Seed isolated preferences from the shared key when sync is toggled OFF,
+  // so users keep the current grid state as a starting point.
+  useEffect(() => {
+    const isIsolated = preferenceGridId !== gridId;
+    const switchedToIsolated = isIsolated && !wasIsolatedRef.current;
+    wasIsolatedRef.current = isIsolated;
+
+    if (!hydrated || !isIsolated || !sharedPreferences) return;
+    if (!switchedToIsolated && preferences) return;
+
+    const snapshot = buildIsolatedGridPreferenceSnapshot(sharedPreferences);
+    if (!snapshot) return;
+
+    useGridPreferencesStore.getState().upsert(preferenceGridId, (draft) => {
+      draft.columns = snapshot.columns;
+      draft.pinnedRows = snapshot.pinnedRows;
+      draft.sortColumns = snapshot.sortColumns;
+      draft.quickFilter = snapshot.quickFilter;
+      draft.structureSearch = snapshot.structureSearch;
+    });
+  }, [
+    preferenceGridId,
+    gridId,
+    hydrated,
+    sharedPreferences,
+    preferences,
+  ]);
 
   const columnState = preferences?.columns ?? {
     order: [],
@@ -665,7 +706,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     initialFilter: undefined,
     generateAIFilter: undefined,
     clientSideFiltering: true,
-    gridId,
+    gridId: preferenceGridId,
   });
 
   // --- Helper: Check if a cell editor is currently active ---
@@ -768,7 +809,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     const isInitialLoad = columnState.order.length === 0;
 
     if (isInitialLoad) {
-      upsertGridColumnsState(gridId, (draft) => {
+      upsertGridColumnsState(preferenceGridId, (draft) => {
         draft.order = expectedOrder;
         expectedOrder.forEach((id) => {
           if (!id) return;
@@ -779,7 +820,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   }, [
     baseColumns,
     columnState.order.length,
-    gridId,
+    preferenceGridId,
     hydrated,
     enableColumnManagement,
   ]);
@@ -793,11 +834,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const handleColumnVisibilityChange = useCallback(
     (visibility: Record<string, boolean>) => {
       if (!hydrated || !enableColumnManagement) return;
-      upsertGridColumnsState(gridId, (draft) => {
+      upsertGridColumnsState(preferenceGridId, (draft) => {
         draft.visibility = visibility;
       });
     },
-    [gridId, hydrated, enableColumnManagement],
+    [preferenceGridId, hydrated, enableColumnManagement],
   );
 
   const {
@@ -818,7 +859,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     (widths: Record<string, number>) => {
       if (!hydrated || !enableColumnManagement) return;
       const state = useGridPreferencesStore.getState();
-      const current = state.preferences[gridId]?.columns?.widths ?? {};
+      const current = state.preferences[preferenceGridId]?.columns?.widths ?? {};
       const changed = Object.keys(widths).some(
         (key) => current[key] !== widths[key],
       );
@@ -826,21 +867,21 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         // Use requestIdleCallback to defer persistence until browser is idle
         if (typeof requestIdleCallback !== "undefined") {
           requestIdleCallback(() => {
-            upsertGridColumnsState(gridId, (draft) => {
+            upsertGridColumnsState(preferenceGridId, (draft) => {
               draft.widths = widths;
             });
           });
         } else {
           // Fallback for browsers without requestIdleCallback
           setTimeout(() => {
-            upsertGridColumnsState(gridId, (draft) => {
+            upsertGridColumnsState(preferenceGridId, (draft) => {
               draft.widths = widths;
             });
           }, 0);
         }
       }
     },
-    [gridId, hydrated, enableColumnManagement],
+    [preferenceGridId, hydrated, enableColumnManagement],
   );
 
   const { visibleColumns } = useColumnVisibility({
@@ -986,9 +1027,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     toggleSort,
     sortedData,
   } = useColumnSorting({
-    gridId: sortGridId ?? gridId,
+    gridId: preferenceGridId,
     columns: finalColumns,
-    writeThroughGridId: sortGridId ? gridId : undefined,
   });
 
   // Apply sorting to rows BEFORE pinning (so unpinned rows are sorted)
@@ -1032,9 +1072,12 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const handlePinnedRowsChange = useCallback(
     (ids: string[]) => {
       if (!hydrated || !enableRowPinning) return;
-      useGridPreferencesStore.getState().updatePinnedRows(gridId, () => ids);
+      useGridPreferencesStore.getState().updatePinnedRows(
+        preferenceGridId,
+        () => ids,
+      );
     },
-    [gridId, hydrated, enableRowPinning],
+    [preferenceGridId, hydrated, enableRowPinning],
   );
 
   const { pinnedRows, unpinnedRows, pinnedRowIds, pinRow, unpinRow } =
@@ -2561,11 +2604,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       const [movedId] = newOrder.splice(startIndex, 1);
       newOrder.splice(endIndex, 0, movedId!);
 
-      upsertGridColumnsState(gridId, (draft) => {
+      upsertGridColumnsState(preferenceGridId, (draft) => {
         draft.order = newOrder;
       });
     },
-    [gridId, finalColumns, hydrated, enableColumnManagement],
+    [preferenceGridId, finalColumns, hydrated, enableColumnManagement],
   );
 
   // --- Context Menu Actions ---
@@ -2582,12 +2625,12 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const handleColumnHide = useCallback(
     (columnId: string) => {
       if (!hydrated || !enableColumnManagement) return;
-      upsertGridColumnsState(gridId, (draft) => {
+      upsertGridColumnsState(preferenceGridId, (draft) => {
         draft.visibility[columnId] = false;
       });
       contextMenuTargetRef.current = null;
     },
-    [gridId, hydrated, enableColumnManagement],
+    [preferenceGridId, hydrated, enableColumnManagement],
   );
 
   const handlePinRowsFromMenu = useCallback(
@@ -2626,47 +2669,47 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const handlePinColumn = useCallback(
     (columnId: string) => {
       if (!hydrated || !enableColumnManagement) return;
-      upsertGridColumnsState(gridId, (draft) => {
+      upsertGridColumnsState(preferenceGridId, (draft) => {
         if (!draft.pinned.includes(columnId)) {
           draft.pinned.push(columnId);
         }
       });
       contextMenuTargetRef.current = null;
     },
-    [gridId, hydrated, enableColumnManagement],
+    [preferenceGridId, hydrated, enableColumnManagement],
   );
 
   const handleUnpinColumn = useCallback(
     (columnId: string) => {
       if (!hydrated || !enableColumnManagement) return;
-      upsertGridColumnsState(gridId, (draft) => {
+      upsertGridColumnsState(preferenceGridId, (draft) => {
         draft.pinned = draft.pinned.filter((id: string) => id !== columnId);
       });
       contextMenuTargetRef.current = null;
     },
-    [gridId, hydrated, enableColumnManagement],
+    [preferenceGridId, hydrated, enableColumnManagement],
   );
 
   const handleToggleColumnVisibility = useCallback(
     (columnId: string) => {
       if (!hydrated || !enableColumnManagement) return;
-      upsertGridColumnsState(gridId, (draft) => {
+      upsertGridColumnsState(preferenceGridId, (draft) => {
         const currentVisible = draft.visibility[columnId] !== false;
         draft.visibility[columnId] = !currentVisible;
       });
       contextMenuTargetRef.current = null;
     },
-    [gridId, hydrated, enableColumnManagement],
+    [preferenceGridId, hydrated, enableColumnManagement],
   );
 
   const handleShowAllColumns = useCallback(() => {
     if (!hydrated || !enableColumnManagement) return;
-    upsertGridColumnsState(gridId, (draft) => {
+    upsertGridColumnsState(preferenceGridId, (draft) => {
       // Clear all visibility settings (everything visible by default)
       draft.visibility = {};
     });
     contextMenuTargetRef.current = null;
-  }, [gridId, hydrated, enableColumnManagement]);
+  }, [preferenceGridId, hydrated, enableColumnManagement]);
 
   const handleInspectorViewDetails = useCallback(
     (rowsToInspect: GridRowModel[]) => {

@@ -423,12 +423,15 @@ fn send_query_results(
 /// MySQL/MariaDB streaming implementation with cancellation support.
 /// Uses the same connection for both CONNECTION_ID() retrieval and query execution,
 /// ensuring the correct query gets killed on cancellation.
+///
+/// Optimized path: mysql_async::Row → DirectMsgPackEncoder → progressive IPC batches
 async fn execute_mysql_stream(
     sql: &str,
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
     adapter: &crate::core::manager::UnifiedAdapter,
 ) -> std::result::Result<(), String> {
+    use crate::adapters::mysql::DirectMsgPackEncoder;
     use mysql_async::prelude::*;
 
     let mysql_adapter = adapter
@@ -455,38 +458,58 @@ async fn execute_mysql_stream(
     let start_time = std::time::Instant::now();
     let sql_owned = sql.to_string();
 
-    // Execute the query on the SAME connection we got the ID from
+    // Execute the query on the SAME connection we got the ID from.
+    // Collect rows eagerly then process in progressive batches.
     let query_future = async {
         let mut result = query_conn
             .query_iter(&sql_owned)
             .await
             .map_err(|e| format!("Query failed: {}", e))?;
 
+        // Extract column metadata directly into ColumnMeta (bypassing CapabilityColumnMeta)
         let columns_ref = result.columns_ref();
-        let columns: Vec<crate::core::capabilities::CapabilityColumnMeta> = columns_ref
+        let columns: Vec<ColumnMeta> = columns_ref
             .iter()
-            .map(|col| crate::core::capabilities::CapabilityColumnMeta {
-                name: col.name_str().to_string(),
-                data_type: crate::adapters::mysql::types::MySqlTypeConverter::column_type_to_string(
-                    col.column_type(),
-                ),
+            .map(|col| {
+                let col_type = col.column_type();
+                let is_unsigned = col
+                    .flags()
+                    .contains(mysql_async::consts::ColumnFlags::UNSIGNED_FLAG);
+                ColumnMeta {
+                    name: col.name_str().to_string(),
+                    data_type:
+                        crate::adapters::mysql::types::MySqlTypeConverter::column_type_to_cell_type(
+                            col_type,
+                            is_unsigned,
+                        ),
+                    db_type:
+                        crate::adapters::mysql::types::MySqlTypeConverter::column_type_to_string(
+                            col_type,
+                        ),
+                    nullable: true,
+                    primary_key: false,
+                    type_oid: None,
+                    default_value: None,
+                    comment: None,
+                    enum_values: None,
+                    type_category: None,
+                    precision: None,
+                    scale: None,
+                }
             })
             .collect();
+
+        let column_count = columns.len();
 
         let rows: Vec<mysql_async::Row> = result
             .collect()
             .await
             .map_err(|e| format!("Failed to collect rows: {}", e))?;
 
-        let json_rows =
-            crate::adapters::mysql::simple_converter::SimpleConverter::rows_to_json(&rows);
-        Ok::<_, String>(crate::core::capabilities::CapabilityQueryResult {
-            columns,
-            rows: json_rows,
-        })
+        Ok::<_, String>((columns, column_count, rows))
     };
 
-    let cap_result = tokio::select! {
+    let (columns, column_count, rows) = tokio::select! {
         result = query_future => result?,
         _ = wait_for_channel_close(data_channel) => {
             tracing::info!("  ⚠️  Channel closed (user cancelled MySQL query)");
@@ -514,15 +537,137 @@ async fn execute_mysql_stream(
         }
     };
 
-    let result = capability_result_to_query_result(cap_result);
     let query_elapsed = start_time.elapsed().as_millis();
+    let total_rows = rows.len();
     tracing::info!(
         "  ⏱ MySQL query execution: {}ms, {} rows",
         query_elapsed,
-        result.rows.len()
+        total_rows
     );
 
-    send_query_results(&result, start_time, query_elapsed, metadata_channel, data_channel)
+    // Send column metadata immediately
+    let _ = metadata_channel.send(StreamMessage::Started {
+        columns,
+        estimated_rows: Some(total_rows as i64),
+    });
+
+    // Direct encode to MessagePack with progressive batching
+    let encoder = DirectMsgPackEncoder::new(column_count);
+
+    const BATCH_SIZES: [usize; 5] = [16, 64, 256, 1024, 2048];
+
+    let mut conversion_time_ms = 0u64;
+    let mut send_time_ms = 0u64;
+    let mut send_count = 0usize;
+    let mut offset = 0usize;
+    let mut batch_index = 0usize;
+
+    while offset < total_rows {
+        let batch_size = BATCH_SIZES[batch_index.min(BATCH_SIZES.len() - 1)];
+        let end = (offset + batch_size).min(total_rows);
+        let batch = &rows[offset..end];
+
+        let convert_start = std::time::Instant::now();
+        let rows_msgpack = encoder.encode_batch(batch).unwrap_or_else(|e| {
+            tracing::error!(
+                "  ❌ MySQL batch encode failed (rows {}-{}): {}",
+                offset,
+                end,
+                e
+            );
+            vec![0x90] // valid empty msgpack array
+        });
+        conversion_time_ms += convert_start.elapsed().as_millis() as u64;
+
+        let send_start = std::time::Instant::now();
+        let send_result = data_channel.send(tauri::ipc::Response::new(rows_msgpack));
+        send_time_ms += send_start.elapsed().as_millis() as u64;
+        send_count += 1;
+
+        if send_result.is_err() {
+            tracing::info!("  ⚠️  Channel closed (user cancelled), stopping stream early");
+
+            if conn_id > 0 {
+                tracing::info!("  🛑 Sending KILL QUERY {} to MySQL", conn_id);
+                let kill_pool = pool.clone();
+                tokio::spawn(async move {
+                    match kill_pool.get_conn().await {
+                        Ok(mut kill_conn) => {
+                            let kill_sql = format!("KILL QUERY {}", conn_id);
+                            match kill_conn.query_drop(&kill_sql).await {
+                                Ok(_) => tracing::info!("  ✅ Successfully killed MySQL query"),
+                                Err(e) => {
+                                    tracing::warn!("  ⚠️  Failed to kill MySQL query: {}", e)
+                                }
+                            }
+                        }
+                        Err(e) => tracing::warn!("  ⚠️  Failed to get kill connection: {}", e),
+                    }
+                });
+            }
+
+            let _ = metadata_channel.send(StreamMessage::Interrupted {
+                resumable: false,
+                message: "Query cancelled by user".to_string(),
+            });
+            return Err("Query cancelled by user".to_string());
+        }
+
+        offset = end;
+        batch_index += 1;
+    }
+
+    let total_time = start_time.elapsed().as_millis() as u64;
+    let network_time_ms = total_time.saturating_sub(conversion_time_ms);
+
+    tracing::info!("==========================================");
+    tracing::info!("MYSQL STREAMING COMPLETE: {} rows", total_rows);
+    tracing::info!("  Total time: {}ms", total_time);
+    if total_time > 0 {
+        tracing::info!(
+            "  Rows/sec: {:.0}",
+            (total_rows as f64 / total_time as f64) * 1000.0
+        );
+    }
+    tracing::info!("  ┌─ Performance Breakdown:");
+    tracing::info!(
+        "  │  Network/DB: {}ms ({:.1}%)",
+        network_time_ms,
+        if total_time > 0 {
+            (network_time_ms as f64 / total_time as f64) * 100.0
+        } else {
+            0.0
+        }
+    );
+    tracing::info!(
+        "  │  Conversion+Serialization: {}ms ({:.1}%)",
+        conversion_time_ms,
+        if total_time > 0 {
+            (conversion_time_ms as f64 / total_time as f64) * 100.0
+        } else {
+            0.0
+        }
+    );
+    tracing::info!(
+        "  │  IPC: {}ms queue, {} batches | Format: direct msgpack",
+        send_time_ms,
+        send_count
+    );
+    tracing::info!("  └─ Batch sizes: 16→64→256→1024→2048 (progressive)");
+    tracing::info!("==========================================");
+
+    let _ = metadata_channel.send(StreamMessage::Success {
+        total_rows,
+        execution_time_ms: total_time,
+        cursor_setup_ms: None,
+        total_streaming_ms: Some(total_time),
+        fetch_count: Some(send_count as u64),
+        network_ms: Some(network_time_ms),
+        conversion_ms: Some(conversion_time_ms),
+        ipc_send_ms: Some(send_time_ms),
+    });
+
+    Ok(())
 }
 
 /// SQL Server streaming implementation with cancellation support.
@@ -714,7 +859,7 @@ async fn execute_mssql_stream(
                 end,
                 e
             );
-            Vec::new()
+            vec![0x90] // valid empty msgpack array
         });
         conversion_time_ms += convert_start.elapsed().as_millis() as u64;
 
@@ -811,62 +956,145 @@ async fn execute_mssql_stream(
     Ok(())
 }
 
-/// SQLite-specific query execution using the adapter's query() method
-/// SQLite doesn't support the same streaming protocol as PostgreSQL,
-/// so we use a simpler approach: execute via adapter and stream results
+/// SQLite-specific query execution with direct MessagePack encoding,
+/// rayon-parallel batch encoding, and progressive batch sending.
+///
+/// Optimized path:
+///   1. rusqlite::Row → OwnedCell (sequential, Row is borrowed)
+///   2. Vec<OwnedCell> batches → rayon parallel encode → MessagePack bytes
+///   3. Progressive IPC batch sending (16→64→256→1024→2048)
 async fn execute_sqlite_query(
     sql: &str,
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
     adapter: &crate::core::manager::UnifiedAdapter,
 ) -> std::result::Result<(), String> {
-    let start = std::time::Instant::now();
+    use crate::adapters::sqlite::DirectMsgPackEncoder;
 
-    let sql_adapter = adapter
-        .as_sql()
-        .ok_or_else(|| "execute_sqlite_query only supports SQL databases".to_string())?;
+    let start_time = std::time::Instant::now();
 
-    let cap_result = sql_adapter
-        .execute_query(sql)
+    let sqlite_adapter = adapter
+        .as_sqlite()
+        .ok_or_else(|| "SQLite adapter not available".to_string())?;
+
+    // Execute query and collect owned cell values + proper column metadata
+    // OwnedCell values are Send+Sync, enabling rayon parallel encoding
+    let (columns, owned_rows) = sqlite_adapter
+        .execute_query_streaming(sql)
         .await
         .map_err(|e| e.to_string())?;
-    let result = capability_result_to_query_result(cap_result);
 
-    let query_elapsed = start.elapsed().as_millis();
+    let query_elapsed = start_time.elapsed().as_millis();
+    let total_rows = owned_rows.len();
+    let column_count = columns.len();
+    tracing::info!(
+        "  ⏱ SQLite query + collect: {}ms, {} rows, {} cols",
+        query_elapsed,
+        total_rows,
+        column_count
+    );
 
-    // Send metadata (columns) via Started message
+    // Send column metadata immediately
     let _ = metadata_channel.send(StreamMessage::Started {
-        columns: result.columns.clone(),
-        estimated_rows: Some(result.rows.len() as i64),
+        columns,
+        estimated_rows: Some(total_rows as i64),
     });
 
-    // Encode rows to MessagePack
-    let encode_start = std::time::Instant::now();
-    let row_count = result.rows.len();
+    // Progressive batch encoding with rayon parallelism (>=64 rows)
+    let encoder = DirectMsgPackEncoder::new(column_count);
 
-    // Convert rows to the expected format (Vec<Vec<Value>>)
-    let rows_data: Vec<Vec<serde_json::Value>> = result.rows.into_iter().collect();
+    const BATCH_SIZES: [usize; 5] = [16, 64, 256, 1024, 2048];
 
-    let msgpack_bytes =
-        rmp_serde::to_vec(&rows_data).map_err(|e| format!("MessagePack encoding failed: {}", e))?;
+    let mut conversion_time_ms = 0u64;
+    let mut send_time_ms = 0u64;
+    let mut send_count = 0usize;
+    let mut offset = 0usize;
+    let mut batch_index = 0usize;
 
-    let encode_elapsed = encode_start.elapsed().as_millis();
+    while offset < total_rows {
+        let batch_size = BATCH_SIZES[batch_index.min(BATCH_SIZES.len() - 1)];
+        let end = (offset + batch_size).min(total_rows);
+        let batch = &owned_rows[offset..end];
 
-    // Send data via binary channel
-    let _ = data_channel.send(tauri::ipc::Response::new(msgpack_bytes));
+        // Encode owned rows to msgpack (uses rayon for batches >= 64 rows)
+        let convert_start = std::time::Instant::now();
+        let rows_msgpack = encoder.encode_owned_batch(batch).unwrap_or_else(|e| {
+            tracing::error!(
+                "  ❌ SQLite batch encode failed (rows {}-{}): {}",
+                offset,
+                end,
+                e
+            );
+            vec![0x90] // valid empty msgpack array
+        });
+        conversion_time_ms += convert_start.elapsed().as_millis() as u64;
 
-    let total_elapsed = start.elapsed().as_millis();
+        let send_start = std::time::Instant::now();
+        let send_result = data_channel.send(tauri::ipc::Response::new(rows_msgpack));
+        send_time_ms += send_start.elapsed().as_millis() as u64;
+        send_count += 1;
 
-    // Send completion message via Success
+        if send_result.is_err() {
+            tracing::info!("  ⚠️  Channel closed (user cancelled), stopping stream early");
+            let _ = metadata_channel.send(StreamMessage::Interrupted {
+                resumable: false,
+                message: "Query cancelled by user".to_string(),
+            });
+            return Err("Query cancelled by user".to_string());
+        }
+
+        offset = end;
+        batch_index += 1;
+    }
+
+    let total_time = start_time.elapsed().as_millis() as u64;
+    let network_time_ms = total_time.saturating_sub(conversion_time_ms);
+
+    tracing::info!("==========================================");
+    tracing::info!("SQLITE STREAMING COMPLETE: {} rows", total_rows);
+    tracing::info!("  Total time: {}ms", total_time);
+    if total_time > 0 {
+        tracing::info!(
+            "  Rows/sec: {:.0}",
+            (total_rows as f64 / total_time as f64) * 1000.0
+        );
+    }
+    tracing::info!("  ┌─ Performance Breakdown:");
+    tracing::info!(
+        "  │  Query/Collect: {}ms ({:.1}%)",
+        query_elapsed,
+        if total_time > 0 {
+            (query_elapsed as f64 / total_time as f64) * 100.0
+        } else {
+            0.0
+        }
+    );
+    tracing::info!(
+        "  │  Encode (rayon): {}ms ({:.1}%)",
+        conversion_time_ms,
+        if total_time > 0 {
+            (conversion_time_ms as f64 / total_time as f64) * 100.0
+        } else {
+            0.0
+        }
+    );
+    tracing::info!(
+        "  │  IPC: {}ms queue, {} batches | Format: direct msgpack",
+        send_time_ms,
+        send_count
+    );
+    tracing::info!("  └─ Batch sizes: 16→64→256→1024→2048 (progressive, rayon ≥64)");
+    tracing::info!("==========================================");
+
     let _ = metadata_channel.send(StreamMessage::Success {
-        total_rows: row_count,
-        execution_time_ms: total_elapsed as u64,
-        cursor_setup_ms: Some(0),
-        total_streaming_ms: Some(total_elapsed as u64),
-        fetch_count: Some(1),
-        network_ms: Some(query_elapsed as u64),
-        conversion_ms: Some(encode_elapsed as u64),
-        ipc_send_ms: Some(0),
+        total_rows,
+        execution_time_ms: total_time,
+        cursor_setup_ms: None,
+        total_streaming_ms: Some(total_time),
+        fetch_count: Some(send_count as u64),
+        network_ms: Some(network_time_ms),
+        conversion_ms: Some(conversion_time_ms),
+        ipc_send_ms: Some(send_time_ms),
     });
 
     Ok(())
@@ -1401,7 +1629,7 @@ pub async fn execute_query(
 
     // Route based on database type
     // SQLite uses the adapter's query() method, PostgreSQL uses streaming
-    match adapter.db_type() {
+    let result = match adapter.db_type() {
         crate::types::DbType::SQLite => tokio::time::timeout(
             timeout_duration,
             execute_sqlite_query(&sql, &metadata_channel, &data_channel, &adapter),
@@ -1427,7 +1655,19 @@ pub async fn execute_query(
                 )
             })?
         }
-    }
+    };
+
+    // Guard against IPC race on channel close: when this command returns,
+    // Tauri drops the channels.  If the last data batch is still in the IPC
+    // transport buffer, the drop can replace it with an `undefined` close
+    // notification, losing that batch's rows.
+    //
+    // Send a trailing sentinel empty buffer. The frontend ignores zero-length
+    // payloads, and queryStreamClient now waits for invoke completion plus
+    // decode-queue drain before finalizing success.
+    let _ = data_channel.send(tauri::ipc::Response::new(vec![]));
+
+    result
 }
 
 // ============================================================================
