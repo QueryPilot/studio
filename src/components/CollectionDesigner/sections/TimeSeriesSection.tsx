@@ -18,12 +18,21 @@ import type {
 interface TimeSeriesSectionProps {
   state: CollectionDesignerState;
   dispatch: React.Dispatch<CollectionDesignerAction>;
+  supported?: boolean;
 }
 
 export const TimeSeriesSection: React.FC<TimeSeriesSectionProps> = ({
   state,
   dispatch,
+  supported = true,
 }) => {
+  const disabled = !supported || state.cappedEnabled;
+  const disabledReason = !supported
+    ? "Requires MongoDB 5.0+"
+    : state.cappedEnabled
+      ? "Cannot combine with Capped"
+      : undefined;
+
   return (
     <FeatureSection
       id="time-series"
@@ -31,10 +40,8 @@ export const TimeSeriesSection: React.FC<TimeSeriesSectionProps> = ({
       description="Optimized storage for time-stamped data."
       enabled={state.timeSeriesEnabled}
       onToggle={(enabled) => { dispatch({ type: "TOGGLE_TIME_SERIES", enabled }); }}
-      disabled={state.cappedEnabled}
-      disabledReason={
-        state.cappedEnabled ? "Cannot combine with Capped" : undefined
-      }
+      disabled={disabled}
+      disabledReason={disabledReason}
       badge="5.0+"
     >
       <div className="grid gap-2 sm:grid-cols-2">
