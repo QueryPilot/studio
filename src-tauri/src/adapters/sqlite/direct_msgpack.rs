@@ -16,9 +16,67 @@ use rmp::encode;
 use rusqlite::types::ValueRef;
 use rusqlite::Row;
 use std::io::Write;
+use std::sync::Mutex;
 
 /// Threshold for parallel processing - below this, sequential is faster
 const PARALLEL_THRESHOLD: usize = 64;
+
+const CHUNK_BUF_DEFAULT_CAPACITY: usize = 64 * 1024;
+static CHUNK_BUF_POOL: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
+
+/// Take a pooled buffer, cleared but retaining capacity.
+#[inline]
+fn take_chunk_buffer(estimated_capacity: usize) -> Vec<u8> {
+    let mut pool = CHUNK_BUF_POOL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut buf = pool
+        .pop()
+        .unwrap_or_else(|| Vec::with_capacity(CHUNK_BUF_DEFAULT_CAPACITY.max(estimated_capacity)));
+    drop(pool);
+
+    buf.clear();
+    let cap = buf.capacity();
+    if cap < estimated_capacity {
+        buf.reserve(estimated_capacity - cap);
+    }
+    buf
+}
+
+/// Return a buffer to the shared pool for reuse.
+#[inline]
+fn return_chunk_buffer(mut buf: Vec<u8>) {
+    buf.clear();
+    let mut pool = CHUNK_BUF_POOL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let max_pool_size = (rayon::current_num_threads().max(1) * 2).max(4);
+    if pool.len() < max_pool_size {
+        pool.push(buf);
+    }
+}
+
+#[inline]
+fn write_null_row(buf: &mut Vec<u8>, column_count: usize) {
+    let _ = encode::write_array_len(buf, column_count as u32);
+    for _ in 0..column_count {
+        let _ = encode::write_nil(buf);
+    }
+}
+
+#[inline]
+fn encode_row_or_null<F>(buf: &mut Vec<u8>, column_count: usize, encode_row: F)
+where
+    F: FnOnce(&mut Vec<u8>) -> Result<()>,
+{
+    let row_start = buf.len();
+    if let Err(e) = encode_row(buf) {
+        tracing::warn!("SQLite row encode failed (chunked): {}", e);
+        // Drop partial row bytes to preserve MsgPack row boundaries.
+        buf.truncate(row_start);
+        write_null_row(buf, column_count);
+    }
+}
 
 /// Owned cell value extracted from a rusqlite Row.
 /// This is Send + Sync, unlike rusqlite::ValueRef which borrows from the Row.
@@ -102,7 +160,7 @@ impl DirectMsgPackEncoder {
     }
 
     /// Sequential encoding for small batches
-    fn encode_owned_sequential(&self, rows: &[Vec<OwnedCell>]) -> Result<Vec<u8>> {
+    pub(crate) fn encode_owned_sequential(&self, rows: &[Vec<OwnedCell>]) -> Result<Vec<u8>> {
         let estimated = self.estimated_row_size * rows.len() + 8;
         let mut buffer = Vec::with_capacity(estimated);
 
@@ -116,36 +174,38 @@ impl DirectMsgPackEncoder {
         Ok(buffer)
     }
 
-    /// Parallel encoding for large batches
-    fn encode_owned_parallel(&self, rows: &[Vec<OwnedCell>]) -> Result<Vec<u8>> {
-        let estimated = self.estimated_row_size;
+    /// Chunked parallel encoding for large batches.
+    /// Each rayon thread gets one buffer for its chunk of rows,
+    /// reducing allocations from N (one per row) to ~num_threads.
+    pub(crate) fn encode_owned_parallel(&self, rows: &[Vec<OwnedCell>]) -> Result<Vec<u8>> {
+        let num_threads = rayon::current_num_threads().max(1);
+        let chunk_size = (rows.len() + num_threads - 1) / num_threads;
+        let column_count = self.column_count;
 
-        let row_buffers: Vec<Vec<u8>> = rows
-            .par_iter()
-            .map(|row| {
-                let mut buf = Vec::with_capacity(estimated);
-                if let Err(e) = self.encode_owned_row(&mut buf, row) {
-                    tracing::warn!("SQLite row encode failed (parallel): {}", e);
-                    buf.clear();
-                    let _ = encode::write_array_len(&mut buf, self.column_count as u32);
-                    for _ in 0..self.column_count {
-                        let _ = encode::write_nil(&mut buf);
-                    }
+        let chunk_buffers: Vec<Vec<u8>> = rows
+            .par_chunks(chunk_size)
+            .map(|chunk| {
+                let estimated = self.estimated_row_size * chunk.len();
+                let mut buf = take_chunk_buffer(estimated);
+                for row in chunk {
+                    encode_row_or_null(&mut buf, column_count, |row_buf| {
+                        self.encode_owned_row(row_buf, row)
+                    });
                 }
                 buf
             })
             .collect();
 
+        // Merge only ~num_threads chunk buffers instead of N row buffers
         let header_size = msgpack_array_header_size(rows.len());
-        let total_row_bytes: usize = row_buffers.iter().map(|b| b.len()).sum();
-        let total_size = header_size + total_row_bytes;
+        let total_chunk_bytes: usize = chunk_buffers.iter().map(|b| b.len()).sum();
+        let mut buffer = Vec::with_capacity(header_size + total_chunk_bytes);
 
-        let mut buffer = Vec::with_capacity(total_size);
         encode::write_array_len(&mut buffer, rows.len() as u32)
             .map_err(Self::map_encode_err)?;
-
-        for row_buf in row_buffers {
-            buffer.extend_from_slice(&row_buf);
+        for chunk_buf in chunk_buffers {
+            buffer.extend_from_slice(&chunk_buf);
+            return_chunk_buffer(chunk_buf);
         }
 
         Ok(buffer)
@@ -217,6 +277,40 @@ mod tests {
     }
 
     #[test]
+    fn test_chunked_parallel_matches_sequential() {
+        let encoder = DirectMsgPackEncoder::new(3);
+        let rows: Vec<Vec<OwnedCell>> = (0..128)
+            .map(|i| {
+                vec![
+                    OwnedCell::Integer(i as i64),
+                    OwnedCell::Text(format!("row_{}", i)),
+                    OwnedCell::Real(i as f64 * 1.5),
+                ]
+            })
+            .collect();
+
+        let sequential_result = encoder.encode_owned_sequential(&rows).unwrap();
+        let parallel_result = encoder.encode_owned_parallel(&rows).unwrap();
+
+        let seq_decoded: rmpv::Value =
+            rmpv::decode::read_value(&mut &sequential_result[..]).unwrap();
+        let par_decoded: rmpv::Value =
+            rmpv::decode::read_value(&mut &parallel_result[..]).unwrap();
+
+        let seq_arr = seq_decoded.as_array().unwrap();
+        let par_arr = par_decoded.as_array().unwrap();
+        assert_eq!(seq_arr.len(), par_arr.len());
+        assert_eq!(seq_arr.len(), 128);
+
+        for idx in [0, 63, 127] {
+            let s = seq_arr[idx].as_array().unwrap();
+            let p = par_arr[idx].as_array().unwrap();
+            assert_eq!(s[0].as_i64(), p[0].as_i64(), "row {} col 0", idx);
+            assert_eq!(s[1].as_str(), p[1].as_str(), "row {} col 1", idx);
+        }
+    }
+
+    #[test]
     fn test_encode_owned_cells() {
         let encoder = DirectMsgPackEncoder::new(3);
         let row = vec![
@@ -237,5 +331,20 @@ mod tests {
         assert_eq!(inner[0].as_i64(), Some(42));
         assert_eq!(inner[1].as_str(), Some("hello"));
         assert!(inner[2].is_nil());
+    }
+
+    #[test]
+    fn test_encode_row_or_null_truncates_partial_row() {
+        let mut buf = Vec::new();
+        encode_row_or_null(&mut buf, 3, |row_buf| {
+            encode::write_array_len(row_buf, 3).unwrap();
+            encode::write_i32(row_buf, 42).unwrap();
+            Err(AppError::Internal("forced error".to_string()))
+        });
+
+        let decoded: rmpv::Value = rmpv::decode::read_value(&mut &buf[..]).unwrap();
+        let row = decoded.as_array().expect("row should be array");
+        assert_eq!(row.len(), 3);
+        assert!(row.iter().all(rmpv::Value::is_nil));
     }
 }

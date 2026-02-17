@@ -10,12 +10,21 @@ import type {
 interface ClusteredSectionProps {
   state: CollectionDesignerState;
   dispatch: React.Dispatch<CollectionDesignerAction>;
+  supported?: boolean;
 }
 
 export const ClusteredSection: React.FC<ClusteredSectionProps> = ({
   state,
   dispatch,
+  supported = true,
 }) => {
+  const disabled = !supported || state.cappedEnabled;
+  const disabledReason = !supported
+    ? "Requires MongoDB 5.3+"
+    : state.cappedEnabled
+      ? "Cannot combine with Capped"
+      : undefined;
+
   return (
     <FeatureSection
       id="clustered"
@@ -23,10 +32,8 @@ export const ClusteredSection: React.FC<ClusteredSectionProps> = ({
       description="Store documents ordered by the clustered index key."
       enabled={state.clusteredEnabled}
       onToggle={(enabled) => { dispatch({ type: "TOGGLE_CLUSTERED", enabled }); }}
-      disabled={state.cappedEnabled}
-      disabledReason={
-        state.cappedEnabled ? "Cannot combine with Capped" : undefined
-      }
+      disabled={disabled}
+      disabledReason={disabledReason}
       badge="5.3+"
     >
       <div className="grid gap-2 sm:grid-cols-2">
