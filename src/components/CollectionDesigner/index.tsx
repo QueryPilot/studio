@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { databaseService } from "@/services/databaseService";
 import { eventBus } from "@/services/eventBus";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
@@ -82,6 +83,19 @@ export const CollectionDesigner: React.FC<CollectionDesignerProps> = ({
   );
 
   const saveDisabled = state.isSaving || !normalizedName || !database;
+
+  // Parse MongoDB server version for feature gating (e.g. "6.0.5" → [6, 0])
+  const [serverMajor, serverMinor] = useMemo(() => {
+    const conn = databaseService.getActiveConnection(connectionId);
+    if (!conn?.server_version) return [0, 0];
+    const match = conn.server_version.match(/^(\d+)\.(\d+)/);
+    return match ? [Number(match[1]), Number(match[2])] : [0, 0];
+  }, [connectionId]);
+
+  const supportsTimeSeries =
+    serverMajor > 5 || (serverMajor === 5 && serverMinor >= 0);
+  const supportsClustered =
+    serverMajor > 5 || (serverMajor === 5 && serverMinor >= 3);
 
   const handleSave = useCallback(async () => {
     // 1. Validate collection name
@@ -291,8 +305,8 @@ export const CollectionDesigner: React.FC<CollectionDesignerProps> = ({
               <div className="space-y-3">
                 <SeedSection state={state} dispatch={dispatch} />
                 <CappedSection state={state} dispatch={dispatch} />
-                <TimeSeriesSection state={state} dispatch={dispatch} />
-                <ClusteredSection state={state} dispatch={dispatch} />
+                <TimeSeriesSection state={state} dispatch={dispatch} supported={supportsTimeSeries} />
+                <ClusteredSection state={state} dispatch={dispatch} supported={supportsClustered} />
                 <CollationSection state={state} dispatch={dispatch} />
                 <ValidationSection state={state} dispatch={dispatch} />
               </div>
