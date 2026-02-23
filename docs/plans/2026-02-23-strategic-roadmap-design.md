@@ -2,6 +2,7 @@
 
 **Date:** 2026-02-23
 **Status:** Approved
+**Competitive data as of:** February 2026 — re-verify before external use (marketing, landing page)
 
 ---
 
@@ -54,7 +55,7 @@ The initial research marked several features as unknown gaps. Verification again
 |--------|--------------|---------------------------|
 | **Native performance** | Tauri + Rust backend, ~50MB RAM vs DBeaver's 2-4GB | JVM/Electron tools can't retrofit native performance |
 | **Multi-paradigm** | SQL + Document + Key-Value in one app | TablePlus has no MongoDB; DBeaver paywalls NoSQL |
-| **Privacy-first AI** | Local Ollama, MCP sidecar, no cloud dependency | DataGrip is cloud-only AI; Chat2DB routes through servers |
+| **Privacy-first AI** | Local-first AI architecture: MCP sidecar, multi-agent support, no cloud dependency. Ollama integration planned to strengthen this further. | DataGrip is cloud-only AI; Chat2DB routes through servers |
 | **Fair pricing** | Free core + one-time Pro + optional team sub | Navicat $800/yr, DBeaver $250/yr for NoSQL |
 
 ### Pricing Tiers
@@ -62,7 +63,7 @@ The initial research marked several features as unknown gaps. Verification again
 | Tier | Features | Price |
 |------|----------|-------|
 | **Free** | All databases, query editor, grid, ERD, history, saved queries, Safe Mode, formatting, EXPLAIN viewer | $0 |
-| **Pro** (one-time) | Charts, DuckDB embedded, AI features (Ollama, self-correcting), data import/export, schema documentation | One-time purchase |
+| **Pro** (one-time) | Charts, DuckDB embedded, AI features (Ollama, self-correcting), data import, schema documentation | One-time purchase |
 | **Team** (subscription) | Cloud sync, shared queries, team workspaces, shared connections | Monthly/yearly subscription |
 
 ---
@@ -91,6 +92,7 @@ The initial research marked several features as unknown gaps. Verification again
 
 **Design:**
 - **Loop:** Generate → Execute → Error? → Feed error + schema context → Regenerate → Retry (max 3)
+- **Safety gates:** Auto-execute retries ONLY for read-only statements (SELECT, EXPLAIN, SHOW). Mutating statements (INSERT, UPDATE, DELETE, DDL) require explicit user confirmation before each retry attempt. The loop must respect the connection's Safe Mode level — if Safe Mode is "Read Only", mutating statements are never generated.
 - **UI:** Show each attempt in the AI panel with error context. User can stop at any point.
 - **Schema context pruning:** Only send relevant tables to the LLM based on entity name matching, not the entire schema
 - **Builds on:** Existing ACP/MCP sidecar infrastructure
@@ -143,7 +145,7 @@ The initial research marked several features as unknown gaps. Verification again
 **Design:**
 - **Wizard:** File selection → Preview (100 rows) → Column mapping (auto-detect + override) → Target table (new or existing) → Confirm → Import with progress
 - **Batch size:** Configurable (default 1000 rows), transaction support, progress bar, cancellable
-- **Parquet:** Via DuckDB if Feature 3.4 implemented, otherwise `arrow` Rust crate
+- **Parquet:** Via DuckDB (Feature 3.4). Import depends on DuckDB being implemented first — build DuckDB adapter, then add import on top of it. No dual-path.
 - **Tier:** Pro
 
 ### Tier 3 — 6+ months (Evaluate based on user feedback)
@@ -181,3 +183,5 @@ The initial research marked several features as unknown gaps. Verification again
 | DuckDB | Monthly active users querying local files |
 | Schema docs | % of schemas with AI-generated documentation |
 | Data import | Import operations per month |
+
+**Note:** These are directional targets. Each feature's implementation plan will operationalize metrics with: baseline measurement, telemetry event definitions, evaluation window (30/60/90 day), and owner.
