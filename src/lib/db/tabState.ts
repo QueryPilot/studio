@@ -8,6 +8,7 @@
 import { logger } from "@/lib/logger";
 import Dexie, { type Table } from "dexie";
 import type { SqlDialect } from "@/components/CodeEditor/types";
+import type { ViewMode } from "@/types/viewMode";
 
 /**
  * Lightweight state for IndexedDB persistence.
@@ -17,7 +18,7 @@ export interface PersistedTabState {
   tabId: string;
   query: string;
   lastExecutedQuery: string;
-  viewMode: "table" | "json" | "explain" | "raw" | "stats";
+  viewMode: ViewMode;
   selectedDialect?: SqlDialect | "auto";
   tableViewType?: string; // "data" | "structure" | "indexes" | "triggers" | "partitions" | "definition"
 }
