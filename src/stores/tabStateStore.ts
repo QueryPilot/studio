@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { ColumnMeta } from "@/types/database";
 import type { SqlDialect } from "@/components/CodeEditor/types";
+import type { ViewMode } from "@/types/viewMode";
 import {
   persistTabState as persistTabStateToDb,
   loadTabState as loadTabStateFromDb,
@@ -112,7 +113,7 @@ interface QueryState {
   result: QueryResult | null;
   isExecuting: boolean;
   isStreaming: boolean;
-  viewMode: "table" | "json" | "explain" | "raw" | "stats";
+  viewMode: ViewMode;
   hasUnsavedChanges: boolean;
   lastExecutedQuery: string;
   lastSelectQuery: string | null; // Store last SELECT query for auto-refresh after mutations

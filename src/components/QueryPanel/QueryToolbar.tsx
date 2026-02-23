@@ -1,4 +1,5 @@
 import { memo } from "react";
+import type { ViewMode } from "@/types/viewMode";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -55,7 +56,7 @@ interface QueryToolbarProps {
   hasQuery: boolean;
   showResults: boolean;
   showOutline?: boolean;
-  viewMode: "table" | "json" | "explain" | "raw" | "stats";
+  viewMode: ViewMode;
   executeHint?: string;
   beautifyHint?: string;
   focused?: boolean;
@@ -69,9 +70,7 @@ interface QueryToolbarProps {
   onBeautify: () => void;
   onToggleResults: () => void;
   onToggleOutline?: () => void;
-  onViewModeChange: (
-    mode: "table" | "json" | "explain" | "raw" | "stats",
-  ) => void;
+  onViewModeChange: (mode: ViewMode) => void;
   onDialectChange?: (dialect: SqlDialect | "auto") => void;
 }
 
@@ -131,7 +130,7 @@ export const QueryToolbar = memo(function QueryToolbar({
               value={viewMode}
               onValueChange={(value) => {
                 onViewModeChange(
-                  value as "table" | "json" | "explain" | "raw" | "stats",
+                  value as ViewMode,
                 );
               }}
               enableShortcuts={true}
