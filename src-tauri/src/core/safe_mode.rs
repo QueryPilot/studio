@@ -285,8 +285,9 @@ fn keyword_to_op_kind(keyword: &str) -> OperationKind {
         "INSERT" => OperationKind::Insert,
         "UPDATE" | "MERGE" => OperationKind::Update,
         "DELETE" => OperationKind::Delete,
-        "CREATE" | "ALTER" | "DROP" | "TRUNCATE" | "GRANT" | "REVOKE" | "RENAME"
-        | "COMMENT" => OperationKind::Ddl,
+        "CREATE" | "ALTER" | "DROP" | "TRUNCATE" | "GRANT" | "REVOKE" | "RENAME" | "COMMENT" => {
+            OperationKind::Ddl
+        }
         // Unknown → fail-safe to DDL (most restrictive non-read category)
         _ => OperationKind::Ddl,
     }
@@ -299,7 +300,7 @@ fn strip_block_comments(sql: &str) -> String {
     while let Some(c) = chars.next() {
         if c == '/' && chars.peek() == Some(&'*') {
             chars.next(); // consume '*'
-            // Skip until */
+                          // Skip until */
             loop {
                 match chars.next() {
                     Some('*') if chars.peek() == Some(&'/') => {
@@ -329,8 +330,7 @@ fn find_main_statement_keyword_for_classify(sql: &str) -> Option<String> {
         let mut search_start = 0;
         while let Some(pos) = upper[search_start..].find(keyword) {
             let abs_pos = search_start + pos;
-            let before_ok =
-                abs_pos == 0 || !upper.as_bytes()[abs_pos - 1].is_ascii_alphanumeric();
+            let before_ok = abs_pos == 0 || !upper.as_bytes()[abs_pos - 1].is_ascii_alphanumeric();
             let after_ok = abs_pos + keyword.len() >= upper.len()
                 || !upper.as_bytes()[abs_pos + keyword.len()].is_ascii_alphanumeric();
 
@@ -411,13 +411,11 @@ fn classify_mongo_run_command(command: &serde_json::Value) -> OperationKind {
     match cmd_name.as_deref() {
         // Read-only / diagnostic
         Some(
-            "buildinfo" | "explain" | "serverstatus" | "dbstats" | "collstats"
-            | "connectionstatus" | "hostinfo" | "features" | "listcommands"
-            | "ping" | "whatsmyuri" | "ismaster" | "hello" | "getlog"
-            | "top" | "validate" | "datasize" | "count" | "distinct"
-            | "find" | "aggregate" | "listcollections" | "listindexes"
-            | "listdatabases" | "currentop" | "getmore"
-            | "collmod" | "profile" | "replsetgetstatus" | "replsetgetconfig"
+            "buildinfo" | "explain" | "serverstatus" | "dbstats" | "collstats" | "connectionstatus"
+            | "hostinfo" | "features" | "listcommands" | "ping" | "whatsmyuri" | "ismaster"
+            | "hello" | "getlog" | "top" | "validate" | "datasize" | "count" | "distinct" | "find"
+            | "aggregate" | "listcollections" | "listindexes" | "listdatabases" | "currentop"
+            | "getmore" | "collmod" | "profile" | "replsetgetstatus" | "replsetgetconfig",
         ) => OperationKind::Read,
 
         // Insert
@@ -487,53 +485,104 @@ pub fn classify_keyvalue_op(op: &KeyValueOperation) -> OperationKind {
 fn classify_redis_raw_command(command: &str) -> OperationKind {
     match command.to_ascii_uppercase().as_str() {
         // Read-only
-        "PING" | "ECHO" | "INFO" | "DBSIZE" | "TIME" | "COMMAND"
-        | "GET" | "MGET" | "KEYS" | "SCAN" | "RANDOMKEY" | "OBJECT"
-        | "TYPE" | "TTL" | "PTTL" | "EXISTS" | "STRLEN" | "DUMP"
-        | "HGET" | "HMGET" | "HGETALL" | "HKEYS" | "HVALS" | "HLEN" | "HEXISTS" | "HSCAN"
-        | "LRANGE" | "LLEN" | "LINDEX" | "LPOS"
-        | "SMEMBERS" | "SCARD" | "SISMEMBER" | "SMISMEMBER" | "SRANDMEMBER" | "SSCAN"
-        | "ZRANGE" | "ZRANGEBYSCORE" | "ZRANGEBYLEX" | "ZREVRANGE" | "ZREVRANGEBYSCORE"
-        | "ZCARD" | "ZSCORE" | "ZMSCORE" | "ZRANK" | "ZREVRANK" | "ZCOUNT" | "ZLEXCOUNT" | "ZSCAN"
-        | "XLEN" | "XRANGE" | "XREVRANGE" | "XINFO" | "XREAD" | "XPENDING"
-        | "MEMORY" | "CLUSTER" | "LATENCY"
-        | "GEORADIUS_RO" | "GEORADIUSBYMEMBER_RO" | "GEOSEARCH" | "GEOPOS" | "GEODIST"
-        | "PFCOUNT" | "BITCOUNT" | "BITPOS" | "GETBIT" | "GETRANGE"
-        | "PUBSUB" | "SUBSCRIBE" | "PSUBSCRIBE" | "SSUBSCRIBE"
-        => OperationKind::Read,
+        "PING"
+        | "ECHO"
+        | "INFO"
+        | "DBSIZE"
+        | "TIME"
+        | "COMMAND"
+        | "GET"
+        | "MGET"
+        | "KEYS"
+        | "SCAN"
+        | "RANDOMKEY"
+        | "OBJECT"
+        | "TYPE"
+        | "TTL"
+        | "PTTL"
+        | "EXISTS"
+        | "STRLEN"
+        | "DUMP"
+        | "HGET"
+        | "HMGET"
+        | "HGETALL"
+        | "HKEYS"
+        | "HVALS"
+        | "HLEN"
+        | "HEXISTS"
+        | "HSCAN"
+        | "LRANGE"
+        | "LLEN"
+        | "LINDEX"
+        | "LPOS"
+        | "SMEMBERS"
+        | "SCARD"
+        | "SISMEMBER"
+        | "SMISMEMBER"
+        | "SRANDMEMBER"
+        | "SSCAN"
+        | "ZRANGE"
+        | "ZRANGEBYSCORE"
+        | "ZRANGEBYLEX"
+        | "ZREVRANGE"
+        | "ZREVRANGEBYSCORE"
+        | "ZCARD"
+        | "ZSCORE"
+        | "ZMSCORE"
+        | "ZRANK"
+        | "ZREVRANK"
+        | "ZCOUNT"
+        | "ZLEXCOUNT"
+        | "ZSCAN"
+        | "XLEN"
+        | "XRANGE"
+        | "XREVRANGE"
+        | "XINFO"
+        | "XREAD"
+        | "XPENDING"
+        | "MEMORY"
+        | "CLUSTER"
+        | "LATENCY"
+        | "GEORADIUS_RO"
+        | "GEORADIUSBYMEMBER_RO"
+        | "GEOSEARCH"
+        | "GEOPOS"
+        | "GEODIST"
+        | "PFCOUNT"
+        | "BITCOUNT"
+        | "BITPOS"
+        | "GETBIT"
+        | "GETRANGE"
+        | "PUBSUB"
+        | "SUBSCRIBE"
+        | "PSUBSCRIBE"
+        | "SSUBSCRIBE" => OperationKind::Read,
 
         // Write/insert
         "SET" | "MSET" | "MSETNX" | "SETNX" | "SETEX" | "PSETEX" | "APPEND" | "INCR" | "INCRBY"
-        | "INCRBYFLOAT" | "DECR" | "DECRBY" | "SETRANGE" | "SETBIT"
-        | "HSET" | "HMSET" | "HSETNX" | "HINCRBY" | "HINCRBYFLOAT"
-        | "LPUSH" | "LPUSHX" | "RPUSH" | "RPUSHX" | "LSET" | "LINSERT"
-        | "SADD" | "SMOVE" | "SUNIONSTORE" | "SINTERSTORE" | "SDIFFSTORE"
-        | "ZADD" | "ZINCRBY" | "ZUNIONSTORE" | "ZINTERSTORE" | "ZDIFFSTORE"
-        | "XADD" | "XGROUP" | "XCLAIM" | "XAUTOCLAIM" | "XACK"
-        | "GEOADD" | "PFADD" | "PFMERGE" | "COPY"
-        | "PUBLISH" | "RPOPLPUSH" | "LMOVE" | "BRPOPLPUSH" | "BLMOVE"
-        => OperationKind::Insert,
+        | "INCRBYFLOAT" | "DECR" | "DECRBY" | "SETRANGE" | "SETBIT" | "HSET" | "HMSET"
+        | "HSETNX" | "HINCRBY" | "HINCRBYFLOAT" | "LPUSH" | "LPUSHX" | "RPUSH" | "RPUSHX"
+        | "LSET" | "LINSERT" | "SADD" | "SMOVE" | "SUNIONSTORE" | "SINTERSTORE" | "SDIFFSTORE"
+        | "ZADD" | "ZINCRBY" | "ZUNIONSTORE" | "ZINTERSTORE" | "ZDIFFSTORE" | "XADD" | "XGROUP"
+        | "XCLAIM" | "XAUTOCLAIM" | "XACK" | "GEOADD" | "PFADD" | "PFMERGE" | "COPY"
+        | "PUBLISH" | "RPOPLPUSH" | "LMOVE" | "BRPOPLPUSH" | "BLMOVE" => OperationKind::Insert,
 
         // Update (TTL/expiry/rename)
         // SORT is read-only without STORE, but we can't inspect args here
-        "EXPIRE" | "PEXPIRE" | "EXPIREAT" | "PEXPIREAT" | "PERSIST"
-        | "RENAME" | "RENAMENX" | "SORT" | "MOVE" | "GETSET"
-        => OperationKind::Update,
+        "EXPIRE" | "PEXPIRE" | "EXPIREAT" | "PEXPIREAT" | "PERSIST" | "RENAME" | "RENAMENX"
+        | "SORT" | "MOVE" | "GETSET" => OperationKind::Update,
 
         // Delete
-        "DEL" | "UNLINK" | "GETDEL" | "HDEL" | "LPOP" | "RPOP" | "BLPOP" | "BRPOP"
-        | "LREM" | "LTRIM" | "SREM" | "SPOP"
-        | "ZREM" | "ZREMRANGEBYSCORE" | "ZREMRANGEBYRANK" | "ZREMRANGEBYLEX" | "ZPOPMIN" | "ZPOPMAX"
-        | "XTRIM" | "XDEL" | "UNSUBSCRIBE" | "PUNSUBSCRIBE"
-        => OperationKind::Delete,
+        "DEL" | "UNLINK" | "GETDEL" | "HDEL" | "LPOP" | "RPOP" | "BLPOP" | "BRPOP" | "LREM"
+        | "LTRIM" | "SREM" | "SPOP" | "ZREM" | "ZREMRANGEBYSCORE" | "ZREMRANGEBYRANK"
+        | "ZREMRANGEBYLEX" | "ZPOPMIN" | "ZPOPMAX" | "XTRIM" | "XDEL" | "UNSUBSCRIBE"
+        | "PUNSUBSCRIBE" => OperationKind::Delete,
 
         // DDL / dangerous — includes compound commands with destructive subcommands
         // (CONFIG SET, CLIENT KILL, SLOWLOG RESET) that we can't distinguish here
-        "CONFIG" | "CLIENT" | "SLOWLOG"
-        | "FLUSHDB" | "FLUSHALL" | "SWAPDB" | "DEBUG" | "SHUTDOWN" | "BGSAVE" | "BGREWRITEAOF"
-        | "SCRIPT" | "EVAL" | "EVALSHA" | "MODULE" | "ACL" | "REPLICAOF" | "SLAVEOF"
-        | "FAILOVER" | "WAIT" | "RESET"
-        => OperationKind::Ddl,
+        "CONFIG" | "CLIENT" | "SLOWLOG" | "FLUSHDB" | "FLUSHALL" | "SWAPDB" | "DEBUG"
+        | "SHUTDOWN" | "BGSAVE" | "BGREWRITEAOF" | "SCRIPT" | "EVAL" | "EVALSHA" | "MODULE"
+        | "ACL" | "REPLICAOF" | "SLAVEOF" | "FAILOVER" | "WAIT" | "RESET" => OperationKind::Ddl,
 
         // Unknown commands default to DDL (fail-safe)
         _ => OperationKind::Ddl,
@@ -613,10 +662,7 @@ mod tests {
     #[test]
     fn test_classify_show() {
         assert_eq!(classify_sql("SHOW TABLES"), OperationKind::Read);
-        assert_eq!(
-            classify_sql("DESCRIBE users"),
-            OperationKind::Read
-        );
+        assert_eq!(classify_sql("DESCRIBE users"), OperationKind::Read);
     }
 
     #[test]
@@ -645,10 +691,7 @@ mod tests {
 
     #[test]
     fn test_classify_ddl() {
-        assert_eq!(
-            classify_sql("CREATE TABLE t (id INT)"),
-            OperationKind::Ddl
-        );
+        assert_eq!(classify_sql("CREATE TABLE t (id INT)"), OperationKind::Ddl);
         assert_eq!(classify_sql("DROP TABLE t"), OperationKind::Ddl);
         assert_eq!(
             classify_sql("ALTER TABLE t ADD COLUMN c INT"),
@@ -675,10 +718,7 @@ mod tests {
 
     #[test]
     fn test_classify_with_comments() {
-        assert_eq!(
-            classify_sql("-- comment\nSELECT 1"),
-            OperationKind::Read
-        );
+        assert_eq!(classify_sql("-- comment\nSELECT 1"), OperationKind::Read);
         assert_eq!(
             classify_sql("/* block */ INSERT INTO t VALUES (1)"),
             OperationKind::Insert
@@ -745,7 +785,7 @@ mod tests {
         assert!(msg.contains("Blocked by Safe Mode"));
         assert!(msg.contains("Read Only"));
         assert!(msg.contains("Insert"));
-        assert!(!msg.contains("{"));  // no debug formatting leaking through
+        assert!(!msg.contains("{")); // no debug formatting leaking through
     }
 
     // ---- classify_document_op ----
@@ -782,11 +822,26 @@ mod tests {
 
     #[test]
     fn test_classify_document_run_command_read() {
-        for cmd_name in ["buildInfo", "explain", "serverStatus", "dbStats", "collStats", "ping", "listCollections", "count", "find"] {
+        for cmd_name in [
+            "buildInfo",
+            "explain",
+            "serverStatus",
+            "dbStats",
+            "collStats",
+            "ping",
+            "listCollections",
+            "count",
+            "find",
+        ] {
             let op = DocumentOperation::RunCommand {
                 command: serde_json::json!({ cmd_name: 1 }),
             };
-            assert_eq!(classify_document_op(&op), OperationKind::Read, "Expected Read for {}", cmd_name);
+            assert_eq!(
+                classify_document_op(&op),
+                OperationKind::Read,
+                "Expected Read for {}",
+                cmd_name
+            );
         }
     }
 
@@ -842,9 +897,7 @@ mod tests {
 
     #[test]
     fn test_classify_kv_get() {
-        let op = KeyValueOperation::Get {
-            key: "k".into(),
-        };
+        let op = KeyValueOperation::Get { key: "k".into() };
         assert_eq!(classify_keyvalue_op(&op), OperationKind::Read);
     }
 
@@ -886,12 +939,20 @@ mod tests {
 
     #[test]
     fn test_classify_kv_execute_raw_read() {
-        for cmd in ["INFO", "DBSIZE", "PING", "GET", "SCAN", "KEYS", "HGETALL", "LRANGE", "SMEMBERS", "ZRANGE"] {
+        for cmd in [
+            "INFO", "DBSIZE", "PING", "GET", "SCAN", "KEYS", "HGETALL", "LRANGE", "SMEMBERS",
+            "ZRANGE",
+        ] {
             let op = KeyValueOperation::ExecuteRaw {
                 command: cmd.into(),
                 args: vec![],
             };
-            assert_eq!(classify_keyvalue_op(&op), OperationKind::Read, "Expected Read for {}", cmd);
+            assert_eq!(
+                classify_keyvalue_op(&op),
+                OperationKind::Read,
+                "Expected Read for {}",
+                cmd
+            );
         }
     }
 
@@ -911,7 +972,12 @@ mod tests {
                 command: cmd.into(),
                 args: vec![],
             };
-            assert_eq!(classify_keyvalue_op(&op), OperationKind::Insert, "Expected Insert for {}", cmd);
+            assert_eq!(
+                classify_keyvalue_op(&op),
+                OperationKind::Insert,
+                "Expected Insert for {}",
+                cmd
+            );
         }
     }
 
@@ -922,7 +988,12 @@ mod tests {
                 command: cmd.into(),
                 args: vec![],
             };
-            assert_eq!(classify_keyvalue_op(&op), OperationKind::Update, "Expected Update for {}", cmd);
+            assert_eq!(
+                classify_keyvalue_op(&op),
+                OperationKind::Update,
+                "Expected Update for {}",
+                cmd
+            );
         }
     }
 
@@ -933,7 +1004,12 @@ mod tests {
                 command: cmd.into(),
                 args: vec![],
             };
-            assert_eq!(classify_keyvalue_op(&op), OperationKind::Delete, "Expected Delete for {}", cmd);
+            assert_eq!(
+                classify_keyvalue_op(&op),
+                OperationKind::Delete,
+                "Expected Delete for {}",
+                cmd
+            );
         }
     }
 
@@ -1026,7 +1102,10 @@ mod tests {
             serde_json::json!({"$match": {"status": "active"}}),
             serde_json::json!({"$group": {"_id": "$type"}}),
         ];
-        assert_eq!(classify_aggregation_pipeline(&pipeline), OperationKind::Read);
+        assert_eq!(
+            classify_aggregation_pipeline(&pipeline),
+            OperationKind::Read
+        );
     }
 
     #[test]
@@ -1044,6 +1123,9 @@ mod tests {
             serde_json::json!({"$match": {"status": "active"}}),
             serde_json::json!({"$merge": {"into": "results"}}),
         ];
-        assert_eq!(classify_aggregation_pipeline(&pipeline), OperationKind::Insert);
+        assert_eq!(
+            classify_aggregation_pipeline(&pipeline),
+            OperationKind::Insert
+        );
     }
 }

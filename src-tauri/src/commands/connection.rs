@@ -93,10 +93,7 @@ pub async fn test_connection(
         .await
         .map_err(|e| e.to_string())?;
 
-    let result = adapter
-        .test_connection()
-        .await
-        .map_err(|e| e.to_string())?;
+    let result = adapter.test_connection().await.map_err(|e| e.to_string())?;
 
     Ok(ConnectionTestResult {
         success: result.success,
@@ -128,10 +125,7 @@ pub async fn get_connection_health(
         }
     };
 
-    let test_result = adapter
-        .test_connection()
-        .await
-        .map_err(|e| e.to_string())?;
+    let test_result = adapter.test_connection().await.map_err(|e| e.to_string())?;
 
     Ok(ConnectionHealth {
         connection_id: conn_id,

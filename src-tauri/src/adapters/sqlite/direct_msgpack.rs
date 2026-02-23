@@ -164,8 +164,7 @@ impl DirectMsgPackEncoder {
         let estimated = self.estimated_row_size * rows.len() + 8;
         let mut buffer = Vec::with_capacity(estimated);
 
-        encode::write_array_len(&mut buffer, rows.len() as u32)
-            .map_err(Self::map_encode_err)?;
+        encode::write_array_len(&mut buffer, rows.len() as u32).map_err(Self::map_encode_err)?;
 
         for row in rows {
             self.encode_owned_row(&mut buffer, row)?;
@@ -201,8 +200,7 @@ impl DirectMsgPackEncoder {
         let total_chunk_bytes: usize = chunk_buffers.iter().map(|b| b.len()).sum();
         let mut buffer = Vec::with_capacity(header_size + total_chunk_bytes);
 
-        encode::write_array_len(&mut buffer, rows.len() as u32)
-            .map_err(Self::map_encode_err)?;
+        encode::write_array_len(&mut buffer, rows.len() as u32).map_err(Self::map_encode_err)?;
         for chunk_buf in chunk_buffers {
             buffer.extend_from_slice(&chunk_buf);
             return_chunk_buffer(chunk_buf);
@@ -214,8 +212,7 @@ impl DirectMsgPackEncoder {
     /// Encode a single owned row as a MessagePack array
     #[inline]
     fn encode_owned_row<W: Write>(&self, buf: &mut W, cells: &[OwnedCell]) -> Result<()> {
-        encode::write_array_len(buf, cells.len() as u32)
-            .map_err(Self::map_encode_err)?;
+        encode::write_array_len(buf, cells.len() as u32).map_err(Self::map_encode_err)?;
 
         for cell in cells {
             self.encode_owned_cell(buf, cell)?;
@@ -294,8 +291,7 @@ mod tests {
 
         let seq_decoded: rmpv::Value =
             rmpv::decode::read_value(&mut &sequential_result[..]).unwrap();
-        let par_decoded: rmpv::Value =
-            rmpv::decode::read_value(&mut &parallel_result[..]).unwrap();
+        let par_decoded: rmpv::Value = rmpv::decode::read_value(&mut &parallel_result[..]).unwrap();
 
         let seq_arr = seq_decoded.as_array().unwrap();
         let par_arr = par_decoded.as_array().unwrap();

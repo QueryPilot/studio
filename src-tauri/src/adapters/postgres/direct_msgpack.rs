@@ -123,7 +123,8 @@ fn merge_chunk_buffers(rows_len: usize, chunk_buffers: Vec<Vec<u8>>) -> Result<V
     let total_chunk_bytes: usize = chunk_buffers.iter().map(|b| b.len()).sum();
     let mut buffer = Vec::with_capacity(header_size + total_chunk_bytes);
 
-    encode::write_array_len(&mut buffer, rows_len as u32).map_err(DirectMsgPackEncoder::map_encode_err)?;
+    encode::write_array_len(&mut buffer, rows_len as u32)
+        .map_err(DirectMsgPackEncoder::map_encode_err)?;
     for chunk_buf in chunk_buffers {
         buffer.extend_from_slice(&chunk_buf);
         return_chunk_buffer(chunk_buf);
@@ -1987,7 +1988,10 @@ mod tests {
             ("-123.45", "-123.45"),
             ("0.001", "0.001"),
             ("0.00100", "0.00100"),
-            ("99999999999999999999999999.99", "99999999999999999999999999.99"),
+            (
+                "99999999999999999999999999.99",
+                "99999999999999999999999999.99",
+            ),
             ("1000000", "1000000"),
         ];
 
