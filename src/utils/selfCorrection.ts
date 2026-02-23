@@ -38,9 +38,13 @@ export function isReadOnlyStatement(sql: string): boolean {
 
   if (stripped.length === 0) return false;
 
-  // Handle CTEs: WITH ... must end with SELECT to be read-only
+  // Handle CTEs: WITH ... must end with a read-only main statement.
+  // Use word boundary matching to avoid false positives from table names
+  // like "user_updates" matching "UPDATE".
   if (stripped.startsWith("WITH")) {
-    return !MUTATING_KEYWORDS.some((kw) => stripped.includes(kw));
+    const wordBoundary = (kw: string) =>
+      new RegExp(`(?<![A-Z_])${kw}(?![A-Z_])`);
+    return !MUTATING_KEYWORDS.some((kw) => wordBoundary(kw).test(stripped));
   }
 
   return READ_ONLY_PREFIXES.some((prefix) =>
