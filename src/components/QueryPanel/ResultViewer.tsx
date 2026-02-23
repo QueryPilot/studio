@@ -1,4 +1,5 @@
 import { logger } from "@/lib/logger";
+import type { ViewMode } from "@/types/viewMode";
 import { memo, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -65,7 +66,7 @@ interface ResultViewerProps {
   databaseType?: string;
   gridId: string;
   isStreaming?: boolean;
-  viewMode: "table" | "json" | "explain" | "raw" | "stats";
+  viewMode: ViewMode;
   cursorSetupMs?: number;
   totalStreamingMs?: number;
   fetchCount?: number;

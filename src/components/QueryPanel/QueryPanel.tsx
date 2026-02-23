@@ -28,6 +28,7 @@ import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useTabStateStore, type QueryResult } from "@/stores/tabStateStore";
 import type { ColumnMeta } from "@/types/database";
 import type { SqlDialect } from "@/components/CodeEditor/types";
+import type { ViewMode } from "@/types/viewMode";
 import type { SqlEditorRef } from "@/components/CodeEditor/SqlEditor";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import {
@@ -124,9 +125,9 @@ export const QueryPanel = memo(function QueryPanel({
   );
   // Cancellation is handled by tableStreamingService.cancel() — no local AbortController needed.
   // We use isExecutingRef as the guard for whether a cancel is valid.
-  const [viewMode, setViewModeInternal] = useState<
-    "table" | "json" | "explain" | "raw" | "stats"
-  >(globalState?.viewMode || "table");
+  const [viewMode, setViewModeInternal] = useState<ViewMode>(
+    globalState?.viewMode || "table",
+  );
   // Track if the current result is from an EXPLAIN query
   const [isExplainResult, setIsExplainResult] = useState(false);
 
@@ -248,7 +249,7 @@ export const QueryPanel = memo(function QueryPanel({
   }, []);
 
   const setViewMode = useCallback(
-    (value: "table" | "json" | "explain" | "raw" | "stats") => {
+    (value: ViewMode) => {
       setViewModeInternal(value);
     },
     [],
