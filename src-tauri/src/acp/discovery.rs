@@ -399,7 +399,57 @@ pub fn fetch_agent_models(agent_id: &str) -> Option<Vec<ModelInfo>> {
         "opencode" => fetch_opencode_models(),
         "codex-acp" => fetch_codex_models(),
         "claude-code-acp" => fetch_claude_code_models(),
+        // Ollama uses async model fetching via its HTTP API
+        // Handled separately in acp_fetch_ollama_models command
         _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Ollama: Local AI via HTTP API
+// ---------------------------------------------------------------------------
+
+/// Default Ollama base URL
+pub const OLLAMA_DEFAULT_URL: &str = "http://localhost:11434";
+
+/// The agent ID used for Ollama in discovery
+pub const OLLAMA_AGENT_ID: &str = "ollama";
+
+/// Create an AgentInfo for Ollama (async because it checks HTTP availability)
+pub async fn discover_ollama_agent(base_url: &str) -> Option<AgentInfo> {
+    let client = super::ollama::OllamaClient::new(base_url);
+    if !client.is_available().await {
+        return None;
+    }
+
+    // Try to fetch models for the initial listing
+    let models = client.list_models().await.unwrap_or_default();
+
+    Some(AgentInfo {
+        id: OLLAMA_AGENT_ID.to_string(),
+        name: "Ollama (Local)".to_string(),
+        path: Some(base_url.to_string()),
+        version: None,
+        acp_args: vec![],
+        installed: true,
+        install_url: Some("https://ollama.com".to_string()),
+        packages: vec![],
+        models,
+    })
+}
+
+/// Create an AgentInfo for Ollama when it's not running (shown as available but not installed)
+pub fn ollama_agent_unavailable() -> AgentInfo {
+    AgentInfo {
+        id: OLLAMA_AGENT_ID.to_string(),
+        name: "Ollama (Local)".to_string(),
+        path: None,
+        version: None,
+        acp_args: vec![],
+        installed: false,
+        install_url: Some("https://ollama.com".to_string()),
+        packages: vec![],
+        models: vec![],
     }
 }
 
