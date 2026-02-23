@@ -623,3 +623,149 @@ impl Default for AcpManager {
         Self::new()
     }
 }
+
+// ---------------------------------------------------------------------------
+// Ollama Session Manager
+// ---------------------------------------------------------------------------
+
+use std::sync::Mutex;
+
+/// An Ollama "session" — no subprocess, just HTTP state
+struct OllamaSession {
+    session_id: String,
+    model: String,
+    base_url: String,
+    /// Conversation history for multi-turn chat
+    messages: Vec<super::ollama::ChatMessage>,
+}
+
+/// Manages Ollama sessions (separate from ACP subprocess agents)
+pub struct OllamaManager {
+    sessions: Mutex<HashMap<String, OllamaSession>>,
+}
+
+impl OllamaManager {
+    pub fn new() -> Self {
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// "Start" an Ollama agent — just registers it, no subprocess needed
+    pub fn start_agent(&self, base_url: &str) -> String {
+        let instance_id = uuid::Uuid::new_v4().to_string();
+        let session_id = uuid::Uuid::new_v4().to_string();
+
+        let session = OllamaSession {
+            session_id,
+            model: String::new(), // Set via set_model later
+            base_url: base_url.to_string(),
+            messages: Vec::new(),
+        };
+
+        self.sessions
+            .lock()
+            .unwrap()
+            .insert(instance_id.clone(), session);
+        instance_id
+    }
+
+    /// Get the session ID for an Ollama instance
+    pub fn get_session_id(&self, instance_id: &str) -> Result<String, String> {
+        self.sessions
+            .lock()
+            .unwrap()
+            .get(instance_id)
+            .map(|s| s.session_id.clone())
+            .ok_or_else(|| "Ollama session not found".to_string())
+    }
+
+    /// Set the model for an Ollama session
+    pub fn set_model(&self, instance_id: &str, model_id: &str) -> Result<(), String> {
+        let mut sessions = self.sessions.lock().unwrap();
+        let session = sessions
+            .get_mut(instance_id)
+            .ok_or("Ollama session not found")?;
+        session.model = model_id.to_string();
+        Ok(())
+    }
+
+    /// Send a prompt to Ollama and stream the response.
+    /// Returns (base_url, model, messages) for the caller to execute the chat.
+    pub fn prepare_prompt(
+        &self,
+        instance_id: &str,
+        user_content: &str,
+        system_prompt: Option<String>,
+    ) -> Result<(String, String, Vec<super::ollama::ChatMessage>), String> {
+        let mut sessions = self.sessions.lock().unwrap();
+        let session = sessions
+            .get_mut(instance_id)
+            .ok_or("Ollama session not found")?;
+
+        if session.model.is_empty() {
+            return Err("No model selected for Ollama session".to_string());
+        }
+
+        // Build messages list
+        let mut messages = Vec::new();
+
+        // Always include system prompt with latest schema context
+        if let Some(sys) = system_prompt {
+            messages.push(super::ollama::ChatMessage {
+                role: "system".to_string(),
+                content: sys,
+            });
+        }
+
+        // Add conversation history (capped to last 20 messages to respect
+        // local model context windows and avoid unbounded memory growth)
+        const MAX_HISTORY: usize = 20;
+        let history = &session.messages;
+        let start = history.len().saturating_sub(MAX_HISTORY);
+        messages.extend(history[start..].iter().cloned());
+
+        // Add the new user message
+        let user_msg = super::ollama::ChatMessage {
+            role: "user".to_string(),
+            content: user_content.to_string(),
+        };
+        messages.push(user_msg.clone());
+
+        // Save user message to history
+        session.messages.push(user_msg);
+
+        let base_url = session.base_url.clone();
+        let model = session.model.clone();
+
+        Ok((base_url, model, messages))
+    }
+
+    /// Save the assistant's response to conversation history
+    pub fn save_assistant_response(&self, instance_id: &str, content: &str) {
+        if let Ok(mut sessions) = self.sessions.lock() {
+            if let Some(session) = sessions.get_mut(instance_id) {
+                session.messages.push(super::ollama::ChatMessage {
+                    role: "assistant".to_string(),
+                    content: content.to_string(),
+                });
+            }
+        }
+    }
+
+    /// Check if an instance exists in the Ollama manager
+    pub fn has_instance(&self, instance_id: &str) -> bool {
+        self.sessions.lock().unwrap().contains_key(instance_id)
+    }
+
+    /// Remove an Ollama session
+    pub fn remove(&self, instance_id: &str) {
+        self.sessions.lock().unwrap().remove(instance_id);
+    }
+}
+
+impl Default for OllamaManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}

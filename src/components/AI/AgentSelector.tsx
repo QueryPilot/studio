@@ -48,6 +48,10 @@ const AGENT_LOGOS: Record<string, { light: string; dark: string }> = {
     light: "/logos/opencode-logo-light.svg",
     dark: "/logos/opencode-logo-dark.svg",
   },
+  "ollama": {
+    light: "/logos/ollama.svg",
+    dark: "/logos/ollama.svg",
+  },
 };
 
 /** Get logo path for an agent based on current theme */
