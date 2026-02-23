@@ -161,8 +161,10 @@ export const ChartViewer = memo(function ChartViewer({
     );
   }
 
-  const categoryKey = result.columns[analysis.categoryIndex];
-  const numericKeys = analysis.numericIndices.map((i) => result.columns[i]);
+  const categoryKey = result.columns[analysis.categoryIndex] ?? "";
+  const numericKeys = analysis.numericIndices.map(
+    (i) => result.columns[i] ?? "",
+  );
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -265,12 +267,12 @@ export const ChartViewer = memo(function ChartViewer({
             <ScatterChart>
               <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
               <XAxis
-                dataKey={numericKeys[0]}
+                dataKey={numericKeys[0] as string}
                 name={numericKeys[0]}
                 tick={{ fontSize: 12 }}
               />
               <YAxis
-                dataKey={numericKeys[1] ?? numericKeys[0]}
+                dataKey={(numericKeys[1] ?? numericKeys[0]) as string}
                 name={numericKeys[1] ?? numericKeys[0]}
                 tick={{ fontSize: 12 }}
               />

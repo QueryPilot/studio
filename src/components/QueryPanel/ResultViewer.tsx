@@ -1,5 +1,6 @@
 import { logger } from "@/lib/logger";
 import type { ViewMode } from "@/types/viewMode";
+import { ChartViewer } from "./ChartViewer";
 import { memo, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -716,6 +717,14 @@ export const ResultViewer = memo(function ResultViewer({
       {viewMode === "json" && (
         <div className="h-full pt-1">
           <JsonViewer content={jsonContent} />
+        </div>
+      )}
+
+      {viewMode === "chart" && (
+        <div className="h-full">
+          <ChartViewer
+            result={{ columns: result.columns, rows: result.rows }}
+          />
         </div>
       )}
     </div>

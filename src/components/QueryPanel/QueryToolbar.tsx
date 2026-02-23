@@ -156,6 +156,13 @@ export const QueryToolbar = memo(function QueryToolbar({
                     >
                       JSON
                     </TabsTrigger>
+                    <TabsTrigger
+                      value="chart"
+                      className="text-xs !h-5 !px-2"
+                      tabIndex={2}
+                    >
+                      Chart
+                    </TabsTrigger>
                   </>
                 )}
                 {/* Show Plan/Raw/Stats only for EXPLAIN results */}
