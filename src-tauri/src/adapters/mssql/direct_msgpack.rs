@@ -82,16 +82,15 @@ where
 
 /// Fast digit pair lookup table (00-99)
 static DIGIT_PAIRS: &[[u8; 2]; 100] = &[
-    *b"00", *b"01", *b"02", *b"03", *b"04", *b"05", *b"06", *b"07", *b"08", *b"09", *b"10",
-    *b"11", *b"12", *b"13", *b"14", *b"15", *b"16", *b"17", *b"18", *b"19", *b"20", *b"21",
-    *b"22", *b"23", *b"24", *b"25", *b"26", *b"27", *b"28", *b"29", *b"30", *b"31", *b"32",
-    *b"33", *b"34", *b"35", *b"36", *b"37", *b"38", *b"39", *b"40", *b"41", *b"42", *b"43",
-    *b"44", *b"45", *b"46", *b"47", *b"48", *b"49", *b"50", *b"51", *b"52", *b"53", *b"54",
-    *b"55", *b"56", *b"57", *b"58", *b"59", *b"60", *b"61", *b"62", *b"63", *b"64", *b"65",
-    *b"66", *b"67", *b"68", *b"69", *b"70", *b"71", *b"72", *b"73", *b"74", *b"75", *b"76",
-    *b"77", *b"78", *b"79", *b"80", *b"81", *b"82", *b"83", *b"84", *b"85", *b"86", *b"87",
-    *b"88", *b"89", *b"90", *b"91", *b"92", *b"93", *b"94", *b"95", *b"96", *b"97", *b"98",
-    *b"99",
+    *b"00", *b"01", *b"02", *b"03", *b"04", *b"05", *b"06", *b"07", *b"08", *b"09", *b"10", *b"11",
+    *b"12", *b"13", *b"14", *b"15", *b"16", *b"17", *b"18", *b"19", *b"20", *b"21", *b"22", *b"23",
+    *b"24", *b"25", *b"26", *b"27", *b"28", *b"29", *b"30", *b"31", *b"32", *b"33", *b"34", *b"35",
+    *b"36", *b"37", *b"38", *b"39", *b"40", *b"41", *b"42", *b"43", *b"44", *b"45", *b"46", *b"47",
+    *b"48", *b"49", *b"50", *b"51", *b"52", *b"53", *b"54", *b"55", *b"56", *b"57", *b"58", *b"59",
+    *b"60", *b"61", *b"62", *b"63", *b"64", *b"65", *b"66", *b"67", *b"68", *b"69", *b"70", *b"71",
+    *b"72", *b"73", *b"74", *b"75", *b"76", *b"77", *b"78", *b"79", *b"80", *b"81", *b"82", *b"83",
+    *b"84", *b"85", *b"86", *b"87", *b"88", *b"89", *b"90", *b"91", *b"92", *b"93", *b"94", *b"95",
+    *b"96", *b"97", *b"98", *b"99",
 ];
 
 /// Hex encoding lookup table
@@ -310,8 +309,7 @@ impl DirectMsgPackEncoder {
         let estimated = self.estimated_row_size * rows.len() + 8;
         let mut buffer = Vec::with_capacity(estimated);
 
-        encode::write_array_len(&mut buffer, rows.len() as u32)
-            .map_err(Self::map_encode_err)?;
+        encode::write_array_len(&mut buffer, rows.len() as u32).map_err(Self::map_encode_err)?;
 
         for row in rows {
             self.encode_row_inline(&mut buffer, row)?;
@@ -347,8 +345,7 @@ impl DirectMsgPackEncoder {
         let total_chunk_bytes: usize = chunk_buffers.iter().map(|b| b.len()).sum();
         let mut buffer = Vec::with_capacity(header_size + total_chunk_bytes);
 
-        encode::write_array_len(&mut buffer, rows.len() as u32)
-            .map_err(Self::map_encode_err)?;
+        encode::write_array_len(&mut buffer, rows.len() as u32).map_err(Self::map_encode_err)?;
         for chunk_buf in chunk_buffers {
             buffer.extend_from_slice(&chunk_buf);
             return_chunk_buffer(chunk_buf);
@@ -360,8 +357,7 @@ impl DirectMsgPackEncoder {
     /// Encode a single row as a MessagePack array inline into the buffer
     #[inline]
     fn encode_row_inline<W: Write>(&self, buf: &mut W, row: &Row) -> Result<()> {
-        encode::write_array_len(buf, self.column_count as u32)
-            .map_err(Self::map_encode_err)?;
+        encode::write_array_len(buf, self.column_count as u32).map_err(Self::map_encode_err)?;
 
         for i in 0..self.column_count {
             self.encode_cell(buf, row, i)?;

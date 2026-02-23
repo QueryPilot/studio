@@ -772,7 +772,10 @@ impl McpHandler {
             | DbType::MariaDB
             | DbType::SQLite
             | DbType::SQLServer => self.describe_sql_table(&params, &adapter).await,
-            DbType::MongoDB => self.describe_mongo_collection(&params.table, &adapter).await,
+            DbType::MongoDB => {
+                self.describe_mongo_collection(&params.table, &adapter)
+                    .await
+            }
             DbType::Redis => Err("Redis does not support table description".to_string()),
         };
 
@@ -802,13 +805,13 @@ impl McpHandler {
         // Parse schema-qualified table names (e.g., "aaa.t_user" → schema="aaa", table="t_user")
         let (schema, table) = if params.table.contains('.') {
             let parts: Vec<&str> = params.table.splitn(2, '.').collect();
-            (
-                parts[0].to_string(),
-                parts[1].to_string(),
-            )
+            (parts[0].to_string(), parts[1].to_string())
         } else {
             (
-                params.schema.clone().unwrap_or_else(|| "public".to_string()),
+                params
+                    .schema
+                    .clone()
+                    .unwrap_or_else(|| "public".to_string()),
                 params.table.clone(),
             )
         };

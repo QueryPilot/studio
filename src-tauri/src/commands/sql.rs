@@ -159,7 +159,11 @@ pub async fn query(
 ) -> std::result::Result<crate::types::QueryResult, String> {
     // Safe mode guard (synchronous lookup — no DashMap lock held across await)
     let op_kind = crate::core::safe_mode::classify_sql(&sql);
-    crate::core::safe_mode::check_safe_mode(manager.get_safe_mode(&conn_id), op_kind, &format!("{:?}", op_kind))?;
+    crate::core::safe_mode::check_safe_mode(
+        manager.get_safe_mode(&conn_id),
+        op_kind,
+        &format!("{:?}", op_kind),
+    )?;
 
     let adapter = manager
         .borrow_adapter_with_retry(&conn_id, 3)
@@ -329,8 +333,12 @@ async fn execute_single_fetch_stream(
         DbType::MySQL | DbType::MariaDB => {
             execute_mysql_stream(sql, metadata_channel, data_channel, adapter).await
         }
-        DbType::SQLite => execute_generic_stream(sql, metadata_channel, data_channel, adapter).await,
-        DbType::SQLServer => execute_mssql_stream(sql, metadata_channel, data_channel, adapter).await,
+        DbType::SQLite => {
+            execute_generic_stream(sql, metadata_channel, data_channel, adapter).await
+        }
+        DbType::SQLServer => {
+            execute_mssql_stream(sql, metadata_channel, data_channel, adapter).await
+        }
         // Non-SQL databases don't use SQL streaming - handled by their own commands
         DbType::MongoDB | DbType::Redis => {
             Err("SQL streaming not supported for non-SQL databases".to_string())
@@ -365,7 +373,13 @@ async fn execute_generic_stream(
         result.rows.len()
     );
 
-    send_query_results(&result, start_time, query_elapsed, metadata_channel, data_channel)
+    send_query_results(
+        &result,
+        start_time,
+        query_elapsed,
+        metadata_channel,
+        data_channel,
+    )
 }
 
 /// Poll the IPC data channel by sending empty payloads every 100ms.
@@ -721,11 +735,10 @@ async fn execute_mssql_stream(
     let start_time = std::time::Instant::now();
 
     // Rewrite SQL to handle unsupported column types (sql_variant, geography, geometry, hierarchyid)
-    let sql_owned = crate::adapters::mssql::MssqlAdapter::rewrite_for_unsupported_types(
-        &mut query_conn, sql,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    let sql_owned =
+        crate::adapters::mssql::MssqlAdapter::rewrite_for_unsupported_types(&mut query_conn, sql)
+            .await
+            .map_err(|e| e.to_string())?;
 
     // Execute the query on the SAME connection we got the SPID from.
     // Collect rows eagerly (tiberius limitation) then process in progressive batches.
@@ -1610,7 +1623,11 @@ pub async fn execute_query(
 
     // Safe mode guard (synchronous lookup — no DashMap lock held across await)
     let op_kind = crate::core::safe_mode::classify_sql(&sql);
-    crate::core::safe_mode::check_safe_mode(manager.get_safe_mode(&connection_key), op_kind, &format!("{:?}", op_kind))?;
+    crate::core::safe_mode::check_safe_mode(
+        manager.get_safe_mode(&connection_key),
+        op_kind,
+        &format!("{:?}", op_kind),
+    )?;
 
     let adapter = manager
         .borrow_adapter_with_retry(&connection_key, 3)

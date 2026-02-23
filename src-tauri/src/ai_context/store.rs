@@ -87,7 +87,10 @@ impl AiContextStore {
 
         // Upsert: if a context with the same connection_id exists, update it
         if let Some(conn_id) = &context.connection_id {
-            if let Some(existing) = contexts.iter_mut().find(|c| c.connection_id.as_ref() == Some(conn_id)) {
+            if let Some(existing) = contexts
+                .iter_mut()
+                .find(|c| c.connection_id.as_ref() == Some(conn_id))
+            {
                 *existing = context;
                 return;
             }
@@ -96,7 +99,12 @@ impl AiContextStore {
         // Push new context, evict oldest if at capacity
         if contexts.len() >= MAX_ACTIVE_CONTEXTS {
             // Remove the one with the oldest updated_at
-            if let Some(oldest_idx) = contexts.iter().enumerate().min_by_key(|(_, c)| c.updated_at).map(|(i, _)| i) {
+            if let Some(oldest_idx) = contexts
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, c)| c.updated_at)
+                .map(|(i, _)| i)
+            {
                 contexts.remove(oldest_idx);
             }
         }
@@ -294,7 +302,12 @@ mod tests {
             .await;
 
         let all = store.get_all_active_contexts().await;
-        assert_eq!(all.len(), 1, "Should have 1 context (upserted), got {}", all.len());
+        assert_eq!(
+            all.len(),
+            1,
+            "Should have 1 context (upserted), got {}",
+            all.len()
+        );
         assert_eq!(all[0].query, Some("SELECT 2".to_string()));
         assert_eq!(all[0].database, Some("db1_updated".to_string()));
     }
@@ -368,13 +381,15 @@ mod tests {
 
         // The oldest (conn-0 with updated_at=0) should have been evicted
         assert!(
-            !all.iter().any(|c| c.connection_id == Some("conn-0".to_string())),
+            !all.iter()
+                .any(|c| c.connection_id == Some("conn-0".to_string())),
             "conn-0 should have been evicted"
         );
 
         // The most recent should still be there
         assert!(
-            all.iter().any(|c| c.connection_id == Some(format!("conn-{}", MAX_ACTIVE_CONTEXTS))),
+            all.iter()
+                .any(|c| c.connection_id == Some(format!("conn-{}", MAX_ACTIVE_CONTEXTS))),
             "Most recent context should still be present"
         );
     }
