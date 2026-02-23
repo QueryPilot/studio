@@ -269,10 +269,14 @@ impl MongoDbAdapter {
     }
 
     /// List collections on a specific database (does not modify adapter state).
-    pub async fn list_collections_on_db(&self, database: &Database) -> Result<Vec<CollectionInfo>, AppError> {
-        let collections = database.list_collection_names().await.map_err(|e| {
-            AppError::DatabaseError(format!("Failed to list collections: {}", e))
-        })?;
+    pub async fn list_collections_on_db(
+        &self,
+        database: &Database,
+    ) -> Result<Vec<CollectionInfo>, AppError> {
+        let collections = database
+            .list_collection_names()
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to list collections: {}", e)))?;
 
         let mut result = Vec::new();
         for name in collections {
@@ -297,7 +301,11 @@ impl MongoDbAdapter {
     }
 
     /// Run a command on a specific database (does not modify adapter state).
-    pub async fn run_command_on_db(&self, database: &Database, command: Value) -> Result<Value, AppError> {
+    pub async fn run_command_on_db(
+        &self,
+        database: &Database,
+        command: Value,
+    ) -> Result<Value, AppError> {
         let cmd_doc = Self::json_to_bson_doc(&command)?;
         let result = database
             .run_command(cmd_doc)

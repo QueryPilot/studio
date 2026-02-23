@@ -186,10 +186,7 @@ pub async fn redis_info(
         .as_redis()
         .ok_or_else(|| "Not a Redis connection".to_string())?;
 
-    redis
-        .get_server_info_raw()
-        .await
-        .map_err(|e| e.to_string())
+    redis.get_server_info_raw().await.map_err(|e| e.to_string())
 }
 
 /// Get key type
@@ -541,7 +538,11 @@ pub async fn keyvalue_execute(
 ) -> Result<KeyValueResult, String> {
     // Safe mode guard (synchronous lookup — no DashMap lock held across await)
     let op_kind = crate::core::safe_mode::classify_keyvalue_op(&operation);
-    crate::core::safe_mode::check_safe_mode(manager.get_safe_mode(&conn_id), op_kind, &format!("{:?}", operation))?;
+    crate::core::safe_mode::check_safe_mode(
+        manager.get_safe_mode(&conn_id),
+        op_kind,
+        &format!("{:?}", operation),
+    )?;
 
     let adapter = manager
         .borrow_adapter_with_retry(&conn_id, 3)
@@ -569,10 +570,7 @@ pub async fn keyvalue_execute(
             Ok(KeyValueResult::Ok)
         }
         KeyValueOperation::Delete { keys } => {
-            let count = redis
-                .delete_keys(&keys)
-                .await
-                .map_err(|e| e.to_string())?;
+            let count = redis.delete_keys(&keys).await.map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Count(count))
         }
         KeyValueOperation::Exists { keys } => {
@@ -604,10 +602,7 @@ pub async fn keyvalue_execute(
             Ok(KeyValueResult::ScanWithPreviews(result))
         }
         KeyValueOperation::Type { key } => {
-            let key_type = redis
-                .get_key_type(&key)
-                .await
-                .map_err(|e| e.to_string())?;
+            let key_type = redis.get_key_type(&key).await.map_err(|e| e.to_string())?;
             Ok(KeyValueResult::KeyType(key_type))
         }
         KeyValueOperation::Ttl { key } => {
@@ -629,10 +624,7 @@ pub async fn keyvalue_execute(
             Ok(KeyValueResult::Value(Some(value)))
         }
         KeyValueOperation::DbSize => {
-            let size = redis
-                .get_database_size()
-                .await
-                .map_err(|e| e.to_string())?;
+            let size = redis.get_database_size().await.map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Count(size))
         }
         KeyValueOperation::SelectDb { index } => {
@@ -651,10 +643,7 @@ pub async fn keyvalue_execute(
         }
         // Rich operations - Hash
         KeyValueOperation::HashGetAll { key } => {
-            let hash = redis
-                .hash_get_all(&key)
-                .await
-                .map_err(|e| e.to_string())?;
+            let hash = redis.hash_get_all(&key).await.map_err(|e| e.to_string())?;
             Ok(KeyValueResult::Hash(hash))
         }
         KeyValueOperation::HashSet { key, fields } => {

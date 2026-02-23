@@ -1405,10 +1405,9 @@ mod tests {
         let doc = parse_document("SELECT missing_col FROM users", SqlDialect::PostgreSQL);
         let result = validate_document(&doc, Some(&schema), None);
 
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.message.contains("missing_col") && e.message.contains("any referenced table")));
+        assert!(result.errors.iter().any(
+            |e| e.message.contains("missing_col") && e.message.contains("any referenced table")
+        ));
     }
 
     #[test]

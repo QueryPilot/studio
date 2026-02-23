@@ -120,10 +120,7 @@ impl SqliteAdapter {
             let stmt_columns = stmt.columns();
             let columns: Vec<ColumnMeta> = (0..column_count)
                 .map(|i| {
-                    let name = stmt
-                        .column_name(i)
-                        .unwrap_or("?")
-                        .to_string();
+                    let name = stmt.column_name(i).unwrap_or("?").to_string();
                     let declared_type = stmt_columns[i].decl_type();
                     ColumnMeta {
                         name,

@@ -81,7 +81,9 @@ impl McpBridge {
                             "Another Query Pilot instance is already running on {:?}. Skipping MCP bridge start.",
                             self.socket_path
                         );
-                        return Err("Another Query Pilot instance owns the MCP bridge socket".to_string());
+                        return Err(
+                            "Another Query Pilot instance owns the MCP bridge socket".to_string()
+                        );
                     }
                     Err(_) => {
                         // Stale socket — safe to remove and rebind
@@ -97,7 +99,8 @@ impl McpBridge {
             Err(e) => return Err(format!("Failed to bind socket: {}", e)),
         };
 
-        self.owns_socket.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.owns_socket
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         tracing::info!("MCP Bridge started on {:?}", self.socket_path);
 
         let handler = self.handler.clone();
