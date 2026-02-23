@@ -25,6 +25,7 @@ import {
   IconDatabase,
   IconChevronDown,
   IconPlugConnected,
+  IconLoader2,
 } from "@tabler/icons-react";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 
@@ -43,6 +44,8 @@ export interface QueryBlockProps {
   connectionName?: string;
   /** Callback when Run is clicked */
   onRun: (query: string, connectionId: string) => void;
+  /** Whether this query is being auto-corrected by the AI */
+  isCorrecting?: boolean;
 }
 
 // ============================================================================
@@ -270,6 +273,7 @@ export function QueryBlock({
   connectionId,
   connectionName,
   onRun,
+  isCorrecting,
 }: QueryBlockProps) {
   const [copied, setCopied] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
@@ -359,6 +363,12 @@ export function QueryBlock({
 
       {/* Footer with Run Button */}
       <div className="flex items-center justify-end border-t border-border/50 px-2 py-1.5">
+        {isCorrecting && (
+          <div className="flex items-center gap-1.5 mr-auto text-[10px] text-amber-600 dark:text-amber-400">
+            <IconLoader2 className="h-3 w-3 animate-spin" />
+            <span>Auto-correcting...</span>
+          </div>
+        )}
         {connectionId ? (
           // Direct run button when connection is known
           <Button

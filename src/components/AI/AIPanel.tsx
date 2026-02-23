@@ -29,6 +29,7 @@ import type { AIContext } from "@/types/aiContext";
 import { AgentSelector } from "./AgentSelector";
 import { ImagePreviewPopover } from "./ImagePreviewPopover";
 import { ModelSelector } from "./ModelSelector";
+import { OllamaSettings } from "./OllamaSettings";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
@@ -94,6 +95,11 @@ import {
   revokeImagePreviews,
   MAX_IMAGES,
 } from "@/utils/imageUtils";
+import {
+  isReadOnlyStatement,
+  buildCorrectionPrompt,
+  MAX_CORRECTION_ATTEMPTS,
+} from "@/utils/selfCorrection";
 
 // ============================================================================
 // Types
@@ -391,6 +397,44 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     scrollToBottom,
   ]);
 
+  // Self-correction: track attempts per query to avoid infinite loops
+  const correctionAttemptsRef = useRef<Map<string, number>>(new Map());
+  const [correctingQuery, setCorrectingQuery] = useState<string | null>(null);
+
+  const handleQueryError = useCallback(
+    async (query: string, errorMessage: string) => {
+      // Safety gate: only auto-correct read-only statements
+      if (!isReadOnlyStatement(query)) return;
+
+      const attempts = correctionAttemptsRef.current.get(query) ?? 0;
+      if (attempts >= MAX_CORRECTION_ATTEMPTS) return;
+
+      const nextAttempt = attempts + 1;
+      correctionAttemptsRef.current.set(query, nextAttempt);
+      setCorrectingQuery(query);
+
+      const correctionPrompt = buildCorrectionPrompt(
+        query,
+        errorMessage,
+        nextAttempt,
+      );
+
+      try {
+        if (!activeSession && !isWarmingUp) {
+          await startSession(connectionId);
+        }
+
+        const contextJson = serializeAIContext(aiContext);
+        await sendMessage(correctionPrompt, contextJson);
+      } catch (err) {
+        console.error("Failed to send correction prompt:", err);
+      } finally {
+        setCorrectingQuery(null);
+      }
+    },
+    [activeSession, isWarmingUp, connectionId, aiContext, sendMessage, startSession],
+  );
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter" && !e.shiftKey) {
@@ -484,6 +528,9 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         </div>
       )}
 
+      {/* Ollama Status */}
+      <OllamaSettings />
+
       {/* Messages Area */}
       <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0">
         <div className="flex flex-col min-h-full">
@@ -496,6 +543,8 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
               activeToolCalls={activeToolCalls}
               streamingFlow={streamingFlow}
               streamingPlan={streamingPlan}
+              onQueryError={handleQueryError}
+              correctingQuery={correctingQuery}
             />
           ) : (
             <EmptyState
@@ -767,6 +816,8 @@ interface MessageListProps {
   activeToolCalls: ToolCallType[];
   streamingFlow: AssistantFlowSegment[];
   streamingPlan: Array<{ id: string; description: string; status: string }>;
+  onQueryError?: (query: string, errorMessage: string) => void;
+  correctingQuery?: string | null;
 }
 
 function MessageList({
@@ -777,6 +828,8 @@ function MessageList({
   activeToolCalls,
   streamingFlow,
   streamingPlan,
+  onQueryError,
+  correctingQuery,
 }: MessageListProps) {
   return (
     <div className="flex flex-col">
@@ -789,6 +842,8 @@ function MessageList({
             toolCalls={msg.toolCalls}
             assistantFlow={msg.assistantFlow}
             images={msg.images}
+            onQueryError={onQueryError}
+            correctingQuery={correctingQuery}
           />
         </Fragment>
       ))}
@@ -804,6 +859,8 @@ function MessageList({
             assistantFlow={streamingFlow}
             planSteps={streamingPlan}
             isStreaming
+            onQueryError={onQueryError}
+            correctingQuery={correctingQuery}
           />
         </>
       )}
@@ -824,6 +881,8 @@ interface MessageBubbleProps {
   planSteps?: Array<{ id: string; description: string; status: string }>;
   isStreaming?: boolean;
   images?: AcpMessage["images"];
+  onQueryError?: (query: string, errorMessage: string) => void;
+  correctingQuery?: string | null;
 }
 
 type MessageContentSegment =
@@ -982,6 +1041,8 @@ function MessageBubble({
   planSteps,
   isStreaming,
   images,
+  onQueryError,
+  correctingQuery,
 }: MessageBubbleProps) {
   const isUser = role === "user";
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
@@ -1133,11 +1194,16 @@ function MessageBubble({
           () => {}, // Progress callback
           () => {}, // Error callback (errors handled by streaming service)
         );
-      } catch {
-        // Error handling - errors are already shown by the streaming service
+      } catch (err) {
+        // Trigger self-correction for read-only query failures
+        if (onQueryError) {
+          const errorMessage =
+            err instanceof Error ? err.message : String(err);
+          onQueryError(query, errorMessage);
+        }
       }
     },
-    [],
+    [onQueryError],
   );
 
   // Custom Streamdown components to render QueryBlock for SQL code blocks
@@ -1162,6 +1228,7 @@ function MessageBubble({
                 connectionId={resolvedConnection?.id}
                 connectionName={resolvedConnection?.name}
                 onRun={handleQueryRun}
+                isCorrecting={correctingQuery === codeNode.content}
               />
             );
           }
@@ -1171,7 +1238,7 @@ function MessageBubble({
         return <pre {...props}>{children}</pre>;
       },
     }),
-    [resolvedConnection, handleQueryRun],
+    [resolvedConnection, handleQueryRun, correctingQuery],
   );
 
   return (
