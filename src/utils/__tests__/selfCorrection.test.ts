@@ -45,6 +45,19 @@ describe("selfCorrection", () => {
       ).toBe(false);
     });
 
+    it("returns true for WITH ... SELECT from table with mutating keyword in name", () => {
+      expect(
+        isReadOnlyStatement(
+          "WITH cte AS (SELECT * FROM user_updates) SELECT * FROM cte",
+        ),
+      ).toBe(true);
+      expect(
+        isReadOnlyStatement(
+          "WITH cte AS (SELECT * FROM deleted_items) SELECT * FROM cte",
+        ),
+      ).toBe(true);
+    });
+
     it("returns true for SHOW", () => {
       expect(isReadOnlyStatement("SHOW TABLES")).toBe(true);
     });
