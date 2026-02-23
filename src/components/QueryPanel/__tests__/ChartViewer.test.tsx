@@ -73,6 +73,31 @@ describe("ChartViewer", () => {
     expect(screen.getByTestId("line-chart")).toBeInTheDocument();
   });
 
+  it("handles string-encoded numbers from database (NUMERIC/DECIMAL)", () => {
+    const stringNumericResult = {
+      columns: ["category", "revenue"],
+      rows: [
+        ["Cameras", "682497.27"],
+        ["Sports", "595697.41"],
+        ["Laptops", "531345.27"],
+      ],
+    };
+    render(<ChartViewer result={stringNumericResult} />);
+    expect(screen.getByTestId("bar-chart")).toBeInTheDocument();
+  });
+
+  it("shows no-numeric-columns for all-string data", () => {
+    const stringResult = {
+      columns: ["first_name", "last_name", "email"],
+      rows: [
+        ["Alice", "Smith", "alice@example.com"],
+        ["Bob", "Jones", "bob@example.com"],
+      ],
+    };
+    render(<ChartViewer result={stringResult} />);
+    expect(screen.getByText(/no numeric columns/i)).toBeInTheDocument();
+  });
+
   it("detects date column and defaults to line chart", () => {
     const dateResult = {
       columns: ["date", "revenue"],
