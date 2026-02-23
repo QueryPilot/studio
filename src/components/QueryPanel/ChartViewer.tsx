@@ -49,10 +49,15 @@ function looksLikeDate(value: unknown): boolean {
   return /^\d{4}[-/]\d{2}[-/]\d{2}/.test(value);
 }
 
-/** Check if a value is numeric */
+/** Check if a value is numeric (including string-encoded numbers from DB) */
 function isNumeric(value: unknown): boolean {
   if (typeof value === "number") return true;
   if (typeof value === "bigint") return true;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    // Must be non-empty, not a date, and parseable as a finite number
+    return trimmed.length > 0 && !looksLikeDate(trimmed) && isFinite(Number(trimmed));
+  }
   return false;
 }
 
@@ -102,15 +107,22 @@ function analyzeColumns(
   return { categoryIndex, numericIndices, hasDateCategory };
 }
 
-/** Transform query result rows into Recharts-compatible data */
+/** Transform query result rows into Recharts-compatible data.
+ *  Coerces string-encoded numbers to actual numbers so Recharts
+ *  can render correct axis scales and bar/line positions. */
 function transformData(
   columns: string[],
   rows: unknown[][],
+  numericIndices: Set<number>,
 ): Record<string, unknown>[] {
   return rows.map((row) => {
     const obj: Record<string, unknown> = {};
     columns.forEach((col, i) => {
-      obj[col] = row[i];
+      const val = row[i];
+      obj[col] =
+        numericIndices.has(i) && typeof val === "string"
+          ? Number(val)
+          : val;
     });
     return obj;
   });
@@ -141,8 +153,15 @@ export const ChartViewer = memo(function ChartViewer({
   }
 
   const chartData = useMemo(
-    () => (result ? transformData(result.columns, result.rows) : []),
-    [result],
+    () =>
+      result && analysis
+        ? transformData(
+            result.columns,
+            result.rows,
+            new Set(analysis.numericIndices),
+          )
+        : [],
+    [result, analysis],
   );
 
   if (!result || result.rows.length === 0 || !analysis) {
