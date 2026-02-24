@@ -307,10 +307,11 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
         const getIdMap = (key: string): Map<string, number> => {
           let m = tableIdMaps.get(key);
           if (!m) {
-            m = new Map<string, number>();
+            const newMap = new Map<string, number>();
             const cmds = stagedCommands.get(key);
-            if (cmds) cmds.forEach((c, i) => m.set(c.id, i));
-            tableIdMaps.set(key, m);
+            if (cmds) cmds.forEach((c, i) => newMap.set(c.id, i));
+            tableIdMaps.set(key, newMap);
+            m = newMap;
           }
           return m;
         };
