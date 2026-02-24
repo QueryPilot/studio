@@ -237,9 +237,12 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
       const displayName = schemaName
         ? `${schemaName}.${tableName}`
         : tableName;
-      const inserts = commands.filter((c) => c.type === "data.insert").length;
-      const updates = commands.filter((c) => c.type === "data.update").length;
-      const deletes = commands.filter((c) => c.type === "data.delete").length;
+      let inserts = 0, updates = 0, deletes = 0;
+      for (const c of commands) {
+        if (c.type === "data.insert") inserts++;
+        else if (c.type === "data.update") updates++;
+        else if (c.type === "data.delete") deletes++;
+      }
       const ddl = commands.length - inserts - updates - deletes;
       return { tableKey, displayName, total: commands.length, inserts, updates, deletes, ddl };
     });
@@ -288,24 +291,34 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     };
   }, [connectionCommands, canCommit]);
 
-  // Generate SQL from staged commands (async)
-  const [generatedSQL, setGeneratedSQL] = useState<string>("-- Loading...");
+  // Generate SQL from staged commands (async) — deferred until SQL tab is active
+  const [generatedSQL, setGeneratedSQL] = useState<string>("-- Click the SQL tab to generate preview");
+  const [sqlGenerated, setSqlGenerated] = useState(false);
 
   useEffect(() => {
+    // Only generate when the SQL tab is selected (avoid blocking on dialog open)
+    if (viewMode !== "sql") return;
+    // Don't regenerate if already generated for the same commands
+    if (sqlGenerated) return;
+
     if (isNoSqlDatabase(dbType)) {
       setGeneratedSQL(
         `-- SQL preview not available for ${dbType === DbType.MongoDB ? "MongoDB" : "Redis"}\n-- Changes will be applied using native ${dbType === DbType.MongoDB ? "MongoDB" : "Redis"} operations`
       );
+      setSqlGenerated(true);
       return;
     }
 
     const generatePreview = async () => {
+      setGeneratedSQL("-- Generating SQL preview...");
+
       const commandsMap = new Map(connectionCommands);
       const allCommands: CrudCommand[] = [];
       commandsMap.forEach((commands) => allCommands.push(...commands));
 
       if (allCommands.length === 0) {
         setGeneratedSQL("-- No changes to commit");
+        setSqlGenerated(true);
         return;
       }
 
@@ -323,9 +336,15 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         logger.error("[GlobalChangesDialog] Failed to generate preview:", error);
         setGeneratedSQL("-- Error generating preview");
       }
+      setSqlGenerated(true);
     };
-    generatePreview();
-  }, [connectionCommands, connectionId, dbType]);
+    void generatePreview();
+  }, [viewMode, sqlGenerated, connectionCommands, connectionId, dbType]);
+
+  // Reset SQL cache when commands change
+  useEffect(() => {
+    setSqlGenerated(false);
+  }, [connectionCommands]);
 
   // Debug: Log when dialog state changes (not on every render)
   useEffect(() => {
