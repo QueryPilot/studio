@@ -26,10 +26,8 @@ import {
 } from "@/hooks/useAIContext";
 import { getMentionAtCursor, formatMention } from "@/utils/mentionParser";
 import type { AIContext } from "@/types/aiContext";
-import { AgentSelector } from "./AgentSelector";
+import { CompactModelPicker } from "./CompactModelPicker";
 import { ImagePreviewPopover } from "./ImagePreviewPopover";
-import { ModelSelector } from "./ModelSelector";
-import { ProviderSettings } from "./ProviderSettings";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
@@ -223,6 +221,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   // Proactively warmup agent on mount and when switching agents
   // This creates a session immediately so sending messages is instant
   const selectedAgentId = useAcpStore((s) => s.selectedAgentId);
+  const runtimeMode = useByokStore((s) => s.runtimeMode);
   const byokMessages = useByokStore((s) => s.messages);
   const byokIsStreaming = useByokStore((s) => s.isStreaming);
   const byokStreamingContent = useByokStore((s) => s.streamingContent);
@@ -232,7 +231,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   const byokSendMessage = useByokStore((s) => s.sendMessage);
   const byokCancelGeneration = useByokStore((s) => s.cancelGeneration);
   const byokClearHistory = useByokStore((s) => s.clearHistory);
-  const isByok = selectedAgentId === "byok";
+  const isByok = runtimeMode === "byok";
   const effectiveIsStreaming = isByok ? byokIsStreaming : isStreaming;
 
   useEffect(() => {
@@ -589,9 +588,6 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
           </span>
         </div>
       )}
-
-      {/* Provider Settings (BYOK) */}
-      {isByok && <ProviderSettings />}
 
       {/* Messages Area */}
       <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0">
@@ -2080,8 +2076,7 @@ const InputArea = ({
 
         {/* Footer inside the input container */}
         <div className="flex items-center gap-1 p-1 px-1.5">
-          <AgentSelector />
-          <ModelSelector />
+          <CompactModelPicker />
           <div className="flex-1" />
 
           {/* Keyboard hint */}
