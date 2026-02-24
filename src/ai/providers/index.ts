@@ -33,10 +33,3 @@ export function createModel(
   }
 }
 
-export {
-  openaiConfig,
-  anthropicConfig,
-  googleConfig,
-  mistralConfig,
-  ollamaConfig,
-};
