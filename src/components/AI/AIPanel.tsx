@@ -26,10 +26,8 @@ import {
 } from "@/hooks/useAIContext";
 import { getMentionAtCursor, formatMention } from "@/utils/mentionParser";
 import type { AIContext } from "@/types/aiContext";
-import { AgentSelector } from "./AgentSelector";
+import { CompactModelPicker } from "./CompactModelPicker";
 import { ImagePreviewPopover } from "./ImagePreviewPopover";
-import { ModelSelector } from "./ModelSelector";
-import { ProviderSettings } from "./ProviderSettings";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
@@ -223,6 +221,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   // Proactively warmup agent on mount and when switching agents
   // This creates a session immediately so sending messages is instant
   const selectedAgentId = useAcpStore((s) => s.selectedAgentId);
+  const runtimeMode = useByokStore((s) => s.runtimeMode);
   const byokMessages = useByokStore((s) => s.messages);
   const byokIsStreaming = useByokStore((s) => s.isStreaming);
   const byokStreamingContent = useByokStore((s) => s.streamingContent);
@@ -232,7 +231,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   const byokSendMessage = useByokStore((s) => s.sendMessage);
   const byokCancelGeneration = useByokStore((s) => s.cancelGeneration);
   const byokClearHistory = useByokStore((s) => s.clearHistory);
-  const isByok = selectedAgentId === "byok";
+  const isByok = runtimeMode === "byok";
   const effectiveIsStreaming = isByok ? byokIsStreaming : isStreaming;
 
   useEffect(() => {
@@ -590,9 +589,6 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         </div>
       )}
 
-      {/* Provider Settings (BYOK) */}
-      {isByok && <ProviderSettings />}
-
       {/* Messages Area */}
       <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0">
         <div className="flex flex-col min-h-full">
@@ -659,6 +655,8 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         isWarmingUp={isWarmingUp}
         canSend={canSend}
         disabled={!hasInstalledAgents && !isByok}
+        isByok={isByok}
+        byokSession={byokSession !== null}
         aiContext={aiContext}
         openTabs={openTabs}
         pendingImages={pendingImages}
@@ -1655,6 +1653,8 @@ interface InputAreaProps {
   isWarmingUp: boolean;
   canSend: boolean;
   disabled: boolean;
+  isByok: boolean;
+  byokSession: boolean;
   aiContext: AIContext;
   openTabs: Array<{ id: string; name: string; type: string; panelId: string }>;
   pendingImages: PreparedImage[];
@@ -1673,6 +1673,8 @@ const InputArea = ({
   isWarmingUp,
   canSend,
   disabled,
+  isByok,
+  byokSession,
   aiContext,
   openTabs,
   pendingImages,
@@ -1933,11 +1935,13 @@ const InputArea = ({
     [showMentions, suggestions, selectedIndex, insertMention, parentOnKeyDown],
   );
 
-  const placeholder = disabled
-    ? "No AI agent available"
-    : isWarmingUp
-      ? "Starting agent... you can type now"
-      : "Ask anything... use @ to mention tables";
+  const placeholder = isByok && !byokSession
+    ? "Configure a provider in Settings \u2192 AI"
+    : disabled
+      ? "No AI agent available"
+      : isWarmingUp
+        ? "Starting agent... you can type now"
+        : "Ask anything... use @ to mention tables";
 
   const getMentionIcon = (type: MentionSuggestion["type"]) => {
     switch (type) {
@@ -2080,8 +2084,7 @@ const InputArea = ({
 
         {/* Footer inside the input container */}
         <div className="flex items-center gap-1 p-1 px-1.5">
-          <AgentSelector />
-          <ModelSelector />
+          <CompactModelPicker />
           <div className="flex-1" />
 
           {/* Keyboard hint */}
