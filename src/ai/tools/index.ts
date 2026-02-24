@@ -7,6 +7,14 @@ import { createListConnectionsTool } from "./listConnections";
 import { createGetQueryHistoryTool } from "./getQueryHistory";
 import { createGetExecutionPlanTool } from "./getExecutionPlan";
 
+/** Only allow safe SQL identifier characters (letters, digits, underscores, spaces, dots) */
+export function sanitizeIdentifier(value: string): string {
+  if (!/^[a-zA-Z0-9_][a-zA-Z0-9_ .]*$/.test(value)) {
+    throw new Error(`Invalid identifier: "${value}"`);
+  }
+  return value;
+}
+
 export interface ToolContext {
   connectionId: string;
   getEditorContext: () => {

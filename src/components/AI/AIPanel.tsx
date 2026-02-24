@@ -223,9 +223,17 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   // Proactively warmup agent on mount and when switching agents
   // This creates a session immediately so sending messages is instant
   const selectedAgentId = useAcpStore((s) => s.selectedAgentId);
-  const byokStore = useByokStore();
+  const byokMessages = useByokStore((s) => s.messages);
+  const byokIsStreaming = useByokStore((s) => s.isStreaming);
+  const byokStreamingContent = useByokStore((s) => s.streamingContent);
+  const byokError = useByokStore((s) => s.error);
+  const byokSession = useByokStore((s) => s.session);
+  const byokActiveToolCalls = useByokStore((s) => s.activeToolCalls);
+  const byokSendMessage = useByokStore((s) => s.sendMessage);
+  const byokCancelGeneration = useByokStore((s) => s.cancelGeneration);
+  const byokClearHistory = useByokStore((s) => s.clearHistory);
   const isByok = selectedAgentId === "byok";
-  const effectiveIsStreaming = isByok ? byokStore.isStreaming : isStreaming;
+  const effectiveIsStreaming = isByok ? byokIsStreaming : isStreaming;
 
   useEffect(() => {
     if (isByok) return; // BYOK doesn't need warmup
@@ -246,10 +254,11 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
 
   // Warmup when user starts typing (if no active session)
   const handleStartTyping = useCallback(() => {
+    if (isByok) return;
     if (!activeSession && !isWarmingUp) {
       void warmupAgent(connectionId);
     }
-  }, [activeSession, isWarmingUp, warmupAgent, connectionId]);
+  }, [isByok, activeSession, isWarmingUp, warmupAgent, connectionId]);
 
   const getScrollViewport = useCallback((): HTMLDivElement | null => {
     const root = scrollAreaRef.current;
@@ -294,19 +303,19 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     return () => {
       viewport.removeEventListener("scroll", handleScroll);
     };
-  }, [getScrollViewport, messages.length, byokStore.messages.length, effectiveIsStreaming]);
+  }, [getScrollViewport, messages.length, byokMessages.length, effectiveIsStreaming]);
 
   useEffect(() => {
     if (!stickToBottom) return;
     scrollViewportToBottom(effectiveIsStreaming ? "auto" : "smooth");
   }, [
     messages,
-    byokStore.messages,
+    byokMessages,
     streamingContent,
-    byokStore.streamingContent,
+    byokStreamingContent,
     streamingThinking,
     activeToolCalls,
-    byokStore.activeToolCalls,
+    byokActiveToolCalls,
     stickToBottom,
     effectiveIsStreaming,
     scrollViewportToBottom,
@@ -368,7 +377,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     try {
       if (isByok) {
         // BYOK path: route through AI SDK
-        if (!byokStore.session) {
+        if (!byokSession) {
           setError("Configure and connect a provider first.");
           setInputValue(content);
           return;
@@ -391,7 +400,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
           schemaJson,
         };
 
-        await byokStore.sendMessage(content, toolContext, schemaContext);
+        await byokSendMessage(content, toolContext, schemaContext);
         return;
       }
 
@@ -427,7 +436,8 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     inputValue,
     effectiveIsStreaming,
     isByok,
-    byokStore,
+    byokSession,
+    byokSendMessage,
     pendingImages,
     activeSession,
     isWarmingUp,
@@ -489,26 +499,26 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
 
   const handleCancel = useCallback(() => {
     if (isByok) {
-      byokStore.cancelGeneration();
+      byokCancelGeneration();
     } else {
       void cancelGeneration();
     }
     focusInput();
-  }, [isByok, byokStore, cancelGeneration, focusInput]);
+  }, [isByok, byokCancelGeneration, cancelGeneration, focusInput]);
 
   // Permission store for command approval
   const resetPermissions = useAiCommandPermissionStore((s) => s.reset);
 
   const handleNewConversation = useCallback(() => {
     if (isByok) {
-      byokStore.clearHistory();
+      byokClearHistory();
     } else {
       newConversation();
       resetPermissions();
     }
     focusInput();
     scrollToBottom("auto");
-  }, [isByok, byokStore, newConversation, resetPermissions, focusInput, scrollToBottom]);
+  }, [isByok, byokClearHistory, newConversation, resetPermissions, focusInput, scrollToBottom]);
 
   const handleLoadSession = useCallback(
     (sessionId: string) => {
@@ -526,16 +536,16 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   );
 
   // Derived state
-  const displayError = error || (isByok ? byokStore.error : streamingError);
+  const displayError = error || (isByok ? byokError : streamingError);
   const installedAgents = useMemo(
     () => availableAgents.filter((a) => a.installed),
     [availableAgents],
   );
   const hasInstalledAgents = installedAgents.length > 0;
   const hasMessages = isByok
-    ? byokStore.messages.length > 0 || byokStore.isStreaming
+    ? byokMessages.length > 0 || byokIsStreaming
     : messages.length > 0 || isStreaming;
-  const canSend = (inputValue.trim().length > 0 || pendingImages.length > 0) && !effectiveIsStreaming && (hasInstalledAgents || (isByok && byokStore.session !== null));
+  const canSend = (inputValue.trim().length > 0 || pendingImages.length > 0) && !effectiveIsStreaming && (hasInstalledAgents || (isByok && byokSession !== null));
 
   return (
     <div
@@ -588,11 +598,10 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         <div className="flex flex-col min-h-full">
           {isByok ? (
             <ByokMessageList
-              messages={byokStore.messages}
-              isStreaming={byokStore.isStreaming}
-              streamingContent={byokStore.streamingContent}
-              error={byokStore.error}
-              activeToolCalls={byokStore.activeToolCalls}
+              messages={byokMessages}
+              isStreaming={byokIsStreaming}
+              streamingContent={byokStreamingContent}
+              activeToolCalls={byokActiveToolCalls}
             />
           ) : hasMessages ? (
             <MessageList
@@ -2122,11 +2131,10 @@ interface ByokMessageListProps {
   messages: Array<{ role: string; content: string | Array<{ type: string; text?: string }> }>;
   isStreaming: boolean;
   streamingContent: string;
-  error: string | null;
   activeToolCalls: Array<{ id: string; name: string; status: string }>;
 }
 
-function ByokMessageList({ messages, isStreaming, streamingContent, error, activeToolCalls }: ByokMessageListProps) {
+function ByokMessageList({ messages, isStreaming, streamingContent, activeToolCalls }: ByokMessageListProps) {
   return (
     <div className="flex flex-col">
       {messages.map((msg, idx) => {
@@ -2136,7 +2144,7 @@ function ByokMessageList({ messages, isStreaming, streamingContent, error, activ
 
         return (
           <div
-            key={idx}
+            key={`${msg.role}-${idx}`}
             className={cn(
               "group px-3 py-3 transition-colors",
               msg.role === "user" && "bg-primary/5 border-l-3 border-primary",
@@ -2209,10 +2217,6 @@ function ByokMessageList({ messages, isStreaming, streamingContent, error, activ
           </div>
           <span className="text-[11px] text-muted-foreground">Thinking...</span>
         </div>
-      )}
-
-      {error && (
-        <div className="px-3 py-2 text-xs text-destructive">{error}</div>
       )}
     </div>
   );

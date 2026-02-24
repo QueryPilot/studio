@@ -19,6 +19,11 @@ export function createModel(
   modelId: string,
   apiKey?: string,
 ): LanguageModel {
+  const config = PROVIDER_CONFIGS[providerId];
+  if (config.requiresApiKey && !apiKey) {
+    throw new Error(`Provider "${config.name}" requires an API key`);
+  }
+
   switch (providerId) {
     case "openai":
       return createOpenAIProvider(apiKey ?? "")(modelId);

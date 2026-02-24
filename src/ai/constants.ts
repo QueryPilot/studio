@@ -37,7 +37,10 @@ You have the following tools — use them proactively:
   No parameters.
 
 - **getExecutionPlan**: Get EXPLAIN output for a SQL query to analyze performance.
-  Parameters: sql (required), analyze (optional boolean)`);
+  Parameters: sql (required), analyze (optional boolean)
+
+- **getQueryHistory**: Get recent SQL query execution history with status, timing, and row counts.
+  Parameters: limit (optional, default 20, max 100)`);
 
   // Section 3: Response Guidelines
   sections.push(`## How to Respond
@@ -63,12 +66,14 @@ Generate SQL compatible with ${context.databaseType} syntax and conventions.`);
   }
 
   if (context?.schemaJson) {
+    // Escape triple backticks to prevent breaking the fenced code block
+    const safeSchema = context.schemaJson.replace(/```/g, "`` `");
     sections.push(`## Database Context
 
 Below is the current workspace context including all connected databases, their schemas, tables, and any referenced entities:
 
 \`\`\`json
-${context.schemaJson}
+${safeSchema}
 \`\`\`
 
 Use this context to:

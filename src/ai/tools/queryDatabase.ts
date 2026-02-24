@@ -81,10 +81,15 @@ export function createQueryDatabaseTool(connectionId: string) {
           MAX_LIMIT,
         );
 
+        // Strip trailing semicolon and append LIMIT to enforce server-side limiting
+        const limitedSql =
+          sql.trimEnd().replace(/;\s*$/, "") +
+          ` LIMIT ${String(effectiveLimit + 1)}`;
+
         const result = await invoke<{
           columns: { name: string }[];
           rows: unknown[][];
-        }>("query", { connId: connectionId, sql, timeoutSecs: 30 });
+        }>("query", { connId: connectionId, sql: limitedSql, timeoutSecs: 30 });
 
         const columns = result.columns.map((c) => c.name);
         const totalRows = result.rows.length;

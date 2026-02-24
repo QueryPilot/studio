@@ -40,8 +40,9 @@ export function ProviderSettings() {
         <Select
           value={providerId ?? ""}
           onValueChange={(v) => {
-            if (v != null) {
+            if (v && v in PROVIDER_CONFIGS) {
               setProvider(v as ProviderId);
+              setTestResult(null);
             }
           }}
         >
@@ -100,6 +101,7 @@ export function ProviderSettings() {
             onValueChange={(value) => {
               if (value != null) {
                 setModel(value);
+                setTestResult(null);
               }
             }}
           >
@@ -132,7 +134,7 @@ export function ProviderSettings() {
           {testResult === "success" ? (
             <IconCheck className="h-3.5 w-3.5 mr-1.5 text-green-500" />
           ) : null}
-          {session ? "Connected" : "Connect"}
+          {session ? "Ready" : "Connect"}
         </Button>
       )}
 
