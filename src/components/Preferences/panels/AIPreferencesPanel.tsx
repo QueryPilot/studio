@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,8 @@ export default function AIPreferencesPanel() {
   const setModel = useByokStore((s) => s.setModel);
   const session = useByokStore((s) => s.session);
   const initSession = useByokStore((s) => s.initSession);
+  const apiKey = useByokStore((s) => s.apiKey);
+  const setApiKey = useByokStore((s) => s.setApiKey);
   const maxToolSteps = useByokStore((s) => s.maxToolSteps);
   const setMaxToolSteps = useByokStore((s) => s.setMaxToolSteps);
   const autoExecuteQueries = useByokStore((s) => s.autoExecuteQueries);
@@ -47,7 +49,6 @@ export default function AIPreferencesPanel() {
   const isLoadingAgents = useAcpStore((s) => s.isLoadingAgents);
 
   // --- Local state ---
-  const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
 
   // Derived: current provider config
@@ -68,14 +69,24 @@ export default function AIPreferencesPanel() {
     setRuntimeMode(value as "acp" | "byok");
   };
 
-  // Auto-connect effect for BYOK
+  // Auto-connect for providers that don't require an API key (e.g., Ollama)
   useEffect(() => {
-    if (runtimeMode !== "byok") return;
-    if (!providerId || !modelId) return;
+    if (runtimeMode !== "byok" || !providerId || !modelId) return;
     const providerConfig = PROVIDER_CONFIGS[providerId];
-    if (providerConfig.requiresApiKey && !apiKey) return;
+    if (!providerConfig.requiresApiKey && !session) {
+      initSession();
+    }
+  }, [runtimeMode, providerId, modelId, session, initSession]);
+
+  // Derived: whether current session matches current provider/model selection
+  const isSessionReady =
+    session !== null &&
+    session.providerId === providerId &&
+    session.modelId === modelId;
+
+  const handleConnect = useCallback(() => {
     initSession(apiKey || undefined);
-  }, [runtimeMode, providerId, modelId, apiKey, initSession]);
+  }, [initSession, apiKey]);
 
   return (
     <div className="max-w-3xl space-y-6 max-h-[calc(100vh-32px)] overflow-y-scroll -mx-4 px-4">
@@ -227,7 +238,7 @@ export default function AIPreferencesPanel() {
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <Label className="text-xs font-medium">Model</Label>
-                {session !== null && (
+                {isSessionReady && (
                   <span className="flex items-center gap-1 text-[11px] text-green-600 dark:text-green-400">
                     <span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block" />
                     Ready
@@ -257,6 +268,26 @@ export default function AIPreferencesPanel() {
                 </SelectContent>
               </Select>
             </div>
+          )}
+
+          {/* Connect button for key-based providers */}
+          {config?.requiresApiKey && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full text-xs"
+              onClick={handleConnect}
+              disabled={!apiKey}
+            >
+              {isSessionReady ? (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-green-500 mr-1.5" />
+                  Connected
+                </>
+              ) : (
+                "Connect"
+              )}
+            </Button>
           )}
         </div>
       )}
