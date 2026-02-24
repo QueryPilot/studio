@@ -29,6 +29,36 @@ const cloneStagedCommands = (
     Array.from(staged.entries(), ([key, commands]) => [key, [...commands]]),
   );
 
+/** Compute a dedup key for an UPDATE command: "pkSig:columnName" */
+const computeUpdateDedupKey = (
+  primaryKeys: Record<string, unknown>,
+  column: string,
+): string => {
+  const pkSig = Object.entries(primaryKeys)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+    .join("|");
+  return `${pkSig}:${column}`;
+};
+
+/** Build a temporary Map from dedup key -> index for O(1) UPDATE dedup lookup */
+const buildUpdateDedupIndex = (
+  commands: CrudCommand[],
+): Map<string, number> => {
+  const index = new Map<string, number>();
+  commands.forEach((cmd, idx) => {
+    if (cmd.type !== "data.update") return;
+    const p = cmd.payload as {
+      primaryKeys?: Record<string, unknown>;
+      column?: string;
+    };
+    if (p.primaryKeys && p.column) {
+      index.set(computeUpdateDedupKey(p.primaryKeys, p.column), idx);
+    }
+  });
+  return index;
+};
+
 const rebuildCommandIndex = (
   staged: Map<string, CrudCommand[]>,
 ): Map<string, string> => {
@@ -181,37 +211,16 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
             newValue?: unknown;
           };
 
+          // Build temp index for O(1) lookup of existing UPDATE commands
+          const updateDedupIndex = buildUpdateDedupIndex(existing);
+
           // Find existing UPDATE command for the same cell (same PK + column)
-          const existingUpdateIndex = existing.findIndex((cmd) => {
-            if (cmd.type !== "data.update") return false;
-            const existingPayload = cmd.payload as {
-              primaryKeys?: Record<string, unknown>;
-              column?: string;
-            };
-
-            // Check if it's the same column
-            if (existingPayload.column !== updatePayload.column) return false;
-
-            // Check if it's the same row (by comparing primary keys)
-            if (!existingPayload.primaryKeys || !updatePayload.primaryKeys) return false;
-
-            const existingPKEntries = Object.entries(existingPayload.primaryKeys).sort(
-              ([a], [b]) => a.localeCompare(b),
-            );
-            const newPKEntries = Object.entries(updatePayload.primaryKeys).sort(([a], [b]) =>
-              a.localeCompare(b),
-            );
-
-            // Compare PK signatures
-            const existingPKSig = existingPKEntries
-              .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
-              .join("|");
-            const newPKSig = newPKEntries
-              .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
-              .join("|");
-
-            return existingPKSig === newPKSig;
-          });
+          const existingUpdateIndex =
+            updatePayload.primaryKeys && updatePayload.column
+              ? (updateDedupIndex.get(
+                  computeUpdateDedupKey(updatePayload.primaryKeys, updatePayload.column),
+                ) ?? -1)
+              : -1;
 
           if (existingUpdateIndex >= 0) {
             // Replace the existing UPDATE command
@@ -325,32 +334,15 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
             };
 
             const currentCommands = stagedCommands.get(tableKey) ?? [];
-            const existingUpdateIndex = currentCommands.findIndex((cmd) => {
-              if (cmd.type !== "data.update") return false;
-              const existingPayload = cmd.payload as {
-                primaryKeys?: Record<string, unknown>;
-                column?: string;
-              };
+            // Build temp index for O(1) lookup of existing UPDATE commands
+            const updateDedupIndex = buildUpdateDedupIndex(currentCommands);
 
-              if (existingPayload.column !== updatePayload.column) return false;
-              if (!existingPayload.primaryKeys || !updatePayload.primaryKeys) return false;
-
-              const existingPKEntries = Object.entries(existingPayload.primaryKeys).sort(
-                ([a], [b]) => a.localeCompare(b),
-              );
-              const newPKEntries = Object.entries(updatePayload.primaryKeys).sort(([a], [b]) =>
-                a.localeCompare(b),
-              );
-
-              const existingPKSig = existingPKEntries
-                .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
-                .join("|");
-              const newPKSig = newPKEntries
-                .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
-                .join("|");
-
-              return existingPKSig === newPKSig;
-            });
+            const existingUpdateIndex =
+              updatePayload.primaryKeys && updatePayload.column
+                ? (updateDedupIndex.get(
+                    computeUpdateDedupKey(updatePayload.primaryKeys, updatePayload.column),
+                  ) ?? -1)
+                : -1;
 
             if (existingUpdateIndex >= 0) {
               const oldCommand = currentCommands[existingUpdateIndex];

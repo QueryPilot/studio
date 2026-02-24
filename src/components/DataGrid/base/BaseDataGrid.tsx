@@ -96,6 +96,33 @@ const EMPTY_STAGED_CHANGES = {
   rowChanges: new Map<number, Set<string>>(),
   insertedRows: new Set<number>(),
   deletedRows: new Set<number>(),
+  pkToRowIndex: new Map<string, number>(),
+};
+
+// Stable empty array to avoid unstable `?? []` references on every render
+const EMPTY_PENDING_CHANGES: import("@/types/crud").CrudCommand[] = [];
+
+const SELECTION_SUMMARY_THRESHOLD = 10_000;
+
+const collectSelectedRowIndexes = (
+  selection: GridSelection | undefined,
+): Set<number> => {
+  const rowsSel = selection?.rows?.toArray() ?? [];
+  const selected = new Set<number>(rowsSel);
+
+  const addRectRows = (range: Readonly<Rectangle> | undefined) => {
+    if (!range) return;
+    const start = Math.max(0, range.y);
+    const end = Math.max(start, range.y + range.height);
+    for (let i = start; i < end; i += 1) {
+      selected.add(i);
+    }
+  };
+
+  addRectRows(selection?.current?.range);
+  (selection?.current?.rangeStack ?? []).forEach(addRectRows);
+
+  return selected;
 };
 
 export interface BaseDataGridProps {
@@ -332,12 +359,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const preferenceGridId = sortGridId ?? gridId;
 
   // --- CRUD Store Integration ---
-  const {
-    stageCommand,
-    stageBatchWithSingleHistoryEntry,
-    getTableKey,
-    stagedCommands,
-  } = useCrudStore();
+  // Use scoped selectors to avoid re-renders from changes in other tabs.
+  // Functions are stable references and safe to select individually.
+  const stageCommand = useCrudStore((s) => s.stageCommand);
+  const stageBatchWithSingleHistoryEntry = useCrudStore((s) => s.stageBatchWithSingleHistoryEntry);
+  const getTableKey = useCrudStore((s) => s.getTableKey);
   const tableKey = commandFactory
     ? getTableKey({
         connectionId: commandFactory.connectionId,
@@ -346,7 +372,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         table: commandFactory.table,
       })
     : "";
-  const pendingChanges = stagedCommands.get(tableKey) ?? [];
+  // Scope to this table's commands only — edits in other tabs won't trigger re-renders.
+  const pendingChanges = useCrudStore((s) => s.stagedCommands.get(tableKey)) ?? EMPTY_PENDING_CHANGES;
 
   // --- Data Invalidation Subscription ---
   // When data is invalidated (e.g., after CRUD commit), refetch data and clear committed changes
@@ -1176,6 +1203,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     schema: schema ?? "",
     table: tableName ?? "",
     rows: effectiveDisplayRows,
+    baseRows: displayRows, // Stable pre-optimistic reference for PK map
     columns: finalColumns,
   });
 
@@ -1188,56 +1216,18 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   stagedChangesRef.current = stagedChanges;
 
   // --- Staged Values Map (for Document/KeyValue paradigms) ---
-  // Build a map of staged new values to override cell display
-  // This is needed because Document/KeyValue grids provide their own getCellContent
-  // and don't use useOptimisticRows to transform row data
+  // Build a map of staged new values to override cell display.
+  // Reuses the pkToRowIndex map from useStagedChangesIndicator to avoid
+  // a duplicate O(N) scan over all rows.
   const stagedValuesMap = useMemo(() => {
     const map = new Map<string, unknown>();
     if (!enableStagedChanges || pendingChanges.length === 0) {
       return map;
     }
 
-    // Build PK to row index map (same logic as useStagedChangesIndicator)
-    const pkColumns = finalColumns.filter((col) => col.meta?.is_pk);
-    // Fallback for document/keyvalue paradigms
-    let effectivePkColumns = pkColumns;
-    if (pkColumns.length === 0 && finalColumns.length > 0) {
-      const idColumn = finalColumns.find(
-        (col) => col.field === "_id" || col.name === "_id",
-      );
-      if (idColumn) effectivePkColumns = [idColumn];
-      const keyColumn = finalColumns.find(
-        (col) => col.field === "key" || col.name === "key",
-      );
-      if (keyColumn && effectivePkColumns.length === 0)
-        effectivePkColumns = [keyColumn];
-    }
+    // Reuse the shared PK→rowIndex map from stagedChanges
+    const sharedPkMap = stagedChanges.pkToRowIndex;
 
-    // Build PK string for each row
-    const rowPkToIndex = new Map<string, number>();
-    effectiveDisplayRows.forEach((row, index) => {
-      const sortedPkColumns = [...effectivePkColumns].sort((a, b) =>
-        a.name.localeCompare(b.name),
-      );
-      const pkValues = sortedPkColumns.map((col) => {
-        const cellValue = row[col.field];
-        if (
-          cellValue &&
-          typeof cellValue === "object" &&
-          "value" in cellValue
-        ) {
-          const value = (cellValue as { value: unknown }).value;
-          if (value === null || value === undefined) return "null";
-          if (typeof value === "object") return JSON.stringify(value);
-          return String(value);
-        }
-        return "null";
-      });
-      const pkKey = pkValues.join("|");
-      rowPkToIndex.set(pkKey, index);
-    });
-
-    // For each update command, find the row index via PK matching
     for (const command of pendingChanges) {
       if (command.type !== "data.update") continue;
 
@@ -1248,7 +1238,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       };
       if (!payload.column || !payload.primaryKeys) continue;
 
-      // Build PK string from command payload (same logic as createPrimaryKeyStringFromRecord)
+      // Build PK string from command payload (same format as createPrimaryKeyStringFromRecord)
       const pkKey = Object.entries(payload.primaryKeys)
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([_key, value]) => {
@@ -1258,7 +1248,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         })
         .join("|");
 
-      const rowIndex = rowPkToIndex.get(pkKey);
+      const rowIndex = sharedPkMap.get(pkKey);
       if (rowIndex !== undefined) {
         const key = `${rowIndex}:${payload.column}`;
         map.set(key, payload.newValue);
@@ -1266,7 +1256,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     }
 
     return map;
-  }, [enableStagedChanges, pendingChanges, finalColumns, effectiveDisplayRows]);
+  }, [enableStagedChanges, pendingChanges, stagedChanges.pkToRowIndex]);
 
   const stagedValuesMapRef = useRef(stagedValuesMap);
   stagedValuesMapRef.current = stagedValuesMap;
@@ -1856,11 +1846,13 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     const factory = commandFactoryRef.current;
     if (!factory || readOnly) return;
 
-    const selectedIndices = gridSelection?.rows?.toArray() ?? [];
-    if (selectedIndices.length === 0) {
-      // Single cell selection - delete that row
-      if (gridSelection?.current?.cell) {
-        const [, rowIndex] = gridSelection.current.cell;
+    const hasExplicitRowSelection = (gridSelection?.rows?.length ?? 0) > 0;
+    const selectedIndices = Array.from(collectSelectedRowIndexes(gridSelection));
+
+    if (!hasExplicitRowSelection && selectedIndices.length <= 1) {
+      // Single-cell selection path: preserve existing single-command staging semantics.
+      const rowIndex = gridSelection?.current?.cell[1] ?? selectedIndices[0];
+      if (typeof rowIndex === "number") {
         const row = rowsRef.current[rowIndex];
         if (row) {
           const rowKey = factory.getRowKey(row, rowIndex);
@@ -1885,7 +1877,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     if (commands.length > 0) {
       stageBatchWithSingleHistoryEntry(commands);
     }
-    toast.success(`${selectedIndices.length} row deletion(s) staged`);
+    toast.success(`${commands.length} row deletion(s) staged`);
   }, [stageCommand, stageBatchWithSingleHistoryEntry, readOnly, gridSelection]);
 
   const handleBatchEdit = useCallback(
@@ -2558,42 +2550,51 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     [],
   );
 
-  // Compute selected rows from gridSelection
-  // Includes both explicit row selections (clicking row headers) AND
-  // implicit row selections from cell ranges (dragging over cells)
-  const selectedRowsSet = useMemo(() => {
-    const rowsSel = gridSelection?.rows?.toArray() ?? [];
-    const set = new Set<number>(rowsSel);
+  // Compute selected row count efficiently from CompactSelection (O(1))
+  // instead of materializing the full Set<number> on every selection change.
+  // Note: rows in both row selection AND range selection may be double-counted,
+  // which is acceptable for display purposes.
+  const selectedRowCount = useMemo(() => {
+    let count = gridSelection?.rows?.length ?? 0;
 
-    if (gridSelection?.current) {
-      // Include rows from cell range selections
-      const addRect = (r: Rectangle | undefined) => {
-        if (!r) return;
-        const start = Math.max(0, r.y);
-        const end = Math.max(start, r.y + r.height);
-        for (let i = start; i < end; i += 1) set.add(i);
-      };
-      addRect(gridSelection.current.range);
-      const stack = gridSelection.current.rangeStack as Rectangle[] | undefined;
-      (stack ?? []).forEach(addRect);
-    }
+    const addRectRowCount = (range: Readonly<Rectangle> | undefined) => {
+      if (!range) return;
+      count += Math.max(0, range.height);
+    };
+    addRectRowCount(gridSelection?.current?.range);
+    (gridSelection?.current?.rangeStack ?? []).forEach(addRectRowCount);
 
-    return set;
+    return count;
   }, [gridSelection]);
 
-  const selectedRowCount = selectedRowsSet.size;
+  // Lazy materialization — only compute the full Set/arrays when actually needed
+  // (context menu, copy, delete, export), not on every selection change.
+  const getSelectedRowsSet = useCallback((): Set<number> => {
+    return collectSelectedRowIndexes(gridSelection);
+  }, [gridSelection]);
 
-  const selectedRowsData = useMemo(() => {
-    return Array.from(selectedRowsSet)
+  const getSelectedRowsData = useCallback((): GridRowModel[] => {
+    const set = getSelectedRowsSet();
+    return Array.from(set)
       .map((idx) => rowsRef.current[idx])
       .filter((row): row is GridRowModel => Boolean(row));
-  }, [selectedRowsSet]);
+  }, [getSelectedRowsSet]);
 
-  const selectedRowKeys = useMemo(() => {
-    return Array.from(selectedRowsSet)
+  const getSelectedRowKeys = useCallback((): string[] => {
+    const set = getSelectedRowsSet();
+    return Array.from(set)
       .map((idx) => getRowKey(rowsRef.current[idx], idx))
       .filter((key): key is string => Boolean(key));
-  }, [selectedRowsSet, getRowKey]);
+  }, [getSelectedRowsSet, getRowKey]);
+
+  // Materialize selection data on-demand for the context menu.
+  // This avoids computing full row data/keys on every selection change.
+  const [contextMenuRowsData, setContextMenuRowsData] = useState<GridRowModel[]>([]);
+  const [contextMenuRowKeys, setContextMenuRowKeys] = useState<string[]>([]);
+  const handleContextMenuOpen = useCallback(() => {
+    setContextMenuRowsData(getSelectedRowsData());
+    setContextMenuRowKeys(getSelectedRowKeys());
+  }, [getSelectedRowsData, getSelectedRowKeys]);
 
   // --- Column Reordering ---
   const handleColumnMoved = useCallback(
@@ -2744,7 +2745,21 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
   // Prefer the currently selected row from the live grid data.
   // This avoids stale inspector rows after drill-in path changes.
-  const activeInspectorRow = selectedRowsData[0] ?? inspectorSelectedRow ?? null;
+  // Compute just the first selected row index via CompactSelection.first() (O(1))
+  // instead of materializing the full selection set into selectedRowsData.
+  const firstSelectedRowIndex = useMemo((): number | undefined => {
+    // Check explicit row selection first (CompactSelection.first() is O(1))
+    const firstRowIdx = gridSelection?.rows.first();
+    if (firstRowIdx !== undefined) return firstRowIdx;
+    // Fall back to range selection
+    const range = gridSelection?.current?.range;
+    if (range && range.height > 0) return range.y;
+    return undefined;
+  }, [gridSelection]);
+  const activeInspectorRow =
+    (firstSelectedRowIndex !== undefined
+      ? effectiveDisplayRows[firstSelectedRowIndex]
+      : undefined) ?? inspectorSelectedRow ?? null;
   const activeInspectorPanel = (showInspector && enableInspector)
     ? (renderInspectorPanel
         ? renderInspectorPanel({
@@ -2760,6 +2775,19 @@ export const BaseDataGrid = memo(function BaseDataGrid(
             onSetBaseline={setInspectorBaselineRow}
           />)
     : null;
+
+  // Only materialize full selection data for the status bar's SelectionSummary
+  // when the selection is small enough to be practical. For large selections
+  // (e.g. select-all of 100k rows), skip the expensive materialization.
+  // Threshold is 10k to absorb potential double-counting from overlapping row+range selections.
+  const statusBarRowsData = useMemo(() => {
+    if (selectedRowCount <= 0 || selectedRowCount > SELECTION_SUMMARY_THRESHOLD) return undefined;
+    return getSelectedRowsData();
+  }, [selectedRowCount, getSelectedRowsData]);
+  const statusBarRowIndices = useMemo(() => {
+    if (selectedRowCount <= 0 || selectedRowCount > SELECTION_SUMMARY_THRESHOLD) return undefined;
+    return getSelectedRowsSet();
+  }, [selectedRowCount, getSelectedRowsSet]);
 
   // Grid container - extracted to avoid duplication across inspector branches
   const gridContainer = (
@@ -2784,8 +2812,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       }}
     >
       <UnifiedContextMenu
-        selectedRows={selectedRowsData}
-        selectedRowKeys={selectedRowKeys}
+        selectedRows={contextMenuRowsData}
+        selectedRowKeys={contextMenuRowKeys}
+        onOpen={handleContextMenuOpen}
         allRows={effectiveDisplayRows}
         columns={finalColumns}
         pinnedRowKeys={pinnedRowIds}
@@ -3030,8 +3059,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         hasMore={props.hasMore}
         isStreaming={props.isLoadingMore}
         selectedRows={selectedRowCount}
-        selectedRowsData={selectedRowsData}
-        selectedRowIndices={selectedRowsSet}
+        selectedRowsData={statusBarRowsData}
+        selectedRowIndices={statusBarRowIndices}
         allRows={effectiveDisplayRows}
         columns={finalColumns}
         gridSelection={gridSelection as any}
