@@ -29,7 +29,6 @@ import type { AIContext } from "@/types/aiContext";
 import { AgentSelector } from "./AgentSelector";
 import { ImagePreviewPopover } from "./ImagePreviewPopover";
 import { ModelSelector } from "./ModelSelector";
-import { OllamaSettings } from "./OllamaSettings";
 import { ProviderSettings } from "./ProviderSettings";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -578,8 +577,8 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         </div>
       )}
 
-      {/* Provider Settings (BYOK) or Ollama Status */}
-      {isByok ? <ProviderSettings /> : <OllamaSettings />}
+      {/* Provider Settings (BYOK) */}
+      {isByok && <ProviderSettings />}
 
       {/* Messages Area */}
       <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0">
