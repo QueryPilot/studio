@@ -19,8 +19,13 @@ interface BYOKState {
   // Persisted
   providerId: ProviderId | null;
   modelId: string | null;
+  runtimeMode: "acp" | "byok";
+  maxToolSteps: number;
+  autoExecuteQueries: boolean;
+  includeSchemaContext: boolean;
 
   // Runtime
+  apiKeys: Partial<Record<ProviderId, string>>;
   messages: ModelMessage[];
   isStreaming: boolean;
   streamingContent: string;
@@ -32,6 +37,7 @@ interface BYOKState {
   // Actions
   setProvider: (id: ProviderId) => void;
   setModel: (id: string) => void;
+  setApiKey: (key: string) => void;
   initSession: (apiKey?: string) => void;
   sendMessage: (
     content: string,
@@ -41,6 +47,10 @@ interface BYOKState {
   ) => Promise<void>;
   cancelGeneration: () => void;
   clearHistory: () => void;
+  setRuntimeMode: (mode: "acp" | "byok") => void;
+  setMaxToolSteps: (steps: number) => void;
+  setAutoExecuteQueries: (enabled: boolean) => void;
+  setIncludeSchemaContext: (enabled: boolean) => void;
 }
 
 export const useByokStore = create<BYOKState>()(
@@ -49,8 +59,13 @@ export const useByokStore = create<BYOKState>()(
       // Persisted state
       providerId: null,
       modelId: null,
+      runtimeMode: "acp",
+      maxToolSteps: 5,
+      autoExecuteQueries: true,
+      includeSchemaContext: true,
 
       // Runtime state
+      apiKeys: {},
       messages: [],
       isStreaming: false,
       streamingContent: "",
@@ -71,17 +86,41 @@ export const useByokStore = create<BYOKState>()(
       },
 
       setModel: (id) => {
-        set({ modelId: id, session: null });
+        const { providerId, apiKeys } = get();
+        if (!providerId) {
+          set({ modelId: id, session: null });
+          return;
+        }
+        const config = PROVIDER_CONFIGS[providerId];
+        const key = apiKeys[providerId] ?? "";
+        if (config.requiresApiKey && !key) {
+          set({ modelId: id, session: null });
+          return;
+        }
+        const model = createModel(providerId, id, key || undefined);
+        set({ modelId: id, session: { providerId, modelId: id, provider: model } });
       },
 
-      initSession: (apiKey) => {
-        const { providerId, modelId } = get();
+      setApiKey: (key) => {
+        const { providerId } = get();
+        if (!providerId) return;
+        set((state) => ({
+          apiKeys: { ...state.apiKeys, [providerId]: key },
+        }));
+      },
+
+      initSession: (apiKeyArg) => {
+        const { providerId, modelId, apiKeys } = get();
         if (!providerId || !modelId) return;
-
+        const key = apiKeyArg ?? apiKeys[providerId] ?? "";
         const config = PROVIDER_CONFIGS[providerId];
-        if (config.requiresApiKey && !apiKey) return;
-
-        const model = createModel(providerId, modelId, apiKey);
+        if (config.requiresApiKey && !key) return;
+        if (apiKeyArg !== undefined) {
+          set((state) => ({
+            apiKeys: { ...state.apiKeys, [providerId]: apiKeyArg },
+          }));
+        }
+        const model = createModel(providerId, modelId, key || undefined);
         set({
           session: { providerId, modelId, provider: model },
           error: null,
@@ -89,7 +128,7 @@ export const useByokStore = create<BYOKState>()(
       },
 
       sendMessage: async (content, toolContext, schemaContext, callbacks) => {
-        const { session, messages, isStreaming } = get();
+        const { session, messages, isStreaming, autoExecuteQueries, includeSchemaContext, maxToolSteps } = get();
         if (!session || isStreaming) return;
 
         const userMessage: ModelMessage = { role: "user", content };
@@ -104,8 +143,8 @@ export const useByokStore = create<BYOKState>()(
           abortController,
         });
 
-        const tools = createTools(toolContext);
-        const systemPrompt = buildSystemPrompt(schemaContext);
+        const tools = createTools(toolContext, { autoExecuteQueries });
+        const systemPrompt = buildSystemPrompt(includeSchemaContext ? schemaContext : { databaseType: schemaContext?.databaseType });
 
         let fullText = "";
 
@@ -114,6 +153,7 @@ export const useByokStore = create<BYOKState>()(
           systemPrompt,
           messages: updatedMessages,
           tools,
+          maxToolSteps,
           abortSignal: abortController.signal,
           callbacks: {
             onChunk: (text) => {
@@ -170,12 +210,21 @@ export const useByokStore = create<BYOKState>()(
       clearHistory: () => {
         set({ messages: [], streamingContent: "", error: null, activeToolCalls: [] });
       },
+
+      setRuntimeMode: (mode) => set({ runtimeMode: mode }),
+      setMaxToolSteps: (steps) => set({ maxToolSteps: Math.min(Math.max(steps, 1), 10) }),
+      setAutoExecuteQueries: (enabled) => set({ autoExecuteQueries: enabled }),
+      setIncludeSchemaContext: (enabled) => set({ includeSchemaContext: enabled }),
     }),
     {
       name: "byok-preferences",
       partialize: (state) => ({
         providerId: state.providerId,
         modelId: state.modelId,
+        runtimeMode: state.runtimeMode,
+        maxToolSteps: state.maxToolSteps,
+        autoExecuteQueries: state.autoExecuteQueries,
+        includeSchemaContext: state.includeSchemaContext,
       }),
     },
   ),
