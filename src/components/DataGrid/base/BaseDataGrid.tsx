@@ -104,6 +104,13 @@ const EMPTY_PENDING_CHANGES: import("@/types/crud").CrudCommand[] = [];
 
 const SELECTION_SUMMARY_THRESHOLD = 10_000;
 
+// Stable theme objects to avoid allocating new objects per staged cell render
+const STAGED_CELL_THEME = {
+  bgCell: "rgba(251, 146, 60, 0.15)",
+  accentColor: "#fb923c",
+  accentLight: "rgba(251, 146, 60, 0.2)",
+} as const;
+
 const collectSelectedRowIndexes = (
   selection: GridSelection | undefined,
 ): Set<number> => {
@@ -615,9 +622,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   );
   const hasSelection = useMemo(() => {
     const selection = gridSelection?.current;
-    const hasRowSelection = (gridSelection?.rows?.toArray().length ?? 0) > 0;
+    const hasRowSelection = (gridSelection?.rows?.length ?? 0) > 0;
     const hasColumnSelection =
-      (gridSelection?.columns?.toArray().length ?? 0) > 0;
+      (gridSelection?.columns?.length ?? 0) > 0;
 
     if (hasRowSelection || hasColumnSelection) {
       return true;
@@ -1027,13 +1034,16 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   }, [enableColumnManagement, columns, finalColumns]);
 
   // --- Row Pinning ---
+  const rowKeyPkColumns = useMemo(
+    () => columns.filter((col) => col.meta?.is_pk),
+    [columns],
+  );
   const getRowKey = useCallback(
     (row: GridRowModel | undefined, index: number): string => {
       if (!row) return `row-${index}`;
-      const pkColumns = columns.filter((col) => col.meta?.is_pk);
-      if (pkColumns.length === 0) return `row-${index}`;
+      if (rowKeyPkColumns.length === 0) return `row-${index}`;
       const pkParts: string[] = [];
-      for (const pkCol of pkColumns) {
+      for (const pkCol of rowKeyPkColumns) {
         const cellValue = row[pkCol.field];
         const value =
           cellValue && typeof cellValue === "object" && "value" in cellValue
@@ -1043,7 +1053,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       }
       return `pk-${pkParts.join("-")}`;
     },
-    [columns],
+    [rowKeyPkColumns],
   );
 
   // --- Column Sorting (must be before sortedRows) ---
@@ -1221,7 +1231,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   // a duplicate O(N) scan over all rows.
   const stagedValuesMap = useMemo(() => {
     const map = new Map<string, unknown>();
-    if (!enableStagedChanges || pendingChanges.length === 0) {
+    // Only Document/KeyValue paradigms use stagedValuesMap for cell display override.
+    // SQL paradigm uses useOptimisticRows to transform row data directly.
+    if (!enableStagedChanges || pendingChanges.length === 0 || paradigm === "sql") {
       return map;
     }
 
@@ -1256,7 +1268,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     }
 
     return map;
-  }, [enableStagedChanges, pendingChanges, stagedChanges.pkToRowIndex]);
+  }, [enableStagedChanges, pendingChanges, stagedChanges.pkToRowIndex, paradigm]);
 
   const stagedValuesMapRef = useRef(stagedValuesMap);
   stagedValuesMapRef.current = stagedValuesMap;
@@ -1322,15 +1334,19 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         ? createDrawHeader({
             getSortDirection,
             getSortIndex,
-            columns: finalColumns,
+            columns: finalColumnsRef.current,
             sortedColumnCount: sortColumns.length,
           })
         : undefined,
+    // Use finalColumns.length (not reference) to avoid recreating on every
+    // column resize pixel. Column metadata (PK icons) only changes when
+    // columns are added/removed, which also changes length.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       enableSorting,
       getSortDirection,
       getSortIndex,
-      finalColumns,
+      finalColumns.length,
       sortColumns.length,
     ],
   );
@@ -1485,6 +1501,13 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
   // --- getCellContent ---
   // Internal cell content builder (used when props.getCellContent is not provided)
+  const connectionContext = useMemo(() => ({
+    connectionId,
+    database,
+    schema: schema ?? "",
+    table: tableName ?? "",
+  }), [connectionId, database, schema, tableName]);
+
   const internalGetCellContent = useCallback(
     (cell: Item): GridCell => {
       const [colIndex, rowIndex] = cell;
@@ -1507,12 +1530,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         value: cellValue,
         column,
         readOnly: isReadOnly,
-        connectionContext: {
-          connectionId,
-          database,
-          schema: schema ?? "",
-          table: tableName ?? "",
-        },
+        connectionContext,
       });
 
       // Apply custom getCellContent from paradigm-specific adapter
@@ -1520,14 +1538,14 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         ? customGetCellContent(cell, gridCell)
         : gridCell;
     },
+    // Use finalColumns.length (not reference) to avoid recreating on every
+    // column resize. The actual column data is accessed via finalColumnsRef.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       readOnly,
-      connectionId,
-      database,
-      schema,
-      tableName,
+      connectionContext,
       customGetCellContent,
-      finalColumns,
+      finalColumns.length,
     ],
   );
 
@@ -1617,12 +1635,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
             // Apply orange highlighting
             return {
               ...updatedCell,
-              themeOverride: {
-                ...updatedCell.themeOverride,
-                bgCell: "rgba(251, 146, 60, 0.15)", // Orange for staged cell changes
-                accentColor: "#fb923c",
-                accentLight: "rgba(251, 146, 60, 0.2)",
-              },
+              themeOverride: updatedCell.themeOverride
+                ? { ...updatedCell.themeOverride, ...STAGED_CELL_THEME }
+                : STAGED_CELL_THEME,
             };
           }
         }
@@ -1879,6 +1894,33 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     }
     toast.success(`${commands.length} row deletion(s) staged`);
   }, [stageCommand, stageBatchWithSingleHistoryEntry, readOnly, gridSelection]);
+
+  // Adapter for EditableDataGrid's onRowDelete prop (Glide onDelete → batch stage).
+  // Without this, Glide falls through to clearing every cell individually via
+  // onCellEdited, causing O(N×C) individual stageCommand calls that freeze the UI.
+  const handleRowDeleteEvent = useCallback(
+    (event: import("../types").GridRowDeleteEvent) => {
+      const factory = commandFactoryRef.current;
+      if (!factory || readOnly) return undefined;
+
+      const commands: import("@/types/crud").CrudCommand[] = [];
+      for (let i = 0; i < event.rowIndexes.length; i++) {
+        const row = event.rows[i];
+        const rowIndex = event.rowIndexes[i];
+        if (row && rowIndex !== undefined) {
+          const rowKey = factory.getRowKey(row, rowIndex);
+          const command = factory.createDeleteCommand(row, rowKey);
+          commands.push(command);
+        }
+      }
+      if (commands.length > 0) {
+        stageBatchWithSingleHistoryEntry(commands);
+        toast.success(`${commands.length} row deletion(s) staged`);
+      }
+      return undefined;
+    },
+    [stageBatchWithSingleHistoryEntry, readOnly],
+  );
 
   const handleBatchEdit = useCallback(
     (edits: Array<{ cell: Item; value: unknown }>, _rows: GridRowModel[]) => {
@@ -2880,6 +2922,12 @@ export const BaseDataGrid = memo(function BaseDataGrid(
           }
           onRowInsert={
             commandFactory && !readOnly ? handleRowInsert : undefined
+          }
+          onRowDelete={
+            commandFactory && !readOnly ? handleRowDeleteEvent : undefined
+          }
+          onBatchClear={
+            commandFactory && !readOnly ? handleBatchClear : undefined
           }
           onColumnResize={
             enableColumnManagement ? handleColumnResize : undefined
