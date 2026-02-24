@@ -81,10 +81,14 @@ export function createQueryDatabaseTool(connectionId: string) {
           MAX_LIMIT,
         );
 
-        // Strip trailing semicolon and append LIMIT to enforce server-side limiting
-        const limitedSql =
-          sql.trimEnd().replace(/;\s*$/, "") +
-          ` LIMIT ${String(effectiveLimit + 1)}`;
+        // Append LIMIT to enforce server-side row cap, but only if the SQL
+        // doesn't already contain a LIMIT/TOP/FETCH clause.
+        const stripped = sql.trimEnd().replace(/;\s*$/, "");
+        const upper = stripped.toUpperCase();
+        const hasLimit = /\bLIMIT\s+\d/i.test(upper) || /\bTOP\s+\d/i.test(upper) || /\bFETCH\s+(FIRST|NEXT)\b/i.test(upper);
+        const limitedSql = hasLimit
+          ? stripped
+          : `${stripped} LIMIT ${String(effectiveLimit + 1)}`;
 
         const result = await invoke<{
           columns: { name: string }[];

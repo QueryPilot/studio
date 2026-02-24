@@ -17,7 +17,12 @@ export function createGetExecutionPlanTool(connectionId: string) {
     }),
     execute: async ({ sql, analyze }) => {
       try {
-        const trimmed = sql.trim().toUpperCase();
+        // Reject multi-statement SQL (semicolons) and non-SELECT statements
+        const stripped = sql.trim().replace(/;\s*$/, "");
+        if (stripped.includes(";")) {
+          return "Error: EXPLAIN does not support multi-statement SQL.";
+        }
+        const trimmed = stripped.toUpperCase();
         const allowedPrefixes = [
           "SELECT",
           "WITH",
@@ -35,7 +40,7 @@ export function createGetExecutionPlanTool(connectionId: string) {
           rows: unknown[][];
         }>("query", {
           connId: connectionId,
-          sql: explainPrefix + sql,
+          sql: explainPrefix + stripped,
           timeoutSecs: 30,
         });
 
