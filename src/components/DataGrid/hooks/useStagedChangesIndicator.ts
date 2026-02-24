@@ -92,7 +92,10 @@ export function useStagedChangesIndicator(
   // Optimistic cell UPDATES don't change PKs or row count, so baseRows indices
   // are still correct. But optimistic INSERTs add rows and shift indices,
   // so we must fall back to the full `rows` when inserts exist.
-  const hasInserts = commands.some((cmd) => cmd.type === "data.insert");
+  const hasInserts = useMemo(
+    () => commands.some((cmd) => cmd.type === "data.insert"),
+    [commands],
+  );
   const pkMapRows = (!hasInserts && baseRows) ? baseRows : rows;
   const pkToRowIndex = useMemo(() => {
     if (pkMapRows.length === 0 || pkColumns.length === 0) {
@@ -170,8 +173,7 @@ export function useStagedChangesIndicator(
     // Mark inserted rows by checking for the __insert_temp_id__ metadata field
     // This field is added to all inserted rows in the optimistic update logic
     // and remains even after the user edits the row's primary key
-    const hasInsertCommands = commands.some((cmd) => cmd.type === "data.insert");
-    if (hasInsertCommands) {
+    if (hasInserts) {
       rows.forEach((row, index) => {
         // Check for the hidden __insert_temp_id__ field that marks inserted rows
         if (row["__insert_temp_id__"]) {
@@ -181,7 +183,7 @@ export function useStagedChangesIndicator(
     }
 
     return newResult;
-  }, [commands, pkToRowIndex, rows]);
+  }, [commands, pkToRowIndex, rows, hasInserts]);
 
   return result;
 }

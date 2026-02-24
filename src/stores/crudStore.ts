@@ -22,12 +22,28 @@ const createTableKey = (target: CrudCommandTarget): string => {
   return [connectionId, database, normalizedSchema, table].join(":");
 };
 
+/** Deep-clone all tables' command arrays (used for history snapshots). */
 const cloneStagedCommands = (
   staged: Map<string, CrudCommand[]>,
 ): CrudHistorySnapshot =>
   new Map(
     Array.from(staged.entries(), ([key, commands]) => [key, [...commands]]),
   );
+
+/**
+ * Shallow-clone the map, deep-clone only the changed table's array.
+ * All other tables share their existing array references.
+ * This reduces clone cost from O(total_commands_all_tables) to O(changed_table_commands).
+ */
+const cloneStagedCommandsForTable = (
+  staged: Map<string, CrudCommand[]>,
+  changedTableKey: string,
+): CrudHistorySnapshot => {
+  const snapshot = new Map(staged);
+  const cmds = staged.get(changedTableKey);
+  if (cmds) snapshot.set(changedTableKey, [...cmds]);
+  return snapshot;
+};
 
 /** Compute a dedup key for an UPDATE command: "pkSig:columnName" */
 const computeUpdateDedupKey = (
@@ -134,17 +150,22 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
       let result: StageCommandResult | undefined;
       set((state) => {
         const tableKey = createTableKey(command.target);
-        const stagedCommands = cloneStagedCommands(state.stagedCommands);
+        // Structural sharing: shallow-clone map, deep-clone only the target table's array.
+        // Other tables share their existing array references → O(changed_table) not O(all_tables).
+        const stagedCommands = cloneStagedCommandsForTable(state.stagedCommands, tableKey);
         const commandIndex = new Map(state.commandIndex);
 
         const previousTableKey = commandIndex.get(command.id);
         if (previousTableKey && previousTableKey !== tableKey) {
-          const previousCommands = stagedCommands.get(previousTableKey) ?? [];
-          const filtered = previousCommands.filter((item) => item.id !== command.id);
-          if (filtered.length > 0) {
-            stagedCommands.set(previousTableKey, filtered);
-          } else {
-            stagedCommands.delete(previousTableKey);
+          // Cross-table move: deep-clone the previous table too
+          const prevCmds = state.stagedCommands.get(previousTableKey);
+          if (prevCmds) {
+            const filtered = prevCmds.filter((item) => item.id !== command.id);
+            if (filtered.length > 0) {
+              stagedCommands.set(previousTableKey, filtered);
+            } else {
+              stagedCommands.delete(previousTableKey);
+            }
           }
           commandIndex.delete(command.id);
         }
@@ -182,7 +203,7 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
               );
               stagedCommands.set(tableKey, nextCommands);
 
-              const snapshot = cloneStagedCommands(stagedCommands);
+              const snapshot = cloneStagedCommandsForTable(stagedCommands, tableKey);
               const { history, historyIndex } = pushHistorySnapshot(
                 state.history,
                 state.historyIndex,
@@ -247,7 +268,7 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
           commandIndex.set(command.id, tableKey);
         }
 
-        const snapshot = cloneStagedCommands(stagedCommands);
+        const snapshot = cloneStagedCommandsForTable(stagedCommands, tableKey);
         const { history, historyIndex } = pushHistorySnapshot(
           state.history,
           state.historyIndex,
@@ -276,6 +297,37 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
         const stagedCommands = cloneStagedCommands(state.stagedCommands);
         const commandIndex = new Map(state.commandIndex);
 
+        // cloneStagedCommands already deep-clones all arrays, so we can
+        // safely mutate them in-place (.push, [idx]=) instead of spreading
+        // new arrays on every iteration. This turns O(N²) into O(N).
+
+        // Per-table lazy caches for O(1) lookups (built once, maintained incrementally).
+        const tableIdMaps = new Map<string, Map<string, number>>();
+        const tableUpdateDedupMaps = new Map<string, Map<string, number>>();
+        const getIdMap = (key: string): Map<string, number> => {
+          let m = tableIdMaps.get(key);
+          if (!m) {
+            m = new Map<string, number>();
+            const cmds = stagedCommands.get(key);
+            if (cmds) cmds.forEach((c, i) => m.set(c.id, i));
+            tableIdMaps.set(key, m);
+          }
+          return m;
+        };
+        const getUpdateDedupMap = (key: string): Map<string, number> => {
+          let m = tableUpdateDedupMaps.get(key);
+          if (!m) {
+            m = buildUpdateDedupIndex(stagedCommands.get(key) ?? []);
+            tableUpdateDedupMaps.set(key, m);
+          }
+          return m;
+        };
+        const ensureArray = (key: string): CrudCommand[] => {
+          let arr = stagedCommands.get(key);
+          if (!arr) { arr = []; stagedCommands.set(key, arr); }
+          return arr;
+        };
+
         for (const command of commands) {
           const tableKey = createTableKey(command.target);
           const previousTableKey = commandIndex.get(command.id);
@@ -287,24 +339,28 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
             } else {
               stagedCommands.delete(previousTableKey);
             }
+            tableIdMaps.delete(previousTableKey); // invalidate stale caches
+            tableUpdateDedupMaps.delete(previousTableKey);
             commandIndex.delete(command.id);
           }
 
-          const existing = stagedCommands.get(tableKey) ?? [];
+          const currentCommands = ensureArray(tableKey);
+          const idMap = getIdMap(tableKey);
 
           // Handle UPDATE commands on inserted rows
           if (command.type === "data.update") {
             const updatePayload = command.payload as { tempId?: string; column?: string; newValue?: unknown };
             if (updatePayload.tempId) {
-              const insertCommand = existing.find((cmd) => {
+              const insertIdx = currentCommands.findIndex((cmd) => {
                 if (cmd.type !== "data.insert") return false;
                 const insertPayload = cmd.payload as { tempId?: string };
                 return insertPayload.tempId === updatePayload.tempId;
               });
 
+              const insertCommand = insertIdx >= 0 ? currentCommands[insertIdx] : undefined;
               if (insertCommand && updatePayload.column) {
                 const insertPayload = insertCommand.payload as { values?: Record<string, unknown>; tempId?: string };
-                const updatedInsertCommand = {
+                const updatedInsertCommand: CrudCommand = {
                   ...insertCommand,
                   payload: {
                     ...insertPayload,
@@ -315,10 +371,7 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
                   },
                 };
 
-                const nextCommands = existing.map((item) =>
-                  item.id === insertCommand.id ? updatedInsertCommand : item
-                );
-                stagedCommands.set(tableKey, nextCommands);
+                currentCommands[insertIdx] = updatedInsertCommand; // mutate in-place
                 results.push({ command: updatedInsertCommand });
                 continue;
               }
@@ -333,38 +386,44 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
               newValue?: unknown;
             };
 
-            const currentCommands = stagedCommands.get(tableKey) ?? [];
-            // Build temp index for O(1) lookup of existing UPDATE commands
-            const updateDedupIndex = buildUpdateDedupIndex(currentCommands);
-
-            const existingUpdateIndex =
+            // Use cached per-table dedup index (built once, maintained incrementally)
+            const updateDedupMap = getUpdateDedupMap(tableKey);
+            const dedupKey =
               updatePayload.primaryKeys && updatePayload.column
-                ? (updateDedupIndex.get(
-                    computeUpdateDedupKey(updatePayload.primaryKeys, updatePayload.column),
-                  ) ?? -1)
-                : -1;
+                ? computeUpdateDedupKey(updatePayload.primaryKeys, updatePayload.column)
+                : null;
+
+            const existingUpdateIndex = dedupKey
+              ? (updateDedupMap.get(dedupKey) ?? -1)
+              : -1;
 
             if (existingUpdateIndex >= 0) {
               const oldCommand = currentCommands[existingUpdateIndex];
-              const nextCommands = [...currentCommands];
-              nextCommands[existingUpdateIndex] = command;
-              stagedCommands.set(tableKey, nextCommands);
+              currentCommands[existingUpdateIndex] = command; // mutate in-place
+              // Update dedup map: new command replaces at same index
+              if (dedupKey) updateDedupMap.set(dedupKey, existingUpdateIndex);
+              idMap.set(command.id, existingUpdateIndex);
               commandIndex.set(command.id, tableKey);
               if (oldCommand) {
+                idMap.delete(oldCommand.id);
                 commandIndex.delete(oldCommand.id);
               }
             } else {
-              const nextCommands = [...currentCommands, command];
-              stagedCommands.set(tableKey, nextCommands);
+              const newIdx = currentCommands.length;
+              currentCommands.push(command); // mutate in-place
+              if (dedupKey) updateDedupMap.set(dedupKey, newIdx);
+              idMap.set(command.id, newIdx);
               commandIndex.set(command.id, tableKey);
             }
           } else {
-            // Default behavior for INSERT, DELETE, and other commands
-            const currentCommands = stagedCommands.get(tableKey) ?? [];
-            const nextCommands = currentCommands.some((item) => item.id === command.id)
-              ? currentCommands.map((item) => (item.id === command.id ? command : item))
-              : [...currentCommands, command];
-            stagedCommands.set(tableKey, nextCommands);
+            // Default: INSERT, DELETE, and other commands — O(1) via idMap
+            const existingIdx = idMap.get(command.id);
+            if (existingIdx !== undefined) {
+              currentCommands[existingIdx] = command; // replace in-place
+            } else {
+              idMap.set(command.id, currentCommands.length);
+              currentCommands.push(command); // append in-place
+            }
             commandIndex.set(command.id, tableKey);
           }
 
