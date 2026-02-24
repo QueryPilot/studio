@@ -1,5 +1,5 @@
 // src/ai/types.ts
-import type { LanguageModelV1 } from "ai";
+import type { LanguageModel } from "ai";
 
 export type ProviderId =
   | "openai"
@@ -25,7 +25,7 @@ export interface ProviderModelInfo {
 export interface BYOKSession {
   providerId: ProviderId;
   modelId: string;
-  provider: LanguageModelV1;
+  provider: LanguageModel;
 }
 
 /** Matches the callback signature used by acpStore.sendMessage() */
