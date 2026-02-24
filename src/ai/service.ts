@@ -62,9 +62,11 @@ export async function streamChat(options: {
     // Consume the stream to completion
     await result.text;
 
-    // Get the full response messages (includes tool call/result pairs)
-    const response = await result.response;
-    callbacks.onFinish(response.messages);
+    // Only call onFinish if no error was reported
+    if (!state.errorReported) {
+      const response = await result.response;
+      callbacks.onFinish(response.messages);
+    }
   } catch (err) {
     if (abortSignal?.aborted) return;
     if (!state.errorReported) {
