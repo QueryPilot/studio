@@ -1,5 +1,5 @@
 // src/ai/types.ts
-import type { LanguageModel } from "ai";
+import type { LanguageModel, ModelMessage } from "ai";
 
 export type ProviderId =
   | "openai"
@@ -28,11 +28,10 @@ export interface BYOKSession {
   provider: LanguageModel;
 }
 
-/** Matches the callback signature used by acpStore.sendMessage() */
 export interface StreamCallbacks {
   onChunk: (text: string) => void;
   onToolCall: (toolCall: { id: string; name: string; input: unknown }) => void;
   onToolResult: (toolCallId: string, result: unknown) => void;
-  onFinish: () => void;
+  onFinish: (responseMessages: ModelMessage[]) => void;
   onError: (error: string) => void;
 }
