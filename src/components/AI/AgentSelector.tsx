@@ -231,7 +231,7 @@ export function AgentSelector() {
           )}
 
           {/* BYOK Providers */}
-          <DropdownMenuSeparator />
+          {(installedAgents.length > 0 || availableToInstall.length > 0) && <DropdownMenuSeparator />}
           <DropdownMenuGroup>
             <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
               Bring Your Own Key

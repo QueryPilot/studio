@@ -89,8 +89,8 @@ export const useByokStore = create<BYOKState>()(
       },
 
       sendMessage: async (content, toolContext, schemaContext, callbacks) => {
-        const { session, messages } = get();
-        if (!session) return;
+        const { session, messages, isStreaming } = get();
+        if (!session || isStreaming) return;
 
         const userMessage: ModelMessage = { role: "user", content };
         const updatedMessages = [...messages, userMessage];
@@ -164,7 +164,7 @@ export const useByokStore = create<BYOKState>()(
       cancelGeneration: () => {
         const { abortController } = get();
         abortController?.abort();
-        set({ isStreaming: false, abortController: null, activeToolCalls: [] });
+        set({ isStreaming: false, streamingContent: "", error: null, abortController: null, activeToolCalls: [] });
       },
 
       clearHistory: () => {

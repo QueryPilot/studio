@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod/v4";
 import { invoke } from "@tauri-apps/api/core";
+import { sanitizeIdentifier } from "./index";
 
 export function createListTablesTool(connectionId: string) {
   return tool({
@@ -20,8 +21,9 @@ export function createListTablesTool(connectionId: string) {
     }),
     execute: async ({ schema }) => {
       try {
-        const sql = schema
-          ? `SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_schema = '${schema}' ORDER BY table_schema, table_name`
+        const safeSchema = schema ? sanitizeIdentifier(schema) : undefined;
+        const sql = safeSchema
+          ? `SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_schema = '${safeSchema}' ORDER BY table_schema, table_name`
           : `SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_schema NOT IN ('information_schema', 'pg_catalog') ORDER BY table_schema, table_name`;
 
         const result = await invoke<{

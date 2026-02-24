@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod/v4";
 import { invoke } from "@tauri-apps/api/core";
+import { sanitizeIdentifier } from "./index";
 
 export function createDescribeTableTool(connectionId: string) {
   return tool({
@@ -15,10 +16,14 @@ export function createDescribeTableTool(connectionId: string) {
     }),
     execute: async ({ table, schema }) => {
       try {
-        const qualifiedTable = schema ? `${schema}.${table}` : table;
+        const safeTable = sanitizeIdentifier(table);
+        const safeSchema = schema ? sanitizeIdentifier(schema) : undefined;
+        const qualifiedTable = safeSchema
+          ? `${safeSchema}.${safeTable}`
+          : safeTable;
         const sql = `SELECT column_name, data_type, is_nullable, column_default
           FROM information_schema.columns
-          WHERE table_name = '${table}'${schema ? ` AND table_schema = '${schema}'` : ""}
+          WHERE table_name = '${safeTable}'${safeSchema ? ` AND table_schema = '${safeSchema}'` : ""}
           ORDER BY ordinal_position`;
 
         const result = await invoke<{

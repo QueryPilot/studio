@@ -17,6 +17,18 @@ export function createGetExecutionPlanTool(connectionId: string) {
     }),
     execute: async ({ sql, analyze }) => {
       try {
+        const trimmed = sql.trim().toUpperCase();
+        const allowedPrefixes = [
+          "SELECT",
+          "WITH",
+          "TABLE",
+          "VALUES",
+          "SHOW",
+        ];
+        if (!allowedPrefixes.some((p) => trimmed.startsWith(p))) {
+          return "Error: EXPLAIN only supports SELECT/WITH/SHOW queries.";
+        }
+
         const explainPrefix = analyze ? "EXPLAIN ANALYZE " : "EXPLAIN ";
         const result = await invoke<{
           columns: { name: string }[];
