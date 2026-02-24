@@ -29,9 +29,7 @@ export function createModel(
     case "mistral":
       return createMistralProvider(apiKey ?? "")(modelId);
     case "ollama":
-      // ollama-ai-provider returns LanguageModelV1 which is structurally
-      // compatible with LanguageModel but not in the type union yet.
-      return createOllamaProvider()(modelId) as unknown as LanguageModel;
+      return createOllamaProvider()(modelId);
   }
 }
 

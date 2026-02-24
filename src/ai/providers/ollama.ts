@@ -1,11 +1,11 @@
-import { createOllama } from "ollama-ai-provider";
+import { createOpenAI } from "@ai-sdk/openai";
 import type { ProviderConfig } from "../types";
 
 export const ollamaConfig: ProviderConfig = {
   id: "ollama",
   name: "Ollama (Local)",
   requiresApiKey: false,
-  defaultBaseUrl: "http://localhost:11434/api",
+  defaultBaseUrl: "http://localhost:11434/v1",
   models: [
     {
       id: "qwen2.5-coder:7b",
@@ -25,6 +25,12 @@ export const ollamaConfig: ProviderConfig = {
   ],
 };
 
+// Ollama exposes an OpenAI-compatible API at /v1, so we reuse @ai-sdk/openai
+// with a custom baseURL. This returns a proper LanguageModelV3, unlike the
+// community ollama-ai-provider which is stuck on LanguageModelV1.
 export function createOllamaProvider(baseUrl?: string) {
-  return createOllama({ baseURL: baseUrl ?? ollamaConfig.defaultBaseUrl });
+  return createOpenAI({
+    baseURL: baseUrl ?? ollamaConfig.defaultBaseUrl,
+    apiKey: "ollama", // Ollama ignores the API key but the SDK requires one
+  });
 }
