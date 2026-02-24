@@ -4,6 +4,7 @@ import { persist } from "zustand/middleware";
 export type PreferenceCategory =
   | "general"
   | "shortcuts"
+  | "ai"
   | "telemetry";
 
 export interface TelemetryPreferences {
