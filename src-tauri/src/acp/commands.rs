@@ -1,35 +1,20 @@
 //! Tauri IPC commands for ACP integration
 //!
 //! These commands expose ACP functionality to the frontend.
-//! Supports both ACP subprocess-based agents and Ollama HTTP-based agents.
 
 use std::sync::Arc;
 
 use agent_client_protocol::{ContentBlock, ImageContent, SessionUpdate, TextContent};
 use tauri::{Emitter, State};
 
-use super::discovery::{AgentInfo, OLLAMA_AGENT_ID, OLLAMA_DEFAULT_URL};
-use super::manager::{AcpManager, OllamaManager};
-use super::ollama;
+use super::discovery::AgentInfo;
+use super::manager::AcpManager;
 
-/// List all discovered AI agents (including Ollama if running)
+/// List all discovered AI agents
 #[tauri::command]
 pub async fn acp_list_agents() -> Result<Vec<AgentInfo>, String> {
     tracing::info!("Listing ACP agents");
-    let mut agents = super::discovery::discover_agents();
-
-    // Check for Ollama (async HTTP check)
-    match super::discovery::discover_ollama_agent(OLLAMA_DEFAULT_URL).await {
-        Some(ollama_agent) => {
-            tracing::info!("Ollama detected at {}", OLLAMA_DEFAULT_URL);
-            agents.push(ollama_agent);
-        }
-        None => {
-            // Add Ollama as available but not installed
-            tracing::info!("Ollama not detected, showing as available");
-            agents.push(super::discovery::ollama_agent_unavailable());
-        }
-    }
+    let agents = super::discovery::discover_agents();
 
     tracing::info!("Found {} agents", agents.len());
     for agent in &agents {
@@ -51,25 +36,6 @@ pub async fn acp_fetch_agent_models(
 ) -> Result<Option<Vec<super::discovery::ModelInfo>>, String> {
     tracing::info!("Fetching models for agent: {}", agent_id);
 
-    // Ollama uses async HTTP model fetching
-    if agent_id == OLLAMA_AGENT_ID {
-        let client = ollama::OllamaClient::new(OLLAMA_DEFAULT_URL);
-        match client.list_models().await {
-            Ok(models) if !models.is_empty() => {
-                tracing::info!("Found {} Ollama models", models.len());
-                return Ok(Some(models));
-            }
-            Ok(_) => {
-                tracing::info!("No Ollama models found");
-                return Ok(None);
-            }
-            Err(e) => {
-                tracing::warn!("Failed to fetch Ollama models: {}", e);
-                return Ok(None);
-            }
-        }
-    }
-
     let models = super::discovery::fetch_agent_models(&agent_id);
     if let Some(ref m) = models {
         tracing::info!("Found {} models dynamically", m.len());
@@ -85,16 +51,8 @@ pub async fn acp_start_agent(
     agent_id: String,
     app_handle: tauri::AppHandle,
     manager: State<'_, Arc<AcpManager>>,
-    ollama_mgr: State<'_, Arc<OllamaManager>>,
 ) -> Result<String, String> {
     tracing::info!("Starting agent: {}", agent_id);
-
-    // Handle Ollama specially — no subprocess needed
-    if agent_id == OLLAMA_AGENT_ID {
-        let instance_id = ollama_mgr.start_agent(OLLAMA_DEFAULT_URL);
-        tracing::info!("Ollama agent started with instance ID: {}", instance_id);
-        return Ok(instance_id);
-    }
 
     let agents = super::discovery::discover_agents();
     let agent = agents.iter().find(|a| a.id == agent_id).ok_or_else(|| {
@@ -157,20 +115,12 @@ pub async fn acp_create_session(
     cwd: String,
     mcp_servers: Option<Vec<McpServerConfig>>,
     manager: State<'_, Arc<AcpManager>>,
-    ollama_mgr: State<'_, Arc<OllamaManager>>,
 ) -> Result<String, String> {
     tracing::info!(
         "Creating session for instance {} with cwd: {}",
         instance_id,
         cwd
     );
-
-    // Ollama sessions don't need explicit creation — the session was made in start_agent
-    if ollama_mgr.has_instance(&instance_id) {
-        let session_id = ollama_mgr.get_session_id(&instance_id)?;
-        tracing::info!("Ollama session already exists: {}", session_id);
-        return Ok(session_id);
-    }
 
     // Convert frontend config to manager's internal format
     let mcp_configs: Vec<super::manager::McpServerConfig> = mcp_servers
@@ -212,18 +162,12 @@ pub async fn acp_set_session_model(
     instance_id: String,
     model_id: String,
     manager: State<'_, Arc<AcpManager>>,
-    ollama_mgr: State<'_, Arc<OllamaManager>>,
 ) -> Result<(), String> {
     tracing::info!(
         "Setting model for instance {} to: {}",
         instance_id,
         model_id
     );
-
-    // Ollama: just store the model selection
-    if ollama_mgr.has_instance(&instance_id) {
-        return ollama_mgr.set_model(&instance_id, &model_id);
-    }
 
     match manager.set_session_model(&instance_id, &model_id).await {
         Ok(()) => {
@@ -250,13 +194,7 @@ pub async fn acp_set_session_model(
 pub async fn acp_get_session_id(
     instance_id: String,
     manager: State<'_, Arc<AcpManager>>,
-    ollama_mgr: State<'_, Arc<OllamaManager>>,
 ) -> Result<String, String> {
-    // Ollama: return the stored session ID
-    if ollama_mgr.has_instance(&instance_id) {
-        return ollama_mgr.get_session_id(&instance_id);
-    }
-
     let session_id = manager.get_session_id(&instance_id).await?;
     Ok(session_id.to_string())
 }
@@ -353,25 +291,12 @@ pub async fn acp_send_prompt(
     images: Option<Vec<ImageData>>,
     app_handle: tauri::AppHandle,
     manager: State<'_, Arc<AcpManager>>,
-    ollama_mgr: State<'_, Arc<OllamaManager>>,
 ) -> Result<String, String> {
     tracing::info!(
         "Sending prompt to instance {}: {}",
         instance_id,
         &prompt[..prompt.len().min(100)]
     );
-
-    // Route Ollama prompts through HTTP instead of ACP subprocess
-    if ollama_mgr.has_instance(&instance_id) {
-        return send_ollama_prompt(
-            instance_id,
-            prompt,
-            context_json,
-            app_handle,
-            ollama_mgr.inner().clone(),
-        )
-        .await;
-    }
 
     let mut content = vec![];
 
@@ -445,87 +370,6 @@ pub async fn acp_send_prompt(
     Ok(session_id_str)
 }
 
-/// Handle sending a prompt to Ollama via HTTP streaming
-async fn send_ollama_prompt(
-    instance_id: String,
-    prompt: String,
-    context_json: Option<String>,
-    app_handle: tauri::AppHandle,
-    ollama_mgr: Arc<OllamaManager>,
-) -> Result<String, String> {
-    let session_id = ollama_mgr.get_session_id(&instance_id)?;
-    let event_name = format!("acp-update-{}", session_id);
-
-    // Build system prompt for Ollama (simplified version of SYSTEM_INSTRUCTIONS)
-    let system_prompt = ollama::build_system_prompt(None, context_json.as_deref());
-
-    // Prepare the chat messages (includes conversation history)
-    let (base_url, model, messages) =
-        ollama_mgr.prepare_prompt(&instance_id, &prompt, Some(system_prompt))?;
-
-    let session_id_clone = session_id.clone();
-    let event_name_clone = event_name.clone();
-    let app_handle_clone = app_handle.clone();
-    let ollama_mgr_clone = ollama_mgr.clone();
-    let instance_id_clone = instance_id.clone();
-
-    // Spawn the streaming task
-    tokio::spawn(async move {
-        let client = ollama::OllamaClient::new(&base_url);
-        let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
-
-        // Spawn the actual HTTP streaming
-        let chat_handle =
-            tokio::spawn(async move { client.chat_stream(&model, messages, event_tx).await });
-
-        // Collect response text for conversation history
-        let mut full_response = String::new();
-
-        // Forward Ollama events as Tauri events (same format as ACP)
-        while let Some(event) = event_rx.recv().await {
-            match event {
-                ollama::OllamaEvent::Chunk(text) => {
-                    full_response.push_str(&text);
-                    let payload = serde_json::json!({
-                        "sessionId": session_id_clone,
-                        "update": {
-                            "type": "AgentMessageChunk",
-                            "content": {
-                                "content": { "type": "text", "text": text }
-                            }
-                        }
-                    });
-                    let _ = app_handle_clone.emit(&event_name_clone, payload);
-                }
-                ollama::OllamaEvent::Done => {
-                    // Save assistant response to conversation history
-                    ollama_mgr_clone.save_assistant_response(&instance_id_clone, &full_response);
-
-                    let payload = serde_json::json!({
-                        "sessionId": session_id_clone,
-                        "update": { "type": "Complete" }
-                    });
-                    let _ = app_handle_clone.emit(&event_name_clone, payload);
-                    break;
-                }
-                ollama::OllamaEvent::Error(err) => {
-                    let payload = serde_json::json!({
-                        "sessionId": session_id_clone,
-                        "update": { "type": "Error", "message": err }
-                    });
-                    let _ = app_handle_clone.emit(&event_name_clone, payload);
-                    break;
-                }
-            }
-        }
-
-        // Wait for chat task to complete
-        let _ = chat_handle.await;
-    });
-
-    Ok(session_id)
-}
-
 /// Convert SessionUpdate to frontend-friendly JSON
 fn serialize_session_update(update: &SessionUpdate) -> serde_json::Value {
     match update {
@@ -582,13 +426,7 @@ fn serialize_session_update(update: &SessionUpdate) -> serde_json::Value {
 pub async fn acp_cancel_session(
     instance_id: String,
     manager: State<'_, Arc<AcpManager>>,
-    ollama_mgr: State<'_, Arc<OllamaManager>>,
 ) -> Result<(), String> {
-    // Ollama: just remove the session (no subprocess to kill)
-    if ollama_mgr.has_instance(&instance_id) {
-        ollama_mgr.remove(&instance_id);
-        return Ok(());
-    }
     manager.cancel(&instance_id).await
 }
 
