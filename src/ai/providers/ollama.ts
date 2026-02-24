@@ -1,11 +1,12 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import type { ProviderConfig } from "../types";
+import type { ProviderConfig, ProviderModelInfo } from "../types";
 
 export const ollamaConfig: ProviderConfig = {
   id: "ollama",
-  name: "Ollama (Local)",
+  name: "Ollama",
   requiresApiKey: false,
   defaultBaseUrl: "http://localhost:11434/v1",
+  logo: "/logos/ollama.svg",
   models: [
     {
       id: "qwen2.5-coder:7b",
@@ -23,6 +24,25 @@ export const ollamaConfig: ProviderConfig = {
       description: "Strong at code",
     },
   ],
+  listModels: async () => {
+    const res = await fetch("http://localhost:11434/api/tags");
+    if (!res.ok) throw new Error(`Failed to fetch models: ${res.status}`);
+    const data = (await res.json()) as {
+      models: Array<{
+        name: string;
+        details?: { parameter_size?: string; family?: string };
+      }>;
+    };
+    return data.models.map(
+      (m): ProviderModelInfo => ({
+        id: m.name,
+        name: m.name,
+        description: [m.details?.parameter_size, m.details?.family]
+          .filter(Boolean)
+          .join(" - ") || "Local model",
+      }),
+    );
+  },
 };
 
 // Ollama exposes an OpenAI-compatible API at /v1, so we reuse @ai-sdk/openai

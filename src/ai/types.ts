@@ -13,7 +13,9 @@ export interface ProviderConfig {
   name: string;
   requiresApiKey: boolean;
   defaultBaseUrl?: string;
+  logo?: string;
   models: ProviderModelInfo[];
+  listModels?: (apiKey?: string) => Promise<ProviderModelInfo[]>;
 }
 
 export interface ProviderModelInfo {

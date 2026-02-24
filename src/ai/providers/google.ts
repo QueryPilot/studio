@@ -5,6 +5,7 @@ export const googleConfig: ProviderConfig = {
   id: "google",
   name: "Google",
   requiresApiKey: true,
+  logo: "/logos/gemini-color.svg",
   models: [
     {
       id: "gemini-2.0-flash",
