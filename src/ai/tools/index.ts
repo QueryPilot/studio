@@ -3,6 +3,9 @@ import { createQueryDatabaseTool } from "./queryDatabase";
 import { createListTablesTool } from "./listTables";
 import { createDescribeTableTool } from "./describeTable";
 import { createGetCurrentContextTool } from "./getCurrentContext";
+import { createListConnectionsTool } from "./listConnections";
+import { createGetQueryHistoryTool } from "./getQueryHistory";
+import { createGetExecutionPlanTool } from "./getExecutionPlan";
 
 export interface ToolContext {
   connectionId: string;
@@ -20,5 +23,8 @@ export function createTools(ctx: ToolContext): ToolSet {
     listTables: createListTablesTool(ctx.connectionId),
     describeTable: createDescribeTableTool(ctx.connectionId),
     getCurrentContext: createGetCurrentContextTool(ctx.getEditorContext),
+    listConnections: createListConnectionsTool(),
+    getQueryHistory: createGetQueryHistoryTool(),
+    getExecutionPlan: createGetExecutionPlanTool(ctx.connectionId),
   };
 }

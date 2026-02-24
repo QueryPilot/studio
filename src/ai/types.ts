@@ -28,6 +28,12 @@ export interface BYOKSession {
   provider: LanguageModel;
 }
 
+export interface ByokToolCall {
+  id: string;
+  name: string;
+  status: "calling" | "complete" | "error";
+}
+
 export interface StreamCallbacks {
   onChunk: (text: string) => void;
   onToolCall: (toolCall: { id: string; name: string; input: unknown }) => void;
