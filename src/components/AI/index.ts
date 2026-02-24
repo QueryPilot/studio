@@ -8,3 +8,4 @@ export { AIPanel } from "./AIPanel";
 export { AgentSelector } from "./AgentSelector";
 export { AgentInstallDialog } from "./AgentInstallDialog";
 export { CommandCard, CommandList } from "./CommandCard";
+export { ProviderSettings } from "./ProviderSettings";
