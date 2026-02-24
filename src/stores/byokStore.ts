@@ -19,13 +19,13 @@ interface BYOKState {
   // Persisted
   providerId: ProviderId | null;
   modelId: string | null;
-  apiKey: string;
   runtimeMode: "acp" | "byok";
   maxToolSteps: number;
   autoExecuteQueries: boolean;
   includeSchemaContext: boolean;
 
   // Runtime
+  apiKeys: Partial<Record<ProviderId, string>>;
   messages: ModelMessage[];
   isStreaming: boolean;
   streamingContent: string;
@@ -59,13 +59,13 @@ export const useByokStore = create<BYOKState>()(
       // Persisted state
       providerId: null,
       modelId: null,
-      apiKey: "",
       runtimeMode: "acp",
       maxToolSteps: 5,
       autoExecuteQueries: true,
       includeSchemaContext: true,
 
       // Runtime state
+      apiKeys: {},
       messages: [],
       isStreaming: false,
       streamingContent: "",
@@ -82,41 +82,48 @@ export const useByokStore = create<BYOKState>()(
           modelId: defaultModel,
           session: null,
           messages: [],
-          apiKey: "",
         });
       },
 
       setModel: (id) => {
-        set({ modelId: id });
-        // Auto-reinit session with stored API key
-        const { providerId, apiKey } = get();
-        if (!providerId) return;
-        const config = PROVIDER_CONFIGS[providerId];
-        if (config.requiresApiKey && !apiKey) {
-          set({ session: null });
+        const { providerId, apiKeys } = get();
+        if (!providerId) {
+          set({ modelId: id, session: null });
           return;
         }
-        const model = createModel(providerId, id, apiKey || undefined);
-        set({ session: { providerId, modelId: id, provider: model } });
+        const config = PROVIDER_CONFIGS[providerId];
+        const key = apiKeys[providerId] ?? "";
+        if (config.requiresApiKey && !key) {
+          set({ modelId: id, session: null });
+          return;
+        }
+        const model = createModel(providerId, id, key || undefined);
+        set({ modelId: id, session: { providerId, modelId: id, provider: model } });
       },
 
       setApiKey: (key) => {
-        set({ apiKey: key });
+        const { providerId } = get();
+        if (!providerId) return;
+        set((state) => ({
+          apiKeys: { ...state.apiKeys, [providerId]: key },
+        }));
       },
 
       initSession: (apiKeyArg) => {
-        const { providerId, modelId, apiKey: storedKey } = get();
+        const { providerId, modelId, apiKeys } = get();
         if (!providerId || !modelId) return;
-
-        const key = apiKeyArg ?? storedKey;
+        const key = apiKeyArg ?? apiKeys[providerId] ?? "";
         const config = PROVIDER_CONFIGS[providerId];
         if (config.requiresApiKey && !key) return;
-
+        if (apiKeyArg !== undefined) {
+          set((state) => ({
+            apiKeys: { ...state.apiKeys, [providerId]: apiKeyArg },
+          }));
+        }
         const model = createModel(providerId, modelId, key || undefined);
         set({
           session: { providerId, modelId, provider: model },
           error: null,
-          ...(apiKeyArg !== undefined ? { apiKey: apiKeyArg } : {}),
         });
       },
 
@@ -214,7 +221,6 @@ export const useByokStore = create<BYOKState>()(
       partialize: (state) => ({
         providerId: state.providerId,
         modelId: state.modelId,
-        apiKey: state.apiKey,
         runtimeMode: state.runtimeMode,
         maxToolSteps: state.maxToolSteps,
         autoExecuteQueries: state.autoExecuteQueries,
