@@ -68,7 +68,6 @@ cd studio-app
 - 🔌 **Multi-Database Support**: PostgreSQL, MySQL, SQLite, SQL Server, Oracle
 - 🔒 **Local-First**: All data stays on your machine
 - 🚀 **High Performance**: Built with Tauri 2 + React 19
-- 🤖 **AI-Powered**: SQL generation, query optimization, and smart suggestions
 - 🌐 **SSH Tunneling**: Secure connections to remote databases
 - 📊 **Advanced Query Tools**: Autocomplete, formatting, syntax highlighting
 - 🎨 **Modern UI**: Beautiful, customizable interface
@@ -85,6 +84,7 @@ cd studio-app
 [Download Query-Pilot_aarch64.dmg](https://github.com/QueryPilot/studio-app/releases/latest/download/Query-Pilot_aarch64.dmg)
 
 **Installation:**
+
 1. Download the DMG file
 2. Open the DMG and drag Query Pilot to Applications
 3. On first launch, right-click the app and select "Open" if you see a security warning
@@ -165,6 +165,7 @@ See [CHANGELOG.md](CHANGELOG.md) for a detailed history of changes.
 ## 🙏 Acknowledgments
 
 Built with:
+
 - [Tauri](https://tauri.app/) - Native app framework
 - [React](https://react.dev/) - UI framework
 - [shadcn/ui](https://ui.shadcn.com/) - UI components
@@ -206,9 +207,9 @@ mkdir -p .github/ISSUE_TEMPLATE
 ---
 name: Bug Report
 about: Report a bug or issue
-title: '[BUG] '
+title: "[BUG] "
 labels: bug
-assignees: ''
+assignees: ""
 ---
 
 ## Description
@@ -250,9 +251,9 @@ Any other context about the problem.
 ---
 name: Feature Request
 about: Suggest a new feature
-title: '[FEATURE] '
+title: "[FEATURE] "
 labels: enhancement
-assignees: ''
+assignees: ""
 ---
 
 ## Feature Description
@@ -347,6 +348,7 @@ curl https://github.com/QueryPilot/studio-app/releases/latest/download/latest.js
 ```
 
 Expected response:
+
 ```json
 {
   "version": "0.4.0",

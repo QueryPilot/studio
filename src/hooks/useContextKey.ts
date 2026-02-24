@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useLayoutEffect, useMemo, useRef } from 'react';
 import { v4 as uuid } from 'uuid';
 
 import { useKeyboardServicesOptional } from '@/components/KeyboardProvider';
@@ -9,6 +9,14 @@ interface UseContextKeyOptions {
   resetOnUnmount?: boolean;
 }
 
+/**
+ * Hook to set a context key value, used for evaluating keybinding `when` conditions.
+ *
+ * IMPORTANT: Uses useLayoutEffect to update context synchronously after DOM mutations.
+ * This ensures keyboard event handlers see the correct context values immediately,
+ * preventing race conditions where shortcuts fire before context is updated
+ * (e.g., Cmd+Z firing before editingCell is set to true).
+ */
 export function useContextKey(
   key: string,
   value: ContextValue,
@@ -20,7 +28,10 @@ export function useContextKey(
 
   const scopeChain = useMemo(() => (options?.scopeId ? [options.scopeId] : undefined), [options?.scopeId]);
 
-  useEffect(() => {
+  // useLayoutEffect ensures context is updated synchronously after DOM mutations,
+  // before any keyboard events can fire. This prevents race conditions where
+  // keybindings are evaluated against stale context values.
+  useLayoutEffect(() => {
     if (!contextService) {
       return;
     }
@@ -49,12 +60,19 @@ export function useContextKey(
   }, [contextService, key, options?.scopeId, options?.resetOnUnmount, scopeChain, value]);
 }
 
+/**
+ * Hook to create and manage a scoped keybinding context.
+ *
+ * IMPORTANT: Uses useLayoutEffect to enter scope synchronously, ensuring
+ * the scope is active before any keyboard events can fire.
+ */
 export function useScopedKeybindings(explicitScopeId?: string): string {
   const services = useKeyboardServicesOptional();
   const contextService = services?.contextService;
   const scopeIdRef = useRef<string>(explicitScopeId ?? uuid());
 
-  useEffect(() => {
+  // useLayoutEffect ensures scope is entered synchronously after DOM mutations
+  useLayoutEffect(() => {
     if (!contextService) {
       return;
     }

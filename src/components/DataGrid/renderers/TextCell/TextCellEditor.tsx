@@ -198,7 +198,7 @@ export function TextCellEditor<T extends TextCellEditorValue>({
   }, [nullable, commit]);
 
   return (
-    <div className="flex flex-col gdg-editor-shell click-outside-ignore max-w-[600px] w-max">
+    <div className="flex flex-col gdg-editor-shell click-outside-ignore max-w-[600px] min-w-[300px]">
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50 shrink-0">
         {isPrimaryKey && (
@@ -235,7 +235,7 @@ export function TextCellEditor<T extends TextCellEditorValue>({
         maxLength={maxLength}
         className={cn(
           "w-full text-xs font-mono bg-transparent resize outline-none border-none focus-visible:ring-0 focus-visible:ring-offset-0",
-          "min-h-[60px] max-h-[400px] min-w-[300px] max-w-[600px]",
+          "min-h-[60px] max-h-[400px]",
         )}
         rows={Math.min(10, Math.max(3, initialValue.split("\n").length))}
         placeholder={nullable ? "NULL" : ""}

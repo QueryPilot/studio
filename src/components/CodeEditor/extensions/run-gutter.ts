@@ -1,48 +1,94 @@
 /**
  * Run Gutter Extension
- * 
+ *
  * Injects play buttons into the lint gutter for each SQL statement.
  * Shows play button at the FIRST LINE of each statement.
  */
 
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
-import { StateField, type Extension } from "@codemirror/state";
-import { lintGutter } from "@codemirror/lint";
+import { StateEffect, StateField, type Extension } from "@codemirror/state";
+import { diagnosticCount, forEachDiagnostic, lintGutter } from "@codemirror/lint";
 import { getAllStatements, type StatementBoundary } from "../core/query-utils";
 
 /**
- * StateField to track statement boundaries
- * Maps line number (1-based) -> statement for FIRST LINE of each statement
+ * StateEffect to trigger statement boundary updates.
+ * Only dispatched by `statementsUpdater` when the editor is focused.
+ */
+const updateStatementsEffect =
+  StateEffect.define<Map<number, StatementBoundary>>();
+
+/**
+ * StateField to track statement boundaries.
+ * Maps line number (1-based) -> statement for FIRST LINE of each statement.
+ *
+ * Updates are driven exclusively by `updateStatementsEffect` so that
+ * unfocused editors skip the expensive `getAllStatements()` parse.
  */
 const statementsField = StateField.define<Map<number, StatementBoundary>>({
   create(state) {
     const map = new Map<number, StatementBoundary>();
-    // Don't track statements if document is empty
-    if (!state.doc.toString().trim()) return map;
+    if (state.doc.length === 0) return map;
 
     const statements = getAllStatements(state);
-    statements.forEach(stmt => {
-      const lineNum = state.doc.lineAt(stmt.from).number; // 1-based
+    statements.forEach((stmt) => {
+      const lineNum = state.doc.lineAt(stmt.from).number;
       map.set(lineNum, stmt);
     });
     return map;
   },
   update(map, tr) {
-    if (tr.docChanged) {
-      const newMap = new Map<number, StatementBoundary>();
-      // Don't track statements if document is empty
-      if (!tr.state.doc.toString().trim()) return newMap;
-
-      const statements = getAllStatements(tr.state);
-      statements.forEach(stmt => {
-        const lineNum = tr.state.doc.lineAt(stmt.from).number; // 1-based
-        newMap.set(lineNum, stmt);
-      });
-      return newMap;
+    for (const effect of tr.effects) {
+      if (effect.is(updateStatementsEffect)) {
+        return effect.value;
+      }
     }
     return map;
   },
 });
+
+/**
+ * ViewPlugin that recomputes statement boundaries only when the editor
+ * is focused, then dispatches an effect to update `statementsField`.
+ * Debounces by 100ms to avoid re-parsing on every keystroke.
+ */
+const statementsUpdater = ViewPlugin.fromClass(
+  class {
+    private pendingUpdate: ReturnType<typeof setTimeout> | null = null;
+    private destroyed = false;
+
+    constructor(private view: EditorView) {}
+
+    update(update: ViewUpdate) {
+      // Trigger on doc change while focused, OR when gaining focus
+      const gainedFocus = update.focusChanged && update.view.hasFocus;
+      if (!update.docChanged && !gainedFocus) return;
+      if (!update.view.hasFocus) return;
+
+      if (this.pendingUpdate) clearTimeout(this.pendingUpdate);
+      this.pendingUpdate = setTimeout(() => {
+        if (this.destroyed) return;
+        this.pendingUpdate = null;
+        const state = this.view.state;
+
+        const newMap = new Map<number, StatementBoundary>();
+        if (state.doc.length > 0) {
+          const statements = getAllStatements(state);
+          statements.forEach((stmt) => {
+            const lineNum = state.doc.lineAt(stmt.from).number;
+            newMap.set(lineNum, stmt);
+          });
+        }
+
+        this.view.dispatch({ effects: updateStatementsEffect.of(newMap) });
+      }, 100);
+    }
+
+    destroy() {
+      this.destroyed = true;
+      if (this.pendingUpdate) clearTimeout(this.pendingUpdate);
+    }
+  },
+);
 
 /**
  * ViewPlugin that injects play buttons into lint gutter
@@ -51,36 +97,31 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
   return ViewPlugin.fromClass(
     class {
       private pendingUpdate: number | null = null;
-      private observer: MutationObserver | null = null;
+      private lastDiagCount = 0;
 
       constructor(private view: EditorView) {
-        this.setupObserver();
+        this.lastDiagCount = diagnosticCount(view.state);
         this.scheduleUpdate();
       }
 
-      setupObserver() {
-        const lintGutter = this.view.dom.querySelector('.cm-gutter-lint');
-        if (lintGutter) {
-          this.observer = new MutationObserver(() => {
-            this.scheduleUpdate();
-          });
-          this.observer.observe(lintGutter, {
-            childList: true,
-            subtree: true,
-            attributes: false,
-          });
-        }
-      }
-
       update(update: ViewUpdate) {
-        if (update.docChanged || update.viewportChanged || update.selectionSet) {
+        // Skip DOM work for unfocused editors
+        if (!update.view.hasFocus) return;
+
+        const nextDiagCount = diagnosticCount(update.state);
+        const diagnosticsChanged = nextDiagCount !== this.lastDiagCount;
+        if (diagnosticsChanged) {
+          this.lastDiagCount = nextDiagCount;
+        }
+
+        if (update.docChanged || update.viewportChanged || diagnosticsChanged) {
           this.scheduleUpdate();
         }
       }
 
       scheduleUpdate() {
         if (this.pendingUpdate !== null) return;
-        
+
         this.pendingUpdate = requestAnimationFrame(() => {
           this.pendingUpdate = null;
           this.updateGutter();
@@ -88,16 +129,14 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
       }
 
       updateGutter() {
-        // Don't show play buttons if document is empty or whitespace-only
-        const docContent = this.view.state.doc.toString();
-        if (!docContent.trim()) return;
+        // Don't show play buttons if document is empty
+        if (this.view.state.doc.length === 0) return;
 
         const statements = this.view.state.field(statementsField, false);
         if (!statements || statements.size === 0) return;
 
-        const lintGutter = this.view.dom.querySelector('.cm-gutter-lint');
+        const lintGutter = this.view.dom.querySelector(".cm-gutter-lint");
         if (!lintGutter) {
-          this.setupObserver();
           return;
         }
 
@@ -106,46 +145,57 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
         const firstLine = this.view.state.doc.lineAt(from).number;
         const lastLine = this.view.state.doc.lineAt(to).number;
 
-        const gutterElements = lintGutter.querySelectorAll('.cm-gutterElement');
-        
+        // Compute error lines from diagnostics directly (do not depend on gutter dots).
+        const errorLines = new Set<number>();
+        forEachDiagnostic(this.view.state, (diagnostic) => {
+          if (diagnostic.severity === "error") {
+            const line = this.view.state.doc.lineAt(diagnostic.from).number;
+            errorLines.add(line);
+          }
+        });
+
+        const gutterElements = lintGutter.querySelectorAll(".cm-gutterElement");
+
         gutterElements.forEach((element, index) => {
           // Calculate actual line number: first visible line + index
           const lineNum = firstLine + index;
-          
+
           // Skip if beyond viewport
           if (lineNum > lastLine) return;
-          
+
           const stmt = statements.get(lineNum);
-          
+
           // Only hide play button on ERROR (not warning/info)
-          const hasErrorMarker = element.querySelector('.cm-lint-marker-error');
-          const existingPlayButton = element.querySelector('.cm-run-gutter-button');
-          
-          // Remove existing button
-          if (existingPlayButton) {
-            existingPlayButton.remove();
-          }
-          
+          const hasErrorMarker = errorLines.has(lineNum);
+          const existingPlayButton = element.querySelector(
+            ".cm-run-gutter-button",
+          );
+
           // Add play button if this line starts a statement and has no error
           if (stmt && !hasErrorMarker) {
-            const button = document.createElement("button");
-            button.className = "cm-run-gutter-button";
-            button.setAttribute("aria-label", "Run this query");
-            button.setAttribute("title", "Run this query");
-            
-            button.innerHTML = `
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                <polygon points="5 3 19 12 5 21 5 3"></polygon>
-              </svg>
-            `;
-            
+            const button =
+              existingPlayButton ?? document.createElement("button");
+
+            if (!existingPlayButton) {
+              button.className = "cm-run-gutter-button";
+              button.setAttribute("aria-label", "Run this query");
+              button.setAttribute("title", "Run this query");
+
+              button.innerHTML = `
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+              `;
+              element.appendChild(button);
+            }
+
             button.onclick = (e) => {
               e.preventDefault();
               e.stopPropagation();
               onExecute(stmt.text);
             };
-            
-            element.appendChild(button);
+          } else if (existingPlayButton) {
+            existingPlayButton.remove();
           }
         });
       }
@@ -154,11 +204,8 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
         if (this.pendingUpdate !== null) {
           cancelAnimationFrame(this.pendingUpdate);
         }
-        if (this.observer) {
-          this.observer.disconnect();
-        }
       }
-    }
+    },
   );
 }
 
@@ -166,19 +213,25 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
  * Create the run gutter extension that adds play buttons inside the lint gutter
  */
 export function createRunGutterExtension(
-  onExecute: (query: string) => void
+  onExecute: (query: string) => void,
 ): Extension {
   return [
     // Include lint gutter
-    lintGutter(),
-    
+    lintGutter({
+      hoverTime: 300, // Wait 300ms before showing tooltip (reduces accidental popups)
+      // We use the gutter column for run buttons only.
+      // Lint positions are shown via inline diagnostics + right scrollbar markers.
+      markerFilter: () => [],
+    }),
+
     // Track statements
     statementsField,
-    
+    statementsUpdater,
+
     // Inject play buttons
     createRunGutterPlugin(onExecute),
-    
-    // Theme for play button
+
+    // Theme for play button and lint markers
     EditorView.theme({
       ".cm-gutter-lint": {
         width: "20px", // Fixed width to prevent layout shift
@@ -191,6 +244,11 @@ export function createRunGutterExtension(
         width: "20px",
         padding: "0 !important",
       },
+      // Hide default lint markers; diagnostics are surfaced via right-side scrollbar markers.
+      ".cm-gutter-lint .cm-lintPoint, .cm-gutter-lint .cm-lintPoint-error, .cm-gutter-lint .cm-lintPoint-warning, .cm-gutter-lint .cm-lintPoint-info": {
+        display: "none !important",
+      },
+      // Play button styles
       ".cm-run-gutter-button": {
         display: "inline-flex",
         alignItems: "center",
@@ -225,4 +283,3 @@ export function createRunGutterExtension(
     }),
   ];
 }
-

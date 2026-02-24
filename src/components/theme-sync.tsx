@@ -73,8 +73,16 @@ export function ThemeSync(): null {
     };
 
     window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+    };
   }, [setAppTheme]);
+
+  // Apply zoom level from store to the document body
+  const zoomLevel = useAppStore((state) => state.zoomLevel);
+  useEffect(() => {
+    document.body.style.zoom = (zoomLevel / 100).toString();
+  }, [zoomLevel]);
 
   return null;
 }

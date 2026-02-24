@@ -164,17 +164,14 @@ export function useConnectionAutoReconnect(connectionId?: string) {
       stopSequence(); // Stop ongoing attempts if network is lost
     };
 
-    // Subscribe to health changes - trigger reconnect when status becomes "error"
-    let previousStatus: string | undefined;
+    // Subscribe to health changes - monitor now only fires on transitions
     const unsubscribeHealth = databaseService.onHealthChange(
       connectionId,
       (health) => {
-        // Only trigger reconnect if status transitions TO error (not already in error)
-        if (health.status === "error" && previousStatus !== "error") {
+        if (health.status === "error") {
           logger.info("[AutoReconnect] Health check failed, attempting reconnect");
           void startSequence();
         }
-        previousStatus = health.status;
       },
     );
 

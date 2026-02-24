@@ -1,0 +1,37 @@
+[package]
+name = "querypilot-mcp"
+version = "0.1.0"
+edition = "2021"
+description = "MCP server sidecar for Query Pilot - enables LLM agents to interact with databases"
+authors = ["Query Pilot"]
+license = "MIT"
+
+[[bin]]
+name = "querypilot-mcp"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full", "io-util"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Async utilities
+futures = "0.3"
+
+# Directory utilities
+dirs = "5.0"
+
+[target.'cfg(unix)'.dependencies]
+# Unix domain sockets on Unix platforms
+tokio = { version = "1", features = ["full", "io-util", "net"] }

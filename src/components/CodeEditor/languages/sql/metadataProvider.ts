@@ -1,5 +1,5 @@
 import { schemaCache } from "@/services/schemaCache";
-import type { MetadataProvider, EntityMeta, FieldMeta, EntityDetails, JoinConditionSuggestion } from "../../types";
+import type { MetadataProvider, EntityMeta, FieldMeta, EntityDetails, JoinConditionSuggestion, FunctionMeta } from "../../types";
 
 /**
  * SQL implementation of MetadataProvider.
@@ -299,6 +299,27 @@ export class SqlMetadataProvider implements MetadataProvider {
     }
   }
 
+  /**
+   * List database functions in the given schema.
+   * Returns user-defined and built-in functions from the database.
+   */
+  async listFunctions(schema?: string): Promise<FunctionMeta[]> {
+    const targetSchema = schema || this.defaultSchema;
+
+    try {
+      const functions = await schemaCache.getFunctions(this.connectionId, targetSchema);
+
+      return functions.map((f) => ({
+        name: f.name,
+        returnType: f.return_type,
+        arguments: f.arguments.join(", "),
+        description: undefined,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
   private mapTableKind(kind: string): EntityMeta["type"] {
     switch (kind) {
       case "Table":
@@ -340,14 +361,22 @@ export function createSqlMetadataProvider(
  * Clear the provider cache. Call when connections are closed or schema is refreshed.
  */
 export function clearProviderCache(connectionId?: string): void {
-  if (connectionId) {
+  if (connectionId === undefined) {
+    providerCache.clear();
+    return;
+  }
+
+  const normalizedConnectionId = connectionId.trim();
+  if (!normalizedConnectionId) {
+    return;
+  }
+
+  if (normalizedConnectionId) {
     // Clear entries for specific connection
     for (const key of providerCache.keys()) {
-      if (key.startsWith(`${connectionId}:`)) {
+      if (key.startsWith(`${normalizedConnectionId}:`)) {
         providerCache.delete(key);
       }
     }
-  } else {
-    providerCache.clear();
   }
 }

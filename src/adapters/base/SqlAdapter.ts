@@ -177,10 +177,13 @@ export abstract class SqlAdapter implements DatabaseAdapter {
     const needsDefaultOrder =
       orderBy.length === 0 && (hasOffset || options?.limit !== undefined);
     if (needsDefaultOrder) {
-      orderBy.push({
-        column: this.getFallbackOrderByColumn(options),
-        direction: "ASC",
-      });
+      const fallbackColumn = this.getFallbackOrderByColumn(options);
+      if (fallbackColumn) {
+        orderBy.push({
+          column: fallbackColumn,
+          direction: "ASC",
+        });
+      }
     }
 
     if (orderBy.length > 0) {
@@ -246,10 +249,13 @@ export abstract class SqlAdapter implements DatabaseAdapter {
     const needsDefaultOrder =
       orderBy.length === 0 && (hasOffset || options.limit !== undefined);
     if (needsDefaultOrder) {
-      orderBy.push({
-        column: this.getFallbackOrderByColumn(options),
-        direction: "ASC",
-      });
+      const fallbackColumn = this.getFallbackOrderByColumn(options);
+      if (fallbackColumn) {
+        orderBy.push({
+          column: fallbackColumn,
+          direction: "ASC",
+        });
+      }
     }
 
     if (orderBy.length > 0) {
@@ -295,7 +301,7 @@ export abstract class SqlAdapter implements DatabaseAdapter {
    */
   private buildEmbeddedJoinClauses(
     mainTable: string,
-    target: TableRef,
+    _target: TableRef,
     embeddedFKs: EmbeddedFKConfig[]
   ): string {
     return embeddedFKs
@@ -305,9 +311,7 @@ export abstract class SqlAdapter implements DatabaseAdapter {
           schema: fk.refSchema,
           table: fk.refTable,
         });
-        const fkColumn = target.schema
-          ? `${mainTable}.${this.quoteIdentifier(fk.fkColumn)}`
-          : `${mainTable}.${this.quoteIdentifier(fk.fkColumn)}`;
+        const fkColumn = `${mainTable}.${this.quoteIdentifier(fk.fkColumn)}`;
         const pkColumn = `${this.quoteIdentifier(alias)}.${this.quoteIdentifier(fk.refPkColumn)}`;
 
         return ` LEFT JOIN ${refTable} AS ${this.quoteIdentifier(alias)} ON ${fkColumn} = ${pkColumn}`;
@@ -371,14 +375,15 @@ export abstract class SqlAdapter implements DatabaseAdapter {
 
   /**
    * Default ORDER BY column for stable pagination when no sort provided.
+   * Returns undefined when no valid column can be determined (e.g., SELECT * without column info).
+   * This prevents errors on views/tables that don't have an 'id' column.
    */
-  protected getFallbackOrderByColumn(options?: SelectOptions): string {
+  protected getFallbackOrderByColumn(options?: SelectOptions): string | undefined {
     const firstColumn = options?.columns?.[0];
     if (firstColumn && /^[A-Za-z_][A-Za-z0-9_]*$/.test(firstColumn)) {
       return firstColumn;
     }
-    // Return first column as fallback instead of hardcoded 'id' which may not exist
-    return firstColumn || "id";
+    return undefined;
   }
 
   /**

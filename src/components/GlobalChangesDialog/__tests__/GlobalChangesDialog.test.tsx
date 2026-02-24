@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { GlobalChangesDialog } from '../GlobalChangesDialog';
 import { useCrudStore } from '@/stores/crudStore';
 import { useConnectionStore } from '@/stores/connectionStoreNew';
@@ -560,5 +560,75 @@ describe('GlobalChangesDialog', () => {
       expect(screen.getAllByText('DDL')).toHaveLength(3);
     });
   });
-});
 
+  describe('Dialog lifecycle', () => {
+    it('should close when all staged changes are removed while open', async () => {
+      const tableKey = 'test-conn:testdb:public:users';
+      const updateCommand = createMockCommand('data.update', {
+        column: 'email',
+        oldValue: 'old@example.com',
+        newValue: 'new@example.com',
+        primaryKeys: { id: 1 },
+      });
+
+      let stagedCommands = new Map<string, CrudCommand[]>([
+        [tableKey, [updateCommand]],
+      ]);
+
+      const crudStoreState = {
+        commitAll: vi.fn(),
+        discardAll: vi.fn(),
+        getTableKey: () => tableKey,
+        commitChanges: vi.fn(),
+        discardChanges: vi.fn(),
+        unstageCommand: vi.fn(),
+        clearCommittedChanges: vi.fn(),
+        isCommittingAll: false,
+      };
+
+      vi.mocked(useCrudStore).mockImplementation(
+        ((selector?: (state: unknown) => unknown) => {
+          const state = {
+            stagedCommands,
+            ...crudStoreState,
+          };
+
+          return selector ? selector(state) : state;
+        }) as typeof useCrudStore,
+      );
+
+      const onOpenChange = vi.fn();
+
+      const { rerender } = render(
+        <GlobalChangesDialog
+          connectionId="test-conn"
+          database="testdb"
+          schema="public"
+          table="users"
+          open={true}
+          onOpenChange={onOpenChange}
+        />,
+      );
+
+      expect(screen.getByText('Commit changes')).toBeInTheDocument();
+
+      // Simulate undo/discard leaving no staged commands while parent still passes open=true.
+      stagedCommands = new Map();
+
+      rerender(
+        <GlobalChangesDialog
+          connectionId="test-conn"
+          database="testdb"
+          schema="public"
+          table="users"
+          open={true}
+          onOpenChange={onOpenChange}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(onOpenChange).toHaveBeenCalledWith(false);
+      });
+    });
+  });
+});

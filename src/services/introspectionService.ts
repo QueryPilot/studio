@@ -5,6 +5,7 @@
  * Uses adapters for SQL generation and BackendAPI.query() for execution.
  */
 
+import { logger } from "@/lib/logger";
 import {
   BackendAPI,
   type Database,
@@ -23,7 +24,7 @@ import {
   ConstraintType,
   type RawCellValue,
 } from "./backend";
-import { getAdapterForConnection } from "@/adapters";
+import { getAdapterForConnection, getSqlAdapterForConnection } from "@/adapters";
 
 /**
  * Helper to safely get a string value from a cell
@@ -227,11 +228,11 @@ function mapConstraintType(type: string | null | undefined): ConstraintType {
  * Introspection Service - adapter-driven database metadata retrieval
  */
 export const IntrospectionService = {
-  /**
-   * Get all databases
-   */
   async getDatabases(connectionId: string): Promise<Database[]> {
-    const adapter = await getAdapterForConnection(connectionId);
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    if (!adapter) {
+      return [];
+    }
     const sql = adapter.getDatabasesQuery();
     const result = await BackendAPI.query(connectionId, sql);
 
@@ -244,11 +245,11 @@ export const IntrospectionService = {
     }));
   },
 
-  /**
-   * Get schemas in the current database
-   */
   async getSchemas(connectionId: string): Promise<Schema[]> {
-    const adapter = await getAdapterForConnection(connectionId);
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    if (!adapter) {
+      return [];
+    }
     const sql = adapter.getSchemasQuery();
     const result = await BackendAPI.query(connectionId, sql);
 
@@ -258,13 +259,17 @@ export const IntrospectionService = {
     }));
   },
 
-  /**
-   * Get tables in a schema
-   */
   async getTables(connectionId: string, schema: string): Promise<Table[]> {
-    const adapter = await getAdapterForConnection(connectionId);
+    logger.info(`[IntrospectionService] getTables called for ${connectionId}, schema: ${schema}`);
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    if (!adapter) {
+      logger.warn(`[IntrospectionService] No adapter found for ${connectionId}`);
+      return [];
+    }
     const sql = adapter.getTablesQuery(schema);
+    logger.info(`[IntrospectionService] Executing tables query for ${connectionId}`);
     const result = await BackendAPI.query(connectionId, sql);
+    logger.info(`[IntrospectionService] Tables query returned ${result.rows.length} rows for ${connectionId}`);
 
     return result.rows.map((row) => ({
       schema: getString(row[0]),
@@ -277,13 +282,17 @@ export const IntrospectionService = {
     }));
   },
 
-  /**
-   * Get views in a schema
-   */
   async getViews(connectionId: string, schema: string): Promise<View[]> {
-    const adapter = await getAdapterForConnection(connectionId);
+    logger.info(`[IntrospectionService] getViews called for ${connectionId}, schema: ${schema}`);
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    if (!adapter) {
+      logger.warn(`[IntrospectionService] No adapter found for ${connectionId}`);
+      return [];
+    }
     const sql = adapter.getViewsQuery(schema);
+    logger.info(`[IntrospectionService] Executing views query for ${connectionId}`);
     const result = await BackendAPI.query(connectionId, sql);
+    logger.info(`[IntrospectionService] Views query returned ${result.rows.length} rows for ${connectionId}`);
 
     return result.rows.map((row) => ({
       schema: getString(row[0]),
@@ -295,14 +304,14 @@ export const IntrospectionService = {
     }));
   },
 
-  /**
-   * Get functions in a schema
-   */
   async getFunctions(
     connectionId: string,
     schema: string,
   ): Promise<Function[]> {
-    const adapter = await getAdapterForConnection(connectionId);
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    if (!adapter) {
+      return [];
+    }
     const sql = adapter.getFunctionsQuery(schema);
     const result = await BackendAPI.query(connectionId, sql);
 
@@ -328,7 +337,8 @@ export const IntrospectionService = {
     schema: string,
     table: string,
   ): Promise<Index[]> {
-    const adapter = await getAdapterForConnection(connectionId);
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    if (!adapter) return [];
     const sql = adapter.getIndexesQuery(schema, table);
     const result = await BackendAPI.query(connectionId, sql);
 
@@ -344,15 +354,13 @@ export const IntrospectionService = {
     }));
   },
 
-  /**
-   * Get index usage statistics
-   */
   async getIndexUsageStats(
     connectionId: string,
     schema: string,
     table: string,
   ): Promise<IndexUsageStats[]> {
-    const adapter = await getAdapterForConnection(connectionId);
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    if (!adapter) return [];
     const sql = adapter.getIndexUsageStatsQuery(schema, table);
     const result = await BackendAPI.query(connectionId, sql);
 
@@ -377,7 +385,8 @@ export const IntrospectionService = {
     schema: string,
     table: string,
   ): Promise<Constraint[]> {
-    const adapter = await getAdapterForConnection(connectionId);
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    if (!adapter) return [];
     const sql = adapter.getConstraintsQuery(schema, table);
     const result = await BackendAPI.query(connectionId, sql);
 
@@ -398,7 +407,8 @@ export const IntrospectionService = {
     schema: string,
     table: string,
   ): Promise<QueryColumnMeta[]> {
-    const adapter = await getAdapterForConnection(connectionId);
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    if (!adapter) return [];
     const sql = adapter.getColumnsQuery(schema, table);
     const result = await BackendAPI.query(connectionId, sql);
 
@@ -436,7 +446,8 @@ export const IntrospectionService = {
     schema: string,
     table: string,
   ): Promise<Trigger[]> {
-    const adapter = await getAdapterForConnection(connectionId);
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    if (!adapter) return [];
     const sql = adapter.getTriggersQuery(schema, table);
     const result = await BackendAPI.query(connectionId, sql);
 
@@ -457,7 +468,8 @@ export const IntrospectionService = {
    * Get supported index types
    */
   async getSupportedIndexTypes(connectionId: string): Promise<string[]> {
-    const adapter = await getAdapterForConnection(connectionId);
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    if (!adapter) return [];
     const sql = adapter.getSupportedIndexTypesQuery();
     const result = await BackendAPI.query(connectionId, sql);
 
@@ -468,7 +480,8 @@ export const IntrospectionService = {
    * Get supported column types
    */
   async getSupportedColumnTypes(connectionId: string): Promise<string[]> {
-    const adapter = await getAdapterForConnection(connectionId);
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    if (!adapter) return [];
     const sql = adapter.getSupportedColumnTypesQuery();
     const result = await BackendAPI.query(connectionId, sql);
 
@@ -488,7 +501,8 @@ export const IntrospectionService = {
     rowCount?: number;
     comment?: string;
   } | null> {
-    const adapter = await getAdapterForConnection(connectionId);
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    if (!adapter) return null;
     const sql = adapter.getTableStatsQuery(schema, table);
     const result = await BackendAPI.query(connectionId, sql);
 
@@ -512,7 +526,8 @@ export const IntrospectionService = {
     connectionId: string,
     schema: string,
   ): Promise<Array<{ table: string; column: string; type: string }>> {
-    const adapter = await getAdapterForConnection(connectionId);
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    if (!adapter) return [];
     const sql = adapter.getForeignKeyTargetsQuery(schema);
     const result = await BackendAPI.query(connectionId, sql);
 
@@ -532,7 +547,8 @@ export const IntrospectionService = {
     table: string,
     options?: { exact?: boolean },
   ): Promise<number> {
-    const adapter = await getAdapterForConnection(connectionId);
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    if (!adapter) return 0;
 
     if (options?.exact) {
       const exactSql = adapter.getTableCountQuery(schema, table, true);
@@ -590,6 +606,14 @@ export const IntrospectionService = {
           if (value && /^\s*(CREATE|--)/i.test(value)) {
             return value;
           }
+        }
+        // MySQL: NULL in definition column indicates missing SHOW ROUTINE or SELECT privilege
+        const objectName = getString(row[0]);
+        const hasNullDefinition = row.some(
+          (cell, index) => index > 0 && cell === null,
+        );
+        if (objectName && hasNullDefinition && row.length > 1) {
+          return `-- This user does not have permission to view the definition of '${objectName}'\n-- Required privilege: SHOW ROUTINE (for functions/procedures) or SELECT (for views)`;
         }
         // Fallback to column 0 if no CREATE found
         return getString(row[0]);
@@ -670,6 +694,7 @@ export const IntrospectionService = {
       data_length: getNumber(row[13]),
       index_length: getNumber(row[14]),
       partition_comment: getString(row[15]) || undefined,
+      partition_function_name: getString(row[16]) || undefined,
     }));
   },
 };

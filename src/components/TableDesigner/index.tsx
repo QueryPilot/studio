@@ -31,15 +31,19 @@ import type {
   CrudCommandTarget,
   ColumnDefinitionInput,
   ForeignKeyAddPayload,
+  IndexCreatePayload,
   TableCreatePayload,
 } from "@/types/crud";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { IndexDesigner } from "./IndexDesigner";
 import { toast } from "sonner";
 import { useForeignKeyTargets } from "@/hooks/useForeignKeyTargets";
 import { CrudCommandFactory } from "@/services/crudCommandFactory";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import {
   getDesignerModifiedFields,
+  syncIndexCommandsWithColumns,
   type DesignerGridRow,
   type DesignerModifiedField,
 } from "./utils";
@@ -137,6 +141,12 @@ const resolveTableName = (value: string, fallback: string): string =>
 const quoteIdentifier = (value: string): string =>
   `"${value.replace(/"/g, '""')}"`;
 
+const getCommandTimestamp = (command: CrudCommand): number => {
+  const raw = command.metadata.timestamp;
+  const timestamp = raw ? Date.parse(raw) : Number.NaN;
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+};
+
 const trailingRowTheme = {
   bgIconHeader: "#D4A52B",
 };
@@ -233,6 +243,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
 }) => {
   const tableNameInputRef = useRef<HTMLInputElement>(null);
   const [globalChangesDialogOpen, setGlobalChangesDialogOpen] = useState(false);
+  const [tableNameDraft, setTableNameDraft] = useState("");
   const updateTabMetadata = useWorkbenchStore((s) => s.updateTabMetadata);
   const stagedCommands = useCrudStore((state) => state.stagedCommands);
   const stageBatchWithSingleHistoryEntry = useCrudStore(
@@ -268,10 +279,17 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
     return commands;
   }, [designerTag, stagedCommands]);
 
-  const tableCreateCommand = useMemo(
-    () => designerCommands.find((cmd) => cmd.type === "table.create"),
+  const tableCreateCommands = useMemo(
+    () => designerCommands.filter((cmd) => cmd.type === "table.create"),
     [designerCommands],
   );
+
+  const tableCreateCommand = useMemo(() => {
+    if (tableCreateCommands.length === 0) return undefined;
+    return [...tableCreateCommands].sort(
+      (a, b) => getCommandTimestamp(b) - getCommandTimestamp(a),
+    )[0];
+  }, [tableCreateCommands]);
 
   const fkCommands = useMemo(
     () => designerCommands.filter((cmd) => cmd.type === "fk.add"),
@@ -282,32 +300,57 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
     (tableCreateCommand?.payload as TableCreatePayload | undefined)
       ?.tableName ?? "";
   const tableTargetName = tableCreateCommand?.target.table ?? draftTableName;
-
-  const tableKey = useMemo(
-    () =>
-      buildCrudTableKey({
-        connectionId,
-        database,
-        schema,
-        table: tableTargetName,
-      }),
-    [connectionId, database, schema, tableTargetName],
-  );
+  const effectiveTableName = tableNameDraft.trim() || tableName.trim();
 
   // Auto-focus on table name input
   useEffect(() => {
     tableNameInputRef.current?.focus();
   }, []);
 
-  // Sync input value when tableName changes from external source (e.g., undo/redo)
+  // Sync table name draft when staged value changes from external source (e.g., undo/redo)
   useEffect(() => {
-    if (
-      tableNameInputRef.current &&
-      tableNameInputRef.current.value !== tableName
-    ) {
-      tableNameInputRef.current.value = tableName;
-    }
+    setTableNameDraft(tableName);
   }, [tableName]);
+
+  useEffect(() => {
+    if (tableCreateCommands.length <= 1) return;
+    const sorted = [...tableCreateCommands].sort(
+      (a, b) => getCommandTimestamp(b) - getCommandTimestamp(a),
+    );
+    const canonical = sorted[0];
+    if (!canonical) return;
+
+    const duplicateIds = tableCreateCommands
+      .filter((cmd) => cmd.id !== canonical.id)
+      .map((cmd) => cmd.id);
+    if (duplicateIds.length > 0) {
+      unstageCommands(duplicateIds);
+    }
+  }, [tableCreateCommands, unstageCommands]);
+
+  const buildDesignerCreateCommand = useCallback(
+    (
+      target: CrudCommandTarget,
+      payload: {
+        tableName: string;
+        columns: ColumnDefinitionInput[];
+        primaryKey?: string[];
+        ifNotExists?: boolean;
+      },
+    ) => {
+      const createCommand = createTableCreateCommand(target, payload);
+      return {
+        ...createCommand,
+        // Stable ID keeps initialization idempotent under StrictMode/effect replay.
+        id: `${designerTag}:table.create`,
+        metadata: {
+          ...createCommand.metadata,
+          tags: ensureTags(createCommand.metadata.tags, [designerTag]),
+        },
+      };
+    },
+    [designerTag],
+  );
 
   useEffect(() => {
     if (!connectionId || !database || tableCreateCommand) return;
@@ -329,26 +372,18 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       },
     ] satisfies ColumnDefinitionInput[];
 
-    const createCommand = createTableCreateCommand(target, {
+    const createCommand = buildDesignerCreateCommand(target, {
       tableName: "",
       columns: defaultColumns,
       primaryKey: ["id"],
     });
 
-    stageBatchWithSingleHistoryEntry([
-      {
-        ...createCommand,
-        metadata: {
-          ...createCommand.metadata,
-          tags: ensureTags(createCommand.metadata.tags, [designerTag]),
-        },
-      },
-    ]);
+    stageBatchWithSingleHistoryEntry([createCommand]);
   }, [
+    buildDesignerCreateCommand,
     connectionId,
     database,
     draftTableName,
-    designerTag,
     schema,
     stageBatchWithSingleHistoryEntry,
     tableCreateCommand,
@@ -454,6 +489,94 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       };
     });
   }, [columns, foreignKeyByColumnName, foreignKeyByIndex, primaryKeySet]);
+
+  // Column names for IndexDesigner's column picker
+  const availableColumnNames = useMemo(
+    () => columns.filter((c) => c.name.trim()).map((c) => c.name),
+    [columns],
+  );
+
+  // FK column names for auto-suggest
+  const foreignKeyColumnNames = useMemo(() => {
+    const fkCols: string[] = [];
+    fkCommands.forEach((cmd) => {
+      const payload = cmd.payload as ForeignKeyAddPayload;
+      const colName = payload.definition?.columns?.[0];
+      if (colName) fkCols.push(colName);
+    });
+    return fkCols;
+  }, [fkCommands]);
+
+  // Count index commands for tab badge
+  const indexCommandCount = useMemo(
+    () => designerCommands.filter((cmd) => cmd.type === "index.create").length,
+    [designerCommands],
+  );
+
+  // Track previous column names for rename detection
+  const prevColumnNamesRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    const currentNames = availableColumnNames;
+    const prevNames = prevColumnNamesRef.current;
+    prevColumnNamesRef.current = currentNames;
+
+    // Skip first render or when no index commands
+    if (prevNames.length === 0 || indexCommandCount === 0) return;
+
+    // Build rename map: detect 1:1 positional renames
+    const renames = new Map<string, string>();
+    const minLen = Math.min(prevNames.length, currentNames.length);
+    for (let i = 0; i < minLen; i++) {
+      if (prevNames[i] && currentNames[i] && prevNames[i] !== currentNames[i]) {
+        // Only treat as rename if old name no longer exists anywhere
+        if (!currentNames.includes(prevNames[i]!)) {
+          renames.set(prevNames[i]!, currentNames[i]!);
+        }
+      }
+    }
+
+    // Get current index commands from designerCommands
+    const currentIndexCommands = designerCommands.filter(
+      (cmd) => cmd.type === "index.create",
+    );
+
+    if (currentIndexCommands.length === 0) return;
+
+    const synced = syncIndexCommandsWithColumns(
+      currentIndexCommands,
+      currentNames,
+      renames,
+    );
+
+    if (!synced) return;
+
+    // Find removed command IDs (commands excluded from synced result)
+    const syncedIds = new Set(synced.map((c) => c.id));
+    const removedIds = currentIndexCommands
+      .filter((c) => !syncedIds.has(c.id))
+      .map((c) => c.id);
+
+    if (removedIds.length > 0) {
+      unstageCommands(removedIds);
+    }
+
+    // Stage only commands that actually changed
+    const updatedCommands = synced.filter((c) => {
+      const original = currentIndexCommands.find((orig) => orig.id === c.id);
+      return original !== c; // reference equality — changed commands are new objects
+    });
+
+    if (updatedCommands.length > 0) {
+      stageBatchWithSingleHistoryEntry(updatedCommands);
+    }
+  }, [
+    availableColumnNames,
+    designerCommands,
+    indexCommandCount,
+    stageBatchWithSingleHistoryEntry,
+    unstageCommands,
+  ]);
 
   const fkCommandByIndex = useMemo(() => {
     const map = new Map<number, CrudCommand>();
@@ -983,21 +1106,13 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
           },
         ] satisfies ColumnDefinitionInput[];
 
-        const createCommand = createTableCreateCommand(target, {
+        const createCommand = buildDesignerCreateCommand(target, {
           tableName: nextName.trim(),
           columns: defaultColumns,
           primaryKey: ["id"],
         });
 
-        stageBatchWithSingleHistoryEntry([
-          {
-            ...createCommand,
-            metadata: {
-              ...createCommand.metadata,
-              tags: ensureTags(createCommand.metadata.tags, [designerTag]),
-            },
-          },
-        ]);
+        stageBatchWithSingleHistoryEntry([createCommand]);
         return;
       }
       if (nextName === tableName) return;
@@ -1038,12 +1153,12 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       stageBatchWithSingleHistoryEntry(updatedCommands);
     },
     [
+      buildDesignerCreateCommand,
       buildForeignKeyCommand,
       buildTableCreateCommand,
       columns,
       connectionId,
       database,
-      designerTag,
       fkCommands,
       fkTagPrefix,
       resolveTargetTableName,
@@ -1054,92 +1169,118 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
     ],
   );
 
+  const commitTableNameDraft = useCallback(
+    (nextName: string) => {
+      const trimmedName = nextName.trim();
+      if (nextName !== tableName) {
+        handleTableNameChange(nextName);
+      }
+      updateTabMetadata(panelId, tabId, {
+        title: trimmedName || "New Table",
+        table: trimmedName || undefined,
+      });
+    },
+    [handleTableNameChange, panelId, tabId, tableName, updateTabMetadata],
+  );
+
   // Handle blur - update crud store and tab title
   const handleTableNameBlur = useCallback(() => {
-    const inputValue = tableNameInputRef.current?.value ?? "";
-    const trimmedName = inputValue.trim();
-
-    // Update crud store if changed
-    if (inputValue !== tableName) {
-      handleTableNameChange(inputValue);
-    }
-
-    // Update tab title
-    updateTabMetadata(panelId, tabId, {
-      title: trimmedName || "New Table",
-      table: trimmedName || undefined,
-    });
-  }, [handleTableNameChange, panelId, tabId, tableName, updateTabMetadata]);
+    commitTableNameDraft(tableNameDraft);
+  }, [commitTableNameDraft, tableNameDraft]);
 
   // Generate SQL
-  const generateSQL = useCallback(() => {
-    if (!tableName.trim() || gridRows.length === 0) return "";
+  const generateSQL = useCallback(
+    (tableNameOverride?: string) => {
+      const resolvedTableName = (
+        tableNameOverride ?? tableName
+      ).trim();
+      if (!resolvedTableName || gridRows.length === 0) return "";
 
-    const pkColumns = gridRows
-      .filter((r) => r.column_meta.is_pk)
-      .map((r) => r.column_name);
+      const pkColumns = gridRows
+        .filter((r) => r.column_meta.is_pk)
+        .map((r) => r.column_name);
 
-    const columnDefs = gridRows
-      .map((col) => {
-        let def = `  ${quoteIdentifier(col.column_name)} ${col.db_type}`;
-        if (col.nullable === "NO") def += " NOT NULL";
-        if (col.default?.trim()) def += ` DEFAULT ${col.default.trim()}`;
-        if (col.check_constraint?.trim()) {
-          def += ` CHECK (${normalizeCheckConstraint(col.check_constraint)})`;
-        }
-        return def;
-      })
-      .join(",\n");
+      const columnDefs = gridRows
+        .map((col) => {
+          let def = `  ${quoteIdentifier(col.column_name)} ${col.db_type}`;
+          if (col.nullable === "NO") def += " NOT NULL";
+          if (col.default?.trim()) def += ` DEFAULT ${col.default.trim()}`;
+          if (col.check_constraint?.trim()) {
+            def += ` CHECK (${normalizeCheckConstraint(col.check_constraint)})`;
+          }
+          return def;
+        })
+        .join(",\n");
 
-    const pkConstraint =
-      pkColumns.length > 0
-        ? `,\n  PRIMARY KEY (${pkColumns
-            .map((c) => quoteIdentifier(c))
-            .join(", ")})`
-        : "";
+      const pkConstraint =
+        pkColumns.length > 0
+          ? `,\n  PRIMARY KEY (${pkColumns
+              .map((c) => quoteIdentifier(c))
+              .join(", ")})`
+          : "";
 
-    const foreignKeyConstraints = gridRows
-      .map((col) => {
-        if (!col.foreign_key) return null;
-        const parsed = parseForeignKeyValue(col.foreign_key);
-        if (!parsed) return null;
-        const tableRef = parsed.schema
-          ? `${quoteIdentifier(parsed.schema)}.${quoteIdentifier(parsed.table)}`
-          : quoteIdentifier(parsed.table);
-        return `  FOREIGN KEY (${quoteIdentifier(
-          col.column_name,
-        )}) REFERENCES ${tableRef} (${quoteIdentifier(parsed.column)})`;
-      })
-      .filter((constraint): constraint is string => Boolean(constraint))
-      .join(",\n");
+      const foreignKeyConstraints = gridRows
+        .map((col) => {
+          if (!col.foreign_key) return null;
+          const parsed = parseForeignKeyValue(col.foreign_key);
+          if (!parsed) return null;
+          const tableRef = parsed.schema
+            ? `${quoteIdentifier(parsed.schema)}.${quoteIdentifier(parsed.table)}`
+            : quoteIdentifier(parsed.table);
+          return `  FOREIGN KEY (${quoteIdentifier(
+            col.column_name,
+          )}) REFERENCES ${tableRef} (${quoteIdentifier(parsed.column)})`;
+        })
+        .filter((constraint): constraint is string => Boolean(constraint))
+        .join(",\n");
 
-    const allConstraints = [pkConstraint.trim(), foreignKeyConstraints]
-      .filter(Boolean)
-      .map((constraint) =>
-        constraint.startsWith(",") ? constraint : `,\n${constraint}`,
-      )
-      .join("");
+      const allConstraints = [pkConstraint.trim(), foreignKeyConstraints]
+        .filter(Boolean)
+        .map((constraint) =>
+          constraint.startsWith(",") ? constraint : `,\n${constraint}`,
+        )
+        .join("");
 
-    const createTable = `CREATE TABLE ${quoteIdentifier(
-      schema,
-    )}.${quoteIdentifier(tableName)} (\n${columnDefs}${allConstraints}\n);`;
+      const createTable = `CREATE TABLE ${quoteIdentifier(
+        schema,
+      )}.${quoteIdentifier(resolvedTableName)} (\n${columnDefs}${allConstraints}\n);`;
 
-    const commentStatements = gridRows
-      .map((col) => {
-        if (!col.comment || !col.comment.trim()) return null;
-        const columnRef = `${quoteIdentifier(schema)}.${quoteIdentifier(
-          tableName,
-        )}.${quoteIdentifier(col.column_name)}`;
-        const escaped = col.comment.replace(/'/g, "''");
-        return `COMMENT ON COLUMN ${columnRef} IS '${escaped}';`;
-      })
-      .filter((statement): statement is string => Boolean(statement));
+      const commentStatements = gridRows
+        .map((col) => {
+          if (!col.comment || !col.comment.trim()) return null;
+          const columnRef = `${quoteIdentifier(schema)}.${quoteIdentifier(
+            resolvedTableName,
+          )}.${quoteIdentifier(col.column_name)}`;
+          const escaped = col.comment.replace(/'/g, "''");
+          return `COMMENT ON COLUMN ${columnRef} IS '${escaped}';`;
+        })
+        .filter((statement): statement is string => Boolean(statement));
 
-    return [createTable, ...commentStatements].join("\n");
-  }, [tableName, gridRows, schema]);
+      // Generate CREATE INDEX statements from staged index commands
+      const indexStatements = designerCommands
+        .filter((cmd) => cmd.type === "index.create")
+        .map((cmd) => {
+          const payload = cmd.payload as IndexCreatePayload;
+          const def = payload.definition;
+          if (!def.name || def.columns.length === 0) return null;
+
+          const uniqueKeyword = def.unique ? "UNIQUE " : "";
+          const cols = def.columns.map((c) => quoteIdentifier(c)).join(", ");
+          const tableRef = `${quoteIdentifier(schema)}.${quoteIdentifier(resolvedTableName)}`;
+          const usingClause = def.using && def.using !== "btree" ? ` USING ${def.using}` : "";
+          const whereClause = def.where ? ` WHERE ${def.where}` : "";
+
+          return `CREATE ${uniqueKeyword}INDEX ${quoteIdentifier(def.name)} ON ${tableRef}${usingClause} (${cols})${whereClause};`;
+        })
+        .filter((s): s is string => Boolean(s));
+
+      return [createTable, ...commentStatements, ...indexStatements].join("\n");
+    },
+    [tableName, gridRows, schema, designerCommands],
+  );
 
   const handleSave = useCallback(() => {
-    if (!tableName.trim()) {
+    if (!effectiveTableName) {
       toast.error("Please enter a table name");
       tableNameInputRef.current?.focus();
       return;
@@ -1174,8 +1315,60 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       });
       return;
     }
+
+    // Validate indexes
+    const invalidIndexes: string[] = [];
+    const indexNames = new Set<string>();
+
+    const currentIndexCommands = designerCommands.filter(
+      (cmd) => cmd.type === "index.create",
+    );
+
+    currentIndexCommands.forEach((cmd) => {
+      const payload = cmd.payload as IndexCreatePayload;
+      const def = payload.definition;
+      if (!def.name.trim()) {
+        invalidIndexes.push("An index is missing a name");
+      }
+      if (def.columns.length === 0) {
+        invalidIndexes.push(`Index "${def.name || "(unnamed)"}" has no columns`);
+      }
+      const missingCols = def.columns.filter(
+        (c) => !availableColumnNames.includes(c),
+      );
+      if (missingCols.length > 0) {
+        invalidIndexes.push(
+          `Index "${def.name}" references non-existent column(s): ${missingCols.join(", ")}`,
+        );
+      }
+      if (def.name && indexNames.has(def.name)) {
+        invalidIndexes.push(`Duplicate index name: "${def.name}"`);
+      }
+      if (def.name) indexNames.add(def.name);
+    });
+
+    if (invalidIndexes.length > 0) {
+      toast.error("Invalid index definitions", {
+        description: invalidIndexes[0],
+      });
+      return;
+    }
+
+    if (tableNameDraft !== tableName) {
+      commitTableNameDraft(tableNameDraft);
+    }
+
     setGlobalChangesDialogOpen(true);
-  }, [tableName, columns, gridRows]);
+  }, [
+    availableColumnNames,
+    columns,
+    commitTableNameDraft,
+    designerCommands,
+    effectiveTableName,
+    gridRows,
+    tableName,
+    tableNameDraft,
+  ]);
 
   const handleCancel = useCallback(() => {
     if (designerCommands.length > 0) {
@@ -1192,9 +1385,31 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
         <Input
           ref={tableNameInputRef}
           id="tableName"
-          defaultValue={tableName}
+          value={tableNameDraft}
+          onChange={(e) => {
+            setTableNameDraft(e.target.value);
+          }}
           onBlur={handleTableNameBlur}
           onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commitTableNameDraft(e.currentTarget.value);
+              e.currentTarget.blur();
+              return;
+            }
+
+            if (e.key === "Tab") {
+              commitTableNameDraft(e.currentTarget.value);
+              return;
+            }
+
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setTableNameDraft(tableName);
+              e.currentTarget.blur();
+              return;
+            }
+
             if (e.key === " ") {
               e.preventDefault();
               const input = e.currentTarget;
@@ -1203,33 +1418,57 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
               input.value =
                 input.value.slice(0, start) + "_" + input.value.slice(end);
               input.setSelectionRange(start + 1, start + 1);
+              setTableNameDraft(input.value);
             }
           }}
           placeholder="Enter table name"
         />
       </div>
 
-      {/* Columns Editor */}
-      <div className="flex-1 min-h-0">
-        <DataGridBase
-          columns={sizedColumns}
-          rowCount={gridRows.length}
-          getCellContent={getCellContent}
-          onCellEdited={handleCellEdited}
-          customRenderers={customRenderers}
-          onColumnResize={handleColumnResize}
-          onColumnResizeEnd={handleColumnResizeEnd}
-          trailingRowOptions={{
-            sticky: false,
-            tint: false,
-          }}
-          onRowAppended={handleRowAppended}
-          smoothScrollX
-          smoothScrollY
-          rowSelect="none"
-          columnSelect="none"
-        />
-      </div>
+      {/* Tabbed Content */}
+      <Tabs defaultValue="columns" className="flex flex-col flex-1 min-h-0">
+        <TabsList className="mx-0.5 w-fit">
+          <TabsTrigger value="columns">Columns</TabsTrigger>
+          <TabsTrigger value="indexes">
+            Indexes{indexCommandCount > 0 ? ` (${indexCommandCount})` : ""}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="columns" className="flex-1 min-h-0 mt-0" keepMounted>
+          <DataGridBase
+            columns={sizedColumns}
+            rowCount={gridRows.length}
+            getCellContent={getCellContent}
+            onCellEdited={handleCellEdited}
+            customRenderers={customRenderers}
+            onColumnResize={handleColumnResize}
+            onColumnResizeEnd={handleColumnResizeEnd}
+            trailingRowOptions={{
+              sticky: false,
+              tint: false,
+            }}
+            onRowAppended={handleRowAppended}
+            smoothScrollX
+            smoothScrollY
+            rowSelect="none"
+            columnSelect="none"
+          />
+        </TabsContent>
+
+        <TabsContent value="indexes" className="flex-1 min-h-0 mt-0">
+          <IndexDesigner
+            panelId={panelId}
+            tabId={tabId}
+            connectionId={connectionId}
+            database={database}
+            schema={schema}
+            availableColumns={availableColumnNames}
+            tableName={effectiveTableName}
+            foreignKeyColumns={foreignKeyColumnNames}
+            designerTag={designerTag}
+          />
+        </TabsContent>
+      </Tabs>
 
       {/* Footer Actions */}
       <div className="flex-none p-3 border-t flex justify-end gap-2">
@@ -1241,7 +1480,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
         <Button
           size="sm"
           onClick={handleSave}
-          disabled={!tableName.trim() || columns.length === 0}
+          disabled={!effectiveTableName || columns.length === 0}
         >
           Create Table
         </Button>
@@ -1255,9 +1494,16 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
         schema={schema}
         table={tableTargetName}
         onCommitSuccess={() => {
-          const sql = generateSQL();
-          onSave?.(tableName, sql);
-          discardChanges(tableKey);
+          const finalTableName = effectiveTableName;
+          const sql = generateSQL(finalTableName);
+          onSave?.(finalTableName, sql);
+          const committedTableKey = buildCrudTableKey({
+            connectionId,
+            database,
+            schema,
+            table: resolveTargetTableName(finalTableName),
+          });
+          discardChanges(committedTableKey);
           setGlobalChangesDialogOpen(false);
         }}
       />

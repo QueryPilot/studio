@@ -14,6 +14,10 @@ const MONO_FONT = `400 11px ${MONOSPACE_FONT_FAMILY}`;
 // Color for invalid JSON
 const INVALID_JSON_COLOR = "#ef4444";
 
+// Cache for minified JSON to avoid parsing/stringifying on every render
+const minifiedJsonCache = new Map<string, string>();
+const MAX_CACHE_SIZE = 1000;
+
 const JSONCellRenderer: CustomCellRenderer<JsonCustomCell> = {
   isMatch: (cell: CustomCell): cell is JsonCustomCell => {
     const data = cell.data as Record<string, unknown> | null;
@@ -37,15 +41,22 @@ const JSONCellRenderer: CustomCellRenderer<JsonCustomCell> = {
       color = cachedTheme.nullTextColor;
       ctx.font = cachedTheme.italicFont;
     } else {
-      // Show minified/compact JSON
-      try {
-        const parsed = JSON.parse(value);
-        const minified = JSON.stringify(parsed);
-        text = minified;
-      } catch {
-        // If parsing fails, show raw value
-        text = value;
+      // Show minified/compact JSON (cached to avoid parsing on every render)
+      let minified = minifiedJsonCache.get(value);
+      if (minified === undefined) {
+        try {
+          const parsed = JSON.parse(value);
+          minified = JSON.stringify(parsed);
+        } catch {
+          minified = value;
+        }
+        // Simple LRU: clear if too large
+        if (minifiedJsonCache.size > MAX_CACHE_SIZE) {
+          minifiedJsonCache.clear();
+        }
+        minifiedJsonCache.set(value, minified);
       }
+      text = minified;
 
       // Color code based on validity
       if (isValid === false) {

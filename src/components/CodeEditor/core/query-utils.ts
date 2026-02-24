@@ -7,29 +7,39 @@ import type { EditorView } from "@codemirror/view";
 import type { EditorState } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 
-// Memoization cache for getAllStatements - avoids recomputing on every call
-let statementsCache: {
+// LRU cache for getAllStatements - supports multiple concurrent editors without thrashing
+const statementsLRU = new Map<string, {
   docLength: number;
-  docHash: number;
   treeLength: number;
   statements: StatementBoundary[];
-} | null = null;
+}>();
+const MAX_CACHE_SIZE = 8; // Support up to 8 concurrent editors
 
 function hashDoc(state: EditorState): number {
-  // Fast hash using first/last chars and length - good enough for change detection
+  // Fast hash using first/middle/last chars and length for change detection
   const doc = state.doc;
   const len = doc.length;
   if (len === 0) return 0;
-  const first = doc.sliceString(0, Math.min(100, len));
+  const sampleSize = Math.min(100, len);
+  const first = doc.sliceString(0, sampleSize);
+  const midStart = Math.max(0, Math.floor(len / 2) - 50);
+  const middle = len > 200 ? doc.sliceString(midStart, midStart + sampleSize) : "";
   const last = len > 100 ? doc.sliceString(Math.max(0, len - 100), len) : "";
   let hash = len;
   for (let i = 0; i < first.length; i++) {
     hash = ((hash << 5) - hash + first.charCodeAt(i)) | 0;
   }
+  for (let i = 0; i < middle.length; i++) {
+    hash = ((hash << 5) - hash + middle.charCodeAt(i)) | 0;
+  }
   for (let i = 0; i < last.length; i++) {
     hash = ((hash << 5) - hash + last.charCodeAt(i)) | 0;
   }
   return hash;
+}
+
+function getCacheKey(state: EditorState): string {
+  return `${state.doc.length}:${hashDoc(state)}:${syntaxTree(state).length}`;
 }
 
 // SQL statement types recognized by the Lezer grammar
@@ -291,16 +301,12 @@ export function getAllStatements(state: EditorState): StatementBoundary[] {
   const doc = state.doc;
   const docLength = doc.length;
   const treeLength = tree.length;
-  const docHash = hashDoc(state);
+  const cacheKey = getCacheKey(state);
 
   // Return cached result if document unchanged
-  if (
-    statementsCache &&
-    statementsCache.docLength === docLength &&
-    statementsCache.docHash === docHash &&
-    statementsCache.treeLength === treeLength
-  ) {
-    return statementsCache.statements;
+  const cached = statementsLRU.get(cacheKey);
+  if (cached && cached.docLength === docLength && cached.treeLength === treeLength) {
+    return cached.statements;
   }
 
   const statements: StatementBoundary[] = [];
@@ -385,8 +391,12 @@ export function getAllStatements(state: EditorState): StatementBoundary[] {
     }
   }
 
-  // Cache result for subsequent calls
-  statementsCache = { docLength, docHash, treeLength, statements };
+  // Cache result for subsequent calls (LRU eviction)
+  if (statementsLRU.size >= MAX_CACHE_SIZE) {
+    const firstKey = statementsLRU.keys().next().value;
+    if (firstKey) statementsLRU.delete(firstKey);
+  }
+  statementsLRU.set(cacheKey, { docLength, treeLength, statements });
 
   return statements;
 }

@@ -4,7 +4,6 @@ import type {
   HomeScreenState,
   ContentMode,
   FormMode,
-  WorkspaceFormMode,
 } from "../types";
 
 export const useHomeScreenStore = create<HomeScreenState>()(
@@ -15,17 +14,18 @@ export const useHomeScreenStore = create<HomeScreenState>()(
       selectedConnectionIds: new Set<string>(),
       formMode: "create",
       formConnectionId: null,
+      formPreselectedWorkspaceId: null,
       activeEnvFilters: ["all"],
       searchQuery: "",
-      actionBarExpanded: false,
-      sidebarWidth: 200,
       collapsedGroups: [],
+
+      // Workspace form state
+      workspaceFormMode: "create",
+      workspaceFormId: null,
 
       // Workspace state
       selectedWorkspaceId: null,
       workspaceFilterId: null,
-      workspaceFormMode: "create",
-      editingWorkspaceId: null,
 
       setContentMode: (mode: ContentMode) => set({ contentMode: mode }),
 
@@ -35,17 +35,19 @@ export const useHomeScreenStore = create<HomeScreenState>()(
           contentMode: id ? "details" : "browse",
         }),
 
-      openConnectionForm: (mode: FormMode, id?: string) =>
+      openConnectionForm: (mode: FormMode, id?: string, workspaceId?: string) =>
         set({
           contentMode: "form",
           formMode: mode,
           formConnectionId: id ?? null,
+          formPreselectedWorkspaceId: workspaceId ?? null,
         }),
 
       closeForm: () =>
         set({
           contentMode: "browse",
           formConnectionId: null,
+          formPreselectedWorkspaceId: null,
         }),
 
       toggleEnvFilter: (env: string) =>
@@ -68,16 +70,6 @@ export const useHomeScreenStore = create<HomeScreenState>()(
         }),
 
       setSearchQuery: (query: string) => set({ searchQuery: query }),
-
-      toggleActionBar: () =>
-        set((state) => ({
-          actionBarExpanded: !state.actionBarExpanded,
-        })),
-
-      setActionBarExpanded: (expanded: boolean) =>
-        set({ actionBarExpanded: expanded }),
-
-      setSidebarWidth: (width: number) => set({ sidebarWidth: width }),
 
       toggleGroup: (group: string) =>
         set((state) => ({
@@ -125,23 +117,37 @@ export const useHomeScreenStore = create<HomeScreenState>()(
           selectedWorkspaceId: workspaceId,
         }),
 
-      showWorkspaceForm: (mode: WorkspaceFormMode, workspaceId?: string) =>
-        set({
-          contentMode: "workspace-form",
-          workspaceFormMode: mode,
-          editingWorkspaceId: workspaceId ?? null,
-        }),
-
       setWorkspaceFilter: (workspaceId: string | null) =>
         set({ workspaceFilterId: workspaceId }),
 
       clearWorkspaceFilter: () => set({ workspaceFilterId: null }),
+
+      openWorkspaceForm: (mode: "create" | "edit", workspaceId?: string) =>
+        set({
+          contentMode: "workspace-form",
+          workspaceFormMode: mode,
+          workspaceFormId: workspaceId ?? null,
+        }),
+
+      closeWorkspaceForm: () =>
+        set({
+          contentMode: "browse",
+          workspaceFormId: null,
+        }),
+
+      openWorkspaceCreationForm: () =>
+        set({
+          contentMode: "workspace-creation-form",
+        }),
+
+      closeWorkspaceCreationForm: () =>
+        set({
+          contentMode: "browse",
+        }),
     }),
     {
       name: "home-screen-state",
       partialize: (state) => ({
-        actionBarExpanded: state.actionBarExpanded,
-        sidebarWidth: state.sidebarWidth,
         collapsedGroups: state.collapsedGroups,
         activeEnvFilters: state.activeEnvFilters,
       }),

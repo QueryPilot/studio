@@ -7,6 +7,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { logger } from "@/lib/logger";
+import { isTauri } from "@/utils/tauri";
 
 // Types matching Rust structs from outline.rs
 // (serde handles snake_case to camelCase conversion)
@@ -46,21 +47,13 @@ export interface TableOutline {
   join_type: string | null; // "INNER", "LEFT", etc.
 }
 
-// Simple cache for outline results
-interface OutlineCache {
-  sql: string;
-  dialect: string;
-  outline: OutlineTree;
-}
+// Cache outline results by (dialect + sql) so split editors and tab switches
+// don't evict each other's most recent parse result.
+const OUTLINE_CACHE_MAX_ENTRIES = 25;
+const cache = new Map<string, OutlineTree>();
 
-let cache: OutlineCache | null = null;
-
-/**
- * Check if Tauri environment is available.
- * Tauri 2 uses __TAURI_INTERNALS__ instead of __TAURI__
- */
-function isTauriAvailable(): boolean {
-  return typeof window !== "undefined" && window.__TAURI_INTERNALS__ !== undefined;
+function getCacheKey(sql: string, dialect: string): string {
+  return `${dialect}:${sql}`;
 }
 
 /**
@@ -81,13 +74,16 @@ export async function getOutline(
   sql: string,
   dialect: string
 ): Promise<OutlineTree> {
+  const cacheKey = getCacheKey(sql, dialect);
+
   // Return cached result if sql and dialect match
-  if (cache && cache.sql === sql && cache.dialect === dialect) {
-    return cache.outline;
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    return cached;
   }
 
   // Check Tauri availability
-  if (!isTauriAvailable()) {
+  if (!isTauri()) {
     logger.warn("[refactor-service] Tauri not available, cannot get outline");
     return createFailedOutline();
   }
@@ -101,12 +97,14 @@ export async function getOutline(
 
     logger.debug("[refactor-service] Got outline", outline);
 
-    // Update cache
-    cache = {
-      sql,
-      dialect,
-      outline,
-    };
+    // Update cache (simple bounded LRU-like behavior)
+    cache.set(cacheKey, outline);
+    if (cache.size > OUTLINE_CACHE_MAX_ENTRIES) {
+      const oldestKey = cache.keys().next().value;
+      if (oldestKey) {
+        cache.delete(oldestKey);
+      }
+    }
 
     return outline;
   } catch (error) {
@@ -119,7 +117,7 @@ export async function getOutline(
  * Clear the outline cache (call when document changes significantly)
  */
 export function clearOutlineCache(): void {
-  cache = null;
+  cache.clear();
 }
 
 // =============================================================================
@@ -158,7 +156,7 @@ export async function getRefactorActions(
   dialect: string,
   cursorOffset: number
 ): Promise<RefactorAction[]> {
-  if (!isTauriAvailable()) {
+  if (!isTauri()) {
     logger.warn("[refactor-service] Tauri not available");
     return [];
   }
@@ -183,7 +181,7 @@ export async function applyRefactor(
   dialect: string,
   action: RefactorRequest
 ): Promise<RefactorResult> {
-  if (!isTauriAvailable()) {
+  if (!isTauri()) {
     throw new Error("Tauri not available");
   }
 

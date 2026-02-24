@@ -9,41 +9,39 @@ import {
   memo,
 } from "react";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useContextKey } from "@/hooks/useContextKey";
 import {
   IconSearch,
   IconCode,
-  IconSparkles,
   IconX,
   IconLoader2,
   IconCopy,
+  IconSparkles,
+  IconCheck,
 } from "@tabler/icons-react";
 import CodeMirror, { EditorView } from "@uiw/react-codemirror";
 import { sql, PostgreSQL } from "@codemirror/lang-sql";
 import { keymap } from "@codemirror/view";
-import { Prec } from "@codemirror/state";
+import { Prec, Compartment } from "@codemirror/state";
 import { history, historyKeymap } from "@codemirror/commands";
 import { getThemeExtensions } from "@/components/CodeEditor/themes";
 import { useTheme } from "@/components/theme-provider";
 import { linter, type Diagnostic } from "@codemirror/lint";
-import {
-  parseWithWorker,
-  acquirePgParserWorker,
-  releasePgParserWorker,
-} from "@/components/CodeEditor/languages/sql/pg-parser-worker-manager";
+import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  DropdownMenuSeparator,
-  DropdownMenuLabel,
-  DropdownMenuGroup,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
+import { useAcpStore } from "@/stores/acpStore";
 // Note: Removed Popover - using lightweight positioned div for autocomplete performance
 import { cn } from "@/lib/utils";
 import type { FilterMode, FilterColumnInfo } from "@/utils/filterParser";
-import { useAIChatStore } from "@/stores/aiChatStore";
 
 interface QuickFilterProps {
   columns: FilterColumnInfo[];
@@ -63,6 +61,7 @@ interface QuickFilterProps {
 
 export interface QuickFilterRef {
   focus: () => void;
+  isFocusWithin?: () => boolean;
 }
 
 const modeConfig: Record<
@@ -88,9 +87,9 @@ const modeConfig: Record<
   },
   ai: {
     icon: IconSparkles,
-    label: "AI Assistant",
-    description: "Natural language",
-    placeholder: "active users from last week",
+    label: "AI Filter",
+    description: "Natural language filter",
+    placeholder: "#show orders over $100 from last week",
   },
 };
 
@@ -194,6 +193,173 @@ const ColumnSuggestionItem = memo<ColumnSuggestionItemProps>(
 );
 ColumnSuggestionItem.displayName = "ColumnSuggestionItem";
 
+// ============================================================================
+// Mode Selection Menu with AI Model Submenu
+// ============================================================================
+
+interface QuickFilterModeMenuProps {
+  mode: FilterMode;
+  value: string;
+  clientSideFiltering?: boolean;
+  onModeChange: (mode: FilterMode) => void;
+  onValueChange: (value: string) => void;
+  onFocusEditor: () => void;
+}
+
+const QuickFilterModeMenu = memo(function QuickFilterModeMenu({
+  mode,
+  value,
+  clientSideFiltering,
+  onModeChange,
+  onValueChange,
+  onFocusEditor,
+}: QuickFilterModeMenuProps) {
+  // Get all agents and their models from ACP store
+  const availableAgents = useAcpStore((s) => s.availableAgents);
+  const selectedModel = useAcpStore((s) => s.selectedModel);
+  const selectedAgentId = useAcpStore((s) => s.selectedAgentId);
+  const selectAgent = useAcpStore((s) => s.selectAgent);
+  const selectModel = useAcpStore((s) => s.selectModel);
+  const dynamicModels = useAcpStore((s) => s.dynamicModels);
+
+  // Get installed agents with their models
+  const installedAgents = useMemo(() => {
+    return availableAgents
+      .filter((agent) => agent.installed)
+      .map((agent) => ({
+        ...agent,
+        // Use dynamic models if available, otherwise static
+        models: dynamicModels[agent.id]?.length
+          ? dynamicModels[agent.id]
+          : agent.models,
+      }));
+  }, [availableAgents, dynamicModels]);
+
+  // Handle mode selection for non-AI modes
+  const handleModeSelect = useCallback(
+    (m: FilterMode) => {
+      onModeChange(m);
+      const currentValue = value.replace(/^[?#]\s*/, "");
+      if (m === "where") {
+        onValueChange(currentValue ? `?${currentValue}` : "?");
+      } else {
+        onValueChange(currentValue);
+      }
+      onFocusEditor();
+    },
+    [value, onModeChange, onValueChange, onFocusEditor]
+  );
+
+  // Handle AI mode with agent and model selection
+  const handleAiModeWithModel = useCallback(
+    (agentId: string, modelId: string) => {
+      // Switch agent if different (this also updates model preferences)
+      if (agentId !== selectedAgentId) {
+        selectAgent(agentId);
+      }
+      // Select the model (this syncs with the AI sidebar)
+      void selectModel(modelId);
+      // Switch to AI mode
+      onModeChange("ai");
+      const currentValue = value.replace(/^[?#]\s*/, "");
+      onValueChange(currentValue);
+      onFocusEditor();
+    },
+    [value, onModeChange, onValueChange, onFocusEditor, selectAgent, selectModel, selectedAgentId]
+  );
+
+  // Non-AI modes (search, where)
+  const nonAiModes: FilterMode[] = clientSideFiltering
+    ? ["search"]
+    : ["search", "where"];
+
+  return (
+    <DropdownMenuContent align="start" className="w-52">
+      {/* Pattern Search and WHERE modes */}
+      {nonAiModes.map((m) => {
+        const cfg = modeConfig[m];
+        const Icon = cfg.icon;
+        return (
+          <DropdownMenuItem
+            key={m}
+            onClick={() => { handleModeSelect(m); }}
+            className={cn("text-xs", mode === m && "bg-accent")}
+          >
+            <Icon className="h-3.5 w-3.5 mr-2" />
+            <div className="flex flex-col">
+              <span className="text-xs">{cfg.label}</span>
+              <span className="text-[10px] text-muted-foreground">
+                {cfg.description}
+              </span>
+            </div>
+          </DropdownMenuItem>
+        );
+      })}
+
+      {/* AI Filter with model submenu grouped by agent */}
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger
+          className={cn(
+            "text-xs",
+            mode === "ai" && "bg-accent"
+          )}
+        >
+          <IconSparkles className="h-3.5 w-3.5 mr-2" />
+          <div className="flex flex-col flex-1">
+            <span className="text-xs">
+              {clientSideFiltering ? "AI Filter" : modeConfig.ai.label}
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              {clientSideFiltering ? "Generate search patterns" : modeConfig.ai.description}
+            </span>
+          </div>
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent className="w-56 max-h-80 overflow-y-auto">
+          {installedAgents.length === 0 ? (
+            <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+              No AI agents installed
+            </DropdownMenuItem>
+          ) : (
+            installedAgents.map((agent) => (
+              <div key={agent.id}>
+                {/* Agent name as group header */}
+                <div className="text-[10px] text-muted-foreground font-medium px-2 py-1.5 border-b border-border/50">
+                  {agent.name}
+                </div>
+                {/* Models for this agent */}
+                {agent.models.map((model) => {
+                  const isSelected = selectedAgentId === agent.id && selectedModel === model.id;
+                  return (
+                    <DropdownMenuItem
+                      key={`${agent.id}:${model.id}`}
+                      onClick={() => { handleAiModeWithModel(agent.id, model.id); }}
+                      className="text-xs"
+                    >
+                      <div className="flex items-center gap-2 w-full">
+                        {isSelected ? (
+                          <IconCheck className="h-3 w-3 text-primary shrink-0" />
+                        ) : (
+                          <div className="w-3 shrink-0" />
+                        )}
+                        <div className="flex flex-col min-w-0">
+                          <span className="truncate">{model.name}</span>
+                          <span className="text-[10px] text-muted-foreground truncate">
+                            {model.description}
+                          </span>
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </div>
+            ))
+          )}
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+    </DropdownMenuContent>
+  );
+});
+
 export const QuickFilter = memo(
   forwardRef<QuickFilterRef, QuickFilterProps>(function QuickFilter(
     {
@@ -220,6 +386,8 @@ export const QuickFilter = memo(
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [cursorPosition, setCursorPosition] = useState(0);
     const [hasLintError, setHasLintError] = useState(false);
+    const [isFocused, setIsFocused] = useState(false);
+    const focusCleanupRef = useRef<(() => void) | null>(null);
     const justAcceptedSuggestion = useRef(false);
     const justSwitchedMode = useRef(false);
     const autoSubmitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -256,13 +424,20 @@ export const QuickFilter = memo(
     const { resolvedTheme } = useTheme();
     const editorViewRef = useRef<EditorView | null>(null);
 
-    // Acquire/release pg-parser worker for WHERE clause linting
+    // Set editorTextFocus context when QuickFilter is focused
+    // This prevents global keybindings (like workspace.undo) from capturing Cmd+Z
+    useContextKey("editorTextFocus", isFocused, { resetOnUnmount: true });
+
+    // Cleanup focus listeners on unmount
     useEffect(() => {
-      acquirePgParserWorker();
       return () => {
-        releasePgParserWorker();
+        focusCleanupRef.current?.();
+        focusCleanupRef.current = null;
+        setIsFocused(false);
       };
     }, []);
+
+    // Note: SQL validation now uses Rust backend (no worker setup needed)
 
     // Click-outside handler for suggestions dropdown (replaces Popover behavior)
     useEffect(() => {
@@ -292,23 +467,89 @@ export const QuickFilter = memo(
       focus: () => {
         editorViewRef.current?.focus();
       },
+      isFocusWithin: () => {
+        const activeElement = document.activeElement;
+        if (!activeElement) return false;
+        if (containerRef.current?.contains(activeElement)) return true;
+        if (suggestionsRef.current?.contains(activeElement)) return true;
+        return Boolean(editorViewRef.current?.hasFocus);
+      },
     }));
 
     const config = modeConfig[mode];
 
-    // CodeMirror extensions for SQL highlighting
-    const sqlExtensions = useMemo(() => {
-      const actualTheme = resolvedTheme === "dark" ? "dark" : "light";
+    // Compartment for mode-specific extensions (SQL highlighting + linter)
+    // Using useState ensures the compartment persists across renders
+    const [modeCompartment] = useState(() => new Compartment());
 
-      // Get syntax highlighting styles only (we'll override backgrounds)
+    // SQL-specific extensions (highlighting + linter) - extracted for reuse
+    const sqlModeExtensions = useMemo(() => {
+      return [
+        sql({ dialect: PostgreSQL }),
+        // SQL linter for WHERE clause validation
+        linter(
+          async (view: EditorView): Promise<Diagnostic[]> => {
+            const content = view.state.doc.toString().trim();
+            if (!content || content.length < 3) {
+              setHasLintError(false);
+              return [];
+            }
+
+            try {
+              // Wrap WHERE clause in SELECT to make it valid SQL
+              const testSql = `SELECT * FROM t WHERE ${content}`;
+
+              // Use Rust backend for validation
+              const response = await invoke<{
+                valid: boolean;
+                errors: Array<{
+                  from: number;
+                  to: number;
+                  message: string;
+                  severity: string;
+                }>;
+              }>("sql_validate", {
+                request: {
+                  sql: testSql,
+                  dialect: "postgresql",
+                },
+              });
+
+              if (response.errors.length > 0) {
+                setHasLintError(true);
+                // Adjust positions to account for "SELECT * FROM t WHERE " prefix (23 chars)
+                const prefixLen = 23;
+                return response.errors
+                  .map((d) => ({
+                    from: Math.max(0, d.from - prefixLen),
+                    to: Math.min(Math.max(0, d.to - prefixLen), content.length),
+                    severity: d.severity as "error" | "warning" | "info",
+                    message: d.message,
+                  }))
+                  .filter((d) => d.from >= 0 && d.to > d.from);
+              }
+
+              setHasLintError(false);
+              return [];
+            } catch {
+              setHasLintError(false);
+              return [];
+            }
+          },
+          { delay: 300 },
+        ),
+      ];
+    }, []);
+
+    // Base extensions shared by all modes (theme, history, styling)
+    const baseExtensions = useMemo(() => {
+      const actualTheme = resolvedTheme === "dark" ? "dark" : "light";
       const themeExts = getThemeExtensions(actualTheme);
 
       return [
-        sql({ dialect: PostgreSQL }),
         history(),
         keymap.of(historyKeymap),
         ...themeExts,
-        // Override theme backgrounds - must come after theme extensions
         EditorView.theme(
           {
             "&.cm-editor": {
@@ -348,120 +589,26 @@ export const QuickFilter = memo(
           { dark: actualTheme === "dark" },
         ),
         EditorView.lineWrapping,
-        // SQL linter for WHERE clause validation (runs in Web Worker)
-        linter(
-          async (view: EditorView): Promise<Diagnostic[]> => {
-            const content = view.state.doc.toString().trim();
-            if (!content || content.length < 3) {
-              setHasLintError(false);
-              return [];
-            }
-
-            try {
-              // Wrap WHERE clause in SELECT to make it valid SQL
-              const testSql = `SELECT * FROM t WHERE ${content}`;
-              const diagnostics = await parseWithWorker(testSql);
-
-              if (diagnostics.length > 0) {
-                setHasLintError(true);
-                // Adjust positions to account for "SELECT * FROM t WHERE " prefix (23 chars)
-                const prefixLen = 23;
-                return diagnostics
-                  .map((d) => ({
-                    from: Math.max(0, d.from - prefixLen),
-                    to: Math.min(Math.max(0, d.to - prefixLen), content.length),
-                    severity: d.severity,
-                    message: d.message,
-                  }))
-                  .filter((d) => d.from >= 0 && d.to > d.from);
-              }
-
-              setHasLintError(false);
-              return [];
-            } catch {
-              setHasLintError(false);
-              return [];
-            }
-          },
-          { delay: 300 }, // Shorter delay since parsing is off-thread
-        ),
       ];
     }, [resolvedTheme]);
 
-    // Memoized non-SQL extensions for search/AI modes (avoids recreation on every render)
-    const basicExtensions = useMemo(() => {
-      const actualTheme = resolvedTheme === "dark" ? "dark" : "light";
-      return [
-        history(),
-        keymap.of(historyKeymap),
-        ...getThemeExtensions(actualTheme),
-        EditorView.theme(
-          {
-            "&.cm-editor": {
-              fontSize: "12px",
-              backgroundColor: "transparent !important",
-            },
-            ".cm-scroller": {
-              overflow: "hidden",
-              fontFamily:
-                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-            },
-            ".cm-content": {
-              padding: "6px 0",
-              minHeight: "auto",
-            },
-            ".cm-line": {
-              padding: "0",
-            },
-            ".cm-gutters": {
-              display: "none !important",
-            },
-            ".cm-activeLineGutter": {
-              backgroundColor: "transparent !important",
-            },
-            ".cm-activeLine": {
-              backgroundColor: "transparent !important",
-            },
-            "&.cm-focused": {
-              outline: "none",
-            },
-            ".cm-placeholder": {
-              color: "hsl(var(--muted-foreground))",
-              fontStyle: "normal",
-            },
-          },
-          { dark: actualTheme === "dark" },
-        ),
-        EditorView.lineWrapping,
-      ];
-    }, [resolvedTheme]);
-
-    // AI model selection
-    const {
-      selectedProvider,
-      selectedModel,
-      availableProviders,
-      configuredProviders,
-      isLoadingProviders,
-      setProvider,
-      setModel,
-      loadProviders,
-      getProviderEnabledModels,
-    } = useAIChatStore();
-
-    // Load providers when entering AI mode
+    // Reconfigure mode compartment when mode changes (avoids full extension replacement)
     useEffect(() => {
-      if (mode === "ai") {
-        void loadProviders();
-      }
-    }, [mode, loadProviders]);
+      const view = editorViewRef.current;
+      if (!view) return;
+
+      const newModeExtensions = mode === "where" ? sqlModeExtensions : [];
+      view.dispatch({
+        effects: modeCompartment.reconfigure(newModeExtensions),
+      });
+    }, [mode, modeCompartment, sqlModeExtensions]);
 
     // Debounce value and cursor position TOGETHER to avoid double effect runs
     // When both change, we only want one effect execution, not two
     // Use stable reference via useMemo to prevent debounce reset on every render
     const inputState = useMemo(
       () => ({ value, cursor: cursorPosition }),
-      [value, cursorPosition]
+      [value, cursorPosition],
     );
     const debouncedState = useDebounce(inputState, 250);
     const debouncedValue = debouncedState.value;
@@ -487,12 +634,6 @@ export const QuickFilter = memo(
 
     // Update suggestions based on input
     useEffect(() => {
-      // Skip suggestion updates in AI mode (natural language, not SQL)
-      if (mode === "ai") {
-        setShowSuggestions(false);
-        return;
-      }
-
       // Get word at cursor
       const beforeCursor = debouncedValue.slice(0, debouncedCursor);
       const match = beforeCursor.match(WORD_AT_CURSOR_REGEX);
@@ -539,10 +680,15 @@ export const QuickFilter = memo(
         setSuggestionType("column");
 
         // Don't show suggestion if user already typed exact column name
-        const isExactMatch = filtered.length === 1 &&
+        const isExactMatch =
+          filtered.length === 1 &&
           filtered[0]?.name.toLowerCase() === searchTerm.toLowerCase();
 
-        if (filtered.length > 0 && !justAcceptedSuggestion.current && !isExactMatch) {
+        if (
+          filtered.length > 0 &&
+          !justAcceptedSuggestion.current &&
+          !isExactMatch
+        ) {
           setShowSuggestions(true);
         } else {
           setShowSuggestions(false);
@@ -642,7 +788,6 @@ export const QuickFilter = memo(
         // Calculate cursor position in editor coordinates (without prefix)
         const prefixLen =
           (newValue.startsWith("?") && currentMode === "where") ||
-          (newValue.startsWith("#") && currentMode === "ai") ||
           (newValue.startsWith("!") && currentMode === "search")
             ? 1
             : 0;
@@ -710,6 +855,8 @@ export const QuickFilter = memo(
                 }
               }
               if (s.mode === "where" && s.hasLintError) return true;
+              // Update lastSubmittedValue to prevent duplicate auto-submit
+              lastSubmittedValue.current = s.value;
               onSubmit();
               return true;
             },
@@ -718,6 +865,7 @@ export const QuickFilter = memo(
             // Block Shift+Enter from inserting newlines (this is a single-line filter)
             key: "Shift-Enter",
             run: () => {
+              lastSubmittedValue.current = stateRefs.current.value;
               onSubmit();
               return true;
             },
@@ -726,6 +874,7 @@ export const QuickFilter = memo(
             // Cmd/Ctrl+Enter also submits
             key: "Mod-Enter",
             run: () => {
+              lastSubmittedValue.current = stateRefs.current.value;
               onSubmit();
               return true;
             },
@@ -848,13 +997,18 @@ export const QuickFilter = memo(
       );
     }, [insertSuggestion, onSubmit, onValueChange, onModeChange]);
 
-    // Stable combined extensions array - prevents CodeMirror re-initialization
+    // Stable combined extensions array - uses Compartment for mode-specific extensions
+    // This prevents CodeMirror re-initialization when switching between modes
+    // Mode changes are handled via compartment.reconfigure() in the useEffect above
+    // IMPORTANT: Do not include 'mode' in deps - compartment handles mode changes
     const combinedExtensions = useMemo(() => {
-      if (mode === "where") {
-        return [...sqlExtensions, keymapExtension];
-      }
-      return [...basicExtensions, keymapExtension];
-    }, [mode, sqlExtensions, basicExtensions, keymapExtension]);
+      // Start with empty compartment - will be reconfigured on mount via effect
+      return [
+        ...baseExtensions,
+        modeCompartment.of([]),
+        keymapExtension,
+      ];
+    }, [baseExtensions, modeCompartment, keymapExtension]);
 
     // Clear button handler (Phase 1.4)
     const handleClearClick = useCallback(() => {
@@ -957,8 +1111,6 @@ export const QuickFilter = memo(
         if (newValue === "") {
           if (mode === "where") {
             onValueChange("?");
-          } else if (mode === "ai") {
-            onValueChange("#");
           } else {
             onValueChange("");
           }
@@ -967,9 +1119,7 @@ export const QuickFilter = memo(
 
         // Compute the expected prefixed value
         let expectedValue: string;
-        if (mode === "ai") {
-          expectedValue = "#" + newValue;
-        } else if (mode === "where") {
+        if (mode === "where") {
           expectedValue = "?" + newValue;
         } else {
           expectedValue = newValue;
@@ -1018,10 +1168,7 @@ export const QuickFilter = memo(
           const pos = update.state.selection.main.head;
           const s = stateRefs.current;
           const prefixLen =
-            (s.value.startsWith("?") && s.mode === "where") ||
-            (s.value.startsWith("#") && s.mode === "ai")
-              ? 1
-              : 0;
+            s.value.startsWith("?") && s.mode === "where" ? 1 : 0;
           setCursorPosition(pos + prefixLen);
         }
       },
@@ -1057,9 +1204,9 @@ export const QuickFilter = memo(
                     )}
                     disabled={isLoading}
                   >
-                    {mode === "ai" && <IconSparkles className="size-3.5" />}
                     {mode === "where" && <IconCode className="size-3.5" />}
                     {mode === "search" && <IconSearch className="size-3.5" />}
+                    {mode === "ai" && <IconSparkles className="size-3.5" />}
                   </DropdownMenuTrigger>
                 )}
                 <CodeMirror
@@ -1079,7 +1226,18 @@ export const QuickFilter = memo(
                   minHeight="28px"
                   maxHeight="80px"
                   onCreateEditor={(view) => {
+                    focusCleanupRef.current?.();
                     editorViewRef.current = view;
+                    // Track focus state for editorTextFocus context
+                    const handleFocus = () => setIsFocused(true);
+                    const handleBlur = () => setIsFocused(false);
+                    view.dom.addEventListener("focus", handleFocus, true);
+                    view.dom.addEventListener("blur", handleBlur, true);
+                    focusCleanupRef.current = () => {
+                      view.dom.removeEventListener("focus", handleFocus, true);
+                      view.dom.removeEventListener("blur", handleBlur, true);
+                    };
+                    setIsFocused(view.hasFocus);
                   }}
                   onUpdate={handleEditorUpdate}
                 />
@@ -1099,135 +1257,16 @@ export const QuickFilter = memo(
                 </div>
               </div>
               {(!searchModeOnly || clientSideFiltering) && (
-                <DropdownMenuContent align="start" className="w-48">
-                  {(Object.keys(modeConfig) as FilterMode[])
-                    .filter((m) => !clientSideFiltering || m !== "where")
-                    .map((m) => {
-                      const cfg = modeConfig[m];
-                      const Icon = cfg.icon;
-                      const label =
-                        clientSideFiltering && m === "ai"
-                          ? "AI Filter"
-                          : cfg.label;
-                      const description =
-                        clientSideFiltering && m === "ai"
-                          ? "Generate search patterns"
-                          : cfg.description;
-
-                      return (
-                        <DropdownMenuItem
-                          key={m}
-                          onClick={(e) => {
-                            // Keep dropdown open for AI mode to let user select model
-                            if (m === "ai") {
-                              e.preventDefault();
-                            }
-                            onModeChange(m);
-                            // Auto-add/replace prefix based on mode
-                            const currentValue = value.replace(/^[?#]\s*/, "");
-                            if (m === "where") {
-                              onValueChange(
-                                currentValue ? `?${currentValue}` : "?"
-                              );
-                            } else if (m === "ai") {
-                              onValueChange(
-                                currentValue ? `#${currentValue}` : "#"
-                              );
-                            } else {
-                              onValueChange(currentValue);
-                            }
-                            // Focus editor after mode change (not for AI mode - user selects model first)
-                            if (m !== "ai") {
-                              setTimeout(
-                                () => editorViewRef.current?.focus(),
-                                0
-                              );
-                            }
-                          }}
-                          className={cn("text-xs", mode === m && "bg-accent")}
-                        >
-                          <Icon className="h-3.5 w-3.5 mr-2" />
-                          <div className="flex flex-col">
-                            <span className="text-xs">{label}</span>
-                            <span className="text-[10px] text-muted-foreground">
-                              {description}
-                            </span>
-                          </div>
-                        </DropdownMenuItem>
-                      );
-                    })}
-
-                  {/* AI Model selector - nested in mode dropdown */}
-                  {mode === "ai" && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuGroup>
-                        <DropdownMenuLabel className="text-xs text-muted-foreground">
-                          AI Model
-                        </DropdownMenuLabel>
-                        {isLoadingProviders ? (
-                          <DropdownMenuItem disabled className="text-xs pl-4">
-                            <IconLoader2 className="h-3 w-3 animate-spin mr-2" />
-                            Loading...
-                          </DropdownMenuItem>
-                        ) : (
-                          (() => {
-                            const configured = availableProviders.filter((p) =>
-                              configuredProviders.includes(p.name),
-                            );
-                            if (configured.length === 0) {
-                              return (
-                                <DropdownMenuItem
-                                  disabled
-                                  className="text-xs pl-4"
-                                >
-                                  No providers configured
-                                </DropdownMenuItem>
-                              );
-                            }
-                            return configured.map((provider) => {
-                              const enabledModels = getProviderEnabledModels(
-                                provider.name,
-                              );
-                              const filteredModels = provider.models.filter(
-                                (m) => enabledModels.includes(m.id),
-                              );
-
-                              // Skip provider if no enabled models
-                              if (filteredModels.length === 0) return null;
-
-                              return (
-                                <DropdownMenuGroup key={provider.name}>
-                                  <DropdownMenuLabel className="text-[10px] text-muted-foreground pl-4">
-                                    {provider.name}
-                                  </DropdownMenuLabel>
-                                  {filteredModels.map((model) => (
-                                    <DropdownMenuItem
-                                      key={`${provider.name}-${model.id}`}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setProvider(provider.name);
-                                        setModel(model.id);
-                                      }}
-                                      className={cn(
-                                        "text-xs pl-6",
-                                        selectedProvider === provider.name &&
-                                          selectedModel === model.id &&
-                                          "bg-accent",
-                                      )}
-                                    >
-                                      {model.name}
-                                    </DropdownMenuItem>
-                                  ))}
-                                </DropdownMenuGroup>
-                              );
-                            });
-                          })()
-                        )}
-                      </DropdownMenuGroup>
-                    </>
-                  )}
-                </DropdownMenuContent>
+                <QuickFilterModeMenu
+                  mode={mode}
+                  value={value}
+                  clientSideFiltering={clientSideFiltering}
+                  onModeChange={onModeChange}
+                  onValueChange={onValueChange}
+                  onFocusEditor={() => {
+                    setTimeout(() => editorViewRef.current?.focus(), 0);
+                  }}
+                />
               )}
             </DropdownMenu>
             {/* Suggestions dropdown - lightweight positioned div (no Portal/Popover overhead) */}

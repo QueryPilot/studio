@@ -1,4 +1,5 @@
 import { logger } from "@/lib/logger";
+import { batchWithConcurrency } from "@/utils/batch";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ResizablePanelGroup,
@@ -9,8 +10,13 @@ import { CodeEditor, type CodeEditorRef } from "@/components/CodeEditor";
 import { ERDToolbar, type LayoutDirection } from "./ERDToolbar";
 import { ERDVisualizerPlaceholder } from "./ERDVisualizerPlaceholder";
 import { ERDVisualizer, type ERDVisualizerRef } from "./ERDVisualizer";
-import { ReactFlowProvider } from "@xyflow/react";
-import { Parser } from "@dbml/core";
+import { ReactFlowProvider, getNodesBounds, getViewportForBounds } from "@xyflow/react";
+import { Parser, exporter as dbmlExporter } from "@dbml/core";
+import { toPng, toSvg } from "html-to-image";
+import { save } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
+import { isTauri } from "@/utils/tauri";
+import { toast } from "sonner";
 
 import {
   dbmlService,
@@ -36,22 +42,6 @@ import {
 
 const DEFAULT_SCHEMA = "public";
 const PARSE_DEBOUNCE_MS = 500;
-
-// Generate a structural hash from tables to detect real changes vs text edits
-const generateStructuralHash = (tables: TableStructure[]): string => {
-  const sortedTables = [...tables].sort((a, b) => 
-    `${a.schema}.${a.name}`.localeCompare(`${b.schema}.${b.name}`)
-  );
-  
-  const structure = sortedTables.map((table) => {
-    const sortedColumns = [...table.columns]
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((col) => `${col.name}:${col.db_type}:${col.is_pk}:${col.is_fk}`);
-    return `${table.schema}.${table.name}|${sortedColumns.join(',')}`;
-  });
-  
-  return structure.join('||');
-};
 
 const relationToCardinality = (relation?: string | null): "1" | "n" => {
   if (!relation) return "1";
@@ -86,26 +76,30 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const [parseError, setParseError] = useState<string | null>(null);
   const [relationships, setRelationships] = useState<DBMLRelationship[]>([]);
   const [tables, setTables] = useState<TableStructure[]>([]);
-  const [layoutDirection, setLayoutDirection] = useState<LayoutDirection>("LR");
+  const [layoutDirection, setLayoutDirection] = useState<LayoutDirection>("TB");
   const [_schemas, setSchemas] = useState<string[]>(() =>
     schema ? [schema] : [DEFAULT_SCHEMA],
   );
   const [selectedSchema, setSelectedSchema] = useState<string>(
     schema ?? DEFAULT_SCHEMA,
   );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
   const lastConnectionRef = useRef<string | null>(connectionId);
   const skipParseNextRef = useRef<boolean>(false);
   const parseTimerRef = useRef<number | undefined>(undefined);
   const erdVisualizerRef = useRef<ERDVisualizerRef | null>(null);
   const editorRef = useRef<CodeEditorRef>(null);
-  const lastStructuralHashRef = useRef<string>("");
   const dbmlWorkerRef = useRef<Worker | null>(null);
+  const diagramContainerRef = useRef<HTMLDivElement>(null);
+
+  // Local view ID - each ERD tab tracks its own view instead of global activeViewId
+  const [localViewId, setLocalViewId] = useState<string | null>(null);
 
   const ensureView = useErdStore((state) => state.ensureView);
-  const setActiveViewStore = useErdStore((state) => state.setActiveView);
-  const activeViewId = useErdStore((state) => state.activeViewId);
-  const activeView = useErdStore((state) =>
-    state.activeViewId ? state.views[state.activeViewId] ?? null : null,
+  // Get the view for THIS tab using localViewId, not the global activeViewId
+  const localView = useErdStore((state) =>
+    localViewId ? state.views[localViewId] ?? null : null,
   );
   const updateView = useErdStore((state) => state.updateView);
   const saveNodePosition = useErdStore((state) => state.saveNodePosition);
@@ -119,12 +113,12 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
 
   const targetDatabase = database ?? connection?.database ?? "";
 
-  // Initialize layout direction from activeView
+  // Initialize layout direction from localView
   useEffect(() => {
-    if (activeView?.layoutDirection) {
-      setLayoutDirection(activeView.layoutDirection);
+    if (localView?.layoutDirection) {
+      setLayoutDirection(localView.layoutDirection);
     }
-  }, [activeView?.layoutDirection]);
+  }, [localView?.layoutDirection]);
 
   // Initialize and manage web worker lifecycle
   useEffect(() => {
@@ -208,7 +202,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         schema: schemaName,
         name: `${schemaName} schema`,
       });
-      setActiveViewStore(viewId);
+      setLocalViewId(viewId);
 
       const cacheHit = options?.force
         ? null
@@ -222,8 +216,6 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         setError(null);
         setParseError(null);
         setLoading(false);
-        // Initialize structural hash for cached data
-        lastStructuralHashRef.current = generateStructuralHash(cacheHit.tables);
         updateView(viewId, {
           dbml: cacheHit.dbml,
           tableCount: cacheHit.metadata.tableCount,
@@ -245,7 +237,10 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
           schemaName,
         );
 
-        const baseTables = tableMetas.filter((table) => table.kind === "Table");
+        // Filter to only regular tables, excluding partitioned tables and views
+        const baseTables = tableMetas.filter(
+          (table) => table.kind === "Table" && !table.isPartitioned
+        );
 
         if (baseTables.length === 0) {
           const emptySchema: DBMLSchema = {
@@ -276,8 +271,12 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
           return;
         }
 
-        const structures = await Promise.all(
-          baseTables.map((table) =>
+        // Fetch table structures with limited concurrency to avoid overwhelming
+        // the database connection pool (especially for MySQL/MariaDB with many tables).
+        // ERD only needs columns and constraints, not triggers or stats.
+        const structures = await batchWithConcurrency(
+          baseTables,
+          (table) =>
             databaseService.getTableStructure(
               connectionId,
               targetDatabase,
@@ -287,9 +286,11 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
                 includeIndexes: true,
                 includeConstraints: true,
                 includeForeignKeys: true,
+                includeTriggers: false,
+                includeStatistics: false,
               },
             ),
-          ),
+          5, // Limit to 5 concurrent table fetches
         );
 
         const result = await dbmlService.schemaToDBML(structures, {
@@ -302,8 +303,6 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         setTables(result.tables);
         setRelationships(result.relationships);
         setError(null);
-        // Initialize structural hash for newly loaded data
-        lastStructuralHashRef.current = generateStructuralHash(result.tables);
         erdCache.set(connectionId, targetDatabase, schemaName, result);
         updateView(viewId, {
           dbml: result.dbml,
@@ -327,7 +326,6 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
       connectionId,
       targetDatabase,
       ensureView,
-      setActiveViewStore,
       connection?.db_type,
       updateView,
     ],
@@ -340,41 +338,173 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
 
   useEffect(() => {
     if (
-      activeView?.dbml &&
+      localView?.dbml &&
       !skipParseNextRef.current &&
-      activeView.dbml !== dbmlDocument
+      localView.dbml !== dbmlDocument
     ) {
-      setDbmlDocument(activeView.dbml);
+      setDbmlDocument(localView.dbml);
     }
-  }, [activeView?.dbml, dbmlDocument]);
+  }, [localView?.dbml, dbmlDocument]);
 
   const handleRefresh = () => {
     void loadSchemaData(selectedSchema, { force: true });
   };
 
+  const handleExportImage = useCallback(async (format: "png" | "svg") => {
+    const viewportEl = diagramContainerRef.current?.querySelector(
+      ".react-flow__viewport",
+    ) as HTMLElement | null;
+    const instance = erdVisualizerRef.current;
+    if (!viewportEl || !instance) {
+      toast.error("No diagram to export");
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      // Calculate bounds of all nodes to export full content (not just visible area)
+      const allNodes = instance.getNodes();
+      const nodesBounds = getNodesBounds(allNodes);
+
+      const PADDING = 50;
+      const imageWidth = Math.ceil(nodesBounds.width + PADDING * 2);
+      const imageHeight = Math.ceil(nodesBounds.height + PADDING * 2);
+
+      const viewport = getViewportForBounds(
+        nodesBounds,
+        imageWidth,
+        imageHeight,
+        1, // minZoom - export at 1:1
+        1, // maxZoom - export at 1:1
+        PADDING,
+      );
+
+      const exportFn = format === "png" ? toPng : toSvg;
+      const dataUrl = await exportFn(viewportEl, {
+        backgroundColor: "white",
+        quality: 1,
+        pixelRatio: 2,
+        width: imageWidth,
+        height: imageHeight,
+        style: {
+          width: `${imageWidth}px`,
+          height: `${imageHeight}px`,
+          transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+        },
+        filter: (node) => {
+          if (!(node instanceof HTMLElement)) return true;
+          if (node.classList.contains("react-flow__minimap")) return false;
+          if (node.classList.contains("react-flow__controls")) return false;
+          return true;
+        },
+      });
+
+      const filename = `erd-${selectedSchema}.${format}`;
+
+      if (isTauri()) {
+        const filePath = await save({
+          defaultPath: filename,
+          filters: [
+            {
+              name: format === "png" ? "PNG Image" : "SVG Image",
+              extensions: [format],
+            },
+            { name: "All Files", extensions: ["*"] },
+          ],
+        });
+
+        if (filePath) {
+          // Convert data URL to binary and write via Tauri
+          const response = await fetch(dataUrl);
+          const blob = await response.blob();
+          const arrayBuffer = await blob.arrayBuffer();
+          await invoke("plugin:fs|write_file", {
+            path: filePath,
+            contents: Array.from(new Uint8Array(arrayBuffer)),
+          });
+          toast.success(`ERD exported as ${format.toUpperCase()}`);
+        }
+      } else {
+        const link = document.createElement("a");
+        link.download = filename;
+        link.href = dataUrl;
+        link.click();
+        toast.success(`ERD exported as ${format.toUpperCase()}`);
+      }
+    } catch (err) {
+      logger.error("Failed to export ERD", err);
+      toast.error("Failed to export diagram");
+    } finally {
+      setIsExporting(false);
+    }
+  }, [selectedSchema]);
+
+  const handleExportSQL = useCallback(async (format: "postgres" | "mysql" | "mssql" | "oracle") => {
+    if (!dbmlDocument.trim()) {
+      toast.error("No DBML to export");
+      return;
+    }
+
+    const formatLabels: Record<string, string> = {
+      postgres: "PostgreSQL",
+      mysql: "MySQL",
+      mssql: "SQL Server",
+      oracle: "Oracle",
+    };
+
+    try {
+      const sql = dbmlExporter.export(dbmlDocument, format);
+
+      if (isTauri()) {
+        const filePath = await save({
+          defaultPath: `erd-${selectedSchema}.sql`,
+          filters: [
+            { name: "SQL Files", extensions: ["sql"] },
+            { name: "All Files", extensions: ["*"] },
+          ],
+        });
+
+        if (filePath) {
+          await invoke("plugin:fs|write_text_file", {
+            path: filePath,
+            contents: sql,
+          });
+          toast.success(`${formatLabels[format]} SQL exported`);
+        }
+      } else {
+        void navigator.clipboard.writeText(sql).then(() => {
+          toast.success(`${formatLabels[format]} SQL copied to clipboard`);
+        });
+      }
+    } catch (err) {
+      logger.error("Failed to export SQL", err);
+      toast.error(`Failed to export ${formatLabels[format]} SQL - check DBML syntax`);
+    }
+  }, [dbmlDocument, selectedSchema]);
+
   const handleNodePositionsChange = useCallback(
     (positions: Record<string, NodePosition>) => {
-      if (!activeViewId) return;
+      if (!localViewId) return;
       // When all positions are updated at once (auto-arrange), reset hasManualPositions
-      updateView(activeViewId, { nodePositions: positions, hasManualPositions: false });
+      updateView(localViewId, { nodePositions: positions, hasManualPositions: false });
     },
-    [activeViewId, updateView],
+    [localViewId, updateView],
   );
 
   const handleNodePositionChange = useCallback(
     (nodeId: string, position: NodePosition) => {
-      if (!activeViewId) return;
-      saveNodePosition(activeViewId, nodeId, position);
+      if (!localViewId) return;
+      saveNodePosition(localViewId, nodeId, position);
     },
-    [activeViewId, saveNodePosition],
+    [localViewId, saveNodePosition],
   );
 
   const handleViewportChange = useCallback(
     (viewport: ViewportState) => {
-      if (!activeViewId) return;
-      saveViewport(activeViewId, viewport);
+      if (!localViewId) return;
+      saveViewport(localViewId, viewport);
     },
-    [activeViewId, saveViewport],
+    [localViewId, saveViewport],
   );
 
   type ParserField = {
@@ -703,21 +833,14 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
 
         if (output.success && output.result) {
           const { tables: parsedTables, relationships: parsedRelationships } = output.result;
-          const newStructuralHash = generateStructuralHash(parsedTables);
-          const structureChanged = newStructuralHash !== lastStructuralHashRef.current;
-          
-          // Only update tables if structure actually changed
-          if (structureChanged) {
-            lastStructuralHashRef.current = newStructuralHash;
-            setTables(parsedTables);
-          }
-          
-          // Always update relationships as they might change independently
+
+          // Always update tables and relationships - viewport preservation is handled in ERDVisualizer
+          setTables(parsedTables);
           setRelationships(parsedRelationships);
           setParseError(null);
           
-          if (activeViewId) {
-            updateView(activeViewId, {
+          if (localViewId) {
+            updateView(localViewId, {
               dbml: dbmlDocument,
               tableCount: parsedTables.length,
               relationshipCount: parsedRelationships.length,
@@ -750,7 +873,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
     };
   }, [
     dbmlDocument,
-    activeViewId,
+    localViewId,
     convertProjectToStructures,
     updateView,
     connectionId,
@@ -761,11 +884,11 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const handleEditorChange = useCallback(
     (value: string) => {
       setDbmlDocument(value);
-      if (activeViewId) {
-        updateView(activeViewId, { dbml: value });
+      if (localViewId) {
+        updateView(localViewId, { dbml: value });
       }
     },
-    [activeViewId, updateView],
+    [localViewId, updateView],
   );
 
   // Memoize CodeEditor to prevent unnecessary re-renders
@@ -892,8 +1015,10 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
             backfaceVisibility: 'hidden',
           }}
         >
-          {tables.length > 0 && !loading && !error ? (
-            <>
+          {/* Always render ReactFlowProvider to preserve viewport state */}
+          <ReactFlowProvider>
+            {/* Toolbar - only show when we have tables */}
+            {tables.length > 0 && !loading && !error && (
               <div className="absolute top-0 left-0 right-0 bg-transparent z-10">
                 <ERDToolbar
                   isCodeVisible={isCodeVisible}
@@ -919,44 +1044,58 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
                   layoutDirection={layoutDirection}
                   onLayoutDirectionChange={(direction) => {
                     setLayoutDirection(direction);
-                    if (activeViewId) {
-                      updateView(activeViewId, { layoutDirection: direction });
+                    if (localViewId) {
+                      updateView(localViewId, { layoutDirection: direction });
                     }
                   }}
+                  searchQuery={searchQuery}
+                  onSearchChange={setSearchQuery}
+                  onExportPNG={() => { void handleExportImage("png"); }}
+                  onExportSVG={() => { void handleExportImage("svg"); }}
+                  onExportSQL={(fmt) => { void handleExportSQL(fmt); }}
+                  isExporting={isExporting}
                 />
               </div>
+            )}
 
-              <ReactFlowProvider>
-                <ERDVisualizer
-                  ref={erdVisualizerRef}
-                  tables={tables}
-                  relationships={relationships}
-                  nodePositions={activeView?.nodePositions ?? {}}
-                  initialViewport={activeView?.viewport}
-                  layoutDirection={layoutDirection}
-                  hasManualPositions={activeView?.hasManualPositions ?? false}
-                  onNodePositionsChange={handleNodePositionsChange}
-                  onNodePositionChange={handleNodePositionChange}
-                  onViewportChange={handleViewportChange}
-                  onColumnDoubleClick={handleColumnDoubleClick}
-                  onLayoutDirectionChange={(direction) => {
-                    setLayoutDirection(direction);
-                    if (activeViewId) {
-                      updateView(activeViewId, { layoutDirection: direction });
-                    }
-                  }}
-                />
-              </ReactFlowProvider>
-            </>
-          ) : (
-            <ERDVisualizerPlaceholder
-              loading={loading}
-              error={error}
-              tableCount={tables.length}
-              relationshipCount={relationships.length}
-              schema={selectedSchema}
-            />
-          )}
+            {/* ERDVisualizer - always mounted to preserve state, hidden when no data */}
+            <div
+              ref={diagramContainerRef}
+              className={tables.length > 0 && !loading && !error ? "h-full w-full" : "hidden"}
+            >
+              <ERDVisualizer
+                ref={erdVisualizerRef}
+                tables={tables}
+                relationships={relationships}
+                nodePositions={localView?.nodePositions ?? {}}
+                initialViewport={localView?.viewport}
+                layoutDirection={layoutDirection}
+                hasManualPositions={localView?.hasManualPositions ?? false}
+                onNodePositionsChange={handleNodePositionsChange}
+                onNodePositionChange={handleNodePositionChange}
+                onViewportChange={handleViewportChange}
+                searchQuery={searchQuery}
+                onColumnDoubleClick={handleColumnDoubleClick}
+                onLayoutDirectionChange={(direction) => {
+                  setLayoutDirection(direction);
+                  if (localViewId) {
+                    updateView(localViewId, { layoutDirection: direction });
+                  }
+                }}
+              />
+            </div>
+
+            {/* Placeholder - shown when loading or error or no tables */}
+            {(loading || error || tables.length === 0) && (
+              <ERDVisualizerPlaceholder
+                loading={loading}
+                error={error}
+                tableCount={tables.length}
+                relationshipCount={relationships.length}
+                schema={selectedSchema}
+              />
+            )}
+          </ReactFlowProvider>
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>

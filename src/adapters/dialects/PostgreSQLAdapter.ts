@@ -339,6 +339,13 @@ FROM pg_class c
 JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = '${this.escapeString(schema)}'
     AND c.relkind IN ('r', 'p', 'f')
+    -- Exclude partition children (tables that inherit from a partitioned table)
+    AND NOT EXISTS (
+        SELECT 1 FROM pg_inherits i
+        JOIN pg_class parent ON parent.oid = i.inhparent
+        WHERE i.inhrelid = c.oid
+        AND parent.relkind = 'p'
+    )
 ORDER BY c.relname`;
   }
 
@@ -483,6 +490,48 @@ JOIN pg_namespace n ON n.oid = t.relnamespace
 WHERE n.nspname = '${this.escapeString(schema)}'
 AND t.relname = '${this.escapeString(table)}'
 ORDER BY con.conname`;
+  }
+
+  /**
+   * Get partitions for a partitioned table (PostgreSQL 10+)
+   * Returns partition children with their bounds and statistics
+   */
+  getPartitionsQuery(schema: string, table: string): string {
+    return `
+SELECT
+    n.nspname as schema_name,
+    parent.relname as table_name,
+    child.relname as partition_name,
+    NULL as subpartition_name,
+    ROW_NUMBER() OVER (ORDER BY child.relname) as partition_ordinal_position,
+    NULL as subpartition_ordinal_position,
+    CASE pt.partstrat
+        WHEN 'r' THEN 'RANGE'
+        WHEN 'l' THEN 'LIST'
+        WHEN 'h' THEN 'HASH'
+        ELSE pt.partstrat::text
+    END as partition_method,
+    NULL as subpartition_method,
+    pg_get_partkeydef(parent.oid) as partition_expression,
+    NULL as subpartition_expression,
+    pg_get_expr(child.relpartbound, child.oid) as partition_description,
+    child.reltuples::bigint as table_rows,
+    NULL as avg_row_length,
+    pg_total_relation_size(child.oid) as data_length,
+    COALESCE(
+        (SELECT pg_indexes_size(child.oid)),
+        0
+    ) as index_length,
+    obj_description(child.oid, 'pg_class') as partition_comment
+FROM pg_class parent
+JOIN pg_namespace n ON n.oid = parent.relnamespace
+JOIN pg_partitioned_table pt ON pt.partrelid = parent.oid
+JOIN pg_inherits i ON i.inhparent = parent.oid
+JOIN pg_class child ON child.oid = i.inhrelid
+WHERE n.nspname = '${this.escapeString(schema)}'
+    AND parent.relname = '${this.escapeString(table)}'
+    AND parent.relkind = 'p'
+ORDER BY child.relname`;
   }
 
   getColumnsQuery(schema: string, table: string): string {
@@ -698,8 +747,37 @@ ORDER BY table_name, column_name`;
 
     switch (objectType) {
       case 'view':
+        return `
+SELECT
+    'CREATE OR REPLACE VIEW ' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) ||
+    COALESCE(' (' || (
+        SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum)
+        FROM pg_attribute a
+        WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+    ) || ')', '') ||
+    ' AS' || E'\\n' ||
+    pg_get_viewdef(c.oid, true) as definition
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = '${this.escapeString(schema)}'
+    AND c.relname = '${this.escapeString(name)}'
+    AND c.relkind = 'v'`;
       case 'materialized_view':
-        return `SELECT pg_get_viewdef('${this.escapeString(qualifiedName)}'::regclass, true) as definition`;
+        return `
+SELECT
+    'CREATE MATERIALIZED VIEW ' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) ||
+    COALESCE(' (' || (
+        SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum)
+        FROM pg_attribute a
+        WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+    ) || ')', '') ||
+    ' AS' || E'\\n' ||
+    pg_get_viewdef(c.oid, true) as definition
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = '${this.escapeString(schema)}'
+    AND c.relname = '${this.escapeString(name)}'
+    AND c.relkind = 'm'`;
       case 'function':
       case 'procedure':
         // Look up function by name and schema, return all overloads
@@ -918,25 +996,63 @@ pk AS (
     JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(con.conkey)
     WHERE con.contype = 'p'
 ),
+-- Check if this table is a partition of another table
+partition_info AS (
+    SELECT
+        pn.nspname as parent_schema,
+        pc.relname as parent_name,
+        pg_get_expr(c.relpartbound, c.oid) as partition_bound
+    FROM table_oid t
+    JOIN pg_class c ON c.oid = t.oid
+    JOIN pg_inherits i ON i.inhrelid = c.oid
+    JOIN pg_class pc ON pc.oid = i.inhparent
+    JOIN pg_namespace pn ON pn.oid = pc.relnamespace
+    WHERE pc.relkind = 'p'  -- parent is a partitioned table
+),
+-- Check if this table is a partitioned table (has partitions)
+partitioned_table_info AS (
+    SELECT
+        pg_get_partkeydef(c.oid) as partition_key
+    FROM table_oid t
+    JOIN pg_class c ON c.oid = t.oid
+    WHERE c.relkind = 'p'  -- this table is partitioned
+),
 table_def AS (
     SELECT
-        '-- Table Definition' || E'\\n' ||
-        'CREATE TABLE ' || quote_ident('${this.escapeString(schema)}') || '.' || quote_ident('${this.escapeString(name)}') || ' (' || E'\\n' ||
-        string_agg(
-            '    ' || quote_ident(c.name) || ' ' || c.type ||
-            CASE WHEN c.not_null THEN ' NOT NULL' ELSE '' END ||
-            CASE WHEN c.default_val IS NOT NULL THEN ' DEFAULT ' || c.default_val ELSE '' END,
-            ',' || E'\\n'
-            ORDER BY c.attnum
-        ) ||
-        CASE WHEN pk.columns IS NOT NULL
-            THEN ',' || E'\\n' || '    PRIMARY KEY (' || array_to_string(pk.columns, ', ') || ')'
-            ELSE ''
-        END ||
-        E'\\n);' as definition
+        CASE
+            WHEN pi.parent_name IS NOT NULL THEN
+                -- This is a partition - generate PARTITION OF syntax
+                '-- Partition Definition' || E'\\n' ||
+                '-- Parent: ' || quote_ident(pi.parent_schema) || '.' || quote_ident(pi.parent_name) || E'\\n' ||
+                'CREATE TABLE ' || quote_ident('${this.escapeString(schema)}') || '.' || quote_ident('${this.escapeString(name)}') ||
+                ' PARTITION OF ' || quote_ident(pi.parent_schema) || '.' || quote_ident(pi.parent_name) || E'\\n' ||
+                '    ' || pi.partition_bound || ';'
+            ELSE
+                -- Regular or partitioned table definition
+                '-- Table Definition' || E'\\n' ||
+                'CREATE TABLE ' || quote_ident('${this.escapeString(schema)}') || '.' || quote_ident('${this.escapeString(name)}') || ' (' || E'\\n' ||
+                string_agg(
+                    '    ' || quote_ident(c.name) || ' ' || c.type ||
+                    CASE WHEN c.not_null THEN ' NOT NULL' ELSE '' END ||
+                    CASE WHEN c.default_val IS NOT NULL THEN ' DEFAULT ' || c.default_val ELSE '' END,
+                    ',' || E'\\n'
+                    ORDER BY c.attnum
+                ) ||
+                CASE WHEN pk.columns IS NOT NULL
+                    THEN ',' || E'\\n' || '    PRIMARY KEY (' || array_to_string(pk.columns, ', ') || ')'
+                    ELSE ''
+                END ||
+                E'\\n)' ||
+                -- Add PARTITION BY clause if this is a partitioned table
+                COALESCE(' PARTITION BY ' || pti.partition_key, '') ||
+                ';'
+        END as definition,
+        pi.parent_name IS NOT NULL as is_partition
     FROM columns c
     CROSS JOIN pk
-    GROUP BY pk.columns
+    LEFT JOIN partition_info pi ON true
+    LEFT JOIN partitioned_table_info pti ON true
+    GROUP BY pk.columns, pi.parent_schema, pi.parent_name, pi.partition_bound, pti.partition_key
 ),
 -- UNIQUE constraints (not covered by unique indexes)
 unique_constraints AS (
@@ -1037,13 +1153,20 @@ comment_defs AS (
     WHERE comment_def IS NOT NULL
 )
 SELECT
-    COALESCE((SELECT definition FROM sequence_defs), '') ||
-    COALESCE((SELECT definition FROM type_defs), '') ||
-    (SELECT definition FROM table_def) ||
-    COALESCE((SELECT definition FROM constraint_defs), '') ||
-    COALESCE((SELECT definition FROM index_defs), '') ||
-    COALESCE((SELECT definition FROM table_comment), '') ||
-    COALESCE((SELECT definition FROM comment_defs), '') as definition`;
+    CASE
+        WHEN (SELECT is_partition FROM table_def) THEN
+            -- For partitions, only show the partition definition
+            (SELECT definition FROM table_def)
+        ELSE
+            -- For regular tables, show full DDL with constraints, indexes, comments
+            COALESCE((SELECT definition FROM sequence_defs), '') ||
+            COALESCE((SELECT definition FROM type_defs), '') ||
+            (SELECT definition FROM table_def) ||
+            COALESCE((SELECT definition FROM constraint_defs), '') ||
+            COALESCE((SELECT definition FROM index_defs), '') ||
+            COALESCE((SELECT definition FROM table_comment), '') ||
+            COALESCE((SELECT definition FROM comment_defs), '')
+    END as definition`;
     }
   }
 

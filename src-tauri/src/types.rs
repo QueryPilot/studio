@@ -21,6 +21,20 @@ pub struct ConnectionProfile {
     pub options: HashMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub group: Option<String>,
+    #[serde(default)]
+    pub safe_mode: Option<SafeMode>,
+}
+
+/// Per-connection safe mode that restricts what operations the GUI allows,
+/// regardless of the actual database user's permissions.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SafeMode {
+    ReadOnly,
+    ReadWrite,
+    ReadWriteUpdate,
+    #[default]
+    FullAccess,
 }
 
 impl ConnectionProfile {
@@ -67,8 +81,11 @@ impl DbType {
     /// Get the database paradigm for this database type
     pub fn paradigm(&self) -> DatabaseParadigm {
         match self {
-            DbType::PostgreSQL | DbType::MySQL | DbType::MariaDB | 
-            DbType::SQLite | DbType::SQLServer => DatabaseParadigm::Sql,
+            DbType::PostgreSQL
+            | DbType::MySQL
+            | DbType::MariaDB
+            | DbType::SQLite
+            | DbType::SQLServer => DatabaseParadigm::Sql,
             DbType::MongoDB => DatabaseParadigm::Document,
             DbType::Redis => DatabaseParadigm::KeyValue,
         }
@@ -129,6 +146,7 @@ pub enum BastionConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QueryHandle {
     pub id: String,
     pub columns: Vec<ColumnMeta>,
@@ -136,6 +154,7 @@ pub struct QueryHandle {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ColumnMeta {
     pub name: String,
     pub data_type: CellValueType,
@@ -157,6 +176,7 @@ pub struct ColumnMeta {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PageChunk {
     pub rows: Vec<Vec<serde_json::Value>>,
     pub has_more: bool,
@@ -167,12 +187,14 @@ pub struct PageChunk {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PageTiming {
     pub fetch_ms: u32,
     pub decode_ms: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QueryResult {
     pub columns: Vec<ColumnMeta>,
     pub rows: Vec<Vec<serde_json::Value>>,
@@ -345,6 +367,7 @@ pub enum DbSpecificValue {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PostgresValue {
     pub oid: u32,
     pub type_name: String,
@@ -353,6 +376,7 @@ pub struct PostgresValue {
 
 // Database introspection types
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Database {
     pub name: String,
     pub owner: Option<String>,
@@ -362,12 +386,14 @@ pub struct Database {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Schema {
     pub name: String,
     pub owner: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Table {
     pub schema: String,
     pub name: String,
@@ -387,6 +413,7 @@ pub enum TableKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct View {
     pub schema: String,
     pub name: String,
@@ -397,6 +424,7 @@ pub struct View {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Function {
     pub schema: String,
     pub name: String,
@@ -410,6 +438,7 @@ pub struct Function {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Index {
     pub name: String,
     pub table_name: String,
@@ -422,6 +451,7 @@ pub struct Index {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct IndexUsageStats {
     pub index_name: String,
     pub scan_count: Option<i64>,
@@ -437,6 +467,7 @@ pub struct IndexUsageStats {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Constraint {
     pub name: String,
     pub table_name: String,
@@ -455,6 +486,7 @@ pub enum ConstraintType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConnectionInfo {
     pub id: String,
     pub db_type: DbType,
@@ -463,6 +495,7 @@ pub struct ConnectionInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConnectionTestResult {
     pub success: bool,
     pub message: String,
@@ -475,6 +508,7 @@ pub struct ConnectionTestResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConnectionHealth {
     pub connection_id: String,
     pub status: String,
@@ -484,6 +518,7 @@ pub struct ConnectionHealth {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConnectionStats {
     pub query_count: usize,
     pub active_queries: usize,
@@ -494,6 +529,7 @@ pub struct ConnectionStats {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ManagerStats {
     pub total_connections: usize,
     pub active_connections: usize,
@@ -501,6 +537,7 @@ pub struct ManagerStats {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Trigger {
     pub name: String,
     pub schema: String,
@@ -515,6 +552,7 @@ pub struct Trigger {
 
 // Filter and Sort types
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FilterConfig {
     pub root: FilterNode,
 }
@@ -527,6 +565,7 @@ pub enum FilterNode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FilterCondition {
     pub column: String,
     pub operator: FilterOperator,
@@ -536,6 +575,7 @@ pub struct FilterCondition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FilterGroup {
     pub logic: LogicOperator,
     pub conditions: Vec<FilterNode>,
@@ -569,6 +609,7 @@ pub enum FilterOperator {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SortConfig {
     pub column: String,
     pub direction: SortDirection,
@@ -597,7 +638,7 @@ impl Default for NullsPosition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum StreamEvent {
     Started {
         columns: Vec<ColumnMeta>,
@@ -664,8 +705,49 @@ pub enum StreamMessage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StreamQueryParams {
     pub conn_id: String,
     pub sql: String,
     pub batch_size: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum DocumentStreamMessage {
+    Started {
+        collection: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        estimated_count: Option<u64>,
+    },
+    Success {
+        total_documents: usize,
+        execution_time_ms: u64,
+    },
+    Error {
+        code: String,
+        message: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum KeyValueStreamMessage {
+    Started {
+        pattern: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        estimated_keys: Option<u64>,
+    },
+    Progress {
+        cursor: u64,
+        keys_so_far: usize,
+    },
+    Success {
+        total_keys: usize,
+        execution_time_ms: u64,
+    },
+    Error {
+        code: String,
+        message: String,
+    },
 }

@@ -8,6 +8,7 @@ import {
   ValidationCode,
 } from "./dbml-validator";
 import { DBMLSchema } from "./dbml-schema";
+import { attachQuickFixes } from "./dbml-quickfix";
 
 export interface DBMLDiagnostic extends Diagnostic {
   code?: string;
@@ -43,8 +44,10 @@ class DBMLLinter {
     }
 
     if (!parseResult.success || !parseResult.ast) {
-      this.diagnosticsCache.set(doc, diagnostics);
-      return diagnostics;
+      // Attach quick fixes even for parse-error-only diagnostics
+      const withFixes = attachQuickFixes(diagnostics, view);
+      this.diagnosticsCache.set(doc, withFixes);
+      return withFixes;
     }
 
     // Build schema from AST
@@ -57,9 +60,12 @@ class DBMLLinter {
     // Run best practice checks
     diagnostics.push(...this.validateBestPractices(schema, doc));
 
+    // Attach quick fixes to all diagnostics
+    const withFixes = attachQuickFixes(diagnostics, view);
+
     // Cache results
-    this.diagnosticsCache.set(doc, diagnostics);
-    return diagnostics;
+    this.diagnosticsCache.set(doc, withFixes);
+    return withFixes;
   }
 
   private validateSemantics(schema: DBMLSchema, _doc: Text): DBMLDiagnostic[] {
@@ -253,11 +259,6 @@ class DBMLLinter {
       }
     }
 
-    // REMOVED: Foreign key index suggestion (not always necessary)
-
-    // REMOVED: Documentation check (too opinionated)
-    // REMOVED: Naming convention check (too opinionated)
-
     // Check for reserved keywords
     const reserved = [
       "user",
@@ -391,16 +392,16 @@ export function dbmlLinter(): Extension {
 
   return linter(
     (view) => {
-      // Debounce linting
+      // Debounce linting for better performance
       clearTimeout(lintTimeout);
       return new Promise((resolve) => {
         lintTimeout = setTimeout(() => {
           resolve(linterInstance.lint(view));
-        }, 300);
+        }, 500);
       });
     },
     {
-      delay: 500,
+      delay: 750,
       needsRefresh: (update) => {
         // Only re-lint on document changes
         if (update.docChanged) {

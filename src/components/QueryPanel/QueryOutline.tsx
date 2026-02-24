@@ -63,7 +63,7 @@ function TreeNode({
             ? "cursor-pointer hover:bg-muted/50"
             : hasChildren
               ? "cursor-pointer"
-              : ""
+              : "",
         )}
         onClick={() => {
           if (hasChildren) {
@@ -76,14 +76,14 @@ function TreeNode({
       >
         {hasChildren ? (
           expanded ? (
-            <IconChevronDown className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+            <IconChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
           ) : (
-            <IconChevronRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+            <IconChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
           )
         ) : (
-          <span className="w-3 flex-shrink-0" />
+          <span className="w-3 shrink-0" />
         )}
-        <Icon className={cn("h-4 w-4 flex-shrink-0", iconColor)} />
+        <Icon className={cn("h-4 w-4 shrink-0", iconColor)} />
         <span className="text-xs font-medium truncate">{label}</span>
         {suffix && (
           <span className="text-xs text-muted-foreground ml-1">{suffix}</span>
@@ -176,9 +176,7 @@ function StatementNode({
       label={label}
       icon={isSubquery ? IconBinaryTree : IconCode}
       iconColor={
-        isSubquery
-          ? "text-orange-600 dark:text-orange-400"
-          : "text-foreground"
+        isSubquery ? "text-orange-600 dark:text-orange-400" : "text-foreground"
       }
       position={statement.span.start}
       onNavigate={onNavigate}
@@ -252,17 +250,17 @@ function ParseStatusBanner({ status }: { status: ParseStatus }) {
         "flex items-center gap-2 px-3 py-2 text-xs border-b",
         isPartial
           ? "bg-yellow-50 dark:bg-yellow-950/30 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800"
-          : "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800"
+          : "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800",
       )}
     >
       {isPartial ? (
         <>
-          <IconAlertTriangle className="h-4 w-4 flex-shrink-0" />
+          <IconAlertTriangle className="h-4 w-4 shrink-0" />
           <span>Partial parse - some elements may be missing</span>
         </>
       ) : (
         <>
-          <IconAlertCircle className="h-4 w-4 flex-shrink-0" />
+          <IconAlertCircle className="h-4 w-4 shrink-0" />
           <span>Parse failed - outline unavailable</span>
         </>
       )}
@@ -340,7 +338,7 @@ export const QueryOutline = memo(function QueryOutline({
         onNavigate(position);
       }
     },
-    [onNavigate]
+    [onNavigate],
   );
 
   // Loading state

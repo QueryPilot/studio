@@ -67,8 +67,9 @@ impl SimpleConverter {
                 }
             }
 
-            Some(Value::Float(f)) => serde_json::Number::from_f64(*f as f64)
-                .map_or(JsonValue::Null, JsonValue::Number),
+            Some(Value::Float(f)) => {
+                serde_json::Number::from_f64(*f as f64).map_or(JsonValue::Null, JsonValue::Number)
+            }
 
             Some(Value::Double(d)) => {
                 serde_json::Number::from_f64(*d).map_or(JsonValue::Null, JsonValue::Number)
@@ -119,4 +120,3 @@ mod tests {
         let _converter = SimpleConverter;
     }
 }
-

@@ -20,6 +20,8 @@ export interface WorkspaceConfig {
   name: string;
   /** Optional emoji or icon name */
   icon?: string;
+  /** Optional tags for organization */
+  tags?: string[];
 
   /** Ordered list of connection profile IDs (supports drag-reorder) */
   connectionIds: string[];

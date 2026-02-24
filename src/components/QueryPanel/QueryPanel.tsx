@@ -6,7 +6,7 @@ import {
   useEffect,
   useMemo,
   useRef,
-  startTransition,
+  useDeferredValue,
 } from "react";
 import { QueryEditor } from "./QueryEditor";
 import { ResultViewer } from "./ResultViewer";
@@ -22,17 +22,32 @@ import { toast } from "sonner";
 import { tableStreamingService } from "@/services/tableStreamingService";
 import { cn } from "@/lib/utils";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
+import { useShallow } from "zustand/react/shallow";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useTabStateStore, type QueryResult } from "@/stores/tabStateStore";
 import type { ColumnMeta } from "@/types/database";
-import { formatSql } from "@/utils/codeFormatter";
 import type { SqlDialect } from "@/components/CodeEditor/types";
+import type { ViewMode } from "@/types/viewMode";
 import type { SqlEditorRef } from "@/components/CodeEditor/SqlEditor";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
-import { handleMutationCache, isMutationQuery, isSelectQuery } from "@/lib/cacheManager";
+import {
+  handleMutationCache,
+  isMutationQuery,
+  isSelectQuery,
+} from "@/lib/cacheManager";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { parseMutationTables } from "@/utils/sqlParser";
 import { eventBus } from "@/services/eventBus";
+import { schemaCache } from "@/services/schemaCache";
+import { trackQuery } from "@/services/queryTracker";
+import { trackQueryExecution } from "@/services/aiContextService";
+import { SaveQueryDialog } from "@/components/QueryHistory";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { editorRegistry } from "@/services/editorRegistry";
+import { clearRustSchema, syncSchemaToRust } from "@/hooks/useRustSchemaSync";
+import { clearCompletionCache } from "@/components/CodeEditor/languages/sql/optimized-completion";
+import { clearProviderCache } from "@/components/CodeEditor/languages/sql/metadataProvider";
 
 interface QueryPanelProps {
   panelId: string;
@@ -44,6 +59,9 @@ interface QueryPanelProps {
   className?: string;
   initialSql?: string;
 }
+
+const QUERY_STORE_SYNC_DEBOUNCE_MS = 150;
+const TAB_METADATA_SYNC_DEBOUNCE_MS = 1000;
 
 export const QueryPanel = memo(function QueryPanel({
   panelId,
@@ -57,9 +75,41 @@ export const QueryPanel = memo(function QueryPanel({
 }: QueryPanelProps) {
   // Use global tab state store to persist across panel moves
   const setQueryState = useTabStateStore((state) => state.setQueryState);
-  const globalState = useTabStateStore((state) => state.queryStates.get(tabId));
-  const focusedPanelId = useWorkbenchStore((state) => state.focusedPanelId);
-  const isPanelFocused = focusedPanelId === panelId;
+  const loadTabStateAsync = useTabStateStore(
+    (state) => state.loadTabStateAsync,
+  );
+  // Shallow comparison prevents re-render when only result/isExecuting/isStreaming change.
+  // Those fields are tracked in local state and written TO the store — not read back reactively.
+  // Without useShallow, every setQueryState call creates a new object ref → double render.
+  const globalState = useTabStateStore(
+    useShallow((state) => {
+      const qs = state.queryStates.get(tabId);
+      if (!qs) return null;
+      return {
+        query: qs.query,
+        result: qs.result, // initial hydration only (when tab moves between panels)
+        isExecuting: qs.isExecuting,
+        isStreaming: qs.isStreaming,
+        viewMode: qs.viewMode,
+        selectedDialect: qs.selectedDialect,
+        inTransaction: qs.inTransaction,
+        lastExecutedQuery: qs.lastExecutedQuery,
+        lastSelectQuery: qs.lastSelectQuery,
+      };
+    }),
+  );
+  // Subscribe to boolean only — avoids re-rendering when another panel gets focused
+  const isPanelFocused = usePanelFocusStore(
+    (state) => state.focusedPanelId === panelId,
+  );
+
+  // Load persisted tab state from IndexedDB on mount
+  useEffect(() => {
+    void loadTabStateAsync(tabId);
+  }, [tabId, loadTabStateAsync]);
+
+  // Track if we've synced from persistence
+  const hasLoadedFromPersistence = useRef(false);
 
   const [query, setQueryInternal] = useState<string>(
     globalState?.query ?? initialSql,
@@ -73,13 +123,9 @@ export const QueryPanel = memo(function QueryPanel({
   const [isStreaming, setIsStreamingInternal] = useState(
     globalState?.isStreaming || false,
   );
-  const [abortController, setAbortController] =
-    useState<AbortController | null>(null);
-  const [appliedLimit, setAppliedLimitInternal] = useState<{
-    originalSql: string;
-    limit: number;
-  } | null>(globalState?.appliedLimit || null);
-  const [viewMode, setViewModeInternal] = useState<"table" | "json" | "explain" | "raw" | "stats">(
+  // Cancellation is handled by tableStreamingService.cancel() — no local AbortController needed.
+  // We use isExecutingRef as the guard for whether a cancel is valid.
+  const [viewMode, setViewModeInternal] = useState<ViewMode>(
     globalState?.viewMode || "table",
   );
   // Track if the current result is from an EXPLAIN query
@@ -87,33 +133,96 @@ export const QueryPanel = memo(function QueryPanel({
 
   // Dialect selection: "auto" means auto-detect, otherwise use selected dialect
   const [selectedDialect, setSelectedDialect] = useState<SqlDialect | "auto">(
-    globalState?.selectedDialect || "auto"
+    globalState?.selectedDialect || "auto",
   );
-  const [detectedDialect, setDetectedDialect] = useState<SqlDialect>("postgresql");
-  
+  const [detectedDialect, setDetectedDialect] =
+    useState<SqlDialect>("postgresql");
+  const deferredQuery = useDeferredValue(query);
+  const hasQuery = query.trim().length > 0;
+
   // Results panel visibility - hidden by default, shown when query executes
   const [showResults, setShowResults] = useState(result !== null);
 
   // Outline panel visibility - hidden by default, toggleable via toolbar
   const [showOutline, setShowOutline] = useState(false);
 
+  // Save query dialog state
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+
   // Get transaction state from persisted store
   const inTransaction = globalState?.inTransaction || false;
+
+  // Keep latest query and query-state metadata in refs so hot-path callbacks stay stable.
+  const queryRef = useRef(query);
+  const lastExecutedQueryRef = useRef(globalState?.lastExecutedQuery || "");
+  const lastSelectQueryRef = useRef(globalState?.lastSelectQuery || null);
+
+  useEffect(() => {
+    queryRef.current = query;
+  }, [query]);
+
+  useEffect(() => {
+    lastExecutedQueryRef.current = globalState?.lastExecutedQuery || "";
+  }, [globalState?.lastExecutedQuery]);
+
+  useEffect(() => {
+    lastSelectQueryRef.current = globalState?.lastSelectQuery || null;
+  }, [globalState?.lastSelectQuery]);
+
+  // Sync persisted state to local state when loaded from IndexedDB
+  // This runs once when globalState first becomes available
+  useEffect(() => {
+    if (globalState && !hasLoadedFromPersistence.current) {
+      hasLoadedFromPersistence.current = true;
+      // Only sync persisted fields (query, viewMode, selectedDialect)
+      // Don't override if local state already has content from initialSql
+      if (globalState.query && !query) {
+        setQueryInternal(globalState.query);
+      }
+      setViewModeInternal(globalState.viewMode);
+      if (globalState.selectedDialect) {
+        setSelectedDialect(globalState.selectedDialect);
+      }
+    }
+  }, [globalState, query]);
 
   // Editor ref for focusing
   const editorRef = useRef<SqlEditorRef>(null);
 
+  // Register editor with the global registry for AI commands
+  useEffect(() => {
+    const editorId = `${panelId}:${tabId}`;
+
+    // Register this editor
+    editorRegistry.register({
+      id: editorId,
+      connectionId,
+      database,
+      schema,
+      getRef: () => editorRef.current,
+    });
+
+    // Cleanup on unmount
+    return () => {
+      editorRegistry.unregister(editorId);
+    };
+  }, [panelId, tabId, connectionId, database, schema]);
+
+  // Update focused editor when panel focus changes
+  useEffect(() => {
+    const editorId = `${panelId}:${tabId}`;
+    if (isPanelFocused) {
+      editorRegistry.setFocusedEditor(editorId);
+    } else {
+      editorRegistry.clearFocusedEditor(editorId);
+    }
+  }, [isPanelFocused, panelId, tabId]);
+
   // Wrapper setters that update ONLY local state (Zustand sync happens in useEffect)
-  const setQuery = useCallback(
-    (value: string) => {
-      setQueryInternal(value);
-      // Mark as having unsaved changes when query is modified
-      const lastExecutedQuery = globalState?.lastExecutedQuery || "";
-      const hasChanges = value.trim() !== lastExecutedQuery.trim();
-      setQueryState(tabId, { hasUnsavedChanges: hasChanges });
-    },
-    [tabId, setQueryState, globalState?.lastExecutedQuery],
-  );
+  const setQuery = useCallback((value: string) => {
+    queryRef.current = value;
+    setQueryInternal((prev) => (prev === value ? prev : value));
+  }, []);
 
   const setResult = useCallback(
     (
@@ -139,18 +248,13 @@ export const QueryPanel = memo(function QueryPanel({
     setIsStreamingInternal(value);
   }, []);
 
-  const setAppliedLimit = useCallback(
-    (value: { originalSql: string; limit: number } | null) => {
-      setAppliedLimitInternal(value);
+  const setViewMode = useCallback(
+    (value: ViewMode) => {
+      setViewModeInternal(value);
     },
     [],
   );
 
-  const setViewMode = useCallback((value: "table" | "json" | "explain" | "raw" | "stats") => {
-    setViewModeInternal(value);
-  }, []);
-
-  const smartQueryLimit = usePreferencesStore((state) => state.smartQueryLimit);
   const updateTabMetadata = useWorkbenchStore(
     (state) => state.updateTabMetadata,
   );
@@ -159,6 +263,13 @@ export const QueryPanel = memo(function QueryPanel({
     () => connectionId || "",
     [connectionId],
   );
+
+  // Get profile ID from connection for saving queries
+  const profileId = useMemo(() => {
+    if (!effectiveConnectionId) return undefined;
+    const connection = useConnectionStore.getState().getConnection(effectiveConnectionId);
+    return connection?.profile.id;
+  }, [effectiveConnectionId]);
 
   useEffect(() => {
     // Connection ID is now always passed from parent
@@ -181,44 +292,83 @@ export const QueryPanel = memo(function QueryPanel({
     });
   }, [keyboardServices, tabId]);
 
-  useEffect(() => {
-    const next = initialSql;
-    if (next !== query) {
-      setQuery(next);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialSql]);
+  // Async sync: keep fast-changing query debounced while syncing execution state immediately.
+  const isInitialStateSync = useRef(true);
+  const isInitialQuerySync = useRef(true);
+  const querySyncTimerRef = useRef<number | null>(null);
 
-  // Async sync: Batch update Zustand store when local state changes (after initial mount)
-  // Single effect reduces re-renders from 6 to 1
-  const isInitialMount = useRef(true);
+  // Sync execution state to tabStateStore. `result` is intentionally NOT a
+  // dependency — during streaming, every batch triggers setResult which would
+  // fire this effect, calling setQueryState (new Map + AI sync) per batch.
+  // Result is synced once when isStreaming flips to false (see resultRef usage
+  // below) and again in handleExecute after final setResult.
+  const resultRef = useRef(result);
+  resultRef.current = result;
 
   useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
+    if (isInitialStateSync.current) {
+      isInitialStateSync.current = false;
       return;
     }
 
-    // Batch all state updates into single Zustand update
-    setQueryState(tabId, {
-      query,
-      result,
-      isExecuting,
-      isStreaming,
-      appliedLimit,
-      viewMode,
-      selectedDialect,
-    });
+    // When streaming ends, include the final result in the sync.
+    // During streaming or executing, skip result to avoid churning the store.
+    const includeResult = !isStreaming && !isExecuting;
+    setQueryState(
+      tabId,
+      {
+        ...(includeResult ? { result: resultRef.current } : {}),
+        isExecuting,
+        isStreaming,
+        viewMode,
+        selectedDialect,
+        hasUnsavedChanges:
+          queryRef.current.trim() !== lastExecutedQueryRef.current.trim(),
+      },
+      // Pass connection context for AI sync
+      { connectionId: effectiveConnectionId, database, schema },
+    );
   }, [
-    query,
-    result,
     isExecuting,
     isStreaming,
-    appliedLimit,
     viewMode,
     selectedDialect,
     tabId,
     setQueryState,
+    effectiveConnectionId,
+    database,
+    schema,
+  ]);
+
+  useEffect(() => {
+    if (isInitialQuerySync.current) {
+      isInitialQuerySync.current = false;
+      return;
+    }
+
+    if (querySyncTimerRef.current) {
+      clearTimeout(querySyncTimerRef.current);
+      querySyncTimerRef.current = null;
+    }
+
+    querySyncTimerRef.current = window.setTimeout(() => {
+      querySyncTimerRef.current = null;
+      setQueryState(
+        tabId,
+        {
+          query,
+          hasUnsavedChanges: query.trim() !== lastExecutedQueryRef.current.trim(),
+        },
+        { connectionId: effectiveConnectionId, database, schema },
+      );
+    }, QUERY_STORE_SYNC_DEBOUNCE_MS);
+  }, [
+    query,
+    tabId,
+    setQueryState,
+    effectiveConnectionId,
+    database,
+    schema,
   ]);
 
   // Cleanup global state when component fully unmounts (tab closed, not just moved)
@@ -238,18 +388,47 @@ export const QueryPanel = memo(function QueryPanel({
       persistTimerRef.current = window.setTimeout(() => {
         lastPersistedRef.current = value;
         updateTabMetadata(panelId, tabId, { sql: value });
-      }, 250);
+      }, TAB_METADATA_SYNC_DEBOUNCE_MS);
     },
     [panelId, tabId, updateTabMetadata],
   );
+
+  const handleEditorChange = useCallback(
+    (value: string) => {
+      setQuery(value);
+      persistSql(value);
+    },
+    [persistSql, setQuery],
+  );
+
   useEffect(() => {
     return () => {
+      if (querySyncTimerRef.current) {
+        clearTimeout(querySyncTimerRef.current);
+        querySyncTimerRef.current = null;
+        const latestQuery = queryRef.current;
+        setQueryState(
+          tabId,
+          {
+            query: latestQuery,
+            hasUnsavedChanges:
+              latestQuery.trim() !== lastExecutedQueryRef.current.trim(),
+          },
+          { connectionId: effectiveConnectionId, database, schema },
+        );
+      }
       if (persistTimerRef.current) {
         clearTimeout(persistTimerRef.current);
         persistTimerRef.current = null;
       }
     };
-  }, []);
+  }, [
+    tabId,
+    setQueryState,
+    effectiveConnectionId,
+    database,
+    schema,
+  ]);
 
   // Ref to track if execution is in progress (prevents double-execution from duplicate events)
   const isExecutingRef = useRef(false);
@@ -266,11 +445,12 @@ export const QueryPanel = memo(function QueryPanel({
       logger.info("[handleExecute] Called with:", {
         queryToExecute,
         queryToExecuteLength: queryToExecute?.length || 0,
-        fallbackQuery: query,
-        fallbackQueryLength: query.length,
+        fallbackQuery: queryRef.current,
+        fallbackQueryLength: queryRef.current.length,
       });
 
-      let sql = queryToExecute ?? query;
+      let sql =
+        queryToExecute ?? editorRef.current?.getValue() ?? queryRef.current;
 
       logger.info("[handleExecute] Before trim:", {
         sql,
@@ -279,26 +459,6 @@ export const QueryPanel = memo(function QueryPanel({
 
       // Clean up the SQL - remove trailing semicolons as they cause issues
       sql = sql.trim().replace(/;\s*$/, "");
-
-      // Smart Query Limit
-      // Only apply if enabled, it's a SELECT query, not an EXPLAIN, and no explicit LIMIT exists
-      const isSelect = isSelectQuery(sql);
-      const hasLimit = /\bLIMIT\b/i.test(sql);
-      const isExplainQuery = sql.trim().toUpperCase().startsWith("EXPLAIN");
-
-      if (
-        smartQueryLimit &&
-        smartQueryLimit > 0 &&
-        isSelect &&
-        !isExplainQuery &&
-        !hasLimit
-      ) {
-        setAppliedLimit({ originalSql: sql, limit: smartQueryLimit });
-        sql = `${sql} LIMIT ${smartQueryLimit}`;
-        logger.info(`[handleExecute] Applied smart limit: ${smartQueryLimit}`);
-      } else {
-        setAppliedLimit(null);
-      }
 
       logger.info("[handleExecute] After trim and semicolon removal:", {
         sql,
@@ -318,22 +478,28 @@ export const QueryPanel = memo(function QueryPanel({
       const isExplain = sqlUpper.startsWith("EXPLAIN");
       setIsExplainResult(isExplain);
 
-      // Auto-switch to explain view mode for EXPLAIN queries
+      // Auto-switch view mode based on query type
       if (isExplain) {
         setViewMode("explain");
+      } else {
+        // Reset to table view for regular queries (in case user was viewing explain results)
+        setViewMode("table");
       }
 
       setIsExecuting(true);
       setIsStreaming(true);
-      setResult(null);
-
-      // Create abort controller for cancellation
-      const controller = new AbortController();
-      setAbortController(controller);
+      // Keep previous result so the grid stays MOUNTED (avoids expensive remount
+      // of GlideDataGrid canvas + 20 hooks in BaseDataGrid). The first streaming
+      // batch will overwrite it with new data. Only clear if previous was an error
+      // or had no rows (grid wasn't mounted anyway).
+      setResult((prev) => {
+        if (prev && !prev.error && prev.rows.length > 0) return prev;
+        return null;
+      });
 
       let executionTime = 0;
-      let queryResult: QueryResult | null = null;
       let errorMessage: string | undefined;
+      const t0 = performance.now();
 
       try {
         // Stream results directly; no wrapping/pagination or SQL rewriting
@@ -346,85 +512,67 @@ export const QueryPanel = memo(function QueryPanel({
         let rafId: number | undefined;
         let pendingTimeout: number | undefined;
 
-        // Throttle updates using requestAnimationFrame with a minimum spacing
+        // Throttle progressive renders. First batch renders SYNCHRONOUSLY
+        // (no setTimeout/RAF delay) so data appears as fast as possible.
+        // Subsequent batches are coalesced into RAF frames with a minimum gap.
         const renderedCountRef = { current: 0 };
         const hasRenderedOnce = { current: false };
-        const MIN_UPDATE_INTERVAL_MS = 120;
+        const MIN_UPDATE_INTERVAL_MS = 32; // ~2 frames — was 120ms, way too sluggish
         let lastUpdateTime = 0;
 
-        const scheduleUpdate = (force = false) => {
-          if (pendingTimeout !== undefined && !force) return; // Update already queued
+        const commitSnapshot = () => {
+          const latestTotal = accumulatedRows.length;
+          setResult((prev) => {
+            if (!prev) {
+              return {
+                columns: currentColumns,
+                columnMeta: currentColumnMeta,
+                rows: accumulatedRows,
+                rowCount: latestTotal,
+                executionTime: 0,
+              };
+            }
+            return {
+              ...prev,
+              columns: currentColumns,
+              columnMeta: currentColumnMeta,
+              rows: accumulatedRows,
+              rowCount: latestTotal,
+            };
+          });
+        };
+
+        const scheduleUpdate = () => {
+          const total = accumulatedRows.length;
+          if (total === 0) return;
+
+          // First render: commit IMMEDIATELY — no setTimeout/RAF indirection.
+          // This shaves ~20ms off time-to-first-pixel.
+          if (!hasRenderedOnce.current) {
+            hasRenderedOnce.current = true;
+            renderedCountRef.current = total;
+            lastUpdateTime = performance.now();
+            commitSnapshot();
+            return;
+          }
+
+          // Already have a pending update queued — let it coalesce more rows.
+          if (pendingTimeout !== undefined) return;
 
           const now = performance.now();
-          const delay = force
-            ? 0
-            : Math.max(MIN_UPDATE_INTERVAL_MS - (now - lastUpdateTime), 0);
-
-          if (pendingTimeout !== undefined && force) {
-            clearTimeout(pendingTimeout);
-            pendingTimeout = undefined;
-          }
+          const delay = Math.max(MIN_UPDATE_INTERVAL_MS - (now - lastUpdateTime), 0);
 
           pendingTimeout = window.setTimeout(() => {
             pendingTimeout = undefined;
             lastUpdateTime = performance.now();
 
-            if (!force && rafId !== undefined) return; // Already scheduled in this frame
-
-            if (rafId !== undefined && force) {
-              cancelAnimationFrame(rafId);
-              rafId = undefined;
-            }
-
+            if (rafId !== undefined) return;
             rafId = requestAnimationFrame(() => {
               rafId = undefined;
-
-              // Don't render until we have rows - keeps skeleton visible
-              const total = accumulatedRows.length;
-              if (total === 0) {
-                return;
-              }
-
-              const commitSnapshot = () => {
-                const latestTotal = accumulatedRows.length;
-                setResult((prev) => {
-                  if (!prev) {
-                    return {
-                      columns: currentColumns,
-                      columnMeta: currentColumnMeta,
-                      rows: accumulatedRows,
-                      rowCount: latestTotal,
-                      executionTime: 0,
-                    };
-                  }
-                  return {
-                    ...prev,
-                    columns: currentColumns,
-                    columnMeta: currentColumnMeta,
-                    rows: accumulatedRows,
-                    rowCount: latestTotal,
-                  };
-                });
-              };
-
-              // First render is synchronous to avoid flash, subsequent use startTransition
-              if (!hasRenderedOnce.current) {
-                hasRenderedOnce.current = true;
-                renderedCountRef.current = total;
-                commitSnapshot();
-                return;
-              }
-
-              if (total <= renderedCountRef.current) {
-                return;
-              }
-
-              renderedCountRef.current = total;
-
-              // Use startTransition for streaming updates to keep UI responsive
-              startTransition(() => {
-                commitSnapshot();
-              });
+              const currentTotal = accumulatedRows.length;
+              if (currentTotal <= renderedCountRef.current) return;
+              renderedCountRef.current = currentTotal;
+              commitSnapshot();
             });
           }, delay);
         };
@@ -443,14 +591,14 @@ export const QueryPanel = memo(function QueryPanel({
               started = true;
               currentColumns = progress.columns.map((c) => c.name);
               currentColumnMeta = progress.columns as unknown as ColumnMeta[];
-              // Don't render empty table - wait for first batch
+              logger.info("[QueryPanel perf] columns received", { ms: Math.round(performance.now() - t0) });
             }
             if (progress.newRows && progress.newRows.length > 0) {
-              // Accumulate rows
               accumulatedRows.push(...progress.newRows);
               rowCount = accumulatedRows.length;
-
-              // Schedule throttled update (max 60 FPS)
+              if (!hasRenderedOnce.current) {
+                logger.info("[QueryPanel perf] first batch", { rows: progress.newRows.length, ms: Math.round(performance.now() - t0) });
+              }
               scheduleUpdate();
             }
           },
@@ -467,6 +615,7 @@ export const QueryPanel = memo(function QueryPanel({
         );
 
         const final = await streamPromise;
+        logger.info("[QueryPanel perf] stream resolved", { rows: accumulatedRows.length, ms: Math.round(performance.now() - t0) });
 
         if (pendingTimeout !== undefined) {
           clearTimeout(pendingTimeout);
@@ -495,8 +644,7 @@ export const QueryPanel = memo(function QueryPanel({
           sqlUpper.startsWith("RELEASE SAVEPOINT ") ||
           sqlUpper === "START TRANSACTION";
         const isConfig =
-          sqlUpper.startsWith("SET ") ||
-          sqlUpper.startsWith("RESET ");
+          sqlUpper.startsWith("SET ") || sqlUpper.startsWith("RESET ");
         const isDDL =
           sqlUpper.startsWith("CREATE ") ||
           sqlUpper.startsWith("ALTER ") ||
@@ -524,11 +672,15 @@ export const QueryPanel = memo(function QueryPanel({
         }
         // For transaction control commands
         else if (isTransaction) {
-          if (sqlUpper.startsWith("BEGIN") || sqlUpper.startsWith("START TRANSACTION")) {
+          if (
+            sqlUpper.startsWith("BEGIN") ||
+            sqlUpper.startsWith("START TRANSACTION")
+          ) {
             message = "Transaction started";
             setQueryState(tabId, { inTransaction: true });
             toast.success("Transaction started", {
-              description: "This tab now has an active transaction. All queries in this tab will be part of this transaction until you COMMIT or ROLLBACK.",
+              description:
+                "This tab now has an active transaction. All queries in this tab will be part of this transaction until you COMMIT or ROLLBACK.",
               duration: 5000,
             });
           } else if (sqlUpper.startsWith("COMMIT")) {
@@ -573,6 +725,8 @@ export const QueryPanel = memo(function QueryPanel({
           ipcSendMs: final.ipcSendMs,
         });
 
+        logger.info("[QueryPanel perf] final setResult done", { ms: Math.round(performance.now() - t0) });
+
         // Streaming complete - stop streaming indicator
         setIsStreaming(false);
 
@@ -585,8 +739,38 @@ export const QueryPanel = memo(function QueryPanel({
 
             // NEW: Broadcast invalidation to all components displaying affected tables
             const affectedTables = parseMutationTables(sql);
+            if (effectiveConnectionId.trim()) {
+              clearCompletionCache(effectiveConnectionId);
+              clearProviderCache(effectiveConnectionId);
+            }
+
             if (affectedTables.length > 0) {
-              const { invalidateTable } = useDataInvalidationStore.getState();
+              const { invalidateTable, invalidateSchema } =
+                useDataInvalidationStore.getState();
+
+              if (isDDL) {
+                affectedTables.forEach(({ schema: tableSchema }) => {
+                  const targetSchema = tableSchema ?? schema;
+                  logger.info(
+                    `[QueryPanel] DDL detected - invalidating schema: ${targetSchema}`,
+                  );
+                  schemaCache.invalidateSchema(
+                    effectiveConnectionId,
+                    targetSchema,
+                  );
+                  invalidateSchema(
+                    effectiveConnectionId,
+                    database,
+                    targetSchema,
+                  );
+
+                  // Ensure Rust and editor caches don't serve stale metadata
+                  void clearRustSchema(effectiveConnectionId, targetSchema).then(
+                    () => syncSchemaToRust(effectiveConnectionId, targetSchema),
+                  );
+                });
+              }
+
               affectedTables.forEach(({ schema, table }) => {
                 logger.info(
                   `[QueryPanel] Invalidating table: ${schema ?? "public"}.${table}`,
@@ -598,6 +782,7 @@ export const QueryPanel = memo(function QueryPanel({
                   table,
                 );
               });
+
             } else {
               logger.warn(
                 "[QueryPanel] Mutation detected but no tables parsed from SQL:",
@@ -606,7 +791,7 @@ export const QueryPanel = memo(function QueryPanel({
             }
 
             // Auto-refresh: Re-run last SELECT query to show updated data
-            const lastSelectQuery = globalState?.lastSelectQuery;
+            const lastSelectQuery = lastSelectQueryRef.current;
             if (lastSelectQuery) {
               toast.info("Data modified - Refreshing results...");
               // Schedule refresh after current query completes
@@ -626,15 +811,36 @@ export const QueryPanel = memo(function QueryPanel({
           lastExecutedQuery: sql,
           ...(isSelect ? { lastSelectQuery: sql } : {}),
         });
+        lastExecutedQueryRef.current = sql;
+        if (isSelect) {
+          lastSelectQueryRef.current = sql;
+        }
 
-        queryResult = {
-          columns: final.columns.map((c) => c.name),
-          columnMeta: final.columns as unknown as ColumnMeta[],
-          rows: [], // Don't store rows again - already in state
+        // Track successful query in history
+        void trackQuery({
+          query: sql,
+          connectionId: effectiveConnectionId,
+          database,
+          schema,
+          executionTimeMs: executionTime,
           rowCount: final.totalRows ?? rowCount,
-          affectedRows,
-          executionTime,
-        };
+          success: true,
+          source: "editor",
+        });
+
+        // Track for AI agent context
+        void trackQueryExecution({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          query: sql,
+          connectionId: effectiveConnectionId,
+          database,
+          schema,
+          executedAt: Date.now(),
+          executionTimeMs: executionTime,
+          rowCount: final.totalRows ?? rowCount,
+          success: true,
+        });
+
       } catch (error) {
         // IconCheck if this is a user cancellation
         const isCancellation =
@@ -673,74 +879,84 @@ export const QueryPanel = memo(function QueryPanel({
           });
 
           logger.error("Query execution failed:", error);
+
+          // Track failed query in history
+          void trackQuery({
+            query: sql,
+            connectionId: effectiveConnectionId,
+            database,
+            schema,
+            success: false,
+            error: errorMessage,
+            source: "editor",
+          });
+
+          // Track for AI agent context
+          void trackQueryExecution({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            query: sql,
+            connectionId: effectiveConnectionId,
+            database,
+            schema,
+            executedAt: Date.now(),
+            success: false,
+            error: errorMessage,
+          });
         }
       } finally {
         isExecutingRef.current = false;
         setIsExecuting(false);
         setIsStreaming(false);
-        setAbortController(null);
-
         // Execution complete
       }
     },
     [
-      query,
       effectiveConnectionId,
       database,
-      smartQueryLimit,
+      schema,
       setIsExecuting,
       setIsStreaming,
       setResult,
-      setAppliedLimit,
       tabId,
       setQueryState,
       setViewMode,
-      globalState?.lastSelectQuery,
     ],
   );
 
   const handleCancel = useCallback(() => {
-    if (abortController) {
-      abortController.abort();
+    if (isExecutingRef.current) {
       isExecutingRef.current = false;
       setIsExecuting(false);
       setIsStreaming(false);
-      setAbortController(null);
 
-      // Cancel backend streaming
+      // Cancel backend streaming — rejects the streamQuery promise with AbortError
       tableStreamingService.cancel();
 
       toast.info("Query cancelled");
     }
-  }, [abortController, setIsExecuting, setIsStreaming]);
+  }, [setIsExecuting, setIsStreaming]);
 
   const handleBeautify = useCallback(() => {
-    if (!query.trim()) return;
+    const currentQuery = editorRef.current?.getValue() ?? queryRef.current;
+    if (!currentQuery.trim()) return;
 
-    // Map dbType to SqlDialect
-    const dialectMap: Record<string, SqlDialect> = {
-      postgres: "postgresql",
-      mysql: "mysql",
-      sqlite: "sqlite",
-      mariadb: "mysql",
-      sqlserver: "mssql",
-      mssql: "mssql",
-      oracle: "plsql",
-    };
-
-    const dialect = dialectMap[dbType.toLowerCase()] || "postgresql";
-    const beautified = formatSql(query, dialect);
-
-    if (beautified !== query) {
-      setQuery(beautified);
-      persistSql(beautified);
-      toast.success("Query formatted");
+    if (editorRef.current) {
+      editorRef.current.format();
+      const formattedQuery = editorRef.current.getValue();
+      if (formattedQuery !== currentQuery) {
+        persistSql(formattedQuery);
+        toast.success("Query formatted");
+      }
+      return;
     }
-  }, [query, dbType, persistSql, setQuery]);
+
+    // Fallback (should not happen in normal editor flow)
+    setQuery(currentQuery);
+  }, [persistSql, setQuery]);
 
   const handleExplain = useCallback(() => {
     // Clean up the query - remove trailing semicolons before wrapping
-    const sql = query.trim().replace(/;\s*$/, "");
+    const sql = queryRef.current.trim().replace(/;\s*$/, "");
     if (!sql) {
       toast.error("Please enter a query to explain");
       return;
@@ -775,10 +991,16 @@ export const QueryPanel = memo(function QueryPanel({
 
     // Execute the explain query (handleExecute auto-switches to explain view mode)
     void handleExecute(explainSql);
-  }, [query, dbType, handleExecute]);
+  }, [dbType, handleExecute]);
 
   const toggleResults = useCallback(() => {
     setShowResults((prev) => !prev);
+  }, []);
+  const toggleOutline = useCallback(() => {
+    setShowOutline((prev) => !prev);
+  }, []);
+  const closeOutline = useCallback(() => {
+    setShowOutline(false);
   }, []);
 
   // Auto-show results panel when query execution starts or completes
@@ -789,43 +1011,49 @@ export const QueryPanel = memo(function QueryPanel({
   }, [isExecuting, result]);
 
   // Subscribe to event bus for keyboard shortcuts
-  // Track if this panel is focused using a ref to avoid re-subscribing
-  const isFocusedRef = useRef(false);
-  
-  useEffect(() => {
-    // Update focus state
-    isFocusedRef.current = (panelId === useWorkbenchStore.getState().focusedPanelId);
-    
-    const unsubscribe = useWorkbenchStore.subscribe((state) => {
-      isFocusedRef.current = (panelId === state.focusedPanelId);
-    });
-    
-    return unsubscribe;
-  }, [panelId]);
-
   useEffect(() => {
     const handleFormat = () => {
-      // IconCheck if THIS panel should handle the event
-      if (!isFocusedRef.current) return;
+      // Check if THIS panel should handle the event
+      if (usePanelFocusStore.getState().focusedPanelId !== panelId) return;
       logger.info("🟢 QueryPanel handling format event");
       handleBeautify();
     };
 
     const handleExecuteEvent = () => {
-      if (!isFocusedRef.current) return;
+      if (usePanelFocusStore.getState().focusedPanelId !== panelId) return;
       logger.info("🟢 QueryPanel handling execute event");
       void handleExecute();
+    };
+
+    const handleSaveQuery = () => {
+      if (usePanelFocusStore.getState().focusedPanelId !== panelId) return;
+      if (!queryRef.current.trim()) {
+        toast.error("No query to save");
+        return;
+      }
+      logger.info("🟢 QueryPanel handling save query event");
+      setShowSaveDialog(true);
+    };
+
+    const handleToggleResults = () => {
+      if (usePanelFocusStore.getState().focusedPanelId !== panelId) return;
+      logger.info("🟢 QueryPanel handling toggle results event");
+      toggleResults();
     };
 
     // Subscribe ALWAYS - handlers check focus
     eventBus.on("query-editor:format", handleFormat);
     eventBus.on("query-editor:execute", handleExecuteEvent);
+    eventBus.on("query-editor:save", handleSaveQuery);
+    eventBus.on("query-panel:toggle-results", handleToggleResults);
 
     return () => {
       eventBus.off("query-editor:format", handleFormat);
       eventBus.off("query-editor:execute", handleExecuteEvent);
+      eventBus.off("query-editor:save", handleSaveQuery);
+      eventBus.off("query-panel:toggle-results", handleToggleResults);
     };
-  }, [handleBeautify, handleExecute]);
+  }, [handleBeautify, handleExecute, toggleResults]);
 
   // Focus panel when QueryPanel is clicked or focused
   const handleFocusPanel = useCallback(() => {
@@ -835,11 +1063,31 @@ export const QueryPanel = memo(function QueryPanel({
     }
   }, [panelId]);
 
+  // Auto-focus editor when this panel becomes focused via keyboard navigation (Cmd+[ / Cmd+])
+  // but NOT when focus is already within the panel (e.g., user clicked a search input in results)
+  const panelContainerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (isPanelFocused) {
+      requestAnimationFrame(() => {
+        // Don't steal focus if something within this panel is already focused
+        const activeEl = document.activeElement;
+        if (
+          activeEl &&
+          panelContainerRef.current?.contains(activeEl) &&
+          activeEl !== panelContainerRef.current
+        ) {
+          return;
+        }
+        editorRef.current?.focus();
+      });
+    }
+  }, [isPanelFocused]);
+
   return (
     <div
+      ref={panelContainerRef}
       className={cn("flex flex-col h-full", className)}
       onMouseDown={handleFocusPanel}
-      onFocus={handleFocusPanel}
     >
       {/* Main Content */}
       <div className="flex-1 min-h-0 overflow-hidden">
@@ -862,7 +1110,11 @@ export const QueryPanel = memo(function QueryPanel({
               >
                 <ResizablePanelGroup direction="horizontal" className="h-full">
                   {/* Editor Panel */}
-                  <ResizablePanel defaultSize={75} minSize={30} className="flex flex-col relative">
+                  <ResizablePanel
+                    defaultSize={75}
+                    minSize={30}
+                    className="flex flex-col relative"
+                  >
                     {/* Transaction indicator badge */}
                     {inTransaction && (
                       <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 bg-yellow-500/90 dark:bg-yellow-600/90 text-yellow-950 dark:text-yellow-50 text-xs font-medium rounded-md shadow-md backdrop-blur-sm border border-yellow-600/20">
@@ -889,21 +1141,20 @@ export const QueryPanel = memo(function QueryPanel({
                       schema={schema}
                       dbType={dbType}
                       value={query}
-                      onChange={(value) => {
-                        setQuery(value);
-                        persistSql(value);
-                      }}
+                      onChange={handleEditorChange}
                       onExecute={handleExecute}
                       isExecuting={isExecuting}
                       height="100%"
-                      dialectOverride={selectedDialect === "auto" ? undefined : selectedDialect}
+                      dialectOverride={
+                        selectedDialect === "auto" ? undefined : selectedDialect
+                      }
                       onDialectDetected={setDetectedDialect}
                       extraBottomPadding={100}
                     />
                     {/* Toolbar */}
                     <QueryToolbar
                       isExecuting={isExecuting}
-                      query={query}
+                      hasQuery={hasQuery}
                       showResults={showResults}
                       showOutline={showOutline}
                       viewMode={viewMode}
@@ -916,7 +1167,7 @@ export const QueryPanel = memo(function QueryPanel({
                       onBeautify={handleBeautify}
                       onExplain={handleExplain}
                       onToggleResults={toggleResults}
-                      onToggleOutline={() => setShowOutline(!showOutline)}
+                      onToggleOutline={toggleOutline}
                       onViewModeChange={setViewMode}
                       onDialectChange={setSelectedDialect}
                     />
@@ -926,24 +1177,44 @@ export const QueryPanel = memo(function QueryPanel({
                   {showOutline && (
                     <>
                       <ResizableHandle className="bg-border !w-0.5 hover:bg-primary/50 transition-colors" />
-                      <ResizablePanel defaultSize={25} minSize={15} maxSize={50}>
+                      <ResizablePanel
+                        defaultSize={25}
+                        minSize={15}
+                        maxSize={50}
+                      >
                         <div className="h-full flex flex-col overflow-hidden bg-muted/30">
-                          <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/50 flex-shrink-0">
-                            <span className="text-xs font-medium text-muted-foreground">Query Outline</span>
+                          <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/50 shrink-0">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              Query Outline
+                            </span>
                             <button
-                              onClick={() => setShowOutline(false)}
+                              onClick={closeOutline}
                               className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
                               title="Close Outline"
                             >
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              <svg
+                                className="w-3.5 h-3.5"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M6 18L18 6M6 6l12 12"
+                                />
                               </svg>
                             </button>
                           </div>
                           <div className="flex-1 min-h-0 overflow-auto">
                             <QueryOutline
-                              sql={query}
-                              dialect={selectedDialect === "auto" ? detectedDialect : selectedDialect}
+                              sql={deferredQuery}
+                              dialect={
+                                selectedDialect === "auto"
+                                  ? detectedDialect
+                                  : selectedDialect
+                              }
                               onNavigate={(position) => {
                                 editorRef.current?.setCursorPosition(position);
                               }}
@@ -990,9 +1261,18 @@ export const QueryPanel = memo(function QueryPanel({
               )}
             </ResizablePanelGroup>
           </ResizablePanel>
-
         </ResizablePanelGroup>
       </div>
+
+      {/* Save Query Dialog */}
+      <SaveQueryDialog
+        open={showSaveDialog}
+        onOpenChange={setShowSaveDialog}
+        query={query}
+        profileId={profileId}
+        database={database}
+        schema={schema}
+      />
     </div>
   );
 });

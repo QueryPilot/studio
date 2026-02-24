@@ -9,6 +9,7 @@ import { EditorView, Decoration, type DecorationSet, WidgetType } from "@codemir
 import { StateField, StateEffect, type Extension } from "@codemirror/state";
 import { logger } from "@/lib/logger";
 import { invoke } from "@tauri-apps/api/core";
+import { isTauri } from "@/utils/tauri";
 import type { RefactorAction, RefactorResult } from "../languages/sql/refactor-service";
 
 // State effect to show/hide rename widget
@@ -115,10 +116,15 @@ class RenameWidget extends WidgetType {
   }
 
   private async applyRename(view: EditorView, newName: string) {
+    if (!isTauri()) {
+      logger.warn("[Rename] Cannot apply rename in non-Tauri environment");
+      this.cancel(view);
+      return;
+    }
+
     try {
       const sql = view.state.doc.toString();
 
-      // Call backend to apply rename
       const result = await invoke<RefactorResult>("sql_apply_refactor", {
         sql,
         dialect: this.dialect,
@@ -129,7 +135,6 @@ class RenameWidget extends WidgetType {
         },
       });
 
-      // Apply the new SQL
       view.dispatch({
         changes: {
           from: 0,
@@ -139,7 +144,6 @@ class RenameWidget extends WidgetType {
         effects: showRenameWidget.of(null),
       });
 
-      // Set cursor to the renamed position
       view.dispatch({
         selection: { anchor: result.cursor_position },
       });
@@ -147,7 +151,6 @@ class RenameWidget extends WidgetType {
       view.focus();
     } catch (error) {
       logger.error("[Rename] Failed to apply:", error);
-      // Show error (you could add a toast notification here)
       this.cancel(view);
     }
   }
@@ -202,6 +205,11 @@ export async function startRename(
   view: EditorView,
   dialect: string
 ): Promise<boolean> {
+  if (!isTauri()) {
+    logger.warn("[Rename] Not available in non-Tauri environment");
+    return false;
+  }
+
   const pos = view.state.selection.main.from;
   const sql = view.state.doc.toString();
 

@@ -16,7 +16,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { IconFolder, IconPlus, IconClock } from "@tabler/icons-react";
+import { IconPlus, IconClock, IconLayout2 } from "@tabler/icons-react";
 
 export function WorkspacePickerScreen() {
   const navigate = useNavigate();
@@ -59,7 +59,7 @@ export function WorkspacePickerScreen() {
       <Card className="w-full max-w-lg">
         <CardHeader className="text-center">
           <div className="mx-auto w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-2">
-            <IconFolder className="w-6 h-6 text-primary" />
+            <IconLayout2 className="w-6 h-6 text-primary" />
           </div>
           <CardTitle>Select Workspace</CardTitle>
           <CardDescription>
@@ -105,7 +105,7 @@ export function WorkspacePickerScreen() {
           {/* Empty state */}
           {savedWorkspaces.length === 0 && (
             <div className="text-center py-8 text-muted-foreground">
-              <IconFolder className="w-12 h-12 mx-auto mb-2 opacity-50" />
+              <IconLayout2 className="w-12 h-12 mx-auto mb-2 opacity-50" />
               <p>No saved workspaces yet</p>
               <p className="text-sm">Create one from the home screen</p>
             </div>

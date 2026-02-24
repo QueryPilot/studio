@@ -1,21 +1,30 @@
-import { logger } from "@/lib/logger";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, memo } from "react";
 import { cn } from "@/lib/utils";
 import { GridRenderer } from "./GridRenderer";
 import { Panel } from "./PanelDnd";
-import { type Direction } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
-import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragStartEvent,
-  type DragEndEvent,
-  type DragOverEvent,
-} from "@dnd-kit/core";
+import { useShallow } from "zustand/react/shallow";
 import { PanelPortalProvider, PanelPortal } from "./PanelPortalContext";
+
+/**
+ * Memoized panel portals — prevents re-rendering all panels when layoutTree changes during resize.
+ * panelIds from useShallow is reference-stable when panels don't change,
+ * so this component skips re-renders entirely during resize drag.
+ */
+const PanelPortals = memo(function PanelPortals({ panelIds }: { panelIds: string[] }) {
+  return (
+    <>
+      {panelIds.map((panelId) => (
+        <PanelPortal key={panelId} panelId={panelId}>
+          <Panel
+            panelId={panelId}
+            className="h-full rounded-xl overflow-hidden"
+          />
+        </PanelPortal>
+      ))}
+    </>
+  );
+});
 
 interface WorkbenchLayoutProps {
   className?: string;
@@ -27,31 +36,14 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
   className,
   connectionId,
 }) => {
-  const {
-    layoutTree,
-    panelContents,
-    focusedPanelId,
-    setConnectionId,
-    initializeLayout,
-    splitPanelAction,
-    moveTab,
-  } = useWorkbenchStore();
-
-  // Get stable list of panel IDs for rendering
-  const panelIds = Array.from(panelContents.keys());
-
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [activeTabInfo, setActiveTabInfo] = useState<{
-    tabId: string;
-    panelId: string;
-  } | null>(null);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    }),
+  // Use granular selectors to avoid re-rendering when unrelated store fields change
+  const layoutTree = useWorkbenchStore((s) => s.layoutTree);
+  const setConnectionId = useWorkbenchStore((s) => s.setConnectionId);
+  const initializeLayout = useWorkbenchStore((s) => s.initializeLayout);
+  // Get stable list of panel IDs - useShallow does shallow array comparison
+  // so this only re-renders when panels are added/removed, not when tab content changes
+  const panelIds = useWorkbenchStore(
+    useShallow((s) => Array.from(s.panelContents.keys())),
   );
 
   // Set connection ID when component mounts or connection changes
@@ -67,132 +59,6 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
     }
   }, [layoutTree, initializeLayout]);
 
-  const handleDragStart = (event: DragStartEvent) => {
-    const { active } = event;
-    setActiveId(active.id as string);
-
-    // Parse the tab and panel info from the draggable ID
-    if (active.data.current) {
-      const tabInfo = active.data.current as { tabId: string; panelId: string };
-      setActiveTabInfo(tabInfo);
-
-      // Update the global store so panels can react
-      const state = useWorkbenchStore.getState();
-      state.setDragContext({
-        draggedTab: { id: tabInfo.tabId, panelId: tabInfo.panelId },
-      });
-    }
-
-    logger.info("🚀 Global drag started:", active.id, active.data.current);
-  };
-
-  const handleDragOver = (event: DragOverEvent) => {
-    const { active, over } = event;
-    logger.info("🔄 Drag over:", { active: active.id, over: over?.id });
-  };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-
-    logger.info("🏁 Global drag ended:", {
-      active: active.id,
-      over: over?.id,
-      activeData: active.data.current,
-      overData: over?.data.current,
-    });
-
-    setActiveId(null);
-    setActiveTabInfo(null);
-
-    // Clear the global drag context
-    const state = useWorkbenchStore.getState();
-    state.clearDragContext();
-
-    if (!over || !active.data.current || !over.data.current) return;
-
-    const activeData = active.data.current as {
-      tabId: string;
-      panelId: string;
-    };
-    const overData = over.data.current as { panelId: string; position: string };
-
-    const { tabId, panelId: sourcePanelId } = activeData;
-    const { panelId: targetPanelId, position } = overData;
-
-    logger.info(
-      `💧 Processing drop: ${tabId} from ${sourcePanelId} to ${targetPanelId} at ${position}`,
-    );
-
-    if (position === "center") {
-      // Move tab to existing panel (only if different panels)
-      if (sourcePanelId !== targetPanelId) {
-        moveTab(tabId, sourcePanelId, targetPanelId);
-        // Focus the target panel and activate the moved tab
-        const state = useWorkbenchStore.getState();
-        state.focusPanel(targetPanelId);
-        state.setActiveTab(targetPanelId, tabId);
-      }
-    } else {
-      // Create new panel with tab
-      const directionMap: Record<string, Direction> = {
-        top: "up",
-        bottom: "down",
-        left: "left",
-        right: "right",
-      };
-
-      const direction = directionMap[position];
-      if (!direction) {
-        logger.error("Invalid drop position:", position);
-        return;
-      }
-
-      const state = useWorkbenchStore.getState();
-      const sourcePanel = state.panelContents.get(sourcePanelId);
-      const tabMetadata = sourcePanel?.metadata?.[tabId];
-
-      const newPanelId = `panel-${Date.now()}-${Math.random()
-        .toString(36)
-        .substring(2, 11)}`;
-
-      // Always create the split with the tab in the new panel
-      logger.info(`🔨 Calling splitPanelAction:`, {
-        targetPanelId,
-        direction,
-        newPanelId,
-      });
-
-      // Always create the split with the tab in the new panel
-      splitPanelAction({
-        targetPanelId,
-        direction,
-        newPanelContent: {
-          id: newPanelId,
-          type: "editor",
-          tabIds: [tabId],
-          activeTabId: tabId,
-          metadata: tabMetadata ? { [tabId]: tabMetadata } : undefined,
-        },
-      });
-
-      // Remove from source panel after split is created
-      // Always remove the tab from source after successful split
-      // The split already created a new panel with the tab
-      setTimeout(() => {
-        const updatedState = useWorkbenchStore.getState();
-        const sourcePanel = updatedState.panelContents.get(sourcePanelId);
-
-        if (sourcePanel) {
-          updatedState.removeTab(sourcePanelId, tabId);
-        }
-
-        // Focus the new panel and activate the moved tab
-        updatedState.focusPanel(newPanelId);
-        updatedState.setActiveTab(newPanelId, tabId);
-      }, 50);
-    }
-  };
-
   if (!layoutTree) {
     return (
       <div className={cn("flex items-center justify-center h-full", className)}>
@@ -201,54 +67,16 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
     );
   }
 
-  // Count total panels for focus border styling
-  const totalPanels = panelIds.length;
-
   return (
     <PanelPortalProvider>
-      <DndContext
-        sensors={sensors}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragEnd={handleDragEnd}
+      <div
+        className={cn("workbench-layout h-full overflow-hidden", className)}
       >
-        <div
-          className={cn("workbench-layout h-full overflow-hidden", className)}
-        >
-          <GridRenderer node={layoutTree} className="h-full" />
-        </div>
+        <GridRenderer node={layoutTree} className="h-full" />
+      </div>
 
-        {/* Render all panels at a stable position in the tree */}
-        {/* They will be portaled into their containers in GridRenderer */}
-        {panelIds.map((panelId) => {
-          const content = panelContents.get(panelId);
-          if (!content) return null;
-          return (
-            <PanelPortal key={panelId} panelId={panelId}>
-              <Panel
-                content={content}
-                className={cn(
-                  "h-full rounded-xl overflow-hidden border-[3px]",
-                  {
-                    "border-primary/30":
-                      totalPanels > 1 && panelId === focusedPanelId,
-                    "border-background":
-                      totalPanels <= 1 || panelId !== focusedPanelId,
-                  },
-                )}
-              />
-            </PanelPortal>
-          );
-        })}
-
-        <DragOverlay>
-          {activeId && activeTabInfo && (
-            <div className="px-3 py-1 text-xs rounded-md bg-primary text-primary-foreground shadow-lg">
-              {activeTabInfo.tabId.split("-").pop()}
-            </div>
-          )}
-        </DragOverlay>
-      </DndContext>
+      {/* Panel portals memoized separately — immune to layoutTree changes during resize */}
+      <PanelPortals panelIds={panelIds} />
     </PanelPortalProvider>
   );
 };

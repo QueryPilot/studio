@@ -50,10 +50,9 @@ export const appearanceCommands: Command[] = [
     category: "Appearance",
     handler: () => {
       const store = useAppStore.getState();
-      const currentSize = store.preferences.fontSize;
-      const newSize = Math.min(currentSize + 1, 24);
-      store.updatePreferences({ fontSize: newSize });
-      toast.success(`Font size: ${newSize}px`);
+      const newLevel = Math.min(store.zoomLevel + 10, 150);
+      store.setZoomLevel(newLevel);
+      toast.success(`Zoom: ${newLevel}%`);
     },
   },
   {
@@ -62,10 +61,9 @@ export const appearanceCommands: Command[] = [
     category: "Appearance",
     handler: () => {
       const store = useAppStore.getState();
-      const currentSize = store.preferences.fontSize;
-      const newSize = Math.max(currentSize - 1, 10);
-      store.updatePreferences({ fontSize: newSize });
-      toast.success(`Font size: ${newSize}px`);
+      const newLevel = Math.max(store.zoomLevel - 10, 75);
+      store.setZoomLevel(newLevel);
+      toast.success(`Zoom: ${newLevel}%`);
     },
   },
   {
@@ -73,8 +71,8 @@ export const appearanceCommands: Command[] = [
     label: "Reset Zoom",
     category: "Appearance",
     handler: () => {
-      useAppStore.getState().updatePreferences({ fontSize: 14 });
-      toast.success("Font size reset to 14px");
+      useAppStore.getState().setZoomLevel(100);
+      toast.success("Zoom reset to 100%");
     },
   },
 ];

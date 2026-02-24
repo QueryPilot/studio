@@ -6,6 +6,7 @@ import {
   formatValue,
 } from "@/adapters/formatting";
 import type { DbType } from "@/types/connection";
+import { writeClipboardText } from "@/lib/clipboard";
 
 // Support both DbType enum and legacy string type
 type DatabaseTypeInput = DbType | string;
@@ -71,8 +72,7 @@ export function copyInsertToClipboard(
     try {
       const sql = generateInsertStatements(rows, columns, options);
 
-      navigator.clipboard
-        .writeText(sql)
+      writeClipboardText(sql)
         .then(() => {
           logger.info(
             `[SQL Insert Export] Copied ${rows.length} rows as ${options.batchMode ? "batch" : "individual"} INSERT`,

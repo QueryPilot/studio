@@ -2,19 +2,11 @@ import { type Keybinding } from '@/types/keybinding';
 
 export const defaultKeybindings: Keybinding[] = [
   {
-    command: 'commandPalette.open',
-    key: 'cmd+shift+p',
-  },
-  {
     command: 'quickOpen.show',
     key: 'cmd+p',
   },
   {
-    command: 'commandPalette.open',
-    key: 'f1',
-  },
-  {
-    command: 'commandPalette.close',
+    command: 'quickOpen.close',
     key: 'escape',
     when: 'inQuickOpen',
   },
@@ -25,6 +17,10 @@ export const defaultKeybindings: Keybinding[] = [
   {
     command: 'help.keyboardShortcuts',
     key: 'cmd+shift+/',
+  },
+  {
+    command: 'window.action.newMainWindow',
+    key: 'cmd+shift+n',
   },
   {
     command: 'workbench.action.toggleLeftSidebar',
@@ -124,9 +120,54 @@ export const defaultKeybindings: Keybinding[] = [
   },
   // Data Grid keybindings
   {
+    command: 'dataGrid.action.focusFilter',
+    key: 'cmd+f',
+    when: 'dataGridFocus && !editingCell',
+  },
+  {
+    command: 'dataGrid.action.focusFilter',
+    key: '/',
+    when: 'dataGridFocus && !editingCell',
+  },
+  {
+    command: 'dataGrid.action.copySelection',
+    key: 'cmd+c',
+    when: 'dataGridFocus && !editingCell && !selectionEmpty',
+  },
+  {
     command: 'dataGrid.action.copyAsJson',
     key: 'cmd+shift+c',
     when: 'dataGridFocus && !editingCell && !selectionEmpty',
+  },
+  {
+    command: 'dataGrid.action.fillDown',
+    key: 'ctrl+d',
+    when: 'dataGridFocus && !editingCell && !isMac',
+  },
+  {
+    command: 'dataGrid.action.fillRight',
+    key: 'ctrl+r',
+    when: 'dataGridFocus && !editingCell && !isMac',
+  },
+  {
+    command: 'dataGrid.action.deleteRows',
+    key: 'cmd+d',
+    when: 'dataGridFocus && !editingCell && dataGridEditable',
+  },
+  {
+    command: 'dataGrid.action.showContextMenu',
+    key: 'cmd+.',
+    when: 'dataGridFocus && !editingCell',
+  },
+  {
+    command: 'dataGrid.action.clearSelection',
+    key: 'delete',
+    when: 'dataGridFocus && !editingCell',
+  },
+  {
+    command: 'dataGrid.action.clearSelection',
+    key: 'backspace',
+    when: 'dataGridFocus && !editingCell',
   },
   {
     command: 'workspace.commitAll',
@@ -146,12 +187,12 @@ export const defaultKeybindings: Keybinding[] = [
   {
     command: 'workspace.undo',
     key: 'cmd+z',
-    when: '!editorTextFocus && !editingCell',
+    when: '!editorTextFocus && !editingCell && !inQuickOpen',
   },
   {
     command: 'workspace.redo',
     key: 'cmd+shift+z',
-    when: '!editorTextFocus && !editingCell',
+    when: '!editorTextFocus && !editingCell && !inQuickOpen',
   },
   {
     command: 'workbench.action.reloadWindow',
@@ -202,5 +243,25 @@ export const defaultKeybindings: Keybinding[] = [
     command: 'tabs.switchToTab9',
     key: 'cmd+9',
     when: 'tabGroupFocused',
+  },
+  // Query History
+  {
+    command: 'query.history.show',
+    key: 'cmd+shift+h',
+  },
+  {
+    command: 'query.saved.create',
+    key: 'cmd+shift+s',
+    when: 'editorTextFocus && queryEditor',
+  },
+  {
+    command: 'query.saved.search',
+    key: 'cmd+shift+o',
+  },
+  // Query Panel
+  {
+    command: 'query.toggleResults',
+    key: 'cmd+j',
+    when: 'queryEditor',
   },
 ];

@@ -1,7 +1,17 @@
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
 import { cva, type VariantProps } from "class-variance-authority";
+import { useEffect, useRef, useCallback, useState } from "react";
 
+import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
+import { tabGroupRegistry } from "@/services/tabGroupRegistry";
 import { cn } from "@/lib/utils";
+
+function createTabGroupId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `tabs-${crypto.randomUUID()}`;
+  }
+  return `tabs-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 // Extended props for backwards compatibility with custom shortcut features
 type TabsProps = TabsPrimitive.Root.Props & {
@@ -14,23 +24,99 @@ type TabsProps = TabsPrimitive.Root.Props & {
 function Tabs({
   className,
   orientation = "horizontal",
-  // Extract legacy props so they don't get passed to Base-UI
-  enableShortcuts: _enableShortcuts,
-  tabGroupId: _tabGroupId,
-  focused: _focused,
-  enableGlobalShortcuts: _enableGlobalShortcuts,
+  enableShortcuts = false,
+  tabGroupId,
+  focused = false,
+  enableGlobalShortcuts = true,
+  onValueChange,
+  children,
   ...props
 }: TabsProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const services = useKeyboardServicesOptional();
+  const contextService = services?.contextService;
+  const [effectiveTabGroupId] = useState(() => tabGroupId ?? createTabGroupId());
+
+  const switchToTab = useCallback((index: number) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const triggers = container.querySelectorAll<HTMLButtonElement>(
+      '[data-slot="tabs-trigger"]'
+    );
+    if (index < 0 || index >= triggers.length) return;
+    triggers[index]?.click();
+  }, []);
+
+  useEffect(() => {
+    if (!enableShortcuts) return;
+
+    tabGroupRegistry.register({
+      tabGroupId: effectiveTabGroupId,
+      switchToTab,
+      getTabCount: () => {
+        const container = containerRef.current;
+        if (!container) return 0;
+        return container.querySelectorAll('[data-slot="tabs-trigger"]').length;
+      },
+    });
+    return () => {
+      tabGroupRegistry.unregister(effectiveTabGroupId);
+    };
+  }, [enableShortcuts, effectiveTabGroupId, switchToTab]);
+
+  useEffect(() => {
+    if (!enableShortcuts || !enableGlobalShortcuts || !contextService) {
+      return;
+    }
+
+    if (focused) {
+      tabGroupRegistry.setFocusedGroup(effectiveTabGroupId);
+      contextService.setValue("focusedTabGroupId", effectiveTabGroupId);
+      contextService.setValue("tabGroupFocused", true);
+      return;
+    }
+
+    const currentFocusedId = contextService.getValue("focusedTabGroupId");
+    if (currentFocusedId === effectiveTabGroupId) {
+      tabGroupRegistry.clearFocusedGroup(effectiveTabGroupId);
+      contextService.setValue("focusedTabGroupId", null);
+      contextService.setValue("tabGroupFocused", false);
+    }
+  }, [
+    contextService,
+    enableGlobalShortcuts,
+    enableShortcuts,
+    focused,
+    effectiveTabGroupId,
+  ]);
+
+  useEffect(() => {
+    if (!contextService) {
+      return;
+    }
+    return () => {
+      const currentFocusedId = contextService.getValue("focusedTabGroupId");
+      if (currentFocusedId === effectiveTabGroupId) {
+        contextService.setValue("focusedTabGroupId", null);
+        contextService.setValue("tabGroupFocused", false);
+      }
+    };
+  }, [contextService, effectiveTabGroupId]);
+
   return (
     <TabsPrimitive.Root
+      ref={containerRef}
       data-slot="tabs"
       data-orientation={orientation}
       className={cn(
         "gap-2 group/tabs flex data-[orientation=horizontal]:flex-col",
         className,
       )}
+      onValueChange={onValueChange}
       {...props}
-    />
+    >
+      {children}
+    </TabsPrimitive.Root>
   );
 }
 
@@ -96,11 +182,14 @@ const tabsTriggerVariants = cva(
 function TabsTrigger({
   className,
   size,
+  value,
   ...props
 }: TabsPrimitive.Tab.Props & VariantProps<typeof tabsTriggerVariants>) {
   return (
     <TabsPrimitive.Tab
       data-slot="tabs-trigger"
+      data-value={value}
+      value={value}
       className={cn(tabsTriggerVariants({ size }), className)}
       {...props}
     />

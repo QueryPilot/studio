@@ -32,6 +32,18 @@ function isNumericDbType(dbType: string): boolean {
   return numericPatterns.some(p => p.test(dbType));
 }
 
+/**
+ * Truncate long FK values (like UUIDs) in the middle
+ * Shows first 4 chars + ellipsis + last 4 chars
+ * e.g., "550e8400-e29b-41d4-a716-446655440000" → "550e…0000"
+ */
+function truncateFkValueMiddle(value: string, threshold = 12): string {
+  if (value.length <= threshold) return value;
+  const first = value.slice(0, 4);
+  const last = value.slice(-4);
+  return `${first}…${last}`;
+}
+
 const ReferenceCellRenderer: CustomCellRenderer<ReferenceCustomCell> = {
   isMatch: (cell: CustomCell): cell is ReferenceCustomCell => {
     const data = cell.data as Record<string, unknown> | null;
@@ -62,8 +74,10 @@ const ReferenceCellRenderer: CustomCellRenderer<ReferenceCustomCell> = {
       ctx.font = cachedTheme.italicFont;
       ctx.fillText("NULL", rect.x + padding, centerY);
     } else if (embeddedValue != null) {
-      // Value with embedded reference as: "1 → [user@example.com]"
-      const fkText = displayValue || String(value);
+      // Value with embedded reference as: "550e…0000 → [user@example.com]"
+      // Truncate long FK values (UUIDs, etc.) in the middle to save space for the badge
+      const rawFkText = displayValue || String(value);
+      const fkText = truncateFkValueMiddle(rawFkText);
       const arrowText = " → ";
       const badgePaddingH = 6; // Horizontal padding inside badge
       const badgeRadius = 4; // Border radius for pill

@@ -15,6 +15,7 @@ export interface ConnectionProfile {
   options: Record<string, string>;
   group?: string; // Optional group name for organizing related connections
   default_schema?: string; // Default schema for PostgreSQL/SQLServer (e.g., "myschema" instead of "public")
+  safe_mode?: SafeMode; // Per-connection safe mode (defaults to "full_access")
 }
 
 export enum DbType {
@@ -77,6 +78,36 @@ export function isKeyValue(dbType: DbType): boolean {
   return getParadigm(dbType) === 'keyvalue';
 }
 
+/**
+ * Get the default schema for a database type.
+ * - PostgreSQL: "public"
+ * - MySQL/MariaDB: Uses database name as schema (pass null, will use database)
+ * - SQLite: "main"
+ * - SQL Server: "dbo"
+ * - MongoDB/Redis: null (no schema concept)
+ */
+export function getDefaultSchema(dbType: DbType, database?: string): string | null {
+  switch (dbType) {
+    case DbType.PostgreSQL:
+      return 'public';
+    case DbType.MySQL:
+    case DbType.MariaDB:
+      // MySQL uses database name as schema
+      return database || null;
+    case DbType.SQLite:
+      return 'main';
+    case DbType.SQLServer:
+      return 'dbo';
+    case DbType.MongoDB:
+    case DbType.Redis:
+      // No schema concept
+      return null;
+  }
+}
+
+/** Per-connection safe mode restricting allowed operations */
+export type SafeMode = "read_only" | "read_write" | "read_write_update" | "full_access";
+
 export enum SslMode {
   Disable = "Disable",
   Require = "Require",
@@ -116,6 +147,11 @@ export interface ConnectionMetadata {
   use_count: number;
   tags: string[];
   is_favorite: boolean;
+}
+
+export interface GroupTag {
+  name: string;
+  color: string;
 }
 
 export interface ActiveConnectionState {

@@ -4,7 +4,8 @@ FROM alpine:latest
 RUN apk add --no-cache openssh openssh-server
 
 # Create SSH user
-RUN adduser -D sshuser
+RUN adduser -D sshuser && \
+    echo "sshuser:keyonly-pass-disabled" | chpasswd
 
 # Generate host keys
 RUN ssh-keygen -A

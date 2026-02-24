@@ -10,14 +10,26 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use crate::error::AppError;
+use crate::types::ConnectionProfile;
 
 // ============ Capability Traits ============
 
 /// Base capability - all adapters implement this
 #[async_trait]
 pub trait BaseCapability: Send + Sync {
+    /// Connect to the database using the provided profile
+    async fn connect(&self, profile: &ConnectionProfile) -> Result<(), AppError>;
+
+    /// Disconnect from the database
+    async fn disconnect(&self) -> Result<(), AppError>;
+
+    /// Test the connection and return status
     async fn test_connection(&self) -> Result<CapabilityTestResult, AppError>;
+
+    /// Check if currently connected
     fn is_connected(&self) -> bool;
+
+    /// Get the capabilities this adapter supports
     fn get_capabilities(&self) -> Vec<AdapterCapability>;
 }
 
@@ -26,20 +38,6 @@ pub trait BaseCapability: Send + Sync {
 pub trait SqlQueryable: BaseCapability {
     async fn execute_query(&self, sql: &str) -> Result<CapabilityQueryResult, AppError>;
     async fn execute_statement(&self, sql: &str) -> Result<u64, AppError>;
-}
-
-/// Schema introspection - SQL and MongoDB
-#[async_trait]
-pub trait SchemaIntrospectable: BaseCapability {
-    async fn get_databases(&self) -> Result<Vec<DatabaseInfo>, AppError>;
-    async fn get_schemas(&self, database: &str) -> Result<Vec<SchemaInfo>, AppError>;
-    async fn get_tables(
-        &self,
-        database: &str,
-        schema: Option<&str>,
-    ) -> Result<Vec<TableInfo>, AppError>;
-    async fn get_columns(&self, table: &str) -> Result<Vec<ColumnInfo>, AppError>;
-    async fn get_indexes(&self, table: &str) -> Result<Vec<IndexInfo>, AppError>;
 }
 
 /// Document databases (MongoDB, CouchDB, Firestore)
@@ -52,11 +50,8 @@ pub trait DocumentQueryable: BaseCapability {
         options: FindOptions,
     ) -> Result<Vec<Value>, AppError>;
 
-    async fn insert_document(
-        &self,
-        collection: &str,
-        doc: Value,
-    ) -> Result<InsertResult, AppError>;
+    async fn insert_document(&self, collection: &str, doc: Value)
+        -> Result<InsertResult, AppError>;
 
     async fn insert_documents(
         &self,
@@ -122,6 +117,12 @@ pub trait KeyValueOperable: BaseCapability {
         &self,
         section: Option<&str>,
     ) -> Result<HashMap<String, String>, AppError>;
+    async fn scan_keys_with_previews(
+        &self,
+        pattern: &str,
+        cursor: u64,
+        count: u32,
+    ) -> Result<ScanResultWithPreviews, AppError>;
 }
 
 /// Rich key-value (Redis, Valkey, KeyDB) - extends basic KV
@@ -134,8 +135,12 @@ pub trait RichKeyValueOperable: KeyValueOperable {
 
     // List
     async fn list_range(&self, key: &str, start: i64, stop: i64) -> Result<Vec<String>, AppError>;
-    async fn list_push(&self, key: &str, values: &[String], side: ListSide)
-        -> Result<u64, AppError>;
+    async fn list_push(
+        &self,
+        key: &str,
+        values: &[String],
+        side: ListSide,
+    ) -> Result<u64, AppError>;
     async fn list_len(&self, key: &str) -> Result<u64, AppError>;
 
     // Set
@@ -167,6 +172,7 @@ pub trait RichKeyValueOperable: KeyValueOperable {
 // ============ Supporting Types ============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CapabilityTestResult {
     pub success: bool,
     pub message: String,
@@ -178,25 +184,28 @@ pub struct CapabilityTestResult {
 #[serde(rename_all = "kebab-case")]
 pub enum AdapterCapability {
     SqlQueryable,
-    SchemaIntrospectable,
     DocumentQueryable,
     KeyValueOperable,
     RichKeyValueOperable,
+    BackupCapable,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CapabilityQueryResult {
     pub columns: Vec<CapabilityColumnMeta>,
     pub rows: Vec<Vec<Value>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CapabilityColumnMeta {
     pub name: String,
     pub data_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FindOptions {
     pub skip: Option<u64>,
     pub limit: Option<u64>,
@@ -216,28 +225,33 @@ impl Default for FindOptions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InsertResult {
     pub inserted_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InsertManyResult {
     pub inserted_ids: Vec<String>,
     pub inserted_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateResult {
     pub matched_count: u64,
     pub modified_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DeleteResult {
     pub deleted_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CollectionInfo {
     pub name: String,
     pub doc_count: Option<u64>,
@@ -245,22 +259,26 @@ pub struct CollectionInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DatabaseInfo {
     pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SchemaInfo {
     pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TableInfo {
     pub name: String,
     pub table_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ColumnInfo {
     pub name: String,
     pub data_type: String,
@@ -270,6 +288,7 @@ pub struct ColumnInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct IndexInfo {
     pub name: String,
     pub columns: Vec<String>,
@@ -280,7 +299,7 @@ pub struct IndexInfo {
 // ============ Redis-specific types ============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "value")]
+#[serde(tag = "type", content = "value", rename_all = "lowercase")]
 pub enum RedisValue {
     Nil,
     String(String),
@@ -319,6 +338,7 @@ impl std::fmt::Display for RedisType {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SetOptions {
     pub ttl_seconds: Option<u64>,
     /// Only set if not exists
@@ -328,17 +348,36 @@ pub struct SetOptions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanResult {
     pub cursor: u64,
     pub keys: Vec<KeyInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct KeyInfo {
     pub key: String,
     pub key_type: RedisType,
     pub ttl: i64,
     pub size_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyInfoWithPreview {
+    pub key: String,
+    pub key_type: RedisType,
+    pub ttl: i64,
+    pub size_bytes: Option<u64>,
+    pub preview: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanResultWithPreviews {
+    pub cursor: u64,
+    pub keys: Vec<KeyInfoWithPreview>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -349,12 +388,14 @@ pub enum ListSide {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ZSetMember {
     pub member: String,
     pub score: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StreamEntry {
     pub id: String,
     pub fields: HashMap<String, String>,
@@ -384,5 +425,26 @@ mod tests {
         assert_eq!(opts.ttl_seconds, None);
         assert!(!opts.nx);
         assert!(!opts.xx);
+    }
+
+    #[test]
+    fn mongodb_adapter_implements_document_queryable() {
+        use crate::adapters::MongoDbAdapter;
+        fn assert_impl<T: DocumentQueryable>() {}
+        assert_impl::<MongoDbAdapter>();
+    }
+
+    #[test]
+    fn redis_adapter_implements_keyvalue_ops() {
+        use crate::adapters::RedisAdapter;
+        fn assert_impl<T: KeyValueOperable>() {}
+        assert_impl::<RedisAdapter>();
+    }
+
+    #[test]
+    fn redis_adapter_implements_rich_keyvalue_ops() {
+        use crate::adapters::RedisAdapter;
+        fn assert_impl<T: RichKeyValueOperable>() {}
+        assert_impl::<RedisAdapter>();
     }
 }

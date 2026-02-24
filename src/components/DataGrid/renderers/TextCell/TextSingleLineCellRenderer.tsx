@@ -16,7 +16,7 @@ const TextSingleLineCellRenderer: CustomCellRenderer<TextSingleLineCustomCell> =
 
     draw: (args, cell) => {
       const { ctx, rect, theme } = args;
-      const { value } = cell.data;
+      const { value, dbType } = cell.data;
       
       // Use cached theme values
       const cachedTheme = getCachedThemeValues(theme);
@@ -25,26 +25,44 @@ const TextSingleLineCellRenderer: CustomCellRenderer<TextSingleLineCustomCell> =
       let color: string;
 
       if (value == null) {
-        text = "NULL";
-        color = cachedTheme.nullTextColor;
-        ctx.font = cachedTheme.italicFont;
+        if (dbType === "document_null") {
+          text = "null";
+          color = cachedTheme.textMedium;
+          ctx.font = cachedTheme.italicFont;
+        } else {
+          text = "NULL";
+          color = cachedTheme.nullTextColor;
+          ctx.font = cachedTheme.italicFont;
+        }
       } else {
         text = value;
         color = cachedTheme.textDark;
         ctx.font = cachedTheme.baseFont;
       }
 
-      // Draw the text with left alignment
+      // Draw text honoring cell alignment (used by document nulls in numeric/boolean columns)
       ctx.fillStyle = color;
-      ctx.textAlign = "left";
+      ctx.textAlign = cell.contentAlign ?? "left";
       ctx.textBaseline = "middle";
 
       const padding = cachedTheme.cellHorizontalPadding;
       const maxWidth = Math.max(0, rect.width - padding * 2);
       const displayText =
-        value == null ? "NULL" : truncateTextToWidth(text, maxWidth, ctx.font);
+        value == null ? text : truncateTextToWidth(text, maxWidth, ctx.font);
 
-      const x = rect.x + padding;
+      let x: number;
+      switch (cell.contentAlign) {
+        case "center":
+          x = rect.x + rect.width / 2;
+          break;
+        case "right":
+          x = rect.x + rect.width - padding;
+          break;
+        case "left":
+        default:
+          x = rect.x + padding;
+          break;
+      }
       const centerY = rect.y + rect.height / 2;
       ctx.fillText(displayText, x, centerY);
 

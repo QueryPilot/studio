@@ -77,4 +77,21 @@ coverage/
 src-tauri/sidecars/*
 !src-tauri/sidecars/.gitkeep
 .worktrees/
-seeds/sqlite/todoapp.db-*
+seeds/sqlite/query_pilot_test.db-*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+env/
+seeds/bulk_seed_venv/

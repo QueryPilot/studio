@@ -35,9 +35,10 @@ class RelationshipService {
     // Remove extra whitespace and newlines
     const cleaned = definition.replace(/\s+/g, " ").trim();
 
-    // Match pattern: FOREIGN KEY (col) REFERENCES table(col)
+    // Match pattern: FOREIGN KEY (col) REFERENCES [schema.]table(col)
+    // Note: [^\s."`)]+  handles identifiers with hyphens (e.g. "lvcet-lms")
     const match = cleaned.match(
-      /FOREIGN\s+KEY\s*\(([^)]+)\)\s*REFERENCES\s+(?:["`]?[\w.]+["`]?\.)?\s*["`]?([\w]+)["`]?\s*\(([^)]+)\)/i,
+      /FOREIGN\s+KEY\s*\(([^)]+)\)\s*REFERENCES\s+(?:["`]?[^\s."`)]+["`]?\.)?\s*["`]?([^\s("`)]+)["`]?\s*\(([^)]+)\)/i,
     );
 
     if (!match) {

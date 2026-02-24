@@ -10,6 +10,7 @@ import type {
 import { DataGridBase, type DataGridBaseProps } from "./DataGridBase";
 import type {
   GridColumnV2,
+  GridActivationEvent,
   GridEditCommitEvent,
   GridEditCoordinates,
   GridHistoryEntry,
@@ -20,13 +21,13 @@ import type {
   GridRowModel,
 } from "../types";
 import { usePasteHandler } from "../hooks/usePasteHandler";
-import type { ColumnTypeHint, PasteValidationError } from "../utils/pasteUtils";
+import { detectHeaderRow, type ColumnTypeHint, type PasteValidationError } from "../utils/pasteUtils";
 import type { UseGridHistoryResult } from "../hooks/useGridHistory";
 import type { CellValue } from "@/types";
 import { useDataGridRenderers } from "../renderers";
 import { inferValueType } from "../utils/valueHelpers";
 import { navigateToCell, type NavigationBounds } from "../utils/keyboardNavigation";
-import { useKeyboardNavigation } from "../hooks/useKeyboardNavigation";
+import { dataGridRegistry } from "@/services/dataGridRegistry";
 
 const isPromise = <T,>(value: unknown): value is Promise<T> =>
   typeof value === "object" &&
@@ -62,11 +63,17 @@ const applyValuesToRow = (
   baseRow: GridRowModel,
   columns: GridColumnV2[],
   values: (string | number | boolean | null)[],
+  startColumnIndex: number = 0,
 ): GridRowModel => {
   const nextRow: GridRowModel = { ...baseRow };
-  columns.forEach((column, index) => {
+  // Apply values starting from the specified column offset
+  values.forEach((value, valueIndex) => {
+    const columnIndex = startColumnIndex + valueIndex;
+    const column = columns[columnIndex];
+    if (!column) return;
+
     const current = nextRow[column.field];
-    const coerced = values[index] ?? null;
+    const coerced = value ?? null;
     if (current) {
       nextRow[column.field] = {
         ...current,
@@ -92,6 +99,7 @@ export interface EditableDataGridProps
     | "onCellEdited"
     | "onFinishedEditing"
     | "onCellActivated"
+    | "onCellClicked"
     | "onDelete"
     | "onRowAppended"
     | "onPaste"
@@ -124,14 +132,17 @@ export interface EditableDataGridProps
   coerceValue?: (value: string) => string | number | boolean | null;
   onSelectionChange?: (selection: GridSelection) => void;
   onActiveCellChange?: (cell: Item | null) => void;
+  /** Optional cell activation handler (e.g., for drill-down navigation); return true to mark handled */
+  onCellActivated?: (event: GridActivationEvent) => boolean | void;
   getRowThemeOverride?: DataEditorProps["getRowThemeOverride"];
   highlightRegions?: DataEditorProps["highlightRegions"];
   onHeaderClicked?: DataEditorProps["onHeaderClicked"];
   drawHeader?: DataEditorProps["drawHeader"];
   onHeaderContextMenu?: DataEditorProps["onHeaderContextMenu"];
   onItemHovered?: DataEditorProps["onItemHovered"];
+  onColumnMoved?: DataEditorProps["onColumnMoved"]; // NEW: Support column reordering
   drawCell?: DataEditorProps["drawCell"];
-  onCellClicked?: DataEditorProps["onCellClicked"];
+  onCellClicked?: (event: GridActivationEvent) => void;
   /** Callback when paste has validation errors */
   onPasteValidationErrors?: (errors: PasteValidationError[]) => void;
   /** Callback for batch clear operations (Delete on range selection) */
@@ -166,6 +177,7 @@ export const EditableDataGrid = forwardRef<
     customRenderers: customRenderersProp,
     onSelectionChange,
     onActiveCellChange,
+    onCellActivated: onCellActivatedProp,
     onGridSelectionChange,
     gridSelection,
     getRowThemeOverride,
@@ -174,6 +186,7 @@ export const EditableDataGrid = forwardRef<
     drawHeader,
     onHeaderContextMenu,
     onItemHovered,
+    onColumnMoved, // NEW: Destructure column moved handler
     drawCell,
     onCellClicked,
     onPasteValidationErrors,
@@ -202,12 +215,6 @@ export const EditableDataGrid = forwardRef<
 
   // Wrapper div ref for keyboard focus management
   const wrapperRef = useRef<HTMLDivElement>(null);
-
-  // Navigation bounds based on grid dimensions
-  const navigationBounds = useMemo<NavigationBounds>(() => ({
-    maxCol: columns.length,
-    maxRow: rows.length,
-  }), [columns.length, rows.length]);
 
   // Build column type hints for smart paste
   const columnHints = useMemo<ColumnTypeHint[]>(() =>
@@ -294,27 +301,6 @@ export const EditableDataGrid = forwardRef<
     [columns, rows, getCellContent, onCellEditCommit, processResult],
   );
 
-  // Keyboard navigation hook
-  const {
-    handleKeyDown: navHandleKeyDown,
-    handleCellClick: navHandleCellClick,
-    handleCellDoubleClick: navHandleCellDoubleClick,
-    mode: navMode,
-    selectedCell: navSelectedCell,
-  } = useKeyboardNavigation({
-    tableKey,
-    gridRef,
-    bounds: navigationBounds,
-    columns: columns.map((c) => ({ field: c.field })),
-    onClearCell: handleClearCell,
-    onGridSelectionChange,
-    enabled: true,
-  });
-
-  // Suppress unused variable warnings - these are reserved for future use
-  void navMode;
-  void navSelectedCell;
-
   // Document-level listener for cmd+delete row deletion
   // Uses gridSelection prop directly to avoid stale navigation store state
   useEffect(() => {
@@ -322,9 +308,17 @@ export const EditableDataGrid = forwardRef<
       // Only handle cmd+delete or cmd+backspace
       if (!e.metaKey || (e.key !== 'Delete' && e.key !== 'Backspace')) return;
 
-      // Check if focus is within our grid
-      if (!wrapperRef.current?.contains(document.activeElement) &&
-          document.activeElement !== wrapperRef.current) {
+      // Primary focus signal: focused-grid registry (works even when canvas focus is transient)
+      const focusedGridId = dataGridRegistry.getFocused()?.id;
+      const isFocusedByRegistry = focusedGridId === tableKey;
+
+      // Fallback for cases where registry wasn't updated yet
+      const activeElement = document.activeElement;
+      const isFocusedByDom =
+        !!wrapperRef.current?.contains(activeElement) ||
+        activeElement === wrapperRef.current;
+
+      if (!isFocusedByRegistry && !isFocusedByDom) {
         return;
       }
 
@@ -360,20 +354,27 @@ export const EditableDataGrid = forwardRef<
     (cell: Item) => {
       const coords = getCoordinates(cell);
       if (!coords) return;
+
+      const activationEvent: GridActivationEvent = coords;
+
+      // If custom activation handler provided (e.g., for drill-down), allow it to short-circuit
+      if (onCellActivatedProp) {
+        const handled = onCellActivatedProp(activationEvent);
+        if (handled) {
+          return;
+        }
+      }
       logger.info("🟠 Cell activated for editing:", {
         cell,
         coords,
         column: coords.column.field,
       });
 
-      // Update navigation state - cell is now being edited
-      navHandleCellDoubleClick(cell);
-
       editingCellRef.current = cell;
       onCellEditStart?.(coords);
       onActiveCellChange?.(cell);
     },
-    [getCoordinates, onActiveCellChange, onCellEditStart, navHandleCellDoubleClick],
+    [getCoordinates, onActiveCellChange, onCellActivatedProp, onCellEditStart],
   );
 
   const handleCellEdited = useCallback(
@@ -571,13 +572,26 @@ export const EditableDataGrid = forwardRef<
       logger.info('[EditableDataGrid] Applying paste to cells...');
       const [colStart, rowStart] = event.target;
 
+      // Detect and skip header row if present
+      let pasteValues = event.values;
+      const columnNames = columns.map((c) => c.id);
+      const firstRow = pasteValues[0];
+      if (firstRow && detectHeaderRow(firstRow, columnNames, colStart)) {
+        logger.info('[EditableDataGrid] Header row detected, skipping first row');
+        pasteValues = pasteValues.slice(1);
+        if (pasteValues.length === 0) {
+          logger.info('[EditableDataGrid] Only header row in clipboard, nothing to paste');
+          return false;
+        }
+      }
+
       // Use startPasteTransition for non-blocking paste on large selections
       startPasteTransition(() => {
-        for (let rowOffset = 0; rowOffset < event.values.length; rowOffset++) {
+        for (let rowOffset = 0; rowOffset < pasteValues.length; rowOffset++) {
           const rowIndex = rowStart + rowOffset;
           if (rowIndex >= rows.length) break; // Don't paste beyond existing rows
 
-          const rowValues = event.values[rowOffset];
+          const rowValues = pasteValues[rowOffset];
           if (!rowValues) continue;
 
           for (let colOffset = 0; colOffset < rowValues.length; colOffset++) {
@@ -618,8 +632,18 @@ export const EditableDataGrid = forwardRef<
         processResult(result);
       }
       if (!onRowInsert) return;
-      const [, rowStart] = event.target;
-      const requiredRowCount = rowStart + event.values.length;
+      const [colStart, rowStart] = event.target;
+
+      // Detect and skip header row if present (must match onPaste logic)
+      let pasteValues = event.values as (string | number | boolean | null)[][];
+      const columnNames = columns.map((c) => c.id);
+      const firstRow = pasteValues[0];
+      if (firstRow && detectHeaderRow(firstRow, columnNames, colStart)) {
+        pasteValues = pasteValues.slice(1);
+        if (pasteValues.length === 0) return;
+      }
+
+      const requiredRowCount = rowStart + pasteValues.length;
       if (requiredRowCount <= rows.length) return;
       const missing = requiredRowCount - rows.length;
       const newRows: GridRowModel[] = [];
@@ -627,8 +651,9 @@ export const EditableDataGrid = forwardRef<
         const baseRow =
           createDraftRow?.(rows.length + i) ?? createDefaultDraftRow(columns);
         const sourceRowValues =
-          event.values[event.values.length - missing + i] ?? [];
-        newRows.push(applyValuesToRow(baseRow, columns, sourceRowValues));
+          pasteValues[pasteValues.length - missing + i] ?? [];
+        // Pass column offset so values are applied to the correct columns
+        newRows.push(applyValuesToRow(baseRow, columns, sourceRowValues, colStart));
       }
       const insertEvent: GridRowInsertEvent = {
         index: rows.length,
@@ -663,32 +688,31 @@ export const EditableDataGrid = forwardRef<
     [onSelectionChange, onGridSelectionChange],
   );
 
-  // Handle cell click - update navigation state and focus wrapper for keyboard events
-  const handleCellClickInternal = useCallback<NonNullable<DataEditorProps['onCellClicked']>>(
-    (cell, event) => {
-      navHandleCellClick(cell);
-      onCellClicked?.(cell, event);
-      // Focus wrapper div so keyboard events (Delete/Backspace) work
-      wrapperRef.current?.focus();
+  // Handle cell click - ensure Glide's canvas has focus for keyboard navigation
+  const handleCellClickInternal = useCallback<NonNullable<DataEditorProps["onCellClicked"]>>(
+    (cell) => {
+      const coords = getCoordinates(cell);
+      if (coords) {
+        onCellClicked?.(coords);
+      }
+      // Focus Glide's canvas (not wrapper) to enable native keyboard navigation
+      // This is critical for arrow keys, Tab, Delete, etc. to work
+      gridRef.current?.focus();
     },
-    [navHandleCellClick, onCellClicked],
+    [getCoordinates, onCellClicked],
   );
 
-  // Handle keyboard events at container level
-  const handleContainerKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      // Let the navigation handler process the event first
-      navHandleKeyDown(e);
-    },
-    [navHandleKeyDown],
-  );
+  // Keyboard events are now handled by Glide Data Grid natively
+  // The custom keyboard handler was disabled because it used a global store
+  // that caused conflicts when multiple grids were present.
 
   return (
+    // Wrapper div for layout and focus containment check (used by cmd+delete handler)
+    // NO tabIndex - Glide manages focus on its internal canvas element
+    // NO onKeyDown - Glide handles keyboard navigation natively
     <div
       ref={wrapperRef}
       className="h-full w-full outline-none"
-      tabIndex={0}
-      onKeyDown={handleContainerKeyDown}
     >
       <DataGridBase
         {...rest}
@@ -713,6 +737,7 @@ export const EditableDataGrid = forwardRef<
         drawHeader={drawHeader}
         onHeaderContextMenu={onHeaderContextMenu}
         onItemHovered={onItemHovered}
+        onColumnMoved={onColumnMoved} // NEW: Forward column moved event
         drawCell={drawCell}
         onCellClicked={handleCellClickInternal}
         drawFocusRing

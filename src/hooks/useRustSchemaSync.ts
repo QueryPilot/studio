@@ -13,8 +13,10 @@ import {
   type TableInput,
   type ForeignKeyInput,
   type EnumInput,
+  type FunctionInput,
 } from "@/services/sqlEngineService";
 import { logger } from "@/lib/logger";
+import { isTauri } from "@/utils/tauri";
 
 interface UseRustSchemaSyncOptions {
   connectionId: string;
@@ -30,7 +32,7 @@ const SYNC_DEBOUNCE_MS = 5000; // Don't re-sync within 5 seconds
  * Check if Rust schema sync is available (Tauri environment)
  */
 export function isRustSchemaSyncAvailable(): boolean {
-  return typeof window !== "undefined" && "__TAURI__" in window;
+  return isTauri();
 }
 
 /**
@@ -54,12 +56,13 @@ export async function syncSchemaToRust(
 
   try {
     // Fetch from TypeScript cache (source of truth)
-    const [tables, graph] = await Promise.all([
+    const [tables, graph, dbFunctions] = await Promise.all([
       schemaCache.getTables(connectionId, schema),
       schemaCache.getRelationshipGraph(connectionId, schema).catch(() => ({
         relationships: new Map(),
         reverseRelationships: new Map(),
       })),
+      schemaCache.getFunctions(connectionId, schema).catch(() => []),
     ]);
 
     // Build table data with columns
@@ -101,13 +104,21 @@ export async function syncSchemaToRust(
     // TODO: Fetch enums if needed (PostgreSQL only)
     const enums: EnumInput[] = [];
 
+    // Map functions to the format expected by Rust
+    const functions: FunctionInput[] = dbFunctions.map((f) => ({
+      name: f.name,
+      returnType: f.return_type,
+      arguments: f.arguments,
+    }));
+
     // Push to Rust
     const result = await SqlEngineService.setSchema(
       connectionId,
       schema,
       tableInputs,
       foreignKeys,
-      enums
+      enums,
+      functions
     );
 
     syncedSchemas.set(syncKey, Date.now());
@@ -117,6 +128,7 @@ export async function syncSchemaToRust(
       schema,
       tables: result.tableCount,
       columns: result.columnCount,
+      functions: functions.length,
     });
   } catch (error) {
     logger.warn("rust-schema-sync", "Failed to sync schema to Rust", {

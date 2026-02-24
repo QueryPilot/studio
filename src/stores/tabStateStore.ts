@@ -1,6 +1,65 @@
 import { create } from "zustand";
 import type { ColumnMeta } from "@/types/database";
 import type { SqlDialect } from "@/components/CodeEditor/types";
+import type { ViewMode } from "@/types/viewMode";
+import {
+  persistTabState as persistTabStateToDb,
+  loadTabState as loadTabStateFromDb,
+  removePersistedTabState as removeTabStateFromDb,
+  migrateFromLocalStorage,
+  type PersistedTabState,
+} from "@/lib/db/tabState";
+import { debouncedSyncAiContext } from "@/services/aiContextService";
+
+// Re-export PersistedTabState for consumers
+export type { PersistedTabState };
+
+// Debounce timers for persistence
+const persistenceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const PERSISTENCE_DEBOUNCE_MS = 500;
+
+// Track pending persistence data (accumulated during debounce)
+const pendingPersistence = new Map<string, Partial<PersistedTabState>>();
+
+/**
+ * Schedule debounced persistence for a tab
+ */
+function schedulePersistence(tabId: string, state: Partial<PersistedTabState>): void {
+  // Accumulate state changes during debounce period
+  const existing = pendingPersistence.get(tabId) || {};
+  pendingPersistence.set(tabId, { ...existing, ...state });
+
+  // Clear existing timer if any
+  const existingTimer = persistenceTimers.get(tabId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  // Schedule new persistence
+  const timer = setTimeout(() => {
+    const toPersist = pendingPersistence.get(tabId);
+    if (toPersist) {
+      // Fire and forget - don't await
+      void persistTabStateToDb(tabId, toPersist);
+      pendingPersistence.delete(tabId);
+    }
+    persistenceTimers.delete(tabId);
+  }, PERSISTENCE_DEBOUNCE_MS);
+
+  persistenceTimers.set(tabId, timer);
+}
+
+/**
+ * Clear pending persistence timer for a tab
+ */
+function clearPendingPersistence(tabId: string): void {
+  const timer = persistenceTimers.get(tabId);
+  if (timer) {
+    clearTimeout(timer);
+    persistenceTimers.delete(tabId);
+  }
+  pendingPersistence.delete(tabId);
+}
 
 // Store for preserving tab state across panel moves
 export interface QueryResult {
@@ -54,13 +113,13 @@ interface QueryState {
   result: QueryResult | null;
   isExecuting: boolean;
   isStreaming: boolean;
-  viewMode: "table" | "json" | "explain" | "raw" | "stats";
-  appliedLimit: { originalSql: string; limit: number } | null;
+  viewMode: ViewMode;
   hasUnsavedChanges: boolean;
   lastExecutedQuery: string;
   lastSelectQuery: string | null; // Store last SELECT query for auto-refresh after mutations
   inTransaction: boolean; // Track if this tab has an active transaction
   selectedDialect?: SqlDialect | "auto"; // Selected SQL dialect (auto = auto-detect)
+  tableViewType?: string; // For table tabs: "data" | "structure" | "indexes" | etc.
 
   // Multi-query execution support
   multiResults?: MultiQueryResult[]; // Results from multi-statement execution
@@ -81,14 +140,27 @@ interface TabStateStore {
   // Background queries keyed by queryId
   backgroundQueries: Map<string, BackgroundQuery>;
 
-  // Get query state for a tab
+  // Track which tabs have been loaded from DB
+  loadedTabs: Set<string>;
+
+  // Get query state for a tab (synchronous, returns from memory only)
   getQueryState: (tabId: string) => QueryState | undefined;
 
+  // Load tab state from IndexedDB (async, triggers re-render when loaded)
+  loadTabStateAsync: (tabId: string) => Promise<void>;
+
   // Update query state for a tab
-  setQueryState: (tabId: string, state: Partial<QueryState>) => void;
+  setQueryState: (
+    tabId: string,
+    state: Partial<QueryState>,
+    connectionContext?: { connectionId: string; database: string; schema: string }
+  ) => void;
 
   // Clear query state for a tab (when tab is closed)
   clearQueryState: (tabId: string) => void;
+
+  // Initialize: migrate from localStorage and prepare store
+  initialize: () => Promise<void>;
 
   // Check if any tab has unsaved changes
   hasAnyUnsavedChanges: () => boolean;
@@ -124,15 +196,66 @@ interface TabStateStore {
 export const useTabStateStore = create<TabStateStore>((set, get) => ({
   queryStates: new Map(),
   backgroundQueries: new Map(),
+  loadedTabs: new Set(),
 
-  getQueryState: (tabId: string) => {
-    // Cache the result to avoid infinite loop warning from useSyncExternalStore
-    // Map.get() returns the same object reference, so this is safe
-    const state = get();
-    return state.queryStates.get(tabId);
+  initialize: async () => {
+    // Run one-time migration from localStorage to IndexedDB
+    await migrateFromLocalStorage();
   },
 
-  setQueryState: (tabId: string, state: Partial<QueryState>) => {
+  getQueryState: (tabId: string) => {
+    // Synchronous getter - returns from memory only
+    // Use loadTabStateAsync to load from IndexedDB first
+    return get().queryStates.get(tabId);
+  },
+
+  loadTabStateAsync: async (tabId: string) => {
+    const state = get();
+
+    // Already loaded or already in memory
+    if (state.loadedTabs.has(tabId) || state.queryStates.has(tabId)) {
+      return;
+    }
+
+    // Mark as loading to prevent duplicate loads
+    set((s) => ({
+      loadedTabs: new Set(s.loadedTabs).add(tabId),
+    }));
+
+    // Load from IndexedDB
+    const persisted = await loadTabStateFromDb(tabId);
+    if (persisted) {
+      const newState: QueryState = {
+        query: persisted.query,
+        result: null,
+        isExecuting: false,
+        isStreaming: false,
+        viewMode: persisted.viewMode,
+
+        hasUnsavedChanges: false,
+        lastExecutedQuery: persisted.lastExecutedQuery,
+        lastSelectQuery: null,
+        inTransaction: false,
+        selectedDialect: persisted.selectedDialect,
+        tableViewType: persisted.tableViewType,
+      };
+
+      set((s) => {
+        const newStates = new Map(s.queryStates);
+        // Only set if not already set (another call might have set it)
+        if (!newStates.has(tabId)) {
+          newStates.set(tabId, newState);
+        }
+        return { queryStates: newStates };
+      });
+    }
+  },
+
+  setQueryState: (
+    tabId: string,
+    state: Partial<QueryState>,
+    connectionContext?: { connectionId: string; database: string; schema: string }
+  ) => {
     set((store) => {
       const newStates = new Map(store.queryStates);
       const existing = newStates.get(tabId) || {
@@ -141,23 +264,73 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         isExecuting: false,
         isStreaming: false,
         viewMode: "table" as const,
-        appliedLimit: null,
+
         hasUnsavedChanges: false,
         lastExecutedQuery: "",
         lastSelectQuery: null,
         inTransaction: false,
         selectedDialect: "auto" as const,
+        tableViewType: undefined,
       };
-      newStates.set(tabId, { ...existing, ...state });
+      const newState = { ...existing, ...state };
+      newStates.set(tabId, newState);
+
+      // Schedule debounced persistence for lightweight fields
+      // Only persist if any persistable field changed
+      const persistableFields: (keyof PersistedTabState)[] = [
+        "query",
+        "lastExecutedQuery",
+        "viewMode",
+        "selectedDialect",
+        "tableViewType",
+      ];
+      const shouldPersist = persistableFields.some(
+        (field) => field in state && state[field as keyof QueryState] !== undefined
+      );
+
+      if (shouldPersist) {
+        schedulePersistence(tabId, {
+          query: newState.query,
+          lastExecutedQuery: newState.lastExecutedQuery,
+          viewMode: newState.viewMode,
+          selectedDialect: newState.selectedDialect,
+          tableViewType: newState.tableViewType,
+        });
+      }
+
+      // Sync to AI context (for MCP tools)
+      // Only sync if we have meaningful state
+      if (newState.query || newState.result) {
+        debouncedSyncAiContext({
+          connectionId: connectionContext?.connectionId ?? null,
+          database: connectionContext?.database ?? null,
+          schema: connectionContext?.schema ?? null,
+          query: newState.query || null,
+          lastExecutedQuery: newState.lastExecutedQuery || null,
+          hasResults: newState.result !== null,
+          rowCount: newState.result?.rowCount ?? null,
+          columnCount: newState.result?.columns?.length ?? null,
+          updatedAt: Date.now(),
+        });
+      }
+
       return { queryStates: newStates };
     });
   },
 
   clearQueryState: (tabId: string) => {
+    // Clear pending persistence timer
+    clearPendingPersistence(tabId);
+
+    // Remove from IndexedDB (fire and forget)
+    void removeTabStateFromDb(tabId);
+
     set((store) => {
       const newStates = new Map(store.queryStates);
       newStates.delete(tabId);
-      return { queryStates: newStates };
+      const newLoadedTabs = new Set(store.loadedTabs);
+      newLoadedTabs.delete(tabId);
+      return { queryStates: newStates, loadedTabs: newLoadedTabs };
     });
   },
 

@@ -104,6 +104,88 @@ export function keyboardEventToDispatch(event: KeyboardEvent, platform: RuntimeP
   return [...orderedModifiers, keyCode].filter(Boolean).join('+');
 }
 
+export function dispatchToKeybindingInput(dispatch: string): string {
+  const parts = dispatch.split("+").filter(Boolean);
+  return parts
+    .map((part) => {
+      const lower = part.toLowerCase();
+      if (lower === "meta") return "cmd";
+      if (lower === "ctrl") return "ctrl";
+      if (lower === "alt") return "alt";
+      if (lower === "shift") return "shift";
+
+      if (part.startsWith("Key") && part.length === 4) {
+        return part.slice(3).toLowerCase();
+      }
+      if (part.startsWith("Digit") && part.length === 6) {
+        return part.slice(5);
+      }
+
+      switch (part) {
+        case "Enter":
+          return "enter";
+        case "Escape":
+          return "escape";
+        case "Space":
+          return "space";
+        case "Tab":
+          return "tab";
+        case "Backspace":
+          return "backspace";
+        case "Delete":
+          return "delete";
+        case "Home":
+          return "home";
+        case "End":
+          return "end";
+        case "PageUp":
+          return "pageup";
+        case "PageDown":
+          return "pagedown";
+        case "ArrowUp":
+          return "up";
+        case "ArrowDown":
+          return "down";
+        case "ArrowLeft":
+          return "left";
+        case "ArrowRight":
+          return "right";
+        case "Minus":
+          return "minus";
+        case "Equal":
+          return "plus";
+        case "Backquote":
+          return "`";
+        case "BracketLeft":
+          return "[";
+        case "BracketRight":
+          return "]";
+        case "Backslash":
+          return "\\";
+        case "Semicolon":
+          return ";";
+        case "Quote":
+          return "'";
+        case "Comma":
+          return ",";
+        case "Period":
+          return ".";
+        case "Slash":
+          return "/";
+        default:
+          return lower;
+      }
+    })
+    .join("+");
+}
+
+export function keyboardEventToKeybindingInput(
+  event: KeyboardEvent,
+  platform: RuntimePlatform = detectPlatform(),
+): string {
+  return dispatchToKeybindingInput(keyboardEventToDispatch(event, platform));
+}
+
 function normalizeChord(chord: string, platform: RuntimePlatform): NormalizedChord {
   const parts = chord.split('+').map((part) => part.trim()).filter(Boolean);
   const modifiers = new Set<NormalizedModifier>();
