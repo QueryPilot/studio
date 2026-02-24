@@ -6,6 +6,7 @@ import {
 import {
   IconSettings,
   IconKeyboard,
+  IconSparkles,
   IconActivity,
 } from "@tabler/icons-react";
 
@@ -19,6 +20,11 @@ const categories = [
     id: "shortcuts" as PreferenceCategory,
     label: "Keyboard Shortcuts",
     icon: IconKeyboard,
+  },
+  {
+    id: "ai" as PreferenceCategory,
+    label: "AI",
+    icon: IconSparkles,
   },
   {
     id: "telemetry" as PreferenceCategory,
