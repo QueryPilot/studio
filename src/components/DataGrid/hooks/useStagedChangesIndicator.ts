@@ -3,6 +3,9 @@ import { useCrudStore } from "@/stores/crudStore";
 import type { CrudCommand } from "@/types";
 import type { GridRowModel, GridColumnV2 } from "../types";
 
+// Stable empty array to avoid unstable `?? []` references on every render
+const EMPTY_COMMANDS: CrudCommand[] = [];
+
 export interface StagedChangesMap {
   /** Map of row index → set of changed column fields */
   rowChanges: Map<number, Set<string>>;
@@ -10,13 +13,17 @@ export interface StagedChangesMap {
   insertedRows: Set<number>;
   /** Set of row indexes that are pending DELETE */
   deletedRows: Set<number>;
+  /** Reusable PK string → row index map (shared to avoid duplicate computation) */
+  pkToRowIndex: Map<string, number>;
 }
 
 // Empty/default result to avoid allocations when disabled
+const EMPTY_PK_MAP = new Map<string, number>();
 const EMPTY_RESULT: StagedChangesMap = {
   rowChanges: new Map(),
   insertedRows: new Set(),
   deletedRows: new Set(),
+  pkToRowIndex: EMPTY_PK_MAP,
 };
 
 interface UseStagedChangesIndicatorOptions {
@@ -25,6 +32,9 @@ interface UseStagedChangesIndicatorOptions {
   schema?: string;
   table: string;
   rows: GridRowModel[];
+  /** Original rows before optimistic updates — stable reference for PK map.
+   *  Falls back to `rows` if not provided. */
+  baseRows?: GridRowModel[];
   columns: GridColumnV2[];
 }
 
@@ -41,8 +51,9 @@ interface UseStagedChangesIndicatorOptions {
 export function useStagedChangesIndicator(
   options: UseStagedChangesIndicatorOptions,
 ): StagedChangesMap {
-  const { connectionId, database, schema, table, rows, columns } = options;
-  const { stagedCommands, getTableKey } = useCrudStore();
+  const { connectionId, database, schema, table, rows, baseRows, columns } = options;
+  // Use scoped selectors to avoid re-renders from changes in other tabs.
+  const getTableKey = useCrudStore((s) => s.getTableKey);
 
   const tableKey = getTableKey({
     connectionId,
@@ -51,7 +62,8 @@ export function useStagedChangesIndicator(
     table,
   });
 
-  const commands = stagedCommands.get(tableKey) ?? [];
+  // Scope to this table's commands only.
+  const commands = useCrudStore((s) => s.stagedCommands.get(tableKey)) ?? EMPTY_COMMANDS;
 
   // Memoize PK column list to avoid recomputation
   // For document paradigm (MongoDB), _id is always the PK
@@ -76,34 +88,40 @@ export function useStagedChangesIndicator(
     return pks;
   }, [columns]);
 
-  // Memoize PK map separately to avoid rebuilding on every render
+  // Use baseRows (pre-optimistic, stable reference) for the PK map when safe.
+  // Optimistic cell UPDATES don't change PKs or row count, so baseRows indices
+  // are still correct. But optimistic INSERTs add rows and shift indices,
+  // so we must fall back to the full `rows` when inserts exist.
+  const hasInserts = commands.some((cmd) => cmd.type === "data.insert");
+  const pkMapRows = (!hasInserts && baseRows) ? baseRows : rows;
   const pkToRowIndex = useMemo(() => {
-    // Skip computation when no commands
-    if (commands.length === 0) {
+    if (pkMapRows.length === 0 || pkColumns.length === 0) {
       return new Map<string, number>();
     }
 
     const map = new Map<string, number>();
-    rows.forEach((row, index) => {
-      // Create a stable PK key from the row using column metadata
+    pkMapRows.forEach((row, index) => {
       const pkKey = createPrimaryKeyStringFast(row, pkColumns);
       if (pkKey) {
         map.set(pkKey, index);
       }
     });
     return map;
-  }, [rows, pkColumns, commands.length]);
+  }, [pkMapRows, pkColumns]);
 
   const result = useMemo(() => {
-    // Early exit when no commands
+    // Early exit when no commands — still expose the PK map so consumers
+    // that read pkToRowIndex don't get a stale empty map.
     if (commands.length === 0) {
-      return EMPTY_RESULT;
+      if (pkToRowIndex.size === 0) return EMPTY_RESULT;
+      return { ...EMPTY_RESULT, pkToRowIndex };
     }
 
     const newResult: StagedChangesMap = {
       rowChanges: new Map(),
       insertedRows: new Set(),
       deletedRows: new Set(),
+      pkToRowIndex,
     };
 
     commands.forEach((command: CrudCommand) => {
