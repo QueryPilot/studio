@@ -31,7 +31,7 @@ import { useAcpStore } from "@/stores/acpStore";
 import { AcpService } from "@/services/acpService";
 import { PROVIDER_CONFIGS } from "@/ai/providers";
 import type { ProviderId, ProviderModelInfo } from "@/ai/types";
-import type { PackageInfo, NpmPackageManager } from "@/types/acp";
+import type { AgentInfo, PackageInfo, NpmPackageManager } from "@/types/acp";
 import { cn } from "@/lib/utils";
 
 // Provider logo path map (Mistral has no logo asset, uses text fallback)
@@ -96,7 +96,7 @@ function AgentLogo({ agentId, size = 20 }: { agentId: string; size?: number }) {
   const logo = logos ? (isDark ? logos.dark : logos.light) : null;
 
   if (logo) {
-    return <img src={logo} alt="" width={size} height={size} className="object-contain" />;
+    return <img src={logo} alt="" width={size} height={size} className="object-contain max-h-5" />;
   }
   return <IconRobot className="text-muted-foreground" style={{ width: size, height: size }} />;
 }
@@ -131,9 +131,11 @@ export default function AIPreferencesPanel() {
   const preferredPackageManager = useAcpStore((s) => s.preferredPackageManager);
   const setPreferredPackageManager = useAcpStore((s) => s.setPreferredPackageManager);
   const loadAgents = useAcpStore((s) => s.loadAgents);
+  const checkForUpdates = useAcpStore((s) => s.checkForUpdates);
 
   // --- Local state ---
   const [showKey, setShowKey] = useState(false);
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [packageStates, setPackageStates] = useState<
     Record<string, { status: InstallStatus; error?: string }>
   >({});
@@ -224,6 +226,37 @@ export default function AIPreferencesPanel() {
     [agentsWithUpdates],
   );
 
+  const handleCheckForUpdates = useCallback(async () => {
+    setIsCheckingUpdates(true);
+    try {
+      await checkForUpdates();
+    } finally {
+      setIsCheckingUpdates(false);
+    }
+  }, [checkForUpdates]);
+
+  const handleInstallAgent = useCallback(
+    async (agent: AgentInfo) => {
+      for (const pkg of agent.packages) {
+        if (!pkg.installed) {
+          await handleInstallPackage(pkg, agent.id);
+        }
+      }
+    },
+    [handleInstallPackage],
+  );
+
+  const handleUpdateAgent = useCallback(
+    async (agentId: string, packages: PackageInfo[]) => {
+      for (const pkg of packages) {
+        if (pkg.updateAvailable) {
+          await handleInstallPackage(pkg, agentId);
+        }
+      }
+    },
+    [handleInstallPackage],
+  );
+
   // Get agent with update info (merged packages with update state)
   const getAgentPackages = useCallback(
     (agentId: string) => {
@@ -244,377 +277,386 @@ export default function AIPreferencesPanel() {
         </p>
       </div>
 
-      {/* Runtime Mode */}
+      {/* CLI Agents */}
       <section className="space-y-3">
-        <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          Runtime
-        </Label>
-        <div className="grid grid-cols-2 gap-3">
-          <button
+        <div className="flex items-center justify-between">
+          <div
+            className="flex items-center gap-2.5 cursor-pointer select-none"
             onClick={() => { setRuntimeMode("acp"); }}
-            className={cn(
-              "group relative flex flex-col items-start gap-2 rounded-xl border p-4 text-left transition-all",
-              runtimeMode === "acp"
-                ? "border-primary bg-primary/5 shadow-sm"
-                : "border-border hover:border-muted-foreground/30 hover:bg-accent/50",
-            )}
           >
             <div className={cn(
-              "flex h-9 w-9 items-center justify-center rounded-lg",
-              runtimeMode === "acp" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+              "flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 transition-colors",
+              runtimeMode === "acp" ? "border-primary" : "border-muted-foreground/30",
             )}>
-              <IconTerminal2 className="h-5 w-5" />
+              {runtimeMode === "acp" && <div className="h-1.5 w-1.5 rounded-full bg-primary" />}
             </div>
-            <div>
-              <div className="text-sm font-medium">CLI Agents</div>
-              <div className="text-xs text-muted-foreground mt-0.5">
-                AI coding agents via CLI tools
-              </div>
-            </div>
-            {runtimeMode === "acp" && (
-              <div className="absolute top-3 right-3">
-                <IconCheck className="h-4 w-4 text-primary" />
-              </div>
-            )}
-          </button>
-
-          <button
-            onClick={() => { setRuntimeMode("byok"); }}
-            className={cn(
-              "group relative flex flex-col items-start gap-2 rounded-xl border p-4 text-left transition-all",
-              runtimeMode === "byok"
-                ? "border-primary bg-primary/5 shadow-sm"
-                : "border-border hover:border-muted-foreground/30 hover:bg-accent/50",
-            )}
-          >
-            <div className={cn(
-              "flex h-9 w-9 items-center justify-center rounded-lg",
-              runtimeMode === "byok" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+            <IconTerminal2 className={cn("h-4 w-4", runtimeMode === "acp" ? "text-primary" : "text-muted-foreground")} />
+            <Label className={cn(
+              "text-xs font-medium uppercase tracking-wider cursor-pointer",
+              runtimeMode === "acp" ? "text-foreground" : "text-muted-foreground",
             )}>
-              <IconKey className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="text-sm font-medium">Bring Your Own Key</div>
-              <div className="text-xs text-muted-foreground mt-0.5">
-                Connect with your own API keys
-              </div>
-            </div>
-            {runtimeMode === "byok" && (
-              <div className="absolute top-3 right-3">
-                <IconCheck className="h-4 w-4 text-primary" />
-              </div>
-            )}
-          </button>
-        </div>
-      </section>
-
-      {/* CLI Agents section */}
-      {runtimeMode === "acp" && (
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Agents
+              CLI Agents
             </Label>
-            {hasNpmPackages && (
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-muted-foreground">via</span>
-                <Select
-                  value={preferredPackageManager}
-                  onValueChange={(v) => { setPreferredPackageManager(v as NpmPackageManager); }}
-                >
-                  <SelectTrigger className="h-6 w-20 text-[11px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {NPM_MANAGERS.map((pm) => (
-                      <SelectItem key={pm.value} value={pm.value} className="text-xs">
-                        {pm.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
           </div>
-
-          {isLoadingAgents ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground py-4">
-              <IconLoader2 className="h-4 w-4 animate-spin" />
-              Loading agents...
-            </div>
-          ) : availableAgents.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-center border border-dashed rounded-xl">
-              <IconTerminal2 className="h-8 w-8 text-muted-foreground/40 mb-2" />
-              <p className="text-sm text-muted-foreground">No agents found</p>
-              <p className="text-xs text-muted-foreground/60 mt-0.5">
-                Install a CLI agent to get started
-              </p>
-            </div>
-          ) : (
-            <div className="rounded-xl border divide-y">
-              {availableAgents.map((agent) => {
-                const packages = getAgentPackages(agent.id);
-                const isSelected = agent.id === selectedAgentId;
-                const agentHasUpdates = hasUpdates(agent.id);
-
-                return (
-                  <div key={agent.id}>
-                    {/* Agent row */}
-                    <button
-                      onClick={() => { if (agent.installed) selectAgent(agent.id); }}
-                      disabled={!agent.installed}
-                      className={cn(
-                        "w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors",
-                        agent.installed ? "cursor-pointer hover:bg-accent/50" : "cursor-default opacity-60",
-                        isSelected && "bg-primary/5",
-                      )}
-                    >
-                      <AgentLogo agentId={agent.id} size={18} />
-                      <span className={cn(
-                        "text-xs font-medium",
-                        isSelected ? "text-foreground" : "text-muted-foreground",
-                      )}>
-                        {agent.name}
-                      </span>
-                      <div className="flex-1" />
-                      {agentHasUpdates && (
-                        <span className="text-[10px] font-medium text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded-full">
-                          Update
-                        </span>
-                      )}
-                      {isSelected && <IconCheck className="h-3.5 w-3.5 text-primary shrink-0" />}
-                      {!agent.installed && (
-                        <span className="text-[10px] text-muted-foreground">Not installed</span>
-                      )}
-                    </button>
-
-                    {/* Compact package sub-rows */}
-                    {packages.length > 0 && (
-                      <div className="pb-2">
-                        {packages.map((pkg) => {
-                          const state = packageStates[pkg.name] ?? { status: "idle" as InstallStatus };
-                          const isInstalled = pkg.installed || state.status === "success";
-                          const needsUpdate = pkg.updateAvailable && state.status !== "success";
-                          const isDone = isInstalled && !needsUpdate;
-
-                          return (
-                            <div
-                              key={pkg.name}
-                              className={cn(
-                                "flex items-center gap-2 pl-9 pr-3 py-0.5",
-                                state.status === "error" && "bg-destructive/5",
-                              )}
-                            >
-                              <code className="text-[10px] font-mono text-muted-foreground truncate">
-                                {pkg.name}
-                              </code>
-                              {isDone && pkg.installedVersion && (
-                                <span className="text-[10px] font-mono text-muted-foreground/50">
-                                  {pkg.installedVersion}
-                                </span>
-                              )}
-                              {needsUpdate && pkg.installedVersion && pkg.latestVersion && (
-                                <span className="text-[10px] font-mono text-amber-500">
-                                  {pkg.installedVersion} → {pkg.latestVersion}
-                                </span>
-                              )}
-                              <div className="flex-1" />
-                              {state.status === "error" && state.error && (
-                                <span className="text-[10px] text-destructive truncate max-w-32">
-                                  {state.error}
-                                </span>
-                              )}
-                              {isDone ? (
-                                <IconCheck className="h-3 w-3 text-green-500 shrink-0" />
-                              ) : (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-5 px-1.5 text-[10px] shrink-0"
-                                  onClick={() => void handleInstallPackage(pkg, agent.id)}
-                                  disabled={state.status === "installing"}
-                                >
-                                  {state.status === "installing" ? (
-                                    <IconLoader2 className="h-3 w-3 animate-spin" />
-                                  ) : state.status === "error" ? (
-                                    <><IconX className="h-3 w-3 text-destructive" /><span className="ml-0.5">Retry</span></>
-                                  ) : needsUpdate ? (
-                                    <><IconArrowUp className="h-3 w-3 text-amber-500" /><span className="ml-0.5">Update</span></>
-                                  ) : (
-                                    <><IconDownload className="h-3 w-3" /><span className="ml-0.5">Install</span></>
-                                  )}
-                                </Button>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+          {hasNpmPackages && (
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-muted-foreground">via</span>
+              <Select
+                value={preferredPackageManager}
+                onValueChange={(v) => { setPreferredPackageManager(v as NpmPackageManager); }}
+              >
+                <SelectTrigger className="h-6 w-20 text-[11px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {NPM_MANAGERS.map((pm) => (
+                    <SelectItem key={pm.value} value={pm.value} className="text-xs">
+                      {pm.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           )}
-        </section>
-      )}
+        </div>
 
-      {/* BYOK Provider & Model Config */}
-      {runtimeMode === "byok" && (
-        <>
-          {/* Provider cards */}
-          <section className="space-y-3">
-            <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Provider
-            </Label>
-            <div className="grid grid-cols-5 gap-2">
-              {Object.values(PROVIDER_CONFIGS).map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => { setProvider(p.id); }}
-                  className={cn(
-                    "flex flex-col items-center gap-2 rounded-xl border py-3 px-2 transition-all",
-                    p.id === providerId
-                      ? "border-primary bg-primary/5 shadow-sm"
-                      : "border-border hover:border-muted-foreground/30 hover:bg-accent/50",
-                  )}
-                >
-                  <ProviderLogo providerId={p.id} size={28} />
-                  <span className={cn(
-                    "text-[11px] font-medium truncate max-w-full",
-                    p.id === providerId ? "text-foreground" : "text-muted-foreground",
-                  )}>
-                    {p.name}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          {/* API Key */}
-          {config?.requiresApiKey && (
-            <section className="space-y-2">
-              <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                API Key
-              </Label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Input
-                    type={showKey ? "text" : "password"}
-                    value={apiKey}
-                    onChange={(e) => { setApiKey(e.target.value); }}
-                    placeholder={`Enter your ${config.name} API key...`}
-                    className="h-9 text-xs font-mono pr-9"
-                  />
-                  <button
-                    type="button"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    onClick={() => { setShowKey(!showKey); }}
-                  >
-                    {showKey ? <IconEyeOff className="h-3.5 w-3.5" /> : <IconEye className="h-3.5 w-3.5" />}
-                  </button>
-                </div>
-                <Button
-                  size="sm"
-                  className="h-9 px-4 text-xs"
-                  onClick={handleConnect}
-                  disabled={!apiKey}
-                  variant={isSessionReady ? "outline" : "default"}
-                >
-                  {isSessionReady ? (
-                    <>
-                      <span className="h-2 w-2 rounded-full bg-green-500 mr-1.5" />
-                      Connected
-                    </>
-                  ) : (
-                    "Connect"
-                  )}
-                </Button>
-              </div>
-            </section>
-          )}
-
-          {config && !config.requiresApiKey && (
-            <p className="text-xs text-muted-foreground">
-              No API key needed — connects to local server on your machine.
+        {isLoadingAgents ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground py-4">
+            <IconLoader2 className="h-4 w-4 animate-spin" />
+            Loading agents...
+          </div>
+        ) : availableAgents.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-8 text-center border border-dashed rounded-xl">
+            <IconTerminal2 className="h-8 w-8 text-muted-foreground/40 mb-2" />
+            <p className="text-sm text-muted-foreground">No agents found</p>
+            <p className="text-xs text-muted-foreground/60 mt-0.5">
+              Install a CLI agent to get started
             </p>
-          )}
+          </div>
+        ) : (
+          <div className="rounded-xl border divide-y">
+            {availableAgents.map((agent) => {
+              const packages = getAgentPackages(agent.id);
+              const isSelected = agent.id === selectedAgentId;
+              const agentHasUpdates = hasUpdates(agent.id);
 
-          {/* Model selection — flat list */}
-          {config && (
-            <section className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Model
-                </Label>
-                <div className="flex items-center gap-2">
-                  {isSessionReady && (
-                    <span className="flex items-center gap-1 text-[11px] text-green-600 dark:text-green-400">
-                      <span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block animate-pulse" />
-                      Ready
-                    </span>
-                  )}
-                  {canFetchModels && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 px-2 text-[11px] gap-1 text-muted-foreground hover:text-foreground"
-                      onClick={handleFetchModels}
-                      disabled={isFetchingModels || (config.requiresApiKey && !apiKey)}
-                    >
-                      {isFetchingModels ? (
-                        <IconLoader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <IconRefresh className="h-3 w-3" />
-                      )}
-                      {isFetchingModels ? "Fetching..." : "Fetch models"}
-                    </Button>
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-xl border divide-y">
-                {displayModels.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => { setModel(m.id); }}
+              return (
+                <div key={agent.id}>
+                  {/* Agent row */}
+                  <div
+                    onClick={() => { if (agent.installed) selectAgent(agent.id); }}
                     className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors first:rounded-t-xl last:rounded-b-xl",
-                      m.id === modelId
-                        ? "bg-primary/5"
-                        : "hover:bg-accent/50",
+                      "w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors",
+                      agent.installed ? "cursor-pointer hover:bg-accent/50" : "cursor-default",
+                      isSelected && "bg-primary/5",
                     )}
                   >
+                    <AgentLogo agentId={agent.id} size={18} />
                     <span className={cn(
                       "text-xs font-medium",
-                      m.id === modelId ? "text-foreground" : "text-muted-foreground",
+                      isSelected ? "text-foreground" : "text-muted-foreground",
                     )}>
-                      {m.name}
+                      {agent.name}
                     </span>
-                    {m.description && (
-                      <span className="text-[11px] text-muted-foreground/60 truncate">
-                        {m.description}
-                      </span>
-                    )}
                     <div className="flex-1" />
-                    {m.id === modelId && (
-                      <IconCheck className="h-3.5 w-3.5 text-primary shrink-0" />
-                    )}
-                  </button>
-                ))}
-                {displayModels.length === 0 && (
-                  <div className="flex items-center justify-center py-6 text-center">
-                    <p className="text-xs text-muted-foreground">
-                      {config.requiresApiKey && !apiKey
-                        ? "Enter an API key to fetch models"
-                        : "No models available"}
-                    </p>
+                    <div className="flex items-center gap-1.5">
+                      {!agent.installed ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-[10px] gap-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleInstallAgent(agent);
+                          }}
+                          disabled={packages.some((p) => packageStates[p.name]?.status === "installing")}
+                        >
+                          {packages.some((p) => packageStates[p.name]?.status === "installing") ? (
+                            <IconLoader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <IconDownload className="h-3 w-3" />
+                          )}
+                          Install
+                        </Button>
+                      ) : agentHasUpdates ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-[10px] gap-1 text-amber-500"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleUpdateAgent(agent.id, packages);
+                          }}
+                          disabled={packages.some((p) => packageStates[p.name]?.status === "installing")}
+                        >
+                          {packages.some((p) => packageStates[p.name]?.status === "installing") ? (
+                            <IconLoader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <IconArrowUp className="h-3 w-3" />
+                          )}
+                          Update
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-[10px] gap-1 text-muted-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleCheckForUpdates();
+                          }}
+                          disabled={isCheckingUpdates}
+                        >
+                          {isCheckingUpdates ? (
+                            <IconLoader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <IconRefresh className="h-3 w-3" />
+                          )}
+                          Check updates
+                        </Button>
+                      )}
+                      {isSelected && <IconCheck className="h-3.5 w-3.5 text-primary shrink-0" />}
+                    </div>
                   </div>
+
+                  {/* Compact package sub-rows */}
+                  {packages.length > 0 && (
+                    <div className="pb-2">
+                      {packages.map((pkg) => {
+                        const state = packageStates[pkg.name] ?? { status: "idle" as InstallStatus };
+                        const isInstalled = pkg.installed || state.status === "success";
+                        const needsUpdate = pkg.updateAvailable && state.status !== "success";
+                        const isDone = isInstalled && !needsUpdate;
+
+                        return (
+                          <div
+                            key={pkg.name}
+                            className={cn(
+                              "flex items-center gap-2 pl-9 pr-3 py-0.5",
+                              state.status === "error" && "bg-destructive/5",
+                            )}
+                          >
+                            <code className="text-[10px] font-mono text-muted-foreground truncate">
+                              {pkg.name}
+                            </code>
+                            {isDone && pkg.installedVersion && (
+                              <span className="text-[10px] font-mono text-muted-foreground/50">
+                                {pkg.installedVersion}
+                              </span>
+                            )}
+                            {needsUpdate && pkg.installedVersion && pkg.latestVersion && (
+                              <span className="text-[10px] font-mono text-amber-500">
+                                {pkg.installedVersion} → {pkg.latestVersion}
+                              </span>
+                            )}
+                            <div className="flex-1" />
+                            {state.status === "error" && state.error && (
+                              <span className="text-[10px] text-destructive truncate max-w-32">
+                                {state.error}
+                              </span>
+                            )}
+                            {isDone ? (
+                              <IconCheck className="h-3 w-3 text-green-500 shrink-0" />
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-5 px-1.5 text-[10px] shrink-0"
+                                onClick={() => void handleInstallPackage(pkg, agent.id)}
+                                disabled={state.status === "installing"}
+                              >
+                                {state.status === "installing" ? (
+                                  <IconLoader2 className="h-3 w-3 animate-spin" />
+                                ) : state.status === "error" ? (
+                                  <><IconX className="h-3 w-3 text-destructive" /><span className="ml-0.5">Retry</span></>
+                                ) : needsUpdate ? (
+                                  <><IconArrowUp className="h-3 w-3 text-amber-500" /><span className="ml-0.5">Update</span></>
+                                ) : (
+                                  <><IconDownload className="h-3 w-3" /><span className="ml-0.5">Install</span></>
+                                )}
+                              </Button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* SDK Agent */}
+      <section className="space-y-3">
+        <div
+          className="flex items-center gap-2.5 cursor-pointer select-none"
+          onClick={() => { setRuntimeMode("byok"); }}
+        >
+          <div className={cn(
+            "flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 transition-colors",
+            runtimeMode === "byok" ? "border-primary" : "border-muted-foreground/30",
+          )}>
+            {runtimeMode === "byok" && <div className="h-1.5 w-1.5 rounded-full bg-primary" />}
+          </div>
+          <IconKey className={cn("h-4 w-4", runtimeMode === "byok" ? "text-primary" : "text-muted-foreground")} />
+          <Label className={cn(
+            "text-xs font-medium uppercase tracking-wider cursor-pointer",
+            runtimeMode === "byok" ? "text-foreground" : "text-muted-foreground",
+          )}>
+            SDK Agent
+          </Label>
+        </div>
+
+        {/* Provider cards */}
+        <div className="grid grid-cols-5 gap-2">
+          {Object.values(PROVIDER_CONFIGS).map((p) => (
+            <button
+              key={p.id}
+              onClick={() => { setProvider(p.id); }}
+              className={cn(
+                "flex flex-col items-center gap-2 rounded-xl border py-3 px-2 transition-all",
+                p.id === providerId
+                  ? "border-primary bg-primary/5 shadow-sm"
+                  : "border-border hover:border-muted-foreground/30 hover:bg-accent/50",
+              )}
+            >
+              <ProviderLogo providerId={p.id} size={28} />
+              <span className={cn(
+                "text-[11px] font-medium truncate max-w-full",
+                p.id === providerId ? "text-foreground" : "text-muted-foreground",
+              )}>
+                {p.name}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* API Key */}
+        {config?.requiresApiKey && (
+          <div className="space-y-2">
+            <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              API Key
+            </Label>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Input
+                  type={showKey ? "text" : "password"}
+                  value={apiKey}
+                  onChange={(e) => { setApiKey(e.target.value); }}
+                  placeholder={`Enter your ${config.name} API key...`}
+                  className="h-9 text-xs font-mono pr-9"
+                />
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => { setShowKey(!showKey); }}
+                >
+                  {showKey ? <IconEyeOff className="h-3.5 w-3.5" /> : <IconEye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+              <Button
+                size="sm"
+                className="h-9 px-4 text-xs"
+                onClick={handleConnect}
+                disabled={!apiKey}
+                variant={isSessionReady ? "outline" : "default"}
+              >
+                {isSessionReady ? (
+                  <>
+                    <span className="h-2 w-2 rounded-full bg-green-500 mr-1.5" />
+                    Connected
+                  </>
+                ) : (
+                  "Connect"
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {config && !config.requiresApiKey && (
+          <p className="text-xs text-muted-foreground">
+            No API key needed — connects to local server on your machine.
+          </p>
+        )}
+
+        {/* Model selection — flat list */}
+        {config && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Model
+              </Label>
+              <div className="flex items-center gap-2">
+                {isSessionReady && (
+                  <span className="flex items-center gap-1 text-[11px] text-green-600 dark:text-green-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block animate-pulse" />
+                    Ready
+                  </span>
+                )}
+                {canFetchModels && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-[11px] gap-1 text-muted-foreground hover:text-foreground"
+                    onClick={handleFetchModels}
+                    disabled={isFetchingModels || (config.requiresApiKey && !apiKey)}
+                  >
+                    {isFetchingModels ? (
+                      <IconLoader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <IconRefresh className="h-3 w-3" />
+                    )}
+                    {isFetchingModels ? "Fetching..." : "Fetch models"}
+                  </Button>
                 )}
               </div>
-            </section>
-          )}
-        </>
-      )}
+            </div>
+
+            <div className="rounded-xl border divide-y">
+              {displayModels.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => { setModel(m.id); }}
+                  className={cn(
+                    "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors first:rounded-t-xl last:rounded-b-xl",
+                    m.id === modelId
+                      ? "bg-primary/5"
+                      : "hover:bg-accent/50",
+                  )}
+                >
+                  <span className={cn(
+                    "text-xs font-medium",
+                    m.id === modelId ? "text-foreground" : "text-muted-foreground",
+                  )}>
+                    {m.name}
+                  </span>
+                  {m.description && (
+                    <span className="text-[11px] text-muted-foreground/60 truncate">
+                      {m.description}
+                    </span>
+                  )}
+                  <div className="flex-1" />
+                  {m.id === modelId && (
+                    <IconCheck className="h-3.5 w-3.5 text-primary shrink-0" />
+                  )}
+                </button>
+              ))}
+              {displayModels.length === 0 && (
+                <div className="flex items-center justify-center py-6 text-center">
+                  <p className="text-xs text-muted-foreground">
+                    {config.requiresApiKey && !apiKey
+                      ? "Enter an API key to fetch models"
+                      : "No models available"}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
 
       {/* Behavior */}
       <section className="space-y-3">
