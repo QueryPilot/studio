@@ -21,13 +21,13 @@ export function createModel(
 ): LanguageModel {
   switch (providerId) {
     case "openai":
-      return createOpenAIProvider(apiKey!)(modelId);
+      return createOpenAIProvider(apiKey ?? "")(modelId);
     case "anthropic":
-      return createAnthropicProvider(apiKey!)(modelId);
+      return createAnthropicProvider(apiKey ?? "")(modelId);
     case "google":
-      return createGoogleProvider(apiKey!)(modelId);
+      return createGoogleProvider(apiKey ?? "")(modelId);
     case "mistral":
-      return createMistralProvider(apiKey!)(modelId);
+      return createMistralProvider(apiKey ?? "")(modelId);
     case "ollama":
       // ollama-ai-provider returns LanguageModelV1 which is structurally
       // compatible with LanguageModel but not in the type union yet.
