@@ -141,17 +141,14 @@ export function useOptimisticRows({
       return updatedRows;
     }
 
-    // Build result array with inserts at correct positions
-    const result = [...updatedRows];
-
     // Pre-build row key index for O(1) lookup during insert positioning
     const rowKeyToIndex = new Map<string, number>();
-    for (let i = 0; i < result.length; i++) {
-      rowKeyToIndex.set(getRowKey(result[i], i), i);
+    for (let i = 0; i < updatedRows.length; i++) {
+      rowKeyToIndex.set(getRowKey(updatedRows[i], i), i);
     }
 
-    // Track offset as we insert (positions shift)
-    let insertOffset = 0;
+    // Build insert entries with resolved target positions
+    const insertEntries: Array<{ row: GridRowModel; targetIndex: number }> = [];
 
     for (const cmd of insertCommands) {
       const payload = cmd.payload as {
@@ -208,21 +205,41 @@ export function useOptimisticRows({
         }
       }
 
-      // Insert at specified position or top
+      // Resolve target position: after specified row key, or 0 (top)
       const insertAfterRowKey = cmd.metadata.insertAfterRowKey;
+      let targetIndex = 0;
       if (insertAfterRowKey) {
-        const targetIndex = rowKeyToIndex.get(insertAfterRowKey);
-        if (targetIndex !== undefined) {
-          result.splice(targetIndex + 1 + insertOffset, 0, row);
-          insertOffset++;
-        } else {
-          result.unshift(row);
-          insertOffset++;
+        const idx = rowKeyToIndex.get(insertAfterRowKey);
+        if (idx !== undefined) {
+          targetIndex = idx + 1;
         }
-      } else {
-        result.unshift(row);
-        insertOffset++;
       }
+      insertEntries.push({ row, targetIndex });
+    }
+
+    // Sort by target position ascending for single-pass merge
+    insertEntries.sort((a, b) => a.targetIndex - b.targetIndex);
+
+    // O(N+K) single-pass merge instead of O(N*K) repeated splices
+    const result: GridRowModel[] = [];
+    let insertIdx = 0;
+    for (let i = 0; i <= updatedRows.length; i++) {
+      // Add all inserts that target position i
+      while (
+        insertIdx < insertEntries.length &&
+        insertEntries[insertIdx]!.targetIndex === i
+      ) {
+        result.push(insertEntries[insertIdx]!.row);
+        insertIdx++;
+      }
+      if (i < updatedRows.length) {
+        result.push(updatedRows[i]!);
+      }
+    }
+    // Add remaining inserts that target beyond the end
+    while (insertIdx < insertEntries.length) {
+      result.push(insertEntries[insertIdx]!.row);
+      insertIdx++;
     }
 
     return result;
