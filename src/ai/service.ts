@@ -20,6 +20,10 @@ export async function streamChat(options: {
   const { model, systemPrompt, messages, tools, callbacks, abortSignal } =
     options;
 
+  // Track whether onError was already called (e.g. from the stream's onError
+  // callback) so we don't report the same failure twice in the catch block.
+  const state = { errorReported: false };
+
   try {
     const result = streamText({
       model,
@@ -45,18 +49,26 @@ export async function streamChat(options: {
         }
       },
       onError: ({ error }) => {
-        callbacks.onError(
-          error instanceof Error ? error.message : String(error),
-        );
+        if (!state.errorReported) {
+          state.errorReported = true;
+          callbacks.onError(
+            error instanceof Error ? error.message : String(error),
+          );
+        }
       },
     });
 
     // Consume the stream to completion
     await result.text;
 
-    callbacks.onFinish();
+    // Get the full response messages (includes tool call/result pairs)
+    const response = await result.response;
+    callbacks.onFinish(response.messages);
   } catch (err) {
     if (abortSignal?.aborted) return;
-    callbacks.onError(err instanceof Error ? err.message : String(err));
+    if (!state.errorReported) {
+      state.errorReported = true;
+      callbacks.onError(err instanceof Error ? err.message : String(err));
+    }
   }
 }
