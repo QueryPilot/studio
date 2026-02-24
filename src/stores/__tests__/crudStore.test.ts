@@ -636,6 +636,396 @@ describe("crudStore", () => {
     });
   });
 
+  describe("Batch Staging (stageBatchWithSingleHistoryEntry)", () => {
+    it("should stage a batch of commands atomically", () => {
+      const store = useCrudStore.getState();
+      const commands: CrudCommand[] = Array.from({ length: 5 }, (_, i) => ({
+        id: `del-${i}`,
+        type: "data.delete" as const,
+        target: mockTarget,
+        payload: { primaryKeys: { id: i } },
+        metadata: { timestamp: new Date().toISOString() },
+        state: "staged" as const,
+      }));
+
+      const results = store.stageBatchWithSingleHistoryEntry(commands);
+
+      expect(results).toHaveLength(5);
+
+      const state = useCrudStore.getState();
+      const tableKey = store.getTableKey(mockTarget);
+      const staged = state.stagedCommands.get(tableKey);
+      expect(staged).toHaveLength(5);
+      expect(state.isDirty).toBe(true);
+    });
+
+    it("should create exactly one history entry for the entire batch", () => {
+      const store = useCrudStore.getState();
+      const initialHistoryLength = useCrudStore.getState().history.length;
+
+      const commands: CrudCommand[] = Array.from({ length: 10 }, (_, i) => ({
+        id: `del-${i}`,
+        type: "data.delete" as const,
+        target: mockTarget,
+        payload: { primaryKeys: { id: i } },
+        metadata: { timestamp: new Date().toISOString() },
+        state: "staged" as const,
+      }));
+
+      store.stageBatchWithSingleHistoryEntry(commands);
+
+      const state = useCrudStore.getState();
+      // Should add exactly 1 history snapshot, not 10
+      expect(state.history.length).toBe(initialHistoryLength + 1);
+      expect(state.historyIndex).toBe(initialHistoryLength);
+    });
+
+    it("should undo the entire batch in one step", () => {
+      const store = useCrudStore.getState();
+      const tableKey = store.getTableKey(mockTarget);
+
+      const commands: CrudCommand[] = Array.from({ length: 5 }, (_, i) => ({
+        id: `del-${i}`,
+        type: "data.delete" as const,
+        target: mockTarget,
+        payload: { primaryKeys: { id: i } },
+        metadata: { timestamp: new Date().toISOString() },
+        state: "staged" as const,
+      }));
+
+      store.stageBatchWithSingleHistoryEntry(commands);
+      expect(useCrudStore.getState().stagedCommands.get(tableKey)).toHaveLength(5);
+
+      store.undo();
+
+      const state = useCrudStore.getState();
+      expect(state.stagedCommands.get(tableKey)).toBeUndefined();
+      expect(state.isDirty).toBe(false);
+    });
+
+    it("should redo the entire batch in one step", () => {
+      const store = useCrudStore.getState();
+      const tableKey = store.getTableKey(mockTarget);
+
+      const commands: CrudCommand[] = Array.from({ length: 3 }, (_, i) => ({
+        id: `del-${i}`,
+        type: "data.delete" as const,
+        target: mockTarget,
+        payload: { primaryKeys: { id: i } },
+        metadata: { timestamp: new Date().toISOString() },
+        state: "staged" as const,
+      }));
+
+      store.stageBatchWithSingleHistoryEntry(commands);
+      store.undo();
+      expect(useCrudStore.getState().stagedCommands.get(tableKey)).toBeUndefined();
+
+      store.redo();
+
+      const state = useCrudStore.getState();
+      expect(state.stagedCommands.get(tableKey)).toHaveLength(3);
+      expect(state.isDirty).toBe(true);
+    });
+
+    it("should handle empty batch as no-op", () => {
+      const store = useCrudStore.getState();
+      const initialHistoryLength = useCrudStore.getState().history.length;
+
+      const results = store.stageBatchWithSingleHistoryEntry([]);
+
+      expect(results).toHaveLength(0);
+
+      const state = useCrudStore.getState();
+      // Still creates one history entry (by design), but no commands staged
+      expect(state.stagedCommands.size).toBe(0);
+      expect(state.history.length).toBe(initialHistoryLength + 1);
+    });
+
+    it("should dedup UPDATE commands for the same cell", () => {
+      const store = useCrudStore.getState();
+      const tableKey = store.getTableKey(mockTarget);
+
+      const commands: CrudCommand[] = [
+        {
+          id: "upd-1",
+          type: "data.update",
+          target: mockTarget,
+          payload: { column: "name", primaryKeys: { id: 1 }, newValue: "First" },
+          metadata: { timestamp: new Date().toISOString() },
+          state: "staged",
+        },
+        {
+          id: "upd-2",
+          type: "data.update",
+          target: mockTarget,
+          payload: { column: "name", primaryKeys: { id: 1 }, newValue: "Second" },
+          metadata: { timestamp: new Date().toISOString() },
+          state: "staged",
+        },
+        {
+          id: "upd-3",
+          type: "data.update",
+          target: mockTarget,
+          payload: { column: "name", primaryKeys: { id: 1 }, newValue: "Third" },
+          metadata: { timestamp: new Date().toISOString() },
+          state: "staged",
+        },
+      ];
+
+      store.stageBatchWithSingleHistoryEntry(commands);
+
+      const state = useCrudStore.getState();
+      const staged = state.stagedCommands.get(tableKey);
+      // Only the last UPDATE for the same PK+column should remain
+      expect(staged).toHaveLength(1);
+      const payload = staged?.[0]?.payload as { newValue?: unknown };
+      expect(payload.newValue).toBe("Third");
+    });
+
+    it("should keep UPDATE commands for different cells", () => {
+      const store = useCrudStore.getState();
+      const tableKey = store.getTableKey(mockTarget);
+
+      const commands: CrudCommand[] = [
+        {
+          id: "upd-1",
+          type: "data.update",
+          target: mockTarget,
+          payload: { column: "name", primaryKeys: { id: 1 }, newValue: "Alice" },
+          metadata: { timestamp: new Date().toISOString() },
+          state: "staged",
+        },
+        {
+          id: "upd-2",
+          type: "data.update",
+          target: mockTarget,
+          payload: { column: "email", primaryKeys: { id: 1 }, newValue: "alice@test.com" },
+          metadata: { timestamp: new Date().toISOString() },
+          state: "staged",
+        },
+        {
+          id: "upd-3",
+          type: "data.update",
+          target: mockTarget,
+          payload: { column: "name", primaryKeys: { id: 2 }, newValue: "Bob" },
+          metadata: { timestamp: new Date().toISOString() },
+          state: "staged",
+        },
+      ];
+
+      store.stageBatchWithSingleHistoryEntry(commands);
+
+      const state = useCrudStore.getState();
+      const staged = state.stagedCommands.get(tableKey);
+      // Different PK or different column → not deduped
+      expect(staged).toHaveLength(3);
+    });
+
+    it("should merge UPDATE on an inserted row into the INSERT payload", () => {
+      const store = useCrudStore.getState();
+      const tableKey = store.getTableKey(mockTarget);
+
+      const commands: CrudCommand[] = [
+        {
+          id: "ins-1",
+          type: "data.insert",
+          target: mockTarget,
+          payload: { values: { name: "John" }, tempId: "temp-1" },
+          metadata: { timestamp: new Date().toISOString() },
+          state: "staged",
+        },
+        {
+          id: "upd-1",
+          type: "data.update",
+          target: mockTarget,
+          payload: { column: "name", tempId: "temp-1", newValue: "Jane" },
+          metadata: { timestamp: new Date().toISOString() },
+          state: "staged",
+        },
+      ];
+
+      store.stageBatchWithSingleHistoryEntry(commands);
+
+      const state = useCrudStore.getState();
+      const staged = state.stagedCommands.get(tableKey);
+      // UPDATE should be folded into the INSERT, not added separately
+      expect(staged).toHaveLength(1);
+      expect(staged?.[0]?.type).toBe("data.insert");
+      const payload = staged?.[0]?.payload as { values?: Record<string, unknown> };
+      expect(payload.values?.name).toBe("Jane");
+    });
+
+    it("should handle mixed INSERT, UPDATE, and DELETE in one batch", () => {
+      const store = useCrudStore.getState();
+      const tableKey = store.getTableKey(mockTarget);
+
+      const commands: CrudCommand[] = [
+        {
+          id: "ins-1",
+          type: "data.insert",
+          target: mockTarget,
+          payload: { values: { name: "New Row" } },
+          metadata: { timestamp: new Date().toISOString() },
+          state: "staged",
+        },
+        {
+          id: "upd-1",
+          type: "data.update",
+          target: mockTarget,
+          payload: { column: "name", primaryKeys: { id: 10 }, newValue: "Updated" },
+          metadata: { timestamp: new Date().toISOString() },
+          state: "staged",
+        },
+        {
+          id: "del-1",
+          type: "data.delete",
+          target: mockTarget,
+          payload: { primaryKeys: { id: 20 } },
+          metadata: { timestamp: new Date().toISOString() },
+          state: "staged",
+        },
+      ];
+
+      store.stageBatchWithSingleHistoryEntry(commands);
+
+      const state = useCrudStore.getState();
+      const staged = state.stagedCommands.get(tableKey);
+      expect(staged).toHaveLength(3);
+
+      const types = staged?.map((c) => c.type);
+      expect(types).toContain("data.insert");
+      expect(types).toContain("data.update");
+      expect(types).toContain("data.delete");
+    });
+
+    it("should group batch commands by table", () => {
+      const store = useCrudStore.getState();
+
+      const commands: CrudCommand[] = [
+        {
+          id: "del-users-1",
+          type: "data.delete",
+          target: mockTarget,
+          payload: { primaryKeys: { id: 1 } },
+          metadata: { timestamp: new Date().toISOString() },
+          state: "staged",
+        },
+        {
+          id: "del-posts-1",
+          type: "data.delete",
+          target: mockTarget2,
+          payload: { primaryKeys: { id: 1 } },
+          metadata: { timestamp: new Date().toISOString() },
+          state: "staged",
+        },
+        {
+          id: "del-users-2",
+          type: "data.delete",
+          target: mockTarget,
+          payload: { primaryKeys: { id: 2 } },
+          metadata: { timestamp: new Date().toISOString() },
+          state: "staged",
+        },
+      ];
+
+      store.stageBatchWithSingleHistoryEntry(commands);
+
+      const state = useCrudStore.getState();
+      const tableKey1 = store.getTableKey(mockTarget);
+      const tableKey2 = store.getTableKey(mockTarget2);
+      expect(state.stagedCommands.get(tableKey1)).toHaveLength(2);
+      expect(state.stagedCommands.get(tableKey2)).toHaveLength(1);
+    });
+
+    it("should update command index for all batch commands", () => {
+      const store = useCrudStore.getState();
+      const tableKey = store.getTableKey(mockTarget);
+
+      const commands: CrudCommand[] = Array.from({ length: 3 }, (_, i) => ({
+        id: `del-${i}`,
+        type: "data.delete" as const,
+        target: mockTarget,
+        payload: { primaryKeys: { id: i } },
+        metadata: { timestamp: new Date().toISOString() },
+        state: "staged" as const,
+      }));
+
+      store.stageBatchWithSingleHistoryEntry(commands);
+
+      const state = useCrudStore.getState();
+      for (let i = 0; i < 3; i++) {
+        expect(state.commandIndex.get(`del-${i}`)).toBe(tableKey);
+      }
+    });
+
+    it("should append batch to existing staged commands", () => {
+      const store = useCrudStore.getState();
+      const tableKey = store.getTableKey(mockTarget);
+
+      // Stage one command first via stageCommand
+      store.stageCommand(mockCommand);
+      expect(useCrudStore.getState().stagedCommands.get(tableKey)).toHaveLength(1);
+
+      // Now batch-stage more commands
+      const batchCommands: CrudCommand[] = [
+        {
+          id: "del-1",
+          type: "data.delete",
+          target: mockTarget,
+          payload: { primaryKeys: { id: 1 } },
+          metadata: { timestamp: new Date().toISOString() },
+          state: "staged",
+        },
+        {
+          id: "del-2",
+          type: "data.delete",
+          target: mockTarget,
+          payload: { primaryKeys: { id: 2 } },
+          metadata: { timestamp: new Date().toISOString() },
+          state: "staged",
+        },
+      ];
+
+      store.stageBatchWithSingleHistoryEntry(batchCommands);
+
+      const state = useCrudStore.getState();
+      expect(state.stagedCommands.get(tableKey)).toHaveLength(3);
+    });
+
+    it("should replace existing command when batch has same id", () => {
+      const store = useCrudStore.getState();
+      const tableKey = store.getTableKey(mockTarget);
+
+      // Stage initial command
+      store.stageCommand({
+        id: "cmd-existing",
+        type: "data.delete",
+        target: mockTarget,
+        payload: { primaryKeys: { id: 1 } },
+        metadata: { timestamp: new Date().toISOString() },
+        state: "staged",
+      });
+
+      // Batch with same id should replace, not duplicate
+      store.stageBatchWithSingleHistoryEntry([
+        {
+          id: "cmd-existing",
+          type: "data.delete",
+          target: mockTarget,
+          payload: { primaryKeys: { id: 99 } },
+          metadata: { timestamp: new Date().toISOString() },
+          state: "staged",
+        },
+      ]);
+
+      const state = useCrudStore.getState();
+      const staged = state.stagedCommands.get(tableKey);
+      expect(staged).toHaveLength(1);
+      const payload = staged?.[0]?.payload as { primaryKeys?: Record<string, unknown> };
+      expect(payload.primaryKeys?.id).toBe(99);
+    });
+  });
+
   describe("Dirty State", () => {
     it("should set dirty when commands are staged", () => {
       const store = useCrudStore.getState();
