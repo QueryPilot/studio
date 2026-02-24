@@ -16,11 +16,9 @@ export async function streamChat(options: {
   tools: ToolSet;
   callbacks: StreamCallbacks;
   abortSignal?: AbortSignal;
-}): Promise<string> {
+}): Promise<void> {
   const { model, systemPrompt, messages, tools, callbacks, abortSignal } =
     options;
-
-  let fullText = "";
 
   try {
     const result = streamText({
@@ -32,7 +30,6 @@ export async function streamChat(options: {
       abortSignal,
       onChunk: ({ chunk }) => {
         if (chunk.type === "text-delta") {
-          fullText += chunk.text;
           callbacks.onChunk(chunk.text);
         } else if (chunk.type === "tool-call") {
           callbacks.onToolCall({
@@ -59,9 +56,7 @@ export async function streamChat(options: {
 
     callbacks.onFinish();
   } catch (err) {
-    if (abortSignal?.aborted) return fullText;
+    if (abortSignal?.aborted) return;
     callbacks.onError(err instanceof Error ? err.message : String(err));
   }
-
-  return fullText;
 }
