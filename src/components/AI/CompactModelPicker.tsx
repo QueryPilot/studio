@@ -6,6 +6,7 @@
  * and session state.
  */
 
+import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -26,9 +27,18 @@ export function CompactModelPicker() {
   const modelId = useByokStore((s) => s.modelId);
   const session = useByokStore((s) => s.session);
   const setModel = useByokStore((s) => s.setModel);
+  const fetchedModels = useByokStore((s) => s.fetchedModels);
   const selectedAgentId = useAcpStore((s) => s.selectedAgentId);
   const availableAgents = useAcpStore((s) => s.availableAgents);
   const openPreferences = usePreferencesStore((s) => s.openPreferences);
+
+  // Derive models list (fetched models override static). Must be before early returns.
+  const models = useMemo(() => {
+    if (!providerId) return [];
+    const fetched = fetchedModels[providerId];
+    if (fetched?.length) return fetched;
+    return PROVIDER_CONFIGS[providerId].models;
+  }, [fetchedModels, providerId]);
 
   // ACP mode: show agent pill
   if (runtimeMode === "acp") {
@@ -62,7 +72,6 @@ export function CompactModelPicker() {
   }
 
   // BYOK mode: session active -> model dropdown + settings
-  const config = PROVIDER_CONFIGS[providerId];
   return (
     <div className="flex items-center gap-0.5">
       <Select
@@ -75,7 +84,7 @@ export function CompactModelPicker() {
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {config.models.map((m) => (
+          {models.map((m) => (
             <SelectItem key={m.id} value={m.id} className="text-xs">
               {m.name}
             </SelectItem>
