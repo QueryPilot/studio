@@ -310,14 +310,14 @@ export default function AIPreferencesPanel() {
 
       {/* CLI Agents section */}
       {runtimeMode === "acp" && (
-        <section className="space-y-4">
+        <section className="space-y-3">
           <div className="flex items-center justify-between">
             <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Agents
             </Label>
             {hasNpmPackages && (
               <div className="flex items-center gap-2">
-                <span className="text-[11px] text-muted-foreground">Package manager:</span>
+                <span className="text-[11px] text-muted-foreground">via</span>
                 <Select
                   value={preferredPackageManager}
                   onValueChange={(v) => { setPreferredPackageManager(v as NpmPackageManager); }}
@@ -351,61 +351,46 @@ export default function AIPreferencesPanel() {
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="rounded-xl border divide-y">
               {availableAgents.map((agent) => {
                 const packages = getAgentPackages(agent.id);
                 const isSelected = agent.id === selectedAgentId;
                 const agentHasUpdates = hasUpdates(agent.id);
 
                 return (
-                  <div
-                    key={agent.id}
-                    className={cn(
-                      "rounded-xl border transition-all",
-                      isSelected ? "border-primary" : "border-border",
-                    )}
-                  >
-                    {/* Agent header row */}
+                  <div key={agent.id}>
+                    {/* Agent row */}
                     <button
                       onClick={() => { if (agent.installed) selectAgent(agent.id); }}
                       disabled={!agent.installed}
                       className={cn(
-                        "w-full flex items-center gap-3 p-3 text-left transition-colors rounded-t-xl",
-                        agent.installed
-                          ? "cursor-pointer hover:bg-accent/50"
-                          : "cursor-default opacity-70",
+                        "w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors",
+                        agent.installed ? "cursor-pointer hover:bg-accent/50" : "cursor-default opacity-60",
                         isSelected && "bg-primary/5",
                       )}
                     >
-                      <AgentLogo agentId={agent.id} size={20} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium truncate">
-                            {agent.name}
-                          </span>
-                          {agent.version && (
-                            <span className="text-[10px] font-mono text-muted-foreground">
-                              v{agent.version}
-                            </span>
-                          )}
-                          {agentHasUpdates && (
-                            <span className="text-[10px] font-medium text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded-full">
-                              Update
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      {isSelected && (
-                        <IconCheck className="h-4 w-4 text-primary shrink-0" />
+                      <AgentLogo agentId={agent.id} size={18} />
+                      <span className={cn(
+                        "text-xs font-medium",
+                        isSelected ? "text-foreground" : "text-muted-foreground",
+                      )}>
+                        {agent.name}
+                      </span>
+                      <div className="flex-1" />
+                      {agentHasUpdates && (
+                        <span className="text-[10px] font-medium text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded-full">
+                          Update
+                        </span>
                       )}
+                      {isSelected && <IconCheck className="h-3.5 w-3.5 text-primary shrink-0" />}
                       {!agent.installed && (
                         <span className="text-[10px] text-muted-foreground">Not installed</span>
                       )}
                     </button>
 
-                    {/* Package rows */}
+                    {/* Compact package sub-rows */}
                     {packages.length > 0 && (
-                      <div className="border-t">
+                      <div className="pb-2">
                         {packages.map((pkg) => {
                           const state = packageStates[pkg.name] ?? { status: "idle" as InstallStatus };
                           const isInstalled = pkg.installed || state.status === "success";
@@ -416,66 +401,50 @@ export default function AIPreferencesPanel() {
                             <div
                               key={pkg.name}
                               className={cn(
-                                "flex items-center gap-3 px-3 py-2 text-xs last:rounded-b-xl",
-                                needsUpdate && "bg-amber-500/5",
+                                "flex items-center gap-2 pl-9 pr-3 py-0.5",
                                 state.status === "error" && "bg-destructive/5",
                               )}
                             >
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <code className="font-mono text-[11px] truncate">
-                                    {pkg.name}
-                                  </code>
-                                  <span className="text-[10px] text-muted-foreground">
-                                    {pkg.description}
-                                  </span>
-                                </div>
-                                {needsUpdate && pkg.installedVersion && pkg.latestVersion && (
-                                  <span className="text-[10px] font-mono text-amber-500">
-                                    v{pkg.installedVersion} → v{pkg.latestVersion}
-                                  </span>
-                                )}
-                                {isDone && pkg.installedVersion && (
-                                  <span className="text-[10px] font-mono text-muted-foreground">
-                                    v{pkg.installedVersion}
-                                  </span>
-                                )}
-                                {state.status === "error" && state.error && (
-                                  <p className="text-[10px] text-destructive truncate mt-0.5">
-                                    {state.error}
-                                  </p>
-                                )}
-                              </div>
-                              <Button
-                                variant={isDone ? "ghost" : "outline"}
-                                size="sm"
-                                className="h-6 px-2 text-[11px] shrink-0"
-                                onClick={() => void handleInstallPackage(pkg, agent.id)}
-                                disabled={isDone || state.status === "installing"}
-                              >
-                                {state.status === "installing" ? (
-                                  <IconLoader2 className="h-3 w-3 animate-spin" />
-                                ) : isDone ? (
-                                  <IconCheck className="h-3 w-3 text-green-500" />
-                                ) : state.status === "error" ? (
-                                  <IconX className="h-3 w-3 text-destructive" />
-                                ) : needsUpdate ? (
-                                  <IconArrowUp className="h-3 w-3 text-amber-500" />
-                                ) : (
-                                  <IconDownload className="h-3 w-3" />
-                                )}
-                                <span className="ml-1">
-                                  {state.status === "installing"
-                                    ? needsUpdate ? "Updating" : "Installing"
-                                    : isDone
-                                      ? "Installed"
-                                      : state.status === "error"
-                                        ? "Retry"
-                                        : needsUpdate
-                                          ? "Update"
-                                          : "Install"}
+                              <code className="text-[10px] font-mono text-muted-foreground truncate">
+                                {pkg.name}
+                              </code>
+                              {isDone && pkg.installedVersion && (
+                                <span className="text-[10px] font-mono text-muted-foreground/50">
+                                  {pkg.installedVersion}
                                 </span>
-                              </Button>
+                              )}
+                              {needsUpdate && pkg.installedVersion && pkg.latestVersion && (
+                                <span className="text-[10px] font-mono text-amber-500">
+                                  {pkg.installedVersion} → {pkg.latestVersion}
+                                </span>
+                              )}
+                              <div className="flex-1" />
+                              {state.status === "error" && state.error && (
+                                <span className="text-[10px] text-destructive truncate max-w-32">
+                                  {state.error}
+                                </span>
+                              )}
+                              {isDone ? (
+                                <IconCheck className="h-3 w-3 text-green-500 shrink-0" />
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-5 px-1.5 text-[10px] shrink-0"
+                                  onClick={() => void handleInstallPackage(pkg, agent.id)}
+                                  disabled={state.status === "installing"}
+                                >
+                                  {state.status === "installing" ? (
+                                    <IconLoader2 className="h-3 w-3 animate-spin" />
+                                  ) : state.status === "error" ? (
+                                    <><IconX className="h-3 w-3 text-destructive" /><span className="ml-0.5">Retry</span></>
+                                  ) : needsUpdate ? (
+                                    <><IconArrowUp className="h-3 w-3 text-amber-500" /><span className="ml-0.5">Update</span></>
+                                  ) : (
+                                    <><IconDownload className="h-3 w-3" /><span className="ml-0.5">Install</span></>
+                                  )}
+                                </Button>
+                              )}
                             </div>
                           );
                         })}
