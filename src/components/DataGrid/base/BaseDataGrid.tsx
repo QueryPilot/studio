@@ -1891,8 +1891,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     }
     if (commands.length > 0) {
       stageBatchWithSingleHistoryEntry(commands);
+      toast.success(`${commands.length} row deletion(s) staged`);
     }
-    toast.success(`${commands.length} row deletion(s) staged`);
   }, [stageCommand, stageBatchWithSingleHistoryEntry, readOnly, gridSelection]);
 
   // Adapter for EditableDataGrid's onRowDelete prop (Glide onDelete → batch stage).
