@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ConnectionProfile } from "@/types/connection";
+import { logger } from "@/lib/logger";
 
 // Database Types
 export enum DbType {
@@ -317,6 +318,7 @@ export interface Partition {
   data_length?: number;
   index_length?: number;
   partition_comment?: string;
+  partition_function_name?: string;
 }
 
 export interface TableDataResult {
@@ -353,6 +355,17 @@ export type StreamMessage =
     }
   | { type: "error"; code: string; message: string }
   | { type: "interrupted"; resumable: boolean; message: string };
+
+export type DocumentStreamMessage =
+  | { type: "started"; collection: string; estimated_count?: number }
+  | { type: "success"; total_documents: number; execution_time_ms: number }
+  | { type: "error"; code: string; message: string };
+
+export type KeyValueStreamMessage =
+  | { type: "started"; pattern: string; estimated_keys?: number }
+  | { type: "progress"; cursor: number; keys_so_far: number }
+  | { type: "success"; total_keys: number; execution_time_ms: number }
+  | { type: "error"; code: string; message: string };
 
 // Backend API
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
@@ -471,11 +484,14 @@ export class BackendAPI {
     sql: string,
     timeoutSecs?: number,
   ): Promise<RawQueryResult> {
-    return invoke<RawQueryResult>("query", {
+    logger.info(`[BackendAPI] query called for ${connectionId}, sql length: ${sql.length}`);
+    const result = await invoke<RawQueryResult>("query", {
       connId: connectionId,
       sql,
       timeoutSecs,
     });
+    logger.info(`[BackendAPI] query returned ${result.rows.length} rows for ${connectionId}`);
+    return result;
   }
 }
 
@@ -490,7 +506,3 @@ export interface RawQueryResult {
 
 // Alias for convenience (matches naming convention in other parts of codebase)
 export const Backend = BackendAPI;
-
-// REMOVED: Legacy helper functions for old CellValue interface
-// The new CellValue is a primitive type union (null | boolean | number | string | array | object)
-// Use formatters.ts for display formatting instead

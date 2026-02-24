@@ -1,0 +1,18 @@
+[workspace]
+members = ["src-tauri", "src-mcp-sidecar"]
+resolver = "2"
+
+# Shared settings for all workspace members
+[workspace.package]
+edition = "2021"
+license = "MIT"
+
+# Release profile for optimized builds
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+# MCP sidecar specific release profile
+[profile.release.package.querypilot-mcp]
+strip = true

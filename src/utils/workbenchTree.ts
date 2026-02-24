@@ -726,28 +726,24 @@ export function resizePanel(
   path: number[],
   newRatio: number,
 ): GridNode {
-  if (path.length === 0) return tree;
-
-  const parentPath = path.slice(0, -1);
-  const parent = getNodeByPath(tree, parentPath);
-
-  if (!parent || parent.type !== "branch") return tree;
+  const node = getNodeByPath(tree, path);
+  if (!node || node.type !== "branch") return tree;
 
   const clampedRatio = Math.max(
     CONSTRAINTS.MIN_SPLIT_RATIO,
     Math.min(CONSTRAINTS.MAX_SPLIT_RATIO, newRatio),
   );
 
-  const updatedParent: GridNode = {
-    ...parent,
+  const updatedNode: GridNode = {
+    ...node,
     splitRatio: clampedRatio,
   };
 
-  if (parentPath.length === 0) {
-    return updatedParent;
+  if (path.length === 0) {
+    return updatedNode;
   }
 
-  return updateNodeAtPath(tree, parentPath, updatedParent);
+  return updateNodeAtPath(tree, path, updatedNode);
 }
 
 export function getAllPanels(tree: GridNode): PanelContent[] {

@@ -62,6 +62,17 @@ const DEFAULT_OPTIONS: Required<
   excludeSystemTables: true,
 };
 
+/**
+ * Quote a DBML identifier if it contains characters that aren't
+ * alphanumeric or underscore (e.g. hyphens in database/schema names).
+ */
+function quoteIdent(name: string): string {
+  if (/[^a-zA-Z0-9_]/.test(name)) {
+    return `"${name}"`;
+  }
+  return name;
+}
+
 function shouldIncludeTable(
   table: TableStructure,
   options: DBMLConversionOptions,
@@ -82,8 +93,10 @@ function formatColumnAttributes(column: ColumnMeta): string {
   if (!column.nullable) attributes.push("not null");
   if (column.is_pk) attributes.push("pk");
   if (column.default !== null) {
-    const def = column.default.replace(/'/g, "\\'");
-    attributes.push(`default: '${def}'`);
+    // Use backticks for SQL expressions (which may contain single quotes)
+    // DBML supports backticks for expression defaults
+    const def = column.default.replace(/`/g, "\\`");
+    attributes.push(`default: \`${def}\``);
   }
 
   return attributes.length > 0 ? ` [${attributes.join(", ")}]` : "";
@@ -92,7 +105,13 @@ function formatColumnAttributes(column: ColumnMeta): string {
 function formatColumn(column: ColumnMeta): string {
   const comment = column.comment?.trim();
   const commentSuffix = comment ? ` // ${comment.replace(/\n/g, " ")}` : "";
-  return `  ${column.name} ${column.db_type}${formatColumnAttributes(
+
+  // DBML requires types with spaces (like "int unsigned") to be quoted
+  const dbType = column.db_type.includes(" ")
+    ? `"${column.db_type}"`
+    : column.db_type;
+
+  return `  ${quoteIdent(column.name)} ${dbType}${formatColumnAttributes(
     column,
   )}${commentSuffix}`;
 }
@@ -103,11 +122,13 @@ function formatIndexes(
 ): string[] {
   if (!includeIndexes || table.indexes.length === 0) return [];
 
-  // Filter out primary key indexes if we already have primaryKeys defined
-  // to avoid duplicate primary key definitions
+  // Filter out primary key indexes and indexes with no columns (expression indexes)
   return table.indexes
     .filter((idx) => {
-      // Skip if this is a primary key index and we already have primary keys defined
+      // Skip expression-based indexes with no extractable columns (e.g. GIN/JSON)
+      if (idx.columns.length === 0) return false;
+
+      // Skip if this is a primary key index and we already have primaryKeys defined
       if (idx.is_primary && table.primaryKeys.length > 0) {
         // Check if this index matches the primary key columns
         const pkSet = new Set(table.primaryKeys);
@@ -122,7 +143,7 @@ function formatIndexes(
       return true;
     })
     .map((idx) => {
-      const columns = idx.columns.join(", ");
+      const columns = idx.columns.map(quoteIdent).join(", ");
       const settings: string[] = [];
 
       // Add index name if available
@@ -151,7 +172,7 @@ function formatTable(
   options: DBMLConversionOptions,
 ): string {
   const lines: string[] = [];
-  lines.push(`Table ${table.schema}.${table.name} {`);
+  lines.push(`Table ${quoteIdent(table.schema)}.${quoteIdent(table.name)} {`);
 
   table.columns.forEach((column) => {
     lines.push(formatColumn(column));
@@ -166,8 +187,10 @@ function formatTable(
   if (table.primaryKeys.length > 0 || indexLines.length > 0) {
     lines.push("", "  indexes {");
     if (table.primaryKeys.length > 0) {
-      const pkCols = table.primaryKeys.join(", ");
-      lines.push(`    (${pkCols}) [pk]`);
+      const pkCols = table.primaryKeys.map(quoteIdent).join(", ");
+      // Single column: no parentheses; Multi-column: wrap in parentheses
+      const pkPart = table.primaryKeys.length === 1 ? pkCols : `(${pkCols})`;
+      lines.push(`    ${pkPart} [pk]`);
     }
     indexLines.forEach((idxLine) => lines.push(idxLine));
     lines.push("  }");
@@ -217,11 +240,13 @@ class DBMLService {
     const relationships = this.extractRelationships(filteredTables);
     const relationshipBlocks = relationships.map((rel) => {
       const from = rel.fromSchema
-        ? `${rel.fromSchema}.${rel.fromTable}`
-        : rel.fromTable;
-      const to = rel.toSchema ? `${rel.toSchema}.${rel.toTable}` : rel.toTable;
-      const fromCols = rel.fromColumns.join(", ");
-      const toCols = rel.toColumns.join(", ");
+        ? `${quoteIdent(rel.fromSchema)}.${quoteIdent(rel.fromTable)}`
+        : quoteIdent(rel.fromTable);
+      const to = rel.toSchema
+        ? `${quoteIdent(rel.toSchema)}.${quoteIdent(rel.toTable)}`
+        : quoteIdent(rel.toTable);
+      const fromCols = rel.fromColumns.map(quoteIdent).join(", ");
+      const toCols = rel.toColumns.map(quoteIdent).join(", ");
       const actions: string[] = [];
 
       // Map database action names to DBML format
@@ -264,7 +289,7 @@ class DBMLService {
       if (updateAction) actions.push(`update: ${updateAction}`);
       const actionSection =
         actions.length > 0 ? ` [${actions.join(", ")}]` : "";
-      return `Ref ${rel.name} {
+      return `Ref ${quoteIdent(rel.name)} {
   ${from}.${fromCols} > ${to}.${toCols}${actionSection}
 }`;
     });
@@ -327,9 +352,24 @@ class DBMLService {
   extractRelationships(tables: TableStructure[]): DBMLRelationship[] {
     const relationships: DBMLRelationship[] = [];
 
+    // Build a set of available tables (schema.table format) for quick lookup
+    const availableTables = new Set(
+      tables.map((t) => `${t.schema.toLowerCase()}.${t.name.toLowerCase()}`)
+    );
+
     tables.forEach((table) => {
       table.foreignKeys.forEach((fk) => {
-        relationships.push(formatRelationship(fk, table));
+        // Only include relationships where the target table exists in the loaded schema
+        // This prevents "Can't find table" errors for cross-schema references
+        const targetKey = `${(fk.foreignSchema ?? table.schema).toLowerCase()}.${fk.foreignTable.toLowerCase()}`;
+        if (availableTables.has(targetKey)) {
+          relationships.push(formatRelationship(fk, table));
+        } else {
+          logger.debug(
+            `Skipping foreign key "${fk.name}" from ${table.schema}.${table.name}: ` +
+            `target table "${fk.foreignSchema ?? table.schema}.${fk.foreignTable}" not in loaded schema`
+          );
+        }
       });
     });
 

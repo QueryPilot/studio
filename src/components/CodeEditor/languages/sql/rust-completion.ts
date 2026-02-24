@@ -14,6 +14,7 @@ import type {
   CompletionResult,
   Completion,
 } from "@codemirror/autocomplete";
+import { isTauri } from "@/utils/tauri";
 import type { SqlDialect } from "../../types";
 
 interface RustCompletionConfig {
@@ -65,7 +66,7 @@ const KIND_MAP: Record<string, string> = {
  * Check if Rust completion is available (Tauri environment).
  */
 export function isRustCompletionAvailable(): boolean {
-  return typeof window !== "undefined" && "__TAURI__" in window;
+  return isTauri();
 }
 
 /**

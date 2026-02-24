@@ -16,8 +16,10 @@ import customParseFormat from "dayjs/plugin/customParseFormat";
 import { KeyboardProvider } from "./components/KeyboardProvider";
 import { CommandPalette } from "./components/CommandPalette/CommandPalette";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { KeyboardShortcutsHelp } from "./components/KeyboardShortcutsHelp/KeyboardShortcutsHelp";
 import { initializeSentry } from "./utils/sentry";
 import { usePreferencesStore } from "./stores/preferencesStore";
+import { useTabStateStore } from "./stores/tabStateStore";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -27,6 +29,9 @@ enableMapSet();
 // Initialize Sentry for error tracking (only in production, opt-in via preferences)
 const telemetryPrefs = usePreferencesStore.getState().telemetry;
 initializeSentry(telemetryPrefs, "0.4.0");
+
+// Initialize tab state store (migrates from localStorage to IndexedDB if needed)
+void useTabStateStore.getState().initialize();
 
 // Suppress external script errors in development
 if (process.env.NODE_ENV === "development") {
@@ -68,8 +73,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
             <ThemeSync />
             <TooltipProvider delay={300}>
               <App />
-              <Toaster richColors closeButton />
+              <Toaster richColors closeButton position="bottom-left" />
               <CommandPalette />
+              <KeyboardShortcutsHelp />
             </TooltipProvider>
           </ThemeProvider>
         </QueryClientProvider>

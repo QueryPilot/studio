@@ -1,4 +1,4 @@
-import { useState, useCallback, type ReactNode, type MutableRefObject } from "react";
+import { useState, useCallback, useMemo, type ReactNode, type RefObject } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -6,9 +6,10 @@ import {
 } from "@/components/ui/context-menu";
 import type { GridColumnV2, GridRowModel } from "../types";
 import type { DatabaseType } from "@/types";
-import { RowDetailsSheet } from "./RowDetailsSheet";
+import type { DataParadigm } from "../utils/copyUtils";
 import { GridContextMenuItems } from "./GridContextMenuItems";
 import { ColumnHeaderContextMenuItems } from "./ColumnHeaderContextMenuItems";
+import { writeClipboardText } from "@/lib/clipboard";
 
 export type ContextMenuTarget =
   | { type: "header"; columnIndex: number; column: GridColumnV2 }
@@ -29,15 +30,17 @@ export interface UnifiedContextMenuProps {
   tableName?: string;
   schema?: string;
   databaseType?: DatabaseType;
+  /** Data paradigm for context-aware copy options */
+  paradigm?: DataParadigm;
   onPinRows?: (rowKeys: string[]) => void;
   onUnpinRows?: (rowKeys: string[]) => void;
   onAddRow?: () => void;
   onInsertRowAbove?: () => void;
   onInsertRowBelow?: () => void;
+  onDuplicateRows?: () => void;
   onDeleteRows?: () => void;
   onPaste?: () => void;
-  showDetailsSheet?: boolean;
-  onShowDetailsSheetChange?: (show: boolean) => void;
+  onViewDetails?: (rows: GridRowModel[]) => void;
   // Header context menu props
   allColumnsForVisibility?: GridColumnV2[];
   pinnedColumns: string[];
@@ -54,7 +57,7 @@ export interface UnifiedContextMenuProps {
   // Callbacks
   onOpen?: () => void;
   // Ref to track what's being hovered (updated by onItemHovered in parent)
-  contextMenuTargetRef: MutableRefObject<ContextMenuTarget>;
+  contextMenuTargetRef: RefObject<ContextMenuTarget>;
   // FK embedding props
   connectionId?: string;
   referencedTableColumns?: Record<string, Array<{ name: string; db_type: string }>>;
@@ -64,7 +67,7 @@ export function UnifiedContextMenu({
   children,
   selectedRows,
   selectedRowKeys,
-  allRows: _allRows,
+  allRows,
   columns,
   selectedColumns,
   pinnedRowKeys,
@@ -72,15 +75,16 @@ export function UnifiedContextMenu({
   tableName = "table",
   schema,
   databaseType = "postgresql",
+  paradigm = "sql",
   onPinRows,
   onUnpinRows,
   onAddRow,
   onInsertRowAbove,
   onInsertRowBelow,
+  onDuplicateRows,
   onDeleteRows,
   onPaste,
-  showDetailsSheet: controlledShowDetailsSheet,
-  onShowDetailsSheetChange,
+  onViewDetails,
   allColumnsForVisibility,
   pinnedColumns,
   columnVisibility,
@@ -98,25 +102,50 @@ export function UnifiedContextMenu({
   connectionId,
   referencedTableColumns,
 }: UnifiedContextMenuProps) {
-  const [internalShowDetailsSheet, setInternalShowDetailsSheet] = useState(false);
   const [menuTarget, setMenuTarget] = useState<ContextMenuTarget>(null);
 
-  const showDetailsSheet = controlledShowDetailsSheet ?? internalShowDetailsSheet;
-  const setShowDetailsSheet = onShowDetailsSheetChange ?? setInternalShowDetailsSheet;
+  // Derive effective selection: if no explicit selection but right-clicking on a cell,
+  // use that row as the contextual selection for the menu
+  const effectiveSelectedRows = useMemo(() => {
+    if (selectedRows.length > 0) {
+      return selectedRows;
+    }
+    const target = menuTarget;
+    if (target?.type === 'cell' && target.rowIndex >= 0) {
+      const hoveredRow = allRows[target.rowIndex];
+      if (hoveredRow) {
+        return [hoveredRow];
+      }
+    }
+    return [];
+  }, [selectedRows, menuTarget, allRows]);
 
-  const handleViewDetails = () => {
-    setShowDetailsSheet(true);
-  };
+  // Derive effective row keys to match
+  const effectiveSelectedRowKeys = useMemo(() => {
+    if (selectedRowKeys.length > 0) {
+      return selectedRowKeys;
+    }
+    const target = menuTarget;
+    if (effectiveSelectedRows.length > 0 && target?.type === 'cell') {
+      // Use row index as fallback key
+      return [`__contextual_row_${target.rowIndex}`];
+    }
+    return [];
+  }, [selectedRowKeys, effectiveSelectedRows, menuTarget]);
+
+  const handleViewDetails = useCallback(() => {
+    onViewDetails?.(effectiveSelectedRows);
+  }, [onViewDetails, effectiveSelectedRows]);
 
   // Calculate row menu props
-  const selectedPinnedKeys = selectedRowKeys.filter((key) => pinnedRowKeys.includes(key));
-  const selectedUnpinnedKeys = selectedRowKeys.filter((key) => !pinnedRowKeys.includes(key));
+  const selectedPinnedKeys = effectiveSelectedRowKeys.filter((key) => pinnedRowKeys.includes(key));
+  const selectedUnpinnedKeys = effectiveSelectedRowKeys.filter((key) => !pinnedRowKeys.includes(key));
   const canPinMore = pinnedRowKeys.length < maxPinnedRows;
 
   const handleOpenChange = useCallback((open: boolean) => {
     if (open) {
-      // When menu opens, capture what was last hovered from the ref
-      setMenuTarget(contextMenuTargetRef.current);
+      // Capture hovered target exactly once when the menu opens.
+      setMenuTarget(contextMenuTargetRef.current ?? null);
       onOpen?.();
     } else {
       setMenuTarget(null);
@@ -135,7 +164,7 @@ export function UnifiedContextMenu({
         <ContextMenuTrigger className="h-full w-full block">
           {children}
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-56 text-xs p-1">
+        <ContextMenuContent className="w-64 text-xs p-1">
           {menuTarget?.type === "header" && currentHeaderColumn ? (
             <ColumnHeaderContextMenuItems
               column={currentHeaderColumn}
@@ -150,7 +179,7 @@ export function UnifiedContextMenu({
               onPin={() => { onPinColumn(headerColumnId); }}
               onUnpin={() => { onUnpinColumn(headerColumnId); }}
               onCopyColumnName={() => {
-                navigator.clipboard.writeText(currentHeaderColumn.name ?? currentHeaderColumn.field ?? headerColumnId);
+                void writeClipboardText(currentHeaderColumn.name);
               }}
               onToggleColumnVisibility={onToggleColumnVisibility}
               onShowAllColumns={onShowAllColumns}
@@ -162,8 +191,8 @@ export function UnifiedContextMenu({
             />
           ) : (
             <GridContextMenuItems
-              selectedRows={selectedRows}
-              selectedRowKeys={selectedRowKeys}
+              selectedRows={effectiveSelectedRows}
+              selectedRowKeys={effectiveSelectedRowKeys}
               columns={columns}
               selectedColumns={selectedColumns}
               pinnedRowKeys={pinnedRowKeys}
@@ -173,25 +202,20 @@ export function UnifiedContextMenu({
               tableName={tableName}
               schema={schema}
               databaseType={databaseType}
+              paradigm={paradigm}
               onViewDetails={handleViewDetails}
               onPinRows={onPinRows}
               onUnpinRows={onUnpinRows}
               onAddRow={onAddRow}
               onInsertRowAbove={onInsertRowAbove}
               onInsertRowBelow={onInsertRowBelow}
+              onDuplicateRows={onDuplicateRows}
               onDeleteRows={onDeleteRows}
               onPaste={onPaste}
             />
           )}
         </ContextMenuContent>
       </ContextMenu>
-
-      <RowDetailsSheet
-        open={showDetailsSheet}
-        onOpenChange={setShowDetailsSheet}
-        rows={selectedRows}
-        columns={columns}
-      />
     </>
   );
 }

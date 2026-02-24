@@ -1,4 +1,5 @@
 pub mod adapter;
+mod backup;
 pub mod direct_msgpack;
 pub mod simple_converter;
 pub mod types;
@@ -8,4 +9,3 @@ pub use adapter::SqliteAdapter;
 pub use direct_msgpack::DirectMsgPackEncoder;
 #[allow(unused_imports)]
 pub use simple_converter::SimpleConverter;
-

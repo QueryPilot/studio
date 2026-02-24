@@ -339,6 +339,18 @@ fn build_database_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
 
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
 
+    // Backup/Restore
+    let backup_restore = MenuItem::with_id(
+        app,
+        "db_backup_restore",
+        "Backup/Restore...",
+        true,
+        None::<&str>,
+    )?;
+    submenu.append(&backup_restore)?;
+
+    submenu.append(&PredefinedMenuItem::separator(app)?)?;
+
     // Show ERD
     let erd = MenuItem::with_id(app, "db_erd", "Show ERD", true, Some("CmdOrCtrl+E"))?;
     submenu.append(&erd)?;
@@ -384,41 +396,40 @@ fn build_window_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
 }
 
 /// Add workspace window items to the Window submenu
-fn add_workspace_windows_to_menu(app: &AppHandle, submenu: &Submenu<Wry>) -> Result<(), tauri::Error> {
+fn add_workspace_windows_to_menu(
+    app: &AppHandle,
+    submenu: &Submenu<Wry>,
+) -> Result<(), tauri::Error> {
     let windows = app.webview_windows();
     let mut workspace_windows: Vec<_> = windows
         .iter()
         .filter(|(label, _)| label.starts_with("workspace-"))
         .collect();
-    
+
     // Sort by label for consistent ordering
     workspace_windows.sort_by(|(a, _), (b, _)| a.cmp(b));
-    
+
     for (idx, (label, window)) in workspace_windows.iter().enumerate() {
         // Get window title or use a default
-        let title = window.title().unwrap_or_else(|_| format!("Workspace {}", idx + 1));
-        
+        let title = window
+            .title()
+            .unwrap_or_else(|_| format!("Workspace {}", idx + 1));
+
         // Create menu item ID: window_workspace_{connection_id}
         let connection_id = label.strip_prefix("workspace-").unwrap_or(label);
         let menu_id = format!("window_workspace_{}", connection_id);
-        
+
         // Keyboard shortcut: Cmd+2, Cmd+3, etc.
         let shortcut = if idx < 8 {
             Some(format!("CmdOrCtrl+{}", idx + 2))
         } else {
             None
         };
-        
-        let item = MenuItem::with_id(
-            app,
-            &menu_id,
-            &title,
-            true,
-            shortcut.as_deref(),
-        )?;
+
+        let item = MenuItem::with_id(app, &menu_id, &title, true, shortcut.as_deref())?;
         submenu.append(&item)?;
     }
-    
+
     Ok(())
 }
 
@@ -600,7 +611,8 @@ pub fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         | "db_execute_selection"
         | "db_export"
         | "db_import"
-        | "db_erd" => {
+        | "db_erd"
+        | "db_backup_restore" => {
             let action = id.replace("db_", "");
             if let Err(e) = app.emit("menu_action", action) {
                 tracing::error!("Failed to emit database event: {}", e);

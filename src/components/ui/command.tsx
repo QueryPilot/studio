@@ -37,7 +37,6 @@ function CommandDialog({
   className,
   showCloseButton = false,
   onKeyDown,
-  value,
   onValueChange,
   ...props
 }: Omit<React.ComponentProps<typeof Dialog>, "children"> & {
@@ -47,7 +46,6 @@ function CommandDialog({
   showCloseButton?: boolean;
   children: React.ReactNode;
   onKeyDown?: React.KeyboardEventHandler;
-  value?: string;
   onValueChange?: (value: string) => void;
 }) {
   return (
@@ -66,8 +64,8 @@ function CommandDialog({
         <Command
           className="**:[[cmdk-group-heading]]:text-muted-foreground **:data-[slot=command-input-wrapper]:border-b **:data-[slot=command-input-wrapper]:pb-1 **:[[cmdk-group-heading]]:px-2 **:[[cmdk-group-heading]]:font-medium [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 **:[[cmdk-input]]:h-12 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5"
           onKeyDown={onKeyDown}
-          value={value}
           onValueChange={onValueChange}
+          shouldFilter={false}
         >
           {children}
         </Command>
@@ -123,7 +121,7 @@ function CommandList({
     <CommandPrimitive.List
       data-slot="command-list"
       className={cn(
-        "no-scrollbar min-h-[360px] max-h-[360px] scroll-py-1 outline-none overflow-x-hidden overflow-y-auto",
+        "no-scrollbar max-h-[360px] scroll-py-1 outline-none overflow-x-hidden overflow-y-auto",
         className,
       )}
       {...props}

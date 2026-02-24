@@ -457,31 +457,46 @@ export class MSSQLAdapter extends SqlAdapter {
   }
 
   getTablesQuery(schema: string): string {
+    // Column order must match IntrospectionService.getTables expectations:
+    // [0] schema_name, [1] table_name, [2] kind, [3] owner, [4] size, [5] row_count, [6] comment
     // Uses COLLATE DATABASE_DEFAULT to avoid collation conflicts
     // Aggregates partition rows to avoid duplicate table entries
+    // Detects partitioned tables by checking if clustered index uses partition scheme
     return `
 SELECT
     s.name COLLATE DATABASE_DEFAULT as schema_name,
     t.name COLLATE DATABASE_DEFAULT as table_name,
-    'regular' as kind,
+    CASE
+        WHEN ps.name IS NOT NULL THEN 'partitioned'
+        ELSE 'regular'
+    END as kind,
     NULL as owner,
     NULL as size,
-    SUM(p.rows) as row_count
+    SUM(p.rows) as row_count,
+    CAST(ep.value AS NVARCHAR(MAX)) COLLATE DATABASE_DEFAULT as comment
 FROM sys.tables t
 JOIN sys.schemas s ON t.schema_id = s.schema_id
 LEFT JOIN sys.partitions p ON t.object_id = p.object_id AND p.index_id < 2
+LEFT JOIN sys.indexes i ON t.object_id = i.object_id AND i.index_id < 2
+LEFT JOIN sys.partition_schemes ps ON i.data_space_id = ps.data_space_id
+LEFT JOIN sys.extended_properties ep ON ep.major_id = t.object_id AND ep.minor_id = 0 AND ep.name = 'MS_Description'
 WHERE s.name = '${this.escapeString(schema)}'
-GROUP BY s.name, t.name
+GROUP BY s.name, t.name, ps.name, CAST(ep.value AS NVARCHAR(MAX))
 ORDER BY t.name`;
   }
 
   getViewsQuery(schema: string): string {
+    // Column order must match IntrospectionService.getViews expectations:
+    // [0] schema_name, [1] view_name, [2] owner, [3] definition, [4] is_materialized, [5] comment
     // Uses COLLATE DATABASE_DEFAULT to avoid collation conflicts
     return `
 SELECT
     s.name COLLATE DATABASE_DEFAULT as schema_name,
     v.name COLLATE DATABASE_DEFAULT as view_name,
-    CAST(m.definition AS NVARCHAR(MAX)) COLLATE DATABASE_DEFAULT as definition
+    NULL as owner,
+    CAST(m.definition AS NVARCHAR(MAX)) COLLATE DATABASE_DEFAULT as definition,
+    CAST(0 AS BIT) as is_materialized,
+    NULL as comment
 FROM sys.views v
 JOIN sys.schemas s ON v.schema_id = s.schema_id
 LEFT JOIN sys.sql_modules m ON v.object_id = m.object_id
@@ -703,13 +718,24 @@ ORDER BY c.column_id`;
   }
 
   getTriggersQuery(schema: string, table: string): string {
+    // Column order must match IntrospectionService.getTriggers expectations:
+    // [0] name, [1] schema, [2] table_name, [3] timing, [4] event, [5] level,
+    // [6] function, [7] enabled, [8] condition
     // Uses COLLATE DATABASE_DEFAULT to avoid collation conflicts
     return `
 SELECT
     tr.name COLLATE DATABASE_DEFAULT as trigger_name,
     s.name COLLATE DATABASE_DEFAULT as schema_name,
     t.name COLLATE DATABASE_DEFAULT as table_name,
-    tr.is_disabled,
+    CASE WHEN tr.is_instead_of_trigger = 1 THEN 'INSTEAD OF' ELSE 'AFTER' END as timing,
+    STUFF((
+        SELECT ',' + te.type_desc COLLATE DATABASE_DEFAULT
+        FROM sys.trigger_events te
+        WHERE te.object_id = tr.object_id
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, '') as events,
+    'STATEMENT' as level,
+    tr.name COLLATE DATABASE_DEFAULT as function_name,
+    CASE WHEN tr.is_disabled = 0 THEN 1 ELSE 0 END as enabled,
     CAST(m.definition AS NVARCHAR(MAX)) COLLATE DATABASE_DEFAULT as definition
 FROM sys.triggers tr
 JOIN sys.tables t ON tr.parent_id = t.object_id
@@ -718,6 +744,58 @@ LEFT JOIN sys.sql_modules m ON tr.object_id = m.object_id
 WHERE s.name = '${this.escapeString(schema)}'
     AND t.name = '${this.escapeString(table)}'
 ORDER BY tr.name`;
+  }
+
+  /**
+   * Get partitions for a partitioned table in SQL Server
+   * Returns partition info including boundary values and row counts
+   */
+  getPartitionsQuery(schema: string, table: string): string {
+    return `
+SELECT
+    s.name COLLATE DATABASE_DEFAULT as schema_name,
+    t.name COLLATE DATABASE_DEFAULT as table_name,
+    'Partition_' + CAST(p.partition_number AS VARCHAR(10)) as partition_name,
+    NULL as subpartition_name,
+    p.partition_number as partition_ordinal_position,
+    NULL as subpartition_ordinal_position,
+    CASE pf.boundary_value_on_right
+        WHEN 1 THEN 'RANGE RIGHT'
+        ELSE 'RANGE LEFT'
+    END as partition_method,
+    NULL as subpartition_method,
+    c.name COLLATE DATABASE_DEFAULT as partition_expression,
+    NULL as subpartition_expression,
+    CASE
+        WHEN prv_left.value IS NOT NULL AND prv_right.value IS NOT NULL
+            THEN CAST(prv_left.value AS NVARCHAR(100)) + ' - ' + CAST(prv_right.value AS NVARCHAR(100))
+        WHEN prv_left.value IS NOT NULL
+            THEN '>= ' + CAST(prv_left.value AS NVARCHAR(100))
+        WHEN prv_right.value IS NOT NULL
+            THEN '< ' + CAST(prv_right.value AS NVARCHAR(100))
+        ELSE 'DEFAULT'
+    END as partition_description,
+    p.row_count as table_rows,
+    NULL as avg_row_length,
+    (p.used_page_count * 8 * 1024) as data_length,
+    (p.reserved_page_count - p.used_page_count) * 8 * 1024 as index_length,
+    NULL as partition_comment,
+    pf.name COLLATE DATABASE_DEFAULT as partition_function_name
+FROM sys.tables t
+JOIN sys.schemas s ON t.schema_id = s.schema_id
+JOIN sys.indexes i ON t.object_id = i.object_id AND i.index_id < 2
+JOIN sys.partition_schemes ps ON i.data_space_id = ps.data_space_id
+JOIN sys.partition_functions pf ON ps.function_id = pf.function_id
+JOIN sys.dm_db_partition_stats p ON t.object_id = p.object_id AND i.index_id = p.index_id
+JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id AND ic.partition_ordinal > 0
+JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+LEFT JOIN sys.partition_range_values prv_left ON pf.function_id = prv_left.function_id
+    AND prv_left.boundary_id = p.partition_number - 1
+LEFT JOIN sys.partition_range_values prv_right ON pf.function_id = prv_right.function_id
+    AND prv_right.boundary_id = p.partition_number
+WHERE s.name = '${this.escapeString(schema)}'
+    AND t.name = '${this.escapeString(table)}'
+ORDER BY p.partition_number`;
   }
 
   getSupportedIndexTypesQuery(): string {
@@ -785,7 +863,7 @@ ORDER BY table_name, column_name`;
   ): string {
     switch (objectType) {
       case 'table':
-        // Generate full CREATE TABLE DDL with columns, constraints, and indexes
+        // Generate full CREATE TABLE DDL with columns, constraints, indexes, and partition info
         return `
 WITH TableInfo AS (
     SELECT t.object_id, s.name as schema_name, t.name as table_name
@@ -879,6 +957,18 @@ CheckConstraints AS (
     SELECT 'CONSTRAINT ' + QUOTENAME(cc.name) + ' CHECK ' + cc.definition as chk_def
     FROM TableInfo ti
     JOIN sys.check_constraints cc ON cc.parent_object_id = ti.object_id
+),
+PartitionInfo AS (
+    SELECT
+        ps.name as partition_scheme,
+        c.name as partition_column,
+        pf.name as partition_function
+    FROM TableInfo ti
+    JOIN sys.indexes i ON ti.object_id = i.object_id AND i.index_id < 2
+    JOIN sys.partition_schemes ps ON i.data_space_id = ps.data_space_id
+    JOIN sys.partition_functions pf ON ps.function_id = pf.function_id
+    JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id AND ic.partition_ordinal > 0
+    JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
 )
 SELECT
     'CREATE TABLE ' + QUOTENAME(ti.schema_name) + '.' + QUOTENAME(ti.table_name) + ' (' + CHAR(10) +
@@ -891,7 +981,9 @@ SELECT
     ISNULL(STUFF((SELECT ',' + CHAR(10) + '    ' + uq_def FROM UniqueConstraints FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 0, ''), '') +
     ISNULL(STUFF((SELECT ',' + CHAR(10) + '    ' + fk_def FROM FKConstraints FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 0, ''), '') +
     ISNULL(STUFF((SELECT ',' + CHAR(10) + '    ' + chk_def FROM CheckConstraints FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 0, ''), '') +
-    CHAR(10) + ');' as definition
+    CHAR(10) + ')' +
+    ISNULL((SELECT ' ON ' + QUOTENAME(pi.partition_scheme) + '(' + QUOTENAME(pi.partition_column) + ')' FROM PartitionInfo pi), '') +
+    ';' as definition
 FROM TableInfo ti`;
       case 'sequence':
         return `

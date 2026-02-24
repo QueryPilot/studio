@@ -64,4 +64,13 @@ export const queryCommands: Command[] = [
       eventBus.emit("query-editor:format", {});
     },
   },
+  {
+    id: "query.toggleResults",
+    label: "Toggle Results Panel",
+    category: "Query",
+    when: "queryEditor",
+    handler: () => {
+      eventBus.emit("query-panel:toggle-results", {});
+    },
+  },
 ];

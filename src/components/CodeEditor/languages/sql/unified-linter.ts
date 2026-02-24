@@ -1,164 +1,102 @@
-import { linter, type Diagnostic } from '@codemirror/lint';
-import type { Extension } from '@codemirror/state';
-import type { EditorView } from '@codemirror/view';
-import { invoke } from '@tauri-apps/api/core';
-import type { SqlDialect } from '../../types';
-import type { LintRequest, LintResponse, LintDiagnostic } from './unified-linter-worker';
+import { linter, type Diagnostic } from "@codemirror/lint";
+import type { Extension } from "@codemirror/state";
+import type { EditorView } from "@codemirror/view";
+import type { SqlDialect } from "../../types";
+import { linterCoordinator } from "../../services/linter-coordinator";
+import { buildSqlQuickFixes } from "./quick-fixes";
 
 interface UnifiedLinterConfig {
   dialect: SqlDialect;
   connectionId?: string;
   schema?: string;
-  checks?: ('syntax' | 'semantic' | 'version')[];
   delay?: number;
 }
 
-// =============================================================================
-// Rust Validation (Tauri environment)
-// =============================================================================
-
-interface RustValidateRequest {
-  sql: string;
-  dialect: string;
-  connectionId?: string;
-  schema?: string;
-}
-
-interface RustValidateResponse {
-  valid: boolean;
-  errors: Array<{ from: number; to: number; message: string; severity: string; source: string }>;
-  warnings: Array<{ from: number; to: number; message: string; severity: string; source: string }>;
-}
-
-function isRustLintingAvailable(): boolean {
-  return typeof window !== 'undefined' && '__TAURI__' in window;
-}
-
-async function lintWithRust(
-  sql: string,
-  dialect: string,
-  connectionId?: string,
-  schema?: string
-): Promise<LintDiagnostic[]> {
-  const response = await invoke<RustValidateResponse>('sql_validate', {
-    request: { sql, dialect, connectionId, schema } as RustValidateRequest,
-  });
-
-  const diagnostics: LintDiagnostic[] = [];
-
-  for (const err of response.errors) {
-    diagnostics.push({
-      from: err.from,
-      to: err.to,
-      severity: 'error',
-      message: err.message,
-      source: err.source as 'syntax' | 'semantic' | 'version',
-    });
+function mapSeverity(severity: string): "error" | "warning" | "info" {
+  switch (severity) {
+    case "error":
+      return "error";
+    case "warning":
+      return "warning";
+    case "info":
+    case "hint":
+    default:
+      return "info";
   }
-
-  for (const warn of response.warnings) {
-    diagnostics.push({
-      from: warn.from,
-      to: warn.to,
-      severity: 'warning',
-      message: warn.message,
-      source: warn.source as 'syntax' | 'semantic' | 'version',
-    });
-  }
-
-  return diagnostics;
-}
-
-// =============================================================================
-// Worker-based Validation (fallback for non-Tauri or when Rust fails)
-// =============================================================================
-
-let worker: Worker | null = null;
-let requestId = 0;
-const pendingRequests = new Map<number, (diagnostics: LintDiagnostic[]) => void>();
-
-function getWorker(): Worker {
-  if (!worker) {
-    worker = new Worker(new URL('./unified-linter-worker.ts', import.meta.url), {
-      type: 'module',
-    });
-    worker.onmessage = (event: MessageEvent<LintResponse>) => {
-      const { id, diagnostics } = event.data;
-      const resolve = pendingRequests.get(id);
-      if (resolve) {
-        pendingRequests.delete(id);
-        resolve(diagnostics);
-      }
-    };
-  }
-  return worker;
-}
-
-async function lintWithWorker(sql: string, config: UnifiedLinterConfig): Promise<LintDiagnostic[]> {
-  return new Promise((resolve) => {
-    const id = ++requestId;
-    const request: LintRequest = {
-      id,
-      sql,
-      dialect: config.dialect,
-      connectionId: config.connectionId,
-      checks: config.checks || ['syntax', 'semantic', 'version'],
-    };
-
-    pendingRequests.set(id, resolve);
-    getWorker().postMessage(request);
-
-    setTimeout(() => {
-      if (pendingRequests.has(id)) {
-        pendingRequests.delete(id);
-        resolve([]);
-      }
-    }, 5000);
-  });
-}
-
-// =============================================================================
-// Main Lint Function (tries Rust first, falls back to worker)
-// =============================================================================
-
-async function lint(sql: string, config: UnifiedLinterConfig): Promise<LintDiagnostic[]> {
-  // Try Rust validation first (faster, uses pre-synced schema)
-  if (isRustLintingAvailable()) {
-    try {
-      return await lintWithRust(sql, config.dialect, config.connectionId, config.schema);
-    } catch (error) {
-      console.warn('[unified-linter] Rust validation failed, falling back to worker:', error);
-    }
-  }
-
-  // Fall back to worker-based validation
-  return lintWithWorker(sql, config);
 }
 
 export function createUnifiedLinter(config: UnifiedLinterConfig): Extension {
+  let lastSql = "";
+  let lastDiagnostics: Diagnostic[] = [];
+  let cancelPending: (() => void) | null = null;
+
   return linter(
-    async (view: EditorView): Promise<Diagnostic[]> => {
+    (view: EditorView): Promise<Diagnostic[]> => {
+      // Fast path: skip unfocused editors before serializing the document
+      if (!view.hasFocus) return Promise.resolve(lastDiagnostics);
+
       const sql = view.state.doc.toString();
-      if (!sql.trim()) return [];
+      if (!sql.trim()) return Promise.resolve([]);
+      if (sql === lastSql) return Promise.resolve(lastDiagnostics);
 
-      const diagnostics = await lint(sql, config);
+      // Cancel any pending request from this editor and settle its promise
+      cancelPending?.();
 
-      return diagnostics.map((d) => ({
-        from: Math.max(0, d.from),
-        to: Math.min(sql.length, d.to),
-        severity: d.severity,
-        message: d.message,
-        source: `sql-${d.source}`,
-      }));
+      return new Promise((resolve) => {
+        const coordinatorCancel = linterCoordinator.requestLint(
+          {
+            sql,
+            dialect: config.dialect,
+            connectionId: config.connectionId,
+            schema: config.schema,
+          },
+          (result) => {
+            const mappedDiagnostics = result.diagnostics.map((d) => {
+              const from = Math.max(0, Math.min(sql.length, d.from));
+              const rawTo = Math.max(0, Math.min(sql.length, d.to));
+              const to = rawTo > from ? rawTo : Math.min(sql.length, from + 1);
+
+              const diagnostic: Diagnostic = {
+                from,
+                to,
+                severity: mapSeverity(d.severity),
+                message: d.message,
+                source: `sql-${d.source}`,
+              };
+
+              const actions = buildSqlQuickFixes(diagnostic);
+              return actions.length > 0
+                ? {
+                    ...diagnostic,
+                    actions,
+                  }
+                : diagnostic;
+            });
+
+            lastSql = sql;
+            lastDiagnostics = mappedDiagnostics;
+            resolve(mappedDiagnostics);
+          },
+        );
+        // Wrap cancel to also settle the promise (prevents dangling promises)
+        cancelPending = () => {
+          coordinatorCancel();
+          resolve(lastDiagnostics);
+        };
+      });
     },
-    { delay: config.delay ?? 500 }
+    {
+      delay: config.delay ?? 1200, // Longer debounce reduces typing stalls.
+      needsRefresh: () => false, // Don't auto-refresh on viewport changes
+      // Dismiss lint hover popup when cursor/selection moves (click, arrows, etc.).
+      // This keeps popup lifecycle predictable while typing and navigating.
+      hideOn: (tr) => {
+        if (tr.selection) return true;
+        if (tr.docChanged) return true;
+        if (tr.isUserEvent("select.pointer")) return true;
+        if (tr.isUserEvent("select")) return true;
+        return null;
+      },
+    },
   );
-}
-
-export function terminateUnifiedLinter(): void {
-  if (worker) {
-    worker.terminate();
-    worker = null;
-  }
-  pendingRequests.clear();
 }

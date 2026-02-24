@@ -26,6 +26,7 @@ import {
   IconBinaryTree,
 } from "@tabler/icons-react";
 import type { EditorView } from "@codemirror/view";
+import { readClipboardText, writeClipboardText } from "@/lib/clipboard";
 
 export interface EditorContextTarget {
   type: "alias" | "table" | "column" | "cte" | "selection" | "empty";
@@ -139,7 +140,7 @@ export function EditorContextMenu({
       const selection = editorRef.current.state.selection.main;
       const text = editorRef.current.state.doc.sliceString(selection.from, selection.to);
       if (text) {
-        navigator.clipboard.writeText(text);
+        void writeClipboardText(text);
       }
     }
   }, [editorRef]);
@@ -149,7 +150,7 @@ export function EditorContextMenu({
       const selection = editorRef.current.state.selection.main;
       const text = editorRef.current.state.doc.sliceString(selection.from, selection.to);
       if (text) {
-        navigator.clipboard.writeText(text);
+        void writeClipboardText(text);
         editorRef.current.dispatch({
           changes: { from: selection.from, to: selection.to, insert: "" },
         });
@@ -159,7 +160,7 @@ export function EditorContextMenu({
 
   const handlePaste = useCallback(async () => {
     if (editorRef.current) {
-      const text = await navigator.clipboard.readText();
+      const text = await readClipboardText();
       if (text) {
         const selection = editorRef.current.state.selection.main;
         editorRef.current.dispatch({
@@ -179,7 +180,7 @@ export function EditorContextMenu({
 
   const handleCopyName = useCallback(() => {
     if (target.name) {
-      navigator.clipboard.writeText(target.name);
+      void writeClipboardText(target.name);
     }
   }, [target]);
 

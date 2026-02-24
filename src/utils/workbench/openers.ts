@@ -1,6 +1,6 @@
 import { type TableMeta, type FunctionMeta } from '@/services/databaseService';
 import useWorkbenchStore from '@/stores/workbenchStore';
-import { usePanelStore } from '@/stores/panelStore';
+import { usePanelFocusStore } from '@/stores/panelFocusStore';
 import { nanoid } from 'nanoid';
 import { DbType } from '@/types/connection';
 
@@ -164,10 +164,10 @@ export function openQueryWithSql({
   sql,
   title,
 }: OpenQueryWithSqlParams): void {
-  const { focusedPanelId, addTab, panelContents, focusPanel } =
+  const { addTab, panelContents, focusPanel } =
     useWorkbenchStore.getState();
 
-  let targetPanelId = focusedPanelId;
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
   if (!targetPanelId && panelContents.size > 0) {
     const firstPanelId = Array.from(panelContents.keys())[0];
     if (firstPanelId) {
@@ -188,6 +188,7 @@ export function openQueryWithSql({
     schema: schema ?? undefined,
     sql,
   });
+  focusPanel(targetPanelId);
 }
 
 interface OpenTableDesignerParams {
@@ -196,16 +197,21 @@ interface OpenTableDesignerParams {
   schema: string | null;
 }
 
+interface OpenCollectionDesignerParams {
+  connectionId: string;
+  database: string | null;
+}
+
 export function openQueryWithTemplate({
   connectionId,
   database,
   schema,
   objectType,
 }: OpenQueryWithTemplateParams): void {
-  const { focusedPanelId, addTab, panelContents, focusPanel } =
+  const { addTab, panelContents, focusPanel } =
     useWorkbenchStore.getState();
 
-  let targetPanelId = focusedPanelId;
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
   if (!targetPanelId && panelContents.size > 0) {
     const firstPanelId = Array.from(panelContents.keys())[0];
     if (firstPanelId) {
@@ -240,6 +246,7 @@ export function openQueryWithTemplate({
     schema: schema ?? undefined,
     sql: template,
   });
+  focusPanel(targetPanelId);
 }
 
 export function openTableDesigner({
@@ -247,10 +254,10 @@ export function openTableDesigner({
   database,
   schema,
 }: OpenTableDesignerParams): void {
-  const { focusedPanelId, addTab, panelContents, focusPanel } =
+  const { addTab, panelContents, focusPanel } =
     useWorkbenchStore.getState();
 
-  let targetPanelId = focusedPanelId;
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
   if (!targetPanelId && panelContents.size > 0) {
     const firstPanelId = Array.from(panelContents.keys())[0];
     if (firstPanelId) {
@@ -270,6 +277,36 @@ export function openTableDesigner({
     database: database ?? undefined,
     schema: schema ?? undefined,
   });
+  focusPanel(targetPanelId);
+}
+
+export function openCollectionDesigner({
+  connectionId,
+  database,
+}: OpenCollectionDesignerParams): void {
+  const { addTab, panelContents, focusPanel } =
+    useWorkbenchStore.getState();
+
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
+  if (!targetPanelId && panelContents.size > 0) {
+    const firstPanelId = Array.from(panelContents.keys())[0];
+    if (firstPanelId) {
+      targetPanelId = firstPanelId;
+      focusPanel(firstPanelId);
+    }
+  }
+
+  if (!targetPanelId) return;
+
+  const tabId = `collection-design-${Date.now()}`;
+
+  addTab(targetPanelId, tabId, {
+    type: "collection-design",
+    title: "New Collection",
+    connectionId,
+    database: database ?? undefined,
+  });
+  focusPanel(targetPanelId);
 }
 
 interface OpenTableParams {
@@ -311,38 +348,44 @@ export function openTableObject({
   sourcePanelId,
 }: OpenTableParams): void {
   const {
-    focusedPanelId,
     addTab,
     panelContents,
     focusPanel,
     setActiveTab,
     updateTabMetadata,
   } = useWorkbenchStore.getState();
+  const { focusedPanelId } = usePanelFocusStore.getState();
 
-  const baseTabId = `table-${table.schema}-${table.name}`;
+  const objectKey = `table-${connectionId}-${table.schema}-${table.name}`;
+
+  const tableMetadata = {
+    type: 'table' as const,
+    title: table.name,
+    connectionId,
+    database,
+    schema: table.schema,
+    table: table.name,
+    isView: table.kind !== 'Table',
+    kind: table.kind,
+    viewType,
+    objectKey,
+  };
 
   // If sourcePanelId is provided and has a filter, try to reuse existing tab in that panel
   if (sourcePanelId && initialFilter) {
     const panelContent = panelContents.get(sourcePanelId);
     if (panelContent) {
-      // Find existing tab for this table in the source panel
-      const existingTabId = panelContent.tabIds.find(tabId =>
-        tabId === baseTabId || tabId.startsWith(`${baseTabId}-`)
-      );
+      // Find existing tab for this table in the source panel by objectKey
+      const existingTabId = panelContent.tabIds.find(tabId => {
+        const meta = panelContent.metadata?.[tabId];
+        return meta?.objectKey === objectKey;
+      });
 
       if (existingTabId) {
         // Reuse existing tab - update filter
         setActiveTab(sourcePanelId, existingTabId);
         updateTabMetadata(sourcePanelId, existingTabId, {
-          type: 'table',
-          title: table.name,
-          connectionId,
-          database,
-          schema: table.schema,
-          table: table.name,
-          isView: table.kind !== 'Table',
-          kind: table.kind,
-          viewType,
+          ...tableMetadata,
           initialFilter,
         });
         focusPanel(sourcePanelId);
@@ -351,29 +394,30 @@ export function openTableObject({
     }
   }
 
-  // For new tabs with filter, use unique ID; otherwise use base ID
-  const tabId = initialFilter
-    ? `${baseTabId}-${Date.now()}`
-    : baseTabId;
-
-  // Check for existing tab (only when no filter and no sourcePanelId)
+  // Per-panel dedup: search only the target panel for matching objectKey
   if (!initialFilter) {
-    for (const [panelId, content] of panelContents.entries()) {
-      if (content.tabIds.includes(tabId)) {
-        setActiveTab(panelId, tabId);
-        updateTabMetadata(panelId, tabId, {
-          type: 'table',
-          title: table.name,
-          connectionId,
-          database,
-          schema: table.schema,
-          table: table.name,
-          isView: table.kind !== 'Table',
-          kind: table.kind,
-          viewType,
+    let targetPanelId = focusedPanelId;
+    if (!targetPanelId && panelContents.size > 0) {
+      const firstPanelId = Array.from(panelContents.keys())[0];
+      if (firstPanelId) {
+        targetPanelId = firstPanelId;
+      }
+    }
+
+    if (targetPanelId) {
+      const panelContent = panelContents.get(targetPanelId);
+      if (panelContent) {
+        const existingTabId = panelContent.tabIds.find(tabId => {
+          const meta = panelContent.metadata?.[tabId];
+          return meta?.objectKey === objectKey;
         });
-        focusPanel(panelId);
-        return;
+
+        if (existingTabId) {
+          setActiveTab(targetPanelId, existingTabId);
+          updateTabMetadata(targetPanelId, existingTabId, tableMetadata);
+          focusPanel(targetPanelId);
+          return;
+        }
       }
     }
   }
@@ -388,66 +432,15 @@ export function openTableObject({
     }
   }
 
-  if (targetPanelId) {
-    addTab(targetPanelId, tabId, {
-      type: 'table',
-      title: table.name,
-      connectionId,
-      database,
-      schema: table.schema,
-      table: table.name,
-      isView: table.kind !== 'Table',
-      kind: table.kind,
-      viewType,
-      initialFilter,
-    });
-    return;
-  }
+  if (!targetPanelId) return;
 
-  const {
-    getPrimaryPanel,
-    addTabToPanel,
-    setActiveTabInPanel,
-    updateTabInPanel,
-  } = usePanelStore.getState();
+  const tabId = `${objectKey}:::${nanoid(6)}`;
 
-  const primaryPanel = getPrimaryPanel();
-  if (!primaryPanel) {
-    return;
-  }
-
-  const existingTab = Array.from(primaryPanel.tabs.values()).find(
-    (tab) =>
-      tab.type === 'table' &&
-      tab.payload.tableName === table.name &&
-      tab.payload.schema === table.schema
-  );
-
-  if (existingTab) {
-    setActiveTabInPanel(primaryPanel.id, existingTab.id);
-    updateTabInPanel(primaryPanel.id, existingTab.id, {
-      payload: {
-        ...existingTab.payload,
-        database,
-        activeView: viewType,
-        kind: table.kind,
-      },
-    });
-  } else {
-    addTabToPanel(primaryPanel.id, {
-      type: 'table',
-      connectionId,
-      title: table.name,
-      payload: {
-        database,
-        schema: table.schema,
-        tableName: table.name,
-        isView: table.kind !== 'Table',
-        kind: table.kind,
-        activeView: viewType,
-      },
-    });
-  }
+  addTab(targetPanelId, tabId, {
+    ...tableMetadata,
+    initialFilter,
+  });
+  focusPanel(targetPanelId);
 }
 
 export function openFunctionObject({
@@ -455,10 +448,10 @@ export function openFunctionObject({
   connectionId,
   database,
 }: OpenFunctionParams): void {
-  const { focusedPanelId, addTab, panelContents, focusPanel } =
+  const { addTab, panelContents, focusPanel, setActiveTab, updateTabMetadata } =
     useWorkbenchStore.getState();
 
-  let targetPanelId = focusedPanelId;
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
   if (!targetPanelId) {
     const firstPanel = Array.from(panelContents.entries())[0];
     if (firstPanel) {
@@ -467,65 +460,46 @@ export function openFunctionObject({
     }
   }
 
-  if (targetPanelId) {
-    const objectType =
-      func.routine_type === 'PROCEDURE' ||
-      (!func.routine_type && func.return_type === 'void')
-        ? 'procedure'
-        : 'function';
-    const tabId = `function-${func.schema}-${func.name}`;
-    addTab(targetPanelId, tabId, {
-      type: 'function',
-      title: func.name,
-      connectionId,
-      database,
-      schema: func.schema,
-      functionName: func.name,
-      returnType: func.return_type,
-      objectType,
-    });
-    return;
-  }
+  if (!targetPanelId) return;
 
-  const {
-    getPrimaryPanel,
-    addTabToPanel,
-    setActiveTabInPanel,
-  } = usePanelStore.getState();
+  const objectType =
+    func.routine_type === 'PROCEDURE' ||
+    (!func.routine_type && func.return_type === 'void')
+      ? 'procedure'
+      : 'function';
+  const objectKey = `function-${connectionId}-${func.schema}-${func.name}`;
 
-  const primaryPanel = getPrimaryPanel();
-  if (!primaryPanel) {
-    return;
-  }
-
-  const existingTab = Array.from(primaryPanel.tabs.values()).find(
-    (tab) =>
-      tab.type === 'function' &&
-      tab.payload.functionName === func.name &&
-      tab.payload.schema === func.schema
-  );
-
-  if (existingTab) {
-    setActiveTabInPanel(primaryPanel.id, existingTab.id);
-    return;
-  }
-
-  addTabToPanel(primaryPanel.id, {
-    type: 'function',
-    connectionId,
+  const funcMetadata = {
+    type: 'function' as const,
     title: func.name,
-    payload: {
-      database,
-      schema: func.schema,
-      functionName: func.name,
-      returnType: func.return_type,
-      objectType:
-        func.routine_type === 'PROCEDURE' ||
-        (!func.routine_type && func.return_type === 'void')
-          ? 'procedure'
-          : 'function',
-    },
-  });
+    connectionId,
+    database,
+    schema: func.schema,
+    functionName: func.name,
+    returnType: func.return_type,
+    objectType,
+    objectKey,
+  };
+
+  // Per-panel dedup: search only the target panel for matching objectKey
+  const panelContent = panelContents.get(targetPanelId);
+  if (panelContent) {
+    const existingTabId = panelContent.tabIds.find(tabId => {
+      const meta = panelContent.metadata?.[tabId];
+      return meta?.objectKey === objectKey;
+    });
+
+    if (existingTabId) {
+      setActiveTab(targetPanelId, existingTabId);
+      updateTabMetadata(targetPanelId, existingTabId, funcMetadata);
+      focusPanel(targetPanelId);
+      return;
+    }
+  }
+
+  const tabId = `${objectKey}:::${nanoid(6)}`;
+  addTab(targetPanelId, tabId, funcMetadata);
+  focusPanel(targetPanelId);
 }
 
 /**
@@ -537,17 +511,18 @@ export function openTableInSplitRight({
   database,
   viewType = 'data',
 }: OpenInSplitParams): void {
-  const { focusedPanelId, splitPanelAction, panelContents, focusPanel } =
+  const { splitPanelAction, panelContents, focusPanel } =
     useWorkbenchStore.getState();
 
-  let targetPanelId = focusedPanelId;
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
   if (!targetPanelId && panelContents.size > 0) {
     targetPanelId = Array.from(panelContents.keys())[0] ?? null;
   }
 
   if (!targetPanelId) return;
 
-  const tabId = `table-${table.schema}-${table.name}`;
+  const objectKey = `table-${connectionId}-${table.schema}-${table.name}`;
+  const tabId = `${objectKey}:::${nanoid(6)}`;
   const newPanelId = nanoid(8);
 
   splitPanelAction({
@@ -569,6 +544,7 @@ export function openTableInSplitRight({
           isView: table.kind !== 'Table',
           kind: table.kind,
           viewType,
+          objectKey,
         },
       },
     },
@@ -586,17 +562,18 @@ export function openFunctionInSplitRight({
   connectionId,
   database,
 }: OpenFunctionInSplitParams): void {
-  const { focusedPanelId, splitPanelAction, panelContents, focusPanel } =
+  const { splitPanelAction, panelContents, focusPanel } =
     useWorkbenchStore.getState();
 
-  let targetPanelId = focusedPanelId;
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
   if (!targetPanelId && panelContents.size > 0) {
     targetPanelId = Array.from(panelContents.keys())[0] ?? null;
   }
 
   if (!targetPanelId) return;
 
-  const tabId = `function-${func.schema}-${func.name}`;
+  const objectKey = `function-${connectionId}-${func.schema}-${func.name}`;
+  const tabId = `${objectKey}:::${nanoid(6)}`;
   const newPanelId = nanoid(8);
 
   const objectType =
@@ -622,11 +599,131 @@ export function openFunctionInSplitRight({
           functionName: func.name,
           returnType: func.return_type,
           objectType,
+          objectKey,
         },
       },
     },
   });
 
   // Focus the new panel
+  focusPanel(newPanelId);
+}
+
+// ---------------------------------------------------------------------------
+// ERD openers
+// ---------------------------------------------------------------------------
+
+interface OpenErdParams {
+  connectionId: string;
+  connectionName: string;
+  database?: string;
+  schema?: string;
+}
+
+/**
+ * Open an ERD tab for the given connection. Reuses an existing tab if one
+ * is already open in the focused panel (per-panel dedup). Otherwise creates
+ * a new tab in the focused panel.
+ */
+export function openErdView({
+  connectionId,
+  connectionName,
+  database,
+  schema,
+}: OpenErdParams): void {
+  const {
+    addTab,
+    panelContents,
+    focusPanel,
+    setActiveTab,
+    updateTabMetadata,
+  } = useWorkbenchStore.getState();
+
+  const objectKey = `erd-${connectionId}`;
+
+  const erdMetadata = {
+    type: 'erd' as const,
+    title: `${connectionName} ERD`,
+    connectionId,
+    database,
+    schema,
+    objectKey,
+  };
+
+  // Per-panel dedup: search only the focused panel for matching objectKey
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
+  if (!targetPanelId && panelContents.size > 0) {
+    const firstPanelId = Array.from(panelContents.keys())[0];
+    if (firstPanelId) {
+      targetPanelId = firstPanelId;
+      focusPanel(firstPanelId);
+    }
+  }
+  if (!targetPanelId) return;
+
+  const panelContent = panelContents.get(targetPanelId);
+  if (panelContent) {
+    const existingTabId = panelContent.tabIds.find(tabId => {
+      const meta = panelContent.metadata?.[tabId];
+      return meta?.objectKey === objectKey;
+    });
+
+    if (existingTabId) {
+      setActiveTab(targetPanelId, existingTabId);
+      updateTabMetadata(targetPanelId, existingTabId, erdMetadata);
+      focusPanel(targetPanelId);
+      return;
+    }
+  }
+
+  const tabId = `${objectKey}:::${nanoid(6)}`;
+  addTab(targetPanelId, tabId, erdMetadata);
+  focusPanel(targetPanelId);
+}
+
+/**
+ * Open an ERD in a new split panel to the right. Always creates a new tab
+ * with a unique ID so it does not conflict with existing ERD tabs.
+ */
+export function openErdInSplitRight({
+  connectionId,
+  connectionName,
+  database,
+  schema,
+}: OpenErdParams): void {
+  const { splitPanelAction, panelContents, focusPanel } =
+    useWorkbenchStore.getState();
+
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
+  if (!targetPanelId && panelContents.size > 0) {
+    targetPanelId = Array.from(panelContents.keys())[0] ?? null;
+  }
+  if (!targetPanelId) return;
+
+  const objectKey = `erd-${connectionId}`;
+  const tabId = `${objectKey}:::${nanoid(6)}`;
+  const newPanelId = nanoid(8);
+
+  splitPanelAction({
+    targetPanelId,
+    direction: 'right',
+    newPanelContent: {
+      id: newPanelId,
+      type: 'editor',
+      tabIds: [tabId],
+      activeTabId: tabId,
+      metadata: {
+        [tabId]: {
+          type: 'erd',
+          title: `${connectionName} ERD`,
+          connectionId,
+          database,
+          schema,
+          objectKey,
+        },
+      },
+    },
+  });
+
   focusPanel(newPanelId);
 }

@@ -120,8 +120,10 @@ pub fn suggest_joins(
                 for new_col in &new_cols {
                     // Skip if already covered by FK
                     if suggestions.iter().any(|s| {
-                        s.condition.contains(&format!("{}.{}", new_alias, new_col.name))
-                            && s.condition.contains(&format!("{}.{}", existing_alias, existing_col.name))
+                        s.condition
+                            .contains(&format!("{}.{}", new_alias, new_col.name))
+                            && s.condition
+                                .contains(&format!("{}.{}", existing_alias, existing_col.name))
                     }) {
                         continue;
                     }
@@ -203,9 +205,17 @@ fn build_fk_condition(
 fn generate_simple_alias(table_name: &str) -> String {
     let parts: Vec<&str> = table_name.split('_').collect();
     if parts.len() > 1 {
-        parts.iter().filter_map(|p| p.chars().next()).collect::<String>().to_lowercase()
+        parts
+            .iter()
+            .filter_map(|p| p.chars().next())
+            .collect::<String>()
+            .to_lowercase()
     } else {
-        table_name.chars().next().map(|c| c.to_lowercase().to_string()).unwrap_or_default()
+        table_name
+            .chars()
+            .next()
+            .map(|c| c.to_lowercase().to_string())
+            .unwrap_or_default()
     }
 }
 
@@ -260,7 +270,9 @@ fn check_naming_convention(
 fn singularize(word: &str) -> String {
     if word.ends_with("ies") {
         format!("{}y", &word[..word.len() - 3])
-    } else if word.ends_with("es") && (word.ends_with("ses") || word.ends_with("xes") || word.ends_with("zes")) {
+    } else if word.ends_with("es")
+        && (word.ends_with("ses") || word.ends_with("xes") || word.ends_with("zes"))
+    {
         word[..word.len() - 2].to_string()
     } else if word.ends_with('s') && !word.ends_with("ss") && !word.ends_with("us") {
         // Skip words ending in "us" (status, bonus, campus) - they're already singular
@@ -276,7 +288,10 @@ pub fn suggest_joinable_tables(
     schema: &CachedSchema,
 ) -> Vec<JoinableTableSuggestion> {
     let mut suggestions = Vec::new();
-    let current_names: Vec<_> = current_tables.iter().map(|t| t.name.to_lowercase()).collect();
+    let current_names: Vec<_> = current_tables
+        .iter()
+        .map(|t| t.name.to_lowercase())
+        .collect();
 
     for table_ref in current_tables {
         // Find FK targets (tables this table references)
@@ -350,62 +365,68 @@ mod tests {
                 comment: None,
                 row_count: None,
             })
-            .add_columns("users", vec![
-                ColumnInfo {
-                    name: "id".to_string(),
-                    data_type: "integer".to_string(),
-                    nullable: false,
-                    is_primary_key: true,
-                    is_unique: true,
-                    default_value: None,
-                    comment: None,
-                    enum_values: None,
-                    ordinal: 1,
-                    precision: None,
-                    scale: None,
-                },
-                ColumnInfo {
-                    name: "name".to_string(),
-                    data_type: "varchar".to_string(),
-                    nullable: false,
-                    is_primary_key: false,
-                    is_unique: false,
-                    default_value: None,
-                    comment: None,
-                    enum_values: None,
-                    ordinal: 2,
-                    precision: None,
-                    scale: None,
-                },
-            ])
-            .add_columns("orders", vec![
-                ColumnInfo {
-                    name: "id".to_string(),
-                    data_type: "integer".to_string(),
-                    nullable: false,
-                    is_primary_key: true,
-                    is_unique: true,
-                    default_value: None,
-                    comment: None,
-                    enum_values: None,
-                    ordinal: 1,
-                    precision: None,
-                    scale: None,
-                },
-                ColumnInfo {
-                    name: "user_id".to_string(),
-                    data_type: "integer".to_string(),
-                    nullable: false,
-                    is_primary_key: false,
-                    is_unique: false,
-                    default_value: None,
-                    comment: None,
-                    enum_values: None,
-                    ordinal: 2,
-                    precision: None,
-                    scale: None,
-                },
-            ])
+            .add_columns(
+                "users",
+                vec![
+                    ColumnInfo {
+                        name: "id".to_string(),
+                        data_type: "integer".to_string(),
+                        nullable: false,
+                        is_primary_key: true,
+                        is_unique: true,
+                        default_value: None,
+                        comment: None,
+                        enum_values: None,
+                        ordinal: 1,
+                        precision: None,
+                        scale: None,
+                    },
+                    ColumnInfo {
+                        name: "name".to_string(),
+                        data_type: "varchar".to_string(),
+                        nullable: false,
+                        is_primary_key: false,
+                        is_unique: false,
+                        default_value: None,
+                        comment: None,
+                        enum_values: None,
+                        ordinal: 2,
+                        precision: None,
+                        scale: None,
+                    },
+                ],
+            )
+            .add_columns(
+                "orders",
+                vec![
+                    ColumnInfo {
+                        name: "id".to_string(),
+                        data_type: "integer".to_string(),
+                        nullable: false,
+                        is_primary_key: true,
+                        is_unique: true,
+                        default_value: None,
+                        comment: None,
+                        enum_values: None,
+                        ordinal: 1,
+                        precision: None,
+                        scale: None,
+                    },
+                    ColumnInfo {
+                        name: "user_id".to_string(),
+                        data_type: "integer".to_string(),
+                        nullable: false,
+                        is_primary_key: false,
+                        is_unique: false,
+                        default_value: None,
+                        comment: None,
+                        enum_values: None,
+                        ordinal: 2,
+                        precision: None,
+                        scale: None,
+                    },
+                ],
+            )
             .add_foreign_key(ForeignKeyInfo {
                 constraint_name: "fk_orders_users".to_string(),
                 source_table: "orders".to_string(),

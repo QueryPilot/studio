@@ -10,7 +10,7 @@ import { lintGutter } from "@codemirror/lint";
 import { dbmlLanguage as streamParser } from "./dbml-language";
 // Import linter and IntelliSense
 import { dbmlLinter } from "./dbml-linter";
-// import { dbmlCompletions } from "./dbml-intellisense"; // Disabled for now
+import { dbmlCompletions } from "./dbml-intellisense";
 
 // Enhanced DBML folding service
 const dbmlFoldService = foldService.of((state, from) => {
@@ -178,8 +178,8 @@ export function dbmlMixed() {
     // Add linter and lint gutter
     dbmlLinter(),
     lintGutter(),
-    // IntelliSense completions disabled for now
-    // dbmlCompletions(),
+    // IntelliSense completions
+    dbmlCompletions(),
     // Additional extensions for better DBML support
     EditorState.languageData.of(() => {
       return [{

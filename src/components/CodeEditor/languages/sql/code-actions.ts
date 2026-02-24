@@ -167,6 +167,21 @@ export function createExpandStarExtension(
       }
 
       update(update: ViewUpdate) {
+        // Skip all work for unfocused editors (major perf win with split panels)
+        if (!update.view.hasFocus) {
+          if (this.pendingUpdate) {
+            clearTimeout(this.pendingUpdate);
+            this.pendingUpdate = null;
+          }
+          return;
+        }
+
+        // Just gained focus - refresh decorations to catch missed changes
+        if (update.focusChanged) {
+          this.updateDecorations(update.view);
+          return;
+        }
+
         if (update.docChanged) {
           // Map decorations through changes to maintain positions
           this.decorations = this.decorations.map(update.changes);

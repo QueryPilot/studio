@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useEffect } from "react";
 import type { GridRowModel, SortColumn, GridColumnV2 } from "../types";
 import { useGridPreferencesStore } from "../stores/gridPreferencesStore";
 
@@ -7,6 +7,8 @@ const EMPTY_SORT_COLUMNS: SortColumn[] = [];
 interface UseColumnSortingOptions {
   gridId: string;
   columns: GridColumnV2[];
+  /** When set, sort changes are also written to this key (write-through for per-tab sort isolation). */
+  writeThroughGridId?: string;
 }
 
 interface UseColumnSortingResult {
@@ -21,12 +23,32 @@ interface UseColumnSortingResult {
 export function useColumnSorting({
   gridId,
   columns,
+  writeThroughGridId,
 }: UseColumnSortingOptions): UseColumnSortingResult {
   const sortColumns = useGridPreferencesStore(
     (state) => state.preferences[gridId]?.sortColumns ?? EMPTY_SORT_COLUMNS
   );
   const toggleColumnSort = useGridPreferencesStore((state) => state.toggleColumnSort);
   const clearSortAction = useGridPreferencesStore((state) => state.clearSort);
+
+
+  // Initialize per-tab sort from shared key when the tab has no sort state yet
+  const sharedSortSelector = useCallback(
+    (state: { preferences: Record<string, { sortColumns?: SortColumn[] } | undefined> }) =>
+      writeThroughGridId && writeThroughGridId !== gridId
+        ? state.preferences[writeThroughGridId]?.sortColumns ?? EMPTY_SORT_COLUMNS
+        : EMPTY_SORT_COLUMNS,
+    [writeThroughGridId, gridId]
+  );
+  const sharedSortColumns = useGridPreferencesStore(sharedSortSelector);
+
+  useEffect(() => {
+    if (sharedSortColumns === EMPTY_SORT_COLUMNS) return; // No write-through or nothing to copy
+    if (sortColumns.length > 0) return; // Already has sort state
+    useGridPreferencesStore.getState().upsert(gridId, (draft) => {
+      draft.sortColumns = [...sharedSortColumns];
+    });
+  }, [gridId, sortColumns.length, sharedSortColumns]);
 
   const columnMap = useMemo(() => {
     const map = new Map<string, GridColumnV2>();
@@ -48,8 +70,16 @@ export function useColumnSorting({
           if (!column) continue;
 
           const field = column.field;
-          const aVal = a[field];
-          const bVal = b[field];
+          const aCell = a[field];
+          const bCell = b[field];
+
+          // Extract actual values from GridCellValue objects
+          const aVal = aCell && typeof aCell === 'object' && 'value' in aCell
+            ? aCell.value
+            : aCell;
+          const bVal = bCell && typeof bCell === 'object' && 'value' in bCell
+            ? bCell.value
+            : bCell;
 
           let comparison = 0;
 
@@ -82,13 +112,20 @@ export function useColumnSorting({
   const toggleSort = useCallback(
     (columnId: string, multiSort?: boolean) => {
       toggleColumnSort(gridId, columnId, multiSort ?? false);
+      // Write-through: also update the shared key so new tabs inherit the latest sort
+      if (writeThroughGridId && writeThroughGridId !== gridId) {
+        toggleColumnSort(writeThroughGridId, columnId, multiSort ?? false);
+      }
     },
-    [gridId, toggleColumnSort]
+    [gridId, writeThroughGridId, toggleColumnSort]
   );
 
   const clearSort = useCallback(() => {
     clearSortAction(gridId);
-  }, [gridId, clearSortAction]);
+    if (writeThroughGridId && writeThroughGridId !== gridId) {
+      clearSortAction(writeThroughGridId);
+    }
+  }, [gridId, writeThroughGridId, clearSortAction]);
 
   const getSortIndex = useCallback(
     (columnId: string): number => {

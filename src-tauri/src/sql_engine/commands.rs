@@ -6,13 +6,17 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::core::ConnectionManager;
 use super::{
-    complete, parse_document, validate_document, CompletionRequest, SqlDialect,
-    schema_store::{CacheKey, CachedSchemaBuilder, TableInfo, ColumnInfo, ForeignKeyInfo, EnumInfo, TableType},
+    complete,
     outline::{OutlineBuilder, OutlineTree},
-    SCHEMA_STORE,
+    parse_document,
+    schema_store::{
+        CacheKey, CachedSchemaBuilder, ColumnInfo, EnumInfo, ForeignKeyInfo, FunctionInfo,
+        FunctionParam, ParamMode, TableInfo, TableType,
+    },
+    validate_document, CompletionRequest, SqlDialect, SCHEMA_STORE,
 };
+use crate::core::ConnectionManager;
 
 /// Parse request from frontend
 #[derive(Debug, Deserialize)]
@@ -163,10 +167,7 @@ pub async fn sql_parse(request: ParseRequest) -> Result<ParseResponse, String> {
 
 /// Validate SQL document
 #[tauri::command]
-pub async fn sql_validate(
-    request: ValidateRequest,
-    _manager: State<'_, ConnectionManager>,
-) -> Result<ValidateResponse, String> {
+pub async fn sql_validate(request: ValidateRequest) -> Result<ValidateResponse, String> {
     let dialect = parse_dialect(&request.dialect);
     let doc = parse_document(&request.sql, dialect);
 
@@ -208,10 +209,7 @@ pub async fn sql_validate(
 
 /// Get completions for SQL
 #[tauri::command]
-pub async fn sql_complete(
-    request: CompleteRequest,
-    _manager: State<'_, ConnectionManager>,
-) -> Result<CompleteResponse, String> {
+pub async fn sql_complete(request: CompleteRequest) -> Result<CompleteResponse, String> {
     let dialect = parse_dialect(&request.dialect);
     let doc = parse_document(&request.sql, dialect);
 
@@ -324,17 +322,6 @@ pub async fn sql_apply_refactor(
 // Schema Push Commands (receives data from frontend - TypeScript is source of truth)
 // =============================================================================
 
-/// Schema data pushed from frontend (TypeScript adapters are source of truth)
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SetSchemaRequest {
-    pub connection_id: String,
-    pub schema: String,
-    pub tables: Vec<TableInput>,
-    pub foreign_keys: Vec<ForeignKeyInput>,
-    pub enums: Vec<EnumInput>,
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableInput {
@@ -367,6 +354,27 @@ pub struct ForeignKeyInput {
 pub struct EnumInput {
     pub name: String,
     pub values: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FunctionInput {
+    pub name: String,
+    pub return_type: String,
+    pub arguments: Vec<String>,
+}
+
+/// Schema data pushed from frontend (TypeScript adapters are source of truth)
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSchemaRequest {
+    pub connection_id: String,
+    pub schema: String,
+    pub tables: Vec<TableInput>,
+    pub foreign_keys: Vec<ForeignKeyInput>,
+    pub enums: Vec<EnumInput>,
+    #[serde(default)]
+    pub functions: Vec<FunctionInput>,
 }
 
 /// Response for set_schema
@@ -451,6 +459,28 @@ pub async fn sql_set_schema(request: SetSchemaRequest) -> Result<SetSchemaRespon
         });
     }
 
+    // Add functions
+    for f in &request.functions {
+        let parameters: Vec<FunctionParam> = f
+            .arguments
+            .iter()
+            .map(|arg| FunctionParam {
+                name: None,
+                data_type: arg.clone(),
+                mode: ParamMode::In,
+                default_value: None,
+            })
+            .collect();
+
+        builder = builder.add_function(FunctionInfo {
+            name: f.name.clone(),
+            schema: Some(request.schema.clone()),
+            parameters,
+            return_type: Some(f.return_type.clone()),
+            description: None,
+        });
+    }
+
     let table_count = request.tables.len();
     SCHEMA_STORE.put(cache_key, builder.build());
 
@@ -464,10 +494,7 @@ pub async fn sql_set_schema(request: SetSchemaRequest) -> Result<SetSchemaRespon
 /// Clear schema cache for a connection.
 /// Call when connection is closed or schema is refreshed.
 #[tauri::command]
-pub async fn sql_clear_schema(
-    connection_id: String,
-    schema: Option<String>,
-) -> Result<(), String> {
+pub async fn sql_clear_schema(connection_id: String, schema: Option<String>) -> Result<(), String> {
     SCHEMA_STORE.invalidate(&connection_id, schema.as_deref());
     Ok(())
 }
@@ -478,11 +505,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_sql_get_outline_simple_select() {
-        let result = sql_get_outline(
-            "SELECT * FROM users".to_string(),
-            "postgresql".to_string(),
-        )
-        .await;
+        let result =
+            sql_get_outline("SELECT * FROM users".to_string(), "postgresql".to_string()).await;
 
         assert!(result.is_ok());
         let outline = result.unwrap();
@@ -513,11 +537,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_sql_get_outline_mysql_dialect() {
-        let result = sql_get_outline(
-            "SELECT * FROM `users`".to_string(),
-            "mysql".to_string(),
-        )
-        .await;
+        let result =
+            sql_get_outline("SELECT * FROM `users`".to_string(), "mysql".to_string()).await;
 
         assert!(result.is_ok());
         let outline = result.unwrap();
@@ -590,6 +611,7 @@ mod tests {
             }],
             foreign_keys: vec![],
             enums: vec![],
+            functions: vec![],
         };
 
         let response = sql_set_schema(request).await.unwrap();

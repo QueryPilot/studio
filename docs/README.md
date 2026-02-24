@@ -1,25 +1,32 @@
 # Query Pilot Documentation
 
+## LLM Context (for AI assistants)
+
+- [**LLM Context Index**](./llm-context/README.md) - Start here for AI-assisted development
+
 ## Architecture
-Deep dives into system internals.
-- [Backend API](./architecture/backend-api.md)
-- [Query Execution](./architecture/query-execution.md)
-- [Workbench Layout](./architecture/workbench-layout.md)
+
+- [Backend API](./architecture/backend-api.md) - Tauri command architecture
+- [Query Execution](./architecture/query-execution.md) - Query streaming and execution paths
+- [Workbench Layout](./architecture/workbench-layout.md) - Panel and tab management
+
+## DataGrid
+
+- [**DataGrid Adapter Architecture**](./guides/datagrid-adapter-architecture.md) - Complete guide to frontend/backend adapters
+- [DataGrid Filtering](./features/data-grid-filtering.md) - QuickFilter with Search/Query modes
 
 ## Guides
-How-to documentation for developers and users.
-- [Adding New Databases](./guides/CONTRIBUTING_DB.md) (**Start Here for Contributors**)
-- [Setup & Install](./guides/setup.md)
-- [Release Guide](./guides/release-guide.md)
-- [SSH Tunnels](./guides/ssh-tunnels.md)
+
+- [Adding New Databases](./guides/CONTRIBUTING_DB.md) - **Start here for contributors**
+- [Setup & Install](./guides/setup.md) - Development environment setup
+- [Release Guide](./guides/release-guide.md) - Release process
+- [SSH Tunnels](./guides/ssh-tunnels.md) - SSH tunnel configuration
 
 ## Specifications
-Feature specifications and designs.
-- [AI Features](./specs/ai-features.md)
-- [DBML Support](./specs/dbml-support.md)
-- [ERD Panel](./specs/erd-panel.md)
 
-## Archive
-Old plans and designs, kept for historical reference.
-- [Plans](./archive/plans/)
-- [Fixes](./archive/fixes/)
+- [DBML Support](./specs/dbml-support.md) - DBML language support
+- [ERD Panel](./specs/erd-panel.md) - Entity relationship diagram panel
+
+## Other
+
+- [Theme Usage](./theme-usage.md) - UI theming guide

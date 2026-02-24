@@ -6,6 +6,7 @@ import { CodeEditor } from "@/components/CodeEditor";
 import type { SqlDialect } from "@/components/CodeEditor";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { detectDialectForObject } from "@/utils/dialectDetector";
+import { formatSql } from "@/utils/codeFormatter";
 import type { ObjectDefinitionType } from "@/adapters/types";
 
 interface ObjectDefinitionProps {
@@ -57,8 +58,9 @@ export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(
             objectType,
           );
 
-          setDefinition(def);
-          onDefinitionLoad?.(def);
+          const formatted = formatSql(def, dialect);
+          setDefinition(formatted);
+          onDefinitionLoad?.(formatted);
         } catch (err) {
           logger.error("Failed to fetch object definition:", err);
           setError(
@@ -76,6 +78,7 @@ export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(
       schema,
       objectName,
       objectType,
+      dialect,
       onDefinitionLoad,
     ]);
 

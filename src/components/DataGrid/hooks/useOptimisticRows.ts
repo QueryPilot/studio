@@ -46,14 +46,36 @@ export function useOptimisticRows({
       Array<{ column: string; newValue: unknown }>
     >();
 
+    // Build index: tempId → array of UPDATE commands (for updates to newly inserted rows)
+    const updateCommandsByTempId = new Map<
+      string,
+      Array<{ column: string; newValue: unknown }>
+    >();
+
     for (const cmd of stagedCommands) {
       if (cmd.type !== "data.update") continue;
       const payload = cmd.payload as {
         primaryKeys?: Record<string, unknown>;
         column?: string;
         newValue?: unknown;
+        tempId?: string;
       };
-      if (!payload.primaryKeys || !payload.column) continue;
+      if (!payload.column) continue;
+
+      // If UPDATE has tempId, index by tempId (for newly inserted rows)
+      if (payload.tempId) {
+        if (!updateCommandsByTempId.has(payload.tempId)) {
+          updateCommandsByTempId.set(payload.tempId, []);
+        }
+        updateCommandsByTempId.get(payload.tempId)!.push({
+          column: payload.column,
+          newValue: payload.newValue,
+        });
+        continue; // tempId updates don't use PK matching
+      }
+
+      // Otherwise, index by primaryKeys
+      if (!payload.primaryKeys) continue;
 
       // Create stable PK signature from sorted keys
       const pkEntries = Object.entries(payload.primaryKeys).sort(([a], [b]) =>
@@ -205,6 +227,27 @@ export function useOptimisticRows({
             db_type: dbType,
             is_truncated: false,
           };
+        }
+      }
+
+      // Apply any UPDATE commands that reference this INSERT's tempId
+      const tempIdUpdates = updateCommandsByTempId.get(insertTempId);
+      if (tempIdUpdates) {
+        for (const { column, newValue } of tempIdUpdates) {
+          const field = columnNameToFieldMap.get(column);
+          if (field && field in row) {
+            const existingCell = row[field];
+            if (
+              existingCell &&
+              typeof existingCell === "object" &&
+              "value" in existingCell
+            ) {
+              row[field] = {
+                ...existingCell,
+                value: newValue,
+              };
+            }
+          }
         }
       }
 

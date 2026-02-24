@@ -3,7 +3,7 @@
  *
  * MySQL-specific SQL generation with:
  * - Backtick identifier quoting
- * - Backslash string escaping
+ * - Standard SQL string escaping ('' doubling, safe with NO_BACKSLASH_ESCAPES)
  * - Boolean as 1/0
  * - No RETURNING clause support
  * - DateTime format without timezone
@@ -21,7 +21,6 @@ import { SqlAdapter } from "../base/SqlAdapter";
 import type { ColumnInfo, ObjectDefinitionType, TableRef } from "../types";
 import {
   quoteIdentifier as sharedQuoteIdentifier,
-  escapeString as sharedEscapeString,
 } from "../formatting";
 import { getMySQLFeaturesForConnection } from "@/stores/versionStore";
 import type { MySQLVersionFeatures } from "../utils/versionUtils";
@@ -47,7 +46,7 @@ export class MySQLAdapter extends SqlAdapter {
 
   /**
    * Quote and escape a string value for MySQL
-   * Uses backslash escaping which is MySQL's default behavior
+   * Uses standard SQL '' doubling (works in all sql_modes)
    */
   quoteString(value: string): string {
     return `'${this.escapeString(value)}'`;
@@ -123,13 +122,8 @@ export class MySQLAdapter extends SqlAdapter {
     return false;
   }
 
-  /**
-   * Escape special characters for MySQL string literals
-   * Uses backslash escaping (MySQL's default sql_mode)
-   */
-  protected escapeString(value: string): string {
-    return sharedEscapeString(value, DbType.MySQL);
-  }
+  // escapeString: inherits standard SQL '' doubling from base class
+  // This works in all MySQL sql_modes including NO_BACKSLASH_ESCAPES
 
   // ─────────────────────────────────────────────────────────────────
   // DDL Operations - MySQL syntax
@@ -353,27 +347,43 @@ export class MySQLAdapter extends SqlAdapter {
   }
 
   getTablesQuery(schema: string): string {
+    // Column order must match IntrospectionService.getTables expectations:
+    // [0] schema_name, [1] table_name, [2] kind, [3] owner, [4] size, [5] row_count, [6] comment
     return `
 SELECT
-    TABLE_SCHEMA as schema_name,
-    TABLE_NAME as table_name,
-    TABLE_TYPE as kind,
-    ENGINE as engine,
-    TABLE_ROWS as row_count,
-    TABLE_COMMENT as comment
-FROM information_schema.TABLES
-WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
-    AND TABLE_TYPE = 'BASE TABLE'
-ORDER BY TABLE_NAME`;
+    t.TABLE_SCHEMA as schema_name,
+    t.TABLE_NAME as table_name,
+    CASE
+        WHEN p.partition_count > 0 THEN 'partitioned'
+        ELSE 'regular'
+    END as kind,
+    NULL as owner,
+    CONCAT(ROUND((t.DATA_LENGTH + t.INDEX_LENGTH) / 1024 / 1024, 2), ' MB') as size,
+    t.TABLE_ROWS as row_count,
+    t.TABLE_COMMENT as comment
+FROM information_schema.TABLES t
+LEFT JOIN (
+    SELECT TABLE_SCHEMA, TABLE_NAME, COUNT(DISTINCT PARTITION_NAME) as partition_count
+    FROM information_schema.PARTITIONS
+    WHERE PARTITION_NAME IS NOT NULL
+    GROUP BY TABLE_SCHEMA, TABLE_NAME
+) p ON t.TABLE_SCHEMA = p.TABLE_SCHEMA AND t.TABLE_NAME = p.TABLE_NAME
+WHERE t.TABLE_SCHEMA = '${this.escapeString(schema)}'
+    AND t.TABLE_TYPE = 'BASE TABLE'
+ORDER BY t.TABLE_NAME`;
   }
 
   getViewsQuery(schema: string): string {
+    // Column order must match IntrospectionService.getViews expectations:
+    // [0] schema_name, [1] view_name, [2] owner, [3] definition, [4] is_materialized, [5] comment
     return `
 SELECT
     TABLE_SCHEMA as schema_name,
     TABLE_NAME as view_name,
+    NULL as owner,
     VIEW_DEFINITION as definition,
-    IS_UPDATABLE as is_updatable
+    FALSE as is_materialized,
+    NULL as comment
 FROM information_schema.VIEWS
 WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
 ORDER BY TABLE_NAME`;
@@ -512,6 +522,9 @@ ORDER BY ORDINAL_POSITION`;
   }
 
   getTriggersQuery(schema: string, table: string): string {
+    // Column order must match IntrospectionService.getTriggers expectations:
+    // [0] name, [1] schema, [2] table_name, [3] timing, [4] event, [5] level,
+    // [6] function, [7] enabled, [8] condition
     return `
 SELECT
     TRIGGER_NAME as trigger_name,
@@ -519,7 +532,10 @@ SELECT
     EVENT_OBJECT_TABLE as table_name,
     ACTION_TIMING as timing,
     EVENT_MANIPULATION as event,
-    ACTION_STATEMENT as definition
+    ACTION_ORIENTATION as level,
+    ACTION_STATEMENT as function_body,
+    1 as enabled,
+    NULL as condition
 FROM information_schema.TRIGGERS
 WHERE TRIGGER_SCHEMA = '${this.escapeString(schema)}'
     AND EVENT_OBJECT_TABLE = '${this.escapeString(table)}'

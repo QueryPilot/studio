@@ -8,6 +8,7 @@ import {
   coerceToColumnType,
   smartPasteCoerce,
   validatePasteData,
+  detectHeaderRow,
   type ColumnTypeHint,
 } from "../pasteUtils";
 
@@ -303,6 +304,64 @@ describe("pasteUtils", () => {
       expect(errors.length).toBe(1);
       expect(errors[0]?.row).toBe(1); // second row (0-based)
       expect(errors[0]?.column).toBe(1); // second column (0-based)
+    });
+  });
+
+  describe("detectHeaderRow", () => {
+    it("should detect exact column name match", () => {
+      const firstRow = ["client_id", "promo_code", "status"];
+      const columnNames = ["client_id", "promo_code", "status", "created_at"];
+
+      expect(detectHeaderRow(firstRow, columnNames)).toBe(true);
+    });
+
+    it("should detect case-insensitive match", () => {
+      const firstRow = ["Client_ID", "Promo_Code", "Status"];
+      const columnNames = ["client_id", "promo_code", "status"];
+
+      expect(detectHeaderRow(firstRow, columnNames)).toBe(true);
+    });
+
+    it("should detect normalized match (underscores vs spaces)", () => {
+      const firstRow = ["client id", "promo code", "status"];
+      const columnNames = ["client_id", "promo_code", "status"];
+
+      expect(detectHeaderRow(firstRow, columnNames)).toBe(true);
+    });
+
+    it("should not detect header row when values are data", () => {
+      const firstRow = [430132, "X-LAUNCHING", "Y"];
+      const columnNames = ["client_id", "promo_code", "status"];
+
+      expect(detectHeaderRow(firstRow, columnNames)).toBe(false);
+    });
+
+    it("should handle partial column match (threshold based)", () => {
+      // Only 1 out of 3 matches - should not detect as header
+      const firstRow = ["client_id", "some_value", "other_data"];
+      const columnNames = ["client_id", "promo_code", "status"];
+
+      expect(detectHeaderRow(firstRow, columnNames)).toBe(false);
+    });
+
+    it("should handle column offset", () => {
+      // Pasting into columns 2, 3, 4 (skipping column 0 and 1)
+      const firstRow = ["status", "created_at"];
+      const columnNames = ["id", "client_id", "status", "created_at"];
+      const startColumnIndex = 2;
+
+      expect(detectHeaderRow(firstRow, columnNames, startColumnIndex)).toBe(true);
+    });
+
+    it("should return false for empty first row", () => {
+      expect(detectHeaderRow([], ["col1", "col2"])).toBe(false);
+    });
+
+    it("should handle numeric string headers that look like data", () => {
+      const firstRow = ["123", "456", "789"];
+      const columnNames = ["client_id", "amount", "quantity"];
+
+      expect(detectHeaderRow(firstRow, columnNames)).toBe(false);
     });
   });
 });

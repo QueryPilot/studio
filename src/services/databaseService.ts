@@ -17,14 +17,21 @@ import type {
   ForeignKeyInfo,
   TableStatistics,
 } from "@/types/tableStructure";
-import { ConstraintType } from "@/services/backend";
+import { ConstraintType, TableKind } from "@/services/backend";
 import { IntrospectionService } from "./introspectionService";
 
 // Types from API spec
 export interface ConnectionConfig {
   id: string;
   name: string;
-  db_type: "PostgreSQL" | "MySQL" | "MariaDB" | "SQLite" | "SQLServer" | "MongoDB" | "Redis";
+  db_type:
+    | "PostgreSQL"
+    | "MySQL"
+    | "MariaDB"
+    | "SQLite"
+    | "SQLServer"
+    | "MongoDB"
+    | "Redis";
   host: string;
   port: number;
   database: string;
@@ -44,6 +51,7 @@ export interface TableMeta {
   kind: "Table" | "View" | "MaterializedView";
   row_estimate?: number;
   size_bytes?: number;
+  isPartitioned?: boolean;
 }
 
 export interface FunctionMeta {
@@ -92,6 +100,7 @@ class DatabaseService {
   private healthMonitors: Map<string, NodeJS.Timeout> = new Map();
   private healthListeners: Map<string, ((health: ConnectionHealth) => void)[]> =
     new Map();
+  private healthStatus: Map<string, string> = new Map();
   // Track in-flight connect calls to dedupe concurrent attempts
   private inflightConnects: Map<string, Promise<ConnectResponse>> = new Map();
 
@@ -173,21 +182,43 @@ class DatabaseService {
         };
 
         // Ensure any stale backend connection with same id is cleanly closed before reconnect
+        logger.info(
+          `[DatabaseService] Cleaning up stale connection for ${connectionId}`,
+        );
         try {
           await BackendAPI.disconnect(connectionId);
+          logger.info(
+            `[DatabaseService] Stale connection cleanup completed for ${connectionId}`,
+          );
         } catch {
           // Ignore if not connected
+          logger.info(
+            `[DatabaseService] No stale connection to cleanup for ${connectionId}`,
+          );
         }
 
         // Ask backend to connect using the complete profile (id is authoritative)
+        logger.info(
+          `[DatabaseService] Calling BackendAPI.connect for ${connectionId}`,
+        );
         const backendInfo = await BackendAPI.connect(profile);
+        logger.info(
+          `[DatabaseService] BackendAPI.connect returned for ${connectionId}:`,
+          backendInfo,
+        );
 
         const response: ConnectResponse = {
           connection_id: backendInfo.id,
           server_version: backendInfo.version || null,
         };
 
+        logger.info(
+          `[DatabaseService] Setting activeConnections for ${connectionId}`,
+        );
         this.activeConnections.set(connectionId, response);
+        logger.info(
+          `[DatabaseService] Starting health monitoring for ${connectionId}`,
+        );
         this.startHealthMonitoring(connectionId);
 
         // Emit successful connection health
@@ -196,8 +227,14 @@ class DatabaseService {
           status: "ready",
           healthy: true,
         };
+        logger.info(
+          `[DatabaseService] Emitting ready health status for ${connectionId}`,
+        );
         this.notifyHealthListeners(connectionId, health);
 
+        logger.info(
+          `[DatabaseService] Connection complete, returning response for ${connectionId}`,
+        );
         return response;
       } catch (error) {
         logger.error("Failed to connect to database:", error);
@@ -439,11 +476,9 @@ class DatabaseService {
 
       // Store version info for adapters to use
       if (result.success && result.version) {
-        useVersionStore.getState().setVersion(
-          connectionId,
-          result.version,
-          result.detected_db_type
-        );
+        useVersionStore
+          .getState()
+          .setVersion(connectionId, result.version, result.detected_db_type);
       }
 
       return result.success;
@@ -459,6 +494,7 @@ class DatabaseService {
   async getConnectionHealth(connectionId: string): Promise<ConnectionHealth> {
     try {
       const health = await BackendAPI.getConnectionHealth(connectionId);
+
       return {
         connectionId: health.connection_id,
         status: health.status as "ready" | "degraded" | "error",
@@ -467,6 +503,10 @@ class DatabaseService {
         error: health.error,
       };
     } catch (error) {
+      logger.error(
+        `[DatabaseService] Health check failed for ${connectionId}:`,
+        error,
+      );
       return {
         connectionId,
         status: "error",
@@ -555,10 +595,24 @@ class DatabaseService {
     schema: string,
   ): Promise<TableMeta[]> {
     try {
+      logger.info(
+        `[DatabaseService] listTables called for ${connectionId}, schema: ${schema}`,
+      );
       const [tables, views] = await Promise.all([
-        IntrospectionService.getTables(connectionId, schema),
-        IntrospectionService.getViews(connectionId, schema),
+        IntrospectionService.getTables(connectionId, schema).then((t) => {
+          logger.info(
+            `[DatabaseService] getTables returned ${t.length} tables`,
+          );
+          return t;
+        }),
+        IntrospectionService.getViews(connectionId, schema).then((v) => {
+          logger.info(`[DatabaseService] getViews returned ${v.length} views`);
+          return v;
+        }),
       ]);
+      logger.info(
+        `[DatabaseService] listTables completed: ${tables.length} tables, ${views.length} views`,
+      );
 
       const tableMetas: TableMeta[] = [
         ...tables.map((t) => ({
@@ -567,6 +621,7 @@ class DatabaseService {
           kind: "Table" as const,
           row_estimate: t.row_count,
           size_bytes: undefined,
+          isPartitioned: t.kind === TableKind.Partitioned,
         })),
         ...views.map((v) => ({
           schema: v.schema,
@@ -687,7 +742,8 @@ class DatabaseService {
           is_computed: (c as unknown as { is_computed?: boolean }).is_computed,
           is_identity: (c as unknown as { is_identity?: boolean }).is_identity,
           // MySQL/MariaDB specific
-          character_set: (c as unknown as { character_set?: string | null }).character_set,
+          character_set: (c as unknown as { character_set?: string | null })
+            .character_set,
           collation: (c as unknown as { collation?: string | null }).collation,
           extra: (c as unknown as { extra?: string | null }).extra,
         }),
@@ -718,18 +774,18 @@ class DatabaseService {
         def: string,
       ): { method: string; where?: string } => {
         logger.debug("[DatabaseService] Parsing index definition:", def);
-        
+
         // More permissive regex to capture method (including spaces/symbols) until WHERE or end
         // Allow for "USING BTREE", "USING CLUSTERED", "USING NONCLUSTERED", etc.
         const usingMatch = def.match(/\bUSING\s+(.+?)(?:\s+WHERE|$)/i);
         const whereMatch = def.match(/\bWHERE\s+([\s\S]+)$/i);
-        
+
         let where: string | undefined;
         if (whereMatch && typeof whereMatch[1] === "string") {
           where = whereMatch[1].trim();
         }
         if (where && where.endsWith(";")) where = where.slice(0, -1).trim();
-        
+
         // Strip redundant outer parentheses like ((expr))
         const stripParens = (s: string): string => {
           let out = s.trim();
@@ -761,12 +817,15 @@ class DatabaseService {
 
         // Extract method
         let method = (usingMatch?.[1] || "btree").trim().toUpperCase();
-        
+
         // MSSQL Detection Heuristics
         // If the definition string contains explicit MSSQL keywords, override the parsed method if it defaulted to BTREE
         // or if we want to be sure we caught the right keyword.
         const upperDef = def.toUpperCase();
-        if (upperDef.includes("CLUSTERED") && !upperDef.includes("NONCLUSTERED")) {
+        if (
+          upperDef.includes("CLUSTERED") &&
+          !upperDef.includes("NONCLUSTERED")
+        ) {
           method = "CLUSTERED";
         } else if (upperDef.includes("NONCLUSTERED")) {
           method = "NONCLUSTERED";
@@ -832,9 +891,8 @@ class DatabaseService {
       }
 
       // Fetch using dialect-aware introspection
-      const types = await IntrospectionService.getSupportedIndexTypes(
-        connectionId,
-      );
+      const types =
+        await IntrospectionService.getSupportedIndexTypes(connectionId);
 
       // Cache the result
       this.indexTypeCache.set(connectionId, {
@@ -876,9 +934,8 @@ class DatabaseService {
       }
 
       // Fetch using dialect-aware introspection
-      const types = await IntrospectionService.getSupportedColumnTypes(
-        connectionId,
-      );
+      const types =
+        await IntrospectionService.getSupportedColumnTypes(connectionId);
 
       // Cache the result
       this.columnTypeCache.set(connectionId, {
@@ -998,9 +1055,10 @@ class DatabaseService {
             .filter((c) => c.constraint_type === ConstraintType.ForeignKey)
             .map((c) => {
               // Parse foreign key constraint definition
-              // Example: "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+              // Example: "FOREIGN KEY (user_id) REFERENCES schema.users (id) ON DELETE CASCADE"
+              // Note: [^\s(]+ handles schema/table names with hyphens (e.g. "lvcet-lms.users")
               const fkMatch = c.definition.match(
-                /FOREIGN KEY\s*\((.*?)\)\s*REFERENCES\s*([\w.]+)\s*\((.*?)\)/i,
+                /FOREIGN KEY\s*\((.*?)\)\s*REFERENCES\s+([^\s(]+)\s*\((.*?)\)/i,
               );
               const onDeleteMatch = c.definition.match(
                 /ON DELETE\s+(NO ACTION|CASCADE|SET NULL|SET DEFAULT|RESTRICT)/i,
@@ -1122,11 +1180,18 @@ class DatabaseService {
     // Clear existing monitor if any
     this.stopHealthMonitoring(connectionId);
 
-    // Monitor health every 5 seconds
+    // Monitor health every 5 seconds, only notify on status transitions
     const monitor = setInterval(() => {
       void this.getConnectionHealth(connectionId)
         .then((health) => {
-          this.notifyHealthListeners(connectionId, health);
+          const prev = this.healthStatus.get(connectionId);
+          if (prev !== health.status) {
+            logger.info(
+              `[HealthCheck] ${connectionId}: ${prev ?? "initial"} → ${health.status}${health.rttMs != null ? ` (${health.rttMs}ms)` : ""}`,
+            );
+            this.healthStatus.set(connectionId, health.status);
+            this.notifyHealthListeners(connectionId, health);
+          }
         })
         .catch((error: unknown) => {
           logger.warn("database-service", "Health check failed", {
@@ -1138,8 +1203,15 @@ class DatabaseService {
 
     this.healthMonitors.set(connectionId, monitor);
 
-    // Do immediate health check
+    // Do immediate health check (always notify for first check)
     void this.getConnectionHealth(connectionId).then((health) => {
+      const prev = this.healthStatus.get(connectionId);
+      if (prev !== health.status) {
+        logger.info(
+          `[HealthCheck] ${connectionId}: ${prev ?? "initial"} → ${health.status}${health.rttMs != null ? ` (${health.rttMs}ms)` : ""}`,
+        );
+        this.healthStatus.set(connectionId, health.status);
+      }
       this.notifyHealthListeners(connectionId, health);
     });
   }
@@ -1167,6 +1239,7 @@ class DatabaseService {
       clearInterval(monitor);
       this.healthMonitors.delete(connectionId);
     }
+    this.healthStatus.delete(connectionId);
   }
 
   /**
@@ -1184,9 +1257,14 @@ class DatabaseService {
     // Immediately provide current health if connection is active
     if (this.isConnectionActive(connectionId)) {
       void this.getConnectionHealth(connectionId)
-        .then(listener)
+        .then((health) => {
+          // Keep healthStatus in sync so interval transition detection is accurate
+          this.healthStatus.set(connectionId, health.status);
+          listener(health);
+        })
         .catch(() => {
           // If health check fails, emit error status
+          this.healthStatus.set(connectionId, "error");
           listener({
             connectionId,
             status: "error",
@@ -1261,8 +1339,8 @@ class DatabaseService {
             error instanceof Error
               ? error
               : typeof error === "string"
-              ? error
-              : (error as { message: string }).message;
+                ? error
+                : (error as { message: string }).message;
           options.onError(errMsg);
         }
       },
@@ -1770,6 +1848,7 @@ class DatabaseService {
     });
     this.healthMonitors.clear();
     this.healthListeners.clear();
+    this.healthStatus.clear();
 
     // Disconnect all active connections in backend first to avoid leaks
     if (isTauri()) {

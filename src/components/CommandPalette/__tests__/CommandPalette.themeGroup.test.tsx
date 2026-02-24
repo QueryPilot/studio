@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { CommandPalette } from "../CommandPalette";
@@ -172,20 +172,18 @@ function renderCommandPalette() {
 
 describe("CommandPalette theme grouping", () => {
   beforeAll(() => {
-    if (!HTMLElement.prototype.scrollTo) {
-      HTMLElement.prototype.scrollTo = vi.fn();
-    }
-    if (!HTMLElement.prototype.scrollIntoView) {
-      HTMLElement.prototype.scrollIntoView = vi.fn();
-    }
+    HTMLElement.prototype.scrollTo = vi.fn();
+    HTMLElement.prototype.scrollIntoView = vi.fn();
   });
 
-  it("groups theme commands under a Theme heading", () => {
+  it("groups theme commands under a Theme heading", async () => {
     renderCommandPalette();
 
-    expect(screen.getByText("Theme")).toBeInTheDocument();
-    expect(screen.getByText("Dark")).toBeInTheDocument();
-    expect(screen.getByText("Light")).toBeInTheDocument();
-    expect(screen.getByText("System")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Theme")).toBeInTheDocument();
+      expect(screen.getByText("Dark")).toBeInTheDocument();
+      expect(screen.getByText("Light")).toBeInTheDocument();
+      expect(screen.getByText("System")).toBeInTheDocument();
+    });
   });
 });

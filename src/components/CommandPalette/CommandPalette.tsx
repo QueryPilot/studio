@@ -1,5 +1,6 @@
 import React, {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -10,9 +11,12 @@ import {
   IconMathFunction,
   IconLoader2,
   IconTable,
+  IconLayout2,
+  IconDatabase,
   IconTerminal2,
 } from "@tabler/icons-react";
-import Fuse, { type IFuseOptions } from "fuse.js";
+import { nanoid } from "nanoid";
+import { matchSorter, rankings } from "match-sorter";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -28,6 +32,7 @@ import {
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { contextService } from "@/services/contextService";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
@@ -41,12 +46,21 @@ import {
   openTableInSplitRight,
   openFunctionInSplitRight,
 } from "@/utils/workbench/openers";
+import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
+import { getParadigm } from "@/types/connection";
+import { getDatabaseLogo } from "@/utils/databaseLogos";
+import type { TabMetadata } from "@/types/workbench";
 import { useUnifiedItems, type UnifiedItem } from "./useCommandPaletteQueries";
 import { useFrecency } from "./useFrecency";
 import { NestedDatabaseList } from "./NestedDatabaseList";
 import { NestedSchemaList } from "./NestedSchemaList";
 import { NestedConnectionList } from "./NestedConnectionList";
+import { NestedWorkspaceList } from "./NestedWorkspaceList";
+import { NestedSavedQueriesList } from "./NestedSavedQueriesList";
+import { NestedSafeModeList } from "./NestedSafeModeList";
 import { ActionsPopover } from "./ActionsPopover";
+import type { SavedQuery } from "@/lib/db/queryHistory";
 import {
   useItemActions,
   getNestedDatabaseActions,
@@ -60,25 +74,14 @@ const MAX_RECENT_ITEMS_EMPTY = 12;
 const MAX_RECENT_ITEMS_SEARCH = 8;
 const MAX_RESULTS_PER_GROUP = 50;
 
-// Fuse.js configuration for unified items
-const UNIFIED_FUSE_OPTIONS: IFuseOptions<UnifiedItem> = {
-  keys: [
-    { name: "name", weight: 0.6 },
-    { name: "keywords", weight: 0.3 },
-    { name: "subtitle", weight: 0.1 },
-  ],
-  threshold: 0.4,
-  includeScore: true,
-  includeMatches: true,
-  minMatchCharLength: 1,
-};
-
 type ItemGroup =
   | "Recently Used"
   | "Theme"
   | "Tables"
   | "Views"
   | "Functions"
+  | "Collections"
+  | "Keyspaces"
   | "Commands";
 
 const GROUP_ORDER: ItemGroup[] = [
@@ -87,6 +90,8 @@ const GROUP_ORDER: ItemGroup[] = [
   "Tables",
   "Views",
   "Functions",
+  "Collections",
+  "Keyspaces",
   "Commands",
 ];
 
@@ -99,6 +104,10 @@ function getItemGroup(item: UnifiedItem): ItemGroup {
       return "Views";
     case "function":
       return "Functions";
+    case "collection":
+      return "Collections";
+    case "redisDatabase":
+      return "Keyspaces";
     case "command":
       if (
         item.command?.metadata?.paletteGroup === "Theme"
@@ -119,6 +128,10 @@ function getItemIcon(item: UnifiedItem): React.ReactNode {
       return <IconEye className="text-blue-500" />;
     case "function":
       return <IconMathFunction className="text-purple-500" />;
+    case "collection":
+      return <IconLayout2 className="text-emerald-500" />;
+    case "redisDatabase":
+      return <IconDatabase className="text-orange-500" />;
     case "command":
       if (item.command?.icon) {
         return item.command.icon;
@@ -134,9 +147,12 @@ export function CommandPalette(): React.ReactElement {
   const actionsButtonRef = useRef<HTMLButtonElement>(null);
   const [selectedValue, setSelectedValue] = useState<string>("");
   const [actionsOpen, setActionsOpen] = useState(false);
+  // Track when content is ready to render (after first paint)
+  const [contentReady, setContentReady] = useState(false);
 
   const isOpen = useCommandPaletteStore((state) => state.isOpen);
   const query = useCommandPaletteStore((state) => state.query);
+  const deferredQuery = useDeferredValue(query);
   const setQuery = useCommandPaletteStore((state) => state.setQuery);
   const closePalette = useCommandPaletteStore((state) => state.closePalette);
   const openPalette = useCommandPaletteStore((state) => state.openPalette);
@@ -144,6 +160,8 @@ export function CommandPalette(): React.ReactElement {
   const exitNestedMode = useCommandPaletteStore(
     (state) => state.exitNestedMode,
   );
+  const undo = useCommandPaletteStore((state) => state.undo);
+  const redo = useCommandPaletteStore((state) => state.redo);
 
   const activeConnectionId = useWorkspaceSelectionStore(
     (state) => state.connectionId,
@@ -151,13 +169,10 @@ export function CommandPalette(): React.ReactElement {
   const selectedDatabase = useWorkspaceSelectionStore(
     (state) => state.database,
   );
-  const setSelectedDatabase = useWorkspaceSelectionStore(
-    (state) => state.setSelectedDatabase,
-  );
   const currentSchema = useWorkspaceSelectionStore((state) => state.schema);
   const setSchema = useWorkspaceSelectionStore((state) => state.setSchema);
 
-  const { unifiedItems, isLoading } = useUnifiedItems();
+  const { unifiedItems, isLoading, connectionCount } = useUnifiedItems();
   const { recordAccess, getTopFrecencyItems, sortByFrecency } = useFrecency();
 
   // Invalidate cache when commands or keybindings change
@@ -195,6 +210,22 @@ export function CommandPalette(): React.ReactElement {
     contextService.setValue("inQuickOpen", isOpen);
     contextService.setValue("inCommandPalette", isOpen);
 
+    // When the palette closes, ensure the focused panel gets DOM focus.
+    // The dialog's built-in focus restoration can fail when the previously-focused
+    // element was unmounted (e.g. because the active tab changed).
+    if (!isOpen) {
+      requestAnimationFrame(() => {
+        const focusedPanelId = usePanelFocusStore.getState().focusedPanelId;
+        if (!focusedPanelId) return;
+        const panel = document.querySelector<HTMLElement>(
+          `.panel[data-panel-id="${focusedPanelId}"]`,
+        );
+        if (panel && !panel.contains(document.activeElement)) {
+          panel.focus({ preventScroll: true });
+        }
+      });
+    }
+
     return () => {
       if (!isOpen) {
         contextService.setValue("inQuickOpen", false);
@@ -203,10 +234,51 @@ export function CommandPalette(): React.ReactElement {
     };
   }, [isOpen]);
 
-  const searchQuery = query.trim().toLowerCase();
+  // CRITICAL: Defer content rendering until after first paint
+  // This allows the dialog shell to appear instantly
+  useEffect(() => {
+    if (!isOpen) {
+      setContentReady(false);
+      return;
+    }
+    // Use double-rAF to ensure we're past the first paint
+    // First rAF schedules for next frame, second ensures paint completed
+    let cancelled = false;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!cancelled) {
+          setContentReady(true);
+        }
+      });
+    });
+    return () => { cancelled = true; };
+  }, [isOpen]);
 
-  // Get recently used items
+  const searchQuery = deferredQuery.trim();
+
+  // Ranked search results
+  const searchResults = useMemo(() => {
+    if (!searchQuery) return null;
+    return matchSorter(unifiedItems, searchQuery, {
+      keys: [
+        { key: "name", maxRanking: rankings.STARTS_WITH },
+        { key: "keywords", maxRanking: rankings.WORD_STARTS_WITH },
+        { key: "subtitle", maxRanking: rankings.CONTAINS },
+      ],
+      threshold: rankings.MATCHES,
+    });
+  }, [searchQuery, unifiedItems]);
+
+  const searchRankMap = useMemo(() => {
+    if (!searchResults) return null;
+    return new Map(searchResults.map((item, index) => [item.id, index]));
+  }, [searchResults]);
+
+  // Get recently used items - only compute when content is ready
   const recentItems = useMemo(() => {
+    // Skip computation until content is ready (after first paint)
+    if (!contentReady) return [];
+
     const limit = searchQuery
       ? MAX_RECENT_ITEMS_SEARCH
       : MAX_RECENT_ITEMS_EMPTY;
@@ -215,32 +287,43 @@ export function CommandPalette(): React.ReactElement {
       return getTopFrecencyItems(unifiedItems, limit);
     }
 
-    // When searching, filter recent items by query match
-    const fuse = new Fuse(unifiedItems, UNIFIED_FUSE_OPTIONS);
-    const searchResults = fuse.search(searchQuery);
-    const matchedIds = new Set(searchResults.map((r) => r.item.id));
+    if (!searchResults) {
+      return [];
+    }
 
+    // When searching, filter recent items by query match
+    const matchedIds = new Set(searchResults.map((item) => item.id));
     return getTopFrecencyItems(
       unifiedItems.filter((item) => matchedIds.has(item.id)),
       limit,
     );
-  }, [unifiedItems, searchQuery, getTopFrecencyItems]);
+  }, [contentReady, unifiedItems, searchQuery, searchResults, getTopFrecencyItems]);
 
   const recentItemIds = useMemo(
     () => new Set(recentItems.map((item) => item.id)),
     [recentItems],
   );
 
-  // Get grouped items (excluding recent)
+  // Get grouped items (excluding recent) - only compute when content is ready
   const groupedItems = useMemo(() => {
+    // Skip computation until content is ready (after first paint)
+    if (!contentReady) return [];
+
     let itemsToGroup = unifiedItems.filter(
       (item) => !recentItemIds.has(item.id),
     );
 
+    // Track ranking positions when searching
+    let rankMap: Map<string, number> | null = null;
+
     if (searchQuery) {
-      const fuse = new Fuse(itemsToGroup, UNIFIED_FUSE_OPTIONS);
-      const results = fuse.search(searchQuery);
-      itemsToGroup = results.map((r) => r.item);
+      if (!searchResults) {
+        return [];
+      }
+
+      rankMap = searchRankMap;
+      const matchedIds = new Set(searchResults.map((item) => item.id));
+      itemsToGroup = itemsToGroup.filter((item) => matchedIds.has(item.id));
     }
 
     // Group by type
@@ -255,9 +338,24 @@ export function CommandPalette(): React.ReactElement {
       }
     }
 
-    // Sort within groups by frecency then alphabetically
+    // Sort within groups
     for (const [group, items] of groups) {
-      groups.set(group, sortByFrecency(items).slice(0, MAX_RESULTS_PER_GROUP));
+      let sortedItems: UnifiedItem[];
+      if (rankMap) {
+        // When searching, sort by overall search ranking
+        const ranks = rankMap; // Capture for closure
+        sortedItems = [...items].sort((a, b) => {
+          const rankA = ranks.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+          const rankB = ranks.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+          if (rankA !== rankB) return rankA - rankB;
+          const frecencySorted = sortByFrecency([a, b]);
+          return frecencySorted[0]?.id === a.id ? -1 : 1;
+        });
+      } else {
+        // When not searching, sort by frecency
+        sortedItems = sortByFrecency(items);
+      }
+      groups.set(group, sortedItems.slice(0, MAX_RESULTS_PER_GROUP));
     }
 
     return GROUP_ORDER.filter(
@@ -266,7 +364,7 @@ export function CommandPalette(): React.ReactElement {
       const items = groups.get(group);
       return [group, items ?? []] as [ItemGroup, UnifiedItem[]];
     });
-  }, [unifiedItems, searchQuery, recentItemIds, sortByFrecency]);
+  }, [contentReady, unifiedItems, searchQuery, searchResults, searchRankMap, recentItemIds, sortByFrecency]);
 
   // Find the selected item for actions
   const selectedItem = useMemo(() => {
@@ -282,9 +380,11 @@ export function CommandPalette(): React.ReactElement {
 
   const firstVisibleItemId = useMemo(() => {
     if (nestedMode) return "";
-    if (recentItems.length > 0) return recentItems[0].id;
+    const firstRecent = recentItems[0];
+    if (firstRecent) return firstRecent.id;
     for (const [, items] of groupedItems) {
-      if (items.length > 0) return items[0].id;
+      const firstItem = items[0];
+      if (firstItem) return firstItem.id;
     }
     return "";
   }, [nestedMode, recentItems, groupedItems]);
@@ -404,68 +504,105 @@ export function CommandPalette(): React.ReactElement {
         return;
       }
 
-      if (!activeConnectionId) {
+      // Use the item's connection context (not the active/focused connection)
+      const itemConnectionId = item.connectionId;
+      const itemDatabase = item.database;
+
+      if (!itemConnectionId || !itemDatabase) {
         closePalette();
         return;
       }
+
+      const openInWorkbench = (
+        tabId: string,
+        metadata: TabMetadata,
+      ) => {
+        const workbench = useWorkbenchStore.getState();
+        const panels = workbench.panelContents;
+        let targetPanelId = usePanelFocusStore.getState().focusedPanelId ?? panels.keys().next().value;
+        if (!targetPanelId) return;
+
+        if (!usePanelFocusStore.getState().focusedPanelId) {
+          workbench.focusPanel(targetPanelId);
+          targetPanelId = usePanelFocusStore.getState().focusedPanelId ?? targetPanelId;
+        }
+
+        workbench.addTab(targetPanelId, tabId, metadata);
+        workbench.focusPanel(targetPanelId);
+      };
 
       if (item.type === "function" && item.func) {
         if (openInSplit) {
           openFunctionInSplitRight({
             func: item.func,
-            connectionId: activeConnectionId,
-            database: selectedDatabase || "#invalid_database",
+            connectionId: itemConnectionId,
+            database: itemDatabase,
           });
         } else {
           openFunctionObject({
             func: item.func,
-            connectionId: activeConnectionId,
-            database: selectedDatabase || "#invalid_database",
+            connectionId: itemConnectionId,
+            database: itemDatabase,
           });
         }
       } else if (item.table) {
         if (openInSplit) {
           openTableInSplitRight({
             table: item.table,
-            connectionId: activeConnectionId,
-            database: selectedDatabase || "#invalid_database",
+            connectionId: itemConnectionId,
+            database: itemDatabase,
             viewType: "data",
           });
         } else {
           openTableObject({
             table: item.table,
-            connectionId: activeConnectionId,
-            database: selectedDatabase || "#invalid_database",
+            connectionId: itemConnectionId,
+            database: itemDatabase,
             viewType: "data",
           });
         }
+      } else if (item.type === "collection" && item.collection) {
+        const objectKey = `mongo-${itemConnectionId}-${itemDatabase}-${item.collection.name}`;
+        openInWorkbench(
+          `${objectKey}:::${nanoid(6)}`,
+          {
+            type: "mongo-collection",
+            title: item.collection.name,
+            connectionId: itemConnectionId,
+            database: itemDatabase,
+            table: item.collection.name,
+            objectKey,
+          },
+        );
+      } else if (item.type === "redisDatabase" && item.redisDatabase) {
+        const dbIndex = item.redisDatabase.db;
+        const objectKey = `redis-${itemConnectionId}-db${dbIndex}`;
+        openInWorkbench(`${objectKey}:::${nanoid(6)}`, {
+          type: "redis-key",
+          title: `db${dbIndex}`,
+          connectionId: itemConnectionId,
+          database: String(dbIndex),
+          objectKey,
+        });
       }
 
       closePalette();
     },
     [
       unifiedItems,
-      activeConnectionId,
       closePalette,
       services,
-      selectedDatabase,
       recordAccess,
     ],
   );
 
+  // Database selection is now handled by NestedDatabaseList using add-to-workspace flow.
+  // This callback is called after successful selection to close the palette.
   const handleDatabaseSelect = useCallback(
-    async (database: string) => {
-      if (!activeConnectionId) return;
-      try {
-        await databaseService.switchDatabase(activeConnectionId, database);
-        setSelectedDatabase(database);
-        closePalette();
-      } catch (err) {
-        console.error("Failed to switch database:", err);
-        toast.error("Failed to switch database");
-      }
+    (_database: string) => {
+      closePalette();
     },
-    [activeConnectionId, setSelectedDatabase, closePalette],
+    [closePalette],
   );
 
   const handleSchemaSelect = useCallback(
@@ -504,8 +641,160 @@ export function CommandPalette(): React.ReactElement {
     [closePalette],
   );
 
+  const handleWorkspaceSelect = useCallback(
+    async (workspaceId: string) => {
+      try {
+        const ws = useWorkspaceBundleStore
+          .getState()
+          .savedWorkspaces.find((w) => w.id === workspaceId);
+        await windowManager.openNamedWorkspace(
+          workspaceId,
+          ws?.name ?? "Workspace",
+        );
+        closePalette();
+      } catch (err) {
+        console.error("Failed to open workspace:", err);
+        toast.error("Failed to open workspace");
+      }
+    },
+    [closePalette],
+  );
+
+  // Handler for search-saved-queries: open a new query tab with the saved query SQL
+  const handleSavedQuerySelect = useCallback(
+    (savedQuery: SavedQuery) => {
+      const workbench = useWorkbenchStore.getState();
+      const panels = workbench.panelContents;
+      const focusedPanelId = usePanelFocusStore.getState().focusedPanelId ?? panels.keys().next().value;
+
+      if (!focusedPanelId) {
+        closePalette();
+        return;
+      }
+
+      // Use the saved query's profile ID to find a matching connection, otherwise use active
+      let connectionId = activeConnectionId;
+      if (savedQuery.profileId) {
+        const connectionStore = useConnectionStore.getState();
+        const matchingConnection = connectionStore.connections.find(
+          (c) => c.profile.id === savedQuery.profileId,
+        );
+        if (matchingConnection) {
+          connectionId = matchingConnection.profile.id;
+        }
+      }
+
+      const uuid = crypto.randomUUID();
+      const tabId = `query-${uuid}`;
+
+      workbench.addTab(focusedPanelId, tabId, {
+        type: "query",
+        title: savedQuery.name,
+        connectionId: connectionId || "",
+        database: savedQuery.database || "",
+        schema: savedQuery.schema || "",
+        sql: savedQuery.query,
+      });
+      workbench.setActiveTab(focusedPanelId, tabId);
+      workbench.focusPanel(focusedPanelId);
+      closePalette();
+    },
+    [closePalette, activeConnectionId],
+  );
+
+  // Handler for new-query-connection: create a new query tab with selected connection
+  const handleNewQueryConnectionSelect = useCallback(
+    (connectionId: string) => {
+      const connectionStore = useConnectionStore.getState();
+      const connection = connectionStore.getConnection(connectionId);
+      if (!connection) {
+        toast.error("Connection not found");
+        closePalette();
+        return;
+      }
+
+      const workbench = useWorkbenchStore.getState();
+      const panels = workbench.panelContents;
+      const focusedPanelId = usePanelFocusStore.getState().focusedPanelId ?? panels.keys().next().value;
+
+      if (!focusedPanelId) {
+        closePalette();
+        return;
+      }
+
+      const dbType = connection.profile.db_type;
+      const paradigm = getParadigm(dbType);
+
+      const tabTypePrefix = paradigm === "document"
+        ? "mongo-query"
+        : paradigm === "keyvalue"
+        ? "redis-cli"
+        : "query";
+
+      const uuid = crypto.randomUUID();
+      const tabId = `${tabTypePrefix}-${uuid}`;
+
+      // Count existing query tabs for numbering
+      const matchingTabTypes = [tabTypePrefix];
+      const totalQueryCount = Array.from(panels.values()).reduce(
+        (count, panelContent) => {
+          return (
+            count +
+            panelContent.tabIds.filter((id: string) => {
+              const metadata = panelContent.metadata?.[id];
+              return matchingTabTypes.some(
+                (t) => metadata?.type === t || id.startsWith(`${t}-`)
+              );
+            }).length
+          );
+        },
+        0,
+      );
+
+      const getTitle = () => {
+        const num = totalQueryCount > 0 ? ` ${totalQueryCount + 1}` : "";
+        const connName = connection.profile.name;
+        switch (paradigm) {
+          case "document":
+            return `Mongo Shell${num} - ${connName}`;
+          case "keyvalue":
+            return `Redis CLI${num} - ${connName}`;
+          default:
+            return totalQueryCount > 0
+              ? `Query ${totalQueryCount + 1} - ${connName}`
+              : `New Query - ${connName}`;
+        }
+      };
+
+      workbench.addTab(focusedPanelId, tabId, {
+        type: tabTypePrefix,
+        title: getTitle(),
+        connectionId,
+        database: connection.profile.database || "",
+        schema: "",
+        sql: "",
+      });
+      workbench.setActiveTab(focusedPanelId, tabId);
+      workbench.focusPanel(focusedPanelId);
+      closePalette();
+    },
+    [closePalette],
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      // Handle undo/redo for the input
+      if (e.key === "z" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+        return;
+      }
+
       // Exit nested mode on backspace when query is empty
       if (e.key === "Backspace" && query === "" && nestedMode) {
         e.preventDefault();
@@ -537,8 +826,9 @@ export function CommandPalette(): React.ReactElement {
       query,
       nestedMode,
       exitNestedMode,
-      selectedItem,
       actions,
+      undo,
+      redo,
     ],
   );
 
@@ -555,6 +845,14 @@ export function CommandPalette(): React.ReactElement {
         return "Search schemas...";
       case "open-connection":
         return "Search connections...";
+      case "switch-workspace":
+        return "Search workspaces...";
+      case "new-query-connection":
+        return "Select connection for new query...";
+      case "search-saved-queries":
+        return "Search saved queries...";
+      case "set-safe-mode":
+        return "Search connections or safe mode levels...";
     }
   };
 
@@ -569,7 +867,6 @@ export function CommandPalette(): React.ReactElement {
       open={isOpen}
       onOpenChange={handleOpenChange}
       onKeyDown={handleKeyDown}
-      value={selectedValue}
       onValueChange={setSelectedValue}
       className="min-w-[560px]!"
     >
@@ -593,6 +890,34 @@ export function CommandPalette(): React.ReactElement {
               listRef={listRef}
               query={query}
               onSelect={handleSchemaSelect}
+            />
+          ) : nestedMode.type === "switch-workspace" ? (
+            <NestedWorkspaceList
+              listRef={listRef}
+              query={query}
+              onSelect={handleWorkspaceSelect}
+            />
+          ) : nestedMode.type === "new-query-connection" ? (
+            <NestedConnectionList
+              listRef={listRef}
+              query={query}
+              onSelect={handleNewQueryConnectionSelect}
+              onClose={closePalette}
+              title="Select Connection for New Query"
+              filterConnected={true}
+            />
+          ) : nestedMode.type === "search-saved-queries" ? (
+            <NestedSavedQueriesList
+              listRef={listRef}
+              query={query}
+              onSelect={handleSavedQuerySelect}
+              onClose={closePalette}
+            />
+          ) : nestedMode.type === "set-safe-mode" ? (
+            <NestedSafeModeList
+              listRef={listRef}
+              query={query}
+              onClose={closePalette}
             />
           ) : (
             <NestedConnectionList
@@ -620,11 +945,12 @@ export function CommandPalette(): React.ReactElement {
         </>
       ) : (
         <>
-          <CommandList ref={listRef}>
-            {isLoading ? (
+          <CommandList ref={listRef} className="h-[300px]">
+            {!contentReady || isLoading ? (
+              // Show loading immediately - this renders before content is ready
               <div className="flex items-center justify-center py-6 text-xs text-muted-foreground gap-2">
                 <IconLoader2 className="size-4 animate-spin" />
-                Loading...
+                {!contentReady ? "" : "Loading..."}
               </div>
             ) : (
               <>
@@ -637,6 +963,7 @@ export function CommandPalette(): React.ReactElement {
                         key={item.id}
                         item={item}
                         onSelect={(id) => handleSelect(id, false)}
+                        showConnectionName={connectionCount > 1}
                       />
                     ))}
                   </CommandGroup>
@@ -649,6 +976,7 @@ export function CommandPalette(): React.ReactElement {
                         key={item.id}
                         item={item}
                         onSelect={(id) => handleSelect(id, false)}
+                        showConnectionName={connectionCount > 1}
                       />
                     ))}
                   </CommandGroup>
@@ -680,14 +1008,41 @@ export function CommandPalette(): React.ReactElement {
 interface UnifiedItemRowProps {
   item: UnifiedItem;
   onSelect: (id: string) => void;
+  showConnectionName?: boolean;
 }
 
-function UnifiedItemRow({ item, onSelect }: UnifiedItemRowProps) {
+/**
+ * Build the badge text for database objects.
+ * Format: "connection › schema" for multi-connection, just "schema" for single connection.
+ * We skip database name since it typically matches connection name.
+ */
+function getBadgeText(item: UnifiedItem, showConnectionName: boolean): string {
+  if (item.type === "command") {
+    return item.subtitle; // keybinding label
+  }
+
+  const parts: string[] = [];
+
+  if (showConnectionName && item.connectionName) {
+    parts.push(item.connectionName);
+  }
+
+  if (item.schema) {
+    parts.push(item.schema);
+  }
+
+  return parts.join(" › ");
+}
+
+function UnifiedItemRow({ item, onSelect, showConnectionName = false }: UnifiedItemRowProps) {
   const keywords = [
     item.name,
     item.subtitle,
     ...item.keywords,
   ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+
+  const badgeText = getBadgeText(item, showConnectionName);
+  const dbLogoPath = item.dbType ? getDatabaseLogo(item.dbType) : null;
 
   return (
     <CommandItem value={item.id} keywords={keywords} onSelect={onSelect}>
@@ -696,7 +1051,7 @@ function UnifiedItemRow({ item, onSelect }: UnifiedItemRowProps) {
           {getItemIcon(item)}
           <span className="font-medium">{item.name}</span>
         </div>
-        <div className="text-xs text-muted-foreground text-right max-w-1/3 truncate">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground text-right max-w-[45%] truncate">
           {item.type === "command" && item.command?.keybinding ? (
             <KbdGroup>
               {item.command.keybinding.resolvedLabel
@@ -706,7 +1061,19 @@ function UnifiedItemRow({ item, onSelect }: UnifiedItemRowProps) {
                 ))}
             </KbdGroup>
           ) : (
-            item.subtitle
+            <>
+              {dbLogoPath && showConnectionName && (
+                <img
+                  src={dbLogoPath}
+                  alt={item.dbType || "Database"}
+                  className="h-3.5 w-3.5 shrink-0"
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+              )}
+              <span className="truncate">{badgeText}</span>
+            </>
           )}
         </div>
       </div>

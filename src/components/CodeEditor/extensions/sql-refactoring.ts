@@ -9,7 +9,15 @@
  */
 
 import { type Extension, Prec } from "@codemirror/state";
-import { EditorView, keymap, Decoration, type DecorationSet, ViewPlugin, type ViewUpdate, WidgetType } from "@codemirror/view";
+import {
+  keymap,
+  Decoration,
+  type DecorationSet,
+  ViewPlugin,
+  type ViewUpdate,
+  WidgetType,
+  type EditorView,
+} from "@codemirror/view";
 import { logger } from "@/lib/logger";
 import { startRename, createInlineRenameExtension } from "./inline-rename";
 import type { RefactorAction } from "../languages/sql/refactor-service";
@@ -20,6 +28,232 @@ export interface RefactorOptions {
   onExtractCte?: (selectionSpan: { start: number; end: number }) => void;
 }
 
+interface ExecuteRefactorOptions {
+  onExtractCte?: (selectionSpan: { start: number; end: number }) => void;
+  sourceCursorOffset?: number;
+}
+
+interface MenuPosition {
+  left: number;
+  top: number;
+}
+
+function areActionsEquivalent(
+  left: RefactorAction,
+  right: RefactorAction,
+): boolean {
+  return (
+    left.kind === right.kind &&
+    left.label === right.label &&
+    left.symbol === right.symbol &&
+    left.enabled === right.enabled &&
+    left.span.start === right.span.start &&
+    left.span.end === right.span.end
+  );
+}
+
+function areActionListsEquivalent(
+  left: RefactorAction[],
+  right: RefactorAction[],
+): boolean {
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    const leftAction = left[i];
+    const rightAction = right[i];
+    if (!leftAction || !rightAction) return false;
+    if (!areActionsEquivalent(leftAction, rightAction)) return false;
+  }
+  return true;
+}
+
+function clampOffset(offset: number, docLength: number): number {
+  return Math.max(0, Math.min(offset, docLength));
+}
+
+async function resolveActionAgainstCurrentState(
+  view: EditorView,
+  action: RefactorAction,
+  dialect: string,
+  sourceCursorOffset?: number,
+): Promise<RefactorAction | null> {
+  if (!action.enabled) return null;
+
+  const sql = view.state.doc.toString();
+  const docLength = sql.length;
+  const currentCursor = clampOffset(view.state.selection.main.from, docLength);
+  const fallbackCursor = clampOffset(
+    sourceCursorOffset ?? action.span.start,
+    docLength,
+  );
+  const candidateOffsets =
+    currentCursor === fallbackCursor
+      ? [currentCursor]
+      : [currentCursor, fallbackCursor];
+
+  for (const cursorOffset of candidateOffsets) {
+    const actions = await getRefactorActions(sql, dialect, cursorOffset);
+    const exact = actions.find(
+      (candidate) => candidate.enabled && areActionsEquivalent(candidate, action),
+    );
+    if (exact) {
+      return exact;
+    }
+
+    const sameKindFallback = actions.find(
+      (candidate) =>
+        candidate.enabled &&
+        candidate.kind === action.kind &&
+        candidate.symbol === action.symbol,
+    );
+    if (sameKindFallback) {
+      return sameKindFallback;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Execute a refactor action from any UI entry point (lightbulb, keymap, etc.).
+ */
+export async function executeRefactorAction(
+  view: EditorView,
+  action: RefactorAction,
+  dialect: string,
+  options: ExecuteRefactorOptions = {},
+): Promise<void> {
+  const latestAction = await resolveActionAgainstCurrentState(
+    view,
+    action,
+    dialect,
+    options.sourceCursorOffset,
+  );
+  if (!latestAction) {
+    logger.warn(
+      "[Refactor] Action no longer valid in current editor state; skipping execution",
+      {
+        requestedAction: action,
+      },
+    );
+    return;
+  }
+
+  if (latestAction.kind === "rename") {
+    view.dispatch({
+      selection: { anchor: latestAction.span.start },
+    });
+    await startRename(view, dialect);
+    return;
+  }
+
+  const span = {
+    start: latestAction.span.start,
+    end: latestAction.span.end,
+  };
+
+  // Select the extractable range so the dialog context is visible to the user.
+  view.dispatch({
+    selection: { anchor: span.start, head: span.end },
+  });
+
+  options.onExtractCte?.(span);
+}
+
+function showRefactorMenu(params: {
+  view: EditorView;
+  actions: RefactorAction[];
+  dialect: string;
+  position: MenuPosition;
+  anchorEl?: HTMLElement;
+  onExtractCte?: (selectionSpan: { start: number; end: number }) => void;
+  sourceCursorOffset?: number;
+}) {
+  const {
+    view,
+    actions,
+    dialect,
+    position,
+    anchorEl,
+    onExtractCte,
+    sourceCursorOffset,
+  } = params;
+  if (actions.length === 0) return;
+
+  const menu = document.createElement("div");
+  menu.className = "cm-refactor-menu";
+  menu.style.cssText = `
+    position: absolute;
+    background: hsl(var(--popover));
+    border: 1px solid hsl(var(--border));
+    border-radius: calc(var(--radius));
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 1000;
+    min-width: 200px;
+    padding: 4px;
+  `;
+  menu.style.left = `${position.left}px`;
+  menu.style.top = `${position.top}px`;
+
+  const removeMenu = () => {
+    if (menu.parentNode) {
+      document.body.removeChild(menu);
+    }
+    document.removeEventListener("mousedown", closeMenu);
+  };
+
+  const closeMenu = (event: MouseEvent) => {
+    const target = event.target as Node | null;
+    if (!target) return;
+    if (menu.contains(target)) return;
+    if (anchorEl && target === anchorEl) return;
+    removeMenu();
+  };
+
+  for (const action of actions) {
+    const item = document.createElement("button");
+    item.className = "cm-refactor-menu-item";
+    item.textContent = action.label;
+    item.disabled = !action.enabled;
+    item.title = action.disabled_reason || "";
+    item.style.cssText = `
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 6px 12px;
+      background: transparent;
+      border: none;
+      border-radius: calc(var(--radius) - 2px);
+      cursor: ${action.enabled ? "pointer" : "not-allowed"};
+      font-size: 13px;
+      color: ${action.enabled ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))"};
+      transition: background 0.15s;
+    `;
+
+    if (action.enabled) {
+      item.onmouseenter = () => {
+        item.style.background = "hsl(var(--accent))";
+      };
+      item.onmouseleave = () => {
+        item.style.background = "transparent";
+      };
+      item.onclick = () => {
+        void executeRefactorAction(view, action, dialect, {
+          onExtractCte,
+          sourceCursorOffset,
+        });
+        removeMenu();
+      };
+    }
+
+    menu.appendChild(item);
+  }
+
+  setTimeout(() => {
+    document.addEventListener("mousedown", closeMenu);
+  }, 0);
+  document.body.appendChild(menu);
+}
+
 /**
  * Lightbulb widget for code actions
  */
@@ -27,7 +261,9 @@ class LightbulbWidget extends WidgetType {
   constructor(
     private actions: RefactorAction[],
     private line: number,
-    private dialect: string
+    private dialect: string,
+    private cursorOffset: number,
+    private onExtractCte?: (selectionSpan: { start: number; end: number }) => void
   ) {
     super();
   }
@@ -35,8 +271,9 @@ class LightbulbWidget extends WidgetType {
   eq(other: LightbulbWidget) {
     return (
       this.line === other.line &&
-      this.actions.length === other.actions.length &&
-      this.dialect === other.dialect
+      this.dialect === other.dialect &&
+      this.cursorOffset === other.cursorOffset &&
+      areActionListsEquivalent(this.actions, other.actions)
     );
   }
 
@@ -69,96 +306,19 @@ class LightbulbWidget extends WidgetType {
     button.onclick = (e) => {
       e.preventDefault();
       e.stopPropagation();
-      this.showActionsMenu(view, button);
+      const rect = button.getBoundingClientRect();
+      showRefactorMenu({
+        view,
+        actions: this.actions,
+        dialect: this.dialect,
+        position: { left: rect.right + 8, top: rect.top },
+        anchorEl: button,
+        onExtractCte: this.onExtractCte,
+        sourceCursorOffset: this.cursorOffset,
+      });
     };
 
     return button;
-  }
-
-  private showActionsMenu(view: EditorView, button: HTMLElement) {
-    // Create a simple menu (you could use a proper dropdown component)
-    const menu = document.createElement("div");
-    menu.className = "cm-refactor-menu";
-    menu.style.cssText = `
-      position: absolute;
-      background: hsl(var(--popover));
-      border: 1px solid hsl(var(--border));
-      border-radius: calc(var(--radius));
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      z-index: 1000;
-      min-width: 200px;
-      padding: 4px;
-    `;
-
-    const rect = button.getBoundingClientRect();
-    menu.style.left = `${rect.right + 8}px`;
-    menu.style.top = `${rect.top}px`;
-
-    for (const action of this.actions) {
-      const item = document.createElement("button");
-      item.className = "cm-refactor-menu-item";
-      item.textContent = action.label;
-      item.disabled = !action.enabled;
-      item.title = action.disabled_reason || "";
-      item.style.cssText = `
-        display: block;
-        width: 100%;
-        text-align: left;
-        padding: 6px 12px;
-        background: transparent;
-        border: none;
-        border-radius: calc(var(--radius) - 2px);
-        cursor: ${action.enabled ? "pointer" : "not-allowed"};
-        font-size: 13px;
-        color: ${action.enabled ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))"};
-        transition: background 0.15s;
-      `;
-
-      if (action.enabled) {
-        item.onmouseenter = () => {
-          item.style.background = "hsl(var(--accent))";
-        };
-        item.onmouseleave = () => {
-          item.style.background = "transparent";
-        };
-        item.onclick = () => {
-          this.executeAction(view, action);
-          document.body.removeChild(menu);
-        };
-      }
-
-      menu.appendChild(item);
-    }
-
-    // Close menu when clicking outside
-    const closeMenu = (e: MouseEvent) => {
-      if (!menu.contains(e.target as Node) && e.target !== button) {
-        if (menu.parentNode) {
-          document.body.removeChild(menu);
-        }
-        document.removeEventListener("mousedown", closeMenu);
-      }
-    };
-    setTimeout(() => {
-      document.addEventListener("mousedown", closeMenu);
-    }, 0);
-
-    document.body.appendChild(menu);
-  }
-
-  private async executeAction(view: EditorView, action: RefactorAction) {
-    if (action.kind === "rename") {
-      // Trigger rename at the action's span
-      view.dispatch({
-        selection: { anchor: action.span.start },
-      });
-      // The rename widget will be shown by the inline-rename extension
-      await startRename(view, this.dialect);
-    } else if (action.kind === "extract_cte") {
-      // Trigger extract CTE dialog
-      // This would need to be handled by the parent component
-      logger.info("[Refactor] Extract CTE action triggered", action);
-    }
   }
 
   ignoreEvent() {
@@ -178,7 +338,7 @@ export function createRefactoringExtension(options: RefactorOptions): Extension 
       {
         key: "F2",
         run: (view) => {
-          startRename(view, dialect);
+          void startRename(view, dialect);
           return true;
         },
       },
@@ -198,20 +358,35 @@ export function createRefactoringExtension(options: RefactorOptions): Extension 
       },
       {
         key: "Mod-.",
-        run: (view) => {
+        run: (view): true => {
           // Show code actions at cursor
           const pos = view.state.selection.main.from;
-          const sql = view.state.doc.toString();
+          const doc = view.state.doc;
+          const sql = doc.toString();
 
-          // Trigger async action in background
-          getRefactorActions(sql, dialect, pos)
+          void getRefactorActions(sql, dialect, pos)
             .then((actions) => {
-              if (actions.length > 0) {
-                logger.info("[Refactor] Code actions available:", actions);
-                // You could dispatch a custom event here to show the menu
+              if (actions.length === 0) return;
+              if (view.state.doc !== doc || view.state.selection.main.from !== pos) {
+                return;
               }
+
+              const coords = view.coordsAtPos(pos);
+              if (!coords) {
+                logger.info("[Refactor] Code actions available:", actions);
+                return;
+              }
+
+              showRefactorMenu({
+                view,
+                actions,
+                dialect,
+                position: { left: coords.left, top: coords.bottom + 4 },
+                onExtractCte,
+                sourceCursorOffset: pos,
+              });
             })
-            .catch((error) => {
+            .catch((error: unknown) => {
               logger.error("[Refactor] Failed to get code actions:", error);
             });
 
@@ -226,21 +401,38 @@ export function createRefactoringExtension(options: RefactorOptions): Extension 
     class {
       decorations: DecorationSet = Decoration.none;
       pendingUpdate: ReturnType<typeof setTimeout> | null = null;
-
-      constructor(_view: EditorView) {
-        // Don't update on construction to avoid initial flash
-      }
+      lastAnalyzedLine: number = -1;
+      requestVersion: number = 0;
 
       update(update: ViewUpdate) {
+        // Only run expensive IPC for the focused editor
+        if (!update.view.hasFocus) return;
+
         // Debounce updates when cursor moves
         if (update.selectionSet || update.docChanged) {
+          // Check if we've moved to a different line
+          const pos = update.state.selection.main.from;
+          const currentLine = update.state.doc.lineAt(pos).number;
+
+          // Skip IPC if cursor stayed on same line and doc didn't change
+          if (currentLine === this.lastAnalyzedLine && !update.docChanged) {
+            return;
+          }
+
           if (this.pendingUpdate) {
             clearTimeout(this.pendingUpdate);
           }
 
           this.pendingUpdate = setTimeout(async () => {
-            if (update.view.dom.isConnected) {
-              await this.updateLightbulbs(update.view);
+            try {
+              if (update.view.dom.isConnected && update.view.hasFocus) {
+                // Read line from current view state, not the stale closure
+                const currentPos = update.view.state.selection.main.from;
+                this.lastAnalyzedLine = update.view.state.doc.lineAt(currentPos).number;
+                const requestVersion = ++this.requestVersion;
+                await this.updateLightbulbs(update.view, requestVersion);
+              }
+            } finally {
               this.pendingUpdate = null;
             }
           }, 150); // 150ms debounce
@@ -248,18 +440,31 @@ export function createRefactoringExtension(options: RefactorOptions): Extension 
       }
 
       destroy() {
+        this.requestVersion += 1;
         if (this.pendingUpdate) {
           clearTimeout(this.pendingUpdate);
         }
       }
 
-      async updateLightbulbs(view: EditorView) {
+      async updateLightbulbs(view: EditorView, requestVersion: number) {
         const pos = view.state.selection.main.from;
+        const doc = view.state.doc;
         const sql = view.state.doc.toString();
 
         try {
           const actions = await getRefactorActions(sql, dialect, pos);
-          
+          if (requestVersion !== this.requestVersion) {
+            return;
+          }
+          if (
+            !view.dom.isConnected ||
+            !view.hasFocus ||
+            view.state.doc !== doc ||
+            view.state.selection.main.from !== pos
+          ) {
+            return;
+          }
+
           if (actions.length > 0) {
             // Show lightbulb at current line
             const line = view.state.doc.lineAt(pos);
@@ -267,7 +472,13 @@ export function createRefactoringExtension(options: RefactorOptions): Extension 
 
             this.decorations = Decoration.set([
               Decoration.widget({
-                widget: new LightbulbWidget(actions, lineNumber, dialect),
+                widget: new LightbulbWidget(
+                  actions,
+                  lineNumber,
+                  dialect,
+                  pos,
+                  onExtractCte,
+                ),
                 side: -1,
               }).range(line.from),
             ]);
@@ -275,6 +486,9 @@ export function createRefactoringExtension(options: RefactorOptions): Extension 
             this.decorations = Decoration.none;
           }
         } catch (error) {
+          if (requestVersion !== this.requestVersion) {
+            return;
+          }
           logger.error("[Refactor] Failed to get actions:", error);
           this.decorations = Decoration.none;
         }
@@ -288,7 +502,6 @@ export function createRefactoringExtension(options: RefactorOptions): Extension 
   return [
     refactorKeymap,
     createInlineRenameExtension(dialect),
-    // TEMPORARILY DISABLED: lightbulbPlugin causes Base UI MenuGroupLabel error
-    // lightbulbPlugin,
+    lightbulbPlugin,
   ];
 }

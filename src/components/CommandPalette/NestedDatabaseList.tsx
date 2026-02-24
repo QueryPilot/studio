@@ -1,13 +1,11 @@
 import React, { useMemo, useCallback } from "react";
 import {
   IconCheck,
-  IconCircleFilled,
-  IconDatabase,
   IconLoader2,
-  IconPlus,
   IconExternalLink,
+  IconPlus,
 } from "@tabler/icons-react";
-import Fuse, { type IFuseOptions } from "fuse.js";
+import { matchSorter, rankings } from "match-sorter";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -27,8 +25,10 @@ import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { databaseService } from "@/services/databaseService";
 import { windowManager } from "@/services/windowManager";
+import { getDatabaseLogo } from "@/utils/databaseLogos";
 import { cn } from "@/lib/utils";
 import { logger } from "@/lib/logger";
+import type { DbType } from "@/types/connection";
 
 interface DatabaseItem {
   name: string;
@@ -36,17 +36,20 @@ interface DatabaseItem {
   isCurrent: boolean;
 }
 
-const DATABASE_FUSE_OPTIONS: IFuseOptions<DatabaseItem> = {
-  keys: ["name"],
-  threshold: 0.4,
-  includeScore: true,
-  minMatchCharLength: 1,
-};
+interface SavedProfileItem {
+  id: string;
+  name: string;
+  database: string;
+  host: string;
+  port: number;
+  db_type: DbType;
+}
 
 interface NestedDatabaseListProps {
   listRef?: React.RefObject<HTMLDivElement | null>;
   query: string;
-  onSelect: (database: string) => void;
+  /** Called when a database is successfully selected (after add-to-workspace completes) */
+  onSelect?: (database: string) => void;
   onClose?: () => void;
 }
 
@@ -68,8 +71,10 @@ export function NestedDatabaseList({
   const addConnectionToWorkspace = useWorkspaceBundleStore(
     (s) => s.addConnectionToWorkspace,
   );
+  const setFocusedConnection = useWorkspaceBundleStore(
+    (s) => s.setFocusedConnection,
+  );
 
-  // Check if we're in a multi-connection workspace context
   const isMultiConnectionWorkspace =
     activeWorkspace && !activeWorkspace.isTemporary;
 
@@ -109,19 +114,47 @@ export function NestedDatabaseList({
     });
   }, [databases, connections, currentConnection, currentDatabase]);
 
-  // Create Fuse index
-  const fuse = useMemo(
-    () => new Fuse(databaseItems, DATABASE_FUSE_OPTIONS),
-    [databaseItems]
-  );
+  // Build saved profile items (different servers)
+  const savedProfileItems = useMemo<SavedProfileItem[]>(() => {
+    if (!currentConnection) return [];
+    return connections
+      .filter((conn) => {
+        const isSameServer =
+          conn.profile.host === currentConnection.profile.host &&
+          conn.profile.port === currentConnection.profile.port &&
+          conn.profile.username === currentConnection.profile.username;
+        return !isSameServer;
+      })
+      .map((conn) => ({
+        id: conn.profile.id,
+        name: conn.profile.name,
+        database: conn.profile.database || "",
+        host: conn.profile.host,
+        port: conn.profile.port,
+        db_type: conn.profile.db_type,
+      }));
+  }, [connections, currentConnection]);
 
   // Filter results based on search query
-  const filteredDatabases = useMemo(() => {
-    if (!query.trim()) {
-      return databaseItems;
+  const filteredResults = useMemo(() => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      return { databases: databaseItems, profiles: savedProfileItems };
     }
-    return fuse.search(query).map((r) => r.item);
-  }, [databaseItems, fuse, query]);
+    return {
+      databases: matchSorter(databaseItems, trimmedQuery, {
+        keys: [{ key: "name", maxRanking: rankings.STARTS_WITH }],
+        threshold: rankings.MATCHES,
+      }),
+      profiles: matchSorter(savedProfileItems, trimmedQuery, {
+        keys: [
+          { key: "name", maxRanking: rankings.STARTS_WITH },
+          { key: "database", maxRanking: rankings.WORD_STARTS_WITH },
+        ],
+        threshold: rankings.MATCHES,
+      }),
+    };
+  }, [databaseItems, savedProfileItems, query]);
 
   /**
    * Get or create connection profile for a database
@@ -192,9 +225,9 @@ export function NestedDatabaseList({
   );
 
   /**
-   * Add database connection to current workspace
+   * Handle database selection - uses add-to-workspace flow
    */
-  const handleAddToWorkspace = useCallback(
+  const handleDatabaseSelect = useCallback(
     async (dbName: string, hasProfile: boolean) => {
       if (!activeWorkspace) {
         toast.error("No active workspace");
@@ -212,7 +245,42 @@ export function NestedDatabaseList({
         }
 
         if (activeWorkspace.connections.has(targetConnectionId)) {
-          toast.info("Connection already in workspace");
+          setFocusedConnection(targetConnectionId);
+          logger.info(`[NestedDatabaseList] Focused existing connection: ${targetConnectionId}`);
+        } else {
+          await addConnectionToWorkspace(targetConnectionId);
+          logger.info(`[NestedDatabaseList] Added and focused connection: ${targetConnectionId}`);
+        }
+
+        onSelect?.(dbName);
+        onClose?.();
+      } catch (error) {
+        logger.error("Failed to select database:", error);
+        toast.error("Failed to switch database");
+      }
+    },
+    [activeWorkspace, getOrCreateConnectionForDatabase, addConnectionToWorkspace, setFocusedConnection, onSelect, onClose],
+  );
+
+  /**
+   * Add a server database to the workspace (+ button)
+   */
+  const handleAddToWorkspace = useCallback(
+    async (dbName: string, hasProfile: boolean) => {
+      if (!activeWorkspace) return;
+
+      try {
+        const targetConnectionId = await getOrCreateConnectionForDatabase(
+          dbName,
+          hasProfile,
+        );
+        if (!targetConnectionId) {
+          toast.error("Failed to get connection");
+          return;
+        }
+
+        if (activeWorkspace.connections.has(targetConnectionId)) {
+          toast.info("Database already in workspace");
           return;
         }
 
@@ -221,15 +289,60 @@ export function NestedDatabaseList({
         onClose?.();
       } catch (error) {
         logger.error("Failed to add database to workspace:", error);
-        toast.error("Failed to add to workspace");
+        toast.error("Failed to add database");
       }
     },
     [activeWorkspace, getOrCreateConnectionForDatabase, addConnectionToWorkspace, onClose],
   );
 
+  /**
+   * Handle saved profile selection
+   */
+  const handleProfileSelect = useCallback(
+    async (profile: SavedProfileItem) => {
+      if (!activeWorkspace) {
+        toast.error("No active workspace");
+        return;
+      }
+
+      try {
+        if (activeWorkspace.connections.has(profile.id)) {
+          setFocusedConnection(profile.id);
+          logger.info(`[NestedDatabaseList] Focused existing profile: ${profile.id}`);
+        } else {
+          await addConnectionToWorkspace(profile.id);
+          logger.info(`[NestedDatabaseList] Added and focused profile: ${profile.id}`);
+        }
+
+        onClose?.();
+      } catch (error) {
+        logger.error("Failed to select profile:", error);
+        toast.error("Failed to switch database");
+      }
+    },
+    [activeWorkspace, addConnectionToWorkspace, setFocusedConnection, onClose],
+  );
+
+  /**
+   * Open saved profile in a new window
+   */
+  const handleOpenProfileNewWindow = useCallback(
+    (profile: SavedProfileItem) => {
+      void windowManager.openWorkspace(
+        profile.id,
+        profile.name,
+        profile.database ? { database: profile.database } : undefined,
+      );
+      onClose?.();
+    },
+    [onClose],
+  );
+
+  const dbType = currentConnection?.profile.db_type;
+
   if (isLoading) {
     return (
-      <CommandList ref={listRef}>
+      <CommandList ref={listRef} className="h-[300px]">
         <div className="flex items-center justify-center py-6 text-xs text-muted-foreground gap-2">
           <IconLoader2 className="size-4 animate-spin" />
           Loading databases...
@@ -240,7 +353,7 @@ export function NestedDatabaseList({
 
   if (error) {
     return (
-      <CommandList ref={listRef}>
+      <CommandList ref={listRef} className="h-[300px]">
         <div className="py-6 text-center text-xs text-destructive">
           Failed to load databases: {error instanceof Error ? error.message : "Unknown error"}
         </div>
@@ -249,43 +362,63 @@ export function NestedDatabaseList({
   }
 
   return (
-    <CommandList ref={listRef}>
+    <CommandList ref={listRef} className="h-[300px]">
       <CommandEmpty>No databases found.</CommandEmpty>
 
-      <CommandGroup heading="Databases">
-        {filteredDatabases.map((dbItem) => (
-          <CommandItem
-            key={dbItem.name}
-            value={dbItem.name}
-            onSelect={() => {
-              onSelect(dbItem.name);
-            }}
-            className="group/db-item"
-          >
-            <div className="flex items-center justify-between w-full gap-2">
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <IconCheck
-                  className={cn(
-                    "size-4 shrink-0",
-                    dbItem.isCurrent ? "opacity-100" : "opacity-0",
-                  )}
-                />
-                <IconDatabase className="size-4 text-muted-foreground shrink-0" />
-                <span
-                  className={cn(
-                    "truncate",
-                    dbItem.isCurrent && "font-medium",
-                  )}
-                >
-                  {dbItem.name}
-                </span>
-                {dbItem.hasProfile && (
-                  <IconCircleFilled className="h-1.5 w-1.5 text-primary shrink-0" />
+      {/* Section 1: On this Server */}
+      {filteredResults.databases.length > 0 && (
+        <CommandGroup heading="On this Server">
+          {filteredResults.databases.map((dbItem) => (
+            <CommandItem
+              key={dbItem.name}
+              value={dbItem.name}
+              onSelect={() => {
+                void handleDatabaseSelect(dbItem.name, dbItem.hasProfile);
+              }}
+              className="group/db-item"
+            >
+              <div className="flex items-center gap-2 w-full">
+                {dbType ? (
+                  <img
+                    src={getDatabaseLogo(dbType)}
+                    alt={dbType}
+                    className="size-4 shrink-0"
+                  />
+                ) : (
+                  <div className="size-4 shrink-0" />
                 )}
-              </div>
-              {/* Action buttons - visible on hover */}
-              <div className="flex items-center gap-1 opacity-0 group-hover/db-item:opacity-100 group-data-[selected=true]/command-item:opacity-100 transition-opacity shrink-0">
-                {isMultiConnectionWorkspace && (
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className={cn("truncate font-medium", dbItem.isCurrent && "text-primary")}>
+                    {dbItem.name}
+                  </span>
+                </div>
+                {/* Checkmark for current database */}
+                {dbItem.isCurrent && (
+                  <IconCheck className="size-4 text-primary shrink-0" />
+                )}
+                {/* Action buttons - visible on hover */}
+                <div className="flex items-center gap-1 opacity-0 group-hover/db-item:opacity-100 group-data-[selected=true]/command-item:opacity-100 transition-opacity shrink-0">
+                  {isMultiConnectionWorkspace && (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleAddToWorkspace(dbItem.name, dbItem.hasProfile);
+                            }}
+                            className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-foreground"
+                          >
+                            <IconPlus className="!h-3.5 !w-3.5" />
+                          </button>
+                        }
+                      />
+                      <TooltipContent side="top" className="text-xs">
+                        Add to Workspace
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                   <Tooltip>
                     <TooltipTrigger
                       render={
@@ -293,43 +426,98 @@ export function NestedDatabaseList({
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            void handleAddToWorkspace(dbItem.name, dbItem.hasProfile);
+                            void handleOpenNewWindow(dbItem.name, dbItem.hasProfile);
                           }}
                           className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-foreground"
                         >
-                          <IconPlus className="!h-3.5 !w-3.5" />
+                          <IconExternalLink className="!h-3.5 !w-3.5" />
                         </button>
                       }
                     />
                     <TooltipContent side="top" className="text-xs">
-                      Add to Workspace
+                      Open in New Window
                     </TooltipContent>
                   </Tooltip>
-                )}
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void handleOpenNewWindow(dbItem.name, dbItem.hasProfile);
-                        }}
-                        className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-foreground"
-                      >
-                        <IconExternalLink className="!h-3.5 !w-3.5" />
-                      </button>
-                    }
-                  />
-                  <TooltipContent side="top" className="text-xs">
-                    Open New Window
-                  </TooltipContent>
-                </Tooltip>
+                </div>
               </div>
-            </div>
-          </CommandItem>
-        ))}
-      </CommandGroup>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      )}
+
+      {/* Section 2: Saved Profiles (Different Servers) */}
+      {filteredResults.profiles.length > 0 && (
+        <CommandGroup heading="Saved Profiles">
+          {filteredResults.profiles.map((profile) => (
+            <CommandItem
+              key={profile.id}
+              value={profile.id}
+              onSelect={() => {
+                void handleProfileSelect(profile);
+              }}
+              className="group/profile-item"
+            >
+              <div className="flex items-center gap-2 w-full">
+                <img
+                  src={getDatabaseLogo(profile.db_type)}
+                  alt={profile.db_type}
+                  className="size-4 shrink-0"
+                />
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className="truncate font-medium">{profile.name}</span>
+                  <span className="text-[10px] text-muted-foreground truncate">
+                    {profile.host}:{profile.port}
+                    {profile.database && ` / ${profile.database}`}
+                  </span>
+                </div>
+                {/* Action buttons - visible on hover */}
+                <div className="flex items-center gap-1 opacity-0 group-hover/profile-item:opacity-100 group-data-[selected=true]/command-item:opacity-100 transition-opacity shrink-0">
+                  {isMultiConnectionWorkspace && (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleProfileSelect(profile);
+                            }}
+                            className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-foreground"
+                          >
+                            <IconPlus className="!h-3.5 !w-3.5" />
+                          </button>
+                        }
+                      />
+                      <TooltipContent side="top" className="text-xs">
+                        Add to Workspace
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenProfileNewWindow(profile);
+                          }}
+                          className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-foreground"
+                        >
+                          <IconExternalLink className="!h-3.5 !w-3.5" />
+                        </button>
+                      }
+                    />
+                    <TooltipContent side="top" className="text-xs">
+                      Open in New Window
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              </div>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      )}
     </CommandList>
   );
 }

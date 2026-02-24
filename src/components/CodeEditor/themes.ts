@@ -165,6 +165,9 @@ export const createSqlHoverTheme = (isDark: boolean): Extension => {
   return EditorView.baseTheme({
     ".cm-tooltip.cm-tooltip-hover": {
       zIndex: "10000 !important",
+      border: "none !important",
+      backgroundColor: "transparent !important",
+      backgroundImage: "none !important",
     },
     ".cm-sql-hover-tooltip": {
       backgroundColor: isDark ? "#1e1e1e" : "#ffffff",
@@ -293,6 +296,140 @@ export const createSqlHoverTheme = (isDark: boolean): Extension => {
   });
 };
 
+// Lint tooltip theme (matches shadcn/ui design system)
+export const createLintTooltipTheme = (isDark: boolean): Extension => {
+  const bgColor = isDark ? "#171717" : "#ffffff"; // solid colors, no transparency
+  const borderColor = isDark ? "#262626" : "#e5e5e5";
+
+  return EditorView.baseTheme({
+    // Main lint tooltip container with multiple selectors for specificity
+    ".cm-tooltip-lint, .cm-tooltip.cm-tooltip-lint": {
+      backgroundColor: `${bgColor} !important`,
+      backgroundImage: "none !important",
+      border: `1px solid ${borderColor} !important`,
+      borderRadius: "8px !important",
+      padding: "8px 12px !important",
+      boxShadow: isDark
+        ? "0 4px 16px rgba(0, 0, 0, 0.5) !important"
+        : "0 4px 12px rgba(0, 0, 0, 0.1) !important",
+      fontSize: "13px !important",
+      fontFamily: "'Inter', -apple-system, sans-serif !important",
+      width: "min(460px, 78vw) !important",
+      maxWidth: "460px !important",
+      maxHeight: "48vh !important",
+      overflowY: "auto !important",
+      overflowX: "hidden !important",
+      userSelect: "text !important",
+      WebkitUserSelect: "text !important",
+      pointerEvents: "auto !important",
+      zIndex: "10000 !important",
+    },
+    // Individual diagnostic messages
+    ".cm-diagnostic": {
+      padding: "6px 0",
+      borderBottom: `1px solid ${isDark ? "hsl(0 0% 15%)" : "hsl(0 0% 93%)"}`,
+      color: isDark ? "hsl(0 0% 85%)" : "hsl(0 0% 20%)",
+      lineHeight: "1.5",
+      whiteSpace: "normal",
+      overflowWrap: "anywhere",
+      wordBreak: "break-word",
+      userSelect: "text",
+      WebkitUserSelect: "text",
+      pointerEvents: "auto",
+    },
+    ".cm-diagnosticText, .cm-diagnosticSource": {
+      whiteSpace: "normal",
+      overflowWrap: "anywhere",
+      wordBreak: "break-word",
+      userSelect: "text",
+      WebkitUserSelect: "text",
+    },
+    ".cm-diagnostic:last-child": {
+      borderBottom: "none",
+    },
+    // Error severity
+    ".cm-diagnostic-error": {
+      borderLeftColor: "hsl(0 84% 60%)", // destructive red
+      borderLeftWidth: "3px",
+      borderLeftStyle: "solid",
+      paddingLeft: "8px",
+    },
+    ".cm-diagnostic-error::before": {
+      content: '"ERROR: "',
+      fontWeight: "600",
+      fontSize: "11px",
+      textTransform: "uppercase",
+      letterSpacing: "0.5px",
+      color: "hsl(0 84% 60%)",
+      marginRight: "6px",
+    },
+    // Warning severity
+    ".cm-diagnostic-warning": {
+      borderLeftColor: "hsl(45 93% 47%)", // amber/yellow
+      borderLeftWidth: "3px",
+      borderLeftStyle: "solid",
+      paddingLeft: "8px",
+    },
+    ".cm-diagnostic-warning::before": {
+      content: '"WARNING: "',
+      fontWeight: "600",
+      fontSize: "11px",
+      textTransform: "uppercase",
+      letterSpacing: "0.5px",
+      color: "hsl(45 93% 47%)",
+      marginRight: "6px",
+    },
+    // Info severity
+    ".cm-diagnostic-info": {
+      borderLeftColor: "hsl(221 83% 53%)", // primary blue
+      borderLeftWidth: "3px",
+      borderLeftStyle: "solid",
+      paddingLeft: "8px",
+    },
+    ".cm-diagnostic-info::before": {
+      content: '"INFO: "',
+      fontWeight: "600",
+      fontSize: "11px",
+      textTransform: "uppercase",
+      letterSpacing: "0.5px",
+      color: "hsl(221 83% 53%)",
+      marginRight: "6px",
+    },
+    // Hint severity (same as info)
+    ".cm-diagnostic-hint": {
+      borderLeftColor: "hsl(221 83% 53%)",
+      borderLeftWidth: "3px",
+      borderLeftStyle: "solid",
+      paddingLeft: "8px",
+    },
+    ".cm-diagnostic-hint::before": {
+      content: '"HINT: "',
+      fontWeight: "600",
+      fontSize: "11px",
+      textTransform: "uppercase",
+      letterSpacing: "0.5px",
+      color: "hsl(221 83% 53%)",
+      marginRight: "6px",
+    },
+    // Action buttons in tooltip
+    ".cm-diagnosticAction": {
+      marginTop: "8px",
+      padding: "4px 8px",
+      backgroundColor: isDark ? "hsl(0 0% 15%)" : "hsl(0 0% 96%)",
+      border: `1px solid ${isDark ? "hsl(0 0% 20%)" : "hsl(0 0% 90%)"}`,
+      borderRadius: "4px",
+      fontSize: "12px",
+      cursor: "pointer",
+      transition: "all 0.15s",
+      color: isDark ? "hsl(0 0% 90%)" : "hsl(0 0% 10%)",
+    },
+    ".cm-diagnosticAction:hover": {
+      backgroundColor: isDark ? "hsl(0 0% 20%)" : "hsl(0 0% 90%)",
+      borderColor: "hsl(221 83% 53%)",
+    },
+  });
+};
+
 // Get theme extensions based on theme mode
 export const getThemeExtensions = (theme: "light" | "dark"): Extension[] => {
   const isDark = theme === "dark";
@@ -301,5 +438,6 @@ export const getThemeExtensions = (theme: "light" | "dark"): Extension[] => {
     isDark ? createDarkTheme() : createLightTheme(),
     createFoldGutterTheme(isDark),
     createSqlHoverTheme(isDark),
+    createLintTooltipTheme(isDark),
   ];
 };

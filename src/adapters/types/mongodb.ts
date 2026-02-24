@@ -9,6 +9,35 @@ export interface FindOptions {
   projection?: Record<string, 0 | 1>;
 }
 
+export interface CursorToken {
+  lastId: unknown;
+  lastSortValues?: Record<string, unknown>;
+}
+
+export interface FindPageOptions extends Omit<FindOptions, "skip"> {
+  cursor?: CursorToken | null;
+}
+
+export interface DocumentPageResult<T = object> {
+  documents: T[];
+  nextCursor: CursorToken | null;
+  hasMore: boolean;
+}
+
+export interface DocumentFieldStat {
+  path: string;
+  occurrences: number;
+  nullCount: number;
+  types: string[];
+  sampleValues: unknown[];
+}
+
+export interface DocumentSchemaSample {
+  sampleSize: number;
+  scannedCount: number;
+  fields: DocumentFieldStat[];
+}
+
 export interface InsertResult {
   insertedId: string;
 }

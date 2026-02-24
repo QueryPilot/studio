@@ -42,13 +42,15 @@ import { acceptCompletion, autocompletion } from "@codemirror/autocomplete";
 import { dbmlMixed } from "./languages/dbml/dbml-mixed";
 // NOTE: Legacy createSemanticLinter removed - validation handled by createDialectLinter (unified-linter)
 import { createDialectLinter } from "./languages/sql/linter-strategy";
-import { preInitPgParser } from "./languages/sql/pg-parser-linter";
-import { preInitLinterWorker } from "./languages/sql/linter-worker-manager";
+import { createOptimizedCompletionSource } from "./languages/sql/optimized-completion";
 
-// Pre-initialize workers to avoid delay on first lint
-preInitPgParser();      // PostgreSQL WASM worker
-preInitLinterWorker();  // MySQL/SQLite/MSSQL tokenizer worker
-import { createSqlCompletionSource } from "./languages/sql/completion";
+/**
+ * Pre-initialize SQL workers (no-op for Tauri-only app).
+ * Kept for API compatibility but does nothing - Rust backend handles everything.
+ */
+export function preInitSqlWorkers(): void {
+  // No-op: Tauri-only app uses Rust backend directly, no workers needed
+}
 import { createSqlHoverExtension } from "./languages/sql/hover";
 import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";
 import { createExpandStarExtension } from "./languages/sql/code-actions";
@@ -253,6 +255,19 @@ export const getLanguageExtension = (
   database?: string,
   schema?: string,
 ): Extension => {
+  const fallbackSchemaForDialect = (targetDialect?: SqlDialect) => {
+    switch (targetDialect) {
+      case "mysql":
+        return database || "default";
+      case "sqlite":
+        return "main";
+      case "mssql":
+        return "dbo";
+      default:
+        return "public";
+    }
+  };
+
   switch (language) {
     case "sql": {
       const dialectLang = getDialect(dialect);
@@ -274,16 +289,16 @@ export const getLanguageExtension = (
 
       // Add context-aware completion and hover if connection info is available
       if (connectionId && database) {
-        const defaultSchema = schema || "public";
+        const defaultSchema = schema || fallbackSchemaForDialect(dialect);
         const provider = createSqlMetadataProvider(connectionId, defaultSchema);
 
         extensions.push(
           dialectLang.language.data.of({
-            autocomplete: createSqlCompletionSource({
+            autocomplete: createOptimizedCompletionSource({
               connectionId,
               database,
-              schema,
-              dialect,
+              schema: defaultSchema,
+              dialect: dialect || "postgresql",
             }),
           }),
           // Add hover tooltips for table/column info
@@ -319,7 +334,7 @@ export const getLanguageExtension = (
 // Execute query with destructive action protection
 const executeWithSafetyCheck = (
   query: string,
-  onExecute: (query?: string) => void
+  onExecute: (query?: string) => void,
 ): void => {
   const check = isDestructiveQuery(query);
 
@@ -328,8 +343,8 @@ const executeWithSafetyCheck = (
       check.type === "TRUNCATE"
         ? `⚠️ Warning: You are running a TRUNCATE command. This will delete ALL rows in the table. Proceed?`
         : check.type === "DROP"
-        ? `⚠️ Warning: You are running a DROP command. This will permanently delete the database object. Proceed?`
-        : `⚠️ Warning: You are running a ${check.type} without a WHERE clause. This will affect ALL rows. Proceed?`;
+          ? `⚠️ Warning: You are running a DROP command. This will permanently delete the database object. Proceed?`
+          : `⚠️ Warning: You are running a ${check.type} without a WHERE clause. This will affect ALL rows. Proceed?`;
 
     if (!window.confirm(message)) {
       return;
@@ -643,7 +658,7 @@ export const getEditorExtensions = (
 
   if (language === "sql") {
     // Add dialect-specific linter using unified strategy
-    extensions.push(...createDialectLinter(dialect));
+    extensions.push(...createDialectLinter(dialect, { connectionId, schema }));
   }
 
   // Add tab handling: prioritize autocomplete acceptance over indentation

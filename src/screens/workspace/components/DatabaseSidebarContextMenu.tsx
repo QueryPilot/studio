@@ -1,7 +1,23 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
-import { IconDownload, IconCopy, IconFileText, IconTrash, IconEye, IconStack2, IconChevronRight, IconStar, IconEraser, IconRefresh, IconBookmark, IconBolt, IconCode } from '@tabler/icons-react';
+import {
+  IconDownload,
+  IconCopy,
+  IconFileText,
+  IconTrash,
+  IconEye,
+  IconStack2,
+  IconStar,
+  IconEraser,
+  IconRefresh,
+  IconBookmark,
+  IconBolt,
+  IconCode,
+} from "@tabler/icons-react";
+import {
+  ContextMenuSeparator,
+} from "@/components/ui/context-menu";
 
 interface ContextMenuProps {
   x: number;
@@ -97,39 +113,62 @@ export function DatabaseSidebarContextMenu({
     }
   }, [x, y]);
 
-  const hasOnlyTables = selectedTypes.tables > 0 && selectedTypes.views === 0 && selectedTypes.materializedViews === 0 && selectedTypes.functions === 0;
-  const hasTablesOrViews = selectedTypes.tables > 0 || selectedTypes.views > 0 || selectedTypes.materializedViews > 0;
-  const hasOnlyMaterializedViews = selectedTypes.materializedViews > 0 && selectedTypes.tables === 0 && selectedTypes.views === 0 && selectedTypes.functions === 0;
-  const hasTablesOrMaterializedViews = selectedTypes.tables > 0 || selectedTypes.materializedViews > 0;
-  const hasOnlyViews = selectedTypes.views > 0 && selectedTypes.tables === 0 && selectedTypes.materializedViews === 0 && selectedTypes.functions === 0;
-  const hasOnlyFunctions = selectedTypes.functions > 0 && selectedTypes.tables === 0 && selectedTypes.views === 0 && selectedTypes.materializedViews === 0;
-  const hasAnyDatabaseObject = selectedTypes.tables > 0 || selectedTypes.views > 0 || selectedTypes.materializedViews > 0 || selectedTypes.functions > 0;
+  const hasOnlyTables =
+    selectedTypes.tables > 0 &&
+    selectedTypes.views === 0 &&
+    selectedTypes.materializedViews === 0 &&
+    selectedTypes.functions === 0;
+  const hasTablesOrViews =
+    selectedTypes.tables > 0 ||
+    selectedTypes.views > 0 ||
+    selectedTypes.materializedViews > 0;
+  const hasOnlyMaterializedViews =
+    selectedTypes.materializedViews > 0 &&
+    selectedTypes.tables === 0 &&
+    selectedTypes.views === 0 &&
+    selectedTypes.functions === 0;
+  const hasTablesOrMaterializedViews =
+    selectedTypes.tables > 0 || selectedTypes.materializedViews > 0;
+  const hasAnyDatabaseObject =
+    selectedTypes.tables > 0 ||
+    selectedTypes.views > 0 ||
+    selectedTypes.materializedViews > 0 ||
+    selectedTypes.functions > 0;
+
+  // Wrap handlers to close menu after action
+  const withClose = useCallback(
+    (handler: () => void) => () => {
+      handler();
+      onClose();
+    },
+    [onClose]
+  );
 
   // Portal to body to escape overflow:hidden containers
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-50 min-w-[200px] bg-popover border border-border rounded-md shadow-lg py-1"
+      className="fixed z-[9999] min-w-[200px] bg-popover text-popover-foreground rounded-lg p-1 shadow-lg border border-border"
       style={{ left: x, top: y }}
     >
       {/* View options group - all viewing/browsing options together */}
       {hasTablesOrViews && (
         <>
           <MenuItem
-            icon={<IconEye className="h-3.5 w-3.5" />}
-            label={selectedCount === 1 ? "View Data" : `View Data (${selectedCount})`}
-            onClick={() => {
-              onViewData();
-              onClose();
-            }}
+            icon={<IconEye />}
+            label={
+              selectedCount === 1 ? "View Data" : `View Data (${selectedCount})`
+            }
+            onClick={withClose(onViewData)}
           />
           <MenuItem
-            icon={<IconStack2 className="h-3.5 w-3.5" />}
-            label={selectedCount === 1 ? "View Structure" : `View Structure (${selectedCount})`}
-            onClick={() => {
-              onViewStructure();
-              onClose();
-            }}
+            icon={<IconStack2 />}
+            label={
+              selectedCount === 1
+                ? "View Structure"
+                : `View Structure (${selectedCount})`
+            }
+            onClick={withClose(onViewStructure)}
           />
         </>
       )}
@@ -137,96 +176,97 @@ export function DatabaseSidebarContextMenu({
       {/* Indexes - for tables and materialized views */}
       {hasTablesOrMaterializedViews && onViewIndexes && (
         <MenuItem
-          icon={<IconBookmark className="h-3.5 w-3.5" />}
-          label={selectedCount === 1 ? "View Indexes" : `View Indexes (${selectedCount})`}
-          onClick={() => {
-            onViewIndexes();
-            onClose();
-          }}
+          icon={<IconBookmark />}
+          label={
+            selectedCount === 1
+              ? "View Indexes"
+              : `View Indexes (${selectedCount})`
+          }
+          onClick={withClose(onViewIndexes)}
         />
       )}
 
       {/* Triggers - only for tables */}
       {hasOnlyTables && onViewTriggers && (
         <MenuItem
-          icon={<IconBolt className="h-3.5 w-3.5" />}
-          label={selectedCount === 1 ? "View Triggers" : `View Triggers (${selectedCount})`}
-          onClick={() => {
-            onViewTriggers();
-            onClose();
-          }}
+          icon={<IconBolt />}
+          label={
+            selectedCount === 1
+              ? "View Triggers"
+              : `View Triggers (${selectedCount})`
+          }
+          onClick={withClose(onViewTriggers)}
         />
       )}
 
       {/* Definition (DDL) - for all database objects */}
       {hasAnyDatabaseObject && onViewDefinition && (
         <MenuItem
-          icon={<IconCode className="h-3.5 w-3.5" />}
-          label={selectedCount === 1 ? "View Definition" : `View Definition (${selectedCount})`}
-          onClick={() => {
-            onViewDefinition();
-            onClose();
-          }}
+          icon={<IconCode />}
+          label={
+            selectedCount === 1
+              ? "View Definition"
+              : `View Definition (${selectedCount})`
+          }
+          onClick={withClose(onViewDefinition)}
         />
       )}
 
       {/* Separator after all view options */}
-      {(hasTablesOrViews || hasTablesOrMaterializedViews || hasOnlyTables || hasAnyDatabaseObject) && <MenuSeparator />}
+      {(hasTablesOrViews ||
+        hasTablesOrMaterializedViews ||
+        hasOnlyTables ||
+        hasAnyDatabaseObject) && <ContextMenuSeparator className="mx-0" />}
 
       {/* Export */}
       <MenuItem
-        icon={<IconDownload className="h-3.5 w-3.5" />}
+        icon={<IconDownload />}
         label="Export To File"
-        onClick={() => {
-          onExport();
-          onClose();
-        }}
+        onClick={withClose(onExport)}
       />
 
-      <MenuSeparator />
+      <ContextMenuSeparator className="mx-0" />
 
-      {/* IconCopy options */}
+      {/* Copy options */}
       <MenuItem
-        icon={<IconCopy className="h-3.5 w-3.5" />}
-        label={selectedCount === 1 ? "Copy Name" : `Copy Names (${selectedCount})`}
-        onClick={() => {
-          onCopyName();
-          onClose();
-        }}
+        icon={<IconCopy />}
+        label={
+          selectedCount === 1 ? "Copy Name" : `Copy Names (${selectedCount})`
+        }
+        onClick={withClose(onCopyName)}
       />
       <MenuItem
-        icon={<IconFileText className="h-3.5 w-3.5" />}
-        label={selectedCount === 1 ? "Copy Definition" : `Copy Definitions (${selectedCount})`}
-        onClick={() => {
-          onCopyDefinition();
-          onClose();
-        }}
+        icon={<IconFileText />}
+        label={
+          selectedCount === 1
+            ? "Copy Definition"
+            : `Copy Definitions (${selectedCount})`
+        }
+        onClick={withClose(onCopyDefinition)}
       />
 
       {/* Pin/Star */}
       <MenuItem
-        icon={<IconStar className="h-3.5 w-3.5" />}
+        icon={<IconStar />}
         label={selectedCount === 1 ? "Pin to Top" : `Pin (${selectedCount})`}
-        onClick={() => {
-          onPin();
-          onClose();
-        }}
+        onClick={withClose(onPin)}
       />
 
-      <MenuSeparator />
+      <ContextMenuSeparator className="mx-0" />
 
       {/* Refresh Materialized Views */}
       {hasOnlyMaterializedViews && onRefreshMaterializedView && (
         <>
           <MenuItem
-            icon={<IconRefresh className="h-3.5 w-3.5" />}
-            label={selectedCount === 1 ? "Refresh Materialized View" : `Refresh (${selectedCount})`}
-            onClick={() => {
-              onRefreshMaterializedView();
-              onClose();
-            }}
+            icon={<IconRefresh />}
+            label={
+              selectedCount === 1
+                ? "Refresh Materialized View"
+                : `Refresh (${selectedCount})`
+            }
+            onClick={withClose(onRefreshMaterializedView)}
           />
-          <MenuSeparator />
+          <ContextMenuSeparator className="mx-0" />
         </>
       )}
 
@@ -234,37 +274,34 @@ export function DatabaseSidebarContextMenu({
       {hasOnlyTables && selectedCount === 1 && (
         <>
           <MenuItem
-            icon={<IconCopy className="h-3.5 w-3.5" />}
+            icon={<IconCopy />}
             label="Duplicate"
-            onClick={() => {
-              onDuplicate?.();
-              onClose();
-            }}
+            onClick={withClose(onDuplicate ?? (() => {}))}
           />
-          <MenuSeparator />
+          <ContextMenuSeparator className="mx-0" />
         </>
       )}
 
       {/* Dangerous operations */}
       {hasOnlyTables && (
         <MenuItem
-          icon={<IconEraser className="h-3.5 w-3.5" />}
-          label={selectedCount === 1 ? "Truncate..." : `Truncate (${selectedCount})...`}
-          onClick={() => {
-            onTruncate();
-            onClose();
-          }}
+          icon={<IconEraser />}
+          label={
+            selectedCount === 1
+              ? "Truncate..."
+              : `Truncate (${selectedCount})...`
+          }
+          onClick={withClose(onTruncate)}
           destructive
         />
       )}
 
       <MenuItem
-        icon={<IconTrash className="h-3.5 w-3.5" />}
-        label={selectedCount === 1 ? "Delete..." : `Delete (${selectedCount})...`}
-        onClick={() => {
-          onDelete();
-          onClose();
-        }}
+        icon={<IconTrash />}
+        label={
+          selectedCount === 1 ? "Delete..." : `Delete (${selectedCount})...`
+        }
+        onClick={withClose(onDelete)}
         destructive
       />
     </div>,
@@ -276,7 +313,6 @@ interface MenuItemProps {
   icon: React.ReactNode;
   label: string;
   onClick?: () => void;
-  hasSubmenu?: boolean;
   destructive?: boolean;
   disabled?: boolean;
 }
@@ -285,27 +321,25 @@ function MenuItem({
   icon,
   label,
   onClick,
-  hasSubmenu,
   destructive,
   disabled,
 }: MenuItemProps) {
   return (
     <button
       className={cn(
-        "w-full flex items-center gap-2 px-2.5 py-1 text-xs hover:bg-accent cursor-pointer transition-colors",
-        destructive && "text-red-600 dark:text-red-400",
-        disabled && "opacity-50 cursor-not-allowed",
+        // Match standard ContextMenuItem styling
+        "w-full flex items-center gap-2 min-h-7 rounded-md px-2 py-1 text-xs cursor-default transition-colors",
+        "hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground",
+        "outline-none select-none",
+        "[&_svg]:size-3.5 [&_svg]:shrink-0",
+        destructive && "text-destructive hover:bg-destructive/10 hover:text-destructive focus:bg-destructive/10 focus:text-destructive",
+        disabled && "pointer-events-none opacity-50"
       )}
       onClick={onClick}
       disabled={disabled}
     >
       {icon}
       <span className="flex-1 text-left">{label}</span>
-      {hasSubmenu && <IconChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
     </button>
   );
-}
-
-function MenuSeparator() {
-  return <div className="h-px bg-border my-1" />;
 }

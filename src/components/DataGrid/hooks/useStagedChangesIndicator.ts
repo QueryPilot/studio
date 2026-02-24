@@ -3,6 +3,9 @@ import { useCrudStore } from "@/stores/crudStore";
 import type { CrudCommand } from "@/types";
 import type { GridRowModel, GridColumnV2 } from "../types";
 
+// Stable empty array to avoid unstable `?? []` references on every render
+const EMPTY_COMMANDS: CrudCommand[] = [];
+
 export interface StagedChangesMap {
   /** Map of row index → set of changed column fields */
   rowChanges: Map<number, Set<string>>;
@@ -10,13 +13,17 @@ export interface StagedChangesMap {
   insertedRows: Set<number>;
   /** Set of row indexes that are pending DELETE */
   deletedRows: Set<number>;
+  /** Reusable PK string → row index map (shared to avoid duplicate computation) */
+  pkToRowIndex: Map<string, number>;
 }
 
 // Empty/default result to avoid allocations when disabled
+const EMPTY_PK_MAP = new Map<string, number>();
 const EMPTY_RESULT: StagedChangesMap = {
   rowChanges: new Map(),
   insertedRows: new Set(),
   deletedRows: new Set(),
+  pkToRowIndex: EMPTY_PK_MAP,
 };
 
 interface UseStagedChangesIndicatorOptions {
@@ -25,6 +32,9 @@ interface UseStagedChangesIndicatorOptions {
   schema?: string;
   table: string;
   rows: GridRowModel[];
+  /** Original rows before optimistic updates — stable reference for PK map.
+   *  Falls back to `rows` if not provided. */
+  baseRows?: GridRowModel[];
   columns: GridColumnV2[];
 }
 
@@ -41,8 +51,9 @@ interface UseStagedChangesIndicatorOptions {
 export function useStagedChangesIndicator(
   options: UseStagedChangesIndicatorOptions,
 ): StagedChangesMap {
-  const { connectionId, database, schema, table, rows, columns } = options;
-  const { stagedCommands, getTableKey } = useCrudStore();
+  const { connectionId, database, schema, table, rows, baseRows, columns } = options;
+  // Use scoped selectors to avoid re-renders from changes in other tabs.
+  const getTableKey = useCrudStore((s) => s.getTableKey);
 
   const tableKey = getTableKey({
     connectionId,
@@ -51,41 +62,66 @@ export function useStagedChangesIndicator(
     table,
   });
 
-  const commands = stagedCommands.get(tableKey) ?? [];
+  // Scope to this table's commands only.
+  const commands = useCrudStore((s) => s.stagedCommands.get(tableKey)) ?? EMPTY_COMMANDS;
 
   // Memoize PK column list to avoid recomputation
+  // For document paradigm (MongoDB), _id is always the PK
+  // For keyvalue paradigm (Redis), key is always the PK
   const pkColumns = useMemo(() => {
-    return columns.filter((col) => col.meta?.is_pk);
+    let pks = columns.filter((col) => col.meta?.is_pk);
+
+    // Fallback: If no PK columns found, check for common paradigm-specific keys
+    if (pks.length === 0 && columns.length > 0) {
+      // MongoDB: _id is always the primary key
+      const idColumn = columns.find((col) => col.field === '_id' || col.name === '_id');
+      if (idColumn) {
+        pks = [idColumn];
+      }
+      // Redis: key is always the primary key
+      const keyColumn = columns.find((col) => col.field === 'key' || col.name === 'key');
+      if (keyColumn && pks.length === 0) {
+        pks = [keyColumn];
+      }
+    }
+
+    return pks;
   }, [columns]);
 
-  // Memoize PK map separately to avoid rebuilding on every render
+  // Use baseRows (pre-optimistic, stable reference) for the PK map when safe.
+  // Optimistic cell UPDATES don't change PKs or row count, so baseRows indices
+  // are still correct. But optimistic INSERTs add rows and shift indices,
+  // so we must fall back to the full `rows` when inserts exist.
+  const hasInserts = commands.some((cmd) => cmd.type === "data.insert");
+  const pkMapRows = (!hasInserts && baseRows) ? baseRows : rows;
   const pkToRowIndex = useMemo(() => {
-    // Skip computation when no commands
-    if (commands.length === 0) {
+    if (pkMapRows.length === 0 || pkColumns.length === 0) {
       return new Map<string, number>();
     }
 
     const map = new Map<string, number>();
-    rows.forEach((row, index) => {
-      // Create a stable PK key from the row using column metadata
+    pkMapRows.forEach((row, index) => {
       const pkKey = createPrimaryKeyStringFast(row, pkColumns);
       if (pkKey) {
         map.set(pkKey, index);
       }
     });
     return map;
-  }, [rows, pkColumns, commands.length]);
+  }, [pkMapRows, pkColumns]);
 
   const result = useMemo(() => {
-    // Early exit when no commands
+    // Early exit when no commands — still expose the PK map so consumers
+    // that read pkToRowIndex don't get a stale empty map.
     if (commands.length === 0) {
-      return EMPTY_RESULT;
+      if (pkToRowIndex.size === 0) return EMPTY_RESULT;
+      return { ...EMPTY_RESULT, pkToRowIndex };
     }
 
     const newResult: StagedChangesMap = {
       rowChanges: new Map(),
       insertedRows: new Set(),
       deletedRows: new Set(),
+      pkToRowIndex,
     };
 
     commands.forEach((command: CrudCommand) => {
@@ -153,6 +189,7 @@ export function useStagedChangesIndicator(
 /**
  * Create a stable string key from a row's primary key values (optimized version)
  * Uses pre-filtered PK columns to avoid filtering on every call
+ * IMPORTANT: Sorts columns by name to match createPrimaryKeyStringFromRecord
  */
 function createPrimaryKeyStringFast(
   row: GridRowModel,
@@ -172,15 +209,23 @@ function createPrimaryKeyStringFast(
     return null;
   }
 
+  // Sort columns by name to match createPrimaryKeyStringFromRecord's alphabetical sorting
+  const sortedPkColumns = [...pkColumns].sort((a, b) => a.name.localeCompare(b.name));
+
   // Build composite PK string from all PK columns
-  const pkValues = pkColumns.map((col) => {
+  // IMPORTANT: Must match createPrimaryKeyStringFromRecord's serialization format
+  const pkValues = sortedPkColumns.map((col) => {
     const cellValue = row[col.field];
     if (
       cellValue &&
       typeof cellValue === "object" &&
       "value" in cellValue
     ) {
-      return String(cellValue.value ?? "null");
+      const value = cellValue.value;
+      if (value === null || value === undefined) return "null";
+      // Use JSON.stringify for objects (e.g., MongoDB ObjectId) to match createPrimaryKeyStringFromRecord
+      if (typeof value === 'object') return JSON.stringify(value);
+      return String(value);
     }
     return "null";
   });

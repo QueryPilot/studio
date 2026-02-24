@@ -112,6 +112,50 @@ export function parseMutationTables(sql: string): TableReference[] {
       match = alterPattern.exec(normalized);
     }
 
+    // Pattern: DROP VIEW [IF EXISTS] [schema.]view
+    const dropViewPattern = /drop\s+view\s+(?:if\s+exists\s+)?(?:(?:"?(\w+)"?|(\w+))\.)?(?:"?(\w+)"?|(\w+))/gi;
+    match = dropViewPattern.exec(normalized);
+    while (match) {
+      tables.push({
+        schema: match[1] || match[2],
+        table: (match[3] || match[4])!,
+      });
+      match = dropViewPattern.exec(normalized);
+    }
+
+    // Pattern: CREATE [OR REPLACE] VIEW [schema.]view
+    const createViewPattern = /create\s+(?:or\s+replace\s+)?view\s+(?:(?:"?(\w+)"?|(\w+))\.)?(?:"?(\w+)"?|(\w+))/gi;
+    match = createViewPattern.exec(normalized);
+    while (match) {
+      tables.push({
+        schema: match[1] || match[2],
+        table: (match[3] || match[4])!,
+      });
+      match = createViewPattern.exec(normalized);
+    }
+
+    // Pattern: DROP MATERIALIZED VIEW [IF EXISTS] [schema.]view
+    const dropMatViewPattern = /drop\s+materialized\s+view\s+(?:if\s+exists\s+)?(?:(?:"?(\w+)"?|(\w+))\.)?(?:"?(\w+)"?|(\w+))/gi;
+    match = dropMatViewPattern.exec(normalized);
+    while (match) {
+      tables.push({
+        schema: match[1] || match[2],
+        table: (match[3] || match[4])!,
+      });
+      match = dropMatViewPattern.exec(normalized);
+    }
+
+    // Pattern: CREATE MATERIALIZED VIEW [schema.]view
+    const createMatViewPattern = /create\s+materialized\s+view\s+(?:(?:"?(\w+)"?|(\w+))\.)?(?:"?(\w+)"?|(\w+))/gi;
+    match = createMatViewPattern.exec(normalized);
+    while (match) {
+      tables.push({
+        schema: match[1] || match[2],
+        table: (match[3] || match[4])!,
+      });
+      match = createMatViewPattern.exec(normalized);
+    }
+
     // Remove duplicates (keep first occurrence)
     const seen = new Set<string>();
     const uniqueTables = tables.filter((ref) => {

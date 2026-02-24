@@ -115,11 +115,11 @@ impl<'a> Refactor<'a> {
     fn find_subquery_at_position(&self, cursor_offset: usize) -> Option<TextSpan> {
         // Look for SELECT within parentheses around cursor position
         let source = self.source;
-        
+
         // Find the nearest enclosing parentheses pair
         let mut open_paren: Option<usize> = None;
         let mut close_paren: Option<usize> = None;
-        
+
         // Scan backwards for opening parenthesis
         for i in (0..cursor_offset).rev() {
             if source.as_bytes()[i] == b'(' {
@@ -127,7 +127,7 @@ impl<'a> Refactor<'a> {
                 break;
             }
         }
-        
+
         // If we found an opening paren, scan forward for closing paren
         if let Some(open_pos) = open_paren {
             let mut depth = 1;
@@ -144,7 +144,7 @@ impl<'a> Refactor<'a> {
                     _ => {}
                 }
             }
-            
+
             // Check if the content looks like a SELECT statement
             if let Some(close_pos) = close_paren {
                 let content = &source[open_pos + 1..close_pos];
@@ -159,7 +159,7 @@ impl<'a> Refactor<'a> {
                 }
             }
         }
-        
+
         None
     }
 
@@ -241,7 +241,7 @@ impl<'a> Refactor<'a> {
 
         // Validate selection is a valid subquery
         let subquery_text = self.get_text_at_span(&selection_span).trim();
-        
+
         // Check if it starts with ( and ends with )
         if !subquery_text.starts_with('(') || !subquery_text.ends_with(')') {
             return Err("Selection must be a subquery enclosed in parentheses".to_string());
@@ -250,7 +250,7 @@ impl<'a> Refactor<'a> {
         // Extract the inner SELECT (remove outer parentheses)
         let inner_sql = subquery_text[1..subquery_text.len() - 1].trim();
 
-        // Check if the inner content is a valid SELECT statement  
+        // Check if the inner content is a valid SELECT statement
         let inner_lower = inner_sql.to_lowercase();
         if !inner_lower.starts_with("select") {
             return Err("Subquery must start with SELECT".to_string());
@@ -415,8 +415,7 @@ fn is_valid_identifier(name: &str) -> bool {
         return false;
     }
 
-    name.chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// Format identifier for SQL dialect (no quoting for now, Phase 4 enhancement).
@@ -619,7 +618,9 @@ mod tests {
 
         let subquery_span = TextSpan { start: 32, end: 60 }; // (SELECT user_id FROM orders)
 
-        let result = refactor.apply_extract_cte(subquery_span, "order_users").unwrap();
+        let result = refactor
+            .apply_extract_cte(subquery_span, "order_users")
+            .unwrap();
 
         assert!(result.new_sql.contains("WITH order_users AS"));
         assert!(result.new_sql.contains("SELECT user_id FROM orders"));
@@ -640,7 +641,9 @@ mod tests {
             end: subquery_end,
         };
 
-        let result = refactor.apply_extract_cte(subquery_span, "order_users").unwrap();
+        let result = refactor
+            .apply_extract_cte(subquery_span, "order_users")
+            .unwrap();
 
         // Should append to existing WITH clause
         assert!(result.new_sql.contains("WITH active AS"));

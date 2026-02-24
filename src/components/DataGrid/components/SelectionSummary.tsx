@@ -78,6 +78,13 @@ export const SelectionSummary = memo(function SelectionSummary({
     // Only show statistics if more than 1 cell is selected
     if (count <= 1) return null;
 
+    // For large selections, skip expensive statistics (sum/avg/median/unique).
+    // Computing stats over 5k+ rows × columns creates millions of iterations.
+    const STATS_THRESHOLD = 5000;
+    if (count > STATS_THRESHOLD) {
+      return { count, isNumeric: false };
+    }
+
     const decimalValues: Decimal[] = [];
     const uniqueValues = new Set<string>();
     let nullCount = 0;
@@ -255,8 +262,10 @@ export const SelectionSummary = memo(function SelectionSummary({
           <span>Sum: {formatNumber(statistics.sum!)}</span>
         ) : statistics.countUnique !== undefined ? (
           <span>Unique: {statistics.countUnique}</span>
-        ) : (
+        ) : statistics.countNull !== undefined ? (
           <span>Null: {statistics.countNull}</span>
+        ) : (
+          <span>Count: {statistics.count.toLocaleString()}</span>
         )}
         <IconChevronDown className="h-3 w-3" />
       </PopoverTrigger>

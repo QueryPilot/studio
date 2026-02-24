@@ -89,6 +89,12 @@ export const contextKeyDefinitions: ContextKeyDefinition[] = [
     owner: 'editor',
   },
   {
+    key: 'hasSelection',
+    defaultValue: false,
+    description: 'Focused editor has selected text',
+    owner: 'editor',
+  },
+  {
     key: 'dataGridFocus',
     defaultValue: false,
     description: 'Data grid has focus',

@@ -3,13 +3,11 @@ import { Button } from "@/components/ui/button";
 import {
   IconHome,
   IconRefresh,
-  IconLock,
   IconSettings,
   IconLayoutSidebar,
   IconCheck,
   IconDatabase,
   IconCircle,
-  IconSitemap,
   IconSun,
   IconMoon,
   IconDeviceDesktop,
@@ -20,34 +18,16 @@ import {
   IconArrowBackUp,
   IconArrowForwardUp,
   IconGitCommit,
-  IconPlus,
-  IconExternalLink,
 } from "@tabler/icons-react";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useCrudStore } from "@/stores/crudStore";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
-import type { DbType } from "@/types/connection";
+import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
-import { useQuery } from "@tanstack/react-query";
-import Fuse, { type IFuseOptions } from "fuse.js";
 import { useCommand } from "@/hooks/useCommand";
-import { windowManager } from "@/services/windowManager";
 import {
   databaseService,
   type ConnectionHealth,
@@ -65,44 +45,51 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAppStore } from "@/stores/appStore";
 import { toast } from "sonner";
-import useWorkbenchStore from "@/stores/workbenchStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
+import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
+import type { CrudOperationType, TableCreatePayload } from "@/types/crud";
+import { eventBus } from "@/services/eventBus";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
-import { getDatabaseLogo } from "@/utils/databaseLogos";
 
 interface WorkspaceTitleBarProps {
   connectionId: string;
   isConnecting?: boolean;
 }
 
-interface DatabaseItem {
-  name: string;
-  hasProfile: boolean;
-  isCurrent: boolean;
-}
+const SCHEMA_INVALIDATION_TYPES = new Set<CrudOperationType>([
+  "table.create",
+  "table.drop",
+  "table.duplicate",
+  "table.truncate",
+  "table.rename",
+  "view.create",
+  "view.drop",
+  "view.rename",
+  "sequence.create",
+  "sequence.drop",
+  "sequence.rename",
+]);
 
-interface SavedProfileItem {
-  id: string;
-  name: string;
-  database: string;
-  host: string;
-  port: number;
-  db_type: DbType;
-}
+const parseDesignerTag = (
+  tags: string[] | undefined,
+): { panelId: string; tabId: string } | null => {
+  const tag = tags?.find((item) => item.startsWith("table-designer:"));
+  if (!tag) return null;
 
-// Fuse.js configuration for database fuzzy search
-const DATABASE_FUSE_OPTIONS: IFuseOptions<DatabaseItem> = {
-  keys: ["name"],
-  threshold: 0.3, // Lower = more strict matching
-  includeScore: true,
-  minMatchCharLength: 1,
+  const parts = tag.split(":");
+  if (parts.length < 3) return null;
+  const panelId = parts[1];
+  const tabId = parts[2];
+  if (!panelId || !tabId) return null;
+  return { panelId, tabId };
 };
 
 export function WorkspaceTitleBar({
@@ -117,13 +104,10 @@ export function WorkspaceTitleBar({
     ),
   );
   const fetchConnections = useConnectionStore((s) => s.fetchConnections);
-  // Get connections only for the groupedDatabases calculation
   const connections = useConnectionStore((s) => s.connections);
 
   const connection = storedConnection?.profile;
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
   const selectedDatabase = useWorkspaceSelectionStore(
     (state) => state.database,
   );
@@ -133,102 +117,8 @@ export function WorkspaceTitleBar({
   const [isReconnecting, setIsReconnecting] = useState(false);
   const theme = useAppStore((state) => state.theme);
   const setTheme = useAppStore((state) => state.setTheme);
-  const [isOpeningWindow, setIsOpeningWindow] = useState(false);
 
-  // Query for databases list
-  const { data: databases = [], isLoading: isLoadingDatabases } = useQuery({
-    queryKey: ["databases", connectionId],
-    queryFn: async () => {
-      if (!databaseService.isConnectionActive(connectionId)) {
-        return [];
-      }
-      return await databaseService.listDatabases(connectionId);
-    },
-    enabled: !!connectionId && databaseService.isConnectionActive(connectionId),
-    staleTime: 60_000, // 1 minute
-    retry: 2,
-  });
 
-  // Pre-compute database items (only when databases/connections/connection change)
-  const databaseItems = useMemo<DatabaseItem[]>(() => {
-    if (!connection) return [];
-    return databases.map((db) => {
-      const hasProfile = connections.some(
-        (conn) =>
-          conn.profile.host === connection.host &&
-          conn.profile.port === connection.port &&
-          conn.profile.database === db &&
-          conn.profile.username === connection.username,
-      );
-      const isCurrent = db === selectedDatabase;
-      return { name: db, hasProfile, isCurrent };
-    });
-  }, [databases, connections, connection, selectedDatabase]);
-
-  // Pre-compute other profile items (only when connections/connection change)
-  const otherProfileItems = useMemo<SavedProfileItem[]>(() => {
-    if (!connection) return [];
-    return connections
-      .filter((conn) => {
-        const isSameServer =
-          conn.profile.host === connection.host &&
-          conn.profile.port === connection.port &&
-          conn.profile.username === connection.username;
-        return !isSameServer;
-      })
-      .map((conn) => ({
-        id: conn.profile.id,
-        name: conn.profile.name,
-        database: conn.profile.database || "",
-        host: conn.profile.host,
-        port: conn.profile.port,
-        db_type: conn.profile.db_type,
-      }));
-  }, [connections, connection]);
-
-  // Create Fuse indexes only when data changes (not on every search)
-  const dbFuse = useMemo(
-    () => new Fuse(databaseItems, DATABASE_FUSE_OPTIONS),
-    [databaseItems],
-  );
-  const profileFuse = useMemo(
-    () =>
-      new Fuse(otherProfileItems, {
-        keys: ["name", "database"],
-        threshold: 0.3,
-        includeScore: true,
-      }),
-    [otherProfileItems],
-  );
-
-  // Filter results based on search query
-  const groupedDatabases = useMemo(() => {
-    if (!connection) {
-      return { current: null, thisServer: [], otherProfiles: [] };
-    }
-
-    let filteredDatabases = databaseItems;
-    let filteredOtherProfiles = otherProfileItems;
-
-    if (searchQuery.trim()) {
-      filteredDatabases = dbFuse.search(searchQuery).map((r) => r.item);
-      filteredOtherProfiles = profileFuse
-        .search(searchQuery)
-        .map((r) => r.item);
-    }
-
-    const current = filteredDatabases.find((db) => db.isCurrent) || null;
-    const thisServer = filteredDatabases.filter((db) => !db.isCurrent);
-
-    return { current, thisServer, otherProfiles: filteredOtherProfiles };
-  }, [
-    connection,
-    databaseItems,
-    otherProfileItems,
-    dbFuse,
-    profileFuse,
-    searchQuery,
-  ]);
   const { toggleSidebar: onToggleSidebar } = useWorkspaceScreenStore();
   const { openPreferences } = usePreferencesStore();
   const {
@@ -263,7 +153,7 @@ export function WorkspaceTitleBar({
 
   const [showGlobalChanges, setShowGlobalChanges] = useState(false);
   const [commitProgress, setCommitProgress] = useState(0);
-  const commitProgressRef = useRef<NodeJS.Timeout | null>(null);
+  const commitProgressRef = useRef<number | null>(null);
 
   // IconKeyboard shortcuts
   useCommand(
@@ -279,24 +169,27 @@ export function WorkspaceTitleBar({
         setIsCommittingAll(true);
         setCommitProgress(0);
 
-        // Start progress animation with different speeds:
+        // Start progress animation with rAF for smooth rendering
         // 0-80%: fast, 80-90%: slower, 90-98%: much slower, then wait
         let progress = 0;
-        commitProgressRef.current = setInterval(() => {
+        let lastTime = performance.now();
+        const animateProgress = (now: number) => {
+          const dt = now - lastTime;
+          lastTime = now;
+          // Scale increments by elapsed time (~50ms baseline)
+          const scale = dt / 50;
           if (progress < 80) {
-            // Fast: 0-80%
-            progress += 4;
+            progress += 4 * scale;
           } else if (progress < 90) {
-            // Slower: 80-90%
-            progress += 0.5;
+            progress += 0.5 * scale;
           } else if (progress < 98) {
-            // Much slower: 90-98%
-            progress += 0.1;
+            progress += 0.1 * scale;
           }
-          // Stop at 98% and wait for completion
           if (progress > 98) progress = 98;
           setCommitProgress(progress);
-        }, 50);
+          commitProgressRef.current = requestAnimationFrame(animateProgress);
+        };
+        commitProgressRef.current = requestAnimationFrame(animateProgress);
 
         try {
           logger.info(
@@ -305,6 +198,67 @@ export function WorkspaceTitleBar({
 
           // Get all staged commands before committing
           const stagedCommandsSnapshot = Array.from(stagedCommands.entries());
+          const schemaInvalidations = new Set<string>();
+          const tableInvalidations = new Set<string>();
+          const designerTransitions = new Map<
+            string,
+            {
+              panelId: string;
+              tabId: string;
+              connectionId: string;
+              database: string;
+              schema: string;
+              table: string;
+              timestamp: number;
+            }
+          >();
+
+          stagedCommandsSnapshot.forEach(([tableKey, commands]) => {
+            const [connId, db, sch = "public", tbl] = tableKey.split(":");
+            if (!connId || !db) return;
+
+            const hasSchemaChanges = commands.some((cmd) =>
+              SCHEMA_INVALIDATION_TYPES.has(cmd.type),
+            );
+
+            if (hasSchemaChanges) {
+              schemaInvalidations.add(`${connId}:${db}:${sch}`);
+            } else if (tbl) {
+              tableInvalidations.add(`${connId}:${db}:${sch}:${tbl}`);
+            }
+
+            commands.forEach((command) => {
+              if (command.type !== "table.create") return;
+
+              const location = parseDesignerTag(command.metadata.tags);
+              if (!location) return;
+
+              const payload = command.payload as TableCreatePayload;
+              const payloadName = payload.tableName.trim();
+              const targetName = (command.target.table || "").trim();
+              const table = payloadName || targetName;
+              if (!table || table.startsWith("__new_table_")) return;
+
+              const designerSchema =
+                (command.target.schema || "public").trim() || "public";
+              const transitionKey = `${location.panelId}:${location.tabId}`;
+              const timestampMs = Date.parse(command.metadata.timestamp);
+              const timestamp = Number.isNaN(timestampMs) ? 0 : timestampMs;
+              const existing = designerTransitions.get(transitionKey);
+
+              if (!existing || timestamp >= existing.timestamp) {
+                designerTransitions.set(transitionKey, {
+                  panelId: location.panelId,
+                  tabId: location.tabId,
+                  connectionId: command.target.connectionId,
+                  database: command.target.database || "",
+                  schema: designerSchema,
+                  table,
+                  timestamp,
+                });
+              }
+            });
+          });
 
           const results = await commitAll();
           const totalCommitted = Object.values(results).reduce(
@@ -319,26 +273,60 @@ export function WorkspaceTitleBar({
           // Small delay to ensure database transaction is fully committed
           await new Promise((resolve) => setTimeout(resolve, 100));
 
-          // Broadcast invalidation for all affected tables
-          const { invalidateTable } = useDataInvalidationStore.getState();
+          // Broadcast invalidation for all affected tables/schemas
+          const { invalidateTable, invalidateSchema } =
+            useDataInvalidationStore.getState();
           const { clearCommittedChanges } = useCrudStore.getState();
+
+          schemaInvalidations.forEach((schemaKey) => {
+            const [connId, db, sch] = schemaKey.split(":");
+            if (!connId || !db || !sch) return;
+
+            logger.info(
+              `[WorkspaceTitleBar] Invalidating schema: ${db}.${sch}`,
+            );
+            invalidateSchema(connId, db, sch);
+          });
+
+          tableInvalidations.forEach((tableInvalidationKey) => {
+            const [connId, db, sch, tbl] = tableInvalidationKey.split(":");
+            if (!connId || !db || !sch || !tbl) return;
+            if (schemaInvalidations.has(`${connId}:${db}:${sch}`)) return;
+
+            logger.info(
+              `[WorkspaceTitleBar] Invalidating table: ${db}.${sch}.${tbl}`,
+            );
+            invalidateTable(connId, db, sch, tbl);
+          });
+
           stagedCommandsSnapshot.forEach(([tableKey]) => {
-            const parts = tableKey.split(":");
-            const [connId, db, sch, tbl] = parts;
-            if (connId && db && tbl) {
-              logger.info(
-                `[WorkspaceTitleBar] Invalidating table: ${db}.${
-                  sch ?? "public"
-                }.${tbl}`,
-              );
-              invalidateTable(connId, db, sch ?? "public", tbl);
-            }
-            // Clear committed changes from store
             clearCommittedChanges(tableKey);
           });
 
+          const { updateTabMetadata } = useWorkbenchStore.getState();
+          designerTransitions.forEach((transition) => {
+            const panel = useWorkbenchStore
+              .getState()
+              .panelContents.get(transition.panelId);
+            if (!panel || !panel.tabIds.includes(transition.tabId)) return;
+
+            updateTabMetadata(transition.panelId, transition.tabId, {
+              type: "table",
+              title: transition.table,
+              table: transition.table,
+              schema: transition.schema,
+              connectionId: transition.connectionId,
+              database: transition.database,
+              kind: "Table",
+              isView: false,
+              viewType: "data",
+              objectKey: `table-${transition.connectionId}-${transition.schema}-${transition.table}`,
+            });
+          });
+
           // Complete progress to 100%
-          if (commitProgressRef.current) clearInterval(commitProgressRef.current);
+
+          cancelAnimationFrame(commitProgressRef.current);
           setCommitProgress(100);
 
           toast.success("All changes committed", {
@@ -351,7 +339,8 @@ export function WorkspaceTitleBar({
           await new Promise((resolve) => setTimeout(resolve, 200));
         } catch (error) {
           // Stop progress on error
-          if (commitProgressRef.current) clearInterval(commitProgressRef.current);
+
+          cancelAnimationFrame(commitProgressRef.current);
           setCommitProgress(0);
 
           toast.error("Commit failed", {
@@ -363,10 +352,28 @@ export function WorkspaceTitleBar({
         } finally {
           setIsCommittingAll(false);
           setCommitProgress(0);
-          if (commitProgressRef.current) {
-            clearInterval(commitProgressRef.current);
-            commitProgressRef.current = null;
-          }
+
+          cancelAnimationFrame(commitProgressRef.current);
+          commitProgressRef.current = null;
+        }
+      } else {
+        const workbenchState = useWorkbenchStore.getState();
+        const focusedPanelId = usePanelFocusStore.getState().focusedPanelId;
+        const fallbackPanelId =
+          focusedPanelId ?? Array.from(workbenchState.panelContents.keys())[0];
+        if (!fallbackPanelId) return;
+
+        const panel = workbenchState.panelContents.get(fallbackPanelId);
+        if (!panel) return;
+        const activeTabId = panel.activeTabId;
+        if (!activeTabId) return;
+
+        const activeMetadata = panel.metadata?.[activeTabId];
+        if (activeMetadata?.type === "collection-design") {
+          eventBus.emit("collection-designer:save", {
+            panelId: fallbackPanelId,
+            tabId: activeTabId,
+          });
         }
       }
     },
@@ -411,7 +418,6 @@ export function WorkspaceTitleBar({
     () => {
       if (canUndo) {
         undo();
-        toast.success("Changes undone");
       }
     },
     {
@@ -426,7 +432,6 @@ export function WorkspaceTitleBar({
     () => {
       if (canRedo) {
         redo();
-        toast.success("Changes redone");
       }
     },
     {
@@ -455,13 +460,6 @@ export function WorkspaceTitleBar({
   // Get workspace bundle store for window title and workspace actions
   const getWindowTitle = useWorkspaceBundleStore((s) => s.getWindowTitle);
   const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
-  const addConnectionToWorkspace = useWorkspaceBundleStore(
-    (s) => s.addConnectionToWorkspace,
-  );
-
-  // Check if we're in a multi-connection workspace context (can add connections)
-  const isMultiConnectionWorkspace =
-    activeWorkspace && !activeWorkspace.isTemporary;
 
   // Update document title with unsaved changes indicator and workspace name
   useEffect(() => {
@@ -479,7 +477,13 @@ export function WorkspaceTitleBar({
     return () => {
       document.title = "Query Pilot";
     };
-  }, [totalChanges, selectedDatabase, connection?.database, activeWorkspace, getWindowTitle]);
+  }, [
+    totalChanges,
+    selectedDatabase,
+    connection?.database,
+    activeWorkspace,
+    getWindowTitle,
+  ]);
 
   // Load connections if not already loaded
   useEffect(() => {
@@ -490,20 +494,27 @@ export function WorkspaceTitleBar({
 
   // Get server version from active connection
   useEffect(() => {
-    const updateServerVersion = () => {
-      const activeConnection =
-        databaseService.getActiveConnection(connectionId);
-      if (activeConnection?.server_version) {
-        // Extract major version from server string
-        const match = activeConnection.server_version.match(/\d+\.?\d*/);
+    const activeConnection =
+      databaseService.getActiveConnection(connectionId);
+    if (activeConnection?.server_version) {
+      const match = activeConnection.server_version.match(/\d+\.?\d*/);
+      setServerVersion(match ? match[0] : null);
+      return;
+    }
+
+    // Connection might not be ready yet — poll briefly, then stop
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts++;
+      const conn = databaseService.getActiveConnection(connectionId);
+      if (conn?.server_version) {
+        const match = conn.server_version.match(/\d+\.?\d*/);
         setServerVersion(match ? match[0] : null);
+        clearInterval(interval);
+      } else if (attempts >= 10) {
+        clearInterval(interval);
       }
-    };
-
-    updateServerVersion();
-
-    // Also check periodically as connection might not be immediately ready
-    const interval = setInterval(updateServerVersion, 1000);
+    }, 1000);
 
     return () => {
       clearInterval(interval);
@@ -513,7 +524,7 @@ export function WorkspaceTitleBar({
   // Subscribe to connection health updates
   useEffect(() => {
     let previousHealth: ConnectionHealth | null = null;
-    
+
     // Track if we've shown CRUD warning to avoid spam
     let crudWarningShown = false;
 
@@ -522,46 +533,47 @@ export function WorkspaceTitleBar({
       (health) => {
         setConnectionHealth(health);
 
-         // Show toast on error status change
-         if (health.status === "error" && previousHealth?.status !== "error") {
-           toast.error("Connection Failed", {
-             description:
-               health.error ||
-               "Unable to connect to the database. Please check your connection settings.",
-           });
+        // Show toast on error status change
+        if (health.status === "error" && previousHealth?.status !== "error") {
+          toast.error("Connection Failed", {
+            description:
+              health.error ||
+              "Unable to connect to the database. Please check your connection settings.",
+          });
 
-           // Show warning if there are pending CRUD changes
-           const { stagedCommands } = useCrudStore.getState();
-           const hasPendingChanges = Array.from(stagedCommands.entries()).some(
-             ([tableKey, commands]) =>
-               tableKey.startsWith(`${connectionId}:`) && commands.length > 0
-           );
-           
-           if (hasPendingChanges && !crudWarningShown) {
-             toast.warning("Unsaved Changes at Risk", {
-               description: "You have unsaved CRUD changes and connection is offline. Consider saving your work.",
-               duration: 8000,
-             });
-             crudWarningShown = true;
-           }
-         } else if (
-           health.status === "ready" &&
-           previousHealth?.status === "error"
-         ) {
-           toast.success("Connection Restored", {
-             description: "Successfully reconnected to the database.",
-           });
-           crudWarningShown = false; // Reset warning flag on successful reconnect
-         }
- 
-         previousHealth = health;
-       },
-     );
- 
-     return () => {
-       unsubscribe();
-     };
-   }, [connectionId]);
+          // Show warning if there are pending CRUD changes
+          const { stagedCommands } = useCrudStore.getState();
+          const hasPendingChanges = Array.from(stagedCommands.entries()).some(
+            ([tableKey, commands]) =>
+              tableKey.startsWith(`${connectionId}:`) && commands.length > 0,
+          );
+
+          if (hasPendingChanges && !crudWarningShown) {
+            toast.warning("Unsaved Changes at Risk", {
+              description:
+                "You have unsaved CRUD changes and connection is offline. Consider saving your work.",
+              duration: 8000,
+            });
+            crudWarningShown = true;
+          }
+        } else if (
+          health.status === "ready" &&
+          previousHealth?.status === "error"
+        ) {
+          toast.success("Connection Restored", {
+            description: "Successfully reconnected to the database.",
+          });
+          crudWarningShown = false; // Reset warning flag on successful reconnect
+        }
+
+        previousHealth = health;
+      },
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [connectionId]);
 
   const handleReconnect = async () => {
     setIsReconnecting(true);
@@ -666,12 +678,7 @@ export function WorkspaceTitleBar({
     }
 
     return (
-      <IconCircle
-        className={cn(
-          "h-2 w-2 fill-current",
-          getStatusColor(),
-        )}
-      />
+      <IconCircle className={cn("h-2 w-2 fill-current", getStatusColor())} />
     );
   };
 
@@ -679,9 +686,9 @@ export function WorkspaceTitleBar({
     try {
       logger.info("Going home from workspace:", connectionId);
 
-      // Disconnect from the current database
+      // Disconnect from the current database (with timeout to prevent freeze on dead connections)
       if (connectionId && databaseService.isConnectionActive(connectionId)) {
-        await databaseService.disconnect(connectionId);
+        await databaseService.disconnectWithTimeout(connectionId, 3000);
       }
 
       // IconCheck if we're in a separate window or the main window
@@ -716,167 +723,6 @@ export function WorkspaceTitleBar({
     window.location.reload();
   };
 
-  /**
-   * Get or create connection profile for a database
-   */
-  const getOrCreateConnectionForDatabase = async (
-    dbName: string,
-    hasProfile: boolean,
-  ): Promise<string | null> => {
-    if (!connection) {
-      logger.error("Current connection not found");
-      return null;
-    }
-
-    const connectionStore = useConnectionStore.getState();
-
-    if (hasProfile) {
-      // Existing profile - find it
-      const existingConnection = connectionStore.findConnectionByDatabase(
-        connection.host,
-        connection.port,
-        dbName,
-        connection.username,
-      );
-
-      if (!existingConnection) {
-        logger.error(
-          `[WorkspaceTitleBar] Profile not found for database ${dbName}`,
-        );
-        return null;
-      }
-
-      return existingConnection.profile.id;
-    } else {
-      // New profile - create it
-      const existingBeforeCreate = connectionStore.findConnectionByDatabase(
-        connection.host,
-        connection.port,
-        dbName,
-        connection.username,
-      );
-
-      if (existingBeforeCreate) {
-        return existingBeforeCreate.profile.id;
-      }
-
-      return await connectionStore.getOrCreateDatabaseConnection(
-        connectionId,
-        dbName,
-      );
-    }
-  };
-
-  /**
-   * Open database in a new window (default action)
-   */
-  const handleOpenDatabaseNewWindow = async (
-    dbName: string,
-    hasProfile: boolean,
-  ) => {
-    if (isOpeningWindow) return;
-    if (dbName === selectedDatabase) {
-      setOpen(false);
-      return;
-    }
-
-    setOpen(false);
-    setIsOpeningWindow(true);
-
-    try {
-      const targetConnectionId = await getOrCreateConnectionForDatabase(
-        dbName,
-        hasProfile,
-      );
-      if (!targetConnectionId) return;
-
-      if (windowManager.isWorkspaceOpen(targetConnectionId)) {
-        await windowManager.focusWorkspace(targetConnectionId);
-      } else {
-        await windowManager.openWorkspace(targetConnectionId, dbName, {
-          database: dbName,
-        });
-      }
-    } catch (error) {
-      logger.error("Failed to open database in new window:", error);
-      toast.error("Failed to open database", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      setTimeout(() => {
-        setIsOpeningWindow(false);
-      }, 1000);
-    }
-  };
-
-  /**
-   * Add database connection to current workspace
-   */
-  const handleAddDatabaseToWorkspace = async (
-    dbName: string,
-    hasProfile: boolean,
-  ) => {
-    if (!activeWorkspace) {
-      toast.error("No active workspace");
-      return;
-    }
-
-    setOpen(false);
-
-    try {
-      const targetConnectionId = await getOrCreateConnectionForDatabase(
-        dbName,
-        hasProfile,
-      );
-      if (!targetConnectionId) return;
-
-      // Check if already in workspace
-      if (activeWorkspace.connections.has(targetConnectionId)) {
-        toast.info("Connection already in workspace");
-        return;
-      }
-
-      await addConnectionToWorkspace(targetConnectionId);
-      toast.success(`Added ${dbName} to workspace`);
-    } catch (error) {
-      logger.error("Failed to add database to workspace:", error);
-      toast.error("Failed to add to workspace", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    }
-  };
-
-  // Legacy handler removed - use handleOpenDatabaseNewWindow directly
-
-  const handleOpenErd = () => {
-    const { focusedPanelId, panelContents, addTab, focusPanel } =
-      useWorkbenchStore.getState();
-
-    const erdTabId = `erd-${connectionId}`;
-    const erdMetadata = {
-      type: "erd" as const,
-      title: "ERD",
-      connectionId,
-      database: connection?.database,
-      schema: "public",
-    };
-
-    let targetPanelId = focusedPanelId;
-
-    if (!targetPanelId) {
-      const firstPanel = Array.from(panelContents.entries())[0];
-      if (firstPanel) {
-        targetPanelId = firstPanel[0];
-        focusPanel(firstPanel[0]);
-      }
-    }
-
-    if (targetPanelId) {
-      addTab(targetPanelId, erdTabId, erdMetadata);
-      return;
-    }
-  };
-
   return (
     <div
       className="relative flex items-center justify-between h-8 bg-secondary"
@@ -887,16 +733,16 @@ export function WorkspaceTitleBar({
         <div className="absolute bottom-0 left-0 right-0 h-0.5 z-50">
           {/* Layer 1: Background track */}
           <div className="absolute inset-0 bg-primary/20" />
-          
+
           {/* Layer 2: Main progress bar (solid) */}
           <div
             className="absolute inset-y-0 left-0 bg-primary transition-all duration-150 ease-out"
             style={{ width: `${commitProgress}%` }}
           />
-          
+
           {/* Layer 3: Shimmer overlay (only when waiting at 98%+) */}
           {commitProgress >= 98 && (
-            <div 
+            <div
               className="absolute inset-y-0 left-0 overflow-hidden"
               style={{ width: `${commitProgress}%` }}
             >
@@ -907,14 +753,14 @@ export function WorkspaceTitleBar({
       )}
 
       {/* Left Section - Add padding for macOS traffic lights */}
-      <div className="flex items-center gap-2.5 pl-20">
+      <div className="flex items-center gap-2.5 pl-26">
         <Button
           variant="ghost"
           size="icon-sm"
           onClick={handleGoHome}
           title="Go to home"
         >
-          <IconHome className="!size-4" />
+          <IconHome className="size-4!" />
         </Button>
 
         <Button
@@ -923,307 +769,30 @@ export function WorkspaceTitleBar({
           onClick={handleReload}
           title="Reload workspace"
         >
-          <IconRefresh className="!size-4" />
+          <IconRefresh className="size-4!" />
         </Button>
 
         <Button
           variant="ghost"
           size="icon-sm"
-          title="Connection security"
-        >
-          <IconLock className="!size-4" />
-        </Button>
-
-        <Popover
-          open={open}
-          onOpenChange={(isOpen) => {
-            setOpen(isOpen);
-            if (!isOpen) setSearchQuery(""); // Clear search on close
+          title="Select database"
+          onClick={() => {
+            const { openPalette, setNestedMode } =
+              useCommandPaletteStore.getState();
+            openPalette();
+            setTimeout(() => {
+              setNestedMode({ type: "switch-database" });
+            }, 0);
           }}
         >
-          <PopoverTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                title="Select database"
-                disabled={isLoadingDatabases}
-              >
-                <IconDatabase className="!size-4" />
-              </Button>
-            }
-          />
-          <PopoverContent className="w-80 p-0" align="start">
-            <Command
-              className="[&_[cmdk-input]]:outline-none [&_[cmdk-input]]:focus:outline-none"
-              shouldFilter={false}
-            >
-              <CommandInput
-                placeholder="Search databases..."
-                className="h-8 text-xs focus-visible:ring-0"
-                value={searchQuery}
-                onValueChange={setSearchQuery}
-              />
-              <CommandList>
-                <CommandEmpty>
-                  {isLoadingDatabases
-                    ? "Loading databases..."
-                    : "No databases found."}
-                </CommandEmpty>
-
-                {/* Section 1: Current IconDatabase */}
-                {groupedDatabases.current && (
-                  <CommandGroup
-                    heading="Current"
-                    className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
-                  >
-                    <CommandItem
-                      key={groupedDatabases.current.name}
-                      value={groupedDatabases.current.name}
-                      onSelect={() => {
-                        setOpen(false);
-                      }}
-                      className="cursor-pointer py-1.5 px-2 bg-accent/50"
-                    >
-                      <div className="flex items-center justify-between w-full">
-                        <div className="flex items-center gap-2">
-                          {connection?.db_type ? (
-                            <img
-                              src={getDatabaseLogo(connection.db_type)}
-                              alt="database"
-                              className="h-3.5 w-3.5 shrink-0"
-                            />
-                          ) : (
-                            <IconDatabase className="h-3.5 w-3.5 shrink-0 text-green-500" />
-                          )}
-                          <span className="text-xs font-semibold truncate">
-                            {groupedDatabases.current.name}
-                          </span>
-                        </div>
-                        <IconCheck className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                      </div>
-                    </CommandItem>
-                  </CommandGroup>
-                )}
-
-                {/* Section 2: Other Databases on This Server */}
-                {groupedDatabases.thisServer.length > 0 && (
-                  <CommandGroup
-                    heading="On this Server"
-                    className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
-                  >
-                    {groupedDatabases.thisServer.map((dbItem) => {
-                      return (
-                        <CommandItem
-                          key={dbItem.name}
-                          value={dbItem.name}
-                          onSelect={() => {
-                            void handleOpenDatabaseNewWindow(
-                              dbItem.name,
-                              dbItem.hasProfile,
-                            );
-                            setSearchQuery("");
-                          }}
-                          className="cursor-pointer py-1.5 px-2 group/db-item"
-                        >
-                          <div className="flex items-center justify-between w-full gap-2">
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                              {connection?.db_type ? (
-                                <img
-                                  src={getDatabaseLogo(connection.db_type)}
-                                  alt="database"
-                                  className="h-3.5 w-3.5 shrink-0"
-                                />
-                              ) : (
-                                <IconDatabase
-                                  className={cn(
-                                    "h-3.5 w-3.5 shrink-0",
-                                    dbItem.hasProfile
-                                      ? "text-blue-500"
-                                      : "text-muted-foreground",
-                                  )}
-                                />
-                              )}
-                              <span
-                                className={cn(
-                                  "text-xs truncate",
-                                  dbItem.hasProfile && "font-medium",
-                                )}
-                              >
-                                {dbItem.name}
-                              </span>
-                              {dbItem.hasProfile && (
-                                <IconCircle className="!h-2 !w-2 fill-primary text-primary shrink-0" />
-                              )}
-                            </div>
-                            {/* Action buttons - visible on hover */}
-                            <div className="flex items-center gap-1 opacity-0 group-hover/db-item:opacity-100 group-data-[selected=true]/command-item:opacity-100 transition-opacity shrink-0">
-                              {isMultiConnectionWorkspace && (
-                                <Tooltip>
-                                  <TooltipTrigger
-                                    render={
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          void handleAddDatabaseToWorkspace(
-                                            dbItem.name,
-                                            dbItem.hasProfile,
-                                          );
-                                        }}
-                                        className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-foreground"
-                                      >
-                                        <IconPlus className="!h-3.5 !w-3.5" />
-                                      </button>
-                                    }
-                                  />
-                                  <TooltipContent side="top" className="text-xs">
-                                    Add to Workspace
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
-                              <Tooltip>
-                                <TooltipTrigger
-                                  render={
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        void handleOpenDatabaseNewWindow(
-                                          dbItem.name,
-                                          dbItem.hasProfile,
-                                        );
-                                      }}
-                                      className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-foreground"
-                                    >
-                                      <IconExternalLink className="!h-3.5 !w-3.5" />
-                                    </button>
-                                  }
-                                />
-                                <TooltipContent side="top" className="text-xs">
-                                  Open New Window
-                                </TooltipContent>
-                              </Tooltip>
-                            </div>
-                          </div>
-                        </CommandItem>
-                      );
-                    })}
-                  </CommandGroup>
-                )}
-
-                {/* Section 3: Other Saved Profiles (Different Servers) */}
-                {groupedDatabases.otherProfiles.length > 0 && (
-                  <CommandGroup
-                    heading="Saved profiles"
-                    className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
-                  >
-                    {groupedDatabases.otherProfiles.map((profile) => {
-                      const handleOpenProfile = () => {
-                        void windowManager.openWorkspace(
-                          profile.id,
-                          profile.name,
-                          profile.database
-                            ? { database: profile.database }
-                            : undefined,
-                        );
-                        setSearchQuery("");
-                        setOpen(false);
-                      };
-
-                      const handleAddProfile = () => {
-                        if (!activeWorkspace?.connections.has(profile.id)) {
-                          void addConnectionToWorkspace(profile.id);
-                          toast.success(`Added ${profile.name} to workspace`);
-                        } else {
-                          toast.info("Connection already in workspace");
-                        }
-                        setOpen(false);
-                      };
-
-                      return (
-                        <CommandItem
-                          key={profile.id}
-                          value={profile.id}
-                          onSelect={handleOpenProfile}
-                          className="cursor-pointer py-1.5 px-2 group/profile-item"
-                        >
-                          <div className="flex items-center justify-between w-full gap-2">
-                            <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <img
-                                  src={getDatabaseLogo(profile.db_type)}
-                                  alt="database"
-                                  className="h-3.5 w-3.5 shrink-0"
-                                />
-                                <span className="text-xs font-medium truncate">
-                                  {profile.name}
-                                </span>
-                              </div>
-                              <span className="text-[10px] text-muted-foreground pl-5 truncate">
-                                {profile.host}:{profile.port}
-                                {profile.database && ` / ${profile.database}`}
-                              </span>
-                            </div>
-                            {/* Action buttons - visible on hover */}
-                            <div className="flex items-center gap-1 opacity-0 group-hover/profile-item:opacity-100 group-data-[selected=true]/command-item:opacity-100 transition-opacity shrink-0">
-                              {isMultiConnectionWorkspace && (
-                                <Tooltip>
-                                  <TooltipTrigger
-                                    render={
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleAddProfile();
-                                        }}
-                                        className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-foreground"
-                                      >
-                                        <IconPlus className="!h-3.5 !w-3.5" />
-                                      </button>
-                                    }
-                                  />
-                                  <TooltipContent side="top" className="text-xs">
-                                    Add to Workspace
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
-                              <Tooltip>
-                                <TooltipTrigger
-                                  render={
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenProfile();
-                                      }}
-                                      className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-foreground"
-                                    >
-                                      <IconExternalLink className="!h-3.5 !w-3.5" />
-                                    </button>
-                                  }
-                                />
-                                <TooltipContent side="top" className="text-xs">
-                                  Open New Window
-                                </TooltipContent>
-                              </Tooltip>
-                            </div>
-                          </div>
-                        </CommandItem>
-                      );
-                    })}
-                  </CommandGroup>
-                )}
-              </CommandList>
-            </Command>
-          </PopoverContent>
-        </Popover>
+          <IconDatabase className="!size-4" />
+        </Button>
 
         {/* Pending Changes Count */}
         {totalChanges > 0 && (
           <>
             <div
-              className="h-3 w-px bg-border flex-shrink-0"
+              className="h-3 w-px bg-border shrink-0"
               data-tauri-drag-region
             />
             {/* Undo/Redo buttons */}
@@ -1283,45 +852,86 @@ export function WorkspaceTitleBar({
       </div>
 
       {/* Center Section - Absolute positioning for true center, shrinks when space is limited */}
-      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-1.5 text-xs max-w-[40%] min-w-0 select-none">
-        {/* IconDatabase Name with Type */}
-        <div
-          className="flex items-center gap-1 min-w-0 flex-shrink"
-          data-tauri-drag-region
-        >
-          <span className="font-medium text-xs truncate" data-tauri-drag-region>
-            {selectedDatabase || connection?.database || "Loading..."}
-          </span>
-          <span
-            className="text-muted-foreground whitespace-nowrap hidden lg:inline text-[10px]"
-            data-tauri-drag-region
-          >
-            {connection?.db_type}
-            {serverVersion && ` ${serverVersion}`}
-          </span>
-        </div>
-
-        {/* Connection Details - Hidden on smaller screens */}
-        {connection?.host && (
+      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-1.5 text-xs max-w-[50%] min-w-0 select-none">
+        {/* Workspace Name (if named, multi-connection workspace) */}
+        {activeWorkspace && !activeWorkspace.isTemporary && activeWorkspace.config.connectionIds.length > 1 ? (
           <>
-            <div className="h-3 w-px bg-border flex-shrink-0 hidden xl:block" />
             <span
-              className="text-muted-foreground truncate min-w-0 hidden xl:inline text-[10px]"
+              className="font-medium text-xs truncate"
               data-tauri-drag-region
             >
-              {connection.host}:{connection.port}
+              {activeWorkspace.config.name}
             </span>
+            <span
+              className="text-muted-foreground whitespace-nowrap text-[10px]"
+              data-tauri-drag-region
+            >
+              {activeWorkspace.config.connectionIds.length} connections
+            </span>
+          </>
+        ) : (
+          <>
+            {/* Single-connection workspace: show workspace name if named */}
+            {activeWorkspace && !activeWorkspace.isTemporary && (
+              <>
+                <span
+                  className="font-medium text-xs truncate"
+                  data-tauri-drag-region
+                >
+                  {activeWorkspace.config.name}
+                </span>
+                <div
+                  className="h-3 w-px bg-border shrink-0"
+                  data-tauri-drag-region
+                />
+              </>
+            )}
+
+            {/* Database Name with Type */}
+            <div
+              className="flex items-center gap-1 min-w-0 flex-shrink"
+              data-tauri-drag-region
+            >
+              <span
+                className={cn(
+                  "text-xs truncate",
+                  activeWorkspace?.isTemporary
+                    ? "font-medium"
+                    : "text-muted-foreground",
+                )}
+                data-tauri-drag-region
+              >
+                {selectedDatabase || connection?.database || "Loading..."}
+              </span>
+              <span
+                className="text-muted-foreground whitespace-nowrap hidden lg:inline text-[10px]"
+                data-tauri-drag-region
+              >
+                {connection?.db_type}
+                {serverVersion && ` ${serverVersion}`}
+              </span>
+            </div>
+
+            {/* Connection Details - Hidden on smaller screens */}
+            {connection?.host && (
+              <>
+                <div className="h-3 w-px bg-border shrink-0 hidden xl:block" />
+                <span
+                  className="text-muted-foreground truncate min-w-0 hidden xl:inline text-[10px]"
+                  data-tauri-drag-region
+                >
+                  {connection.host}:{connection.port}
+                </span>
+              </>
+            )}
           </>
         )}
 
         {/* Connection Status Badge */}
-        <div
-          className="h-3 w-px bg-border flex-shrink-0"
-          data-tauri-drag-region
-        />
+        <div className="h-3 w-px bg-border shrink-0" data-tauri-drag-region />
         <div
           className={cn(
-            "flex items-center gap-1 px-1.5 py-0.5 rounded-full transition-all whitespace-nowrap flex-shrink-0",
+            "flex items-center gap-1 px-1.5 py-0.5 rounded-full transition-all whitespace-nowrap shrink-0",
             connectionHealth?.status === "ready" && "bg-green-500/10",
             connectionHealth?.status === "degraded" && "bg-yellow-500/10",
             connectionHealth?.status === "error" &&
@@ -1347,7 +957,7 @@ export function WorkspaceTitleBar({
               variant="ghost"
               size="sm"
               onClick={handleReconnect}
-              className="h-5 px-1.5 text-xs gap-1 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/20 flex-shrink-0"
+              className="h-5 px-1.5 text-xs gap-1 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/20 shrink-0"
             >
               <IconRotate className="h-2.5 w-2.5" />
               <span className="hidden sm:inline">Reconnect</span>
@@ -1357,15 +967,6 @@ export function WorkspaceTitleBar({
 
       {/* Right Section */}
       <div className="flex items-center gap-2.5 pr-3">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={handleOpenErd}
-          title="Open ERD"
-        >
-          <IconSitemap className="!size-4" />
-        </Button>
-
         <Button
           variant="ghost"
           size="icon-sm"
@@ -1392,11 +993,7 @@ export function WorkspaceTitleBar({
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                title="Settings"
-              >
+              <Button variant="ghost" size="icon-sm" title="Settings">
                 <IconSettings className="!size-4" />
               </Button>
             }

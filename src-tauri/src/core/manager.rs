@@ -1,5 +1,4 @@
 use dashmap::{DashMap, DashSet};
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -12,11 +11,260 @@ use crate::adapters::mysql::MySqlAdapter;
 use crate::adapters::postgres::PostgresAdapter;
 use crate::adapters::redis::RedisAdapter;
 use crate::adapters::sqlite::SqliteAdapter;
-use crate::core::capabilities::BaseCapability;
+use crate::core::backup_capability::BackupCapable;
+use crate::core::capabilities::{
+    BaseCapability, CapabilityTestResult, DocumentQueryable, RichKeyValueOperable, SqlQueryable,
+};
 use crate::error::{AppError, Result};
 use crate::ssh::secrets::delete_ssh_passphrase;
 use crate::ssh::SshTunnel;
 use crate::types::*;
+
+/// Unified adapter that wraps any database adapter and provides paradigm-specific access.
+///
+/// Uses raw pointers to store trait object references for paradigm capabilities,
+/// avoiding the need for enum dispatch or unsafe downcasting at runtime.
+///
+/// # Safety
+/// The raw pointers stored in `sql`, `document`, and `keyvalue` fields point to
+/// the same allocation as `inner`. They are valid for the lifetime of `inner`
+/// and we never mutate through them. The constructors ensure this invariant.
+pub struct UnifiedAdapter {
+    /// The underlying adapter implementing BaseCapability
+    inner: Box<dyn BaseCapability>,
+
+    /// Pointer to SqlQueryable trait object (if supported)
+    sql: Option<*const dyn SqlQueryable>,
+
+    /// Pointer to DocumentQueryable trait object (if supported)
+    document: Option<*const dyn DocumentQueryable>,
+
+    /// Pointer to RichKeyValueOperable trait object (if supported)
+    keyvalue: Option<*const dyn RichKeyValueOperable>,
+
+    /// Pointer to BackupCapable trait object (if supported)
+    backup: Option<*const dyn BackupCapable>,
+
+    /// Concrete adapter pointers for adapter-specific access
+    postgres: Option<*const PostgresAdapter>,
+    mysql: Option<*const MySqlAdapter>,
+    mssql: Option<*const MssqlAdapter>,
+    sqlite: Option<*const SqliteAdapter>,
+    mongo: Option<*const MongoDbAdapter>,
+    redis: Option<*const RedisAdapter>,
+
+    /// Database type
+    db_type: DbType,
+}
+
+// SAFETY: The raw pointers point to the same allocation as `inner`.
+// They're valid for the lifetime of `inner` and we never mutate through them.
+unsafe impl Send for UnifiedAdapter {}
+unsafe impl Sync for UnifiedAdapter {}
+
+impl UnifiedAdapter {
+    /// Create a new UnifiedAdapter for PostgreSQL
+    pub fn postgres(adapter: PostgresAdapter) -> Self {
+        let boxed = Box::new(adapter);
+        let ptr = &*boxed as *const PostgresAdapter;
+        let sql_ptr: *const dyn SqlQueryable = ptr;
+        let backup_ptr: *const dyn BackupCapable = ptr;
+        Self {
+            inner: boxed,
+            sql: Some(sql_ptr),
+            document: None,
+            keyvalue: None,
+            backup: Some(backup_ptr),
+            postgres: Some(ptr),
+            mysql: None,
+            mssql: None,
+            sqlite: None,
+            mongo: None,
+            redis: None,
+            db_type: DbType::PostgreSQL,
+        }
+    }
+
+    /// Create a new UnifiedAdapter for MySQL/MariaDB
+    pub fn mysql(adapter: MySqlAdapter, db_type: DbType) -> Self {
+        let boxed = Box::new(adapter);
+        let ptr = &*boxed as *const MySqlAdapter;
+        let sql_ptr: *const dyn SqlQueryable = ptr;
+        let backup_ptr: *const dyn BackupCapable = ptr;
+        Self {
+            inner: boxed,
+            sql: Some(sql_ptr),
+            document: None,
+            keyvalue: None,
+            backup: Some(backup_ptr),
+            postgres: None,
+            mysql: Some(ptr),
+            mssql: None,
+            sqlite: None,
+            mongo: None,
+            redis: None,
+            db_type,
+        }
+    }
+
+    /// Create a new UnifiedAdapter for SQLite
+    pub fn sqlite(adapter: SqliteAdapter) -> Self {
+        let boxed = Box::new(adapter);
+        let ptr = &*boxed as *const SqliteAdapter;
+        let sql_ptr: *const dyn SqlQueryable = ptr;
+        let backup_ptr: *const dyn BackupCapable = ptr;
+        Self {
+            inner: boxed,
+            sql: Some(sql_ptr),
+            document: None,
+            keyvalue: None,
+            backup: Some(backup_ptr),
+            postgres: None,
+            mysql: None,
+            mssql: None,
+            sqlite: Some(ptr),
+            mongo: None,
+            redis: None,
+            db_type: DbType::SQLite,
+        }
+    }
+
+    /// Create a new UnifiedAdapter for SQL Server
+    pub fn mssql(adapter: MssqlAdapter) -> Self {
+        let boxed = Box::new(adapter);
+        let ptr = &*boxed as *const MssqlAdapter;
+        let sql_ptr: *const dyn SqlQueryable = ptr;
+        let backup_ptr: *const dyn BackupCapable = ptr;
+        Self {
+            inner: boxed,
+            sql: Some(sql_ptr),
+            document: None,
+            keyvalue: None,
+            backup: Some(backup_ptr),
+            postgres: None,
+            mysql: None,
+            mssql: Some(ptr),
+            sqlite: None,
+            mongo: None,
+            redis: None,
+            db_type: DbType::SQLServer,
+        }
+    }
+
+    /// Create a new UnifiedAdapter for MongoDB
+    pub fn mongodb(adapter: MongoDbAdapter) -> Self {
+        let boxed = Box::new(adapter);
+        let ptr = &*boxed as *const MongoDbAdapter;
+        let doc_ptr: *const dyn DocumentQueryable = ptr;
+        let backup_ptr: *const dyn BackupCapable = ptr;
+        Self {
+            inner: boxed,
+            sql: None,
+            document: Some(doc_ptr),
+            keyvalue: None,
+            backup: Some(backup_ptr),
+            postgres: None,
+            mysql: None,
+            mssql: None,
+            sqlite: None,
+            mongo: Some(ptr),
+            redis: None,
+            db_type: DbType::MongoDB,
+        }
+    }
+
+    /// Create a new UnifiedAdapter for Redis
+    pub fn redis(adapter: RedisAdapter) -> Self {
+        let boxed = Box::new(adapter);
+        let ptr = &*boxed as *const RedisAdapter;
+        let kv_ptr: *const dyn RichKeyValueOperable = ptr;
+        let backup_ptr: *const dyn BackupCapable = ptr;
+        Self {
+            inner: boxed,
+            sql: None,
+            document: None,
+            keyvalue: Some(kv_ptr),
+            backup: Some(backup_ptr),
+            postgres: None,
+            mysql: None,
+            mssql: None,
+            sqlite: None,
+            mongo: None,
+            redis: Some(ptr),
+            db_type: DbType::Redis,
+        }
+    }
+
+    // ========== BaseCapability delegation ==========
+
+    pub fn is_connected(&self) -> bool {
+        self.inner.is_connected()
+    }
+
+    pub async fn test_connection(&self) -> Result<CapabilityTestResult> {
+        self.inner.test_connection().await
+    }
+
+    pub async fn disconnect(&self) -> Result<()> {
+        self.inner.disconnect().await
+    }
+
+    pub async fn connect(&self, profile: &ConnectionProfile) -> Result<()> {
+        self.inner.connect(profile).await
+    }
+
+    pub fn db_type(&self) -> DbType {
+        self.db_type
+    }
+
+    // ========== Paradigm-specific access ==========
+
+    /// Get SQL queryable interface (returns None for MongoDB/Redis)
+    pub fn as_sql(&self) -> Option<&dyn SqlQueryable> {
+        self.sql.map(|p| unsafe { &*p })
+    }
+
+    /// Get document queryable interface (returns None for SQL/Redis)
+    pub fn as_document(&self) -> Option<&dyn DocumentQueryable> {
+        self.document.map(|p| unsafe { &*p })
+    }
+
+    /// Get key-value operable interface (returns None for SQL/MongoDB)
+    pub fn as_keyvalue(&self) -> Option<&dyn RichKeyValueOperable> {
+        self.keyvalue.map(|p| unsafe { &*p })
+    }
+
+    /// Get backup capable interface (returns None for adapters that don't support backup)
+    pub fn as_backup(&self) -> Option<&dyn BackupCapable> {
+        self.backup.map(|p| unsafe { &*p })
+    }
+
+    // ========== Concrete adapter access ==========
+
+    pub fn as_postgres(&self) -> Option<&PostgresAdapter> {
+        self.postgres.map(|p| unsafe { &*p })
+    }
+
+    pub fn as_mysql(&self) -> Option<&MySqlAdapter> {
+        self.mysql.map(|p| unsafe { &*p })
+    }
+
+    pub fn as_mssql(&self) -> Option<&MssqlAdapter> {
+        self.mssql.map(|p| unsafe { &*p })
+    }
+
+    pub fn as_sqlite(&self) -> Option<&SqliteAdapter> {
+        self.sqlite.map(|p| unsafe { &*p })
+    }
+
+    pub fn as_mongo(&self) -> Option<&MongoDbAdapter> {
+        self.mongo.map(|p| unsafe { &*p })
+    }
+
+    pub fn as_redis(&self) -> Option<&RedisAdapter> {
+        self.redis.map(|p| unsafe { &*p })
+    }
+}
 
 enum ManagedTunnel {
     Ssh(SshTunnel),
@@ -44,28 +292,21 @@ impl ManagedTunnel {
 
 pub struct ConnectionManager {
     connections: Arc<DashMap<String, LiveConnection>>,
-    // Store profiles separately so we can reconnect after reaper removes connection
     profiles: Arc<DashMap<String, ConnectionProfile>>,
     tunnels: Arc<DashMap<String, ManagedTunnel>>,
-    /// Track in-flight connection attempts to prevent duplicate tunnel creation
     pending_connections: Arc<DashSet<String>>,
-    /// Notification for when a connection attempt completes (replaces polling)
     connection_ready: Arc<Notify>,
     #[allow(dead_code)]
     queries: Arc<DashMap<String, QueryHandle>>,
     idle_timeout: Duration,
     reaper_handle: Arc<tokio::sync::Mutex<Option<JoinHandle<()>>>>,
     total_connections: Arc<AtomicUsize>,
-    // MongoDB adapters (separate from SQL adapters)
-    pub mongo_adapters: Arc<RwLock<HashMap<String, MongoDbAdapter>>>,
-    // Redis adapters (separate from SQL adapters)
-    pub redis_adapters: Arc<RwLock<HashMap<String, RedisAdapter>>>,
 }
 
 pub struct LiveConnection {
     #[allow(dead_code)]
     pub id: String,
-    pub adapter: Box<dyn crate::core::adapter::DbAdapter>,
+    pub adapter: Arc<UnifiedAdapter>,
     pub profile: ConnectionProfile,
     #[allow(dead_code)]
     pub created_at: Instant,
@@ -73,6 +314,36 @@ pub struct LiveConnection {
     #[allow(dead_code)]
     pub query_count: Arc<AtomicUsize>,
     pub active_queries: Arc<AtomicUsize>,
+}
+
+/// RAII guard that holds an `Arc<UnifiedAdapter>` and tracks active usage.
+///
+/// Increments `active_queries` on creation, decrements on drop.
+/// This prevents the idle reaper from removing the connection while in use
+/// and allows callers to hold the adapter across `.await` points without
+/// holding the DashMap read lock.
+pub struct AdapterHandle {
+    adapter: Arc<UnifiedAdapter>,
+    active_queries: Arc<AtomicUsize>,
+}
+
+impl AdapterHandle {
+    pub fn db_type(&self) -> DbType {
+        self.adapter.db_type()
+    }
+}
+
+impl std::ops::Deref for AdapterHandle {
+    type Target = UnifiedAdapter;
+    fn deref(&self) -> &UnifiedAdapter {
+        &self.adapter
+    }
+}
+
+impl Drop for AdapterHandle {
+    fn drop(&mut self) {
+        self.active_queries.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 enum TunnelStatus {
@@ -105,11 +376,9 @@ impl ConnectionManager {
             pending_connections: Arc::new(DashSet::new()),
             connection_ready: Arc::new(Notify::new()),
             queries: Arc::new(DashMap::new()),
-            idle_timeout: Duration::from_secs(1800), // 30 minutes
+            idle_timeout: Duration::from_secs(1800),
             reaper_handle: Arc::new(tokio::sync::Mutex::new(None)),
             total_connections: Arc::new(AtomicUsize::new(0)),
-            mongo_adapters: Arc::new(RwLock::new(HashMap::new())),
-            redis_adapters: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -223,8 +492,17 @@ impl ConnectionManager {
                 }
 
                 for key in to_remove {
-                    if let Some((_, mut conn)) = connections.remove(&key) {
-                        let _ = conn.adapter.disconnect().await;
+                    // Re-check active_queries before removing to close the TOCTOU window:
+                    // a borrow_adapter() call between the scan and removal could have
+                    // started using this connection.
+                    let still_idle = connections
+                        .get(&key)
+                        .map(|e| e.active_queries.load(Ordering::SeqCst) == 0)
+                        .unwrap_or(false);
+                    if still_idle {
+                        if let Some((_, conn)) = connections.remove(&key) {
+                            let _ = conn.adapter.disconnect().await;
+                        }
                     }
                 }
             }
@@ -253,11 +531,9 @@ impl ConnectionManager {
 
             // Wait for notification with 120s timeout (uses proper async signaling, not polling)
             let timeout_duration = Duration::from_secs(120);
-            let wait_result = tokio::time::timeout(
-                timeout_duration,
-                self.wait_for_connection_ready(&conn_id),
-            )
-            .await;
+            let wait_result =
+                tokio::time::timeout(timeout_duration, self.wait_for_connection_ready(&conn_id))
+                    .await;
 
             match wait_result {
                 Ok(()) => {
@@ -290,9 +566,7 @@ impl ConnectionManager {
         self.pending_connections.insert(conn_id.clone());
 
         // Execute connection attempt
-        let result = self
-            .get_or_create_connection_inner(&conn_id, profile)
-            .await;
+        let result = self.get_or_create_connection_inner(&conn_id, profile).await;
 
         // Always remove from pending set and notify waiters
         self.pending_connections.remove(&conn_id);
@@ -318,24 +592,15 @@ impl ConnectionManager {
         conn_id: &str,
         profile: &ConnectionProfile,
     ) -> Result<String> {
-        // Handle MongoDB connections separately
-        if profile.db_type == DbType::MongoDB {
-            return self.create_mongo_connection(conn_id, profile).await;
-        }
-        
-        // Handle Redis connections separately
-        if profile.db_type == DbType::Redis {
-            return self.create_redis_connection(conn_id, profile).await;
-        }
-        
+        // Unified path for all database types - tunnel support for all
         let tunnel_status = self.ensure_tunnel(conn_id, profile).await?;
         let effective_profile = Self::build_effective_profile(profile, &tunnel_status);
 
         // Check if connection exists. If it does but the adapter is no longer connected,
         // attempt a transparent reconnect to heal broken sessions after reloads/network hiccups.
-        if let Some((_, mut conn)) = self.connections.remove(conn_id) {
+        if let Some((_, conn)) = self.connections.remove(conn_id) {
             let needs_reconnect =
-                !conn.adapter.is_connected().await || tunnel_status.requires_reconnect();
+                !conn.adapter.is_connected() || tunnel_status.requires_reconnect();
 
             if needs_reconnect {
                 if let Err(err) = conn.adapter.connect(&effective_profile).await {
@@ -344,13 +609,37 @@ impl ConnectionManager {
                             let _ = tunnel.close().await;
                         }
                     }
+                    // Re-insert the connection even on failure so subsequent
+                    // reconnection attempts can find and retry it, rather than
+                    // permanently losing the connection from the map.
+                    self.connections.insert(
+                        conn_id.to_string(),
+                        LiveConnection {
+                            id: conn.id,
+                            adapter: conn.adapter,
+                            profile: profile.clone(),
+                            created_at: conn.created_at,
+                            last_used: conn.last_used,
+                            query_count: conn.query_count,
+                            active_queries: conn.active_queries,
+                        },
+                    );
                     return Err(err);
                 }
             }
 
             *conn.last_used.write().await = Instant::now();
-            conn.profile = profile.clone();
-            self.connections.insert(conn_id.to_string(), conn);
+            // Note: profile update requires mutable access, but we can insert fresh
+            let updated_conn = LiveConnection {
+                id: conn.id,
+                adapter: conn.adapter,
+                profile: profile.clone(),
+                created_at: conn.created_at,
+                last_used: conn.last_used,
+                query_count: conn.query_count,
+                active_queries: conn.active_queries,
+            };
+            self.connections.insert(conn_id.to_string(), updated_conn);
             self.profiles.insert(conn_id.to_string(), profile.clone());
             return Ok(conn_id.to_string());
         }
@@ -360,8 +649,8 @@ impl ConnectionManager {
             self.start_reaper_internal().await;
         }
 
-        // Create new connection
-        let mut adapter = self.create_adapter(profile)?;
+        // Create new connection (unified factory for all db types)
+        let adapter = self.create_adapter(profile)?;
         tracing::info!(
             "Connecting to {}:{}/{} (type: {:?})",
             effective_profile.host,
@@ -382,7 +671,7 @@ impl ConnectionManager {
 
         let live_conn = LiveConnection {
             id: conn_id.to_string(),
-            adapter,
+            adapter: Arc::new(adapter),
             profile: profile.clone(),
             created_at: Instant::now(),
             last_used: Arc::new(RwLock::new(Instant::now())),
@@ -396,99 +685,11 @@ impl ConnectionManager {
         self.total_connections.fetch_add(1, Ordering::SeqCst);
         Ok(conn_id.to_string())
     }
-    
-    /// Create MongoDB connection
-    async fn create_mongo_connection(
-        &self,
-        conn_id: &str,
-        profile: &ConnectionProfile,
-    ) -> Result<String> {
-        // Check if MongoDB adapter already exists
-        {
-            let adapters = self.mongo_adapters.read().await;
-            if let Some(adapter) = adapters.get(conn_id) {
-                if adapter.is_connected() {
-                    return Ok(conn_id.to_string());
-                }
-            }
-        }
-        
-        // Create new MongoDB adapter
-        let adapter = MongoDbAdapter::new();
-        
-        tracing::info!(
-            "Connecting to MongoDB at {}:{}/{} (type: {:?})",
-            profile.host,
-            profile.port,
-            profile.database,
-            profile.db_type
-        );
-        
-        if let Err(err) = adapter.connect(profile).await {
-            tracing::error!("MongoDB connection failed: {}", err);
-            return Err(err);
-        }
-        
-        tracing::info!("MongoDB connection established successfully");
-        
-        // Store the adapter
-        {
-            let mut adapters = self.mongo_adapters.write().await;
-            adapters.insert(conn_id.to_string(), adapter);
-        }
-        
-        self.profiles.insert(conn_id.to_string(), profile.clone());
-        self.total_connections.fetch_add(1, Ordering::SeqCst);
-        
-        Ok(conn_id.to_string())
-    }
-    
-    /// Create Redis connection
-    async fn create_redis_connection(
-        &self,
-        conn_id: &str,
-        profile: &ConnectionProfile,
-    ) -> Result<String> {
-        // Check if Redis adapter already exists
-        {
-            let adapters = self.redis_adapters.read().await;
-            if let Some(adapter) = adapters.get(conn_id) {
-                if adapter.is_connected() {
-                    return Ok(conn_id.to_string());
-                }
-            }
-        }
-        
-        // Create new Redis adapter
-        let adapter = RedisAdapter::new();
-        
-        tracing::info!(
-            "Connecting to Redis at {}:{}/{} (type: {:?})",
-            profile.host,
-            profile.port,
-            profile.database,
-            profile.db_type
-        );
-        
-        if let Err(err) = adapter.connect(profile).await {
-            tracing::error!("Redis connection failed: {}", err);
-            return Err(err);
-        }
-        
-        tracing::info!("Redis connection established successfully");
-        
-        // Store the adapter
-        {
-            let mut adapters = self.redis_adapters.write().await;
-            adapters.insert(conn_id.to_string(), adapter);
-        }
-        
-        self.profiles.insert(conn_id.to_string(), profile.clone());
-        self.total_connections.fetch_add(1, Ordering::SeqCst);
-        
-        Ok(conn_id.to_string())
-    }
 
+    /// **Deprecated**: Returns a DashMap `Ref` guard that holds a read lock.
+    /// Do NOT hold the returned value across `.await` points — this blocks
+    /// concurrent reconnection. Use `borrow_adapter()` instead.
+    #[cfg(test)]
     pub fn get_connection(
         &self,
         conn_id: &str,
@@ -496,10 +697,37 @@ impl ConnectionManager {
         self.connections.get(conn_id)
     }
 
+    /// Borrow a connection's adapter as an RAII handle.
+    ///
+    /// Unlike `get_connection`, this immediately releases the DashMap read lock
+    /// so callers can safely hold the adapter across `.await` points without
+    /// blocking concurrent reconnection attempts.
+    ///
+    /// The returned `AdapterHandle` increments `active_queries` to prevent the
+    /// idle reaper from removing the connection while in use, and decrements
+    /// it on drop.
+    pub fn borrow_adapter(&self, conn_id: &str) -> Option<AdapterHandle> {
+        self.connections.get(conn_id).map(|entry| {
+            entry.active_queries.fetch_add(1, Ordering::SeqCst);
+            // Update last_used to prevent idle reaper from removing actively-used connections.
+            // try_write() is non-blocking: if contended, skip — the connection is clearly active.
+            if let Ok(mut last_used) = entry.last_used.try_write() {
+                *last_used = Instant::now();
+            }
+            AdapterHandle {
+                adapter: Arc::clone(&entry.adapter),
+                active_queries: Arc::clone(&entry.active_queries),
+            }
+        })
+    }
+
     /// Touch connection to update last_used timestamp (prevents idle timeout)
-    pub async fn touch_connection(&self, conn_id: &str) -> Result<()> {
+    pub fn touch_connection(&self, conn_id: &str) -> Result<()> {
         if let Some(entry) = self.connections.get(conn_id) {
-            *entry.last_used.write().await = Instant::now();
+            // Use try_write() to avoid holding the DashMap read lock across an async yield.
+            if let Ok(mut last_used) = entry.last_used.try_write() {
+                *last_used = Instant::now();
+            }
             Ok(())
         } else {
             Err(AppError::internal(format!(
@@ -514,8 +742,24 @@ impl ConnectionManager {
         self.profiles.get(conn_id).map(|p| p.clone())
     }
 
-    /// Get connection with automatic retry and reconnect
-    /// If connection is not found, attempts to reconnect using stored profile
+    /// Get the safe_mode setting for a connection.
+    ///
+    /// Extracts the base connection ID from a composite key (e.g. `{conn_id}:{tab_id}`)
+    /// and looks up the profile's safe_mode. This is a synchronous, non-blocking operation
+    /// that does not hold any DashMap lock across await points.
+    pub fn get_safe_mode(&self, conn_id: &str) -> Option<SafeMode> {
+        let base_id = conn_id.split(':').next().unwrap_or(conn_id);
+        self.profiles.get(base_id).and_then(|p| p.safe_mode)
+    }
+
+    /// Get connection with automatic retry and reconnect.
+    ///
+    /// **Deprecated**: Returns a DashMap `Ref` guard that holds a read lock.
+    /// Do NOT hold the returned value across `.await` points — this blocks
+    /// concurrent reconnection. Use [`borrow_adapter_with_retry`] instead.
+    ///
+    /// If connection is not found, attempts to reconnect using stored profile.
+    #[deprecated(note = "Use borrow_adapter_with_retry() instead — this holds a DashMap read lock")]
     pub async fn get_connection_with_retry(
         &self,
         conn_id: &str,
@@ -583,41 +827,69 @@ impl ConnectionManager {
         )))
     }
 
+    /// Like `get_connection_with_retry` but returns an `AdapterHandle` that does
+    /// not hold the DashMap read lock. Safe to hold across `.await` points.
+    pub async fn borrow_adapter_with_retry(
+        &self,
+        conn_id: &str,
+        max_retries: usize,
+    ) -> Result<AdapterHandle> {
+        for attempt in 0..max_retries {
+            if let Some(handle) = self.borrow_adapter(conn_id) {
+                return Ok(handle);
+            }
+
+            // Connection not found, try to reconnect
+            if attempt < max_retries - 1 {
+                tracing::info!(
+                    "Connection {} not found, attempting reconnect (attempt {}/{})",
+                    conn_id,
+                    attempt + 1,
+                    max_retries
+                );
+
+                let base_conn_id = conn_id.split(':').next().unwrap_or(conn_id);
+
+                let mut profile = self
+                    .profiles
+                    .get(base_conn_id)
+                    .map(|p| p.clone())
+                    .ok_or_else(|| {
+                        AppError::internal(format!(
+                            "Cannot reconnect: profile for connection {} not found",
+                            conn_id
+                        ))
+                    })?;
+
+                profile.id = conn_id.to_string();
+
+                match self.get_or_create_connection(&profile).await {
+                    Ok(_) => {
+                        let delay_ms = match attempt {
+                            0 => 100,
+                            1 => 500,
+                            _ => 1000,
+                        };
+                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                        continue;
+                    }
+                    Err(e) => {
+                        tracing::warn!("Reconnect attempt {} failed: {}", attempt + 1, e);
+                    }
+                }
+            }
+        }
+
+        Err(AppError::internal(format!(
+            "Connection {} not found after {} retries",
+            conn_id, max_retries
+        )))
+    }
+
     pub async fn disconnect(&self, conn_id: &str) -> Result<()> {
-        // Handle MongoDB disconnect
-        {
-            let mut mongo_adapters = self.mongo_adapters.write().await;
-            if let Some(adapter) = mongo_adapters.remove(conn_id) {
-                if let Err(e) = adapter.disconnect().await {
-                    tracing::warn!("MongoDB disconnect error for {}: {}", conn_id, e);
-                }
-                self.total_connections.fetch_sub(1, Ordering::SeqCst);
-                self.profiles.remove(conn_id);
-                return Ok(());
-            }
-        }
-        
-        // Handle Redis disconnect
-        {
-            let mut redis_adapters = self.redis_adapters.write().await;
-            if let Some(adapter) = redis_adapters.remove(conn_id) {
-                if let Err(e) = adapter.disconnect().await {
-                    tracing::warn!("Redis disconnect error for {}: {}", conn_id, e);
-                }
-                self.total_connections.fetch_sub(1, Ordering::SeqCst);
-                self.profiles.remove(conn_id);
-                return Ok(());
-            }
-        }
-        
-        // Remove from pool first - this is always safe and non-blocking
-        if let Some((_, mut conn)) = self.connections.remove(conn_id) {
-            // Disconnect adapter with timeout - don't hang on dead connections
-            let disconnect_result = tokio::time::timeout(
-                Duration::from_secs(2),
-                conn.adapter.disconnect(),
-            )
-            .await;
+        if let Some((_, conn)) = self.connections.remove(conn_id) {
+            let disconnect_result =
+                tokio::time::timeout(Duration::from_secs(2), conn.adapter.disconnect()).await;
 
             match disconnect_result {
                 Ok(Ok(())) => {}
@@ -676,22 +948,57 @@ impl ConnectionManager {
         Ok(())
     }
 
-    fn create_adapter(
-        &self,
-        profile: &ConnectionProfile,
-    ) -> Result<Box<dyn crate::core::adapter::DbAdapter>> {
+    fn create_adapter(&self, profile: &ConnectionProfile) -> Result<UnifiedAdapter> {
         match profile.db_type {
-            DbType::PostgreSQL => Ok(Box::new(PostgresAdapter::new())),
-            DbType::MySQL | DbType::MariaDB => Ok(Box::new(MySqlAdapter::new())),
-            DbType::SQLite => Ok(Box::new(SqliteAdapter::new())),
-            DbType::SQLServer => Ok(Box::new(MssqlAdapter::new())),
-            // TODO: MongoDB and Redis adapters will be implemented in Phase 2
-            DbType::MongoDB => Err(crate::error::AppError::Unsupported(
-                "MongoDB adapter not yet implemented".to_string(),
-            )),
-            DbType::Redis => Err(crate::error::AppError::Unsupported(
-                "Redis adapter not yet implemented".to_string(),
-            )),
+            DbType::PostgreSQL => Ok(UnifiedAdapter::postgres(PostgresAdapter::new())),
+            DbType::MySQL | DbType::MariaDB => {
+                Ok(UnifiedAdapter::mysql(MySqlAdapter::new(), profile.db_type))
+            }
+            DbType::SQLite => Ok(UnifiedAdapter::sqlite(SqliteAdapter::new())),
+            DbType::SQLServer => Ok(UnifiedAdapter::mssql(MssqlAdapter::new())),
+            DbType::MongoDB => Ok(UnifiedAdapter::mongodb(MongoDbAdapter::new())),
+            DbType::Redis => Ok(UnifiedAdapter::redis(RedisAdapter::new())),
+        }
+    }
+
+    /// Update the safe mode level on a live connection.
+    ///
+    /// Propagates the change to:
+    /// 1. The stored profile (so reconnections inherit the new mode)
+    /// 2. The base connection entry
+    /// 3. All tab-specific connections (key format: `{conn_id}:{tab_id}`)
+    pub fn update_safe_mode(&self, conn_id: &str, safe_mode: SafeMode) -> Result<()> {
+        // Update the stored profile so reconnections/new tabs inherit the mode
+        if let Some(mut profile) = self.profiles.get_mut(conn_id) {
+            profile.safe_mode = Some(safe_mode);
+        }
+
+        // Update all live connections: the base connection and any tab-specific ones
+        let prefix = format!("{}:", conn_id);
+        let mut found = false;
+        for mut entry in self.connections.iter_mut() {
+            let key = entry.key();
+            if key == conn_id || key.starts_with(&prefix) {
+                entry.value_mut().profile.safe_mode = Some(safe_mode);
+                found = true;
+            }
+        }
+
+        if found {
+            Ok(())
+        } else {
+            Err(AppError::internal(format!(
+                "Connection {} not found",
+                conn_id
+            )))
+        }
+    }
+
+    pub async fn ping_connection(&self, conn_id: &str) -> Result<bool> {
+        if let Some(conn) = self.connections.get(conn_id) {
+            Ok(conn.adapter.is_connected())
+        } else {
+            Ok(false)
         }
     }
 
@@ -721,6 +1028,31 @@ impl ConnectionManager {
             total_queries,
         }
     }
+
+    /// List all active connections with their basic info
+    pub fn list_connections(&self) -> Vec<ConnectionInfo> {
+        self.connections
+            .iter()
+            .map(|entry| {
+                let conn = entry.value();
+                ConnectionInfo {
+                    id: conn.profile.id.clone(),
+                    name: conn.profile.name.clone(),
+                    db_type: format!("{:?}", conn.profile.db_type),
+                    database: conn.profile.database.clone(),
+                }
+            })
+            .collect()
+    }
+}
+
+/// Basic information about an active connection (for MCP bridge)
+#[derive(Debug, Clone)]
+pub struct ConnectionInfo {
+    pub id: String,
+    pub name: String,
+    pub db_type: String,
+    pub database: String,
 }
 
 impl ConnectionManager {

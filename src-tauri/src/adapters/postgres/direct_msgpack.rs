@@ -54,10 +54,84 @@ use rmp::encode;
 use rust_decimal::Decimal;
 use std::io::Write;
 use std::ptr;
+use std::sync::Mutex;
 use tokio_postgres::Row;
 
 /// Threshold for parallel processing - below this, sequential is faster
 const PARALLEL_THRESHOLD: usize = 64;
+
+const CHUNK_BUF_DEFAULT_CAPACITY: usize = 64 * 1024;
+static CHUNK_BUF_POOL: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
+
+/// Take a pooled buffer, cleared but retaining capacity.
+#[inline]
+fn take_chunk_buffer(estimated_capacity: usize) -> Vec<u8> {
+    let mut pool = CHUNK_BUF_POOL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut buf = pool
+        .pop()
+        .unwrap_or_else(|| Vec::with_capacity(CHUNK_BUF_DEFAULT_CAPACITY.max(estimated_capacity)));
+    drop(pool);
+
+    buf.clear();
+    let cap = buf.capacity();
+    if cap < estimated_capacity {
+        buf.reserve(estimated_capacity - cap);
+    }
+    buf
+}
+
+/// Return a buffer to the shared pool for reuse.
+#[inline]
+fn return_chunk_buffer(mut buf: Vec<u8>) {
+    buf.clear();
+    let mut pool = CHUNK_BUF_POOL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let max_pool_size = (rayon::current_num_threads().max(1) * 2).max(4);
+    if pool.len() < max_pool_size {
+        pool.push(buf);
+    }
+}
+
+#[inline]
+fn write_null_row(buf: &mut Vec<u8>, column_count: usize) {
+    let _ = encode::write_array_len(buf, column_count as u32);
+    for _ in 0..column_count {
+        let _ = encode::write_nil(buf);
+    }
+}
+
+#[inline]
+fn encode_row_or_null<F>(buf: &mut Vec<u8>, column_count: usize, adapter: &str, encode_row: F)
+where
+    F: FnOnce(&mut Vec<u8>) -> Result<()>,
+{
+    let row_start = buf.len();
+    if let Err(e) = encode_row(buf) {
+        tracing::warn!("{} row encode failed (chunked): {}", adapter, e);
+        // Drop partial row bytes to preserve MsgPack row boundaries.
+        buf.truncate(row_start);
+        write_null_row(buf, column_count);
+    }
+}
+
+#[inline]
+fn merge_chunk_buffers(rows_len: usize, chunk_buffers: Vec<Vec<u8>>) -> Result<Vec<u8>> {
+    let header_size = msgpack_array_header_size(rows_len);
+    let total_chunk_bytes: usize = chunk_buffers.iter().map(|b| b.len()).sum();
+    let mut buffer = Vec::with_capacity(header_size + total_chunk_bytes);
+
+    encode::write_array_len(&mut buffer, rows_len as u32)
+        .map_err(DirectMsgPackEncoder::map_encode_err)?;
+    for chunk_buf in chunk_buffers {
+        buffer.extend_from_slice(&chunk_buf);
+        return_chunk_buffer(chunk_buf);
+    }
+
+    Ok(buffer)
+}
 
 /// Direct PostgreSQL to MessagePack encoder
 ///
@@ -190,16 +264,15 @@ fn msgpack_array_header_size(len: usize) -> usize {
 
 /// Fast digit pair lookup table (00-99)
 static DIGIT_PAIRS: &[[u8; 2]; 100] = &[
-    *b"00", *b"01", *b"02", *b"03", *b"04", *b"05", *b"06", *b"07", *b"08", *b"09",
-    *b"10", *b"11", *b"12", *b"13", *b"14", *b"15", *b"16", *b"17", *b"18", *b"19",
-    *b"20", *b"21", *b"22", *b"23", *b"24", *b"25", *b"26", *b"27", *b"28", *b"29",
-    *b"30", *b"31", *b"32", *b"33", *b"34", *b"35", *b"36", *b"37", *b"38", *b"39",
-    *b"40", *b"41", *b"42", *b"43", *b"44", *b"45", *b"46", *b"47", *b"48", *b"49",
-    *b"50", *b"51", *b"52", *b"53", *b"54", *b"55", *b"56", *b"57", *b"58", *b"59",
-    *b"60", *b"61", *b"62", *b"63", *b"64", *b"65", *b"66", *b"67", *b"68", *b"69",
-    *b"70", *b"71", *b"72", *b"73", *b"74", *b"75", *b"76", *b"77", *b"78", *b"79",
-    *b"80", *b"81", *b"82", *b"83", *b"84", *b"85", *b"86", *b"87", *b"88", *b"89",
-    *b"90", *b"91", *b"92", *b"93", *b"94", *b"95", *b"96", *b"97", *b"98", *b"99",
+    *b"00", *b"01", *b"02", *b"03", *b"04", *b"05", *b"06", *b"07", *b"08", *b"09", *b"10", *b"11",
+    *b"12", *b"13", *b"14", *b"15", *b"16", *b"17", *b"18", *b"19", *b"20", *b"21", *b"22", *b"23",
+    *b"24", *b"25", *b"26", *b"27", *b"28", *b"29", *b"30", *b"31", *b"32", *b"33", *b"34", *b"35",
+    *b"36", *b"37", *b"38", *b"39", *b"40", *b"41", *b"42", *b"43", *b"44", *b"45", *b"46", *b"47",
+    *b"48", *b"49", *b"50", *b"51", *b"52", *b"53", *b"54", *b"55", *b"56", *b"57", *b"58", *b"59",
+    *b"60", *b"61", *b"62", *b"63", *b"64", *b"65", *b"66", *b"67", *b"68", *b"69", *b"70", *b"71",
+    *b"72", *b"73", *b"74", *b"75", *b"76", *b"77", *b"78", *b"79", *b"80", *b"81", *b"82", *b"83",
+    *b"84", *b"85", *b"86", *b"87", *b"88", *b"89", *b"90", *b"91", *b"92", *b"93", *b"94", *b"95",
+    *b"96", *b"97", *b"98", *b"99",
 ];
 
 /// Write 2-digit number using lookup table (branchless)
@@ -228,8 +301,16 @@ fn write_6digits(dst: &mut [u8], offset: usize, val: u32) {
 /// Fast timestamp format: "YYYY-MM-DD HH:MM:SS.ffffff"
 /// Returns slice length (26 bytes)
 #[inline]
-fn format_timestamp_fast(dst: &mut [u8; 26], year: i32, month: u32, day: u32,
-                         hour: u32, min: u32, sec: u32, micros: u32) {
+fn format_timestamp_fast(
+    dst: &mut [u8; 26],
+    year: i32,
+    month: u32,
+    day: u32,
+    hour: u32,
+    min: u32,
+    sec: u32,
+    micros: u32,
+) {
     write_4digits(dst, 0, year as u32);
     dst[4] = b'-';
     write_2digits(dst, 5, month);
@@ -248,9 +329,18 @@ fn format_timestamp_fast(dst: &mut [u8; 26], year: i32, month: u32, day: u32,
 /// Fast timestamptz format: "YYYY-MM-DD HH:MM:SS.ffffff+HH:MM"
 /// Returns slice length (32 bytes)
 #[inline]
-fn format_timestamptz_fast(dst: &mut [u8; 32], year: i32, month: u32, day: u32,
-                           hour: u32, min: u32, sec: u32, micros: u32,
-                           tz_hours: i32, tz_mins: i32) {
+fn format_timestamptz_fast(
+    dst: &mut [u8; 32],
+    year: i32,
+    month: u32,
+    day: u32,
+    hour: u32,
+    min: u32,
+    sec: u32,
+    micros: u32,
+    tz_hours: i32,
+    tz_mins: i32,
+) {
     write_4digits(dst, 0, year as u32);
     dst[4] = b'-';
     write_2digits(dst, 5, month);
@@ -459,6 +549,103 @@ fn format_money_fast(dst: &mut [u8; 24], cents: i64) -> usize {
     pos
 }
 
+/// Fast decimal format using stack buffer — no heap allocation.
+/// rust_decimal max is 28 significant digits + sign + decimal point = 30 chars.
+/// Buffer is 42 bytes for safety.
+#[inline]
+fn format_decimal_fast(dst: &mut [u8; 42], decimal: &Decimal) -> usize {
+    if decimal.is_zero() {
+        dst[0] = b'0';
+        return 1;
+    }
+
+    let mut pos = 0;
+    if decimal.is_sign_negative() {
+        dst[pos] = b'-';
+        pos += 1;
+    }
+
+    let unpacked = decimal.unpack();
+    let scale = decimal.scale() as usize;
+
+    // Reconstruct mantissa from lo/mid/hi as u128
+    let mantissa: u128 =
+        unpacked.lo as u128 | ((unpacked.mid as u128) << 32) | ((unpacked.hi as u128) << 64);
+
+    // Format mantissa digits into temp buffer
+    let mut digits = [0u8; 30];
+    let mut d_pos = 30;
+    let mut m = mantissa;
+    if m == 0 {
+        d_pos -= 1;
+        digits[d_pos] = b'0';
+    } else {
+        while m > 0 {
+            d_pos -= 1;
+            digits[d_pos] = b'0' + (m % 10) as u8;
+            m /= 10;
+        }
+    }
+    let digit_count = 30 - d_pos;
+    let digit_slice = &digits[d_pos..30];
+
+    if scale == 0 {
+        dst[pos..pos + digit_count].copy_from_slice(digit_slice);
+        pos += digit_count;
+    } else if scale >= digit_count {
+        // Need leading zeros: 0.00123
+        dst[pos] = b'0';
+        pos += 1;
+        dst[pos] = b'.';
+        pos += 1;
+        let leading_zeros = scale - digit_count;
+        for _ in 0..leading_zeros {
+            dst[pos] = b'0';
+            pos += 1;
+        }
+        dst[pos..pos + digit_count].copy_from_slice(digit_slice);
+        pos += digit_count;
+    } else {
+        // Split at decimal point: 123.45
+        let integer_len = digit_count - scale;
+        dst[pos..pos + integer_len].copy_from_slice(&digit_slice[..integer_len]);
+        pos += integer_len;
+        dst[pos] = b'.';
+        pos += 1;
+        dst[pos..pos + scale].copy_from_slice(&digit_slice[integer_len..]);
+        pos += scale;
+    }
+
+    pos
+}
+
+/// Fast IPv4 format: "a.b.c.d" or "a.b.c.d/prefix" — no heap allocation.
+#[inline]
+fn format_ipv4_fast(dst: &mut [u8; 19], octets: [u8; 4], prefix: u8) -> usize {
+    let mut pos = 0;
+    let mut itoa_buf = itoa::Buffer::new();
+
+    for (i, &octet) in octets.iter().enumerate() {
+        if i > 0 {
+            dst[pos] = b'.';
+            pos += 1;
+        }
+        let s = itoa_buf.format(octet);
+        dst[pos..pos + s.len()].copy_from_slice(s.as_bytes());
+        pos += s.len();
+    }
+
+    if prefix != 32 {
+        dst[pos] = b'/';
+        pos += 1;
+        let s = itoa_buf.format(prefix);
+        dst[pos..pos + s.len()].copy_from_slice(s.as_bytes());
+        pos += s.len();
+    }
+
+    pos
+}
+
 impl DirectMsgPackEncoder {
     /// Create new encoder with cached column types
     pub fn new(column_types: Vec<Type>) -> Self {
@@ -535,8 +722,7 @@ impl DirectMsgPackEncoder {
         let mut buffer = Vec::with_capacity(estimated);
 
         // Write outer array header
-        encode::write_array_len(&mut buffer, rows.len() as u32)
-            .map_err(Self::map_encode_err)?;
+        encode::write_array_len(&mut buffer, rows.len() as u32).map_err(Self::map_encode_err)?;
 
         // Encode each row sequentially
         for row in rows {
@@ -546,38 +732,28 @@ impl DirectMsgPackEncoder {
         Ok(buffer)
     }
 
-    /// Two-pass parallel encoding for large batches
-    /// Pass 1: Encode rows in parallel into pre-sized buffers
-    /// Pass 2: Merge into final buffer with exact size
+    /// Chunked parallel encoding for large batches.
+    /// Each rayon thread gets one buffer for its chunk of rows,
+    /// reducing allocations from N (one per row) to ~num_threads.
     fn encode_parallel_two_pass(&self, rows: &[Row]) -> Result<Vec<u8>> {
-        // Encode rows in parallel - each gets a pre-sized buffer
-        let row_buffers: Vec<Vec<u8>> = rows
-            .par_iter()
-            .map(|row| {
-                let mut buf = Vec::with_capacity(self.estimated_row_size);
-                let _ = self.encode_row(&mut buf, row);
+        let num_threads = rayon::current_num_threads().max(1);
+        let chunk_size = (rows.len() + num_threads - 1) / num_threads;
+        let column_count = self.column_types.len();
+
+        let chunk_buffers: Vec<Vec<u8>> = rows
+            .par_chunks(chunk_size)
+            .map(|chunk| {
+                let estimated = self.estimated_row_size * chunk.len();
+                let mut buf = take_chunk_buffer(estimated);
+                for row in chunk {
+                    encode_row_or_null(&mut buf, column_count, "PG", |row_buf| {
+                        self.encode_row(row_buf, row)
+                    });
+                }
                 buf
             })
             .collect();
-
-        // Calculate total size for single allocation
-        let header_size = msgpack_array_header_size(rows.len());
-        let total_row_bytes: usize = row_buffers.iter().map(|b| b.len()).sum();
-        let total_size = header_size + total_row_bytes;
-
-        // Single allocation for final buffer
-        let mut buffer = Vec::with_capacity(total_size);
-
-        // Write outer array header
-        encode::write_array_len(&mut buffer, rows.len() as u32)
-            .map_err(Self::map_encode_err)?;
-
-        // Merge all row buffers (sequential but fast - just memcpy)
-        for row_buf in row_buffers {
-            buffer.extend_from_slice(&row_buf);
-        }
-
-        Ok(buffer)
+        merge_chunk_buffers(rows.len(), chunk_buffers)
     }
 
     /// Encode a single row as a MessagePack array
@@ -883,8 +1059,7 @@ impl DirectMsgPackEncoder {
         match proto::date_from_sql(raw) {
             Ok(days) => {
                 let pg_epoch = NaiveDate::from_ymd_opt(2000, 1, 1).unwrap();
-                if let Some(date) =
-                    pg_epoch.checked_add_signed(chrono::Duration::days(days as i64))
+                if let Some(date) = pg_epoch.checked_add_signed(chrono::Duration::days(days as i64))
                 {
                     // Use fast formatter instead of chrono's format!()
                     let mut date_buf = [0u8; 10];
@@ -944,7 +1119,13 @@ impl DirectMsgPackEncoder {
 
         // Format: HH:MM:SS.ffffff+HH:MM (21 bytes)
         let mut time_buf = [0u8; 21];
-        format_time_fast(&mut time_buf[..15].try_into().unwrap(), hours, mins, secs, micros);
+        format_time_fast(
+            &mut time_buf[..15].try_into().unwrap(),
+            hours,
+            mins,
+            secs,
+            micros,
+        );
         time_buf[15] = if tz_hours >= 0 { b'+' } else { b'-' };
         write_2digits(&mut time_buf, 16, tz_hours.unsigned_abs());
         time_buf[18] = b':';
@@ -959,8 +1140,10 @@ impl DirectMsgPackEncoder {
     fn encode_numeric<W: Write>(&self, buf: &mut W, raw: &[u8]) -> Result<()> {
         match Decimal::from_sql(&Type::NUMERIC, raw) {
             Ok(d) => {
-                let s = d.to_string();
-                encode::write_str(buf, &s).map_err(Self::map_encode_err)?;
+                let mut dec_buf = [0u8; 42];
+                let len = format_decimal_fast(&mut dec_buf, &d);
+                let s = unsafe { std::str::from_utf8_unchecked(&dec_buf[..len]) };
+                encode::write_str(buf, s).map_err(Self::map_encode_err)?;
             }
             Err(_) => {
                 self.encode_fallback(buf, raw)?;
@@ -992,33 +1175,30 @@ impl DirectMsgPackEncoder {
 
         let addr_bytes = &raw[4..4 + addr_len];
 
-        let s = match family {
+        match family {
             2 if addr_len == 4 => {
-                let ip = std::net::Ipv4Addr::new(
-                    addr_bytes[0],
-                    addr_bytes[1],
-                    addr_bytes[2],
-                    addr_bytes[3],
+                let mut ipv4_buf = [0u8; 19];
+                let len = format_ipv4_fast(
+                    &mut ipv4_buf,
+                    [addr_bytes[0], addr_bytes[1], addr_bytes[2], addr_bytes[3]],
+                    prefix,
                 );
-                if prefix == 32 {
-                    ip.to_string()
-                } else {
-                    format!("{}/{}", ip, prefix)
-                }
+                let s = unsafe { std::str::from_utf8_unchecked(&ipv4_buf[..len]) };
+                encode::write_str(buf, s).map_err(Self::map_encode_err)?;
+                return Ok(());
             }
             3 if addr_len == 16 => {
                 let ip = std::net::Ipv6Addr::from(<[u8; 16]>::try_from(addr_bytes).unwrap());
-                if prefix == 128 {
+                let s = if prefix == 128 {
                     ip.to_string()
                 } else {
                     format!("{}/{}", ip, prefix)
-                }
+                };
+                encode::write_str(buf, &s).map_err(Self::map_encode_err)?;
+                return Ok(());
             }
             _ => return self.encode_fallback(buf, raw),
-        };
-
-        encode::write_str(buf, &s).map_err(Self::map_encode_err)?;
-        Ok(())
+        }
     }
 
     #[inline(always)]
@@ -1717,8 +1897,128 @@ mod tests {
     }
 
     #[test]
+    fn test_chunked_vs_sequential_equivalence() {
+        let chunk1: Vec<u8> = {
+            let mut buf = Vec::new();
+            encode::write_array_len(&mut buf, 3).unwrap();
+            encode::write_i32(&mut buf, 42).unwrap();
+            encode::write_str(&mut buf, "hello").unwrap();
+            encode::write_bool(&mut buf, true).unwrap();
+            buf
+        };
+        let chunk2: Vec<u8> = {
+            let mut buf = Vec::new();
+            encode::write_array_len(&mut buf, 3).unwrap();
+            encode::write_i32(&mut buf, 99).unwrap();
+            encode::write_str(&mut buf, "world").unwrap();
+            encode::write_bool(&mut buf, false).unwrap();
+            buf
+        };
+        let merged = merge_chunk_buffers(2, vec![chunk1, chunk2]).unwrap();
+
+        let decoded: rmpv::Value = rmpv::decode::read_value(&mut &merged[..]).unwrap();
+        let outer = decoded.as_array().expect("outer should be array");
+        assert_eq!(outer.len(), 2);
+
+        let row0 = outer[0].as_array().unwrap();
+        assert_eq!(row0[0].as_i64(), Some(42));
+        assert_eq!(row0[1].as_str(), Some("hello"));
+        assert_eq!(row0[2].as_bool(), Some(true));
+
+        let row1 = outer[1].as_array().unwrap();
+        assert_eq!(row1[0].as_i64(), Some(99));
+        assert_eq!(row1[1].as_str(), Some("world"));
+        assert_eq!(row1[2].as_bool(), Some(false));
+    }
+
+    #[test]
+    fn test_encode_row_or_null_truncates_partial_row() {
+        let mut buf = Vec::new();
+        encode_row_or_null(&mut buf, 3, "PG", |row_buf| {
+            encode::write_array_len(row_buf, 3).unwrap();
+            encode::write_i32(row_buf, 42).unwrap();
+            Err(AppError::Internal("forced error".to_string()))
+        });
+
+        let decoded: rmpv::Value = rmpv::decode::read_value(&mut &buf[..]).unwrap();
+        let row = decoded.as_array().expect("row should be array");
+        assert_eq!(row.len(), 3);
+        assert!(row.iter().all(rmpv::Value::is_nil));
+    }
+
+    #[test]
+    fn test_chunk_pool_reuse_across_threads() {
+        CHUNK_BUF_POOL
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
+
+        let worker_buf = std::thread::spawn(|| {
+            let mut buf = take_chunk_buffer(8192);
+            buf.extend_from_slice(b"worker");
+            buf
+        })
+        .join()
+        .unwrap();
+
+        let cap = worker_buf.capacity();
+        return_chunk_buffer(worker_buf);
+
+        let reused = take_chunk_buffer(1);
+        assert!(reused.capacity() >= cap);
+        return_chunk_buffer(reused);
+    }
+
+    #[test]
     fn test_buffer_estimation() {
         let encoder = DirectMsgPackEncoder::new(vec![Type::INT4, Type::TEXT, Type::TIMESTAMP]);
         assert!(encoder.estimated_row_size > 0);
+    }
+
+    #[test]
+    fn test_format_decimal_fast() {
+        use rust_decimal::Decimal;
+        use std::str::FromStr;
+
+        let cases = vec![
+            ("0", "0"),
+            ("1", "1"),
+            ("-1", "-1"),
+            ("123.45", "123.45"),
+            ("-123.45", "-123.45"),
+            ("0.001", "0.001"),
+            ("0.00100", "0.00100"),
+            (
+                "99999999999999999999999999.99",
+                "99999999999999999999999999.99",
+            ),
+            ("1000000", "1000000"),
+        ];
+
+        for (input, expected) in cases {
+            let d = Decimal::from_str(input).unwrap();
+            let mut buf = [0u8; 42];
+            let len = format_decimal_fast(&mut buf, &d);
+            let result = std::str::from_utf8(&buf[..len]).unwrap();
+            assert_eq!(result, expected, "input: {}", input);
+        }
+    }
+
+    #[test]
+    fn test_format_ipv4_fast() {
+        let cases = vec![
+            ([127, 0, 0, 1], 32, "127.0.0.1"),
+            ([192, 168, 1, 1], 32, "192.168.1.1"),
+            ([10, 0, 0, 0], 8, "10.0.0.0/8"),
+            ([255, 255, 255, 255], 32, "255.255.255.255"),
+            ([0, 0, 0, 0], 0, "0.0.0.0/0"),
+        ];
+
+        for (octets, prefix, expected) in cases {
+            let mut buf = [0u8; 19];
+            let len = format_ipv4_fast(&mut buf, octets, prefix);
+            let result = std::str::from_utf8(&buf[..len]).unwrap();
+            assert_eq!(result, expected, "octets: {:?}/{}", octets, prefix);
+        }
     }
 }

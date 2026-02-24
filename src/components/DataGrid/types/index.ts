@@ -109,6 +109,8 @@ export interface GridEditCoordinates {
   row: GridRowModel | undefined;
 }
 
+export interface GridActivationEvent extends GridEditCoordinates {}
+
 export interface GridEditCommitEvent extends GridEditCoordinates {
   newValue: GridCell;
   previousValue: CellValue | null | undefined;
@@ -136,6 +138,18 @@ export interface GridRowDeleteEvent {
   rowIndexes: number[];
   rows: GridRowModel[];
 }
+
+export interface GridCellContentContext {
+  rowIndex: number;
+  columnIndex: number;
+  row: GridRowModel | undefined;
+  column: GridColumnV2 | undefined;
+}
+
+export type GridCellContentGetter = (
+  cell: Item,
+  context?: GridCellContentContext,
+) => GridCell;
 
 export interface GridCallbacks {
   onColumnsChange?: (state: GridColumnsState) => void;
@@ -183,6 +197,46 @@ export type CustomCellRenderer<T extends CustomCell> = {
   draw: (args: DrawArgs, cell: T) => boolean;
   provideEditor: ProvideEditorCallback<T>;
 };
+
+/**
+ * Command factory interface for paradigm-specific CRUD operations.
+ *
+ * BaseDataGrid owns all CRUD UI (context menu, keyboard shortcuts, etc.)
+ * and uses this interface to create paradigm-specific commands.
+ *
+ * Paradigm adapters (SqlDataGrid, DocumentDataGrid, KeyValueDataGrid)
+ * implement this interface to provide their specific command creation logic.
+ */
+export interface CrudCommandFactory {
+  /** Connection identifier */
+  connectionId: string;
+  /** Database name (SQL) or collection parent (Document) */
+  database?: string;
+  /** Schema name (SQL only) */
+  schema?: string;
+  /** Table/collection/key name */
+  table: string;
+
+  /** Primary key column names for row identification */
+  primaryKeyColumns: string[];
+
+  /** Column name to field mapping (for optimistic updates) */
+  columnNameToFieldMap: Map<string, string>;
+  /** Field to column mapping (for optimistic updates) */
+  columnByFieldMap: Map<string, GridColumnV2>;
+
+  /** Generate a unique key for a row */
+  getRowKey: (row: GridRowModel | undefined, index: number) => string;
+
+  /** Create an edit command for a cell change */
+  createEditCommand: (event: GridEditCommitEvent) => import('@/types/crud').CrudCommand | null;
+
+  /** Create an insert command for a new row */
+  createInsertCommand: (data?: Record<string, unknown>) => import('@/types/crud').CrudCommand;
+
+  /** Create a delete command for a row */
+  createDeleteCommand: (row: GridRowModel, rowKey: string) => import('@/types/crud').CrudCommand;
+}
 
 export * from './cellState';
 export * from './navigationState';

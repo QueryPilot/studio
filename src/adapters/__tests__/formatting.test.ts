@@ -8,6 +8,7 @@ import {
   quoteString,
   formatValue,
   getDialectQuoting,
+  filterConfigToWhereClause,
 } from '../formatting';
 
 describe('formatting utilities', () => {
@@ -127,20 +128,14 @@ describe('formatting utilities', () => {
       });
     });
 
-    describe('MySQL (backslash escaping)', () => {
-      it('should escape backslashes first', () => {
-        expect(escapeString('path\\to', DbType.MySQL)).toBe('path\\\\to');
+    describe('MySQL (standard SQL escaping)', () => {
+      it('should double single quotes (same as standard SQL)', () => {
+        expect(escapeString("it's", DbType.MySQL)).toBe("it''s");
+        expect(escapeString("a'b'c", DbType.MySQL)).toBe("a''b''c");
       });
 
-      it('should escape single quotes with backslash', () => {
-        expect(escapeString("it's", DbType.MySQL)).toBe("it\\'s");
-      });
-
-      it('should escape newlines and special characters', () => {
-        expect(escapeString("line1\nline2", DbType.MySQL)).toBe("line1\\nline2");
-        expect(escapeString("col1\tcol2", DbType.MySQL)).toBe("col1\tcol2"); // tab not escaped
-        expect(escapeString("a\rb", DbType.MySQL)).toBe("a\\rb");
-        expect(escapeString("a\0b", DbType.MySQL)).toBe("a\\0b");
+      it('should not escape backslashes (safe with NO_BACKSLASH_ESCAPES)', () => {
+        expect(escapeString('path\\to', DbType.MySQL)).toBe('path\\to');
       });
     });
   });
@@ -153,7 +148,7 @@ describe('formatting utilities', () => {
 
     it('should quote and escape strings for MySQL', () => {
       expect(quoteString('hello', DbType.MySQL)).toBe("'hello'");
-      expect(quoteString("it's", DbType.MySQL)).toBe("'it\\'s'");
+      expect(quoteString("it's", DbType.MySQL)).toBe("'it''s'");
     });
 
     it('should use N prefix for SQL Server', () => {
@@ -219,7 +214,7 @@ describe('formatting utilities', () => {
 
       it('should escape special characters', () => {
         expect(formatValue("it's", DbType.PostgreSQL)).toBe("'it''s'");
-        expect(formatValue("it's", DbType.MySQL)).toBe("'it\\'s'");
+        expect(formatValue("it's", DbType.MySQL)).toBe("'it''s'");
       });
     });
 
@@ -278,6 +273,107 @@ describe('formatting utilities', () => {
 
       expect(mysql.quoteIdentifier('col')).toBe('`col`');
       expect(mysql.formatTableName('db', 'users')).toBe('`db`.`users`');
+    });
+  });
+
+  describe('filterConfigToWhereClause / qualifyRawWhereClause', () => {
+    const columns = ['id', 'name', 'status'];
+    const prefix = 't';
+
+    const qualify = (raw: string, dbType: DbType = DbType.PostgreSQL) =>
+      filterConfigToWhereClause(
+        { rawWhereClause: raw, root: { logical: 'AND', conditions: [] } },
+        dbType,
+        prefix,
+        columns
+      );
+
+    describe('basic column qualification', () => {
+      it('should prefix bare column names', () => {
+        expect(qualify('status = 1')).toBe('t.status = 1');
+      });
+
+      it('should not prefix already-qualified columns', () => {
+        expect(qualify('other.status = 1')).toBe('other.status = 1');
+      });
+
+      it('should not prefix function calls', () => {
+        expect(qualify('COUNT(id) > 0')).toBe('COUNT(t.id) > 0');
+        // COUNT is not a column, id inside is qualified
+      });
+    });
+
+    describe('PostgreSQL dollar-quoted strings', () => {
+      it('should not qualify column names inside $$...$$ strings', () => {
+        expect(qualify("name = $$it has status and name$$")).toBe(
+          "t.name = $$it has status and name$$"
+        );
+      });
+
+      it('should not qualify column names inside $tag$...$tag$ strings', () => {
+        expect(qualify("name = $body$name is status$body$")).toBe(
+          "t.name = $body$name is status$body$"
+        );
+      });
+
+      it('should handle unclosed dollar-quoted string gracefully', () => {
+        const result = qualify("name = $$unclosed string with status");
+        // name before $$ should be qualified, content after $$ is treated as string literal
+        expect(result).toBe("t.name = $$unclosed string with status");
+      });
+
+      it('should resume parsing after dollar-quoted string ends', () => {
+        expect(qualify("$$literal$$ AND status = 1")).toBe(
+          "$$literal$$ AND t.status = 1"
+        );
+      });
+    });
+
+    describe('MySQL backslash escaping in strings', () => {
+      it('should handle backslash-escaped quotes in MySQL strings', () => {
+        // In MySQL, \' inside a string does NOT close the string
+        expect(qualify("name = 'it\\'s a status'", DbType.MySQL)).toBe(
+          "t.name = 'it\\'s a status'"
+        );
+      });
+
+      it('should not treat backslash-escaped quote as string end', () => {
+        // Without MySQL awareness, the \' would end the string and "status" after it
+        // would be incorrectly qualified
+        expect(qualify("name = 'test\\' OR status'", DbType.MySQL)).toBe(
+          "t.name = 'test\\' OR status'"
+        );
+      });
+
+      it('should not apply backslash escaping for PostgreSQL', () => {
+        // In PostgreSQL, backslash is not an escape char (standard_conforming_strings=on)
+        // So \' actually closes the string at the ', and the rest is SQL
+        expect(qualify("name = 'test\\' OR status = 1", DbType.PostgreSQL)).toBe(
+          "t.name = 'test\\' OR t.status = 1"
+        );
+      });
+    });
+
+    describe('standard string handling', () => {
+      it('should not qualify column names inside single-quoted strings', () => {
+        expect(qualify("name = 'status'")).toBe("t.name = 'status'");
+      });
+
+      it('should handle escaped quotes (doubled) inside strings', () => {
+        expect(qualify("name = 'it''s a name'")).toBe("t.name = 'it''s a name'");
+      });
+    });
+
+    describe('comments', () => {
+      it('should not qualify inside line comments', () => {
+        expect(qualify("status = 1 -- check name")).toBe("t.status = 1 -- check name");
+      });
+
+      it('should not qualify inside block comments', () => {
+        expect(qualify("status = 1 /* name check */")).toBe(
+          "t.status = 1 /* name check */"
+        );
+      });
     });
   });
 });

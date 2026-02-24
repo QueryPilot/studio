@@ -2,7 +2,7 @@ import { syntaxTree } from "@codemirror/language";
 import type { CompletionContext } from "@codemirror/autocomplete";
 import type { EditorState } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
-import { isTableKeyword } from "./constants";
+import { isSqlKeyword, isTableKeyword } from "./constants";
 import {
   hashString,
   extractTablesFromRange as sharedExtractTablesFromRange,
@@ -44,6 +44,18 @@ const SCOPE_NODES = new Set([
   "Subquery",
   "ParenthesizedExpression",
 ]);
+
+function sanitizeAlias(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const clean = raw.replace(/["`[\]]/g, "").trim();
+  return clean || undefined;
+}
+
+function isValidAlias(alias: string | undefined): alias is string {
+  if (!alias) return false;
+  if (isSqlKeyword(alias)) return false;
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(alias);
+}
 
 // ============================================================================
 // CONTEXT ANALYSIS CACHE - Avoid re-analyzing on every keystroke
@@ -233,11 +245,10 @@ function getScopeTables(
   }
 
   // Find enclosing statement
-  let node: SyntaxNode | null = tree.resolveInner(pos, -1);
-  while (node?.parent && !["Statement", "Script"].includes(node.type.name)) {
+  let node = tree.resolveInner(pos, -1);
+  while (node.parent && !["Statement", "Script"].includes(node.type.name)) {
     node = node.parent;
   }
-  if (!node) return { tables, outerTables, subqueryDepth: 0 };
 
   const statementFrom = node.from;
   const statementTo = node.to;
@@ -301,9 +312,12 @@ function getScopeTables(
               (nextNode.type.name === "Identifier" ||
                 nextNode.type.name === "QuotedIdentifier")
             ) {
-              alias = state
-                .sliceDoc(nextNode.from, nextNode.to)
-                .replace(/["`[\]]/g, "");
+              const candidate = sanitizeAlias(
+                state.sliceDoc(nextNode.from, nextNode.to),
+              );
+              if (isValidAlias(candidate)) {
+                alias = candidate;
+              }
             }
 
             let schema: string | undefined;
@@ -401,7 +415,7 @@ function detectIntent(state: EditorState, pos: number): SqlIntent {
 
   if (lookbackPos > 0) {
     const prevToken = tree.resolveInner(lookbackPos, -1);
-    if (prevToken && prevToken.type.name === "Keyword") {
+    if (prevToken.type.name === "Keyword") {
       const prevText = state.sliceDoc(prevToken.from, prevToken.to);
       if (isTableKeyword(prevText)) {
         return "table";
@@ -439,7 +453,8 @@ function detectJoinOnContext(
   if (joinOnMatch) {
     const schema = joinOnMatch[1]?.replace(/["`[\]]/g, "");
     const tableName = joinOnMatch[2]?.replace(/["`[\]]/g, "") || "";
-    const alias = joinOnMatch[3]?.replace(/["`[\]]/g, "");
+    const aliasCandidate = sanitizeAlias(joinOnMatch[3]);
+    const alias = isValidAlias(aliasCandidate) ? aliasCandidate : undefined;
 
     return {
       isJoinOnContext: true,
@@ -513,9 +528,11 @@ function detectJoinOnContext(
               }
               if (nextNode && (nextNode.name === "Identifier" || nextNode.name === "QuotedIdentifier")) {
                 const nextText = state.sliceDoc(nextNode.from, nextNode.to).toUpperCase();
-                // Make sure it's not ON keyword
-                if (nextText !== "ON") {
-                  alias = state.sliceDoc(nextNode.from, nextNode.to).replace(/["`[\]]/g, "");
+                const candidate = sanitizeAlias(
+                  state.sliceDoc(nextNode.from, nextNode.to),
+                );
+                if (nextText !== "ON" && isValidAlias(candidate)) {
+                  alias = candidate;
                 }
               }
 

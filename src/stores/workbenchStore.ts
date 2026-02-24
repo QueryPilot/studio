@@ -10,6 +10,7 @@ import {
   type DragDropContext,
 } from "@/types/workbench";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import {
   splitPanel,
   closePanel,
@@ -19,12 +20,10 @@ import {
   getAdjacentPanel,
   findNodePath,
 } from "@/utils/workbenchTree";
-// import { useTabStateStore } from "./tabStateStore";
 import { clearTabCache } from "@/lib/cacheManager";
 
 interface WorkbenchStore {
   layoutTree: GridNode | null;
-  focusedPanelId: string | null;
   panelContents: Map<string, PanelContent>;
   layoutHistory: GridNode[];
   historyIndex: number;
@@ -75,12 +74,8 @@ interface WorkbenchStore {
   restoreConnectionLayout: (connectionId: string) => boolean;
 }
 
-const useWorkbenchStore = create<WorkbenchStore>()(
-  // TEMPORARILY DISABLED PERSIST DUE TO ID MISMATCH ISSUES
-  // persist(
-  (set, get) => ({
+const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
     layoutTree: null,
-    focusedPanelId: null,
     panelContents: new Map(),
     layoutHistory: [],
     historyIndex: -1,
@@ -96,24 +91,16 @@ const useWorkbenchStore = create<WorkbenchStore>()(
     setConnectionId: (connectionId) => {
       const oldConnectionId = get().activeConnectionId;
 
-      // If switching connections, clear old layout
-      if (oldConnectionId && oldConnectionId !== connectionId) {
-        logger.info(
-          `[WorkbenchStore] Switching from ${oldConnectionId} to ${connectionId}`,
-        );
-        // Save current layout before switching
-        get().saveLayout();
-      }
+      // Skip if no change
+      if (oldConnectionId === connectionId) return;
 
+      // Simply update the active connection ID - no layout swapping
+      // Tabs from ALL connections remain visible; this just tracks focus
       set({ activeConnectionId: connectionId });
 
-      // Initialize layout for new connection
-      if (connectionId) {
-        logger.info(
-          `[WorkbenchStore] Initializing layout for connection: ${connectionId}`,
-        );
-        get().initializeLayout();
-      }
+      logger.info(
+        `[WorkbenchStore] Active connection changed: ${oldConnectionId ?? "none"} -> ${connectionId ?? "none"}`,
+      );
     },
 
     initializeLayout: () => {
@@ -135,25 +122,14 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         activeTabId: "",
       });
 
-      logger.info("🔄 Initializing fresh layout with panel:", defaultPanel.id);
-      logger.info("Panel content ID:", defaultPanel.content?.id);
-
-      // Ensure consistency
-      if (defaultPanel.id !== defaultPanel.content?.id) {
-        logger.error("❌ ID MISMATCH in createLeafNode!", {
-          nodeId: defaultPanel.id,
-          contentId: defaultPanel.content?.id,
-        });
-      }
-
       if (defaultPanel.content) {
         set({
           layoutTree: defaultPanel,
-          focusedPanelId: defaultPanel.id,
           panelContents: new Map([[defaultPanel.id, defaultPanel.content]]),
           layoutHistory: [defaultPanel],
           historyIndex: 0,
         });
+        usePanelFocusStore.getState().focusPanel(defaultPanel.id);
       }
     },
 
@@ -164,7 +140,6 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         return;
       }
 
-      logger.info("🔧 splitPanelAction called:", action);
       const result = splitPanel(
         layoutTree,
         action.targetPanelId,
@@ -174,7 +149,6 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       );
 
       if (result) {
-        logger.info("✅ Split successful, new tree created");
         const { tree: newTree, newPanelId } = result;
         const newHistory = layoutHistory.slice(0, historyIndex + 1);
         newHistory.push(newTree);
@@ -192,45 +166,28 @@ const useWorkbenchStore = create<WorkbenchStore>()(
           panelContents: newContents,
           layoutHistory: newHistory,
           historyIndex: newHistory.length - 1,
-          focusedPanelId: newPanelId, // Focus the newly created panel
         });
+        usePanelFocusStore.getState().focusPanel(newPanelId); // Focus the newly created panel
       } else {
-        logger.error("❌ splitPanel returned null - split failed!", {
+        logger.error("splitPanel returned null", {
           targetPanelId: action.targetPanelId,
           direction: action.direction,
-          layoutTree,
         });
       }
     },
 
     closePanelAction: (panelId, preventAutoInit = false) => {
-      // Note: tabStateStore can be used here for clearing tab state if needed
-      // const tabStateStore = useTabStateStore.getState();
       const panel = get().panelContents.get(panelId);
       const tabsToClear = panel ? [...panel.tabIds] : [];
 
-      logger.info("🗑️ [STORE DEBUG] closePanelAction called:", {
-        panelId,
-        preventAutoInit,
-        currentPreventAutoInit: get().preventAutoInit,
-      });
-
       const { layoutTree, layoutHistory, historyIndex } = get();
-      if (!layoutTree) {
-        logger.info("❌ [STORE DEBUG] No layoutTree, returning early");
-        return;
-      }
+      if (!layoutTree) return;
 
       if (preventAutoInit) {
-        logger.info("🚫 [STORE DEBUG] Setting preventAutoInit to true");
         set({ preventAutoInit: true });
       }
 
       const newTree = closePanel(layoutTree, panelId);
-      logger.info("🌳 [STORE DEBUG] closePanel result:", {
-        newTreeExists: !!newTree,
-        originalPanelCount: get().panelContents.size,
-      });
 
       if (newTree) {
         const newHistory = layoutHistory.slice(0, historyIndex + 1);
@@ -238,57 +195,35 @@ const useWorkbenchStore = create<WorkbenchStore>()(
 
         const panels = getAllPanels(newTree);
         const currentContents = get().panelContents;
-        // Preserve existing panel references to avoid unnecessary re-renders
         const newContents = new Map(
           panels.map((p) => [p.id, currentContents.get(p.id) ?? p]),
         );
-
-        logger.info("✅ [STORE DEBUG] Setting new tree with panels:", {
-          panelCount: panels.length,
-          panelIds: panels.map((p) => p.id),
-        });
 
         set({
           layoutTree: newTree,
           panelContents: newContents,
           layoutHistory: newHistory,
           historyIndex: newHistory.length - 1,
-          focusedPanelId: panels[0]?.id || null,
         });
+        const nextFocusId = panels[0]?.id;
+        if (nextFocusId) {
+          usePanelFocusStore.getState().focusPanel(nextFocusId);
+        } else {
+          usePanelFocusStore.getState().clearFocus();
+        }
       } else {
-        logger.info("🔥 [STORE DEBUG] newTree is null - last panel closed!");
-        // Only auto-initialize if not preventing it
         const shouldPreventInit = get().preventAutoInit || preventAutoInit;
-        logger.info("🤔 [STORE DEBUG] Should prevent auto-init?", {
-          preventAutoInitParam: preventAutoInit,
-          storePreventAutoInit: get().preventAutoInit,
-          shouldPreventInit,
-        });
 
         if (!shouldPreventInit) {
-          logger.info("🔄 [STORE DEBUG] Auto-initializing layout");
           get().initializeLayout();
         } else {
-          logger.info(
-            "🗑️ [STORE DEBUG] Clearing layout completely (no auto-init)",
-          );
-          // Clear the layout completely when preventing auto-init
           set({
             layoutTree: null,
             panelContents: new Map(),
-            focusedPanelId: null,
           });
+          usePanelFocusStore.getState().clearFocus();
         }
       }
-
-      // Log final state
-      const finalState = get();
-      logger.info("📊 [STORE DEBUG] Final state after closePanelAction:", {
-        layoutTreeExists: !!finalState.layoutTree,
-        panelCount: finalState.panelContents.size,
-        focusedPanelId: finalState.focusedPanelId,
-        preventAutoInit: finalState.preventAutoInit,
-      });
 
       // Clear both Zustand and React Query cache for all tabs in closed panel
       if (tabsToClear.length > 0) {
@@ -311,39 +246,66 @@ const useWorkbenchStore = create<WorkbenchStore>()(
     moveTab: (tabId, sourcePanelId, targetPanelId) => {
       const { panelContents, layoutTree } = get();
       if (!layoutTree) return;
+      if (sourcePanelId === targetPanelId) return;
 
       const sourcePanel = panelContents.get(sourcePanelId);
       const targetPanel = panelContents.get(targetPanelId);
 
       if (!sourcePanel || !targetPanel) return;
+      if (!sourcePanel.tabIds.includes(tabId)) return;
 
       // Get the tab metadata from source panel
       const tabMetadata = sourcePanel.metadata?.[tabId];
 
+      // If target already has this tab/object, activate it and only remove from source.
+      const existingTargetTabId =
+        targetPanel.tabIds.includes(tabId)
+          ? tabId
+          : tabMetadata?.objectKey
+            ? targetPanel.tabIds.find(
+                (id) => targetPanel.metadata?.[id]?.objectKey === tabMetadata.objectKey,
+              )
+            : undefined;
+
       const newSourceTabs = sourcePanel.tabIds.filter((id) => id !== tabId);
-      const newTargetTabs = [...targetPanel.tabIds, tabId];
+      const newSourceActiveTab =
+        sourcePanel.activeTabId === tabId
+          ? newSourceTabs[0] || ""
+          : sourcePanel.activeTabId;
+      const newTargetTabs = existingTargetTabId
+        ? targetPanel.tabIds
+        : [...targetPanel.tabIds, tabId];
 
       // Remove metadata from source panel
       const newSourceMetadata = { ...sourcePanel.metadata };
       Reflect.deleteProperty(newSourceMetadata, tabId);
 
       // Add metadata to target panel
+      const targetTabId = existingTargetTabId ?? tabId;
+      const existingTargetMetadata = targetPanel.metadata?.[targetTabId];
+      const mergedTargetMetadata =
+        existingTargetMetadata || tabMetadata
+          ? {
+              ...(tabMetadata ?? {}),
+              ...(existingTargetMetadata ?? {}),
+            }
+          : undefined;
       const newTargetMetadata = {
         ...targetPanel.metadata,
-        ...(tabMetadata ? { [tabId]: tabMetadata } : {}),
+        ...(mergedTargetMetadata ? { [targetTabId]: mergedTargetMetadata } : {}),
       };
 
       const newContents = new Map(panelContents);
       newContents.set(sourcePanelId, {
         ...sourcePanel,
         tabIds: newSourceTabs,
-        activeTabId: newSourceTabs[0] || "",
+        activeTabId: newSourceActiveTab,
         metadata: newSourceMetadata,
       });
       newContents.set(targetPanelId, {
         ...targetPanel,
         tabIds: newTargetTabs,
-        activeTabId: tabId,
+        activeTabId: targetTabId,
         metadata: newTargetMetadata,
       });
 
@@ -361,23 +323,25 @@ const useWorkbenchStore = create<WorkbenchStore>()(
 
     focusPanel: (panelId) => {
       const { layoutTree } = get();
+      const focusStore = usePanelFocusStore.getState();
+      const current = focusStore.focusedPanelId;
+      // Skip if already focused — avoids unnecessary re-renders of all panels
+      if (current === panelId) return;
       // Verify the panel exists in the tree
       if (layoutTree && findNodePath(layoutTree, panelId) !== null) {
-        set({ focusedPanelId: panelId });
+        focusStore.focusPanel(panelId);
       } else {
-        logger.warn(
-          `❌ Cannot focus panel ${panelId} - not found in tree. Tree ID: ${layoutTree?.id}`,
-        );
-        // If we can't find the panel, focus the tree root if it's a leaf
-        if (layoutTree?.type === "leaf") {
-          logger.info(`🔄 Auto-focusing root panel: ${layoutTree.id}`);
-          set({ focusedPanelId: layoutTree.id });
+        logger.warn(`Cannot focus panel ${panelId} - not found in tree`);
+        if (layoutTree?.type === "leaf" && current !== layoutTree.id) {
+          focusStore.focusPanel(layoutTree.id);
         }
       }
     },
 
     focusAdjacentPanel: (direction) => {
-      const { layoutTree, focusedPanelId } = get();
+      const { layoutTree } = get();
+      const focusStore = usePanelFocusStore.getState();
+      const focusedPanelId = focusStore.focusedPanelId;
       if (!layoutTree || !focusedPanelId) return;
 
       const adjacentId = getAdjacentPanel(
@@ -385,8 +349,8 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         focusedPanelId,
         direction,
       );
-      if (adjacentId) {
-        set({ focusedPanelId: adjacentId });
+      if (adjacentId && adjacentId !== focusedPanelId) {
+        focusStore.focusPanel(adjacentId);
       }
     },
 
@@ -432,8 +396,13 @@ const useWorkbenchStore = create<WorkbenchStore>()(
           set({
             layoutTree: tree,
             panelContents: contents,
-            focusedPanelId: panels[0]?.id || null,
           });
+          const firstPanelId = panels[0]?.id;
+          if (firstPanelId) {
+            usePanelFocusStore.getState().focusPanel(firstPanelId);
+          } else {
+            usePanelFocusStore.getState().clearFocus();
+          }
         } catch (e) {
           logger.error("Failed to restore layout:", e);
           get().initializeLayout();
@@ -462,6 +431,17 @@ const useWorkbenchStore = create<WorkbenchStore>()(
             panelContents: contents,
             historyIndex: newIndex,
           });
+
+          // Sync panelFocusStore: ensure focusedPanelId still exists in restored tree
+          const focusStore = usePanelFocusStore.getState();
+          if (!contents.has(focusStore.focusedPanelId ?? "")) {
+            const firstPanelId = panels[0]?.id;
+            if (firstPanelId) {
+              focusStore.focusPanel(firstPanelId);
+            } else {
+              focusStore.clearFocus();
+            }
+          }
         }
       }
     },
@@ -483,6 +463,17 @@ const useWorkbenchStore = create<WorkbenchStore>()(
             panelContents: contents,
             historyIndex: newIndex,
           });
+
+          // Sync panelFocusStore: ensure focusedPanelId still exists in restored tree
+          const focusStore = usePanelFocusStore.getState();
+          if (!contents.has(focusStore.focusedPanelId ?? "")) {
+            const firstPanelId = panels[0]?.id;
+            if (firstPanelId) {
+              focusStore.focusPanel(firstPanelId);
+            } else {
+              focusStore.clearFocus();
+            }
+          }
         }
       }
     },
@@ -494,13 +485,25 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       const panel = panelContents.get(panelId);
       if (!panel) return;
 
-      // Check if tab already exists
+      // Check if tab already exists by tabId
       if (panel.tabIds.includes(tabId)) {
+        const existingMetadata = panel.metadata?.[tabId];
+        const mergedMetadata =
+          existingMetadata || tabData
+            ? {
+                ...(existingMetadata ?? {}),
+                ...(tabData ?? {}),
+              }
+            : undefined;
+
         const newContents = new Map(panelContents);
         newContents.set(panelId, {
           ...panel,
           activeTabId: tabId,
-          metadata: { ...panel.metadata, [tabId]: tabData },
+          metadata: {
+            ...panel.metadata,
+            ...(mergedMetadata ? { [tabId]: mergedMetadata } : {}),
+          },
         });
 
         const updatedTree = updatePanelContents(layoutTree, newContents);
@@ -511,12 +514,55 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         return;
       }
 
+      // Per-panel dedup by objectKey: reuse existing tab with same logical object
+      const incomingObjectKey = tabData?.objectKey;
+      if (incomingObjectKey) {
+        const existingTabId = panel.tabIds.find((id) => {
+          const meta = panel.metadata?.[id];
+          return meta?.objectKey === incomingObjectKey;
+        });
+        if (existingTabId) {
+          const existingMetadata = panel.metadata?.[existingTabId];
+          const mergedMetadata =
+            existingMetadata || tabData
+              ? {
+                  ...(existingMetadata ?? {}),
+                  ...(tabData ?? {}),
+                }
+              : undefined;
+
+          const newContents = new Map(panelContents);
+          newContents.set(panelId, {
+            ...panel,
+            activeTabId: existingTabId,
+            metadata: {
+              ...panel.metadata,
+              ...(mergedMetadata ? { [existingTabId]: mergedMetadata } : {}),
+            },
+          });
+
+          const updatedTree = updatePanelContents(layoutTree, newContents);
+          set({
+            layoutTree: updatedTree,
+            panelContents: newContents,
+          });
+          return;
+        }
+      }
+
+      const newMetadata =
+        tabData !== undefined
+          ? {
+              ...panel.metadata,
+              [tabId]: tabData,
+            }
+          : panel.metadata;
       const newContents = new Map(panelContents);
       newContents.set(panelId, {
         ...panel,
         tabIds: [...panel.tabIds, tabId],
         activeTabId: tabId,
-        metadata: { ...panel.metadata, [tabId]: tabData },
+        metadata: newMetadata,
       });
 
       const updatedTree = updatePanelContents(layoutTree, newContents);
@@ -688,12 +734,14 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       panelMetadata[tabId] = { ...currentMetadata, ...updates };
 
       const newContents = new Map(panelContents);
-      newContents.set(panelId, {
+      const updatedPanel = {
         ...panel,
         metadata: panelMetadata,
-      });
+      };
+      newContents.set(panelId, updatedPanel);
 
-      const updatedTree = updatePanelContents(layoutTree, newContents);
+      // Avoid rebuilding the full tree for frequent metadata updates (e.g. query typing).
+      const updatedTree = updateSinglePanel(layoutTree, panelId, updatedPanel);
 
       set({
         layoutTree: updatedTree,
@@ -767,8 +815,13 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         set({
           layoutTree: data.layoutTree,
           panelContents: panelContentsMap,
-          focusedPanelId: panels[0]?.id ?? null,
         });
+        const firstPanelId = panels[0]?.id;
+        if (firstPanelId) {
+          usePanelFocusStore.getState().focusPanel(firstPanelId);
+        } else {
+          usePanelFocusStore.getState().clearFocus();
+        }
 
         logger.info(`[Workbench] Restored layout for connection: ${connectionId}`);
         return true;
@@ -779,68 +832,6 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       }
     },
   }),
-  // PERSIST DISABLED - REMOVE COMMENTS TO RE-ENABLE
-  // ,{
-  //   name: "workbench-layout",
-  //   storage: createJSONStorage(() => localStorage),
-  //   partialize: (state) => ({
-  //     layoutTree: state.layoutTree,
-  //     panelContents: Array.from(state.panelContents.entries()),
-  //   }),
-  //   onRehydrateStorage: () => (state) => {
-  //     if (state) {
-  //       // Convert array back to Map if needed
-  //       if (Array.isArray(state.panelContents)) {
-  //         state.panelContents = new Map(state.panelContents);
-  //       }
-  //
-  //       // CRITICAL: Ensure panelContents is synced with layoutTree
-  //       if (state.layoutTree) {
-  //         const panels = getAllPanels(state.layoutTree);
-  //         const syncedContents = new Map(panels.map(p => [p.id, p]));
-  //
-  //         // Check for mismatches
-  //         const treeIds = panels.map(p => p.id).sort();
-  //         const mapIds = Array.from(state.panelContents.keys()).sort();
-  //
-  //         if (JSON.stringify(treeIds) !== JSON.stringify(mapIds)) {
-  //           logger.error('❌ CRITICAL: Panel ID mismatch detected!', {
-  //             treeIds,
-  //             mapIds
-  //           });
-  //
-  //           // Force complete reset on mismatch
-  //           logger.info('🔄 Forcing fresh initialization due to ID mismatch');
-  //           localStorage.removeItem('workbench-layout');
-  //           localStorage.removeItem('workbench-layout-backup');
-  //
-  //           // Create fresh panel
-  //           const freshPanel = createLeafNode({
-  //             type: "editor",
-  //             tabIds: [],
-  //             activeTabId: "",
-  //           });
-  //
-  //           state.layoutTree = freshPanel;
-  //           state.panelContents = new Map([[freshPanel.id, freshPanel.content!]]);
-  //           state.focusedPanelId = freshPanel.id;
-  //           state.layoutHistory = [freshPanel];
-  //           state.historyIndex = 0;
-  //
-  //           logger.info('✅ Fresh state initialized with panel:', freshPanel.id);
-  //           return;
-  //         }
-  //
-  //         // Update focusedPanelId if it's invalid
-  //         if (state.focusedPanelId && !syncedContents.has(state.focusedPanelId)) {
-  //           state.focusedPanelId = panels[0]?.id || null;
-  //           logger.info('🔄 Reset focusedPanelId to:', state.focusedPanelId);
-  //         }
-  //       }
-  //     }
-  //   },
-  // },
-  // ),
 );
 
 function updatePanelContents(

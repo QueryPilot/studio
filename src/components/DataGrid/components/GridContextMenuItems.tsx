@@ -7,7 +7,7 @@ import {
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
-import { IconCopy, IconDownload, IconEye, IconPin, IconPinnedOff, IconPlus, IconTrash, IconClipboardText } from '@tabler/icons-react';
+import { IconCopy, IconCopyPlus, IconDownload, IconEye, IconPin, IconPinnedOff, IconPlus, IconTrash, IconClipboardText } from '@tabler/icons-react';
 import type { GridColumnV2, GridRowModel } from "../types";
 import type { DatabaseType } from "@/types";
 import {
@@ -15,6 +15,15 @@ import {
   copyAsCSV,
   copyAsTSV,
   copyAsInsert,
+  copyAsRedisGet,
+  copyAsRedisSet,
+  copyAsRedisDel,
+  copyRedisKeys,
+  copyAsMongoFind,
+  copyAsMongoInsert,
+  copyAsMongoUpdate,
+  copyAsMongoDelete,
+  type DataParadigm,
 } from "../utils/copyUtils";
 import {
   exportToCSV,
@@ -42,12 +51,15 @@ export interface GridContextMenuItemsProps {
   tableName: string;
   schema?: string;
   databaseType: DatabaseType;
-  onViewDetails: () => void;
+  /** Data paradigm for context-aware copy options */
+  paradigm?: DataParadigm;
+  onViewDetails?: () => void;
   onPinRows?: (rowKeys: string[]) => void;
   onUnpinRows?: (rowKeys: string[]) => void;
   onAddRow?: () => void;
   onInsertRowAbove?: () => void;
   onInsertRowBelow?: () => void;
+  onDuplicateRows?: () => void;
   onDeleteRows?: () => void;
   onPaste?: () => void;
 }
@@ -64,12 +76,14 @@ export function GridContextMenuItems({
   tableName,
   schema,
   databaseType,
+  paradigm = "sql",
   onViewDetails,
   onPinRows,
   onUnpinRows,
   onAddRow,
   onInsertRowAbove,
   onInsertRowBelow,
+  onDuplicateRows,
   onDeleteRows,
   onPaste,
 }: GridContextMenuItemsProps) {
@@ -111,6 +125,7 @@ export function GridContextMenuItems({
       paste: renderShortcut("cmd+v"),
       insertAbove: renderShortcut("cmd+shift+enter"),
       insertBelow: renderShortcut("cmd+enter"),
+      duplicate: renderShortcut("cmd+d"),
       deleteRows: renderShortcut("cmd+backspace"),
     }),
     [renderShortcut],
@@ -216,6 +231,94 @@ export function GridContextMenuItems({
       );
     }
   }, [selectedRows, columns, tableName, databaseType, schema]);
+
+  // ============================================================================
+  // Redis-specific copy handlers
+  // ============================================================================
+
+  const handleCopyRedisGet = useCallback(async () => {
+    try {
+      const content = copyAsRedisGet(selectedRows);
+      await writeTextToClipboard(content);
+      toast("Copied Redis GET commands");
+    } catch (error) {
+      toast.error(`Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  }, [selectedRows]);
+
+  const handleCopyRedisSet = useCallback(async () => {
+    try {
+      const content = copyAsRedisSet(selectedRows, columns);
+      await writeTextToClipboard(content);
+      toast("Copied Redis SET commands");
+    } catch (error) {
+      toast.error(`Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  }, [selectedRows, columns]);
+
+  const handleCopyRedisDel = useCallback(async () => {
+    try {
+      const content = copyAsRedisDel(selectedRows);
+      await writeTextToClipboard(content);
+      toast("Copied Redis DEL command");
+    } catch (error) {
+      toast.error(`Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  }, [selectedRows]);
+
+  const handleCopyRedisKeys = useCallback(async () => {
+    try {
+      const content = copyRedisKeys(selectedRows);
+      await writeTextToClipboard(content);
+      toast("Copied Redis keys");
+    } catch (error) {
+      toast.error(`Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  }, [selectedRows]);
+
+  // ============================================================================
+  // MongoDB-specific copy handlers
+  // ============================================================================
+
+  const handleCopyMongoFind = useCallback(async () => {
+    try {
+      const content = copyAsMongoFind(selectedRows, columns, tableName);
+      await writeTextToClipboard(content);
+      toast("Copied MongoDB find query");
+    } catch (error) {
+      toast.error(`Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  }, [selectedRows, columns, tableName]);
+
+  const handleCopyMongoInsert = useCallback(async () => {
+    try {
+      const content = copyAsMongoInsert(selectedRows, columns, tableName);
+      await writeTextToClipboard(content);
+      toast("Copied MongoDB insert command");
+    } catch (error) {
+      toast.error(`Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  }, [selectedRows, columns, tableName]);
+
+  const handleCopyMongoUpdate = useCallback(async () => {
+    try {
+      const content = copyAsMongoUpdate(selectedRows, columns, tableName);
+      await writeTextToClipboard(content);
+      toast("Copied MongoDB update command");
+    } catch (error) {
+      toast.error(`Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  }, [selectedRows, columns, tableName]);
+
+  const handleCopyMongoDelete = useCallback(async () => {
+    try {
+      const content = copyAsMongoDelete(selectedRows, columns, tableName);
+      await writeTextToClipboard(content);
+      toast("Copied MongoDB delete command");
+    } catch (error) {
+      toast.error(`Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  }, [selectedRows, columns, tableName]);
 
   // Export handlers
   const handleExportCSV = useCallback(async () => {
@@ -342,25 +445,27 @@ export function GridContextMenuItems({
 
   return (
     <>
-      {/* View Details */}
-      <ContextMenuItem
-        onClick={onViewDetails}
-        className="text-xs py-1.5 px-3 outline-none"
-      >
-        <IconEye className="mr-1.5 h-3 w-3 text-foreground" />
-        <span className="flex-1">View Details</span>
-      </ContextMenuItem>
+      {onViewDetails && (
+        <>
+          <ContextMenuItem
+            onClick={onViewDetails}
+            className="text-xs py-1.5 px-3 outline-none"
+          >
+            <IconEye className="mr-1.5 h-3 w-3 text-foreground" />
+            <span className="flex-1">View Details</span>
+          </ContextMenuItem>
+          <ContextMenuSeparator className="my-1" />
+        </>
+      )}
 
-      <ContextMenuSeparator className="my-1" />
-
-      {/* Copy submenu */}
+      {/* Copy submenu - paradigm-aware */}
       <ContextMenuSub>
         <ContextMenuSubTrigger className="text-xs py-1.5 px-3 outline-none">
           <IconCopy className="mr-3.5 h-3 w-3 text-foreground" />
           <span className="flex-1">Copy</span>
         </ContextMenuSubTrigger>
         <ContextMenuSubContent className="text-xs p-1">
-          {/* Copy cells (selected columns only) */}
+          {/* Common copy options */}
           <ContextMenuItem
             onClick={handleCopyCellsTSV}
             className="text-xs py-1.5 px-3 outline-none"
@@ -381,13 +486,79 @@ export function GridContextMenuItems({
           >
             <span className="flex-1">Copy cells as CSV</span>
           </ContextMenuItem>
-          <ContextMenuItem
-            onClick={handleCopyCellsInsert}
-            className="text-xs py-1.5 px-3 outline-none"
-          >
-            <span className="flex-1">Copy cells as INSERT</span>
-          </ContextMenuItem>
+
+          {/* SQL-specific copy options */}
+          {paradigm === "sql" && (
+            <ContextMenuItem
+              onClick={handleCopyCellsInsert}
+              className="text-xs py-1.5 px-3 outline-none"
+            >
+              <span className="flex-1">Copy cells as INSERT</span>
+            </ContextMenuItem>
+          )}
+
+          {/* Redis-specific copy options */}
+          {paradigm === "keyvalue" && (
+            <>
+              <ContextMenuItem
+                onClick={handleCopyRedisGet}
+                className="text-xs py-1.5 px-3 outline-none"
+              >
+                <span className="flex-1">Copy as GET command</span>
+              </ContextMenuItem>
+              <ContextMenuItem
+                onClick={handleCopyRedisSet}
+                className="text-xs py-1.5 px-3 outline-none"
+              >
+                <span className="flex-1">Copy as SET command</span>
+              </ContextMenuItem>
+              <ContextMenuItem
+                onClick={handleCopyRedisDel}
+                className="text-xs py-1.5 px-3 outline-none"
+              >
+                <span className="flex-1">Copy as DEL command</span>
+              </ContextMenuItem>
+              <ContextMenuItem
+                onClick={handleCopyRedisKeys}
+                className="text-xs py-1.5 px-3 outline-none"
+              >
+                <span className="flex-1">Copy key names</span>
+              </ContextMenuItem>
+            </>
+          )}
+
+          {/* MongoDB-specific copy options */}
+          {paradigm === "document" && (
+            <>
+              <ContextMenuItem
+                onClick={handleCopyMongoFind}
+                className="text-xs py-1.5 px-3 outline-none"
+              >
+                <span className="flex-1">Copy as find()</span>
+              </ContextMenuItem>
+              <ContextMenuItem
+                onClick={handleCopyMongoInsert}
+                className="text-xs py-1.5 px-3 outline-none"
+              >
+                <span className="flex-1">Copy as insertOne()</span>
+              </ContextMenuItem>
+              <ContextMenuItem
+                onClick={handleCopyMongoUpdate}
+                className="text-xs py-1.5 px-3 outline-none"
+              >
+                <span className="flex-1">Copy as updateOne()</span>
+              </ContextMenuItem>
+              <ContextMenuItem
+                onClick={handleCopyMongoDelete}
+                className="text-xs py-1.5 px-3 outline-none"
+              >
+                <span className="flex-1">Copy as deleteOne()</span>
+              </ContextMenuItem>
+            </>
+          )}
+
           <ContextMenuSeparator className="my-1" />
+
           {/* Copy rows (all visible columns) */}
           <ContextMenuItem
             onClick={handleCopyRowsTSV}
@@ -407,12 +578,16 @@ export function GridContextMenuItems({
           >
             <span className="flex-1">Copy rows as CSV</span>
           </ContextMenuItem>
-          <ContextMenuItem
-            onClick={handleCopyRowsInsert}
-            className="text-xs py-1.5 px-3 outline-none"
-          >
-            <span className="flex-1">Copy rows as INSERT</span>
-          </ContextMenuItem>
+
+          {/* SQL row INSERT */}
+          {paradigm === "sql" && (
+            <ContextMenuItem
+              onClick={handleCopyRowsInsert}
+              className="text-xs py-1.5 px-3 outline-none"
+            >
+              <span className="flex-1">Copy rows as INSERT</span>
+            </ContextMenuItem>
+          )}
         </ContextMenuSubContent>
       </ContextMenuSub>
 
@@ -473,6 +648,19 @@ export function GridContextMenuItems({
           <IconPlus className="mr-1.5 h-3 w-3 text-foreground" />
           <span className="flex-1">Insert Row Below</span>
           {shortcuts.insertBelow}
+        </ContextMenuItem>
+      )}
+
+      {onDuplicateRows && (
+        <ContextMenuItem
+          onClick={onDuplicateRows}
+          className="text-xs py-1.5 px-3 outline-none"
+        >
+          <IconCopyPlus className="mr-1.5 h-3 w-3 text-foreground" />
+          <span className="flex-1">
+            Duplicate Row{selectedRows.length > 1 ? "s" : ""}
+          </span>
+          {shortcuts.duplicate}
         </ContextMenuItem>
       )}
 

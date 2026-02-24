@@ -75,27 +75,10 @@ export function formatTableName(
 /**
  * Escape a string for SQL (double single quotes)
  */
-export function escapeString(value: string, dbType: DbType | string): string {
-  const type = toDbType(dbType);
-
-  switch (type) {
-    case DbType.MySQL:
-      // MySQL uses backslash escaping by default
-      return value
-        .replace(/\\/g, '\\\\')
-        .replace(/'/g, "\\'")
-        .replace(/"/g, '\\"')
-        .replace(/\n/g, '\\n')
-        .replace(/\r/g, '\\r')
-        .replace(/\0/g, '\\0')
-        .replace(/\x1a/g, '\\Z');
-    case DbType.PostgreSQL:
-    case DbType.SQLite:
-    case DbType.SQLServer:
-    default:
-      // Standard SQL: double single quotes
-      return value.replace(/'/g, "''");
-  }
+export function escapeString(value: string, _dbType?: DbType | string): string {
+  // Standard SQL escaping: double single quotes
+  // Works correctly in all sql_modes including MySQL's NO_BACKSLASH_ESCAPES
+  return value.replace(/'/g, "''");
 }
 
 /**
@@ -216,16 +199,66 @@ export function getDialectQuoting(dbType: DbType | string) {
 function operatorToSql(operator: FilterOperator | string, dbType: DbType): string {
   switch (operator) {
     case 'REGEX':
-      return dbType === DbType.PostgreSQL ? '~' : 'REGEXP BINARY';
+      // PostgreSQL: ~ (case-sensitive regex)
+      // MySQL/MariaDB: REGEXP BINARY (case-sensitive)
+      // SQLite: REGEXP (requires extension, may not be available)
+      // SQL Server: No native regex - fall back to LIKE (limited pattern support)
+      switch (dbType) {
+        case DbType.PostgreSQL:
+          return '~';
+        case DbType.MySQL:
+          return 'REGEXP BINARY';
+        case DbType.SQLite:
+          return 'REGEXP'; // Note: requires regexp extension
+        case DbType.SQLServer:
+          return 'LIKE'; // Fallback - regex patterns won't work correctly
+        default:
+          return 'REGEXP BINARY';
+      }
     case 'REGEX_I':
-      return dbType === DbType.PostgreSQL ? '~*' : 'REGEXP';
+      // PostgreSQL: ~* (case-insensitive regex)
+      // MySQL/MariaDB: REGEXP (case-insensitive by default)
+      // SQLite: REGEXP (no case-insensitive variant)
+      // SQL Server: No native regex - fall back to LIKE
+      switch (dbType) {
+        case DbType.PostgreSQL:
+          return '~*';
+        case DbType.MySQL:
+          return 'REGEXP';
+        case DbType.SQLite:
+          return 'REGEXP'; // Note: requires regexp extension
+        case DbType.SQLServer:
+          return 'LIKE'; // Fallback - regex patterns won't work correctly
+        default:
+          return 'REGEXP';
+      }
     case 'ILIKE':
       // MySQL/SQLite don't have ILIKE, use LIKE (case-insensitive by default in MySQL)
+      // SQLite LIKE is case-insensitive for ASCII letters
       return dbType === DbType.PostgreSQL ? 'ILIKE' : 'LIKE';
     case 'NOT ILIKE':
       return dbType === DbType.PostgreSQL ? 'NOT ILIKE' : 'NOT LIKE';
     default:
       return operator;
+  }
+}
+
+/**
+ * Cast a column to text type for the given database
+ */
+function castToText(column: string, dbType: DbType): string {
+  switch (dbType) {
+    case DbType.PostgreSQL:
+      return `${column}::text`;
+    case DbType.MySQL:
+      // MySQL/MariaDB use CAST(col AS CHAR)
+      return `CAST(${column} AS CHAR)`;
+    case DbType.SQLite:
+      return `CAST(${column} AS TEXT)`;
+    case DbType.SQLServer:
+      return `CAST(${column} AS NVARCHAR(MAX))`;
+    default:
+      return `${column}::text`;
   }
 }
 
@@ -239,7 +272,7 @@ function conditionToSql(
 ): string {
   const baseColumn = quoteIdentifier(condition.column, dbType);
   const qualifiedColumn = columnPrefix ? `${columnPrefix}.${baseColumn}` : baseColumn;
-  const column = condition.castToText ? `${qualifiedColumn}::text` : qualifiedColumn;
+  const column = condition.castToText ? castToText(qualifiedColumn, dbType) : qualifiedColumn;
 
   const operator = condition.operator as FilterOperator;
 
@@ -299,12 +332,14 @@ function groupToSql(
 function qualifyRawWhereClause(
   clause: string,
   columnPrefix: string,
-  columnNames: string[]
+  columnNames: string[],
+  dbType?: DbType
 ): string {
   const prefix = `${columnPrefix}.`;
   const columnSet = new Set(columnNames);
   const columnLowerSet = new Set(columnNames.map((name) => name.toLowerCase()));
   const isWhitespace = (char: string) => /\s/.test(char);
+  const isMySQL = dbType === DbType.MySQL;
 
   const findPrevNonWhitespace = (fromIndex: number) => {
     for (let i = fromIndex; i >= 0; i--) {
@@ -374,8 +409,39 @@ function qualifyRawWhereClause(
       continue;
     }
 
+    // PostgreSQL dollar-quoted strings: $tag$...$tag$ or $$...$$
+    if (!inSingleQuote && char === '$') {
+      // Try to match a dollar-quote tag: $ optionally followed by identifier chars then $
+      let tagEnd = i + 1;
+      while (tagEnd < clause.length && isIdentifierPart(clause.charAt(tagEnd))) {
+        tagEnd++;
+      }
+      if (tagEnd < clause.length && clause.charAt(tagEnd) === '$') {
+        const tag = clause.slice(i, tagEnd + 1); // e.g. "$$" or "$tag$"
+        result += tag;
+        i = tagEnd + 1;
+        // Consume everything until the closing tag
+        const closeIdx = clause.indexOf(tag, i);
+        if (closeIdx !== -1) {
+          result += clause.slice(i, closeIdx + tag.length);
+          i = closeIdx + tag.length;
+        } else {
+          // No closing tag found — emit the rest as-is
+          result += clause.slice(i);
+          i = clause.length;
+        }
+        continue;
+      }
+    }
+
     if (inSingleQuote) {
       result += char;
+      // MySQL backslash escaping: \' keeps the string open
+      if (isMySQL && char === '\\' && nextChar) {
+        result += nextChar;
+        i += 2;
+        continue;
+      }
       if (char === "'" && nextChar === "'") {
         result += nextChar;
         i += 2;
@@ -395,19 +461,50 @@ function qualifyRawWhereClause(
       continue;
     }
 
-    if (char === '"') {
+    if (char === '"' || char === '`') {
+      const quoteChar = char;
       const start = i;
       i += 1;
       let identifier = '';
       while (i < clause.length) {
         const innerChar = clause.charAt(i);
         const innerNext = clause.charAt(i + 1);
-        if (innerChar === '"' && innerNext === '"') {
-          identifier += '"';
+        if (innerChar === quoteChar && innerNext === quoteChar) {
+          identifier += quoteChar;
           i += 2;
           continue;
         }
-        if (innerChar === '"') {
+        if (innerChar === quoteChar) {
+          i += 1;
+          break;
+        }
+        identifier += innerChar;
+        i += 1;
+      }
+      const token = clause.slice(start, i);
+      const prevChar = findPrevNonWhitespace(start - 1);
+      const nextNonWhitespace = findNextNonWhitespace(i);
+      const isQualified =
+        prevChar === '.' || prevChar === ':' || nextNonWhitespace === '.';
+      const shouldPrefix = !isQualified && columnSet.has(identifier);
+
+      result += shouldPrefix ? prefix + token : token;
+      continue;
+    }
+
+    if (char === '[') {
+      const start = i;
+      i += 1;
+      let identifier = '';
+      while (i < clause.length) {
+        const innerChar = clause.charAt(i);
+        const innerNext = clause.charAt(i + 1);
+        if (innerChar === ']' && innerNext === ']') {
+          identifier += ']';
+          i += 2;
+          continue;
+        }
+        if (innerChar === ']') {
           i += 1;
           break;
         }
@@ -473,7 +570,8 @@ export function filterConfigToWhereClause(
       return qualifyRawWhereClause(
         filter.rawWhereClause,
         columnPrefix,
-        columnNames
+        columnNames,
+        toDbType(dbType)
       );
     }
     return filter.rawWhereClause;

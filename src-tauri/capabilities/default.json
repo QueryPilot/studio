@@ -39,6 +39,7 @@
     "core:webview:allow-set-webview-focus",
     "core:webview:allow-internal-toggle-devtools",
     "os:default",
+    "process:default",
     "dialog:default",
     "fs:default",
     "fs:allow-write-text-file"

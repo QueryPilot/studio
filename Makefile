@@ -1,4 +1,4 @@
-.PHONY: help d dev dev-profile dp build build-ai build-ai-all verify-sidecars dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-integration ti test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle seed-mongodb seed-redis setup version release release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-clean test-ssh-full
+.PHONY: help d dev dev-profile dp mcp-sidecar build package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-integration ti test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle seed-mongodb seed-redis setup version release release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-all-adapters test-ssh-clean test-ssh-full test-ssh-all-smoke
 
 SSH_KEYGEN ?= ssh-keygen
 SQLSERVER_CONTAINER ?= query-pilot-sqlserver
@@ -12,13 +12,10 @@ help:
 	@echo "Query Pilot - Available Commands:"
 	@echo ""
 	@echo "Development:"
-	@echo "  make dev, make d       - Run in development mode"
+	@echo "  make dev, make d       - Run in development mode (auto-builds MCP sidecar)"
 	@echo "  make dev-profile, dp   - Run in development mode with QP_STREAM_PROFILE=1"
-	@echo "  make dev-sidecar, ds   - Run AI sidecar in dev mode (Bun)"
-	@echo "  make build             - Build for production (includes all sidecars)"
-	@echo "  make build-ai          - Build AI sidecar for current platform"
-	@echo "  make build-ai-all      - Build AI sidecar for all platforms"
-	@echo "  make verify-sidecars   - Verify all sidecar binaries are present"
+	@echo "  make mcp-sidecar       - Build MCP sidecar only"
+	@echo "  make build             - Build for production"
 	@echo "  make package-dist      - Package build with installation instructions"
 	@echo "  make install           - Install dependencies"
 	@echo "  make clean             - Clean build artifacts"
@@ -51,8 +48,8 @@ help:
 	@echo "  make reseed-all     - Drop and reseed all databases (DELETES existing data)"
 	@echo ""
 	@echo "Release Management:"
-	@echo "  make release                - AI-powered release with cross-repo publishing"
-	@echo "  make relc [V=0.7.1]         - AI-powered local build, sign, notarize & upload"
+	@echo "  make release                - Create release with cross-repo publishing"
+	@echo "  make relc [V=0.7.1]         - Local build, sign, notarize & upload"
 	@echo "  make release-publish V=0.5.0 - Publish built release to studio-app repo"
 	@echo "  make release-manual VERSION=1.2.3  - Manual release with specific version"
 	@echo "  make version VERSION=1.2.3  - Bump version only (no commit)"
@@ -61,36 +58,22 @@ help:
 	@echo "Quick Start:"
 	@echo "  make setup          - Start containers and seed all databases"
 
+# Build MCP sidecar (required for AI database tools)
+mcp-sidecar:
+	@echo "Building MCP sidecar..."
+	@cargo build -p querypilot-mcp --release 2>/dev/null && \
+		echo "MCP sidecar ready (release)" || \
+		(echo "⚠️  MCP sidecar build failed - AI database tools will be unavailable" && exit 0)
+
 # Development
-dev d:
+dev d: mcp-sidecar
 	pnpm tauri:dev
 
-dev-profile dp:
+dev-profile dp: mcp-sidecar
 	QP_STREAM_PROFILE=1 pnpm tauri:dev
-
-dev-sidecar ds:
-	@echo "Starting AI sidecar in dev mode..."
-	@cd src-tauri/sidecar-ai && bun install && PORT=3001 bun run index.ts
-
-# AI Sidecar build
-build-ai:
-	@echo "Building AI sidecar for current platform..."
-	@bash scripts/build-ai-sidecar.sh
-
-build-ai-all:
-	@echo "Building AI sidecar for all platforms..."
-	@BUILD_ALL=true bash scripts/build-ai-sidecar.sh
-
-# Verify all sidecars are present
-verify-sidecars:
-	@bash scripts/verify-sidecars.sh
 
 # Build for production
 build:
-	@echo "Building AI sidecar..."
-	@$(MAKE) build-ai
-	@echo "Verifying all sidecars..."
-	@$(MAKE) verify-sidecars
 	@echo "Building Tauri app..."
 	@pnpm tauri:build
 
@@ -101,8 +84,6 @@ package-dist:
 # Install dependencies
 install i:
 	pnpm install
-	@echo "Installing AI sidecar dependencies..."
-	@cd src-tauri/sidecar-ai && bun install
 
 # Clean build artifacts
 clean:
@@ -110,8 +91,6 @@ clean:
 	@rm -rf dist
 	@rm -rf src-tauri/target
 	@rm -rf node_modules
-	@rm -rf src-tauri/sidecar-ai/node_modules
-	@rm -f src-tauri/sidecars/qp-ai-*
 	@echo "Clean complete!"
 
 # Run all unit tests (Rust + Frontend)
@@ -141,7 +120,7 @@ test-unit:
 	@$(MAKE) test
 
 # Run Rust backend tests
-test-backend: build-ai
+test-backend:
 	@echo "Running Rust unit tests..."
 	@cd src-tauri && cargo test --lib --bins
 	@echo "Rust tests completed!"
@@ -168,9 +147,20 @@ test-ssh-setup:
 	@mkdir -p tests/ssh-keys
 	@$(SSH_KEYGEN) -t rsa -b 4096 -f tests/ssh-keys/test_rsa_key -N "" -C "test@querypilot" >/dev/null 2>&1 || true
 	@$(SSH_KEYGEN) -t ed25519 -f tests/ssh-keys/test_ed25519_key -N "testpass123" -C "test@querypilot" >/dev/null 2>&1 || true
-	@docker compose up -d ssh-bastion-password ssh-bastion-key postgres-private
+	@docker compose --profile ssh-test up -d ssh-bastion-password ssh-bastion-key postgres-private
 	@echo "⏳ Waiting for bastions and private database to be ready..."
 	@sleep 10
+	@mkdir -p tests/ssh-known-hosts
+	@rm -f tests/ssh-known-hosts/known_hosts
+	@for port in 2222 2223; do \
+		for attempt in 1 2 3 4 5; do \
+			if ssh-keyscan -p $$port 127.0.0.1 >> tests/ssh-known-hosts/known_hosts 2>/dev/null; then \
+				break; \
+			fi; \
+			sleep 1; \
+		done; \
+	done
+	@sort -u tests/ssh-known-hosts/known_hosts -o tests/ssh-known-hosts/known_hosts
 	@echo "✅ SSH testing environment ready"
 
 test-ssh:
@@ -186,18 +176,49 @@ test-ssh:
 		TEST_DB_POSTGRES_USER=devuser \
 		TEST_DB_POSTGRES_PASSWORD=devpass123 \
 		TEST_DB_POSTGRES_DB=todoapp \
+		QUERY_PILOT_SSH_KNOWN_HOSTS=../tests/ssh-known-hosts/known_hosts \
 		cargo test --test ssh_tunnel_test -- --nocapture --test-threads=1
+
+test-ssh-all-adapters:
+	@echo "🧪 Running SSH integration tests for all supported adapters..."
+	@cd src-tauri && \
+		TEST_SSH_ENABLED=1 \
+		TEST_SSH_HOST=127.0.0.1 \
+		TEST_SSH_PORT=2222 \
+		TEST_SSH_USER=sshuser \
+		TEST_SSH_PASSWORD=bastionpass123 \
+		QUERY_PILOT_SSH_KNOWN_HOSTS=../tests/ssh-known-hosts/known_hosts \
+		cargo test --test ssh_all_adapters_test -- --nocapture --test-threads=1
 
 test-ssh-clean:
 	@echo "🧹 Cleaning up SSH testing environment..."
 	@docker compose down -v
 	@rm -rf tests/ssh-keys/test_*
+	@rm -rf tests/ssh-known-hosts
 	@echo "✅ Cleanup complete"
 
-test-ssh-full: test-ssh-setup test-ssh test-ssh-clean
+test-ssh-full: test-ssh-setup test-ssh test-ssh-all-adapters test-ssh-clean
+
+test-ssh-all-smoke:
+	@echo "🔍 Checking SSH bastion reachability to all supported DB services..."
+	@docker compose --profile ssh-test up -d ssh-bastion-password >/dev/null
+	@for target in \
+		"query-pilot-postgres:5432" \
+		"query-pilot-mysql:3306" \
+		"query-pilot-mariadb:3306" \
+		"query-pilot-sqlserver:1433" \
+		"query-pilot-mongodb:27017" \
+		"query-pilot-redis:6379" \
+		"query-pilot-oracle:1521"; do \
+		host=$${target%%:*}; \
+		port=$${target##*:}; \
+		printf "  - %-32s " "$$target"; \
+		docker exec -i query-pilot-ssh-bastion-password sh -c "nc -z -w 3 $$host $$port" >/dev/null 2>&1 && echo "OK" || (echo "FAIL"; exit 1); \
+	done
+	@echo "✅ SSH bastion can reach all supported DB services"
 
 # Run all tests (unit + integration)
-test-all: build-ai
+test-all:
 	@echo "Running all Rust unit tests..."
 	@cd src-tauri && cargo test
 	@echo "Running Frontend unit tests..."
@@ -207,7 +228,7 @@ test-all: build-ai
 	@echo "All tests completed!"
 
 # Quick test - just check if database connection works
-test-quick: build-ai
+test-quick:
 	@echo "Quick database connection test..."
 	@cd src-tauri && cargo run --example test_connection
 	@echo "Connection test passed!"
@@ -311,7 +332,7 @@ setup: docker-up
 	@echo "Database Connections:"
 	@echo "  PostgreSQL: localhost:15432 (user: devuser, pass: devpass123, db: todoapp)"
 	@echo "  MySQL:      localhost:13306 (user: devuser, pass: devpass123, db: todoapp)"
-	@echo "  SQLite:     seeds/sqlite/todoapp.db"
+	@echo "  SQLite:     seeds/sqlite/query_pilot_test.db"
 	@echo "  SQL Server: localhost:11434 (user: sa, pass: DevPass123, db: todoapp)"
 	@echo "  Oracle:     localhost:11521 (user: todoapp, pass: DevPass123, service: XE)"
 	@echo "  MongoDB:    localhost:17017 (user: devuser, pass: devpass123, db: todoapp)"
@@ -325,7 +346,7 @@ setup: docker-up
 generate-keys:
 	@bash scripts/generate-updater-keys.sh
 
-# Smart AI-powered release with cross-repo publishing
+# Create release with cross-repo publishing
 release:
 	@bash scripts/smart-release-v2.sh
 
