@@ -1,4 +1,4 @@
-import { SslMode } from "@/types/connection";
+import { SslMode, type ConnectionProfile, DbType } from "@/types/connection";
 
 export type ConnectionFormat = "uri" | "env" | "unknown";
 export type DatabaseType =
@@ -60,6 +60,14 @@ function looksLikeConnectionUri(text: string): boolean {
     return true;
   }
   if (/^(postgres|postgresql|mysql|mariadb|mssql|sqlserver|sqlite):/i.test(trimmed)) {
+    return true;
+  }
+  // MongoDB URIs (standard and SRV format for Atlas)
+  if (/^mongodb(\+srv)?:\/\//i.test(trimmed)) {
+    return true;
+  }
+  // Redis URIs (standard and TLS)
+  if (/^rediss?:\/\//i.test(trimmed)) {
     return true;
   }
   if (/^(server|data source|address|addr|network address)\s*=/i.test(trimmed)) {
@@ -155,82 +163,266 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
 
   const config: ParsedEnvConfig = {};
 
-  // Detect database type from variable prefixes
-  if (hasPrefix("POSTGRES_") || hasPrefix("PG")) {
+  // Detect database type from DB_CONNECTION, DB_DRIVER, etc.
+  const dbConnection = getValue(
+    "DB_CONNECTION",
+    "DB_DRIVER",
+    "DB_TYPE",
+    "DATABASE_DRIVER",
+    "DATABASE_TYPE",
+    "CONNECTION",
+    "DRIVER",
+  );
+  if (dbConnection) {
+    const connLower = dbConnection.toLowerCase();
+    if (
+      connLower === "pgsql" ||
+      connLower === "postgres" ||
+      connLower === "postgresql" ||
+      connLower === "pg"
+    ) {
+      config.dbType = "postgresql";
+    } else if (connLower === "mysql" || connLower === "mysql2") {
+      config.dbType = "mysql";
+    } else if (connLower === "mariadb") {
+      config.dbType = "mariadb";
+    } else if (
+      connLower === "mssql" ||
+      connLower === "sqlserver" ||
+      connLower === "sqlsrv" ||
+      connLower === "sql_server" ||
+      connLower === "odbc"
+    ) {
+      config.dbType = "mssql";
+    } else if (connLower === "sqlite" || connLower === "sqlite3") {
+      config.dbType = "sqlite";
+    } else if (connLower === "mongodb" || connLower === "mongo") {
+      config.dbType = "mongodb";
+    } else if (connLower === "redis") {
+      config.dbType = "redis";
+    }
+  } else if (hasPrefix("POSTGRES_") || hasPrefix("PG_") || hasPrefix("PGHOST")) {
     config.dbType = "postgresql";
   } else if (hasPrefix("MYSQL_")) {
     config.dbType = "mysql";
   } else if (hasPrefix("MARIADB_")) {
     config.dbType = "mariadb";
-  } else if (hasPrefix("MSSQL_") || hasPrefix("SQLSERVER_")) {
+  } else if (hasPrefix("MSSQL_") || hasPrefix("SQLSERVER_") || hasPrefix("SQL_SERVER_")) {
     config.dbType = "mssql";
   } else if (hasPrefix("SQLITE_")) {
     config.dbType = "sqlite";
+  } else if (hasPrefix("MONGO_") || hasPrefix("MONGODB_")) {
+    config.dbType = "mongodb";
+  } else if (hasPrefix("REDIS_")) {
+    config.dbType = "redis";
   }
 
   // Map environment variables to config fields
+  // Host patterns: Laravel, Docker, Heroku, generic
   config.host = getValue(
+    // PostgreSQL
     "POSTGRES_HOST",
     "PGHOST",
+    "PG_HOST",
+    // MySQL/MariaDB
     "MYSQL_HOST",
     "MARIADB_HOST",
+    // SQL Server
     "MSSQL_HOST",
+    "SQLSERVER_HOST",
+    "SQL_SERVER_HOST",
+    // MongoDB
+    "MONGODB_HOST",
+    "MONGO_HOST",
+    // Redis
+    "REDIS_HOST",
+    // Generic (Laravel, Rails, etc.)
     "DB_HOST",
     "DATABASE_HOST",
+    "DB_SERVER",
+    "DATABASE_SERVER",
     "HOST",
+    "HOSTNAME",
+    "SERVER",
   );
 
+  // Port patterns
   config.port = getValue(
+    // PostgreSQL
     "POSTGRES_PORT",
     "PGPORT",
+    "PG_PORT",
+    // MySQL/MariaDB
     "MYSQL_PORT",
+    "MYSQL_TCP_PORT",
     "MARIADB_PORT",
+    // SQL Server
     "MSSQL_PORT",
+    "SQLSERVER_PORT",
+    "SQL_SERVER_PORT",
+    // MongoDB
+    "MONGODB_PORT",
+    "MONGO_PORT",
+    // Redis
+    "REDIS_PORT",
+    // Generic
     "DB_PORT",
     "DATABASE_PORT",
     "PORT",
   );
 
+  // Username patterns
   config.username = getValue(
+    // PostgreSQL
     "POSTGRES_USER",
+    "POSTGRES_USERNAME",
     "PGUSER",
+    "PG_USER",
+    // MySQL/MariaDB (also root user)
     "MYSQL_USER",
+    "MYSQL_USERNAME",
     "MARIADB_USER",
+    "MARIADB_USERNAME",
+    // SQL Server
     "MSSQL_USER",
+    "MSSQL_USERNAME",
+    "SQLSERVER_USER",
+    "SQL_SERVER_USER",
+    "SA_USER",
+    // MongoDB
+    "MONGODB_USER",
+    "MONGODB_USERNAME",
+    "MONGO_USER",
+    "MONGO_USERNAME",
+    "MONGO_INITDB_ROOT_USERNAME",
+    // Redis
+    "REDIS_USER",
+    "REDIS_USERNAME",
+    // Generic (Laravel, Rails, Django, etc.)
     "DB_USER",
+    "DB_USERNAME",
     "DATABASE_USER",
+    "DATABASE_USERNAME",
     "USER",
     "USERNAME",
   );
 
+  // Password patterns
   config.password = getValue(
+    // PostgreSQL
     "POSTGRES_PASSWORD",
     "PGPASSWORD",
+    "PG_PASSWORD",
+    // MySQL/MariaDB (including root)
     "MYSQL_PASSWORD",
+    "MYSQL_ROOT_PASSWORD",
+    "MYSQL_PWD",
     "MARIADB_PASSWORD",
+    "MARIADB_ROOT_PASSWORD",
+    // SQL Server
     "MSSQL_PASSWORD",
+    "MSSQL_SA_PASSWORD",
+    "SQLSERVER_PASSWORD",
+    "SQL_SERVER_PASSWORD",
+    "SA_PASSWORD",
+    // MongoDB
+    "MONGODB_PASSWORD",
+    "MONGO_PASSWORD",
+    "MONGO_INITDB_ROOT_PASSWORD",
+    // Redis
+    "REDIS_PASSWORD",
+    "REDIS_AUTH",
+    // Generic (Laravel, Rails, Django, etc.)
     "DB_PASSWORD",
+    "DB_PASS",
+    "DB_PWD",
     "DATABASE_PASSWORD",
+    "DATABASE_PASS",
     "PASSWORD",
     "PASS",
+    "PWD",
   );
 
+  // Database name patterns
   config.database = getValue(
+    // PostgreSQL
     "POSTGRES_DB",
+    "POSTGRES_DATABASE",
     "PGDATABASE",
+    "PG_DATABASE",
+    // MySQL/MariaDB
     "MYSQL_DATABASE",
+    "MYSQL_DB",
     "MARIADB_DATABASE",
+    "MARIADB_DB",
+    // SQL Server
     "MSSQL_DATABASE",
+    "MSSQL_DB",
+    "SQLSERVER_DATABASE",
+    "SQL_SERVER_DATABASE",
+    // SQLite
     "SQLITE_DATABASE",
     "SQLITE_DB",
+    "SQLITE_PATH",
+    // MongoDB
+    "MONGODB_DATABASE",
+    "MONGODB_DB",
+    "MONGO_DATABASE",
+    "MONGO_DB",
+    "MONGO_INITDB_DATABASE",
+    // Redis
+    "REDIS_DATABASE",
+    "REDIS_DB",
+    // Generic (Laravel, Rails, Django, etc.)
+    "DB_DATABASE",
     "DB_NAME",
+    "DB_SCHEMA",
     "DATABASE_NAME",
     "DATABASE",
+    "DBNAME",
     "DB",
+    "SCHEMA",
+    "CATALOG",
   );
 
   // Handle DATABASE_URL as a full connection URI
-  const databaseUrl = getValue("DATABASE_URL", "DB_URL", "CONNECTION_STRING");
+  // Support: Rails, Heroku, Docker, Laravel, etc.
+  const databaseUrl = getValue(
+    // Generic
+    "DATABASE_URL",
+    "DB_URL",
+    "CONNECTION_STRING",
+    "CONNECTION_URL",
+    "DSN",
+    // PostgreSQL
+    "POSTGRES_URL",
+    "POSTGRESQL_URL",
+    "PG_URL",
+    "PGURL",
+    // MySQL/MariaDB
+    "MYSQL_URL",
+    "MARIADB_URL",
+    // SQL Server
+    "MSSQL_URL",
+    "SQLSERVER_URL",
+    // MongoDB
+    "MONGODB_URL",
+    "MONGODB_URI",
+    "MONGO_URL",
+    "MONGO_URI",
+    // Redis
+    "REDIS_URL",
+    "REDIS_URI",
+    // Heroku-style addons
+    "HEROKU_POSTGRESQL_URL",
+    "CLEARDB_DATABASE_URL",
+    "JAWSDB_URL",
+    "JAWSDB_MARIA_URL",
+    "REDISTOGO_URL",
+    "REDISCLOUD_URL",
+    "MONGOLAB_URI",
+    "MONGODB_ADDON_URI",
+  );
   if (databaseUrl && looksLikeConnectionUri(databaseUrl)) {
     try {
       const uriConfig = parseConnectionUri(databaseUrl);
@@ -251,48 +443,145 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
 
   // SSL Mode
   const sslModeValue = getValue(
+    // PostgreSQL
+    "PGSSLMODE",
+    "PG_SSLMODE",
+    "POSTGRES_SSLMODE",
+    "POSTGRES_SSL_MODE",
+    // MySQL/MariaDB
+    "MYSQL_SSL_MODE",
+    "MYSQL_SSL",
+    "MARIADB_SSL_MODE",
+    // SQL Server
+    "MSSQL_ENCRYPT",
+    "MSSQL_SSL",
+    // Generic
     "SSL_MODE",
     "SSLMODE",
-    "POSTGRES_SSLMODE",
     "DB_SSL",
+    "DB_SSL_MODE",
+    "DATABASE_SSL",
+    "DATABASE_SSL_MODE",
+    "SSL",
+    "ENCRYPT",
   );
   if (sslModeValue) {
     switch (sslModeValue.toLowerCase()) {
       case "disable":
+      case "disabled":
       case "false":
+      case "off":
+      case "no":
       case "0":
+      case "none":
         config.sslMode = SslMode.Disable;
         break;
       case "require":
+      case "required":
       case "true":
+      case "on":
+      case "yes":
       case "1":
+      case "enable":
+      case "enabled":
+      case "prefer":
+      case "allow":
         config.sslMode = SslMode.Require;
         break;
       case "verify-ca":
       case "verify_ca":
+      case "verifyca":
         config.sslMode = SslMode.VerifyCa;
         break;
       case "verify-full":
       case "verify_full":
+      case "verifyfull":
+      case "strict":
         config.sslMode = SslMode.VerifyFull;
         break;
     }
   }
 
   // SSL Certificates
-  config.sslKeyFile = getValue("SSL_KEY_FILE", "SSL_KEY", "PGSSLKEY");
-  config.sslCertFile = getValue("SSL_CERT_FILE", "SSL_CERT", "PGSSLCERT");
-  config.sslCAFile = getValue("SSL_CA_FILE", "SSL_CA", "PGSSLROOTCERT");
+  config.sslKeyFile = getValue(
+    "SSL_KEY_FILE",
+    "SSL_KEY",
+    "SSL_KEY_PATH",
+    "PGSSLKEY",
+    "PG_SSL_KEY",
+    "DB_SSL_KEY",
+    "DATABASE_SSL_KEY",
+    "CLIENT_KEY",
+    "CLIENT_KEY_FILE",
+  );
+  config.sslCertFile = getValue(
+    "SSL_CERT_FILE",
+    "SSL_CERT",
+    "SSL_CERT_PATH",
+    "PGSSLCERT",
+    "PG_SSL_CERT",
+    "DB_SSL_CERT",
+    "DATABASE_SSL_CERT",
+    "CLIENT_CERT",
+    "CLIENT_CERT_FILE",
+  );
+  config.sslCAFile = getValue(
+    "SSL_CA_FILE",
+    "SSL_CA",
+    "SSL_CA_PATH",
+    "SSL_ROOT_CERT",
+    "PGSSLROOTCERT",
+    "PG_SSL_CA",
+    "PG_SSL_ROOT_CERT",
+    "DB_SSL_CA",
+    "DATABASE_SSL_CA",
+    "CA_CERT",
+    "CA_CERT_FILE",
+    "ROOT_CERT",
+    "MYSQL_SSL_CA",
+  );
 
-  // SSH Tunnel
-  const sshHostValue = getValue("SSH_HOST", "SSH_SERVER");
-  const sshPortValue = getValue("SSH_PORT");
-  const sshUserValue = getValue("SSH_USER", "SSH_USERNAME");
-  const sshPasswordValue = getValue("SSH_PASSWORD", "SSH_PASS");
+  // SSH Tunnel (bastion/jump host)
+  const sshHostValue = getValue(
+    "SSH_HOST",
+    "SSH_SERVER",
+    "SSH_HOSTNAME",
+    "BASTION_HOST",
+    "JUMP_HOST",
+    "DB_SSH_HOST",
+  );
+  const sshPortValue = getValue(
+    "SSH_PORT",
+    "BASTION_PORT",
+    "JUMP_PORT",
+    "DB_SSH_PORT",
+  );
+  const sshUserValue = getValue(
+    "SSH_USER",
+    "SSH_USERNAME",
+    "BASTION_USER",
+    "JUMP_USER",
+    "DB_SSH_USER",
+    "SSH_LOGIN",
+  );
+  const sshPasswordValue = getValue(
+    "SSH_PASSWORD",
+    "SSH_PASS",
+    "SSH_PWD",
+    "BASTION_PASSWORD",
+    "JUMP_PASSWORD",
+    "DB_SSH_PASSWORD",
+  );
   const sshKeyValue = getValue(
     "SSH_KEY_PATH",
     "SSH_KEY",
+    "SSH_KEY_FILE",
     "SSH_PRIVATE_KEY",
+    "SSH_PRIVATE_KEY_PATH",
+    "SSH_IDENTITY_FILE",
+    "BASTION_KEY",
+    "JUMP_KEY",
+    "DB_SSH_KEY",
   );
 
   if (sshHostValue || sshPortValue || sshUserValue) {
@@ -636,14 +925,177 @@ function parseMySqlDsn(input: string): ParsedUriConfig {
   return config;
 }
 
+function parseMongoDbUri(uri: string): ParsedUriConfig {
+  const config: ParsedUriConfig = { dbType: "mongodb" };
+
+  const isSrv = /^mongodb\+srv:\/\//i.test(uri);
+  const normalized = uri.replace(/^mongodb(\+srv)?:\/\//i, "");
+
+  const splitResult = normalized.split("/");
+  const authAndHosts = splitResult[0] ?? "";
+  const pathAndQuery = splitResult.slice(1).join("/");
+
+  let authPart = "";
+  let hostsPart = authAndHosts;
+
+  if (authAndHosts.includes("@")) {
+    const atIndex = authAndHosts.lastIndexOf("@");
+    authPart = authAndHosts.slice(0, atIndex);
+    hostsPart = authAndHosts.slice(atIndex + 1);
+  }
+
+  if (authPart) {
+    const colonIndex = authPart.indexOf(":");
+    if (colonIndex !== -1) {
+      config.username = decodeURIComponent(authPart.slice(0, colonIndex));
+      config.password = decodeURIComponent(authPart.slice(colonIndex + 1));
+    } else {
+      config.username = decodeURIComponent(authPart);
+    }
+  }
+
+  const hostsList = hostsPart.split(",");
+  if (hostsList.length > 0 && hostsList[0]) {
+    const firstHost = hostsList[0];
+    const bracketMatch = firstHost.match(/^\[([^\]]+)\]:(\d+)$/);
+    if (bracketMatch) {
+      config.host = bracketMatch[1];
+      config.port = bracketMatch[2];
+    } else {
+      const [h, p] = firstHost.split(":");
+      config.host = h;
+      if (p && !isSrv) {
+        config.port = p;
+      }
+    }
+  }
+
+  const [dbPath, queryString] = pathAndQuery.split("?");
+  if (dbPath) {
+    config.database = decodeURIComponent(dbPath);
+  }
+
+  if (queryString) {
+    const params = new URLSearchParams(queryString);
+    const options: Record<string, string> = {};
+
+    for (const [key, value] of params.entries()) {
+      const keyLower = key.toLowerCase();
+      if (keyLower === "authsource") {
+        options.authSource = value;
+      } else if (keyLower === "replicaset") {
+        options.replicaSet = value;
+      } else if (keyLower === "ssl" || keyLower === "tls") {
+        const boolVal = value.toLowerCase();
+        if (boolVal === "true" || boolVal === "1") {
+          config.sslMode = SslMode.Require;
+        } else if (boolVal === "false" || boolVal === "0") {
+          config.sslMode = SslMode.Disable;
+        } else {
+          options[key] = value;
+        }
+      } else {
+        options[key] = value;
+      }
+    }
+
+    if (hostsList.length > 1) {
+      options.hosts = hostsList.join(",");
+    }
+
+    if (isSrv) {
+      options.srv = "true";
+    }
+
+    if (Object.keys(options).length > 0) {
+      config.options = options;
+    }
+  } else {
+    const options: Record<string, string> = {};
+    if (hostsList.length > 1) {
+      options.hosts = hostsList.join(",");
+    }
+    if (isSrv) {
+      options.srv = "true";
+    }
+    if (Object.keys(options).length > 0) {
+      config.options = options;
+    }
+  }
+
+  return config;
+}
+
+function parseRedisUri(uri: string): ParsedUriConfig {
+  const config: ParsedUriConfig = { dbType: "redis" };
+
+  const isTls = /^rediss:\/\//i.test(uri);
+  if (isTls) {
+    config.sslMode = SslMode.Require;
+  }
+
+  const normalized = uri.replace(/^rediss?:\/\//i, "");
+
+  const splitResult = normalized.split("/");
+  const authAndHost = splitResult[0] ?? "";
+  const pathAndQuery = splitResult.slice(1).join("/");
+
+  let authPart = "";
+  let hostPart = authAndHost;
+
+  if (authAndHost.includes("@")) {
+    const atIndex = authAndHost.lastIndexOf("@");
+    authPart = authAndHost.slice(0, atIndex);
+    hostPart = authAndHost.slice(atIndex + 1);
+  }
+
+  if (authPart) {
+    const colonIndex = authPart.indexOf(":");
+    if (colonIndex === 0) {
+      config.password = decodeURIComponent(authPart.slice(1));
+    } else if (colonIndex !== -1) {
+      config.username = decodeURIComponent(authPart.slice(0, colonIndex));
+      config.password = decodeURIComponent(authPart.slice(colonIndex + 1));
+    } else {
+      config.username = decodeURIComponent(authPart);
+    }
+  }
+
+  if (hostPart) {
+    const bracketMatch = hostPart.match(/^\[([^\]]+)\]:(\d+)$/);
+    if (bracketMatch) {
+      config.host = bracketMatch[1];
+      config.port = bracketMatch[2];
+    } else {
+      const [h, p] = hostPart.split(":");
+      config.host = h || "localhost";
+      if (p) config.port = p;
+    }
+  }
+
+  const [dbPath, queryString] = pathAndQuery.split("?");
+  if (dbPath) {
+    config.database = dbPath;
+  }
+
+  if (queryString) {
+    const params = new URLSearchParams(queryString);
+    applyQueryParams(config, params);
+  }
+
+  return config;
+}
+
 function parseSqliteUri(input: string): ParsedUriConfig {
   let trimmed = input.trim();
   if (/^sqlite:/i.test(trimmed)) {
     trimmed = trimmed.replace(/^sqlite:/i, "");
   }
 
-  const [pathPart, queryPart] = trimmed.split("?", 2);
-  let path = pathPart;
+  const splitResult = trimmed.split("?", 2);
+  let path = splitResult[0] ?? "";
+  const queryPart = splitResult[1];
+  
   if (path.startsWith("//")) {
     path = path.slice(2);
   }
@@ -675,8 +1127,31 @@ function parseSqliteUri(input: string): ParsedUriConfig {
   return config;
 }
 
+/**
+ * Pre-process URI to encode special characters in password that break URL parsing.
+ * Handles common case where password contains unencoded #, ?, or @ characters.
+ */
+function preprocessUri(uri: string): string {
+  // Match: protocol://user:password@host...
+  // We need to find and encode the password portion
+  const match = uri.match(/^([a-z][a-z0-9+.-]*:\/\/)([^:@]+):([^@]+)@(.+)$/i);
+  if (!match) return uri;
+
+  const [, protocol, username, password, rest] = match;
+
+  // Encode special characters in password that break URL parsing
+  const encodedPassword = password
+    .replace(/%/g, '%25')  // Encode % first to avoid double-encoding
+    .replace(/#/g, '%23')
+    .replace(/\?/g, '%3F')
+    .replace(/@/g, '%40');
+
+  return `${protocol}${username}:${encodedPassword}@${rest}`;
+}
+
 function parseStandardUrl(uri: string): ParsedUriConfig {
-  const url = new URL(uri);
+  const processedUri = preprocessUri(uri);
+  const url = new URL(processedUri);
   const protocol = url.protocol.replace(":", "").toLowerCase();
 
   let dbType: DatabaseType;
@@ -686,6 +1161,10 @@ function parseStandardUrl(uri: string): ParsedUriConfig {
     dbType = protocol === "mariadb" ? "mariadb" : "mysql";
   } else if (protocol === "mssql" || protocol === "sqlserver") {
     dbType = "mssql";
+  } else if (protocol === "mongodb" || protocol === "mongodb+srv") {
+    dbType = "mongodb";
+  } else if (protocol === "redis" || protocol === "rediss") {
+    dbType = "redis";
   } else {
     throw new Error(`Unsupported protocol: ${protocol}`);
   }
@@ -732,6 +1211,14 @@ export function parseConnectionUri(uri: string): ParsedUriConfig {
 
   if (/^sqlite:/i.test(trimmed) || looksLikeSqlitePath(trimmed)) {
     return parseSqliteUri(trimmed);
+  }
+
+  if (/^mongodb(\+srv)?:\/\//i.test(trimmed)) {
+    return parseMongoDbUri(trimmed);
+  }
+
+  if (/^rediss?:\/\//i.test(trimmed)) {
+    return parseRedisUri(trimmed);
   }
 
   if (/^(mssql|sqlserver):\/\//i.test(trimmed) && trimmed.includes(";")) {
@@ -797,4 +1284,54 @@ export function parseConnectionUri(uri: string): ParsedUriConfig {
   }
 
   return parseStandardUrl(trimmed);
+}
+
+/**
+ * Builds a connection URI from a ConnectionProfile
+ * @param profile - Connection profile object
+ * @param includePassword - Whether to include password in URI (default: false for security)
+ * @returns Connection URI string
+ */
+export function buildConnectionUri(
+  profile: ConnectionProfile,
+  includePassword = false
+): string {
+  const { db_type, host, port, username, password, database } = profile;
+
+  // SQLite is just a file path
+  if (db_type === DbType.SQLite) {
+    return database || "";
+  }
+
+  // Get the scheme based on database type
+  const schemeMap: Record<DbType, string> = {
+    [DbType.PostgreSQL]: "postgresql",
+    [DbType.MySQL]: "mysql",
+    [DbType.MariaDB]: "mariadb",
+    [DbType.SQLite]: "sqlite",
+    [DbType.SQLServer]: "mssql",
+    [DbType.MongoDB]: "mongodb",
+    [DbType.Redis]: "redis",
+  };
+
+  const scheme = schemeMap[db_type] || db_type.toLowerCase();
+
+  // Build user:password part
+  let userPart = "";
+  if (username) {
+    userPart = encodeURIComponent(username);
+    if (includePassword && password) {
+      userPart += `:${encodeURIComponent(password)}`;
+    }
+    userPart += "@";
+  }
+
+  // Build host:port part
+  const hostPart = host || "localhost";
+  const portPart = port ? `:${port}` : "";
+
+  // Build database part (Redis doesn't typically have a database name in URI)
+  const dbPart = database && db_type !== DbType.Redis ? `/${encodeURIComponent(database)}` : "";
+
+  return `${scheme}://${userPart}${hostPart}${portPart}${dbPart}`;
 }

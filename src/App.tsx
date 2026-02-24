@@ -9,14 +9,18 @@ import {
 import { HomeScreen } from "./screens/home/HomeScreen";
 import { WorkspaceScreen } from "./screens/workspace/WorkspaceScreen";
 import { WorkspacePickerScreen } from "./screens/workspace/WorkspacePickerScreen";
+import { BackupRestoreScreen } from "./screens/backup-restore";
 import { useEffect, useState } from "react";
 import { isTauri } from "./utils/tauri";
 import type { Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { vaultStorage } from "./services/vaultStorage";
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useConnectionWindowStore } from "./stores/connectionWindowStore";
 import { useWorkspaceBundleStore } from "./stores/workspaceBundleStore";
+import { useAcpStore } from "./stores/acpStore";
+import { AcpService } from "./services/acpService";
 
 function VaultLoadingScreen() {
   return (
@@ -67,16 +71,15 @@ function AppContent() {
         <Routes>
           <Route path="/" element={<HomeScreen />} />
           {/* New workspace routes */}
-          <Route
-            path="/workspace/:workspaceId"
-            element={<WorkspaceScreen />}
-          />
+          <Route path="/workspace/:workspaceId" element={<WorkspaceScreen />} />
           <Route path="/workspace" element={<WorkspacePickerScreen />} />
           {/* Legacy route - backwards compat */}
           <Route
             path="/connection/:connectionId"
             element={<LegacyConnectionRedirect />}
           />
+          {/* Backup/Restore wizard */}
+          <Route path="/backup-restore" element={<BackupRestoreScreen />} />
         </Routes>
       </Router>
     </>
@@ -87,6 +90,7 @@ function App() {
   const [vaultReady, setVaultReady] = useState(!isTauri());
   const { initialize: initializeConnectionWindowStore } =
     useConnectionWindowStore();
+  const loadAgents = useAcpStore((s) => s.loadAgents);
 
   // Initialize connection window tracking
   // Note: BroadcastChannel works in both Tauri and browser
@@ -100,7 +104,7 @@ function App() {
 
   useEffect(() => {
     if (!isTauri()) {
-      return;
+      return undefined;
     }
 
     let disposed = false;
@@ -181,31 +185,65 @@ function App() {
           } finally {
             // Mark vault as ready to show main UI
             setVaultReady(true);
+
+            // Initialize LLM home directory and load ACP agents in background (non-blocking)
+            void (async () => {
+              try {
+                await AcpService.initializeLlmHome();
+              } catch (error) {
+                logger.error(
+                  "LLM home initialization failed (continuing with agent load)",
+                  error,
+                );
+              }
+              // Always try to load agents, even if LLM home init failed
+              try {
+                await loadAgents();
+              } catch (error) {
+                logger.error("Agent discovery failed", error);
+              }
+            })();
           }
         } else if (isWorkspaceWindow) {
           // Workspace windows - show immediately, vault loads in background
           // Workspace windows don't need vault data to render since they get
           // connection info from URL params
           setVaultReady(true);
-          // Initialize vault in background for metadata operations
-          void vaultStorage
-            .initialize()
-            .then(() => vaultStorage.preloadAll())
-            .catch((error: unknown) => {
+          // Initialize vault and load agents in background
+          void (async () => {
+            try {
+              await vaultStorage.initialize();
+              await vaultStorage.preloadAll();
+            } catch (error) {
               logger.error(
                 "Background vault load for workspace window failed",
                 error,
               );
-            });
+            }
+            // Also load agents for workspace windows
+            try {
+              await loadAgents();
+            } catch (error) {
+              logger.error("Agent discovery failed in workspace window", error);
+            }
+          })();
         } else {
           // Secondary main windows (main-<timestamp>) - minimal background init
           setVaultReady(true);
-          void vaultStorage
-            .initialize()
-            .then(() => vaultStorage.preloadAll())
-            .catch((error: unknown) => {
+          void (async () => {
+            try {
+              await vaultStorage.initialize();
+              await vaultStorage.preloadAll();
+            } catch (error) {
               logger.error("Background preload failed", error);
-            });
+            }
+            // Also load agents for secondary windows
+            try {
+              await loadAgents();
+            } catch (error) {
+              logger.error("Agent discovery failed in secondary window", error);
+            }
+          })();
         }
 
         if (!isMainWindow) {
@@ -253,11 +291,11 @@ function App() {
       disposed = true;
       removeListener?.();
     };
-  }, []);
+  }, [loadAgents]);
 
   useEffect(() => {
     if (!isTauri()) {
-      return;
+      return undefined;
     }
 
     let disposed = false;
@@ -303,23 +341,20 @@ function App() {
             return;
           }
 
-          return toast.promise(
-            (async () => {
-              await pendingUpdate.downloadAndInstall();
-              await closeUpdate();
-            })(),
-            {
-              loading: "Downloading update…",
-              success:
-                "Update downloaded. The application will restart to finish installation.",
-              error: (err) => {
-                logger.error("Failed to install update", err);
-                return err instanceof Error
-                  ? err.message
-                  : "Failed to install update";
-              },
+          toast.promise((async () => {
+            await pendingUpdate.downloadAndInstall();
+            await closeUpdate();
+            await relaunch();
+          })(), {
+            loading: "Downloading update…",
+            success: "Restarting to apply update…",
+            error: (err) => {
+              logger.error("Failed to install update", err);
+              return err instanceof Error
+                ? err.message
+                : "Failed to install update";
             },
-          );
+          });
         };
 
         toast(`Update ${update.version} available`, {
@@ -327,7 +362,9 @@ function App() {
             update.body ?? "A new version of Query Pilot is ready to install.",
           action: {
             label: "Install",
-            onClick: () => handleInstall(),
+            onClick: () => {
+              handleInstall();
+            },
           },
           duration: 60000,
         });

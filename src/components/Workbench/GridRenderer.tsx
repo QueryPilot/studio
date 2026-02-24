@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useRef } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { type GridNode } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import {
@@ -24,6 +24,16 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
   const resizePanelAction = useWorkbenchStore((s) => s.resizePanelAction);
   const panelGroupRef = useRef<ImperativePanelGroupHandle | null>(null);
   const isSyncingRef = useRef(false);
+  const resizeRafRef = useRef<number | null>(null);
+
+  // Cancel pending RAF on unmount to prevent stale store updates
+  useEffect(() => {
+    return () => {
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+      }
+    };
+  }, []);
 
   const handlePanelResize = useCallback(
     (sizes: number[]) => {
@@ -34,7 +44,12 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
       ) {
         // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         const newRatio = sizes[0]! / 100;
-        resizePanelAction(path, newRatio);
+        // RAF-debounce the store update to avoid re-renders during drag
+        if (resizeRafRef.current !== null) cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = requestAnimationFrame(() => {
+          resizeRafRef.current = null;
+          resizePanelAction(path, newRatio);
+        });
       }
     },
     [node.type, path, resizePanelAction],
@@ -102,7 +117,9 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
             <GridRenderer node={node.children[0]} path={[...path, 0]} />
           )}
         </ResizablePanel>
-        <ResizableHandle />
+        <ResizableHandle
+          style={{ cursor: node.orientation === "vertical" ? "row-resize" : "col-resize" }}
+        />
         <ResizablePanel
           defaultSize={defaultSizes[1]}
           minSize={10}

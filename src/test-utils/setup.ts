@@ -8,6 +8,7 @@ import { cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { clearMocks } from '@tauri-apps/api/mocks';
 import { randomFillSync } from 'crypto';
+import 'fake-indexeddb/auto';
 
 // Setup crypto for Tauri IPC (required for mockIPC to work)
 beforeAll(() => {
@@ -67,4 +68,19 @@ global.ResizeObserver = class ResizeObserver {
   disconnect() {}
   observe() {}
   unobserve() {}
+} as any;
+
+// Mock Clipboard API (required for copy/paste functionality)
+Object.defineProperty(navigator, 'clipboard', {
+  value: {
+    writeText: vi.fn().mockResolvedValue(undefined),
+    readText: vi.fn().mockResolvedValue(''),
+  },
+  writable: true,
+  configurable: true,
+});
+
+// Mock Path2D (required for canvas rendering in DataGrid)
+global.Path2D = class Path2D {
+  constructor(_path?: string | Path2D) {}
 } as any;

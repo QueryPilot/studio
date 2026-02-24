@@ -92,7 +92,7 @@ async fn test_postgres_basic_types() {
     // Check if it's a number or string representation of a number
     let numeric_str = json_str(&row[1]);
     assert_eq!(numeric_str, "3.14");
-    
+
     assert_eq!(json_str(&row[2]), "hello");
     assert_eq!(row[3].as_bool(), Some(true));
     // Bytea typically returned as hex string or base64 depending on implementation.
@@ -170,16 +170,16 @@ async fn test_postgres_advanced_types() {
 
     // JSON might be returned as object or string depending on converter
     if row[0].is_string() {
-         assert!(json_str(&row[0]).contains("key"));
+        assert!(json_str(&row[0]).contains("key"));
     } else {
-         assert_eq!(row[0]["key"], "value");
+        assert_eq!(row[0]["key"], "value");
     }
-    
+
     assert_eq!(json_str(&row[2]), "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11");
     assert_eq!(json_str(&row[3]), "192.168.1.1");
-    
+
     // Arrays usually serialized to JSON array or string
-    // SimpleConverter typically does simplistic mapping. 
+    // SimpleConverter typically does simplistic mapping.
     // If it's pure JSON array:
     if row[4].is_array() {
         assert_eq!(row[4].get(0).unwrap().as_i64(), Some(1));
@@ -215,11 +215,11 @@ async fn test_postgres_geometric_types() {
             ",
         )
         .await;
-    
+
     assert!(result.is_ok(), "Query failed: {:?}", result.err());
     let query_result = result.unwrap();
     let row = &query_result.rows[0];
-    
+
     assert!(!row[0].is_null());
     assert!(!row[1].is_null());
     assert!(!row[2].is_null());

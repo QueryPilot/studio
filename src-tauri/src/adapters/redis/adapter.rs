@@ -4,14 +4,22 @@
 
 use async_trait::async_trait;
 use fred::clients::Client;
-use fred::interfaces::{ClientLike, HashesInterface, KeysInterface, ListInterface, ServerInterface, SetsInterface, SortedSetsInterface};
-use fred::prelude::*;
+use fred::interfaces::{
+    ClientLike, HashesInterface, KeysInterface, ListInterface, LuaInterface, ServerInterface,
+    SetsInterface, SortedSetsInterface, StreamsInterface,
+};
+use fred::prelude::{Builder, Config, Expiration, Server, ServerConfig};
+use fred::types::SetOptions as FredSetOptions;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
 
-use crate::core::capabilities::*;
+use crate::core::capabilities::{
+    AdapterCapability, BaseCapability, CapabilityTestResult, KeyInfo, KeyInfoWithPreview,
+    KeyValueOperable, ListSide, RedisType, RedisValue, RichKeyValueOperable, ScanResult,
+    ScanResultWithPreviews, SetOptions, StreamEntry, ZSetMember,
+};
 use crate::error::AppError;
 use crate::types::ConnectionProfile;
 
@@ -128,14 +136,23 @@ impl RedisAdapter {
             .build()
             .map_err(|e| AppError::DatabaseError(format!("Failed to build Redis client: {}", e)))?;
 
-        client.init().await.map_err(|e| {
-            AppError::DatabaseError(format!("Failed to connect to Redis: {}", e))
-        })?;
+        // Initialize with timeout to prevent indefinite hangs on unreachable hosts
+        let connect_timeout = std::time::Duration::from_secs(15);
+        tokio::time::timeout(connect_timeout, client.init())
+            .await
+            .map_err(|_| {
+                AppError::ConnectionClosed(format!(
+                    "Connection timed out after {} seconds - host may be unreachable",
+                    connect_timeout.as_secs()
+                ))
+            })?
+            .map_err(|e| AppError::DatabaseError(format!("Failed to connect to Redis: {}", e)))?;
 
-        // Verify with PING
-        let _: String = client.ping(None).await.map_err(|e| {
-            AppError::DatabaseError(format!("Redis PING failed: {}", e))
-        })?;
+        // Verify with PING (also with timeout)
+        let _: String = tokio::time::timeout(connect_timeout, client.ping(None))
+            .await
+            .map_err(|_| AppError::ConnectionClosed("PING timed out".into()))?
+            .map_err(|e| AppError::DatabaseError(format!("Redis PING failed: {}", e)))?;
 
         let db_num: u8 = profile
             .database
@@ -169,9 +186,18 @@ impl RedisAdapter {
             ));
         }
 
-        // Just update tracking - actual selection happens via config
-        *self.current_db.write().await = db;
-        Ok(())
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                c.select(db as i64)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("SELECT failed: {}", e)))?;
+                drop(client);
+                *self.current_db.write().await = db;
+                Ok(())
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
     }
 
     /// Get server info as raw string
@@ -211,6 +237,14 @@ impl Default for RedisAdapter {
 
 #[async_trait]
 impl BaseCapability for RedisAdapter {
+    async fn connect(&self, profile: &ConnectionProfile) -> Result<(), AppError> {
+        RedisAdapter::connect(self, profile).await
+    }
+
+    async fn disconnect(&self) -> Result<(), AppError> {
+        RedisAdapter::disconnect(self).await
+    }
+
     async fn test_connection(&self) -> Result<CapabilityTestResult, AppError> {
         let client = self.client.read().await;
 
@@ -218,13 +252,13 @@ impl BaseCapability for RedisAdapter {
             Some(c) => {
                 let start = Instant::now();
 
-                let result: Result<String, _> = c.ping(None).await;
+                let result: std::result::Result<String, _> = c.ping(None).await;
                 let latency = start.elapsed().as_millis() as u64;
 
                 match result {
                     Ok(_) => {
                         // Get server version from INFO
-                        let info: Result<String, _> = c.info(None).await;
+                        let info: std::result::Result<String, _> = c.info(None).await;
 
                         let version = info.ok().and_then(|info_str| {
                             info_str
@@ -283,9 +317,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let ttl: i64 = c.ttl(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("TTL failed: {}", e))
-                })?;
+                let ttl: i64 = c
+                    .ttl(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("TTL failed: {}", e)))?;
                 Ok(ttl)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -297,9 +332,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let result: bool = c.expire(key, seconds as i64, None).await.map_err(|e| {
-                    AppError::DatabaseError(format!("EXPIRE failed: {}", e))
-                })?;
+                let result: bool = c
+                    .expire(key, seconds as i64, None)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("EXPIRE failed: {}", e)))?;
                 Ok(result)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -311,9 +347,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let value: Option<String> = c.get(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("GET failed: {}", e))
-                })?;
+                let value: Option<String> = c
+                    .get(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("GET failed: {}", e)))?;
                 Ok(value)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -345,9 +382,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.del(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("DEL failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .del(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("DEL failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -359,16 +397,17 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.exists(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("EXISTS failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .exists(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("EXISTS failed: {}", e)))?;
                 Ok(count > 0)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
         }
     }
 
-    // Note: KEYS command is intentionally not implemented as it's 
+    // Note: KEYS command is intentionally not implemented as it's
     // blocking and should not be used in production. Use SCAN instead.
     // SCAN will be implemented when we add the key browser functionality.
 
@@ -379,9 +418,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let result: HashMap<String, String> = c.hgetall(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("HGETALL failed: {}", e))
-                })?;
+                let result: HashMap<String, String> = c
+                    .hgetall(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("HGETALL failed: {}", e)))?;
                 Ok(result)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -393,9 +433,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let result: Option<String> = c.hget(key, field).await.map_err(|e| {
-                    AppError::DatabaseError(format!("HGET failed: {}", e))
-                })?;
+                let result: Option<String> = c
+                    .hget(key, field)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("HGET failed: {}", e)))?;
                 Ok(result)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -412,9 +453,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let result: bool = c.hset(key, (field, value)).await.map_err(|e| {
-                    AppError::DatabaseError(format!("HSET failed: {}", e))
-                })?;
+                let result: bool = c
+                    .hset(key, (field, value))
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("HSET failed: {}", e)))?;
                 Ok(result)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -426,9 +468,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.hdel(key, field).await.map_err(|e| {
-                    AppError::DatabaseError(format!("HDEL failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .hdel(key, field)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("HDEL failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -447,9 +490,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let result: Vec<String> = c.lrange(key, start, stop).await.map_err(|e| {
-                    AppError::DatabaseError(format!("LRANGE failed: {}", e))
-                })?;
+                let result: Vec<String> = c
+                    .lrange(key, start, stop)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("LRANGE failed: {}", e)))?;
                 Ok(result)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -461,9 +505,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.lpush(key, value).await.map_err(|e| {
-                    AppError::DatabaseError(format!("LPUSH failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .lpush(key, value)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("LPUSH failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -475,9 +520,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.rpush(key, value).await.map_err(|e| {
-                    AppError::DatabaseError(format!("RPUSH failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .rpush(key, value)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("RPUSH failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -489,9 +535,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let len: u64 = c.llen(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("LLEN failed: {}", e))
-                })?;
+                let len: u64 = c
+                    .llen(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("LLEN failed: {}", e)))?;
                 Ok(len)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -505,9 +552,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let result: Vec<String> = c.smembers(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("SMEMBERS failed: {}", e))
-                })?;
+                let result: Vec<String> = c
+                    .smembers(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("SMEMBERS failed: {}", e)))?;
                 Ok(result)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -519,9 +567,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.sadd(key, member).await.map_err(|e| {
-                    AppError::DatabaseError(format!("SADD failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .sadd(key, member)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("SADD failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -533,9 +582,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.srem(key, member).await.map_err(|e| {
-                    AppError::DatabaseError(format!("SREM failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .srem(key, member)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("SREM failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -547,9 +597,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.scard(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("SCARD failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .scard(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("SCARD failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -563,9 +614,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.zadd(key, None, None, false, false, (score, member)).await.map_err(|e| {
-                    AppError::DatabaseError(format!("ZADD failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .zadd(key, None, None, false, false, (score, member))
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("ZADD failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -577,9 +629,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let count: u64 = c.zcard(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("ZCARD failed: {}", e))
-                })?;
+                let count: u64 = c
+                    .zcard(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("ZCARD failed: {}", e)))?;
                 Ok(count)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -591,9 +644,10 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let score: Option<f64> = c.zscore(key, member).await.map_err(|e| {
-                    AppError::DatabaseError(format!("ZSCORE failed: {}", e))
-                })?;
+                let score: Option<f64> = c
+                    .zscore(key, member)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("ZSCORE failed: {}", e)))?;
                 Ok(score)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
@@ -607,10 +661,762 @@ impl RedisAdapter {
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
-                let key_type: String = c.r#type(key).await.map_err(|e| {
-                    AppError::DatabaseError(format!("TYPE failed: {}", e))
-                })?;
+                let key_type: String = c
+                    .r#type(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("TYPE failed: {}", e)))?;
                 Ok(key_type)
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    fn string_to_redis_type(s: &str) -> RedisType {
+        match s.to_lowercase().as_str() {
+            "string" => RedisType::String,
+            "list" => RedisType::List,
+            "set" => RedisType::Set,
+            "zset" => RedisType::ZSet,
+            "hash" => RedisType::Hash,
+            "stream" => RedisType::Stream,
+            _ => RedisType::Unknown,
+        }
+    }
+
+    fn parse_redis_info(info_str: &str, section: Option<&str>) -> HashMap<String, String> {
+        let mut result = HashMap::new();
+        let mut current_section = String::new();
+
+        for line in info_str.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if line.starts_with('#') {
+                current_section = line.trim_start_matches('#').trim().to_lowercase();
+                continue;
+            }
+            if let Some(filter_section) = section {
+                if !current_section.eq_ignore_ascii_case(filter_section) {
+                    continue;
+                }
+            }
+            if let Some((key, value)) = line.split_once(':') {
+                result.insert(key.to_string(), value.to_string());
+            }
+        }
+        result
+    }
+}
+
+#[async_trait]
+impl KeyValueOperable for RedisAdapter {
+    async fn get_key(&self, key: &str) -> Result<Option<RedisValue>, AppError> {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                let value: Option<String> = c
+                    .get(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("GET failed: {}", e)))?;
+                Ok(value.map(RedisValue::String))
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    async fn set_key(
+        &self,
+        key: &str,
+        value: RedisValue,
+        options: SetOptions,
+    ) -> Result<(), AppError> {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                let str_value = match value {
+                    RedisValue::String(s) => s,
+                    RedisValue::Integer(i) => i.to_string(),
+                    RedisValue::Float(f) => f.to_string(),
+                    RedisValue::Boolean(b) => if b { "1" } else { "0" }.to_string(),
+                    RedisValue::Nil => return Ok(()),
+                    _ => {
+                        return Err(AppError::InvalidInput(
+                            "Cannot SET complex values directly".to_string(),
+                        ))
+                    }
+                };
+
+                let expiration = options.ttl_seconds.map(|s| Expiration::EX(s as i64));
+                let set_options = if options.nx {
+                    Some(FredSetOptions::NX)
+                } else if options.xx {
+                    Some(FredSetOptions::XX)
+                } else {
+                    None
+                };
+
+                c.set::<(), _, _>(key, str_value.as_str(), expiration, set_options, false)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("SET failed: {}", e)))?;
+                Ok(())
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    async fn delete_keys(&self, keys: &[String]) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                if keys.is_empty() {
+                    return Ok(0);
+                }
+                let count: u64 = c
+                    .del(keys.to_vec())
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("DEL failed: {}", e)))?;
+                Ok(count)
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    async fn key_exists(&self, keys: &[String]) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                if keys.is_empty() {
+                    return Ok(0);
+                }
+                let count: u64 = c
+                    .exists(keys.to_vec())
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("EXISTS failed: {}", e)))?;
+                Ok(count)
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    async fn scan_keys(
+        &self,
+        pattern: &str,
+        cursor: u64,
+        count: u32,
+    ) -> Result<ScanResult, AppError> {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                let cursor_str = cursor.to_string();
+                let (new_cursor, scanned_keys): (String, Vec<fred::types::Key>) = c
+                    .scan_page(cursor_str, pattern, Some(count), None)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("SCAN failed: {}", e)))?;
+
+                if scanned_keys.is_empty() {
+                    let new_cursor_u64 = new_cursor.parse().unwrap_or(0);
+                    return Ok(ScanResult {
+                        cursor: new_cursor_u64,
+                        keys: vec![],
+                    });
+                }
+
+                // Pipeline TYPE + TTL for all keys in a single round-trip
+                let pipeline = c.pipeline();
+                for key in &scanned_keys {
+                    let key_str = key.as_str_lossy();
+                    let _: () = pipeline.r#type(key_str.as_ref()).await.map_err(|e| {
+                        AppError::DatabaseError(format!("Pipeline TYPE failed: {}", e))
+                    })?;
+                    let _: () = pipeline.ttl(key_str.as_ref()).await.map_err(|e| {
+                        AppError::DatabaseError(format!("Pipeline TTL failed: {}", e))
+                    })?;
+                }
+                let results: Vec<fred::types::Value> = pipeline.all().await.map_err(|e| {
+                    AppError::DatabaseError(format!("Pipeline execute failed: {}", e))
+                })?;
+
+                // Results alternate: [type0, ttl0, type1, ttl1, ...]
+                let mut keys = Vec::with_capacity(scanned_keys.len());
+                for (i, key) in scanned_keys.iter().enumerate() {
+                    let key_str = key.as_str_lossy().to_string();
+                    let type_val = results.get(i * 2);
+                    let ttl_val = results.get(i * 2 + 1);
+
+                    let key_type_str = type_val
+                        .and_then(|v| v.as_str().map(|s| s.to_string()))
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let ttl = ttl_val.and_then(|v| v.as_i64()).unwrap_or(-1);
+
+                    keys.push(KeyInfo {
+                        key: key_str,
+                        key_type: Self::string_to_redis_type(&key_type_str),
+                        ttl,
+                        size_bytes: None,
+                    });
+                }
+
+                let new_cursor_u64 = new_cursor.parse().unwrap_or(0);
+                Ok(ScanResult {
+                    cursor: new_cursor_u64,
+                    keys,
+                })
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    async fn get_key_type(&self, key: &str) -> Result<RedisType, AppError> {
+        let type_str = self.key_type(key).await?;
+        Ok(Self::string_to_redis_type(&type_str))
+    }
+
+    async fn get_key_ttl(&self, key: &str) -> Result<i64, AppError> {
+        self.key_ttl(key).await
+    }
+
+    async fn set_key_ttl(&self, key: &str, seconds: u64) -> Result<bool, AppError> {
+        RedisAdapter::set_key_ttl(self, key, seconds).await
+    }
+
+    async fn execute_raw(&self, command: &str, args: &[String]) -> Result<RedisValue, AppError> {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                let result: fred::types::Value = c
+                    .custom(fred::cmd!(command), args.to_vec())
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("Command failed: {}", e)))?;
+
+                Ok(Self::fred_value_to_redis_value(result))
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    async fn get_database_size(&self) -> Result<u64, AppError> {
+        self.dbsize().await
+    }
+
+    async fn select_database(&self, index: u8) -> Result<(), AppError> {
+        self.select_db(index).await
+    }
+
+    async fn get_server_info(
+        &self,
+        section: Option<&str>,
+    ) -> Result<HashMap<String, String>, AppError> {
+        let info_str = self.get_server_info_raw().await?;
+        Ok(Self::parse_redis_info(&info_str, section))
+    }
+
+    async fn scan_keys_with_previews(
+        &self,
+        pattern: &str,
+        cursor: u64,
+        count: u32,
+    ) -> Result<ScanResultWithPreviews, AppError> {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                // Lua script: SCAN + TYPE + TTL + value preview in a single round-trip.
+                // Returns: { cursor, { {key, type, ttl, preview}, ... } }
+                //
+                // For complex types, the preview is cjson-encoded on the server so we
+                // get a ready-to-use JSON string without extra parsing round-trips.
+                let script = r#"
+local cursor, keys = unpack(redis.call('SCAN', ARGV[1], 'MATCH', ARGV[2], 'COUNT', ARGV[3]))
+local results = {}
+for i, key in ipairs(keys) do
+    local t = redis.call('TYPE', key)['ok']
+    local ttl = redis.call('TTL', key)
+    local preview
+    if t == 'string' then
+        local v = redis.call('GET', key)
+        if v == false then preview = '(nil)' else preview = tostring(v) end
+    elseif t == 'hash' then
+        local h = redis.call('HGETALL', key)
+        local obj = {}
+        for j = 1, #h, 2 do obj[h[j]] = h[j+1] end
+        preview = cjson.encode(obj)
+    elseif t == 'list' then
+        preview = cjson.encode(redis.call('LRANGE', key, 0, 99))
+    elseif t == 'set' then
+        preview = cjson.encode(redis.call('SMEMBERS', key))
+    elseif t == 'zset' then
+        local raw = redis.call('ZRANGE', key, 0, -1, 'WITHSCORES')
+        local arr = {}
+        for j = 1, #raw, 2 do
+            arr[#arr+1] = {member = raw[j], score = tonumber(raw[j+1])}
+        end
+        preview = cjson.encode(arr)
+    elseif t == 'stream' then
+        local raw = redis.call('XRANGE', key, '-', '+', 'COUNT', 100)
+        local arr = {}
+        for j, entry in ipairs(raw) do
+            local fields = {}
+            for k = 1, #entry[2], 2 do fields[entry[2][k]] = entry[2][k+1] end
+            arr[j] = {id = entry[1], fields = fields}
+        end
+        preview = cjson.encode(arr)
+    else
+        preview = '(' .. t .. ')'
+    end
+    results[i] = {key, t, ttl, preview}
+end
+return {cursor, results}
+"#;
+
+                let result: fred::types::Value = c
+                    .eval(
+                        script,
+                        Vec::<String>::new(), // no KEYS - SCAN uses ARGV
+                        vec![cursor.to_string(), pattern.to_string(), count.to_string()],
+                    )
+                    .await
+                    .map_err(|e| {
+                        AppError::DatabaseError(format!("EVAL scan_with_previews failed: {}", e))
+                    })?;
+
+                Self::parse_lua_scan_result(result)
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+}
+
+impl RedisAdapter {
+    /// Parse the Lua script result: [cursor, [[key, type, ttl, preview], ...]]
+    fn parse_lua_scan_result(
+        value: fred::types::Value,
+    ) -> Result<ScanResultWithPreviews, AppError> {
+        let arr = match value {
+            fred::types::Value::Array(a) => a,
+            _ => {
+                return Err(AppError::DatabaseError(
+                    "Unexpected EVAL result format".to_string(),
+                ))
+            }
+        };
+
+        if arr.len() < 2 {
+            return Err(AppError::DatabaseError("EVAL result too short".to_string()));
+        }
+
+        let cursor = arr[0].as_u64().unwrap_or(0);
+
+        let key_entries = match &arr[1] {
+            fred::types::Value::Array(entries) => entries,
+            _ => {
+                return Ok(ScanResultWithPreviews {
+                    cursor,
+                    keys: vec![],
+                })
+            }
+        };
+
+        let mut keys = Vec::with_capacity(key_entries.len());
+        for entry in key_entries {
+            if let fred::types::Value::Array(fields) = entry {
+                if fields.len() >= 4 {
+                    let key = fields[0]
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_default();
+                    let type_str = fields[1]
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let ttl = fields[2].as_i64().unwrap_or(-1);
+                    let preview = fields[3]
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_default();
+
+                    keys.push(KeyInfoWithPreview {
+                        key,
+                        key_type: Self::string_to_redis_type(&type_str),
+                        ttl,
+                        size_bytes: None,
+                        preview,
+                    });
+                }
+            }
+        }
+
+        Ok(ScanResultWithPreviews { cursor, keys })
+    }
+
+    fn fred_value_to_redis_value(value: fred::types::Value) -> RedisValue {
+        match value {
+            fred::types::Value::Null => RedisValue::Nil,
+            fred::types::Value::Boolean(b) => RedisValue::Boolean(b),
+            fred::types::Value::Integer(i) => RedisValue::Integer(i),
+            fred::types::Value::Double(f) => RedisValue::Float(f),
+            fred::types::Value::String(s) => RedisValue::String(s.to_string()),
+            fred::types::Value::Bytes(b) => RedisValue::Bytes(b.to_vec()),
+            fred::types::Value::Array(arr) => RedisValue::Array(
+                arr.into_iter()
+                    .map(Self::fred_value_to_redis_value)
+                    .collect(),
+            ),
+            fred::types::Value::Map(map) => {
+                let mut result = HashMap::new();
+                for (k, v) in map.inner() {
+                    let key = k.as_str_lossy().to_string();
+                    result.insert(key, Self::fred_value_to_redis_value(v));
+                }
+                RedisValue::Map(result)
+            }
+            fred::types::Value::Queued => RedisValue::String("QUEUED".to_string()),
+        }
+    }
+
+    /// Convert a fred Value to a preview string (for string-type keys)
+    fn fred_value_to_preview(value: &fred::types::Value) -> String {
+        match value {
+            fred::types::Value::Null => "(nil)".to_string(),
+            fred::types::Value::String(s) => s.to_string(),
+            fred::types::Value::Integer(i) => i.to_string(),
+            fred::types::Value::Double(f) => f.to_string(),
+            fred::types::Value::Boolean(b) => b.to_string(),
+            fred::types::Value::Bytes(b) => format!("(binary {} bytes)", b.len()),
+            fred::types::Value::Array(_) | fred::types::Value::Map(_) => {
+                Self::fred_value_to_json_string(value)
+            }
+            fred::types::Value::Queued => "QUEUED".to_string(),
+        }
+    }
+
+    /// Convert a fred Value to a JSON string representation
+    fn fred_value_to_json_string(value: &fred::types::Value) -> String {
+        match value {
+            fred::types::Value::Null => "null".to_string(),
+            fred::types::Value::String(s) => {
+                serde_json::to_string(&s.to_string()).unwrap_or_else(|_| s.to_string())
+            }
+            fred::types::Value::Integer(i) => i.to_string(),
+            fred::types::Value::Double(f) => f.to_string(),
+            fred::types::Value::Boolean(b) => b.to_string(),
+            fred::types::Value::Bytes(b) => {
+                format!("(binary {} bytes)", b.len())
+            }
+            fred::types::Value::Array(arr) => {
+                let items: Vec<String> = arr.iter().map(Self::fred_value_to_json_string).collect();
+                format!("[{}]", items.join(","))
+            }
+            fred::types::Value::Map(map) => {
+                let mut obj = serde_json::Map::new();
+                for (k, v) in map.iter() {
+                    let key = k.as_str_lossy().to_string();
+                    let val = Self::fred_value_to_serde_json(v);
+                    obj.insert(key, val);
+                }
+                serde_json::Value::Object(obj).to_string()
+            }
+            fred::types::Value::Queued => "\"QUEUED\"".to_string(),
+        }
+    }
+
+    /// Convert a fred Value to a serde_json::Value
+    fn fred_value_to_serde_json(value: &fred::types::Value) -> serde_json::Value {
+        match value {
+            fred::types::Value::Null => serde_json::Value::Null,
+            fred::types::Value::String(s) => serde_json::Value::String(s.to_string()),
+            fred::types::Value::Integer(i) => {
+                serde_json::Value::Number(serde_json::Number::from(*i))
+            }
+            fred::types::Value::Double(f) => serde_json::Number::from_f64(*f)
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null),
+            fred::types::Value::Boolean(b) => serde_json::Value::Bool(*b),
+            fred::types::Value::Bytes(b) => {
+                serde_json::Value::String(format!("(binary {} bytes)", b.len()))
+            }
+            fred::types::Value::Array(arr) => {
+                serde_json::Value::Array(arr.iter().map(Self::fred_value_to_serde_json).collect())
+            }
+            fred::types::Value::Map(map) => {
+                let mut obj = serde_json::Map::new();
+                for (k, v) in map.iter() {
+                    obj.insert(
+                        k.as_str_lossy().to_string(),
+                        Self::fred_value_to_serde_json(v),
+                    );
+                }
+                serde_json::Value::Object(obj)
+            }
+            fred::types::Value::Queued => serde_json::Value::String("QUEUED".to_string()),
+        }
+    }
+
+    /// Convert zset pipeline result (ZRANGE WITHSCORES) to JSON string
+    /// The result is an array of alternating [member, score, member, score, ...]
+    fn fred_zset_value_to_json_string(value: &fred::types::Value) -> String {
+        match value {
+            fred::types::Value::Array(arr) => {
+                // ZRANGE WITHSCORES returns alternating member, score pairs
+                let mut members = Vec::new();
+                let mut i = 0;
+                while i + 1 < arr.len() {
+                    let member = match &arr[i] {
+                        fred::types::Value::String(s) => s.to_string(),
+                        other => Self::fred_value_to_json_string(other),
+                    };
+                    let score = match &arr[i + 1] {
+                        fred::types::Value::Double(f) => *f,
+                        fred::types::Value::Integer(n) => *n as f64,
+                        fred::types::Value::String(s) => {
+                            s.to_string().parse::<f64>().unwrap_or(0.0)
+                        }
+                        _ => 0.0,
+                    };
+                    members.push(serde_json::json!({"member": member, "score": score}));
+                    i += 2;
+                }
+                serde_json::Value::Array(members).to_string()
+            }
+            fred::types::Value::Map(map) => {
+                // Some Redis versions return map format for WITHSCORES
+                let mut members = Vec::new();
+                for (k, v) in map.iter() {
+                    let member = k.as_str_lossy().to_string();
+                    let score = match v {
+                        fred::types::Value::Double(f) => *f,
+                        fred::types::Value::Integer(n) => *n as f64,
+                        fred::types::Value::String(s) => {
+                            s.to_string().parse::<f64>().unwrap_or(0.0)
+                        }
+                        _ => 0.0,
+                    };
+                    members.push(serde_json::json!({"member": member, "score": score}));
+                }
+                serde_json::Value::Array(members).to_string()
+            }
+            _ => Self::fred_value_to_json_string(value),
+        }
+    }
+
+    /// Convert stream pipeline result (XRANGE) to JSON string
+    fn fred_stream_value_to_json_string(value: &fred::types::Value) -> String {
+        match value {
+            fred::types::Value::Array(entries) => {
+                let mut result = Vec::new();
+                for entry in entries {
+                    if let fred::types::Value::Array(parts) = entry {
+                        if parts.len() >= 2 {
+                            let id = match &parts[0] {
+                                fred::types::Value::String(s) => s.to_string(),
+                                other => Self::fred_value_to_json_string(other),
+                            };
+                            let fields = Self::fred_value_to_serde_json(&parts[1]);
+                            result.push(serde_json::json!({"id": id, "fields": fields}));
+                        }
+                    }
+                }
+                serde_json::Value::Array(result).to_string()
+            }
+            _ => Self::fred_value_to_json_string(value),
+        }
+    }
+}
+
+#[async_trait]
+impl RichKeyValueOperable for RedisAdapter {
+    async fn hash_get_all(&self, key: &str) -> Result<HashMap<String, String>, AppError> {
+        RedisAdapter::hash_get_all(self, key).await
+    }
+
+    async fn hash_set(&self, key: &str, fields: HashMap<String, String>) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                let pairs: Vec<(&String, &String)> = fields.iter().collect();
+                let count: u64 = c
+                    .hset(key, pairs)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("HSET failed: {}", e)))?;
+                Ok(count)
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    async fn hash_delete(&self, key: &str, fields: &[String]) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                if fields.is_empty() {
+                    return Ok(0);
+                }
+                let count: u64 = c
+                    .hdel(key, fields.to_vec())
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("HDEL failed: {}", e)))?;
+                Ok(count)
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    async fn list_range(&self, key: &str, start: i64, stop: i64) -> Result<Vec<String>, AppError> {
+        RedisAdapter::list_range(self, key, start, stop).await
+    }
+
+    async fn list_push(
+        &self,
+        key: &str,
+        values: &[String],
+        side: ListSide,
+    ) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                if values.is_empty() {
+                    return Ok(0);
+                }
+                let count: u64 = match side {
+                    ListSide::Left => c.lpush(key, values.to_vec()).await,
+                    ListSide::Right => c.rpush(key, values.to_vec()).await,
+                }
+                .map_err(|e| AppError::DatabaseError(format!("LPUSH/RPUSH failed: {}", e)))?;
+                Ok(count)
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    async fn list_len(&self, key: &str) -> Result<u64, AppError> {
+        RedisAdapter::list_len(self, key).await
+    }
+
+    async fn set_members(&self, key: &str) -> Result<Vec<String>, AppError> {
+        RedisAdapter::set_members(self, key).await
+    }
+
+    async fn set_add(&self, key: &str, members: &[String]) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                if members.is_empty() {
+                    return Ok(0);
+                }
+                let count: u64 = c
+                    .sadd(key, members.to_vec())
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("SADD failed: {}", e)))?;
+                Ok(count)
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    async fn set_remove(&self, key: &str, members: &[String]) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                if members.is_empty() {
+                    return Ok(0);
+                }
+                let count: u64 = c
+                    .srem(key, members.to_vec())
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("SREM failed: {}", e)))?;
+                Ok(count)
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    async fn zset_range(
+        &self,
+        key: &str,
+        start: i64,
+        stop: i64,
+        with_scores: bool,
+    ) -> Result<Vec<ZSetMember>, AppError> {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                if with_scores {
+                    let result: Vec<(String, f64)> = c
+                        .zrange(key, start, stop, None, false, None, true)
+                        .await
+                        .map_err(|e| AppError::DatabaseError(format!("ZRANGE failed: {}", e)))?;
+                    Ok(result
+                        .into_iter()
+                        .map(|(member, score)| ZSetMember { member, score })
+                        .collect())
+                } else {
+                    let members: Vec<String> = c
+                        .zrange(key, start, stop, None, false, None, false)
+                        .await
+                        .map_err(|e| AppError::DatabaseError(format!("ZRANGE failed: {}", e)))?;
+                    Ok(members
+                        .into_iter()
+                        .map(|member| ZSetMember { member, score: 0.0 })
+                        .collect())
+                }
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    async fn zset_add(&self, key: &str, members: &[ZSetMember]) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                if members.is_empty() {
+                    return Ok(0);
+                }
+                let pairs: Vec<(f64, &str)> = members
+                    .iter()
+                    .map(|m| (m.score, m.member.as_str()))
+                    .collect();
+                let count: u64 = c
+                    .zadd(key, None, None, false, false, pairs)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("ZADD failed: {}", e)))?;
+                Ok(count)
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    async fn stream_range(
+        &self,
+        key: &str,
+        start: &str,
+        end: &str,
+        count: Option<u32>,
+    ) -> Result<Vec<StreamEntry>, AppError> {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                let result: Vec<(String, HashMap<String, String>)> = c
+                    .xrange(key, start, end, count.map(|c| c as u64))
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("XRANGE failed: {}", e)))?;
+
+                Ok(result
+                    .into_iter()
+                    .map(|(id, fields)| StreamEntry { id, fields })
+                    .collect())
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    async fn stream_len(&self, key: &str) -> Result<u64, AppError> {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                let len: u64 = c
+                    .xlen(key)
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("XLEN failed: {}", e)))?;
+                Ok(len)
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
         }
@@ -660,9 +1466,93 @@ mod tests {
             bastion: None,
             options: HashMap::new(),
             group: None,
+            safe_mode: None,
         };
 
         let config = RedisAdapter::build_config(&profile);
         assert!(config.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_select_db_requires_connection() {
+        let adapter = RedisAdapter::new();
+        let result = adapter.select_db(2).await;
+        assert!(result.is_err(), "select_db should fail when not connected");
+    }
+
+    #[tokio::test]
+    async fn test_select_db_validates_range() {
+        let adapter = RedisAdapter::new();
+        let result = adapter.select_db(16).await;
+        assert!(result.is_err(), "select_db should reject db index > 15");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires live Redis server on localhost:6379"]
+    async fn test_select_db_issues_select_command() {
+        use std::collections::HashMap;
+
+        let profile = ConnectionProfile {
+            id: "test".to_string(),
+            name: "test".to_string(),
+            db_type: crate::types::DbType::Redis,
+            host: "localhost".to_string(),
+            port: 6379,
+            database: "0".to_string(),
+            username: String::new(),
+            password: None,
+            ssl_mode: None,
+            ssl_config: None,
+            ssh_tunnel: None,
+            bastion: None,
+            options: HashMap::new(),
+            group: None,
+            safe_mode: None,
+        };
+
+        let adapter = RedisAdapter::new();
+        adapter
+            .connect(&profile)
+            .await
+            .expect("Failed to connect to Redis");
+
+        adapter
+            .select_db(2)
+            .await
+            .expect("select_db should succeed");
+        assert_eq!(adapter.current_database().await, 2);
+
+        let test_key = format!(
+            "__test_select_db_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+
+        adapter
+            .set_string(&test_key, "test_value", None)
+            .await
+            .expect("SET should work");
+
+        adapter
+            .select_db(0)
+            .await
+            .expect("select_db to 0 should succeed");
+        let result = adapter
+            .get_string(&test_key)
+            .await
+            .expect("GET should work");
+        assert!(result.is_none(), "Key set in db2 should not exist in db0");
+
+        adapter.select_db(2).await.expect("select_db back to 2");
+        let result = adapter
+            .get_string(&test_key)
+            .await
+            .expect("GET should work");
+        assert_eq!(result, Some("test_value".to_string()));
+
+        adapter.delete_key(&test_key).await.expect("cleanup");
+        adapter.disconnect().await.expect("disconnect");
     }
 }

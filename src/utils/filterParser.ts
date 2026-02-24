@@ -1,4 +1,9 @@
-import type { FilterCondition, FilterConfig, FilterOperator, FilterGroup } from "@/types/filter";
+import type {
+  FilterCondition,
+  FilterConfig,
+  FilterOperator,
+  FilterGroup,
+} from "@/types/filter";
 import type { ColumnMeta } from "@/types/schema";
 
 // Re-export ColumnMeta for backwards compatibility with existing imports
@@ -11,10 +16,22 @@ export type FilterMode = "search" | "where" | "ai";
 // ============================================================================
 
 /** Pattern type for search terms */
-export type PatternType = "contains" | "startsWith" | "endsWith" | "exact" | "regex";
+export type PatternType =
+  | "contains"
+  | "startsWith"
+  | "endsWith"
+  | "exact"
+  | "regex";
 
 /** Token types for search query parsing */
-export type TokenType = "term" | "and" | "or" | "not" | "group" | "lparen" | "rparen";
+export type TokenType =
+  | "term"
+  | "and"
+  | "or"
+  | "not"
+  | "group"
+  | "lparen"
+  | "rparen";
 
 /** A parsed search token */
 export interface SearchToken {
@@ -106,7 +123,12 @@ export function tokenizeSearch(input: string): SearchToken[] {
 
     // NOT operator: - (must be followed by term, not standalone)
     const nextChar = input[i + 1];
-    if (char === "-" && i + 1 < len && nextChar !== undefined && !/\s/.test(nextChar)) {
+    if (
+      char === "-" &&
+      i + 1 < len &&
+      nextChar !== undefined &&
+      !/\s/.test(nextChar)
+    ) {
       tokens.push({ type: "not" });
       i++;
       continue;
@@ -177,7 +199,12 @@ export function tokenizeSearch(input: string): SearchToken[] {
     // Case-sensitive prefix: !
     let caseSensitive = false;
     const peekChar = input[i + 1];
-    if (char === "!" && i + 1 < len && peekChar !== undefined && !/[\s|&()]/.test(peekChar)) {
+    if (
+      char === "!" &&
+      i + 1 < len &&
+      peekChar !== undefined &&
+      !/[\s|&()]/.test(peekChar)
+    ) {
       caseSensitive = true;
       i++;
     }
@@ -252,7 +279,10 @@ export function tokenizeSearch(input: string): SearchToken[] {
             if (c === "|") break;
             // $ anchor
             const afterC = input[i + 1];
-            if (c === "$" && (i + 1 >= len || afterC === undefined || /[\s|&()]/.test(afterC))) {
+            if (
+              c === "$" &&
+              (i + 1 >= len || afterC === undefined || /[\s|&()]/.test(afterC))
+            ) {
               colHasEnd = true;
               i++;
               break;
@@ -291,10 +321,12 @@ export function tokenizeSearch(input: string): SearchToken[] {
         // Wrap multiple values in a group with OR
         tokens.push({
           type: "group",
-          children: [{
-            type: "or",
-            children: columnValues,
-          }],
+          children: [
+            {
+              type: "or",
+              children: columnValues,
+            },
+          ],
         });
       }
       continue;
@@ -327,7 +359,10 @@ export function tokenizeSearch(input: string): SearchToken[] {
       }
       // Check for end anchor (only if at end or followed by operator/space)
       const afterC = input[i + 1];
-      if (c === "$" && (i + 1 >= len || afterC === undefined || /[\s|&()]/.test(afterC))) {
+      if (
+        c === "$" &&
+        (i + 1 >= len || afterC === undefined || /[\s|&()]/.test(afterC))
+      ) {
         hasEndAnchor = true;
         i++;
         break;
@@ -404,7 +439,12 @@ export function parseSearchTokens(tokens: SearchToken[]): SearchToken | null {
       if (!token) break;
       if (token.type === "and") {
         pos++; // consume &
-      } else if (token.type === "term" || token.type === "not" || token.type === "lparen" || token.type === "group") {
+      } else if (
+        token.type === "term" ||
+        token.type === "not" ||
+        token.type === "lparen" ||
+        token.type === "group"
+      ) {
         // implicit AND - also allow pre-parsed groups
       } else {
         break;
@@ -470,7 +510,10 @@ export function parseSearchTokens(tokens: SearchToken[]): SearchToken | null {
 // Search Validation
 // ============================================================================
 
-function countTokensInAst(node: SearchToken | null): { terms: number; regex: number } {
+function countTokensInAst(node: SearchToken | null): {
+  terms: number;
+  regex: number;
+} {
   if (!node) return { terms: 0, regex: 0 };
 
   if (node.type === "term") {
@@ -484,9 +527,12 @@ function countTokensInAst(node: SearchToken | null): { terms: number; regex: num
     return node.children.reduce(
       (acc, child) => {
         const counts = countTokensInAst(child);
-        return { terms: acc.terms + counts.terms, regex: acc.regex + counts.regex };
+        return {
+          terms: acc.terms + counts.terms,
+          regex: acc.regex + counts.regex,
+        };
       },
-      { terms: 0, regex: 0 }
+      { terms: 0, regex: 0 },
     );
   }
 
@@ -513,7 +559,7 @@ function measureDepth(node: SearchToken | null, current: number = 0): number {
 
 export function validateSearchAst(
   ast: SearchToken | null,
-  limits: SearchLimits = DEFAULT_SEARCH_LIMITS
+  limits: SearchLimits = DEFAULT_SEARCH_LIMITS,
 ): SearchValidation {
   if (!ast) return { valid: true, termCount: 0, depth: 0, regexCount: 0 };
 
@@ -560,7 +606,7 @@ export function validateSearchAst(
 function patternToOperatorAndValue(
   pattern: PatternType,
   value: string,
-  caseSensitive: boolean
+  caseSensitive: boolean,
 ): { operator: FilterOperator; value: string } {
   switch (pattern) {
     case "regex":
@@ -597,8 +643,8 @@ function escapeWildcards(value: string): string {
   // First escape actual SQL wildcards that user might have typed literally
   // Then convert user wildcards to SQL wildcards
   return value
-    .replace(/\*/g, "%")  // * -> %
-    .replace(/_/g, "_");  // _ stays as _ (SQL single char wildcard)
+    .replace(/\*/g, "%") // * -> %
+    .replace(/_/g, "_"); // _ stays as _ (SQL single char wildcard)
 }
 
 /**
@@ -720,7 +766,7 @@ export function clearParseCache(): void {
 export function parseSimpleSearch(
   text: string,
   columns: FilterColumnInfo[],
-  limits: SearchLimits = DEFAULT_SEARCH_LIMITS
+  limits: SearchLimits = DEFAULT_SEARCH_LIMITS,
 ): FilterConfig {
   const result = parseSearchQuery(text, columns, limits);
   return result.filter ?? createEmptyFilter();
@@ -733,7 +779,7 @@ export function parseSimpleSearch(
 export function parseSearchQuery(
   text: string,
   columns: FilterColumnInfo[],
-  limits: SearchLimits = DEFAULT_SEARCH_LIMITS
+  limits: SearchLimits = DEFAULT_SEARCH_LIMITS,
 ): SearchParseResult {
   const searchValue = text.trim();
   if (!searchValue) {
@@ -747,7 +793,10 @@ export function parseSearchQuery(
   }
 
   // Check cache first
-  const cacheKey = getCacheKey(searchValue, searchableColumns.map(c => c.name));
+  const cacheKey = getCacheKey(
+    searchValue,
+    searchableColumns.map((c) => c.name),
+  );
   const cached = getCachedResult(cacheKey);
   if (cached) {
     return cached;
@@ -756,7 +805,10 @@ export function parseSearchQuery(
   // Tokenize and parse
   const tokens = tokenizeSearch(searchValue);
   if (tokens.length === 0) {
-    const result: SearchParseResult = { success: true, filter: createEmptyFilter() };
+    const result: SearchParseResult = {
+      success: true,
+      filter: createEmptyFilter(),
+    };
     setCachedResult(cacheKey, result);
     return result;
   }
@@ -785,7 +837,7 @@ export function parseSearchQuery(
  */
 function astToFilterConfig(
   ast: SearchToken,
-  columns: FilterColumnInfo[]
+  columns: FilterColumnInfo[],
 ): FilterConfig {
   const root = astNodeToFilterGroup(ast, columns);
   return { root };
@@ -796,7 +848,7 @@ function astToFilterConfig(
  */
 function astNodeToFilterGroup(
   node: SearchToken,
-  columns: FilterColumnInfo[]
+  columns: FilterColumnInfo[],
 ): FilterGroup {
   switch (node.type) {
     case "term":
@@ -807,9 +859,9 @@ function astNodeToFilterGroup(
         id: nextId(),
         type: "group",
         logical: "AND",
-        conditions: node.children?.map((child) =>
-          astNodeToFilterGroup(child, columns)
-        ) ?? [],
+        conditions:
+          node.children?.map((child) => astNodeToFilterGroup(child, columns)) ??
+          [],
       };
 
     case "or":
@@ -817,9 +869,9 @@ function astNodeToFilterGroup(
         id: nextId(),
         type: "group",
         logical: "OR",
-        conditions: node.children?.map((child) =>
-          astNodeToFilterGroup(child, columns)
-        ) ?? [],
+        conditions:
+          node.children?.map((child) => astNodeToFilterGroup(child, columns)) ??
+          [],
       };
 
     case "not":
@@ -848,18 +900,18 @@ function astNodeToFilterGroup(
  */
 function termToFilterGroup(
   term: SearchToken,
-  columns: FilterColumnInfo[]
+  columns: FilterColumnInfo[],
 ): FilterGroup {
   const { operator, value } = patternToOperatorAndValue(
     term.patternType ?? "contains",
     term.value ?? "",
-    term.caseSensitive ?? false
+    term.caseSensitive ?? false,
   );
 
   // If targeting a specific column, only create condition for that column
   if (term.targetColumn) {
     const targetCol = columns.find(
-      (c) => c.name.toLowerCase() === term.targetColumn!.toLowerCase()
+      (c) => c.name.toLowerCase() === term.targetColumn!.toLowerCase(),
     );
 
     if (targetCol) {
@@ -867,13 +919,15 @@ function termToFilterGroup(
         id: nextId(),
         type: "group",
         logical: "OR",
-        conditions: [{
-          id: nextId(),
-          column: targetCol.name,
-          operator,
-          value,
-          castToText: !isTextType(targetCol.dataType),
-        }],
+        conditions: [
+          {
+            id: nextId(),
+            column: targetCol.name,
+            operator,
+            value,
+            castToText: !isTextType(targetCol.dataType),
+          },
+        ],
       };
     }
     // Column not found - return empty (will match nothing)
@@ -916,7 +970,7 @@ function createEmptyGroup(): FilterGroup {
 
 export function parseWhereClause(
   whereExpr: string,
-  _columns: FilterColumnInfo[]
+  _columns: FilterColumnInfo[],
 ): ParseResult {
   let expr = whereExpr.trim();
 
@@ -986,7 +1040,6 @@ function validateBasicSyntax(clause: string): string | null {
   return null;
 }
 
-
 export function sanitizeInput(input: string, mode: FilterMode): string {
   let sanitized = input.trim();
 
@@ -1017,7 +1070,11 @@ export function sanitizeInput(input: string, mode: FilterMode): string {
   }
 
   // Safety: strip any remaining mode prefixes
-  if (sanitized.startsWith("?") || sanitized.startsWith("#") || sanitized.startsWith("!")) {
+  if (
+    sanitized.startsWith("?") ||
+    sanitized.startsWith("#") ||
+    sanitized.startsWith("!")
+  ) {
     sanitized = sanitized.slice(1).trim();
   }
 

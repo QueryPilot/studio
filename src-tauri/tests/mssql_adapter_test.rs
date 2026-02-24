@@ -82,32 +82,40 @@ async fn test_mssql_seeded_todos_sample() {
     let query_result = result.unwrap();
     assert_eq!(query_result.columns.len(), 10);
     assert_eq!(query_result.rows.len(), 5);
-    
+
     let row = &query_result.rows[0];
-    
+
     // Title is string
     assert!(!json_str(&row[1]).is_empty());
-    
+
     // Tags: check for string or array
     let tags = &row[4];
     if !tags.is_null() {
         if tags.is_string() {
             assert!(tags.as_str().unwrap().starts_with('['));
         } else {
-            assert!(tags.is_array(), "Expected tags to be array if not string, got {:?}", tags);
+            assert!(
+                tags.is_array(),
+                "Expected tags to be array if not string, got {:?}",
+                tags
+            );
         }
     }
-    
+
     // Custom fields: check for string or object
     let custom_fields = &row[5];
     if !custom_fields.is_null() {
         if custom_fields.is_string() {
             assert!(custom_fields.as_str().unwrap().starts_with('{'));
         } else {
-            assert!(custom_fields.is_object(), "Expected custom_fields to be object if not string, got {:?}", custom_fields);
+            assert!(
+                custom_fields.is_object(),
+                "Expected custom_fields to be object if not string, got {:?}",
+                custom_fields
+            );
         }
     }
-    
+
     // Dates/Times
     assert!(json_str(&row[8]).contains(':'));
     // Datetime might be string or object
@@ -194,7 +202,9 @@ async fn test_mssql_numeric_types() {
     adapter.connect(&profile).await.unwrap();
 
     let result = adapter
-        .query("SELECT 42 AS int_val, 3.14 AS float_val, CAST(999999999999 AS BIGINT) AS bigint_val")
+        .query(
+            "SELECT 42 AS int_val, 3.14 AS float_val, CAST(999999999999 AS BIGINT) AS bigint_val",
+        )
         .await;
     assert!(result.is_ok(), "Query failed: {:?}", result.err());
 
@@ -245,12 +255,16 @@ async fn test_mssql_execute() {
         .execute("CREATE TABLE test_exec_integration (id INT, name NVARCHAR(50))")
         .await;
     // Ignore error if table exists (cleanup might have failed)
-    
+
     // Insert a row
     let insert_result = adapter
         .execute("INSERT INTO test_exec_integration (id, name) VALUES (1, 'test')")
         .await;
-    assert!(insert_result.is_ok(), "Insert failed: {:?}", insert_result.err());
+    assert!(
+        insert_result.is_ok(),
+        "Insert failed: {:?}",
+        insert_result.err()
+    );
 
     // Cleanup
     let _ = adapter.execute("DROP TABLE test_exec_integration").await;
@@ -381,8 +395,12 @@ async fn test_mssql_spatial_and_variant_casts() {
 
     let first_row = &query_result.rows[0];
     assert_eq!(json_str(&first_row[1]), "Point in Seattle");
-    assert!(json_str(&first_row[2]).to_ascii_uppercase().contains("POINT"));
-    assert!(json_str(&first_row[3]).to_ascii_uppercase().contains("POINT"));
+    assert!(json_str(&first_row[2])
+        .to_ascii_uppercase()
+        .contains("POINT"));
+    assert!(json_str(&first_row[3])
+        .to_ascii_uppercase()
+        .contains("POINT"));
     assert_eq!(json_str(&first_row[4]), "/1/");
     assert!(json_str(&first_row[5]).contains("Test Item"));
     assert_eq!(json_str(&first_row[6]), "Test Variant String");

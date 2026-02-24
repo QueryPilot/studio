@@ -361,5 +361,8 @@ export function createSqlHoverExtension(
       logger.error("[SQL Hover] Error fetching details:", err);
       return null;
     }
+  }, {
+    hoverTime: 360,
+    hideOnChange: true,
   });
 }

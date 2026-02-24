@@ -1,0 +1,771 @@
+//! ACP Manager module
+//!
+//! Manages agent subprocess lifecycle with stdio transport.
+//!
+//! Note: The ACP library uses `#[async_trait(?Send)]` which means futures are not
+//! Send. We use `tokio::task::LocalSet` to run ACP operations on a dedicated
+//! single-threaded executor.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::process::Stdio;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, Command};
+use tokio::sync::{mpsc, oneshot};
+
+use agent_client_protocol::{
+    Agent, CancelNotification, Client, ClientCapabilities, ClientSideConnection, ContentBlock,
+    FileSystemCapability, Implementation, InitializeRequest, McpServer, McpServerStdio, ModelId,
+    NewSessionRequest, PermissionOptionKind, PromptRequest, PromptResponse, ProtocolVersion,
+    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    SelectedPermissionOutcome, SessionId, SessionNotification, SetSessionModelRequest, ToolKind,
+};
+
+use super::discovery::AgentInfo;
+
+/// A channel sender for forwarding session notifications to Tauri
+pub type NotificationSender = mpsc::UnboundedSender<SessionNotification>;
+pub type NotificationReceiver = mpsc::UnboundedReceiver<SessionNotification>;
+
+/// MCP Server configuration for passing to ACP sessions
+#[derive(Clone, Debug)]
+pub struct McpServerConfig {
+    pub name: String,
+    pub command: PathBuf,
+    pub args: Vec<String>,
+}
+
+/// Commands that can be sent to the ACP worker thread
+enum AcpCommand {
+    StartAgent {
+        agent_info: AgentInfo,
+        response_tx: oneshot::Sender<Result<String, String>>,
+    },
+    CreateSession {
+        agent_id: String,
+        cwd: String,
+        mcp_servers: Vec<McpServerConfig>,
+        response_tx: oneshot::Sender<Result<String, String>>,
+    },
+    SetSessionModel {
+        agent_id: String,
+        model_id: String,
+        response_tx: oneshot::Sender<Result<(), String>>,
+    },
+    SendPrompt {
+        agent_id: String,
+        prompt: Vec<ContentBlock>,
+        response_tx: oneshot::Sender<Result<PromptResponse, String>>,
+    },
+    GetSessionId {
+        agent_id: String,
+        response_tx: oneshot::Sender<Result<SessionId, String>>,
+    },
+    Cancel {
+        agent_id: String,
+        response_tx: oneshot::Sender<Result<(), String>>,
+    },
+    TakeNotificationReceiver {
+        agent_id: String,
+        response_tx: oneshot::Sender<Result<NotificationReceiver, String>>,
+    },
+}
+
+/// Client implementation that forwards notifications via a channel
+struct QueryPilotClient {
+    notification_tx: NotificationSender,
+}
+
+impl QueryPilotClient {
+    fn new(notification_tx: NotificationSender) -> Self {
+        Self { notification_tx }
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl Client for QueryPilotClient {
+    async fn request_permission(
+        &self,
+        args: RequestPermissionRequest,
+    ) -> agent_client_protocol::Result<RequestPermissionResponse> {
+        // Check the tool kind to decide whether to allow or deny
+        let tool_kind = args.tool_call.fields.kind.unwrap_or(ToolKind::Other);
+        let tool_title = args.tool_call.fields.title.as_deref().unwrap_or("unknown");
+
+        tracing::info!(
+            "Permission request for tool: {:?} ({}) - is_mcp: {}",
+            tool_kind,
+            tool_title,
+            tool_title.starts_with("mcp__")
+        );
+
+        // Determine if we should allow this tool
+        // Allow safe operations and MCP tools (prefixed with mcp__)
+        let is_mcp_tool = tool_title.starts_with("mcp__");
+        let should_allow = is_mcp_tool
+            || matches!(
+                tool_kind,
+                // Safe operations - auto-approve
+                ToolKind::Read
+                    | ToolKind::Search
+                    | ToolKind::Think
+                    | ToolKind::Fetch
+                    | ToolKind::SwitchMode
+            );
+
+        if should_allow {
+            tracing::info!("Auto-approving {:?} operation: {}", tool_kind, tool_title);
+
+            // Find an AllowOnce or AllowAlways option to select
+            let allow_option = args.options.iter().find(|opt| {
+                matches!(
+                    opt.kind,
+                    PermissionOptionKind::AllowOnce | PermissionOptionKind::AllowAlways
+                )
+            });
+
+            if let Some(option) = allow_option {
+                return Ok(RequestPermissionResponse::new(
+                    RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                        option.option_id.clone(),
+                    )),
+                ));
+            }
+
+            // If no allow option available, just cancel (shouldn't happen)
+            tracing::warn!("No allow option found for {:?}, cancelling", tool_kind);
+            Ok(RequestPermissionResponse::new(
+                RequestPermissionOutcome::Cancelled,
+            ))
+        } else {
+            // Dangerous operations - deny by default
+            // TODO: Wire to UI for user approval
+            tracing::warn!(
+                "Denying {:?} operation: {} (dangerous tool)",
+                tool_kind,
+                tool_title
+            );
+            Ok(RequestPermissionResponse::new(
+                RequestPermissionOutcome::Cancelled,
+            ))
+        }
+    }
+
+    async fn session_notification(
+        &self,
+        args: SessionNotification,
+    ) -> agent_client_protocol::Result<()> {
+        // Forward notifications to the channel for Tauri event emission
+        tracing::info!(
+            "QueryPilotClient received notification for session {}",
+            args.session_id
+        );
+        let _ = self.notification_tx.send(args);
+        Ok(())
+    }
+}
+
+/// Internal state for an agent process
+struct AgentProcess {
+    #[allow(dead_code)]
+    child: Child,
+    connection: ClientSideConnection,
+    session_id: Option<SessionId>,
+    notification_rx: Option<NotificationReceiver>,
+    /// The binary name of this agent (e.g., "gemini", "claude-code-acp")
+    binary_name: String,
+}
+
+/// Worker that runs ACP operations on a LocalSet
+struct AcpWorker {
+    agents: HashMap<String, AgentProcess>,
+}
+
+impl AcpWorker {
+    fn new() -> Self {
+        Self {
+            agents: HashMap::new(),
+        }
+    }
+
+    async fn start_agent(&mut self, agent_info: AgentInfo) -> Result<String, String> {
+        let path = agent_info
+            .path
+            .as_ref()
+            .ok_or_else(|| format!("Agent '{}' is not installed", agent_info.name))?;
+
+        let mut cmd = Command::new(path);
+        for arg in &agent_info.acp_args {
+            cmd.arg(arg);
+        }
+
+        let mut child = cmd
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .map_err(|e| format!("Failed to start agent: {}", e))?;
+
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+
+        // Create bidirectional pipes using piper (implements futures traits)
+        let (to_agent_rx, to_agent_tx) = piper::pipe(4096);
+        let (from_agent_rx, from_agent_tx) = piper::pipe(4096);
+
+        // Create notification channel
+        let (notification_tx, notification_rx) = mpsc::unbounded_channel();
+
+        // Create ACP connection over the piper pipes
+        let (connection, io_task) = ClientSideConnection::new(
+            QueryPilotClient::new(notification_tx),
+            to_agent_tx,   // outgoing bytes (to agent)
+            from_agent_rx, // incoming bytes (from agent)
+            |fut| {
+                tokio::task::spawn_local(fut);
+            },
+        );
+
+        // Spawn the ACP I/O task
+        tokio::task::spawn_local(async move {
+            if let Err(e) = io_task.await {
+                tracing::error!("ACP I/O task error: {}", e);
+            }
+        });
+
+        // Spawn bridge tasks to connect piper pipes to tokio stdin/stdout
+        // Bridge: tokio stdin <- piper to_agent_rx
+        let mut stdin = stdin;
+        tokio::task::spawn_local(async move {
+            let mut reader = to_agent_rx;
+            let mut buf = [0u8; 4096];
+            loop {
+                match futures::AsyncReadExt::read(&mut reader, &mut buf).await {
+                    Ok(0) => break, // EOF
+                    Ok(n) => {
+                        if stdin.write_all(&buf[..n]).await.is_err() {
+                            break;
+                        }
+                        if stdin.flush().await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        // Bridge: tokio stdout -> piper from_agent_tx
+        let stdout = BufReader::new(stdout);
+        let mut from_agent_tx = from_agent_tx;
+        tokio::task::spawn_local(async move {
+            let mut stdout = stdout;
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match stdout.read_line(&mut line).await {
+                    Ok(0) => break, // EOF
+                    Ok(_) => {
+                        if futures::AsyncWriteExt::write_all(&mut from_agent_tx, line.as_bytes())
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                        if futures::AsyncWriteExt::flush(&mut from_agent_tx)
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        // Initialize ACP handshake
+        let client_caps = ClientCapabilities::new()
+            .fs(FileSystemCapability::default())
+            .terminal(false);
+
+        let client_info =
+            Implementation::new("query-pilot", env!("CARGO_PKG_VERSION")).title("Query Pilot");
+
+        connection
+            .initialize(
+                InitializeRequest::new(ProtocolVersion::LATEST)
+                    .client_capabilities(client_caps)
+                    .client_info(client_info),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let agent_id = uuid::Uuid::new_v4().to_string();
+
+        self.agents.insert(
+            agent_id.clone(),
+            AgentProcess {
+                child,
+                connection,
+                session_id: None,
+                notification_rx: Some(notification_rx),
+                binary_name: agent_info.id.clone(),
+            },
+        );
+
+        Ok(agent_id)
+    }
+
+    async fn create_session(
+        &mut self,
+        agent_id: &str,
+        cwd: &str,
+        mcp_servers: Vec<McpServerConfig>,
+    ) -> Result<String, String> {
+        let process = self.agents.get_mut(agent_id).ok_or("Agent not found")?;
+
+        // Convert McpServerConfig to protocol's McpServer type
+        let acp_mcp_servers: Vec<McpServer> = mcp_servers
+            .into_iter()
+            .map(|cfg| {
+                McpServer::Stdio(McpServerStdio::new(&cfg.name, &cfg.command).args(cfg.args))
+            })
+            .collect();
+
+        let request = NewSessionRequest::new(PathBuf::from(cwd)).mcp_servers(acp_mcp_servers);
+
+        let response = process
+            .connection
+            .new_session(request)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        process.session_id = Some(response.session_id.clone());
+        Ok(response.session_id.to_string())
+    }
+
+    async fn set_session_model(&self, agent_id: &str, model_id: &str) -> Result<(), String> {
+        let process = self.agents.get(agent_id).ok_or("Agent not found")?;
+        let session_id = process.session_id.clone().ok_or("Session not created")?;
+
+        tracing::info!("Setting session model to: {}", model_id);
+
+        // Try ACP method first
+        let result = process
+            .connection
+            .set_session_model(SetSessionModelRequest::new(
+                session_id,
+                ModelId::new(model_id),
+            ))
+            .await;
+
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let err_str = e.to_string();
+                // If method not found, try fallback for specific agents
+                if err_str.contains("Method not found") {
+                    self.set_model_fallback(&process.binary_name, model_id)
+                        .await
+                } else {
+                    Err(err_str)
+                }
+            }
+        }
+    }
+
+    /// Fallback method to set model for agents that don't support ACP session/set_model
+    async fn set_model_fallback(&self, binary_name: &str, _model_id: &str) -> Result<(), String> {
+        // No fallback available for supported agents (Claude Code, OpenCode, Codex)
+        Err(format!(
+            "Agent '{}' doesn't support model selection fallback",
+            binary_name
+        ))
+    }
+
+    async fn send_prompt(
+        &self,
+        agent_id: &str,
+        prompt: Vec<ContentBlock>,
+    ) -> Result<PromptResponse, String> {
+        let process = self.agents.get(agent_id).ok_or("Agent not found")?;
+        let session_id = process.session_id.clone().ok_or("Session not created")?;
+
+        process
+            .connection
+            .prompt(PromptRequest::new(session_id, prompt))
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    fn get_session_id(&self, agent_id: &str) -> Result<SessionId, String> {
+        let process = self.agents.get(agent_id).ok_or("Agent not found")?;
+        process
+            .session_id
+            .clone()
+            .ok_or_else(|| "Session not created".to_string())
+    }
+
+    async fn cancel(&self, agent_id: &str) -> Result<(), String> {
+        let process = self.agents.get(agent_id).ok_or("Agent not found")?;
+        let session_id = process.session_id.clone().ok_or("Session not created")?;
+
+        process
+            .connection
+            .cancel(CancelNotification::new(session_id))
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    fn take_notification_receiver(
+        &mut self,
+        agent_id: &str,
+    ) -> Result<NotificationReceiver, String> {
+        let process = self.agents.get_mut(agent_id).ok_or("Agent not found")?;
+        process
+            .notification_rx
+            .take()
+            .ok_or_else(|| "Notification receiver already taken".to_string())
+    }
+}
+
+/// Manages active agent processes and their ACP connections
+pub struct AcpManager {
+    command_tx: mpsc::UnboundedSender<AcpCommand>,
+}
+
+impl AcpManager {
+    /// Create a new ACP manager
+    ///
+    /// This spawns a dedicated thread with a LocalSet for running ACP operations.
+    pub fn new() -> Self {
+        let (command_tx, mut command_rx) = mpsc::unbounded_channel::<AcpCommand>();
+
+        // Spawn a dedicated thread for ACP operations
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create ACP runtime");
+
+            let local_set = tokio::task::LocalSet::new();
+
+            local_set.block_on(&rt, async move {
+                let mut worker = AcpWorker::new();
+
+                while let Some(cmd) = command_rx.recv().await {
+                    match cmd {
+                        AcpCommand::StartAgent {
+                            agent_info,
+                            response_tx,
+                        } => {
+                            let result = worker.start_agent(agent_info).await;
+                            let _ = response_tx.send(result);
+                        }
+                        AcpCommand::CreateSession {
+                            agent_id,
+                            cwd,
+                            mcp_servers,
+                            response_tx,
+                        } => {
+                            let result = worker.create_session(&agent_id, &cwd, mcp_servers).await;
+                            let _ = response_tx.send(result);
+                        }
+                        AcpCommand::SetSessionModel {
+                            agent_id,
+                            model_id,
+                            response_tx,
+                        } => {
+                            let result = worker.set_session_model(&agent_id, &model_id).await;
+                            let _ = response_tx.send(result);
+                        }
+                        AcpCommand::SendPrompt {
+                            agent_id,
+                            prompt,
+                            response_tx,
+                        } => {
+                            let result = worker.send_prompt(&agent_id, prompt).await;
+                            let _ = response_tx.send(result);
+                        }
+                        AcpCommand::GetSessionId {
+                            agent_id,
+                            response_tx,
+                        } => {
+                            let result = worker.get_session_id(&agent_id);
+                            let _ = response_tx.send(result);
+                        }
+                        AcpCommand::Cancel {
+                            agent_id,
+                            response_tx,
+                        } => {
+                            let result = worker.cancel(&agent_id).await;
+                            let _ = response_tx.send(result);
+                        }
+                        AcpCommand::TakeNotificationReceiver {
+                            agent_id,
+                            response_tx,
+                        } => {
+                            let result = worker.take_notification_receiver(&agent_id);
+                            let _ = response_tx.send(result);
+                        }
+                    }
+                }
+            });
+        });
+
+        Self { command_tx }
+    }
+
+    /// Start an agent subprocess and establish ACP connection
+    pub async fn start_agent(&self, agent_info: &AgentInfo) -> Result<String, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(AcpCommand::StartAgent {
+                agent_info: agent_info.clone(),
+                response_tx,
+            })
+            .map_err(|_| "ACP worker shutdown")?;
+        response_rx.await.map_err(|_| "ACP worker shutdown")?
+    }
+
+    /// Create a new session for an agent
+    pub async fn create_session(
+        &self,
+        agent_id: &str,
+        cwd: &str,
+        mcp_servers: Vec<McpServerConfig>,
+    ) -> Result<String, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(AcpCommand::CreateSession {
+                agent_id: agent_id.to_string(),
+                cwd: cwd.to_string(),
+                mcp_servers,
+                response_tx,
+            })
+            .map_err(|_| "ACP worker shutdown")?;
+        response_rx.await.map_err(|_| "ACP worker shutdown")?
+    }
+
+    /// Set the model for an active session
+    pub async fn set_session_model(&self, agent_id: &str, model_id: &str) -> Result<(), String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(AcpCommand::SetSessionModel {
+                agent_id: agent_id.to_string(),
+                model_id: model_id.to_string(),
+                response_tx,
+            })
+            .map_err(|_| "ACP worker shutdown")?;
+        response_rx.await.map_err(|_| "ACP worker shutdown")?
+    }
+
+    /// Send a prompt to an agent
+    pub async fn send_prompt(
+        &self,
+        agent_id: &str,
+        prompt: Vec<ContentBlock>,
+    ) -> Result<PromptResponse, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(AcpCommand::SendPrompt {
+                agent_id: agent_id.to_string(),
+                prompt,
+                response_tx,
+            })
+            .map_err(|_| "ACP worker shutdown")?;
+        response_rx.await.map_err(|_| "ACP worker shutdown")?
+    }
+
+    /// Get the session ID for an agent
+    pub async fn get_session_id(&self, agent_id: &str) -> Result<SessionId, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(AcpCommand::GetSessionId {
+                agent_id: agent_id.to_string(),
+                response_tx,
+            })
+            .map_err(|_| "ACP worker shutdown")?;
+        response_rx.await.map_err(|_| "ACP worker shutdown")?
+    }
+
+    /// Cancel an active session/prompt
+    pub async fn cancel(&self, agent_id: &str) -> Result<(), String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(AcpCommand::Cancel {
+                agent_id: agent_id.to_string(),
+                response_tx,
+            })
+            .map_err(|_| "ACP worker shutdown")?;
+        response_rx.await.map_err(|_| "ACP worker shutdown")?
+    }
+
+    /// Take the notification receiver for an agent (can only be done once)
+    pub async fn take_notification_receiver(
+        &self,
+        agent_id: &str,
+    ) -> Result<NotificationReceiver, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(AcpCommand::TakeNotificationReceiver {
+                agent_id: agent_id.to_string(),
+                response_tx,
+            })
+            .map_err(|_| "ACP worker shutdown")?;
+        response_rx.await.map_err(|_| "ACP worker shutdown")?
+    }
+}
+
+impl Default for AcpManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Ollama Session Manager
+// ---------------------------------------------------------------------------
+
+use std::sync::Mutex;
+
+/// An Ollama "session" — no subprocess, just HTTP state
+struct OllamaSession {
+    session_id: String,
+    model: String,
+    base_url: String,
+    /// Conversation history for multi-turn chat
+    messages: Vec<super::ollama::ChatMessage>,
+}
+
+/// Manages Ollama sessions (separate from ACP subprocess agents)
+pub struct OllamaManager {
+    sessions: Mutex<HashMap<String, OllamaSession>>,
+}
+
+impl OllamaManager {
+    pub fn new() -> Self {
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// "Start" an Ollama agent — just registers it, no subprocess needed
+    pub fn start_agent(&self, base_url: &str) -> String {
+        let instance_id = uuid::Uuid::new_v4().to_string();
+        let session_id = uuid::Uuid::new_v4().to_string();
+
+        let session = OllamaSession {
+            session_id,
+            model: String::new(), // Set via set_model later
+            base_url: base_url.to_string(),
+            messages: Vec::new(),
+        };
+
+        self.sessions
+            .lock()
+            .unwrap()
+            .insert(instance_id.clone(), session);
+        instance_id
+    }
+
+    /// Get the session ID for an Ollama instance
+    pub fn get_session_id(&self, instance_id: &str) -> Result<String, String> {
+        self.sessions
+            .lock()
+            .unwrap()
+            .get(instance_id)
+            .map(|s| s.session_id.clone())
+            .ok_or_else(|| "Ollama session not found".to_string())
+    }
+
+    /// Set the model for an Ollama session
+    pub fn set_model(&self, instance_id: &str, model_id: &str) -> Result<(), String> {
+        let mut sessions = self.sessions.lock().unwrap();
+        let session = sessions
+            .get_mut(instance_id)
+            .ok_or("Ollama session not found")?;
+        session.model = model_id.to_string();
+        Ok(())
+    }
+
+    /// Send a prompt to Ollama and stream the response.
+    /// Returns (base_url, model, messages) for the caller to execute the chat.
+    pub fn prepare_prompt(
+        &self,
+        instance_id: &str,
+        user_content: &str,
+        system_prompt: Option<String>,
+    ) -> Result<(String, String, Vec<super::ollama::ChatMessage>), String> {
+        let mut sessions = self.sessions.lock().unwrap();
+        let session = sessions
+            .get_mut(instance_id)
+            .ok_or("Ollama session not found")?;
+
+        if session.model.is_empty() {
+            return Err("No model selected for Ollama session".to_string());
+        }
+
+        // Build messages list
+        let mut messages = Vec::new();
+
+        // Always include system prompt with latest schema context
+        if let Some(sys) = system_prompt {
+            messages.push(super::ollama::ChatMessage {
+                role: "system".to_string(),
+                content: sys,
+            });
+        }
+
+        // Add conversation history (capped to last 20 messages to respect
+        // local model context windows and avoid unbounded memory growth)
+        const MAX_HISTORY: usize = 20;
+        let history = &session.messages;
+        let start = history.len().saturating_sub(MAX_HISTORY);
+        messages.extend(history[start..].iter().cloned());
+
+        // Add the new user message
+        let user_msg = super::ollama::ChatMessage {
+            role: "user".to_string(),
+            content: user_content.to_string(),
+        };
+        messages.push(user_msg.clone());
+
+        // Save user message to history
+        session.messages.push(user_msg);
+
+        let base_url = session.base_url.clone();
+        let model = session.model.clone();
+
+        Ok((base_url, model, messages))
+    }
+
+    /// Save the assistant's response to conversation history
+    pub fn save_assistant_response(&self, instance_id: &str, content: &str) {
+        if let Ok(mut sessions) = self.sessions.lock() {
+            if let Some(session) = sessions.get_mut(instance_id) {
+                session.messages.push(super::ollama::ChatMessage {
+                    role: "assistant".to_string(),
+                    content: content.to_string(),
+                });
+            }
+        }
+    }
+
+    /// Check if an instance exists in the Ollama manager
+    pub fn has_instance(&self, instance_id: &str) -> bool {
+        self.sessions.lock().unwrap().contains_key(instance_id)
+    }
+
+    /// Remove an Ollama session
+    pub fn remove(&self, instance_id: &str) {
+        self.sessions.lock().unwrap().remove(instance_id);
+    }
+}
+
+impl Default for OllamaManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -46,7 +46,7 @@ describe("connectionParser", () => {
       });
 
       it("should detect SQLite file path", () => {
-        const uri = "./seeds/sqlite/todoapp.db";
+        const uri = "./seeds/sqlite/query_pilot_test.db";
         expect(detectConnectionFormat(uri)).toBe("uri");
       });
 
@@ -635,11 +635,11 @@ DB_PORT=5432`;
       });
 
       it("should parse SQLite file path without scheme", () => {
-        const uri = "./seeds/sqlite/todoapp.db";
+        const uri = "./seeds/sqlite/query_pilot_test.db";
         const config = parseConnectionUri(uri);
 
         expect(config.dbType).toBe("sqlite");
-        expect(config.database).toBe("./seeds/sqlite/todoapp.db");
+        expect(config.database).toBe("./seeds/sqlite/query_pilot_test.db");
       });
     });
 
@@ -752,8 +752,8 @@ DB_PORT=5432`;
 
     describe("error handling", () => {
       it("should throw error for unsupported protocol", () => {
-        const uri = "mongodb://localhost:27017/mydb";
-        expect(() => parseConnectionUri(uri)).toThrow("Unsupported protocol: mongodb");
+        const uri = "ftp://localhost:21/mydb";
+        expect(() => parseConnectionUri(uri)).toThrow("Unsupported protocol: ftp");
       });
 
       it("should throw error for invalid URI", () => {
@@ -776,6 +776,123 @@ DB_PORT=5432`;
 
         expect(config.database).toBe("my-db.test");
       });
+    });
+  });
+
+  describe("MongoDB URIs", () => {
+    it("should parse basic mongodb URI", () => {
+      const uri = "mongodb://localhost:27017/test";
+      const config = parseConnectionUri(uri);
+      expect(config.dbType).toBe("mongodb");
+      expect(config.host).toBe("localhost");
+      expect(config.port).toBe("27017");
+      expect(config.database).toBe("test");
+    });
+
+    it("should parse mongodb URI with auth", () => {
+      const uri = "mongodb://user:password@localhost:27017/mydb?authSource=admin";
+      const config = parseConnectionUri(uri);
+      expect(config.dbType).toBe("mongodb");
+      expect(config.username).toBe("user");
+      expect(config.password).toBe("password");
+      expect(config.host).toBe("localhost");
+      expect(config.port).toBe("27017");
+      expect(config.database).toBe("mydb");
+      expect(config.options?.authSource).toBe("admin");
+    });
+
+    it("should parse mongodb+srv URI (Atlas)", () => {
+      const uri = "mongodb+srv://user:password@cluster0.abc123.mongodb.net/mydb?retryWrites=true&w=majority";
+      const config = parseConnectionUri(uri);
+      expect(config.dbType).toBe("mongodb");
+      expect(config.username).toBe("user");
+      expect(config.password).toBe("password");
+      expect(config.host).toBe("cluster0.abc123.mongodb.net");
+      expect(config.port).toBeUndefined();
+      expect(config.database).toBe("mydb");
+      expect(config.options?.srv).toBe("true");
+      expect(config.options?.retryWrites).toBe("true");
+      expect(config.options?.w).toBe("majority");
+    });
+
+    it("should parse mongodb replica set URI", () => {
+      const uri = "mongodb://host1:27017,host2:27017,host3:27017/mydb?replicaSet=rs0";
+      const config = parseConnectionUri(uri);
+      expect(config.dbType).toBe("mongodb");
+      expect(config.host).toBe("host1");
+      expect(config.port).toBe("27017");
+      expect(config.database).toBe("mydb");
+      expect(config.options?.replicaSet).toBe("rs0");
+      expect(config.options?.hosts).toBe("host1:27017,host2:27017,host3:27017");
+    });
+
+    it("should parse mongodb URI with tls option", () => {
+      const uri = "mongodb://localhost:27017/mydb?tls=true";
+      const config = parseConnectionUri(uri);
+      expect(config.dbType).toBe("mongodb");
+      expect(config.sslMode).toBe(SslMode.Require);
+    });
+
+    it("should handle special characters in mongodb password", () => {
+      const uri = "mongodb://user:p%40ss%21w%23rd@localhost:27017/mydb";
+      const config = parseConnectionUri(uri);
+      expect(config.password).toBe("p@ss!w#rd");
+    });
+  });
+
+  describe("Redis URIs", () => {
+    it("should parse basic redis URI", () => {
+      const uri = "redis://localhost:6379/0";
+      const config = parseConnectionUri(uri);
+      expect(config.dbType).toBe("redis");
+      expect(config.host).toBe("localhost");
+      expect(config.port).toBe("6379");
+      expect(config.database).toBe("0");
+    });
+
+    it("should parse redis URI with ACL auth", () => {
+      const uri = "redis://username:password@localhost:6379/0";
+      const config = parseConnectionUri(uri);
+      expect(config.dbType).toBe("redis");
+      expect(config.username).toBe("username");
+      expect(config.password).toBe("password");
+      expect(config.host).toBe("localhost");
+      expect(config.port).toBe("6379");
+      expect(config.database).toBe("0");
+    });
+
+    it("should parse redis URI with legacy password auth", () => {
+      const uri = "redis://:password@localhost:6379/0";
+      const config = parseConnectionUri(uri);
+      expect(config.dbType).toBe("redis");
+      expect(config.username).toBeUndefined();
+      expect(config.password).toBe("password");
+      expect(config.host).toBe("localhost");
+      expect(config.port).toBe("6379");
+    });
+
+    it("should parse rediss (TLS) URI", () => {
+      const uri = "rediss://localhost:6380/0";
+      const config = parseConnectionUri(uri);
+      expect(config.dbType).toBe("redis");
+      expect(config.sslMode).toBe(SslMode.Require);
+      expect(config.host).toBe("localhost");
+      expect(config.port).toBe("6380");
+    });
+
+    it("should parse redis URI without port", () => {
+      const uri = "redis://localhost/0";
+      const config = parseConnectionUri(uri);
+      expect(config.dbType).toBe("redis");
+      expect(config.host).toBe("localhost");
+      expect(config.port).toBeUndefined();
+      expect(config.database).toBe("0");
+    });
+
+    it("should handle special characters in redis password", () => {
+      const uri = "redis://:p%40ss%21w%23rd@localhost:6379/0";
+      const config = parseConnectionUri(uri);
+      expect(config.password).toBe("p@ss!w#rd");
     });
   });
 });

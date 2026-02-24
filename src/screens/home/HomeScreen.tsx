@@ -53,7 +53,7 @@ export function HomeScreen() {
       {/* Main layout */}
       <div className="flex-1 flex overflow-hidden relative z-10">
         {/* Left Sidebar - Navigation Hub */}
-        <div className="w-[280px] pt-6 flex-shrink-0">
+        <div className="w-[280px] pt-6 shrink-0">
           <ActionBar />
         </div>
 

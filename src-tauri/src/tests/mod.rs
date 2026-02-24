@@ -17,3 +17,6 @@ mod storage_test;
 
 #[cfg(test)]
 mod manager_test;
+
+#[cfg(test)]
+mod unified_adapter_test;

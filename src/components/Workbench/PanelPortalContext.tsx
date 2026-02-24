@@ -3,6 +3,7 @@ import React, {
   useContext,
   useRef,
   useCallback,
+  useMemo,
   useState,
   useLayoutEffect,
   useEffect,
@@ -94,10 +95,17 @@ export function PanelPortalProvider({
       containersRef.current.set(panelId, element);
       updateRect(panelId, element);
 
-      // Set up ResizeObserver to track size changes for this container
+      // Set up ResizeObserver to track size changes for this container.
+      // RAF-batched to avoid layout thrashing during panel resize drag.
       if (element) {
+        let resizeRaf: number | null = null;
         const observer = new ResizeObserver(() => {
-          updateRect(panelId, element);
+          if (resizeRaf === null) {
+            resizeRaf = requestAnimationFrame(() => {
+              resizeRaf = null;
+              updateRect(panelId, element);
+            });
+          }
         });
         observer.observe(element);
         observersRef.current.set(panelId, observer);
@@ -162,10 +170,14 @@ export function PanelPortalProvider({
     };
   }, [updateRect]);
 
+  // Memoize context value to prevent unnecessary re-renders of all consumers
+  const contextValue = useMemo(
+    () => ({ registerContainer, getPanelRect, subscribeToRect, getRootContainer }),
+    [registerContainer, getPanelRect, subscribeToRect, getRootContainer]
+  );
+
   return (
-    <PanelPortalContext.Provider
-      value={{ registerContainer, getPanelRect, subscribeToRect, getRootContainer }}
-    >
+    <PanelPortalContext.Provider value={contextValue}>
       <div ref={rootRef} className="relative h-full w-full">
         {children}
       </div>
@@ -221,10 +233,10 @@ export function PanelPortal({
   const [rect, setRect] = useState<PanelRect | null>(() => getPanelRect(panelId));
 
   useLayoutEffect(() => {
-    // Get initial rect
+    // Get initial rect (may have been registered by PanelContainer already)
     setRect(getPanelRect(panelId));
 
-    // Subscribe to updates
+    // Subscribe to updates — React state drives re-renders for position changes
     return subscribeToRect(panelId, () => {
       setRect(getPanelRect(panelId));
     });

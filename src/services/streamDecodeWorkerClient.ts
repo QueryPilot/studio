@@ -26,10 +26,18 @@ interface StreamWorkerMappedNormalized {
   error?: string;
 }
 
+interface StreamWorkerWarmup {
+  id: number;
+  type: "warmup";
+  rows?: undefined;
+  error?: string;
+}
+
 type StreamWorkerResponse =
   | StreamWorkerDecoded
   | StreamWorkerMapped
-  | StreamWorkerMappedNormalized;
+  | StreamWorkerMappedNormalized
+  | StreamWorkerWarmup;
 
 class StreamDecodeWorkerManager {
   private worker: Worker | null = null;
@@ -43,7 +51,7 @@ class StreamDecodeWorkerManager {
     }
   >();
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
-  private static IDLE_TIMEOUT_MS = 10_000; // Tear down the worker after 10s idle
+  private static IDLE_TIMEOUT_MS = 60_000; // Tear down the worker after 60s idle
 
   private ensureWorker(): void {
     if (this.worker) return;
@@ -174,6 +182,11 @@ class StreamDecodeWorkerManager {
       columns,
     });
   }
+
+  /** No-op ping to spin up the worker thread without doing real work. */
+  warmup(): Promise<undefined> {
+    return this.send<undefined>({ type: "warmup" });
+  }
 }
 
 let workerInstance: StreamDecodeWorkerManager | null = null;
@@ -183,6 +196,18 @@ export function getStreamDecodeWorker(): StreamDecodeWorkerManager {
     workerInstance = new StreamDecodeWorkerManager();
   }
   return workerInstance;
+}
+
+/**
+ * Pre-warm the worker so the first query doesn't pay initialization cost.
+ * Safe to call multiple times — idempotent via getStreamDecodeWorker().
+ */
+export function prewarmStreamDecodeWorker(): void {
+  const worker = getStreamDecodeWorker();
+  // Force the underlying Worker thread to spin up by sending a no-op warmup.
+  // (getStreamDecodeWorker creates the manager, but the actual Worker
+  //  thread is lazily created on first send().)
+  void worker.warmup();
 }
 
 export function terminateStreamDecodeWorker(): void {

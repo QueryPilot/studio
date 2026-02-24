@@ -1,7 +1,4 @@
-/**
- * WorkspaceDetailView - View and manage a single workspace
- */
-
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
@@ -11,12 +8,20 @@ import { Button } from "@/components/ui/button";
 import {
   IconArrowLeft,
   IconPlayerPlay,
-  IconPencil,
   IconDownload,
   IconTrash,
   IconPlus,
   IconX,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -27,10 +32,14 @@ export function WorkspaceDetailView() {
   const deleteWorkspace = useWorkspaceBundleStore((s) => s.deleteWorkspace);
 
   const connections = useConnectionStore((s) => s.connections);
+  const deleteConnection = useConnectionStore((s) => s.deleteConnection);
 
   const selectedWorkspaceId = useHomeScreenStore((s) => s.selectedWorkspaceId);
   const setContentMode = useHomeScreenStore((s) => s.setContentMode);
-  const showWorkspaceForm = useHomeScreenStore((s) => s.showWorkspaceForm);
+  const openConnectionForm = useHomeScreenStore((s) => s.openConnectionForm);
+
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const workspace = savedWorkspaces.find((ws) => ws.id === selectedWorkspaceId);
 
@@ -59,7 +68,6 @@ export function WorkspaceDetailView() {
 
   const handleOpen = async () => {
     try {
-      // Use windowManager to open (handles multi-window prevention)
       await windowManager.openNamedWorkspace(workspace.id, workspace.name, {
         icon: workspace.icon,
       });
@@ -70,7 +78,8 @@ export function WorkspaceDetailView() {
     }
   };
 
-  const handleDelete = async () => {
+  const handleDeleteWorkspaceOnly = async () => {
+    setIsDeleting(true);
     try {
       await deleteWorkspace(workspace.id);
       toast.success(`Deleted workspace "${workspace.name}"`);
@@ -79,22 +88,30 @@ export function WorkspaceDetailView() {
       toast.error("Failed to delete workspace", {
         description: error instanceof Error ? error.message : "Unknown error",
       });
+    } finally {
+      setIsDeleting(false);
+      setIsDeleteDialogOpen(false);
     }
   };
 
-  const handleRemoveConnection = async (connectionId: string) => {
-    const newConnectionIds = workspace.connectionIds.filter(
-      (id) => id !== connectionId,
-    );
+  const handleDeleteWithConnections = async () => {
+    setIsDeleting(true);
     try {
-      await updateWorkspace(workspace.id, {
-        connectionIds: newConnectionIds,
-      });
-      toast.success("Removed connection from workspace");
+      for (const connId of workspace.connectionIds) {
+        await deleteConnection(connId);
+      }
+      await deleteWorkspace(workspace.id);
+      toast.success(
+        `Deleted workspace "${workspace.name}" and ${workspace.connectionIds.length} connection(s)`,
+      );
+      setContentMode("workspace-list");
     } catch (error) {
-      toast.error("Failed to remove connection", {
+      toast.error("Failed to delete", {
         description: error instanceof Error ? error.message : "Unknown error",
       });
+    } finally {
+      setIsDeleting(false);
+      setIsDeleteDialogOpen(false);
     }
   };
 
@@ -126,13 +143,6 @@ export function WorkspaceDetailView() {
           <IconPlayerPlay className="w-4 h-4 mr-2" />
           Open Workspace
         </Button>
-        <Button
-          variant="outline"
-          onClick={() => { showWorkspaceForm("edit", workspace.id); }}
-        >
-          <IconPencil className="w-4 h-4 mr-2" />
-          Edit
-        </Button>
         <Button variant="outline">
           <IconDownload className="w-4 h-4 mr-2" />
           Export
@@ -140,7 +150,7 @@ export function WorkspaceDetailView() {
         <Button
           variant="outline"
           className="text-red-500 hover:text-red-600"
-          onClick={() => void handleDelete()}
+          onClick={() => setIsDeleteDialogOpen(true)}
         >
           <IconTrash className="w-4 h-4 mr-2" />
           Delete
@@ -156,7 +166,7 @@ export function WorkspaceDetailView() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => { showWorkspaceForm("edit", workspace.id); }}
+            onClick={() => { openConnectionForm("create"); }}
           >
             <IconPlus className="w-4 h-4 mr-1" />
             Add
@@ -169,7 +179,7 @@ export function WorkspaceDetailView() {
             <Button
               variant="outline"
               className="mt-2"
-              onClick={() => { showWorkspaceForm("edit", workspace.id); }}
+              onClick={() => { openConnectionForm("create"); }}
             >
               Add Connections
             </Button>
@@ -204,7 +214,23 @@ export function WorkspaceDetailView() {
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8 text-muted-foreground hover:text-red-500"
-                    onClick={() => void handleRemoveConnection(conn.profile.id)}
+                    onClick={() => {
+                      const newConnectionIds = workspace.connectionIds.filter(
+                        (id) => id !== conn.profile.id,
+                      );
+                      void (async () => {
+                        try {
+                          await updateWorkspace(workspace.id, {
+                            connectionIds: newConnectionIds,
+                          });
+                          toast.success("Removed connection from workspace");
+                        } catch (error) {
+                          toast.error("Failed to remove connection", {
+                            description: error instanceof Error ? error.message : "Unknown error",
+                          });
+                        }
+                      })();
+                    }}
                   >
                     <IconX className="w-4 h-4" />
                   </Button>
@@ -214,6 +240,58 @@ export function WorkspaceDetailView() {
           </div>
         )}
       </div>
+
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <IconAlertTriangle className="w-5 h-5 text-destructive" />
+              Delete Workspace
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{workspace.name}"?
+              {workspace.connectionIds.length > 0 && (
+                <span className="block mt-2 text-foreground">
+                  This workspace contains {workspace.connectionIds.length} connection
+                  {workspace.connectionIds.length !== 1 ? "s" : ""}.
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-2">
+            <button
+              type="button"
+              onClick={() => void handleDeleteWorkspaceOnly()}
+              disabled={isDeleting}
+              className="w-full text-left p-3 rounded-lg border hover:bg-accent transition-colors disabled:opacity-50"
+            >
+              <div className="font-medium text-sm">Keep connections</div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Only remove the workspace. Connections will remain available.
+              </div>
+            </button>
+            {workspace.connectionIds.length > 0 && (
+              <button
+                type="button"
+                onClick={() => void handleDeleteWithConnections()}
+                disabled={isDeleting}
+                className="w-full text-left p-3 rounded-lg border border-destructive/30 hover:bg-destructive/5 transition-colors disabled:opacity-50"
+              >
+                <div className="font-medium text-sm text-destructive">Delete everything</div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  Permanently delete workspace and all {workspace.connectionIds.length} connection
+                  {workspace.connectionIds.length !== 1 ? "s" : ""}.
+                </div>
+              </button>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsDeleteDialogOpen(false)} disabled={isDeleting}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

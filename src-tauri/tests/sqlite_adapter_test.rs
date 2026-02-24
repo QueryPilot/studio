@@ -106,7 +106,11 @@ async fn test_sqlite_create_and_query_table() {
     let create_result = adapter
         .execute("CREATE TABLE test_table (id INTEGER PRIMARY KEY, name TEXT, value REAL)")
         .await;
-    assert!(create_result.is_ok(), "Create failed: {:?}", create_result.err());
+    assert!(
+        create_result.is_ok(),
+        "Create failed: {:?}",
+        create_result.err()
+    );
 
     // Insert rows
     let insert1 = adapter
@@ -146,7 +150,11 @@ async fn test_sqlite_execute() {
     let insert_result = adapter
         .execute("INSERT INTO test_exec (id, name) VALUES (1, 'test')")
         .await;
-    assert!(insert_result.is_ok(), "Insert failed: {:?}", insert_result.err());
+    assert!(
+        insert_result.is_ok(),
+        "Insert failed: {:?}",
+        insert_result.err()
+    );
     assert_eq!(insert_result.unwrap(), 1);
 
     adapter.disconnect().await.unwrap();
@@ -206,4 +214,3 @@ async fn test_sqlite_pragma() {
 
     adapter.disconnect().await.unwrap();
 }
-

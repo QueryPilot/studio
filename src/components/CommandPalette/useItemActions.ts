@@ -25,6 +25,7 @@ import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import { DbType } from "@/types/connection";
+import { writeClipboardText } from "@/lib/clipboard";
 
 export interface UseItemActionsResult {
   actions: ActionItem[];
@@ -328,7 +329,7 @@ async function executeActionHandler(
 
     case ACTION_IDS.COPY_NAME: {
       const name = item.name;
-      await navigator.clipboard.writeText(name);
+      await writeClipboardText(name);
       toast.success(`Copied "${name}" to clipboard`);
       closePalette();
       break;
@@ -336,7 +337,7 @@ async function executeActionHandler(
 
     case ACTION_IDS.COPY_QUALIFIED_NAME: {
       const qualifiedName = item.schema ? `${item.schema}.${item.name}` : item.name;
-      await navigator.clipboard.writeText(qualifiedName);
+      await writeClipboardText(qualifiedName);
       toast.success(`Copied "${qualifiedName}" to clipboard`);
       closePalette();
       break;
@@ -346,7 +347,7 @@ async function executeActionHandler(
       if (!item.func) return;
       // Create a basic call signature: schema.func_name()
       const signature = `${item.func.schema}.${item.func.name}()`;
-      await navigator.clipboard.writeText(signature);
+      await writeClipboardText(signature);
       toast.success(`Copied "${signature}" to clipboard`);
       closePalette();
       break;
@@ -361,7 +362,7 @@ async function executeActionHandler(
 
     case ACTION_IDS.COPY_COMMAND_ID: {
       if (!item.command) return;
-      await navigator.clipboard.writeText(item.command.id);
+      await writeClipboardText(item.command.id);
       toast.success(`Copied "${item.command.id}" to clipboard`);
       closePalette();
       break;

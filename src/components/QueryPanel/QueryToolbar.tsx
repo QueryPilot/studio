@@ -1,4 +1,5 @@
 import { memo } from "react";
+import type { ViewMode } from "@/types/viewMode";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -52,10 +53,10 @@ const DIALECT_OPTIONS: Array<{
 
 interface QueryToolbarProps {
   isExecuting: boolean;
-  query: string;
+  hasQuery: boolean;
   showResults: boolean;
   showOutline?: boolean;
-  viewMode: "table" | "json" | "explain" | "raw" | "stats";
+  viewMode: ViewMode;
   executeHint?: string;
   beautifyHint?: string;
   focused?: boolean;
@@ -69,13 +70,13 @@ interface QueryToolbarProps {
   onBeautify: () => void;
   onToggleResults: () => void;
   onToggleOutline?: () => void;
-  onViewModeChange: (mode: "table" | "json" | "explain" | "raw" | "stats") => void;
+  onViewModeChange: (mode: ViewMode) => void;
   onDialectChange?: (dialect: SqlDialect | "auto") => void;
 }
 
 export const QueryToolbar = memo(function QueryToolbar({
   isExecuting,
-  query,
+  hasQuery,
   showResults,
   showOutline = false,
   viewMode,
@@ -108,7 +109,7 @@ export const QueryToolbar = memo(function QueryToolbar({
       : DIALECT_OPTIONS.find((d) => d.value === dialect)?.label || dialect;
 
   return (
-    <div className="@container/toolbar flex-shrink-0">
+    <div className="@container/toolbar shrink-0">
       <div className="flex items-center justify-between gap-1.5 px-1.5 py-1 bg-muted/20">
         {/* Left side */}
         <div className="flex items-center gap-1.5">
@@ -118,7 +119,7 @@ export const QueryToolbar = memo(function QueryToolbar({
             variant={showResults ? "secondary" : "ghost"}
             onClick={onToggleResults}
             className="!h-6 !w-6 !p-0"
-            title={showResults ? "Hide results (⌥R)" : "Show results (⌥R)"}
+            title={showResults ? "Hide results (⌘J)" : "Show results (⌘J)"}
           >
             <IconLayoutRows className="h-3.5 w-3.5" />
           </Button>
@@ -128,7 +129,9 @@ export const QueryToolbar = memo(function QueryToolbar({
             <Tabs
               value={viewMode}
               onValueChange={(value) => {
-                onViewModeChange(value as "table" | "json" | "explain" | "raw" | "stats");
+                onViewModeChange(
+                  value as ViewMode,
+                );
               }}
               enableShortcuts={true}
               tabGroupId="query-view-mode"
@@ -152,6 +155,13 @@ export const QueryToolbar = memo(function QueryToolbar({
                       tabIndex={1}
                     >
                       JSON
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="chart"
+                      className="text-xs !h-5 !px-2"
+                      tabIndex={2}
+                    >
+                      Chart
                     </TabsTrigger>
                   </>
                 )}
@@ -237,7 +247,7 @@ export const QueryToolbar = memo(function QueryToolbar({
             size="sm"
             variant="ghost"
             onClick={onBeautify}
-            disabled={isExecuting || !query.trim()}
+            disabled={isExecuting || !hasQuery}
             className="!h-6 text-xs gap-1 hidden @[500px]/toolbar:flex !px-2"
             title="Format SQL (⌥F)"
           >
@@ -301,7 +311,7 @@ export const QueryToolbar = memo(function QueryToolbar({
               {/* Format */}
               <DropdownMenuItem
                 onClick={onBeautify}
-                disabled={isExecuting || !query.trim()}
+                disabled={isExecuting || !hasQuery}
                 className="text-xs"
               >
                 <IconWand className="h-3 w-3 mr-2" />
@@ -315,7 +325,7 @@ export const QueryToolbar = memo(function QueryToolbar({
             size="sm"
             variant="outline"
             onClick={onExplain}
-            disabled={isExecuting || !query.trim()}
+            disabled={isExecuting || !hasQuery}
             className="!h-6 text-xs gap-1 !px-2 hidden @[500px]/toolbar:flex"
             title="Run EXPLAIN ANALYZE"
           >
@@ -328,14 +338,14 @@ export const QueryToolbar = memo(function QueryToolbar({
             size="sm"
             variant={isExecuting ? "destructive" : "default"}
             onClick={isExecuting ? onCancel : onExecute}
-            disabled={!query.trim() && !isExecuting}
+            disabled={!hasQuery && !isExecuting}
             className="!h-6 text-xs gap-1 !px-2.5"
             title={
               isExecuting
                 ? "Cancel execution"
                 : executeHint
-                ? `Execute query (${executeHint})`
-                : "Execute query (⌘↵)"
+                  ? `Execute query (${executeHint})`
+                  : "Execute query (⌘↵)"
             }
           >
             {isExecuting ? (

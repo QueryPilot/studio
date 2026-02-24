@@ -52,7 +52,7 @@ This comprehensive guide explains the Query Pilot release system with cross-repo
 ### Key Components
 
 1. **Smart Release Script** (`scripts/smart-release-v2.sh`)
-   - AI-powered version bumping
+   - Automated version bumping
    - Professional changelog generation
    - Automated git tagging
    - Cross-repo publish orchestration
@@ -84,9 +84,8 @@ This comprehensive guide explains the Query Pilot release system with cross-repo
 - **pnpm** (package manager)
 - **Tauri CLI** (via pnpm)
 - **GitHub CLI** (`gh`)
-- **Codex CLI** (for AI changelog generation)
+- **Codex CLI** (for changelog generation)
 - **Rust** toolchain
-- **Bun** (for AI sidecar)
 
 Install missing tools:
 
@@ -117,9 +116,7 @@ Set up these secrets in GitHub:
 7. **APPLE_PASSWORD** - App-specific password
 8. **APPLE_TEAM_ID** - Apple Developer Team ID
 
-Optional (for telemetry):
-9. **SENTRY_DSN** - Sentry project DSN
-10. **SENTRY_AUTH_TOKEN** - Sentry API token
+Optional (for telemetry): 9. **SENTRY_DSN** - Sentry project DSN 10. **SENTRY_AUTH_TOKEN** - Sentry API token
 
 ---
 
@@ -171,6 +168,7 @@ gh secret set RELEASE_PAT
 Follow the complete guide in [STUDIO_APP_SETUP.md](./STUDIO_APP_SETUP.md).
 
 Quick checklist:
+
 - [ ] Create `QueryPilot/studio-app` repository (public)
 - [ ] Add README.md and CHANGELOG.md
 - [ ] Configure GitHub Releases
@@ -189,16 +187,16 @@ pnpm add @tauri-apps/plugin-process
 Edit `src/main.tsx` or your preferences component:
 
 ```tsx
-import { UpdateChecker } from '@/components/UpdateChecker';
+import { UpdateChecker } from "@/components/UpdateChecker";
 
 // Add to your component tree
-<UpdateChecker checkOnMount={true} />
+<UpdateChecker checkOnMount={true} />;
 ```
 
 Or use the hook for manual checks:
 
 ```tsx
-import { useUpdateChecker } from '@/components/UpdateChecker';
+import { useUpdateChecker } from "@/components/UpdateChecker";
 
 function PreferencesPanel() {
   const { checkForUpdates, isChecking } = useUpdateChecker();
@@ -257,17 +255,18 @@ The AI will generate a changelog like:
 ## [0.5.0] - 2025-11-20
 
 ### New Features
+
 - Connect to remote databases securely through SSH tunnels. Automatic health
   monitoring ensures connections stay stable.
-- AI-powered SQL assistant now supports natural language queries. Ask in plain
-  English and get optimized SQL for PostgreSQL, MySQL, and SQL Server.
 
 ### Improvements
+
 - Query editor autocomplete is now 50% faster with improved caching and smarter
   suggestions for table names and columns.
 - Connection dialog remembers your last 10 connections for quick access.
 
 ### Bug Fixes
+
 - Fixed crash when disconnecting during an active query
 - Table grid now scrolls smoothly with 10,000+ rows
 ```
@@ -309,6 +308,7 @@ When you push a tag, the workflow:
 6. **Publishes to studio-app** (if enabled)
 
 Monitor progress:
+
 ```bash
 open https://github.com/QueryPilot/studio/actions
 ```
@@ -384,12 +384,14 @@ open Query-Pilot_aarch64.dmg
 **Symptom:** App says "Failed to check for updates"
 
 **Causes:**
+
 1. No internet connection
 2. GitHub is down
 3. latest.json is missing or malformed
 4. Wrong endpoint URL in tauri.conf.json
 
 **Fix:**
+
 ```bash
 # Verify endpoint is accessible
 curl -I https://github.com/QueryPilot/studio-app/releases/latest/download/latest.json
@@ -403,11 +405,13 @@ cat src-tauri/tauri.conf.json | grep -A 5 updater
 **Symptom:** "Invalid signature" error
 
 **Causes:**
+
 1. Public key in tauri.conf.json doesn't match private key
 2. Update manifest was not signed with correct key
 3. Binary was modified after signing
 
 **Fix:**
+
 ```bash
 # Regenerate keys
 ./scripts/generate-updater-keys.sh
@@ -421,11 +425,13 @@ cat src-tauri/tauri.conf.json | grep -A 5 updater
 **Symptom:** GitHub Actions fails at "Publish to studio-app repository" step
 
 **Causes:**
+
 1. `RELEASE_PAT` secret is invalid or expired
 2. Token doesn't have `repo` scope
 3. studio-app repository doesn't exist
 
 **Fix:**
+
 ```bash
 # Test PAT manually
 export GITHUB_TOKEN="your_pat_here"
@@ -439,11 +445,12 @@ gh repo view QueryPilot/studio-app
 **Symptom:** "No DMG file found" error
 
 **Causes:**
+
 1. Tauri build failed
-2. AI sidecar build failed
-3. Code signing failed
+2. Code signing failed
 
 **Fix:**
+
 ```bash
 # Check GitHub Actions logs
 gh run list --workflow release-enhanced.yml
@@ -452,8 +459,8 @@ gh run list --workflow release-enhanced.yml
 gh run view <run_id> --log
 
 # Common issues:
-# - Missing sidecars: Check scripts/build-ai-sidecar.sh
 # - Signing failed: Verify Apple certificates
+# - Build errors: Check Rust/TypeScript compilation
 ```
 
 ---
@@ -533,7 +540,7 @@ Run releases on a schedule:
 # .github/workflows/scheduled-release.yml
 on:
   schedule:
-    - cron: '0 10 * * 1'  # Every Monday at 10 AM UTC
+    - cron: "0 10 * * 1" # Every Monday at 10 AM UTC
 
 jobs:
   check-for-changes:
@@ -583,6 +590,7 @@ For issues with the release system:
 3. Open an issue in QueryPilot/studio (private)
 
 For user-facing issues:
+
 1. Check [studio-app discussions](https://github.com/QueryPilot/studio-app/discussions)
 2. Search [existing issues](https://github.com/QueryPilot/studio-app/issues)
 3. Open a new issue with bug/feature template

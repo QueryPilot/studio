@@ -15,6 +15,7 @@ import type {
   OpenConnection,
   ActiveWorkspace,
 } from "@/types/workspace";
+import { getDefaultSchema } from "@/types/connection";
 import useWorkbenchStore from "@/stores/workbenchStore";
 
 interface WorkspaceBundleStore {
@@ -72,6 +73,19 @@ interface WorkspaceBundleStore {
   getConnectionById: (id: string) => OpenConnection | undefined;
   getTabsForConnection: (connectionId: string) => string[];
   getWindowTitle: () => string;
+
+  // Workspace-Connection grouping helpers
+  getWorkspacesForConnection: (connectionId: string) => WorkspaceConfig[];
+  getConnectionsByWorkspace: () => Map<string, string[]>;
+  getUncategorizedConnectionIds: () => string[];
+  addConnectionToSavedWorkspace: (
+    workspaceId: string,
+    connectionId: string,
+  ) => Promise<void>;
+  removeConnectionFromSavedWorkspace: (
+    workspaceId: string,
+    connectionId: string,
+  ) => Promise<void>;
 }
 
 export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
@@ -161,21 +175,45 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       // Connect to each connection in the workspace
       const connectionStore = useConnectionStore.getState();
 
-      for (const connectionId of config.connectionIds) {
-        const stored = connectionStore.getConnection(connectionId);
-
-        if (!stored) {
+      // Filter out orphaned connection IDs (connections that no longer exist in the store)
+      const validConnectionIds = config.connectionIds.filter((id) => {
+        const exists = !!connectionStore.getConnection(id);
+        if (!exists) {
           logger.warn(
-            `[WorkspaceBundleStore] Connection profile not found: ${connectionId}`,
+            `[WorkspaceBundleStore] Removing orphaned connection from workspace: ${id}`,
           );
-          // TODO: Prompt user to remove from workspace
-          continue;
         }
+        return exists;
+      });
+
+      // Update config if orphaned connections were found
+      if (validConnectionIds.length !== config.connectionIds.length) {
+        const cleanedConfig = {
+          ...config,
+          connectionIds: validConnectionIds,
+        };
+        set((s) => {
+          if (!s.activeWorkspace) return s;
+          return {
+            activeWorkspace: {
+              ...s.activeWorkspace,
+              config: cleanedConfig,
+            },
+          };
+        });
+        // Persist the cleaned config
+        void get().updateWorkspace(workspaceId, {
+          connectionIds: validConnectionIds,
+        });
+      }
+
+      for (const connectionId of validConnectionIds) {
+        const stored = connectionStore.getConnection(connectionId)!;
 
         const profile = stored.profile;
         const state = config.connectionStates[connectionId] || {
           database: profile.database,
-          schema: profile.default_schema || "public",
+          schema: profile.default_schema || getDefaultSchema(profile.db_type, profile.database) || "",
         };
 
         // Add connection with connecting status
@@ -290,7 +328,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
 
       // Use override options if provided, otherwise fall back to profile defaults
       const database = options?.database || profile.database;
-      const schema = options?.schema || profile.default_schema || "public";
+      const schema = options?.schema || profile.default_schema || getDefaultSchema(profile.db_type, database) || "";
 
       // Create temporary workspace config
       const config: WorkspaceConfig = {
@@ -329,7 +367,9 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
 
       // Connect (pass database override if provided)
       try {
+        logger.info(`[WorkspaceBundleStore] Calling databaseService.connectById for ${connectionId}`);
         await databaseService.connectById(connectionId, options?.database);
+        logger.info(`[WorkspaceBundleStore] databaseService.connectById returned successfully for ${connectionId}`);
         set((s) => {
           if (!s.activeWorkspace) return s;
           const newConnections = new Map(s.activeWorkspace.connections);
@@ -337,6 +377,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
           if (conn) {
             newConnections.set(connectionId, { ...conn, status: "connected" });
           }
+          logger.info(`[WorkspaceBundleStore] Updated connection status to "connected" for ${connectionId}`);
           return {
             activeWorkspace: {
               ...s.activeWorkspace,
@@ -400,7 +441,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       const { activeWorkspace } = get();
       if (!activeWorkspace) return;
 
-      if (activeWorkspace.connections.has(connectionId)) {
+      if (activeWorkspace.connections.has(connectionId) || activeWorkspace.config.connectionIds.includes(connectionId)) {
         logger.warn(
           `[WorkspaceBundleStore] Connection already in workspace: ${connectionId}`,
         );
@@ -423,7 +464,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         profile,
         status: "connecting",
         database: profile.database,
-        schema: profile.default_schema || "public",
+        schema: profile.default_schema || getDefaultSchema(profile.db_type, profile.database) || "",
       };
 
       set((s) => {
@@ -440,7 +481,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
             ...s.activeWorkspace.config.connectionStates,
             [connectionId]: {
               database: profile.database,
-              schema: profile.default_schema || "public",
+              schema: profile.default_schema || getDefaultSchema(profile.db_type, profile.database) || "",
             },
           },
         };
@@ -588,15 +629,8 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       if (!activeWorkspace.connections.has(connectionId)) return;
       if (activeWorkspace.focusedConnectionId === connectionId) return;
 
-      const previousConnectionId = activeWorkspace.focusedConnectionId;
-      const workbenchStore = useWorkbenchStore.getState();
-
-      // Save current connection's tab layout to localStorage before switching
-      if (previousConnectionId) {
-        workbenchStore.saveConnectionLayout(previousConnectionId);
-      }
-
-      // Switch focused connection
+      // Simply update the focused connection ID - tabs from ALL connections remain visible
+      // We no longer swap per-connection layouts; there's one global tab list
       set((s) => {
         if (!s.activeWorkspace) return s;
         return {
@@ -607,15 +641,9 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         };
       });
 
-      // Restore target connection's tab layout from localStorage
-      const restored = workbenchStore.restoreConnectionLayout(connectionId);
-      if (!restored) {
-        // No saved layout - initialize fresh workbench for this connection
-        workbenchStore.initializeLayout();
-        logger.info(
-          `[WorkspaceBundleStore] Initialized fresh layout for connection: ${connectionId}`,
-        );
-      }
+      logger.info(
+        `[WorkspaceBundleStore] Focused connection changed to: ${connectionId}`,
+      );
     },
 
     updateConnectionState: (connectionId, database, schema) => {
@@ -823,6 +851,83 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       if (!activeWorkspace) return "QueryPilot";
       const name = activeWorkspace.config.name;
       return isDirty ? `• ${name} - QueryPilot` : `${name} - QueryPilot`;
+    },
+
+    getWorkspacesForConnection: (connectionId: string) => {
+      const { savedWorkspaces } = get();
+      return savedWorkspaces.filter((ws) =>
+        ws.connectionIds.includes(connectionId),
+      );
+    },
+
+    getConnectionsByWorkspace: () => {
+      const result = new Map<string, string[]>();
+      const { savedWorkspaces } = get();
+      for (const ws of savedWorkspaces) {
+        result.set(ws.id, [...ws.connectionIds]);
+      }
+      return result;
+    },
+
+    getUncategorizedConnectionIds: () => {
+      const { savedWorkspaces } = get();
+      const categorizedIds = new Set<string>();
+      for (const ws of savedWorkspaces) {
+        for (const id of ws.connectionIds) {
+          categorizedIds.add(id);
+        }
+      }
+      const allConnections = useConnectionStore.getState().connections;
+      return allConnections
+        .filter(c => !categorizedIds.has(c.profile.id))
+        .map(c => c.profile.id);
+    },
+
+    addConnectionToSavedWorkspace: async (workspaceId, connectionId) => {
+      const { savedWorkspaces } = get();
+      const workspace = savedWorkspaces.find((ws) => ws.id === workspaceId);
+      if (!workspace) {
+        logger.error(
+          `[WorkspaceBundleStore] Workspace not found: ${workspaceId}`,
+        );
+        return;
+      }
+
+      if (workspace.connectionIds.includes(connectionId)) {
+        logger.warn(
+          `[WorkspaceBundleStore] Connection already in workspace: ${connectionId}`,
+        );
+        return;
+      }
+
+      const updatedConnectionIds = [...workspace.connectionIds, connectionId];
+      await get().updateWorkspace(workspaceId, {
+        connectionIds: updatedConnectionIds,
+      });
+      logger.info(
+        `[WorkspaceBundleStore] Added connection ${connectionId} to workspace ${workspaceId}`,
+      );
+    },
+
+    removeConnectionFromSavedWorkspace: async (workspaceId, connectionId) => {
+      const { savedWorkspaces } = get();
+      const workspace = savedWorkspaces.find((ws) => ws.id === workspaceId);
+      if (!workspace) {
+        logger.error(
+          `[WorkspaceBundleStore] Workspace not found: ${workspaceId}`,
+        );
+        return;
+      }
+
+      const updatedConnectionIds = workspace.connectionIds.filter(
+        (id) => id !== connectionId,
+      );
+      await get().updateWorkspace(workspaceId, {
+        connectionIds: updatedConnectionIds,
+      });
+      logger.info(
+        `[WorkspaceBundleStore] Removed connection ${connectionId} from workspace ${workspaceId}`,
+      );
     },
   }),
 );

@@ -7,8 +7,11 @@ use tokio::sync::Mutex;
 use super::simple_converter::SimpleConverter;
 #[allow(unused_imports)]
 use super::types::SqliteTypeConverter;
-use crate::core::adapter::DbAdapter;
-use crate::error::{AppError, Result};
+use crate::core::capabilities::{
+    AdapterCapability, BaseCapability, CapabilityColumnMeta, CapabilityQueryResult,
+    CapabilityTestResult, SqlQueryable,
+};
+use crate::error::AppError;
 use crate::types::*;
 
 /// SQLite adapter using rusqlite with spawn_blocking for async compatibility.
@@ -36,15 +39,15 @@ impl SqliteAdapter {
     }
 
     /// Execute a SQL statement in a blocking context
-    async fn execute_blocking<F, T>(&self, f: F) -> Result<T>
+    async fn execute_blocking<F, T>(&self, f: F) -> Result<T, AppError>
     where
-        F: FnOnce(&Connection) -> Result<T> + Send + 'static,
+        F: FnOnce(&Connection) -> Result<T, AppError> + Send + 'static,
         T: Send + 'static,
     {
         let conn = self.connection.clone();
-        
+
         tokio::task::spawn_blocking(move || {
-            let guard = futures::executor::block_on(conn.lock());
+            let guard = conn.blocking_lock();
             let conn = guard
                 .as_ref()
                 .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
@@ -52,6 +55,109 @@ impl SqliteAdapter {
         })
         .await
         .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?
+    }
+
+    /// Get a clone of the connection Arc for backup operations
+    pub(crate) fn get_connection(&self) -> Arc<Mutex<Option<Connection>>> {
+        self.connection.clone()
+    }
+
+    /// Get a clone of the db_path Arc for backup operations
+    pub(crate) fn get_db_path(&self) -> Arc<Mutex<Option<PathBuf>>> {
+        self.db_path.clone()
+    }
+
+    /// Execute a query and return results as owned cell values for rayon-parallel encoding.
+    ///
+    /// Unlike `execute_query()` which returns JSON via `CapabilityQueryResult`,
+    /// this method collects each row into `Vec<OwnedCell>` (owned, Send+Sync),
+    /// allowing the caller to encode batches in parallel with rayon via
+    /// `DirectMsgPackEncoder::encode_owned_batch()`.
+    pub async fn execute_query_streaming(
+        &self,
+        sql: &str,
+    ) -> Result<(Vec<ColumnMeta>, Vec<Vec<super::direct_msgpack::OwnedCell>>), AppError> {
+        use super::direct_msgpack::{DirectMsgPackEncoder, OwnedCell};
+
+        let sql = sql.to_string();
+
+        self.execute_blocking(move |conn| {
+            let trimmed = sql.trim();
+            let is_multi_statement = trimmed.matches(';').count() > 1
+                || trimmed.to_uppercase().contains("BEGIN")
+                || trimmed.to_uppercase().contains("COMMIT");
+
+            if is_multi_statement {
+                conn.execute_batch(&sql)
+                    .map_err(|e| AppError::DatabaseError(format!("Batch execute failed: {}", e)))?;
+
+                return Ok((
+                    vec![ColumnMeta {
+                        name: "result".to_string(),
+                        data_type: CellValueType::Text,
+                        db_type: "TEXT".to_string(),
+                        nullable: true,
+                        primary_key: false,
+                        type_oid: None,
+                        default_value: None,
+                        comment: None,
+                        enum_values: None,
+                        type_category: None,
+                        precision: None,
+                        scale: None,
+                    }],
+                    vec![],
+                ));
+            }
+
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
+
+            let column_count = stmt.column_count();
+
+            // Build ColumnMeta with proper types from declared column types
+            let stmt_columns = stmt.columns();
+            let columns: Vec<ColumnMeta> = (0..column_count)
+                .map(|i| {
+                    let name = stmt.column_name(i).unwrap_or("?").to_string();
+                    let declared_type = stmt_columns[i].decl_type();
+                    ColumnMeta {
+                        name,
+                        data_type: SqliteTypeConverter::declared_type_to_cell_type(declared_type),
+                        db_type: declared_type.unwrap_or("TEXT").to_string(),
+                        nullable: true,
+                        primary_key: false,
+                        type_oid: None,
+                        default_value: None,
+                        comment: None,
+                        enum_values: None,
+                        type_category: None,
+                        precision: None,
+                        scale: None,
+                    }
+                })
+                .collect();
+            drop(stmt_columns);
+
+            // Collect rows into owned cell values (sequential — Row is borrowed)
+            // These OwnedCell values are Send+Sync, enabling rayon parallel encoding later
+            let encoder = DirectMsgPackEncoder::new(column_count);
+            let mut owned_rows: Vec<Vec<OwnedCell>> = Vec::new();
+            let mut result_rows = stmt
+                .query([])
+                .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+
+            while let Some(row) = result_rows
+                .next()
+                .map_err(|e| AppError::DatabaseError(format!("Row fetch failed: {}", e)))?
+            {
+                owned_rows.push(encoder.collect_row(row));
+            }
+
+            Ok((columns, owned_rows))
+        })
+        .await
     }
 }
 
@@ -62,12 +168,8 @@ impl Default for SqliteAdapter {
 }
 
 #[async_trait]
-impl DbAdapter for SqliteAdapter {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
-    async fn connect(&mut self, profile: &ConnectionProfile) -> Result<()> {
+impl BaseCapability for SqliteAdapter {
+    async fn connect(&self, profile: &ConnectionProfile) -> Result<(), AppError> {
         // Disconnect if already connected
         if self.is_conn_open().await {
             self.disconnect().await?;
@@ -104,7 +206,7 @@ impl DbAdapter for SqliteAdapter {
         Ok(())
     }
 
-    async fn disconnect(&mut self) -> Result<()> {
+    async fn disconnect(&self) -> Result<(), AppError> {
         let conn = self.connection.lock().await.take();
         if let Some(conn) = conn {
             // Close connection in blocking context
@@ -118,7 +220,8 @@ impl DbAdapter for SqliteAdapter {
         Ok(())
     }
 
-    async fn test_connection(&self) -> Result<ConnectionTestResult> {
+    async fn test_connection(&self) -> Result<CapabilityTestResult, AppError> {
+        let start = std::time::Instant::now();
         // Use timeout to avoid hanging on dead connections
         let test = self.execute_blocking(|conn| {
             // Get SQLite version
@@ -126,40 +229,39 @@ impl DbAdapter for SqliteAdapter {
                 .query_row("SELECT sqlite_version()", [], |row| row.get(0))
                 .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
 
-            Ok(ConnectionTestResult {
-                success: true,
-                message: "Connected to SQLite database".to_string(),
-                version: Some(format!("SQLite {}", version)),
-                warnings: vec![],
-                detected_db_type: None,
-            })
+            Ok(version)
         });
 
         // 10 second timeout for test_connection (longer than is_connected since it does more work)
-        tokio::time::timeout(std::time::Duration::from_secs(10), test)
+        let version = tokio::time::timeout(std::time::Duration::from_secs(10), test)
             .await
-            .map_err(|_| AppError::ConnectionClosed("Connection test timed out".into()))?
+            .map_err(|_| AppError::ConnectionClosed("Connection test timed out".into()))??;
+
+        Ok(CapabilityTestResult {
+            success: true,
+            message: "Connected to SQLite database".to_string(),
+            latency_ms: Some(start.elapsed().as_millis() as u64),
+            server_version: Some(format!("SQLite {}", version)),
+        })
     }
 
-    async fn is_connected(&self) -> bool {
-        if !self.is_conn_open().await {
-            return false;
-        }
-
-        // Use timeout to avoid hanging on dead connections
-        let check = self.execute_blocking(|conn| {
-            conn.query_row("SELECT 1", [], |_| Ok(()))
-                .map_err(|e| AppError::DatabaseError(format!("Ping failed: {}", e)))
-        });
-        
-        // 5 second timeout - long enough for slow connections, short enough to not freeze UI
-        tokio::time::timeout(std::time::Duration::from_secs(5), check)
-            .await
-            .map(|r| r.is_ok())
+    fn is_connected(&self) -> bool {
+        // Note: Using try_lock() since this is called from sync context.
+        // Returns false if lock can't be acquired, which is safe behavior.
+        self.connection
+            .try_lock()
+            .map(|guard| guard.is_some())
             .unwrap_or(false)
     }
 
-    async fn query(&self, sql: &str) -> Result<QueryResult> {
+    fn get_capabilities(&self) -> Vec<AdapterCapability> {
+        vec![AdapterCapability::SqlQueryable]
+    }
+}
+
+#[async_trait]
+impl SqlQueryable for SqliteAdapter {
+    async fn execute_query(&self, sql: &str) -> Result<CapabilityQueryResult, AppError> {
         let sql = sql.to_string();
 
         self.execute_blocking(move |conn| {
@@ -174,24 +276,16 @@ impl DbAdapter for SqliteAdapter {
                 // This doesn't return results, just executes the statements
                 conn.execute_batch(&sql)
                     .map_err(|e| AppError::DatabaseError(format!("Batch execute failed: {}", e)))?;
-                
+
                 // Return empty result for batch operations
-                return Ok(QueryResult {
-                    columns: vec![ColumnMeta {
+                return Ok(CapabilityQueryResult {
+                    columns: vec![CapabilityColumnMeta {
                         name: "result".to_string(),
-                        data_type: CellValueType::Text,
-                        nullable: true,
-                        primary_key: false,
-                        db_type: "TEXT".to_string(),
-                        type_oid: None,
-                        default_value: None,
-                        comment: None,
-                        enum_values: None,
-                        type_category: None,
-                        precision: None,
-                        scale: None,
+                        data_type: "TEXT".to_string(),
                     }],
-                    rows: vec![vec![serde_json::Value::String("Batch executed successfully".to_string())]],
+                    rows: vec![vec![serde_json::Value::String(
+                        "Batch executed successfully".to_string(),
+                    )]],
                 });
             }
 
@@ -201,27 +295,14 @@ impl DbAdapter for SqliteAdapter {
 
             // Get column metadata
             let column_count = stmt.column_count();
-            let column_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
-            let columns: Vec<ColumnMeta> = (0..column_count)
+            let column_names: Vec<String> =
+                stmt.column_names().iter().map(|s| s.to_string()).collect();
+            let columns: Vec<CapabilityColumnMeta> = (0..column_count)
                 .map(|i| {
                     let name = column_names.get(i).cloned().unwrap_or_default();
-                    // SQLite doesn't provide column type info from prepared statements in a simple way
-                    let db_type = "TEXT".to_string();
-                    let data_type = CellValueType::Text;
-
-                    ColumnMeta {
+                    CapabilityColumnMeta {
                         name,
-                        data_type,
-                        nullable: true, // SQLite doesn't enforce NOT NULL in schema introspection
-                        primary_key: false,
-                        db_type,
-                        type_oid: None,
-                        default_value: None,
-                        comment: None,
-                        enum_values: None,
-                        type_category: None,
-                        precision: None,
-                        scale: None,
+                        data_type: "TEXT".to_string(),
                     }
                 })
                 .collect();
@@ -239,12 +320,12 @@ impl DbAdapter for SqliteAdapter {
                 rows.push(SimpleConverter::row_to_json(row, column_count));
             }
 
-            Ok(QueryResult { columns, rows })
+            Ok(CapabilityQueryResult { columns, rows })
         })
         .await
     }
 
-    async fn execute(&self, sql: &str) -> Result<u64> {
+    async fn execute_statement(&self, sql: &str) -> Result<u64, AppError> {
         let sql = sql.to_string();
 
         self.execute_blocking(move |conn| {
@@ -270,4 +351,3 @@ impl DbAdapter for SqliteAdapter {
         .await
     }
 }
-

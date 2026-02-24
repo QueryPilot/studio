@@ -1,0 +1,957 @@
+/**
+ * SqlDataGrid - SQL table browser with FK-specific features
+ *
+ * This is a thin wrapper around BaseDataGrid that provides:
+ * - Data fetching via useTableDataQuery
+ * - Command factory for SQL-specific CRUD commands
+ * - FK embedded value display (passes embeddedValue to buildGridCellV2)
+ *
+ * All CRUD operations, optimistic updates, and general grid features
+ * are handled by BaseDataGrid.
+ */
+
+import {
+  memo,
+  useCallback,
+  useMemo,
+  useRef,
+  useDeferredValue,
+  useEffect,
+  useState,
+} from "react";
+import type { Item, GridCell } from "@glideapps/glide-data-grid";
+import { GridCellKind } from "@glideapps/glide-data-grid";
+import {
+  IconLayoutSidebarRightCollapse,
+  IconLayoutSidebarRightExpand,
+} from "@tabler/icons-react";
+import { cn } from "@/lib/utils";
+import { BaseDataGrid } from "../base/BaseDataGrid";
+import type {
+  GridColumnV2,
+  GridRowModel,
+  GridEditCommitEvent,
+  CrudCommandFactory,
+} from "../types";
+import { useTableDataQuery } from "@/hooks/useTableDataQuery";
+import { useTableFullStructure } from "@/hooks/useTableFullStructure";
+import { useReferencedTableColumns } from "@/hooks/useReferencedTableColumns";
+import { buildGridCellV2 } from "../utils/cellFactory";
+import { computeBaseWidth } from "./columnUtils";
+import { databaseService } from "@/services/databaseService";
+import { DataGridSkeleton } from "../components/DataGridSkeleton";
+import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
+import { useQuickFilter } from "../hooks/useQuickFilter";
+import { DbType, type GridCellValue } from "@/types";
+import type { FilterColumnInfo } from "@/utils/filterParser";
+import { useEmbeddedFKPreferencesStore } from "../stores/embeddedFKPreferencesStore";
+import type { EmbeddedFKConfig } from "@/adapters/types";
+import {
+  createInsertCommand,
+  createUpdateCommand,
+  createDeleteCommand,
+  createCrudTarget,
+} from "../utils/crudHelpers";
+import { useOptimisticRows } from "../hooks/useOptimisticRows";
+import { useCrudStore } from "@/stores/crudStore";
+import { useGridPreferencesStore } from "../stores/gridPreferencesStore";
+import { useAcpStore, DEFAULT_QUICK_FILTER_MODEL } from "@/stores/acpStore";
+import { AcpService } from "@/services/acpService";
+import type { SortConfig } from "@/types/filter";
+import type { SortColumn } from "../types";
+import { Button } from "@/components/ui/button";
+
+// Stable empty array to prevent infinite re-renders when sortColumns is undefined
+const EMPTY_SORT_COLUMNS: SortColumn[] = [];
+
+export interface SqlDataGridProps {
+  connectionId: string;
+  database?: string;
+  schema?: string;
+  table: string;
+  dbType: DbType;
+  readOnly?: boolean;
+  /** Entity kind: Table, View, or MaterializedView */
+  kind?: "Table" | "View" | "MaterializedView";
+  onRefresh?: () => void;
+  /** CSS class name for styling */
+  className?: string;
+  /** Callback for toolbar actions (legacy, not currently used) */
+  onActionsChange?: (actions: React.ReactNode) => void;
+  /** Initial WHERE clause filter (e.g., from FK reference navigation) */
+  initialFilter?: string;
+  /** Panel ID for FK reference navigation */
+  panelId?: string;
+  /** Whether this grid's panel is focused (for auto-focus) */
+  focused?: boolean;
+  /** Override grid ID used for sort preferences (for per-tab sort isolation) */
+  sortGridId?: string;
+}
+
+export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
+  const {
+    connectionId,
+    database,
+    schema,
+    table,
+    dbType,
+    readOnly = false,
+    kind = "Table",
+    className,
+    focused,
+  } = props;
+
+  const gridId = `${connectionId}:${database}:${schema}:${table}`;
+  const sortGridId = props.sortGridId ?? gridId;
+  const tableName = table;
+
+  // Ref for QuickFilter - passed to BaseDataGrid for Cmd+F handling
+  const quickFilterRef = useRef<QuickFilterRef>(null);
+  const [showInspector, setShowInspector] = useState(false);
+
+  // Determine entity type and read-only status based on kind
+  const entityType: "table" | "view" | "materialized_view" =
+    kind === "MaterializedView"
+      ? "materialized_view"
+      : kind === "View"
+        ? "view"
+        : "table";
+
+  const isViewOrMatView = kind === "View" || kind === "MaterializedView";
+  const isReadOnly = readOnly || isViewOrMatView;
+  const readOnlyReason =
+    kind === "View"
+      ? "Read-only: View"
+      : kind === "MaterializedView"
+        ? "Read-only: Materialized View"
+        : undefined;
+
+  // --- Table Structure (needed for FK metadata before data query) ---
+  const { structure: tableStructure } = useTableFullStructure({
+    connectionId,
+    database: database ?? "",
+    schema: schema ?? "",
+    table,
+    options: {
+      includeConstraints: true, // Required for FK data (FKs are extracted from constraints)
+      includeForeignKeys: true, // Required for FK preview and embed features
+    },
+  });
+
+  // --- Embedded FK Configuration (needed before data query) ---
+  // Build storage key for embedded FK preferences: {connectionId}:{schema}.{table}
+  // Must match the key format used in FKEmbedSubmenu
+  const embeddedFKKey = `${connectionId}:${schema ?? "public"}.${table}`;
+  const embeddedFKPrefs = useEmbeddedFKPreferencesStore(
+    (s) => s.preferences[embeddedFKKey],
+  );
+
+  const embeddedFKs = useMemo<EmbeddedFKConfig[]>(() => {
+    if (!embeddedFKPrefs?.embeddedColumns || !tableStructure?.foreignKeys)
+      return [];
+
+    const configs: EmbeddedFKConfig[] = [];
+    const seen = new Set<string>();
+    for (const fk of tableStructure.foreignKeys) {
+      for (let i = 0; i < fk.columns.length; i++) {
+        const colName = fk.columns[i];
+        const refCol = fk.foreignColumns[i];
+        if (!colName || !refCol) continue;
+        // Skip duplicate FK columns (introspection may return the same FK twice)
+        if (seen.has(colName)) continue;
+
+        const refDisplayColumns = embeddedFKPrefs.embeddedColumns[colName];
+        if (refDisplayColumns && refDisplayColumns.length > 0) {
+          seen.add(colName);
+          configs.push({
+            fkColumn: colName,
+            refSchema: fk.foreignSchema ?? "public",
+            refTable: fk.foreignTable,
+            refPkColumn: refCol,
+            refDisplayColumns,
+          });
+        }
+      }
+    }
+    return configs;
+  }, [embeddedFKPrefs, tableStructure?.foreignKeys]);
+
+  // Defer embedded FK changes to prevent lag during menu interaction
+  const deferredEmbeddedFKs = useDeferredValue(embeddedFKs);
+
+  // --- Filter Configuration ---
+  // Build filter columns from tableStructure (available before query)
+  const filterColumns = useMemo<FilterColumnInfo[]>(() => {
+    if (!tableStructure?.columns) return [];
+
+    // Build FK lookup from tableStructure
+    const fkMap = new Map<string, { table: string; column: string }>();
+    if (tableStructure?.foreignKeys) {
+      for (const fk of tableStructure.foreignKeys) {
+        for (let i = 0; i < fk.columns.length; i++) {
+          const sourceCol = fk.columns[i];
+          const targetCol = fk.foreignColumns[i];
+          if (sourceCol && targetCol) {
+            fkMap.set(sourceCol, {
+              table: fk.foreignTable,
+              column: targetCol,
+            });
+          }
+        }
+      }
+    }
+
+    return tableStructure.columns.map((col) => {
+      const fkInfo = fkMap.get(col.name);
+      return {
+        name: col.name,
+        dataType: col.db_type,
+        nullable: col.nullable,
+        enumValues: col.enum_values,
+        isPrimaryKey: col.is_pk,
+        isForeignKey: !!fkInfo,
+        foreignTable: fkInfo?.table,
+        foreignColumn: fkInfo?.column,
+      };
+    });
+  }, [tableStructure?.columns, tableStructure?.foreignKeys]);
+
+  // Map DbType to dialect for AI filter
+  const dialect = useMemo((): "postgresql" | "mysql" | "sqlite" | "mssql" => {
+    switch (dbType) {
+      case DbType.PostgreSQL:
+        return "postgresql";
+      case DbType.MySQL:
+      case DbType.MariaDB:
+        return "mysql";
+      case DbType.SQLite:
+        return "sqlite";
+      case DbType.SQLServer:
+        return "mssql";
+      default:
+        return "postgresql";
+    }
+  }, [dbType]);
+
+  // AI filter generator - uses silent prompt to avoid polluting chat history
+  const generateAIFilter = useCallback(
+    async (
+      prompt: string,
+      options?: { outputType?: "sql" | "search_pattern" }
+    ): Promise<
+      | { clause: string; explanation?: string; usedSubquery?: boolean }
+      | { error: string }
+    > => {
+      try {
+        // Get available agents (load if needed)
+        const acpStore = useAcpStore.getState();
+        if (acpStore.availableAgents.length === 0) {
+          await acpStore.loadAgents();
+        }
+
+        const agents = useAcpStore.getState().availableAgents;
+        if (agents.length === 0) {
+          return { error: "No AI agents available. Please install an ACP-compatible agent." };
+        }
+
+        // Use the selected agent or first available
+        const agentId = acpStore.selectedAgentId || agents[0]?.id;
+        if (!agentId) {
+          return { error: "No AI agent selected." };
+        }
+
+        // Build schema context JSON for the AI
+        const contextJson = JSON.stringify({
+          table: table,
+          schema: schema ?? "public",
+          database: database ?? "",
+          dialect,
+          columns: filterColumns.map((c) => ({
+            name: c.name,
+            type: c.dataType,
+            nullable: c.nullable,
+            isPrimaryKey: c.isPrimaryKey,
+            isForeignKey: c.isForeignKey,
+            foreignTable: c.foreignTable,
+            foreignColumn: c.foreignColumn,
+            enumValues: c.enumValues,
+          })),
+        });
+
+        // Build the full prompt based on output type
+        const fullPrompt =
+          options?.outputType === "search_pattern"
+            ? `You are a database filter assistant. Generate a search pattern for filtering data.
+
+User request: ${prompt}
+
+Table: ${table} (${dialect})
+Columns: ${filterColumns.map((c) => `${c.name} (${c.dataType})`).join(", ")}
+
+IMPORTANT: Only output the search pattern text, no explanation. The pattern will be used for text matching.`
+            : `You are a database filter assistant. Generate a SQL WHERE clause for ${dialect}.
+
+User request: ${prompt}
+
+Table: ${table}
+Columns: ${filterColumns.map((c) => `${c.name} (${c.dataType})`).join(", ")}
+
+IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation. Must be valid ${dialect} SQL.`;
+
+        // Use silent prompt - this does NOT add to chat history
+        // Use haiku model for quick filter (fast responses)
+        const response = await AcpService.sendSilentPrompt(
+          agentId,
+          fullPrompt,
+          contextJson,
+          undefined, // cwd
+          DEFAULT_QUICK_FILTER_MODEL,
+        );
+
+        // Clean up the response
+        let cleanedClause = response
+          .replace(/^```(?:sql)?\n?/i, "")
+          .replace(/\n?```$/i, "")
+          .trim();
+
+        // Remove "WHERE" keyword if the AI included it
+        if (cleanedClause.toUpperCase().startsWith("WHERE ")) {
+          cleanedClause = cleanedClause.substring(6).trim();
+        }
+
+        return {
+          clause: cleanedClause,
+          explanation: "Generated by AI",
+        };
+      } catch (error) {
+        console.error("AI filter generation error:", error);
+        return {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to generate AI filter",
+        };
+      }
+    },
+    [table, schema, database, dialect, filterColumns]
+  );
+
+  // Quick filter hook - manages filter state, parsing, and submission
+  const {
+    value: quickFilterValue,
+    mode: quickFilterMode,
+    error: quickFilterError,
+    aiExplanation,
+    activeFilter,
+    isLoading: quickFilterLoading,
+    setValue: setQuickFilterValue,
+    setMode: setQuickFilterMode,
+    submit: handleFilterSubmit,
+  } = useQuickFilter({
+    columns: filterColumns,
+    initialFilter: props.initialFilter,
+    generateAIFilter,
+    clientSideFiltering: false,
+    gridId: sortGridId,
+  });
+
+  // Warmup silent agent for faster AI filter responses
+  // This proactively starts the agent so it's ready when user types #
+  useEffect(() => {
+    const acpStore = useAcpStore.getState();
+    const agentId = acpStore.selectedAgentId;
+    if (agentId) {
+      void AcpService.warmupSilentAgent(agentId, DEFAULT_QUICK_FILTER_MODEL);
+    }
+  }, []); // Only on mount
+
+  // --- Sort Configuration ---
+  // Get sort state from grid preferences and convert to SortConfig format
+  // Uses sortGridId for per-tab sort isolation (initialization handled by useColumnSorting in BaseDataGrid)
+  const sortColumns = useGridPreferencesStore(
+    (state) => state.preferences[sortGridId]?.sortColumns ?? EMPTY_SORT_COLUMNS,
+  );
+
+  const sorts = useMemo<SortConfig[]>(() => {
+    if (sortColumns.length === 0) return [];
+
+    return sortColumns.map(({ columnId, direction }) => ({
+      column: columnId,
+      direction,
+    }));
+  }, [sortColumns]);
+
+  // --- Data Fetching ---
+  const tableDataQuery = useTableDataQuery({
+    connectionId,
+    database: database ?? "",
+    schema,
+    entityName: table,
+    entityType,
+    enabled: true,
+    embeddedFKs:
+      deferredEmbeddedFKs.length > 0 ? deferredEmbeddedFKs : undefined,
+    filters: activeFilter,
+    sorts, // ← PASS SORT CONFIGURATION
+  });
+
+  const {
+    data: queryData,
+    rows,
+    columns: columnMeta,
+    estimatedTotal,
+    isEstimatedCount,
+    status,
+    error,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+    refetch,
+  } = tableDataQuery;
+
+  // Extract execution time from the last page (or first if last is undefined)
+  const executionTime =
+    queryData?.pages.at(-1)?.executionTimeMs ??
+    queryData?.pages[0]?.executionTimeMs;
+
+  const isLoading = status === "loading";
+  const isError = status === "error";
+
+  // --- FK Metadata ---
+  // Build FK reference map from table structure (needed before columns)
+  // Uses { referenced_schema, referenced_table, referenced_column } structure to match TableDataGrid
+  const fkReferenceByColumn = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        referenced_schema: string;
+        referenced_table: string;
+        referenced_column: string;
+      }
+    >();
+    if (tableStructure?.foreignKeys) {
+      for (const fk of tableStructure.foreignKeys) {
+        if (fk.columns && fk.foreignColumns) {
+          for (let i = 0; i < fk.columns.length; i++) {
+            const colName = fk.columns[i];
+            const refCol = fk.foreignColumns[i];
+            if (colName && refCol) {
+              map.set(colName, {
+                referenced_schema: fk.foreignSchema ?? "public",
+                referenced_table: fk.foreignTable,
+                referenced_column: refCol,
+              });
+            }
+          }
+        }
+      }
+    }
+    return map;
+  }, [tableStructure?.foreignKeys]);
+
+  // Build FK references map for useReferencedTableColumns hook (different structure)
+  const fkReferencesForHook = useMemo(() => {
+    const map = new Map<
+      string,
+      { schema: string; table: string; column: string }
+    >();
+    for (const [colName, ref] of fkReferenceByColumn) {
+      map.set(colName, {
+        schema: ref.referenced_schema,
+        table: ref.referenced_table,
+        column: ref.referenced_column,
+      });
+    }
+    return map;
+  }, [fkReferenceByColumn]);
+
+  // Convert ColumnMeta[] to GridColumnV2[] with FK metadata
+  const columns = useMemo<GridColumnV2[]>(() => {
+    const visibleColumns = columnMeta.filter(
+      (meta) => !meta.name.startsWith("__qp_fk__"),
+    );
+    return visibleColumns.map((meta) => {
+      const originalIndex = columnMeta.findIndex((c) => c.name === meta.name);
+      const uniqueField = `col_${originalIndex}`;
+      const fkRef = fkReferenceByColumn.get(meta.name);
+
+      // Merge FK reference info into column meta (fkRef is already in correct format)
+      const mergedMeta = fkRef
+        ? {
+            ...meta,
+            fk_reference: fkRef,
+            is_fk: true,
+          }
+        : meta;
+
+      // Calculate width - increase for FK columns with embedded values
+      let width = computeBaseWidth(meta.name, meta.db_type);
+      const embeddedCols = embeddedFKPrefs?.embeddedColumns?.[meta.name];
+      const hasEmbeddedFK = embeddedCols && embeddedCols.length > 0;
+      if (hasEmbeddedFK) {
+        // Wider column to fit "550e…0000 → [embedded_value]" format
+        width = Math.max(width, 280);
+      }
+
+      return {
+        id: meta.name,
+        field: uniqueField,
+        title: meta.name,
+        name: meta.name,
+        width,
+        type: meta.db_type,
+        meta: mergedMeta,
+      } as GridColumnV2;
+    });
+  }, [columnMeta, fkReferenceByColumn, embeddedFKPrefs]);
+
+  // Build column name to field mapping
+  const columnNameToFieldMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const col of columns) {
+      map.set(col.name, col.field);
+    }
+    return map;
+  }, [columns]);
+
+  // Build field to column mapping
+  const columnByFieldMap = useMemo(() => {
+    const map = new Map<string, GridColumnV2>();
+    for (const col of columns) {
+      map.set(col.field, col);
+    }
+    return map;
+  }, [columns]);
+
+  // Primary key columns
+  const primaryKeyColumns = useMemo(() => {
+    return columns.filter((col) => col.meta?.is_pk).map((col) => col.name);
+  }, [columns]);
+
+  // Row key generation
+  const rowKeyMapRef = useRef(new WeakMap<GridRowModel, string>());
+  const draftRowCounterRef = useRef(0);
+  const columnNameToFieldMapRef = useRef(columnNameToFieldMap);
+  columnNameToFieldMapRef.current = columnNameToFieldMap;
+
+  const getRowKey = useCallback(
+    (row: GridRowModel | undefined, index: number): string => {
+      if (!row) {
+        return `${schema ?? "public"}.${table}:row-${index}`;
+      }
+      const cached = rowKeyMapRef.current.get(row);
+      if (cached) return cached;
+
+      const parts = primaryKeyColumns.map((columnName) => {
+        const field =
+          columnNameToFieldMapRef.current.get(columnName) ?? columnName;
+        const cell = row[field];
+        const value =
+          cell && typeof cell === "object" && "value" in cell
+            ? cell.value
+            : cell;
+        if (value === null || value === undefined) return "__null__";
+        if (typeof value !== "object") return String(value);
+        return String(value);
+      });
+
+      let computed = `${schema ?? "public"}.${table}:row-${draftRowCounterRef.current++}`;
+      if (
+        primaryKeyColumns.length > 0 &&
+        parts.some((part) => part !== "__null__")
+      ) {
+        computed = `${schema ?? "public"}.${table}:pk:${parts.join("|")}`;
+      }
+      rowKeyMapRef.current.set(row, computed);
+      return computed;
+    },
+    [primaryKeyColumns, schema, table],
+  );
+
+  // --- Command Factory ---
+  // Creates SQL-specific CRUD commands for BaseDataGrid to use
+  const commandFactory = useMemo<CrudCommandFactory | undefined>(() => {
+    if (isReadOnly) return undefined;
+
+    const target = createCrudTarget(
+      connectionId,
+      database ?? "",
+      schema,
+      table,
+    );
+
+    return {
+      connectionId,
+      database,
+      schema,
+      table,
+      primaryKeyColumns,
+      columnNameToFieldMap,
+      columnByFieldMap,
+      getRowKey,
+
+      createEditCommand: (event: GridEditCommitEvent) => {
+        try {
+          return createUpdateCommand(event, target, columns);
+        } catch (err) {
+          console.error("Failed to create update command:", err);
+          return null;
+        }
+      },
+
+      createInsertCommand: (data?: Record<string, unknown>) => {
+        // Create a new row with default values
+        const newRow: GridRowModel = {};
+        columns.forEach((col) => {
+          const providedValue = data?.[col.name];
+          if (providedValue !== undefined) {
+            newRow[col.field] = {
+              value: providedValue,
+              value_type:
+                typeof providedValue === "number" ? "Integer" : "Text",
+              db_type: col.meta?.db_type ?? col.type ?? "text",
+              is_truncated: false,
+            } as GridCellValue;
+          } else if (
+            col.meta?.default ||
+            col.meta?.nullable ||
+            col.meta?.is_pk
+          ) {
+            newRow[col.field] = {
+              value: null,
+              value_type: "Null",
+              db_type: col.meta?.db_type ?? col.type ?? "text",
+              is_truncated: false,
+            } as GridCellValue;
+          } else {
+            newRow[col.field] = {
+              value: "",
+              value_type: "Text",
+              db_type: col.meta?.db_type ?? col.type ?? "text",
+              is_truncated: false,
+            } as GridCellValue;
+          }
+        });
+        return createInsertCommand(newRow, target, columns);
+      },
+
+      createDeleteCommand: (row: GridRowModel, _rowKey: string) => {
+        return createDeleteCommand(row, target, columns);
+      },
+    };
+  }, [
+    isReadOnly,
+    connectionId,
+    database,
+    schema,
+    table,
+    columns,
+    primaryKeyColumns,
+    columnNameToFieldMap,
+    columnByFieldMap,
+    getRowKey,
+  ]);
+
+  // --- Optimistic Updates for getCellContent ---
+  // SqlDataGrid provides its own getCellContent (for FK embedded values), so it needs
+  // to apply useOptimisticRows itself to display staged values correctly.
+  // BaseDataGrid also applies useOptimisticRows, but its result is only used when
+  // no getCellContent prop is provided.
+  const { getTableKey, stagedCommands: allStagedCommands } = useCrudStore();
+  const tableKey = commandFactory
+    ? getTableKey({
+        connectionId: commandFactory.connectionId,
+        database: commandFactory.database ?? "",
+        schema: commandFactory.schema,
+        table: commandFactory.table,
+      })
+    : "";
+  const pendingChanges = allStagedCommands.get(tableKey) ?? [];
+
+  const optimisticRows = useOptimisticRows({
+    displayRows: rows,
+    stagedCommands: pendingChanges,
+    primaryKeyColumns,
+    columnNameToFieldMap,
+    columnByFieldMap,
+    columns,
+    getRowKey,
+  });
+
+  // Build embedded FK field map from columnMeta
+  // The backend returns embedded FK values as columns named __qp_fk__{fkColumn}__{refColumn}
+  // Map: fkColumn -> col_N[] (fields to access embedded values, supports multiple)
+  const embeddedFKFieldMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    columnMeta.forEach((col, index) => {
+      // Parse __qp_fk__{fkColumn}__{refColumn}
+      if (col.name.startsWith("__qp_fk__")) {
+        const match = col.name.match(/^__qp_fk__(.+?)__(.+)$/);
+        if (match && match[1]) {
+          const existing = map.get(match[1]) ?? [];
+          existing.push(`col_${index}`);
+          map.set(match[1], existing);
+        }
+      }
+    });
+    return map;
+  }, [columnMeta]);
+
+  const embeddedFKFieldMapRef = useRef(embeddedFKFieldMap);
+  embeddedFKFieldMapRef.current = embeddedFKFieldMap;
+
+  // Staged FK embedded values for updates
+  const stagedFKEmbeddedValuesRef = useRef<Map<string, string | null>>(
+    new Map(),
+  );
+
+  // --- Referenced Table Columns (for context menu) ---
+  const referencedTableColumns = useReferencedTableColumns({
+    connectionId,
+    database: database ?? "",
+    fkReferences: fkReferencesForHook,
+    enabled: fkReferencesForHook.size > 0,
+  });
+
+  // --- Stable refs for getCellContent ---
+  const columnsRef = useRef(columns);
+  columnsRef.current = columns;
+  // Use optimisticRows (not raw rows) so getCellContent shows staged values
+  const rowsRef = useRef(optimisticRows);
+  rowsRef.current = optimisticRows;
+
+  // --- getCellContent (follows TableDataGrid pattern exactly) ---
+  // This is used instead of customGetCellContent because embedded FK values
+  // need to be passed TO buildGridCellV2, not patched after the fact
+  const getCellContent = useCallback(
+    (cell: Item): GridCell => {
+      const [colIndex, rowIndex] = cell;
+      const column = columnsRef.current[colIndex];
+      const row = rowsRef.current[rowIndex];
+
+      if (!column || !row) {
+        return {
+          kind: GridCellKind.Text,
+          data: "",
+          displayData: "",
+          allowOverlay: false,
+          readonly: true,
+        } as const;
+      }
+
+      const cellValue = row[column.field] as GridCellValue | null | undefined;
+
+      // Extract embedded FK value if this is an FK column
+      // Priority: 1) Staged FK embedded value (from picker selection) 2) Row data
+      let embeddedValue: string | null | undefined;
+      if (column.meta?.is_fk && column.name) {
+        const columnName = column.name;
+        const stagedKey = `${rowIndex}:${columnName}`;
+        const stagedEmbedded = stagedFKEmbeddedValuesRef.current.get(stagedKey);
+
+        // Check if there's a staged embedded value for this FK cell
+        if (stagedEmbedded !== undefined) {
+          embeddedValue = stagedEmbedded;
+        } else {
+          // Fall back to embedded FK fields from row data (supports multiple)
+          const embeddedFields = embeddedFKFieldMapRef.current.get(columnName);
+          if (embeddedFields) {
+            const parts: string[] = [];
+            for (const field of embeddedFields) {
+              const embeddedCell = row[field] as
+                | GridCellValue
+                | null
+                | undefined;
+              if (embeddedCell?.value != null) {
+                parts.push(String(embeddedCell.value));
+              }
+            }
+            if (parts.length > 0) {
+              embeddedValue = parts.join(" · ");
+            }
+          }
+        }
+      }
+
+      // Build the cell with embeddedValue passed to buildGridCellV2
+      // (This is the key pattern from TableDataGrid that was missing)
+      const gridCell = buildGridCellV2({
+        value: cellValue,
+        column,
+        readOnly: isReadOnly,
+        embeddedValue,
+        connectionContext: {
+          connectionId,
+          database,
+          schema: schema ?? "public",
+          table,
+        },
+      });
+
+      return gridCell;
+    },
+    // Include optimisticRows in deps to invalidate Glide's cell cache when data or staged changes update
+    [isReadOnly, connectionId, database, schema, table, optimisticRows],
+  );
+
+  // --- Cell Edit Callback (for FK embedded value extraction) ---
+  const handleCellEditCommit = useCallback((event: GridEditCommitEvent) => {
+    // For FK columns, extract and store the embeddedValue from the committed cell
+    if (
+      event.column.meta?.is_fk &&
+      event.newValue &&
+      "data" in event.newValue
+    ) {
+      const data = event.newValue.data;
+      if (
+        typeof data === "object" &&
+        data !== null &&
+        "embeddedValue" in data
+      ) {
+        const columnName = event.column.name ?? event.column.field;
+        const key = `${event.rowIndex}:${columnName}`;
+        const embeddedValue = (data as { embeddedValue?: string | null })
+          .embeddedValue;
+        stagedFKEmbeddedValuesRef.current.set(key, embeddedValue ?? null);
+      }
+    }
+  }, []);
+
+  // --- Reconnect Handler ---
+  const handleReconnect = useCallback(async () => {
+    try {
+      await databaseService.getConnectionHealth(connectionId);
+      refetch();
+    } catch {
+      refetch(); // Still try to refetch even if health check fails
+    }
+  }, [connectionId, refetch]);
+
+  // --- Loading States ---
+  if (isLoading) {
+    return <DataGridSkeleton />;
+  }
+
+  // Don't hide the grid when empty - keep headers/filters visible
+  // Show overlay message inside the grid instead
+
+  // --- Render ---
+  return (
+    <div className="flex h-full flex-col relative">
+      {/* Quick Filter - managed here, not in BaseDataGrid */}
+      {filterColumns.length > 0 && (
+        <div className="py-1.5 px-1">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <QuickFilter
+                ref={quickFilterRef}
+                columns={filterColumns}
+                value={quickFilterValue}
+                mode={quickFilterMode}
+                onValueChange={setQuickFilterValue}
+                onModeChange={setQuickFilterMode}
+                onSubmit={handleFilterSubmit}
+                isLoading={quickFilterLoading}
+                error={quickFilterError}
+                explanation={aiExplanation}
+                clientSideFiltering={false}
+              />
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[11px] shrink-0"
+              onClick={() => {
+                setShowInspector((prev) => !prev);
+              }}
+            >
+              {showInspector ? (
+                <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5 mr-1" />
+              ) : (
+                <IconLayoutSidebarRightExpand className="h-3.5 w-3.5 mr-1" />
+              )}
+              Inspector
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* BaseDataGrid handles all CRUD operations internally */}
+      <BaseDataGrid
+        gridId={gridId}
+        sortGridId={sortGridId !== gridId ? sortGridId : undefined}
+        rows={rows}
+        columns={columns}
+        connectionId={connectionId}
+        database={database}
+        schema={schema}
+        tableName={tableName}
+        paradigm="sql"
+        dialect={dialect}
+        estimatedTotal={estimatedTotal}
+        isEstimatedCount={isEstimatedCount}
+        hasMore={hasNextPage}
+        onLoadMore={fetchNextPage}
+        isLoadingMore={isFetchingNextPage}
+        readOnly={isReadOnly}
+        readOnlyReason={readOnlyReason}
+        entityType={entityType}
+        enableFiltering={false} // Filter managed by SqlDataGrid, not BaseDataGrid
+        enableSorting={true}
+        enableExport={true}
+        enableRowPinning={true}
+        enableColumnManagement={true}
+        enableClipboard={true}
+        enableFillOperations={!isReadOnly}
+        enableStagedChanges={!isReadOnly}
+        // Command factory for CRUD operations
+        commandFactory={commandFactory}
+        // Callback for FK embedded value extraction
+        onCellEditCommit={handleCellEditCommit}
+        // FK data
+        referencedTableColumns={referencedTableColumns}
+        // Complete getCellContent override for FK embedded value display
+        // (follows TableDataGrid pattern - passes embeddedValue to buildGridCellV2)
+        getCellContent={getCellContent}
+        // Data invalidation refetch
+        onRefetch={refetch}
+        // Error handling and reconnection
+        error={
+          isError
+            ? error instanceof Error
+              ? error.message
+              : "Failed to load table data"
+            : undefined
+        }
+        onReconnect={handleReconnect}
+        // Query performance metrics
+        executionTime={executionTime}
+        // Focus management
+        focused={focused}
+        inspectorOpen={showInspector}
+        onInspectorOpenChange={setShowInspector}
+        showInspectorToggleButton={false}
+        // Pass QuickFilter ref for Cmd+F handling (since we manage our own QuickFilter)
+        externalQuickFilterRef={quickFilterRef}
+        className={cn("flex-1", className)}
+      />
+
+      {/* Empty state overlay - shown when no rows but grid/filters remain visible */}
+      {!isError && rows.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="text-center space-y-2 p-8">
+            <div className="text-muted-foreground text-sm font-medium">
+              {isViewOrMatView ? "No rows in this view" : "No data"}
+            </div>
+            <div className="text-muted-foreground/70 text-xs">
+              {isViewOrMatView
+                ? "This view contains no data"
+                : "No rows found" +
+                  (quickFilterValue ? " matching your filter" : "")}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});

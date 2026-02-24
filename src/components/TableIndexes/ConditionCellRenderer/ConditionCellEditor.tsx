@@ -169,7 +169,14 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
     }
 
     commitValue(trimmed);
-  }, [commitValue, onFinishedEditing, text, validationError, requiresRecreate, showConfirm]);
+  }, [
+    commitValue,
+    onFinishedEditing,
+    text,
+    validationError,
+    requiresRecreate,
+    showConfirm,
+  ]);
 
   const handleCancel = useCallback(() => {
     if (finishedRef.current) return;
@@ -239,7 +246,17 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
         onFinishedEditing(buildCell(trimmed), movement);
       }
     },
-    [handleCancel, handleConfirmCancel, showConfirm, text, validationError, requiresRecreate, onFinishedEditing, buildCell, commitCurrent],
+    [
+      handleCancel,
+      handleConfirmCancel,
+      showConfirm,
+      text,
+      validationError,
+      requiresRecreate,
+      onFinishedEditing,
+      buildCell,
+      commitCurrent,
+    ],
   );
 
   // Global keydown handler to catch Enter before CodeMirror
@@ -315,7 +332,7 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
         tabIndex={0}
       >
         <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800/50">
-          <IconAlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-500 flex-shrink-0" />
+          <IconAlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-500 shrink-0" />
           <span className="text-xs font-medium text-amber-800 dark:text-amber-200">
             Recreate Required
           </span>
@@ -394,18 +411,17 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
 
       {/* Footer */}
       <div className="flex items-center justify-between text-xs text-muted-foreground px-2 py-1 shrink-0 bg-popover border-t border-border/50">
-        <div className="flex-1">Enter to save, Shift+Enter for new line, Esc to cancel</div>
+        <div className="flex-1">
+          Enter to save, Shift+Enter for new line, Esc to cancel
+        </div>
       </div>
     </div>
   );
 };
 
-export const ConditionCellEditorWithProps = Object.assign(
-  ConditionCellEditor,
-  {
-    disablePadding: true,
-    disableStyling: false,
-  },
-);
+export const ConditionCellEditorWithProps = Object.assign(ConditionCellEditor, {
+  disablePadding: true,
+  disableStyling: false,
+});
 
 export default ConditionCellEditorWithProps;

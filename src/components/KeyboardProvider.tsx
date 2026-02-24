@@ -3,14 +3,17 @@ import React, { type ReactNode, createContext, useContext, useEffect, useMemo } 
 
 import { contextKeyDefinitions } from '@/data/contextKeys';
 import { appearanceCommands } from '@/data/commands/appearanceCommands';
+import { queryCommands } from '@/data/commands/queryCommands';
 import { defaultCommands } from '@/data/defaultCommands';
 import { defaultKeybindings } from '@/data/defaultKeybindings';
 import { keyboardHandler } from '@/services/keyboardHandler';
 import { commandService } from '@/services/commandService';
 import { contextService } from '@/services/contextService';
 import { keybindingService } from '@/services/keybindingService';
+import { userKeybindingsService } from '@/services/userKeybindingsService';
 import { useWorkspaceScreenStore } from '@/stores/workspaceScreenStore';
 import useWorkbenchStore from '@/stores/workbenchStore';
+import { usePanelFocusStore } from '@/stores/panelFocusStore';
 import { useModifierKey } from '@/hooks/useModifierKey';
 
 interface KeyboardProviderProps {
@@ -37,12 +40,14 @@ function initializeServices(): void {
   try {
     commandService.registerMany(defaultCommands, 'default');
     commandService.registerMany(appearanceCommands, 'default');
+    commandService.registerMany(queryCommands, 'default');
   } catch (error) {
     logger.error('[KeyboardProvider] Failed to register default commands:', error);
   }
 
   try {
     keybindingService.registerMany(defaultKeybindings, 'default');
+    userKeybindingsService.initialize();
   } catch (error) {
     logger.error('[KeyboardProvider] Failed to register default keybindings:', error);
   }
@@ -84,16 +89,25 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): React.JSX
       contextService.setValue('activeEditor', hasActiveEditor);
     };
 
-    const initialWorkbenchState = useWorkbenchStore.getState();
-    setWorkbenchContext({
-      panelCount: initialWorkbenchState.panelContents.size,
-      focusedPanelId: initialWorkbenchState.focusedPanelId,
+    const getWorkbenchPayload = () => ({
+      panelCount: useWorkbenchStore.getState().panelContents.size,
+      focusedPanelId: usePanelFocusStore.getState().focusedPanelId,
     });
 
-    // Subscribe to ALL workbench store changes (the selector approach wasn't firing)
+    setWorkbenchContext(getWorkbenchPayload());
+
+    // Subscribe to workbench store for panel count changes
     const unsubscribeWorkbench = useWorkbenchStore.subscribe((state) => {
       setWorkbenchContext({
         panelCount: state.panelContents.size,
+        focusedPanelId: usePanelFocusStore.getState().focusedPanelId,
+      });
+    });
+
+    // Subscribe to panel focus store for focus changes
+    const unsubscribeFocus = usePanelFocusStore.subscribe((state) => {
+      setWorkbenchContext({
+        panelCount: useWorkbenchStore.getState().panelContents.size,
         focusedPanelId: state.focusedPanelId,
       });
     });
@@ -101,11 +115,7 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): React.JSX
     // CRITICAL FIX: Re-sync context after subscription setup to catch any updates
     // that happened between initial read and subscription registration.
     // This fixes the race condition where workbench initializes before subscription is active.
-    const currentWorkbenchState = useWorkbenchStore.getState();
-    setWorkbenchContext({
-      panelCount: currentWorkbenchState.panelContents.size,
-      focusedPanelId: currentWorkbenchState.focusedPanelId,
-    });
+    setWorkbenchContext(getWorkbenchPayload());
 
     // ADDITIONAL FIX: Poll for workbench initialization for a short period
     // This catches the case where WorkbenchLayout initializes after KeyboardProvider mounts
@@ -113,13 +123,10 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): React.JSX
     const maxPollAttempts = 10; // 10 attempts x 100ms = 1 second max
     const pollInterval = setInterval(() => {
       pollAttempts++;
-      const state = useWorkbenchStore.getState();
-      if (state.panelContents.size > 0 || pollAttempts >= maxPollAttempts) {
+      const panelCount = useWorkbenchStore.getState().panelContents.size;
+      if (panelCount > 0 || pollAttempts >= maxPollAttempts) {
         // Workbench is initialized or we've waited long enough
-        setWorkbenchContext({
-          panelCount: state.panelContents.size,
-          focusedPanelId: state.focusedPanelId,
-        });
+        setWorkbenchContext(getWorkbenchPayload());
         clearInterval(pollInterval);
       }
     }, 100);
@@ -131,6 +138,7 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): React.JSX
       keyboardHandler.dispose();
       unsubscribeSidebars();
       unsubscribeWorkbench();
+      unsubscribeFocus();
       clearInterval(pollInterval); // Clean up polling interval
     };
   }, []);

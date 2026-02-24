@@ -18,6 +18,7 @@ import { indexColumns } from "./columns";
 import {
   transformIndexesToRows,
   getIndexModifiedFields,
+  getDialectFromDbType,
   type IndexModifiedField,
 } from "./utils";
 import IndexNameCellRenderer from "./IndexNameCellRenderer";
@@ -50,25 +51,6 @@ import { useTableColumns } from "@/hooks/useTableFullStructure";
 import { DbType } from "@/types/connection";
 
 type AnyCell = CustomCell<Record<string, unknown>>;
-
-/**
- * Convert DbType to SQL dialect string for the condition cell editor
- */
-function getDialectFromDbType(dbType: DbType): string {
-  switch (dbType) {
-    case DbType.PostgreSQL:
-      return "postgresql";
-    case DbType.MySQL:
-    case DbType.MariaDB:
-      return "mysql";
-    case DbType.SQLite:
-      return "sqlite";
-    case DbType.SQLServer:
-      return "mssql";
-    default:
-      return "postgresql";
-  }
-}
 
 interface TableIndexesProps {
   connectionId: string;

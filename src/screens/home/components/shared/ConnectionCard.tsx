@@ -1,45 +1,50 @@
-import { useMemo, useCallback } from 'react';
 import {
   IconDotsVertical,
   IconStar,
   IconTrash,
   IconPencil,
   IconCopy,
-  IconCheck,
-} from '@tabler/icons-react';
-import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+  IconDatabaseExport,
+  IconLink,
+} from "@tabler/icons-react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from "@/components/ui/dropdown-menu";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
-} from '@/components/ui/context-menu';
-import { getDatabaseLogo } from '@/utils/databaseLogos';
-import { type StoredConnection } from '@/types/connection';
-import { useHomeScreenStore } from '../../store/homeScreenStore';
-import { useConnectionStore } from '@/stores/connectionStoreNew';
-import { windowManager } from '@/services/windowManager';
-import { toast } from 'sonner';
+} from "@/components/ui/context-menu";
+import { getDatabaseLogo } from "@/utils/databaseLogos";
+import { type StoredConnection } from "@/types/connection";
+import { useHomeScreenStore } from "../../store/homeScreenStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { windowManager } from "@/services/windowManager";
+import { toast } from "sonner";
+import { buildConnectionUri } from "@/utils/connectionParser";
 
 interface ConnectionCardProps {
   connection: StoredConnection;
-  variant?: 'compact' | 'list';
+  variant?: "compact" | "list";
+  selectionMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }
-
-
 
 export function ConnectionCard({
   connection,
-  variant = 'compact',
+  variant = "compact",
+  selectionMode = false,
+  isSelected = false,
+  onToggleSelect,
 }: ConnectionCardProps) {
   const openConnectionForm = useHomeScreenStore((s) => s.openConnectionForm);
   const toggleFavorite = useConnectionStore((s) => s.toggleFavorite);
@@ -47,44 +52,28 @@ export function ConnectionCard({
 
   const { profile, metadata } = connection;
 
-  const lastUsedText = useMemo(() => {
-    if (!metadata.last_used) return 'Never used';
-    const date = new Date(metadata.last_used);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    if (days < 7) return `${days}d ago`;
-    return date.toLocaleDateString();
-  }, [metadata.last_used]);
-
   const handleConnect = async () => {
     try {
       await windowManager.openWorkspace(profile.id, profile.name, {
         database: profile.database,
       });
     } catch (error) {
-      toast.error('Failed to open workspace', {
-        description: error instanceof Error ? error.message : 'Unknown error',
+      toast.error("Failed to open workspace", {
+        description: error instanceof Error ? error.message : "Unknown error",
       });
     }
   };
 
   const handleEdit = () => {
-    openConnectionForm('edit', profile.id);
+    openConnectionForm("edit", profile.id);
   };
 
   const handleToggleFavorite = async () => {
     try {
       await toggleFavorite(profile.id);
     } catch (error) {
-      toast.error('Failed to toggle favorite', {
-        description: error instanceof Error ? error.message : 'Unknown error',
+      toast.error("Failed to toggle favorite", {
+        description: error instanceof Error ? error.message : "Unknown error",
       });
     }
   };
@@ -92,10 +81,10 @@ export function ConnectionCard({
   const handleDelete = async () => {
     try {
       await deleteConnection(profile.id);
-      toast.success('Connection deleted');
+      toast.success("Connection deleted");
     } catch (error) {
-      toast.error('Failed to delete connection', {
-        description: error instanceof Error ? error.message : 'Unknown error',
+      toast.error("Failed to delete connection", {
+        description: error instanceof Error ? error.message : "Unknown error",
       });
     }
   };
@@ -109,10 +98,32 @@ export function ConnectionCard({
         name: `${profile.name} (Copy)`,
       };
       await saveConnection(clonedProfile, metadata.tags);
-      toast.success('Connection cloned');
+      toast.success("Connection cloned");
     } catch (error) {
-      toast.error('Failed to clone connection', {
-        description: error instanceof Error ? error.message : 'Unknown error',
+      toast.error("Failed to clone connection", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
+
+  const handleBackupRestore = async () => {
+    try {
+      await windowManager.openBackupRestore(profile.id);
+    } catch (error) {
+      toast.error("Failed to open backup/restore", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
+
+  const handleCopyUri = async () => {
+    try {
+      const uri = buildConnectionUri(profile);
+      await navigator.clipboard.writeText(uri);
+      toast.success("URI copied to clipboard");
+    } catch (error) {
+      toast.error("Failed to copy URI", {
+        description: error instanceof Error ? error.message : "Unknown error",
       });
     }
   };
@@ -126,7 +137,7 @@ export function ConnectionCard({
       </ContextMenuItem>
       <ContextMenuItem onClick={handleToggleFavorite} className="text-xs">
         <IconStar className="h-3 w-3 mr-2" />
-        {metadata.is_favorite ? 'Unfavorite' : 'Favorite'}
+        {metadata.is_favorite ? "Unfavorite" : "Favorite"}
         <span className="ml-auto text-[10px] text-muted-foreground">F</span>
       </ContextMenuItem>
       <ContextMenuItem onClick={handleClone} className="text-xs">
@@ -134,8 +145,19 @@ export function ConnectionCard({
         Clone
         <span className="ml-auto text-[10px] text-muted-foreground">⌘D</span>
       </ContextMenuItem>
+      <ContextMenuItem onClick={() => void handleCopyUri()} className="text-xs">
+        <IconLink className="h-3 w-3 mr-2" />
+        Copy URI
+      </ContextMenuItem>
+      <ContextMenuItem onClick={handleBackupRestore} className="text-xs">
+        <IconDatabaseExport className="h-3 w-3 mr-2" />
+        Backup/Restore...
+      </ContextMenuItem>
       <ContextMenuSeparator />
-      <ContextMenuItem onClick={handleDelete} className="text-xs text-destructive">
+      <ContextMenuItem
+        onClick={handleDelete}
+        className="text-xs text-destructive"
+      >
         <IconTrash className="h-3 w-3 mr-2" />
         Delete
         <span className="ml-auto text-[10px] text-muted-foreground/70">⌘⌫</span>
@@ -143,7 +165,15 @@ export function ConnectionCard({
     </>
   );
 
-  if (variant === 'compact') {
+  const handleClick = () => {
+    if (selectionMode && onToggleSelect) {
+      onToggleSelect(profile.id);
+    } else {
+      handleConnect();
+    }
+  };
+
+  if (variant === "compact") {
     return (
       <ContextMenu>
         <ContextMenuTrigger
@@ -151,22 +181,31 @@ export function ConnectionCard({
             <div
               tabIndex={0}
               className={cn(
-                'group relative rounded-md border bg-card overflow-hidden',
-                'transition-all duration-150 cursor-pointer outline-none',
-                'hover:bg-accent/50 focus:bg-accent focus:ring-1 focus:ring-primary'
+                "group relative rounded-md border bg-card overflow-hidden",
+                "transition-all duration-150 cursor-pointer outline-none",
+                "hover:bg-accent/50 focus:bg-accent focus:ring-1 focus:ring-primary",
+                selectionMode && isSelected && "ring-2 ring-primary bg-primary/5",
               )}
-              onClick={handleConnect}
-              onDoubleClick={handleConnect}
+              onClick={handleClick}
+              onDoubleClick={selectionMode ? undefined : handleConnect}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
+                if (e.key === "Enter") {
                   e.preventDefault();
-                  handleConnect();
-                } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                  handleClick();
+                } else if (e.key === " " && selectionMode) {
                   e.preventDefault();
-                  const items = Array.from(document.querySelectorAll('[data-connection-item]'));
-                  const current = (e.target as HTMLElement).closest('[data-connection-item]');
+                  onToggleSelect?.(profile.id);
+                } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  const items = Array.from(
+                    document.querySelectorAll("[data-connection-item]"),
+                  );
+                  const current = (e.target as HTMLElement).closest(
+                    "[data-connection-item]",
+                  );
                   const currentIndex = current ? items.indexOf(current) : -1;
-                  const nextIndex = e.key === 'ArrowDown' ? currentIndex + 1 : currentIndex - 1;
+                  const nextIndex =
+                    e.key === "ArrowDown" ? currentIndex + 1 : currentIndex - 1;
 
                   if (nextIndex >= 0 && nextIndex < items.length) {
                     (items[nextIndex] as HTMLElement).focus();
@@ -179,16 +218,42 @@ export function ConnectionCard({
               <div className="px-3 py-2">
                 {/* Header: Icon + Name */}
                 <div className="flex items-center gap-2">
+                  {selectionMode && (
+                    <div
+                      className={cn(
+                        "h-4 w-4 rounded border flex items-center justify-center shrink-0",
+                        isSelected
+                          ? "bg-primary border-primary"
+                          : "border-muted-foreground/30"
+                      )}
+                    >
+                      {isSelected && (
+                        <svg
+                          className="h-3 w-3 text-primary-foreground"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={3}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                      )}
+                    </div>
+                  )}
                   <img
                     src={getDatabaseLogo(profile.db_type)}
                     alt=""
-                    className="h-4 w-4 flex-shrink-0"
+                    className="h-4 w-4 shrink-0"
                   />
                   <span className="text-xs font-medium truncate flex-1">
                     {profile.name}
                   </span>
                   {metadata.is_favorite && (
-                    <IconStar className="h-3 w-3 text-amber-500 fill-amber-500 flex-shrink-0" />
+                    <IconStar className="h-3 w-3 text-amber-500 fill-amber-500 shrink-0" />
                   )}
                 </div>
 
@@ -207,17 +272,14 @@ export function ConnectionCard({
                   )}
                 </div>
 
-                {/* Bottom row: timestamp + group tag */}
-                <div className="mt-1.5 flex items-center gap-2">
-                  <span className="text-[10px] text-muted-foreground/70">
-                    {lastUsedText}
-                  </span>
-                  {profile.group && (
+                {/* Bottom row: group tag */}
+                {profile.group && (
+                  <div className="mt-1.5 flex items-center gap-2">
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
                       {profile.group}
                     </span>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </div>
           }
@@ -235,22 +297,27 @@ export function ConnectionCard({
           <div
             tabIndex={0}
             className={cn(
-              'group flex items-center gap-3 rounded px-2 py-1.5 cursor-pointer outline-none',
-              'transition-colors duration-100',
-              'hover:bg-accent/50 focus:bg-accent focus:ring-1 focus:ring-primary'
+              "group flex items-center gap-3 rounded px-2 py-1.5 cursor-pointer outline-none",
+              "transition-colors duration-100",
+              "hover:bg-accent/50 focus:bg-accent focus:ring-1 focus:ring-primary",
             )}
             onClick={handleConnect}
             onDoubleClick={handleConnect}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
+              if (e.key === "Enter") {
                 e.preventDefault();
                 handleConnect();
-              } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                 e.preventDefault();
-                const items = Array.from(document.querySelectorAll('[data-connection-item]'));
-                const current = (e.target as HTMLElement).closest('[data-connection-item]');
+                const items = Array.from(
+                  document.querySelectorAll("[data-connection-item]"),
+                );
+                const current = (e.target as HTMLElement).closest(
+                  "[data-connection-item]",
+                );
                 const currentIndex = current ? items.indexOf(current) : -1;
-                const nextIndex = e.key === 'ArrowDown' ? currentIndex + 1 : currentIndex - 1;
+                const nextIndex =
+                  e.key === "ArrowDown" ? currentIndex + 1 : currentIndex - 1;
 
                 if (nextIndex >= 0 && nextIndex < items.length) {
                   (items[nextIndex] as HTMLElement).focus();
@@ -263,7 +330,7 @@ export function ConnectionCard({
             <img
               src={getDatabaseLogo(profile.db_type)}
               alt=""
-              className="h-4 w-4 flex-shrink-0"
+              className="h-4 w-4 shrink-0"
             />
 
             <span className="text-xs font-medium truncate flex-1 min-w-0">
@@ -271,18 +338,14 @@ export function ConnectionCard({
             </span>
 
             {metadata.is_favorite && (
-              <IconStar className="h-3 w-3 text-amber-500 fill-amber-500 flex-shrink-0" />
+              <IconStar className="h-3 w-3 text-amber-500 fill-amber-500 shrink-0" />
             )}
 
             {profile.group && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground flex-shrink-0">
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
                 {profile.group}
               </span>
             )}
-
-            <span className="text-[10px] text-muted-foreground flex-shrink-0">
-              {lastUsedText}
-            </span>
 
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -303,23 +366,41 @@ export function ConnectionCard({
                 <DropdownMenuItem onClick={handleEdit} className="text-xs">
                   <IconPencil className="h-3 w-3 mr-2" />
                   Edit
-                  <span className="ml-auto text-[10px] text-muted-foreground">E</span>
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    E
+                  </span>
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleToggleFavorite} className="text-xs">
+                <DropdownMenuItem
+                  onClick={handleToggleFavorite}
+                  className="text-xs"
+                >
                   <IconStar className="h-3 w-3 mr-2" />
-                  {metadata.is_favorite ? 'Unfavorite' : 'Favorite'}
-                  <span className="ml-auto text-[10px] text-muted-foreground">F</span>
+                  {metadata.is_favorite ? "Unfavorite" : "Favorite"}
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    F
+                  </span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleClone} className="text-xs">
                   <IconCopy className="h-3 w-3 mr-2" />
                   Clone
-                  <span className="ml-auto text-[10px] text-muted-foreground">⌘D</span>
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    ⌘D
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleBackupRestore} className="text-xs">
+                  <IconDatabaseExport className="h-3 w-3 mr-2" />
+                  Backup/Restore...
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleDelete} className="text-xs text-destructive">
+                <DropdownMenuItem
+                  onClick={handleDelete}
+                  className="text-xs text-destructive"
+                >
                   <IconTrash className="h-3 w-3 mr-2" />
                   Delete
-                  <span className="ml-auto text-[10px] text-muted-foreground/70">⌘⌫</span>
+                  <span className="ml-auto text-[10px] text-muted-foreground/70">
+                    ⌘⌫
+                  </span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

@@ -1,5 +1,5 @@
 import { logger } from "@/lib/logger";
-import { memo, useCallback, forwardRef } from "react";
+import { memo, useCallback, forwardRef, useEffect, useRef } from "react";
 import { SqlEditor } from "@/components/CodeEditor/SqlEditor";
 import type { SqlEditorRef } from "@/components/CodeEditor/SqlEditor";
 import type { SqlDialect } from "@/components/CodeEditor";
@@ -21,6 +21,8 @@ interface QueryEditorProps {
   onDialectDetected?: (dialect: SqlDialect) => void;
   /** Extra bottom padding in pixels for scrolling past end */
   extraBottomPadding?: number;
+  /** Whether to auto-focus the editor on mount (default false) */
+  autoFocus?: boolean;
 }
 
 export const QueryEditor = memo(
@@ -39,17 +41,22 @@ export const QueryEditor = memo(
       dialectOverride,
       onDialectDetected,
       extraBottomPadding = 100,
+      autoFocus = false,
     },
     ref,
   ) {
+    const valueRef = useRef(value);
+
+    useEffect(() => {
+      valueRef.current = value;
+    }, [value]);
+
     const handleExecute = useCallback(
       (query?: string) => {
-        logger.info("[QueryEditor.handleExecute] Called with:", {
-          query,
-          queryLength: query?.length || 0,
-          value,
-          valueLength: value.length || 0,
-          willUse: query || value,
+        logger.debug("query-editor", "Execute requested", {
+          hasInlineQuery: Boolean(query),
+          inlineQueryLength: query?.length || 0,
+          editorValueLength: valueRef.current.length || 0,
         });
 
         // Prevent execution if already executing
@@ -61,15 +68,14 @@ export const QueryEditor = memo(
         }
 
         if (onExecute) {
-          const finalQuery = query || value;
-          logger.info("[QueryEditor.handleExecute] Calling onExecute with:", {
-            finalQuery,
+          const finalQuery = query || valueRef.current;
+          logger.debug("query-editor", "Forwarding execute to callback", {
             finalQueryLength: finalQuery.length || 0,
           });
           onExecute(finalQuery);
         }
       },
-      [isExecuting, onExecute, value],
+      [isExecuting, onExecute],
     );
 
     return (
@@ -78,6 +84,7 @@ export const QueryEditor = memo(
           ref={ref}
           value={value}
           onChange={onChange}
+          onChangeDelay={120}
           onExecute={handleExecute}
           dialectOverride={dialectOverride}
           onDialectDetected={onDialectDetected}
@@ -88,7 +95,7 @@ export const QueryEditor = memo(
           readOnly={readOnly}
           height={height}
           placeholder="Enter your SQL query..."
-          autoFocus={true}
+          autoFocus={autoFocus}
           extraBottomPadding={extraBottomPadding}
         />
       </div>

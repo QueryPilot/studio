@@ -1,13 +1,11 @@
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAppStore } from "@/stores/appStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
-import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IconRefresh,
   IconLoader2,
@@ -16,58 +14,68 @@ import {
   IconDownload,
 } from "@tabler/icons-react";
 import { getVersion } from "@tauri-apps/api/app";
-
-interface ReleaseInfo {
-  version: string;
-  notes: string;
-  pub_date: string;
-  download_url: string;
-  signature: string | null;
-}
+import { check } from "@tauri-apps/plugin-updater";
+import type { Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 export default function GeneralPanel() {
-  const {
-    theme,
-    setTheme,
-    sidebarCollapsed,
-    toggleSidebar,
-    preferences,
-    updatePreferences,
-  } = useAppStore();
-  const { setUnsavedChanges, queryTimeoutSecs, setQueryTimeoutSecs } = usePreferencesStore();
+  const { theme, setTheme, zoomLevel, setZoomLevel } = useAppStore();
+  const { setUnsavedChanges, queryTimeoutSecs, setQueryTimeoutSecs } =
+    usePreferencesStore();
 
   const [updateStatus, setUpdateStatus] = useState<
     | "idle"
     | "checking"
     | "available"
-    | "downloading"
-    | "ready"
+    | "installing"
     | "uptodate"
     | "error"
   >("idle");
   const [updateMessage, setUpdateMessage] = useState("");
   const [appVersion, setAppVersion] = useState("");
-  const [pendingUpdate, setPendingUpdate] = useState<ReleaseInfo | null>(null);
-  const [downloadedPath, setDownloadedPath] = useState<string | null>(null);
+  const [availableVersion, setAvailableVersion] = useState<string | null>(null);
+  const pendingUpdateRef = useRef<Update | null>(null);
+
+  const closePendingUpdate = useCallback(async () => {
+    const pending = pendingUpdateRef.current;
+    pendingUpdateRef.current = null;
+
+    if (!pending) {
+      return;
+    }
+
+    try {
+      await pending.close();
+    } catch {
+      // Ignore close errors; update handles are best-effort cleanup.
+    }
+  }, []);
 
   useEffect(() => {
     setUnsavedChanges(false);
     void getVersion().then(setAppVersion);
-  }, []);
+  }, [setUnsavedChanges]);
+
+  useEffect(
+    () => () => {
+      void closePendingUpdate();
+    },
+    [closePendingUpdate],
+  );
 
   const handleCheckUpdate = async () => {
     try {
       setUpdateStatus("checking");
       setUpdateMessage("");
-      setPendingUpdate(null);
-      setDownloadedPath(null);
-
-      const update = await invoke<ReleaseInfo | null>("check_for_updates");
+      setAvailableVersion(null);
+      await closePendingUpdate();
+      const update = await check();
 
       if (update) {
+        pendingUpdateRef.current = update;
+        setAvailableVersion(update.version);
         setUpdateStatus("available");
         setUpdateMessage(`Version ${update.version} available`);
-        setPendingUpdate(update);
       } else {
         setUpdateStatus("uptodate");
         setUpdateMessage("You're on the latest version");
@@ -80,43 +88,21 @@ export default function GeneralPanel() {
     }
   };
 
-  const handleDownloadUpdate = async () => {
+  const handleInstallUpdate = async () => {
+    const pendingUpdate = pendingUpdateRef.current;
     if (!pendingUpdate) return;
 
     try {
-      setUpdateStatus("downloading");
-      setUpdateMessage(`Downloading v${pendingUpdate.version}...`);
-
-      const filePath = await invoke<string>("download_update", {
-        url: pendingUpdate.download_url,
-      });
-
-      setDownloadedPath(filePath);
-      setUpdateStatus("ready");
-      setUpdateMessage(
-        `v${pendingUpdate.version} downloaded. Ready to install.`,
-      );
+      setUpdateStatus("installing");
+      setUpdateMessage(`Installing v${pendingUpdate.version}...`);
+      await pendingUpdate.downloadAndInstall();
+      await closePendingUpdate();
+      setUpdateMessage("Update installed. Restarting...");
+      await relaunch();
     } catch (error) {
       setUpdateStatus("error");
       setUpdateMessage(
-        error instanceof Error ? error.message : "Failed to download update",
-      );
-    }
-  };
-
-  const handleInstallUpdate = async () => {
-    if (!downloadedPath) return;
-
-    try {
-      setUpdateMessage("Opening installer...");
-      await invoke("install_update", { filePath: downloadedPath });
-      setUpdateMessage(
-        "Installer opened. Please follow the installation prompts.",
-      );
-    } catch (error) {
-      setUpdateStatus("error");
-      setUpdateMessage(
-        error instanceof Error ? error.message : "Failed to install update",
+        error instanceof Error ? error.message : "Failed to install update.",
       );
     }
   };
@@ -126,20 +112,16 @@ export default function GeneralPanel() {
     setUnsavedChanges(true);
   };
 
-  const handleFontSizeChange = (value: number[]) => {
-    updatePreferences({ fontSize: value[0] });
-    setUnsavedChanges(true);
-  };
-
-  const handleSidebarToggle = (checked: boolean) => {
-    if (checked !== sidebarCollapsed) {
-      toggleSidebar();
+  const handleZoomChange = (value: number[]) => {
+    const level = value[0];
+    if (level !== undefined) {
+      setZoomLevel(level);
       setUnsavedChanges(true);
     }
   };
 
   return (
-    <div className="max-w-3xl space-y-6 max-h-[calc(100vh - 32px)] overflow-y-scroll -mx-4 px-4">
+    <div className="max-w-3xl space-y-6 max-h-[calc(100vh-32px)] overflow-y-scroll -mx-4 px-4">
       <div className="sticky top-0 bg-background z-10 pb-2">
         <h2 className="text-base font-semibold">General Settings</h2>
         <p className="text-xs text-muted-foreground">
@@ -178,37 +160,30 @@ export default function GeneralPanel() {
 
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <Label className="text-base">Font Size</Label>
+            <Label className="text-base">Zoom Level</Label>
             <span className="text-xs font-medium tabular-nums">
-              {preferences.fontSize}px
+              {zoomLevel}%
             </span>
           </div>
           <Slider
-            value={[preferences.fontSize]}
-            onValueChange={handleFontSizeChange}
-            min={12}
-            max={20}
-            step={1}
+            value={[zoomLevel]}
+            onValueChange={handleZoomChange}
+            min={75}
+            max={150}
+            step={5}
             className="w-full"
           />
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>12px</span>
-            <span>16px</span>
-            <span>20px</span>
+          <div className="relative h-4 text-[10px] text-muted-foreground">
+            {[75, 90, 100, 110, 125, 150].map((stop) => (
+              <span
+                key={stop}
+                className="absolute -translate-x-1/2 tabular-nums"
+                style={{ left: `${((stop - 75) / 75) * 100}%` }}
+              >
+                {stop}%
+              </span>
+            ))}
           </div>
-        </div>
-
-        <div className="flex items-center justify-between py-3 border rounded-xl px-4">
-          <div className="space-y-0.5">
-            <Label className="text-base">Sidebar Collapsed</Label>
-            <p className="text-xs text-muted-foreground">
-              Keep the sidebar collapsed by default
-            </p>
-          </div>
-          <Switch
-            checked={sidebarCollapsed}
-            onCheckedChange={handleSidebarToggle}
-          />
         </div>
 
         <div className="space-y-3 pt-4 border-t">
@@ -239,7 +214,8 @@ export default function GeneralPanel() {
             </div>
           </div>
           <p className="text-xs text-muted-foreground px-1">
-            Recommended: 300 seconds (5 minutes). Long-running analytics queries may need more time.
+            Recommended: 300 seconds (5 minutes). Long-running analytics queries
+            may need more time.
           </p>
         </div>
 
@@ -256,8 +232,8 @@ export default function GeneralPanel() {
                     updateStatus === "error"
                       ? "text-destructive"
                       : updateStatus === "uptodate"
-                      ? "text-green-600"
-                      : "text-muted-foreground"
+                        ? "text-green-600"
+                        : "text-muted-foreground"
                   }`}
                 >
                   {updateMessage}
@@ -269,20 +245,11 @@ export default function GeneralPanel() {
                 <Button
                   variant="default"
                   size="sm"
-                  onClick={handleDownloadUpdate}
-                >
-                  <IconDownload className="h-4 w-4 mr-2" />
-                  Download
-                </Button>
-              )}
-              {updateStatus === "ready" && (
-                <Button
-                  variant="default"
-                  size="sm"
                   onClick={handleInstallUpdate}
                 >
-                  <IconCheck className="h-4 w-4 mr-2" />
-                  Install
+                  <IconDownload className="h-4 w-4 mr-2" />
+                  Install{" "}
+                  {availableVersion ? `v${availableVersion}` : "Update"}
                 </Button>
               )}
               <Button
@@ -290,11 +257,11 @@ export default function GeneralPanel() {
                 size="sm"
                 onClick={handleCheckUpdate}
                 disabled={
-                  updateStatus === "checking" || updateStatus === "downloading"
+                  updateStatus === "checking" || updateStatus === "installing"
                 }
               >
                 {updateStatus === "checking" ||
-                updateStatus === "downloading" ? (
+                updateStatus === "installing" ? (
                   <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : updateStatus === "uptodate" ? (
                   <IconCheck className="h-4 w-4 mr-2 text-green-600" />
@@ -305,9 +272,9 @@ export default function GeneralPanel() {
                 )}
                 {updateStatus === "checking"
                   ? "Checking..."
-                  : updateStatus === "downloading"
-                  ? "Downloading..."
-                  : "Check for Updates"}
+                  : updateStatus === "installing"
+                    ? "Installing..."
+                    : "Check for Updates"}
               </Button>
             </div>
           </div>

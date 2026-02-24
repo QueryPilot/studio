@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import { IconCheck, IconLoader2, IconStarFilled } from "@tabler/icons-react";
-import Fuse, { type IFuseOptions } from "fuse.js";
+import { matchSorter, rankings } from "match-sorter";
 import { useQuery } from "@tanstack/react-query";
 
 import {
@@ -19,13 +19,6 @@ interface SchemaItem {
   isDefault: boolean;
   isCurrent: boolean;
 }
-
-const SCHEMA_FUSE_OPTIONS: IFuseOptions<SchemaItem> = {
-  keys: ["name"],
-  threshold: 0.4,
-  includeScore: true,
-  minMatchCharLength: 1,
-};
 
 interface NestedSchemaListProps {
   listRef?: React.RefObject<HTMLDivElement | null>;
@@ -81,23 +74,21 @@ export function NestedSchemaList({
     }));
   }, [schemas, connectionDefaultSchema, currentSchema]);
 
-  // Create Fuse index
-  const fuse = useMemo(
-    () => new Fuse(schemaItems, SCHEMA_FUSE_OPTIONS),
-    [schemaItems],
-  );
-
   // Filter results based on search query
   const filteredSchemas = useMemo(() => {
-    if (!query.trim()) {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
       return schemaItems;
     }
-    return fuse.search(query).map((r) => r.item);
-  }, [schemaItems, fuse, query]);
+    return matchSorter(schemaItems, trimmedQuery, {
+      keys: [{ key: "name", maxRanking: rankings.STARTS_WITH }],
+      threshold: rankings.MATCHES,
+    });
+  }, [schemaItems, query]);
 
   if (isLoading) {
     return (
-      <CommandList ref={listRef}>
+      <CommandList ref={listRef} className="h-[300px]">
         <div className="flex items-center justify-center py-6 text-xs text-muted-foreground gap-2">
           <IconLoader2 className="size-4 animate-spin" />
           Loading schemas...
@@ -108,7 +99,7 @@ export function NestedSchemaList({
 
   if (error) {
     return (
-      <CommandList ref={listRef}>
+      <CommandList ref={listRef} className="h-[300px]">
         <div className="py-6 text-center text-xs text-destructive">
           Failed to load schemas:{" "}
           {error instanceof Error ? error.message : "Unknown error"}
@@ -118,7 +109,7 @@ export function NestedSchemaList({
   }
 
   return (
-    <CommandList ref={listRef}>
+    <CommandList ref={listRef} className="h-[300px]">
       <CommandEmpty>No schemas found.</CommandEmpty>
 
       <CommandGroup heading="Schemas">

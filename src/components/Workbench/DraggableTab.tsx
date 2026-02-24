@@ -6,9 +6,27 @@ import {
   IconEye,
   IconMathFunction,
   IconBrandTabler,
+  IconLayout2,
+  IconArrowRight,
+  IconCopy,
 } from "@tabler/icons-react";
 import { useDraggable } from "@dnd-kit/core";
-import { CSS } from "@dnd-kit/utilities";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuCheckboxItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { shouldShowConnectionColors } from "@/utils/connectionColors";
+import { getDatabaseLogo } from "@/utils/databaseLogos";
+import type { DbType } from "@/types/connection";
 
 interface DraggableTabProps {
   tabId: string;
@@ -23,8 +41,38 @@ interface DraggableTabProps {
   returnType?: string;
   objectType?: "function" | "procedure";
   isNextActive?: boolean;
+  /** Connection ID this tab belongs to */
+  connectionId?: string;
+  /** All connection IDs in the workspace (for color assignment) */
+  workspaceConnectionIds?: string[];
+  /** Database name for tooltip display */
+  databaseName?: string;
+  /** Database type for showing database logo */
+  dbType?: DbType;
+  /** Connection display name for subtitle */
+  connectionName?: string;
+  /** Schema name for subtitle */
+  schemaName?: string;
+  /** Whether this is the only tab in the panel */
+  isOnlyTab?: boolean;
+  /** Index of this tab in the panel */
+  tabIndex?: number;
+  /** Total number of tabs in the panel */
+  totalTabs?: number;
   onActivate: () => void;
   onClose: () => void;
+  /** Close all other tabs in the panel */
+  onCloseOthers?: () => void;
+  /** Close all tabs to the right of this tab */
+  onCloseToRight?: () => void;
+  /** Close all tabs in the panel */
+  onCloseAll?: () => void;
+  /** Copy the tab name to clipboard */
+  onCopyName?: () => void;
+  /** Whether sort is synced across tabs of the same table */
+  syncSort?: boolean;
+  /** Toggle sort sync for this tab */
+  onToggleSyncSort?: () => void;
 }
 
 export const DraggableTab: React.FC<DraggableTabProps> = ({
@@ -40,19 +88,34 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
   returnType,
   objectType,
   isNextActive = false,
+  connectionId,
+  workspaceConnectionIds = [],
+  databaseName,
+  dbType,
+  connectionName,
+  schemaName,
+  isOnlyTab = false,
+  tabIndex = 0,
+  totalTabs = 1,
   onActivate,
   onClose,
+  onCloseOthers,
+  onCloseToRight,
+  onCloseAll,
+  onCopyName,
+  syncSort,
+  onToggleSyncSort,
 }) => {
   const draggableId = `tab-${panelId}-${tabId}`;
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
-    useDraggable({
-      id: draggableId,
-      data: { tabId, panelId },
-    });
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: draggableId,
+    data: { tabId, panelId, displayName, tabType, isView, kind },
+  });
 
+  // Don't apply transform here - DragOverlay handles the visual feedback
+  // Only reduce opacity to indicate the element is being dragged
   const style = {
-    transform: CSS.Translate.toString(transform),
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0.4 : 1,
   };
 
   const Icon = useMemo(() => {
@@ -68,6 +131,9 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
         return IconMathFunction;
       case "query":
         return IconBrandTabler;
+      case "mongo-collection":
+      case "collection-design":
+        return IconLayout2;
       default:
         return IconTable;
     }
@@ -96,7 +162,8 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
     if (tabType === "function") {
       // Procedures return 'void', functions have a return type
       const isProcedure =
-        objectType === "procedure" || (objectType == null && returnType === "void");
+        objectType === "procedure" ||
+        (objectType == null && returnType === "void");
       if (isProcedure) {
         return cn(
           "h-3.5 w-3.5",
@@ -108,53 +175,148 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
         isActive && isFocused ? "text-purple-500" : "text-purple-500/60",
       );
     }
+    if (tabType === "mongo-collection" || tabType === "collection-design") {
+      return cn(
+        "h-3.5 w-3.5",
+        isActive && isFocused ? "text-emerald-600" : "text-emerald-600/60",
+      );
+    }
     return "h-3.5 w-3.5";
   };
 
+  // Connection indicator - only shown when 2+ connections in workspace
+  const showConnectionIndicator =
+    connectionId &&
+    workspaceConnectionIds.length > 0 &&
+    shouldShowConnectionColors(workspaceConnectionIds.length);
+
+  // Get database logo path if dbType is provided
+  const databaseLogoPath =
+    showConnectionIndicator && dbType ? getDatabaseLogo(dbType) : null;
+
+  // Build subtitle for multi-connection context: "connectionName:schema"
+  const subtitle = useMemo(() => {
+    if (!showConnectionIndicator) return null;
+    if (!connectionName && !schemaName) return null;
+    const parts: string[] = [];
+    if (connectionName) parts.push(connectionName);
+    if (schemaName) parts.push(schemaName);
+    return parts.join(":");
+  }, [showConnectionIndicator, connectionName, schemaName]);
+
+  const hasTabsToRight = tabIndex < totalTabs - 1;
+
   return (
     <>
-      <div
-        ref={setNodeRef}
-        style={style}
-        {...listeners}
-        {...attributes}
-        className={cn(
-          "group px-2 py-1 text-xs h-8 transition-colors flex items-center gap-1.5 cursor-move relative group",
-          {
-            "bg-background text-foreground font-medium z-10 sticky left-0 right-0":
-              isActive && isFocused,
-            "bg-background/60 z-10 sticky left-0 right-0":
-              isActive && !isFocused,
-            "bg-muted": !isActive,
-            "hover:bg-background/80": !isActive && !isFocused,
-            "opacity-50": isDragging,
-          },
-        )}
-        onClick={(e) => {
-          e.stopPropagation();
-          onActivate();
-        }}
-      >
-        <div className="h-5 w-5 flex items-center justify-center shrink-0">
-          <button
-            className="hidden group-hover:flex group-focus-within:flex items-center justify-center hover:bg-destructive/10 rounded transition-colors h-5 w-5"
-            onClick={(e) => {
-              e.stopPropagation();
-              onClose();
-            }}
-          >
-            <IconX className="h-3.5 w-3.5" />
-          </button>
+      <ContextMenu>
+        <ContextMenuTrigger
+          render={
+            <div
+              ref={setNodeRef}
+              style={style}
+              {...listeners}
+              {...attributes}
+              className={cn(
+                "group px-2 py-1 text-xs h-8 transition-colors flex items-center gap-1.5 cursor-move relative group backdrop-blur-lg",
+                {
+                  "bg-background/80 text-foreground font-medium z-10 sticky left-0 right-0":
+                    isActive && isFocused,
+                  "bg-background/60 z-10 sticky left-0 right-0 text-muted-foreground":
+                    isActive && !isFocused,
+                  "bg-secondary text-muted-foreground/60": !isActive,
+                  "hover:bg-background/80": !isActive && !isFocused,
+                  "opacity-50": isDragging,
+                },
+              )}
+              onClick={(e) => {
+                e.stopPropagation();
+                onActivate();
+              }}
+            >
+              {/* Database logo indicator */}
+              {databaseLogoPath && (
+                <Tooltip>
+                  <TooltipTrigger className="flex items-center">
+                    <img
+                      src={databaseLogoPath}
+                      alt={dbType || "Database"}
+                      className="h-3.5 w-3.5 shrink-0"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" sideOffset={8}>
+                    {databaseName || "Unknown database"}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              <div className="h-5 w-5 flex items-center justify-center shrink-0">
+                <button
+                  className="hidden group-hover:flex group-focus-within:flex items-center justify-center hover:bg-destructive/10 rounded transition-colors h-5 w-5"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClose();
+                  }}
+                >
+                  <IconX className="h-3.5 w-3.5" />
+                </button>
 
-          <Icon
-            className={cn(
-              getIconClass(),
-              "block group-hover:hidden group-focus-within:hidden",
-            )}
-          />
-        </div>
-        <span className="whitespace-nowrap pr-1">{displayName}</span>
-      </div>
+                <Icon
+                  className={cn(
+                    getIconClass(),
+                    "block group-hover:hidden group-focus-within:hidden",
+                  )}
+                />
+              </div>
+              <span className="whitespace-nowrap pr-1">
+                {displayName}
+                {subtitle && (
+                  <span className="text-muted-foreground ml-1 text-[10px]">
+                    {subtitle}
+                  </span>
+                )}
+              </span>
+            </div>
+          }
+        />
+        <ContextMenuContent>
+          <ContextMenuItem onClick={onClose}>
+            <IconX className="h-4 w-4 mr-2" />
+            Close
+          </ContextMenuItem>
+          <ContextMenuItem onClick={onCloseOthers} disabled={isOnlyTab}>
+            <span className="h-4 w-4 mr-2" />
+            Close Others
+          </ContextMenuItem>
+          <ContextMenuItem onClick={onCloseToRight} disabled={!hasTabsToRight}>
+            <IconArrowRight className="h-4 w-4 mr-2" />
+            Close to the Right
+          </ContextMenuItem>
+          <ContextMenuItem onClick={onCloseAll}>
+            <span className="h-4 w-4 mr-2" />
+            Close All
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={onCopyName}>
+            <IconCopy className="h-4 w-4 mr-2" />
+            Copy Name
+          </ContextMenuItem>
+          {onToggleSyncSort && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuCheckboxItem
+                checked={!!syncSort}
+                onCheckedChange={() => {
+                  onToggleSyncSort();
+                }}
+              >
+                Sync Grid State Across Tabs
+              </ContextMenuCheckboxItem>
+            </>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
 
       <div
         className={cn("py-1.5 bg-muted/60 min-w-px max-w-px", {

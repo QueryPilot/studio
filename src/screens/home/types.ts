@@ -4,10 +4,10 @@ export type ContentMode =
   | "details"
   | "workspace-list"
   | "workspace-detail"
-  | "workspace-form";
+  | "workspace-form"
+  | "workspace-creation-form";
 
 export type FormMode = "create" | "edit" | "import";
-export type WorkspaceFormMode = "create" | "edit";
 
 export interface HomeScreenState {
   // Content mode
@@ -20,32 +20,30 @@ export interface HomeScreenState {
   // Form state
   formMode: FormMode;
   formConnectionId: string | null;
+  formPreselectedWorkspaceId: string | null;
+
+  // Workspace form state
+  workspaceFormMode: "create" | "edit";
+  workspaceFormId: string | null;
 
   // Workspace state
-  selectedWorkspaceId: string | null; // For detail view
-  workspaceFilterId: string | null; // Filter connections by workspace
-  workspaceFormMode: WorkspaceFormMode;
-  editingWorkspaceId: string | null;
+  selectedWorkspaceId: string | null;
+  workspaceFilterId: string | null;
 
   // Filters
   activeEnvFilters: string[];
   searchQuery: string;
 
   // UI state
-  actionBarExpanded: boolean;
-  sidebarWidth: number;
   collapsedGroups: string[];
 
   // Actions
   setContentMode: (mode: ContentMode) => void;
   selectConnection: (id: string | null) => void;
-  openConnectionForm: (mode: FormMode, id?: string) => void;
+  openConnectionForm: (mode: FormMode, id?: string, workspaceId?: string) => void;
   closeForm: () => void;
   toggleEnvFilter: (env: string) => void;
   setSearchQuery: (query: string) => void;
-  toggleActionBar: () => void;
-  setActionBarExpanded: (expanded: boolean) => void;
-  setSidebarWidth: (width: number) => void;
   toggleGroup: (group: string) => void;
 
   // Multi-select actions
@@ -58,7 +56,10 @@ export interface HomeScreenState {
   // Workspace actions
   showWorkspaceList: () => void;
   showWorkspaceDetail: (workspaceId: string) => void;
-  showWorkspaceForm: (mode: WorkspaceFormMode, workspaceId?: string) => void;
   setWorkspaceFilter: (workspaceId: string | null) => void;
   clearWorkspaceFilter: () => void;
+  openWorkspaceForm: (mode: "create" | "edit", workspaceId?: string) => void;
+  closeWorkspaceForm: () => void;
+  openWorkspaceCreationForm: () => void;
+  closeWorkspaceCreationForm: () => void;
 }

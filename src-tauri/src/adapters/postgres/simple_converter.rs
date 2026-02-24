@@ -38,6 +38,7 @@
 
 use postgres_types::Type;
 use serde_json::Value as JsonValue;
+use tokio_postgres::types::FromSql;
 use tokio_postgres::Row;
 use uuid::Uuid;
 
@@ -91,25 +92,26 @@ impl SimpleConverter {
                 .flatten()
                 .map_or(JsonValue::Null, |v| JsonValue::Number(v.into())),
 
-            Type::INT8 => row
-                .try_get::<_, Option<i64>>(idx)
-                .ok()
-                .flatten()
-                .map_or(JsonValue::Null, |v| {
-                    // CRITICAL: BIGINT values beyond JavaScript's MAX_SAFE_INTEGER must be strings
-                    // JavaScript Number.MAX_SAFE_INTEGER = 2^53 - 1 = 9,007,199,254,740,991
-                    // PostgreSQL BIGINT max = 9,223,372,036,854,775,807
-                    const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
-                    const MIN_SAFE_INTEGER: i64 = -9_007_199_254_740_991;
-                    
-                    if v > MAX_SAFE_INTEGER || v < MIN_SAFE_INTEGER {
-                        // Send as string to preserve precision
-                        JsonValue::String(v.to_string())
-                    } else {
-                        // Safe to send as number
-                        JsonValue::Number(v.into())
-                    }
-                }),
+            Type::INT8 => {
+                row.try_get::<_, Option<i64>>(idx)
+                    .ok()
+                    .flatten()
+                    .map_or(JsonValue::Null, |v| {
+                        // CRITICAL: BIGINT values beyond JavaScript's MAX_SAFE_INTEGER must be strings
+                        // JavaScript Number.MAX_SAFE_INTEGER = 2^53 - 1 = 9,007,199,254,740,991
+                        // PostgreSQL BIGINT max = 9,223,372,036,854,775,807
+                        const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+                        const MIN_SAFE_INTEGER: i64 = -9_007_199_254_740_991;
+
+                        if v > MAX_SAFE_INTEGER || v < MIN_SAFE_INTEGER {
+                            // Send as string to preserve precision
+                            JsonValue::String(v.to_string())
+                        } else {
+                            // Safe to send as number
+                            JsonValue::Number(v.into())
+                        }
+                    })
+            }
 
             // Floats
             Type::FLOAT4 => row
@@ -129,7 +131,7 @@ impl SimpleConverter {
             // Numeric/Money - return as string to preserve precision
             Type::NUMERIC | Type::MONEY => {
                 // We can't easily get Numeric as f64 without losing precision,
-                // and rust_decimal/bigdecimal handling might vary. 
+                // and rust_decimal/bigdecimal handling might vary.
                 // Best to cast to string in SQL, but here we can try basic string conversion
                 // if the driver supports it, or generic string fallback.
                 // NOTE: tokio-postgres doesn't implement FromSql<String> for NUMERIC/MONEY by default.
@@ -138,11 +140,11 @@ impl SimpleConverter {
                 // Actually, let's use the fallback logic which tries String.
                 // If that fails, we might return <NUMERIC>.
                 // Update: Let's explicitly try to handle them if we can.
-                // But without knowing which Decimal crate is used (rust_decimal or bigdecimal), 
+                // But without knowing which Decimal crate is used (rust_decimal or bigdecimal),
                 // it's safer to let the fallback handle it or return a placeholder.
                 // However, since we want tests to pass, we should probably ensure numeric values come back.
                 // Tests use `::numeric` which returns `Decimal`.
-                // Let's rely on the catch-all `_` which tries `Option<String>`. 
+                // Let's rely on the catch-all `_` which tries `Option<String>`.
                 // But tokio-postgres WON'T convert Numeric to String automatically.
                 // So we really should handle it.
                 // Check Cargo.toml: `rust_decimal = ... features = ["db-postgres"]`.
@@ -161,20 +163,12 @@ impl SimpleConverter {
                     .map_or(JsonValue::Null, JsonValue::String)
             }
 
-            // JSON/JSONB - pass through as string (NO parsing!)
+            // JSON/JSONB - keep structured JSON value
             Type::JSON | Type::JSONB => row
                 .try_get::<_, Option<serde_json::Value>>(idx)
                 .ok()
                 .flatten()
-                .map_or(JsonValue::Null, |v| v) // Return the Value directly
-                // Wait, SimpleConverter doc says "pass through as string".
-                // But `serde_json::Value` is better if we have it.
-                // Let's stick to the existing logic which was `Option<String>`?
-                // The existing logic used `Option<String>` which might return the serialized JSON.
-                // If we use `serde_json::Value`, we get structure.
-                // The test expects `row[0]["key"]` or string.
-                // Let's try `serde_json::Value`.
-                ,
+                .map_or(JsonValue::Null, |v| v), // Return the Value directly
 
             // UUID
             Type::UUID => row
@@ -189,14 +183,14 @@ impl SimpleConverter {
                 .ok()
                 .flatten()
                 .map_or(JsonValue::Null, |v| {
-                     // Convert to hex string
-                     use std::fmt::Write;
-                     let mut s = String::with_capacity(v.len() * 2 + 2);
-                     s.push_str("\\x");
-                     for b in v {
-                         write!(s, "{:02x}", b).ok();
-                     }
-                     JsonValue::String(s)
+                    // Convert to hex string
+                    use std::fmt::Write;
+                    let mut s = String::with_capacity(v.len() * 2 + 2);
+                    s.push_str("\\x");
+                    for b in v {
+                        write!(s, "{:02x}", b).ok();
+                    }
+                    JsonValue::String(s)
                 }),
 
             // Date/Time types - require chrono
@@ -205,7 +199,7 @@ impl SimpleConverter {
                 .ok()
                 .flatten()
                 .map_or(JsonValue::Null, |v| JsonValue::String(v.to_string())),
-            
+
             Type::TIME => row
                 .try_get::<_, Option<chrono::NaiveTime>>(idx)
                 .ok()
@@ -227,20 +221,38 @@ impl SimpleConverter {
             // Arrays - convert to JSON array of strings
             _ if pg_type.name().starts_with('_') => Self::convert_array_fallback(row, idx),
 
-            // All other types - try as string first, then fallback
-            _ => row
-                .try_get::<_, Option<String>>(idx)
-                .ok()
-                .flatten()
-                .map_or_else(
-                    || {
-                        // Fallback: type doesn't implement FromSql<String>
-                        // Return type name as placeholder
-                        tracing::warn!("SimpleConverter: Type {:?} (oid: {}) fallback to string failed", pg_type, pg_type.oid());
-                        JsonValue::String(format!("<{}>", pg_type.name()))
-                    },
-                    JsonValue::String,
-                ),
+            // Enum types - read as raw bytes and decode as UTF-8
+            // PostgreSQL enum values are stored as text internally
+            _ if matches!(pg_type.kind(), postgres_types::Kind::Enum(_)) => {
+                // For enum types, we need to read the raw column value
+                // tokio-postgres stores enum values as the variant name string
+                Self::convert_enum_value(row, idx)
+            }
+
+            // All other types - try as string, then raw bytes with type-specific formatting
+            _ => {
+                // First try String (works for text-like types)
+                if let Ok(Some(s)) = row.try_get::<_, Option<String>>(idx) {
+                    return JsonValue::String(s);
+                }
+                // Try raw bytes with type-specific formatting
+                if let Ok(Some(raw)) = row.try_get::<_, Option<RawBytes>>(idx) {
+                    if let Some(s) = Self::format_raw_value(pg_type, &raw.0) {
+                        return JsonValue::String(s);
+                    }
+                }
+                // Check for NULL (raw bytes approach returns None for NULL)
+                if let Ok(None) = row.try_get::<_, Option<RawBytes>>(idx) {
+                    return JsonValue::Null;
+                }
+                // Final fallback: type placeholder
+                tracing::warn!(
+                    "SimpleConverter: Type {:?} (oid: {}) could not be converted",
+                    pg_type,
+                    pg_type.oid()
+                );
+                JsonValue::String(format!("<{}>", pg_type.name()))
+            }
         }
     }
 
@@ -253,11 +265,250 @@ impl SimpleConverter {
 
         // Try to get as array of i32
         if let Ok(Some(arr)) = row.try_get::<_, Option<Vec<i32>>>(idx) {
-            return JsonValue::Array(arr.into_iter().map(|v| JsonValue::Number(v.into())).collect());
+            return JsonValue::Array(
+                arr.into_iter()
+                    .map(|v| JsonValue::Number(v.into()))
+                    .collect(),
+            );
         }
 
         // Fallback
         JsonValue::Null
+    }
+
+    /// Convert PostgreSQL enum value to JSON string.
+    fn convert_enum_value(row: &Row, idx: usize) -> JsonValue {
+        row.try_get::<_, Option<RawBytes>>(idx)
+            .ok()
+            .flatten()
+            .and_then(|raw| std::str::from_utf8(&raw.0).ok().map(|s| s.to_string()))
+            .map_or(JsonValue::Null, JsonValue::String)
+    }
+
+    /// Format raw binary bytes into a string based on PostgreSQL type.
+    /// Reuses binary parsing logic from DirectMsgPackEncoder.
+    fn format_raw_value(pg_type: &Type, raw: &[u8]) -> Option<String> {
+        match pg_type.name() {
+            // INET / CIDR: family(1) + prefix(1) + is_cidr(1) + addr_len(1) + addr_bytes
+            "inet" | "cidr" => Self::format_inet(raw),
+
+            // INTERVAL: microseconds(i64) + days(i32) + months(i32) = 16 bytes
+            "interval" => Self::format_interval(raw),
+
+            // MACADDR: 6 bytes, MACADDR8: 8 bytes
+            "macaddr" => Self::format_macaddr(raw, 6),
+            "macaddr8" => Self::format_macaddr(raw, 8),
+
+            // BIT / VARBIT: bit_len(i32) + data bytes
+            "bit" | "varbit" => Self::format_bit(raw),
+
+            // XML: UTF-8 text in binary format
+            "xml" => std::str::from_utf8(raw).ok().map(|s| s.to_string()),
+
+            // TSVECTOR: binary lexeme format
+            "tsvector" => Self::format_tsvector(raw),
+
+            // TSQUERY: try UTF-8 fallback (complex binary format)
+            "tsquery" => std::str::from_utf8(raw).ok().map(|s| s.to_string()),
+
+            // Range types: try generic range parser
+            "int4range" | "int8range" | "numrange" | "daterange" | "tsrange" | "tstzrange" => {
+                // Range binary format is complex; try UTF-8 fallback
+                std::str::from_utf8(raw).ok().map(|s| s.to_string())
+            }
+
+            // POINT: x(f64) + y(f64) = 16 bytes
+            "point" => Self::format_point(raw),
+
+            // Default: try UTF-8 interpretation
+            _ => std::str::from_utf8(raw).ok().map(|s| s.to_string()),
+        }
+    }
+
+    fn format_inet(raw: &[u8]) -> Option<String> {
+        if raw.len() < 4 {
+            return None;
+        }
+        let family = raw[0];
+        let prefix = raw[1];
+        let addr_len = raw[3] as usize;
+        if raw.len() < 4 + addr_len {
+            return None;
+        }
+        let addr = &raw[4..4 + addr_len];
+        match family {
+            2 if addr_len == 4 => {
+                let ip = std::net::Ipv4Addr::new(addr[0], addr[1], addr[2], addr[3]);
+                Some(if prefix == 32 {
+                    ip.to_string()
+                } else {
+                    format!("{}/{}", ip, prefix)
+                })
+            }
+            3 if addr_len == 16 => {
+                let ip = std::net::Ipv6Addr::from(<[u8; 16]>::try_from(addr).ok()?);
+                Some(if prefix == 128 {
+                    ip.to_string()
+                } else {
+                    format!("{}/{}", ip, prefix)
+                })
+            }
+            _ => None,
+        }
+    }
+
+    fn format_interval(raw: &[u8]) -> Option<String> {
+        if raw.len() != 16 {
+            return None;
+        }
+        let microseconds = i64::from_be_bytes(raw[0..8].try_into().ok()?);
+        let days = i32::from_be_bytes(raw[8..12].try_into().ok()?);
+        let months = i32::from_be_bytes(raw[12..16].try_into().ok()?);
+
+        let mut parts = Vec::new();
+        if months != 0 {
+            let years = months / 12;
+            let mons = months % 12;
+            if years != 0 {
+                parts.push(format!(
+                    "{} {}",
+                    years,
+                    if years.abs() == 1 { "year" } else { "years" }
+                ));
+            }
+            if mons != 0 {
+                parts.push(format!(
+                    "{} {}",
+                    mons,
+                    if mons.abs() == 1 { "mon" } else { "mons" }
+                ));
+            }
+        }
+        if days != 0 {
+            parts.push(format!(
+                "{} {}",
+                days,
+                if days.abs() == 1 { "day" } else { "days" }
+            ));
+        }
+        if microseconds != 0 || parts.is_empty() {
+            let total_secs = microseconds / 1_000_000;
+            let us = (microseconds % 1_000_000).unsigned_abs() as u32;
+            let hours = total_secs / 3600;
+            let mins = ((total_secs % 3600) / 60).unsigned_abs() as u32;
+            let secs = (total_secs % 60).unsigned_abs() as u32;
+            if us != 0 {
+                parts.push(format!("{:02}:{:02}:{:02}.{:06}", hours, mins, secs, us));
+            } else {
+                parts.push(format!("{:02}:{:02}:{:02}", hours, mins, secs));
+            }
+        }
+        Some(parts.join(" "))
+    }
+
+    fn format_macaddr(raw: &[u8], len: usize) -> Option<String> {
+        if raw.len() != len {
+            return None;
+        }
+        let parts: Vec<String> = raw.iter().map(|b| format!("{:02x}", b)).collect();
+        Some(parts.join(":"))
+    }
+
+    fn format_bit(raw: &[u8]) -> Option<String> {
+        if raw.len() < 4 {
+            return None;
+        }
+        let bit_len = i32::from_be_bytes(raw[0..4].try_into().ok()?) as usize;
+        let bytes = &raw[4..];
+        let mut s = String::with_capacity(bit_len);
+        for i in 0..bit_len {
+            let byte_idx = i / 8;
+            let bit_idx = 7 - (i % 8);
+            if byte_idx < bytes.len() {
+                s.push(if (bytes[byte_idx] >> bit_idx) & 1 == 1 {
+                    '1'
+                } else {
+                    '0'
+                });
+            }
+        }
+        Some(s)
+    }
+
+    fn format_tsvector(raw: &[u8]) -> Option<String> {
+        if raw.len() < 4 {
+            return None;
+        }
+        let n_lexemes = i32::from_be_bytes(raw[0..4].try_into().ok()?) as usize;
+        let mut offset = 4;
+        let mut result = String::with_capacity(raw.len() * 2);
+
+        for i in 0..n_lexemes {
+            let lexeme_start = offset;
+            while offset < raw.len() && raw[offset] != 0 {
+                offset += 1;
+            }
+            if offset >= raw.len() {
+                return None;
+            }
+            let lexeme = std::str::from_utf8(&raw[lexeme_start..offset]).ok()?;
+            offset += 1; // skip null terminator
+
+            if offset + 2 > raw.len() {
+                return None;
+            }
+            let n_positions = u16::from_be_bytes(raw[offset..offset + 2].try_into().ok()?) as usize;
+            offset += 2;
+
+            if i > 0 {
+                result.push(' ');
+            }
+            result.push('\'');
+            result.push_str(lexeme);
+            result.push('\'');
+
+            if n_positions > 0 {
+                result.push(':');
+                for j in 0..n_positions {
+                    if offset + 2 > raw.len() {
+                        return None;
+                    }
+                    let pos_val = u16::from_be_bytes(raw[offset..offset + 2].try_into().ok()?);
+                    offset += 2;
+                    let position = pos_val & 0x3FFF;
+                    if j > 0 {
+                        result.push(',');
+                    }
+                    result.push_str(&position.to_string());
+                }
+            }
+        }
+        Some(result)
+    }
+
+    fn format_point(raw: &[u8]) -> Option<String> {
+        if raw.len() != 16 {
+            return None;
+        }
+        let x = f64::from_be_bytes(raw[0..8].try_into().ok()?);
+        let y = f64::from_be_bytes(raw[8..16].try_into().ok()?);
+        Some(format!("({},{})", x, y))
+    }
+}
+
+/// Wrapper to extract raw binary bytes from any PostgreSQL column.
+struct RawBytes(Vec<u8>);
+
+impl<'a> FromSql<'a> for RawBytes {
+    fn from_sql(
+        _ty: &postgres_types::Type,
+        raw: &'a [u8],
+    ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        Ok(RawBytes(raw.to_vec()))
+    }
+
+    fn accepts(_ty: &postgres_types::Type) -> bool {
+        true // Accept any type
     }
 }
 

@@ -1,4 +1,4 @@
-import { IconStar, IconTrash, IconPencil, IconCopy } from "@tabler/icons-react";
+import { IconStar, IconTrash, IconPencil, IconCopy, IconDatabaseExport, IconLink } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import {
   ContextMenu,
@@ -13,9 +13,13 @@ import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { windowManager } from "@/services/windowManager";
 import { toast } from "sonner";
+import { buildConnectionUri } from "@/utils/connectionParser";
 
 interface ConnectionRowProps {
   connection: StoredConnection;
+  selectionMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }
 
 const TAG_COLORS: Record<string, { bg: string; text: string }> = {
@@ -36,7 +40,12 @@ function getTagColor(tag: string) {
   return TAG_COLORS[lower] || { bg: "bg-muted", text: "text-muted-foreground" };
 }
 
-export function ConnectionRow({ connection }: ConnectionRowProps) {
+export function ConnectionRow({
+  connection,
+  selectionMode = false,
+  isSelected = false,
+  onToggleSelect,
+}: ConnectionRowProps) {
   const openConnectionForm = useHomeScreenStore((s) => s.openConnectionForm);
   const toggleFavorite = useConnectionStore((s) => s.toggleFavorite);
   const deleteConnection = useConnectionStore((s) => s.deleteConnection);
@@ -97,6 +106,36 @@ export function ConnectionRow({ connection }: ConnectionRowProps) {
     }
   };
 
+  const handleBackupRestore = async () => {
+    try {
+      await windowManager.openBackupRestore(profile.id);
+    } catch (error) {
+      toast.error("Failed to open backup/restore", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
+
+  const handleCopyUri = async () => {
+    try {
+      const uri = buildConnectionUri(profile);
+      await navigator.clipboard.writeText(uri);
+      toast.success("URI copied to clipboard");
+    } catch (error) {
+      toast.error("Failed to copy URI", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
+
+  const handleClick = () => {
+    if (selectionMode && onToggleSelect) {
+      onToggleSelect(profile.id);
+    } else {
+      handleConnect();
+    }
+  };
+
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -107,12 +146,16 @@ export function ConnectionRow({ connection }: ConnectionRowProps) {
               "group flex items-center gap-3 px-2 py-2 rounded outline-none",
               "transition-colors duration-100 cursor-pointer",
               "hover:bg-accent/50 focus:bg-accent focus:ring-1 focus:ring-primary",
+              selectionMode && isSelected && "ring-2 ring-primary bg-primary/5",
             )}
-            onClick={handleConnect}
+            onClick={handleClick}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                handleConnect();
+                handleClick();
+              } else if (e.key === " " && selectionMode) {
+                e.preventDefault();
+                onToggleSelect?.(profile.id);
               } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                 e.preventDefault();
                 const items = Array.from(
@@ -133,6 +176,33 @@ export function ConnectionRow({ connection }: ConnectionRowProps) {
             data-connection-item
             data-connection-id={profile.id}
           >
+            {/* Selection checkbox */}
+            {selectionMode && (
+              <div
+                className={cn(
+                  "h-4 w-4 rounded border flex items-center justify-center shrink-0",
+                  isSelected
+                    ? "bg-primary border-primary"
+                    : "border-muted-foreground/30"
+                )}
+              >
+                {isSelected && (
+                  <svg
+                    className="h-3 w-3 text-primary-foreground"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={3}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                )}
+              </div>
+            )}
             {/* DB Icon */}
             <img
               src={getDatabaseLogo(profile.db_type)}
@@ -192,6 +262,14 @@ export function ConnectionRow({ connection }: ConnectionRowProps) {
           <IconCopy className="h-3 w-3 mr-2" />
           Clone
           <span className="ml-auto text-[10px] text-muted-foreground">⌘D</span>
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => void handleCopyUri()} className="text-xs">
+          <IconLink className="h-3 w-3 mr-2" />
+          Copy URI
+        </ContextMenuItem>
+        <ContextMenuItem onClick={handleBackupRestore} className="text-xs">
+          <IconDatabaseExport className="h-3 w-3 mr-2" />
+          Backup/Restore...
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem

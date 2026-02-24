@@ -5,7 +5,6 @@ import React, {
   memo,
   useCallback,
   Suspense,
-  useMemo,
   useEffect,
 } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -20,29 +19,39 @@ import {
   IconAssembly,
   IconLayoutGrid,
 } from "@tabler/icons-react";
-import { TableDataGrid } from "@/components/DataGrid";
+import { Loader2 } from "lucide-react";
+import { SqlDataGrid, DocumentDataGrid, KeyValueDataGrid } from "@/components/DataGrid";
 import { TableStructure } from "@/components/TableStructure";
 import { TableIndexes } from "@/components/TableIndexes";
 import { TableTriggers } from "@/components/TableTriggers";
 import { TablePartitions } from "@/components/TablePartitions";
 import { ObjectDefinition } from "@/components/ObjectDefinition";
 import { QueryPanel } from "@/components/QueryPanel";
+import { MongoQueryPanel } from "@/components/MongoQueryPanel";
+import { RedisCliPanel } from "@/components/RedisCliPanel";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
-import { isMySQLCompatible } from "@/types/connection";
+import { isMySQLCompatible, DbType } from "@/types/connection";
 import { Skeleton } from "../ui/skeleton";
 import { type TabMetadata } from "@/types/workbench";
 import { ERDPanel } from "@/components/Erd";
 import { TableDesigner } from "@/components/TableDesigner";
+import { CollectionDesigner } from "@/components/CollectionDesigner";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
+import { useTabStateStore } from "@/stores/tabStateStore";
 import { FeatureErrorBoundary } from "@/components/FeatureErrorBoundary";
-import { CollectionBrowser } from "@/components/MongoDB/CollectionBrowser";
-import { KeyBrowser } from "@/components/Redis/KeyBrowser";
+import { writeClipboardText } from "@/lib/clipboard";
 
 interface PanelContentRendererProps {
   panelId: string;
   tabId: string;
   metadata?: TabMetadata;
+}
+
+/** Per-tab grid preferences key. Returns undefined when sync is ON (default). */
+function perTabSortGridId(baseGridId: string, tabId: string, syncSort: boolean | undefined): string | undefined {
+  return syncSort === false ? `${baseGridId}:::tab:::${tabId}` : undefined;
 }
 
 // Loading skeleton for tab content
@@ -65,15 +74,60 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       (state) => state.connectionId,
     );
     const getConnection = useConnectionStore((state) => state.getConnection);
-    const focusedPanelId = useWorkbenchStore((state) => state.focusedPanelId);
+    const isPanelFocused = usePanelFocusStore(
+      useCallback(
+        (state: { focusedPanelId: string | null }) => state.focusedPanelId === panelId,
+        [panelId],
+      ),
+    );
+
+    // Visibility guard: defer heavy content rendering to allow instant tab switching
+    const [contentReady, setContentReady] = useState(false);
+
+    useEffect(() => {
+      setContentReady(false);
+      let cancelled = false;
+      // Use double-rAF to ensure we're past the first paint
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!cancelled) {
+            setContentReady(true);
+          }
+        });
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [tabId]);
 
     // Get dbType from connection profile
     const connectionId = metadata?.connectionId || activeConnectionId || "";
     const connection = getConnection(connectionId);
-    const dbType = connection?.profile?.db_type;
-    const isPanelFocused = focusedPanelId === panelId;
+    const dbType = connection?.profile.db_type;
     const type = metadata?.type || "table";
-    const [activeView, setActiveView] = useState(metadata?.viewType || "data");
+
+    // For table tabs, load/persist viewType to tabStateStore
+    const loadTabStateAsync = useTabStateStore((state) => state.loadTabStateAsync);
+    const setQueryState = useTabStateStore((state) => state.setQueryState);
+    const persistedTableViewType = useTabStateStore(
+      (state) => state.queryStates.get(tabId)?.tableViewType,
+      (a, b) => a === b
+    );
+
+    // Load persisted state on mount (for table tabs)
+    useEffect(() => {
+      if (type === "table") {
+        void loadTabStateAsync(tabId);
+      }
+    }, [tabId, type, loadTabStateAsync]);
+
+    const [activeView, setActiveView] = useState(() => {
+      // First check for persisted table view type
+      if (type === "table" && persistedTableViewType) {
+        return persistedTableViewType;
+      }
+      return metadata?.viewType || "data";
+    });
     const definitionRef = useRef<string>("");
     const [viewActions, setViewActions] = useState<React.ReactNode>(null);
     const [copied, setCopied] = useState(false);
@@ -95,7 +149,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     const handleCopy = async () => {
       if (activeView === "definition" && definitionRef.current) {
         try {
-          await navigator.clipboard.writeText(definitionRef.current);
+          await writeClipboardText(definitionRef.current);
           setCopied(true);
           if (copyTimeoutRef.current) {
             clearTimeout(copyTimeoutRef.current);
@@ -127,12 +181,23 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [metadata?.viewType]);
 
+    // Sync from persisted state when it loads (for table tabs)
+    // Note: activeView is intentionally excluded from deps - we only want to sync
+    // when persistedTableViewType first loads, not when user changes activeView
+    useEffect(() => {
+      if (type === "table" && persistedTableViewType && persistedTableViewType !== activeView) {
+        isExternalUpdate.current = true;
+        setActiveView(persistedTableViewType);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [persistedTableViewType, type]);
+
     // Clear viewActions when switching tabs to prevent wrong buttons showing
     useEffect(() => {
       setViewActions(null);
     }, [activeView]);
 
-    // Persist activeView changes back to metadata so other components can react
+    // Persist activeView changes back to metadata and tabStateStore
     useEffect(() => {
       if (!metadata) return;
       // Skip if this was an external update (from metadata -> activeView sync)
@@ -143,20 +208,20 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       if (metadata.viewType !== activeView) {
         updateTabMetadata(panelId, tabId, { viewType: activeView });
       }
-    }, [activeView, metadata, panelId, tabId, updateTabMetadata]);
+      // Persist to tabStateStore for table tabs
+      if (type === "table") {
+        setQueryState(tabId, { tableViewType: activeView });
+      }
+    }, [activeView, metadata, panelId, tabId, updateTabMetadata, type, setQueryState]);
 
-    // Compute tableGridId unconditionally (before any early returns)
-    // Key by connection:schema:table so preferences persist across tabs/sessions
-    const tableGridId = useMemo(() => {
-      if (!metadata || metadata.type !== "table") return undefined;
-      const connection: string =
-        typeof metadata.connectionId === "string" && metadata.connectionId
-          ? metadata.connectionId
-          : activeConnectionId || "unknown";
-      const schemaName: string = metadata.schema || "public";
-      const tableName: string = metadata.table || "";
-      return `table:${connection}:${schemaName}:${tableName}`;
-    }, [activeConnectionId, metadata]);
+    // Show loading spinner until content is ready (enables instant tab switching)
+    if (!contentReady) {
+      return (
+        <div className="flex items-center justify-center h-full">
+          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
 
     if (type === "query") {
       return (
@@ -175,29 +240,64 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       );
     }
 
-    // MongoDB Collection Browser
-    if (type === "mongo-collection" && metadata) {
+    if (type === "mongo-query") {
       return (
-        <FeatureErrorBoundary featureName="MongoDB Collection">
-          <CollectionBrowser
-            connectionId={metadata.connectionId || activeConnectionId || ""}
-            database={metadata.database || ""}
-            collection={metadata.table || ""}
+        <FeatureErrorBoundary featureName="MongoDB Shell">
+          <MongoQueryPanel
+            panelId={panelId}
+            tabId={tabId}
+            connectionId={metadata?.connectionId || activeConnectionId || ""}
+            database={metadata?.database || ""}
             className="h-full"
           />
         </FeatureErrorBoundary>
       );
     }
 
-    // Redis Key Browser
+    if (type === "redis-cli") {
+      return (
+        <FeatureErrorBoundary featureName="Redis CLI">
+          <RedisCliPanel
+            panelId={panelId}
+            tabId={tabId}
+            connectionId={metadata?.connectionId || activeConnectionId || ""}
+            database={parseInt(metadata?.database || "0", 10)}
+            className="h-full"
+          />
+        </FeatureErrorBoundary>
+      );
+    }
+
+    if (type === "mongo-collection" && metadata) {
+      const mongoGridId = `document:${metadata.connectionId || activeConnectionId}:${metadata.database}:${metadata.table}`;
+      return (
+        <FeatureErrorBoundary featureName="MongoDB Collection">
+          <DocumentDataGrid
+            gridId={mongoGridId}
+            connectionId={metadata.connectionId || activeConnectionId || ""}
+            database={metadata.database || ""}
+            collection={metadata.table || ""}
+            className="h-full"
+            focused={isPanelFocused}
+            sortGridId={perTabSortGridId(mongoGridId, tabId, metadata.syncSort)}
+          />
+        </FeatureErrorBoundary>
+      );
+    }
+
+    // Redis Key Browser (using unified DataGrid)
     if (type === "redis-key" && metadata) {
+      const redisGridId = `keyvalue:${metadata.connectionId || activeConnectionId}:${metadata.database}:${metadata.table || 'browser'}`;
       return (
         <FeatureErrorBoundary featureName="Redis Key">
-          <KeyBrowser
+          <KeyValueDataGrid
+            gridId={redisGridId}
             connectionId={metadata.connectionId || activeConnectionId || ""}
             database={parseInt(metadata.database || "0", 10)}
-            selectedKey={metadata.table}
+            initialKey={metadata.table}
             className="h-full"
+            focused={isPanelFocused}
+            sortGridId={perTabSortGridId(redisGridId, tabId, metadata.syncSort)}
           />
         </FeatureErrorBoundary>
       );
@@ -255,9 +355,50 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
           database={metadata?.database || ""}
           schema={metadata?.schema}
           className="h-full"
-          onSave={(tableName, columns) => {
-            // TODO: Execute CREATE TABLE SQL
-            logger.info("Create table:", tableName, columns);
+          onSave={(tableName, sql) => {
+            const tableSchema = metadata?.schema || "public";
+            const tableConnectionId =
+              metadata?.connectionId || activeConnectionId || "";
+
+            updateTabMetadata(panelId, tabId, {
+              type: "table",
+              title: tableName,
+              table: tableName,
+              schema: tableSchema,
+              connectionId: tableConnectionId,
+              database: metadata?.database || "",
+              kind: "Table",
+              isView: false,
+              viewType: "data",
+              objectKey: `table-${tableConnectionId}-${tableSchema}-${tableName}`,
+              sql,
+            });
+          }}
+        />
+      );
+    }
+
+    if (type === "collection-design") {
+      return (
+        <CollectionDesigner
+          panelId={panelId}
+          tabId={tabId}
+          connectionId={metadata?.connectionId || activeConnectionId || ""}
+          database={metadata?.database || ""}
+          className="h-full"
+          onSave={(collectionName) => {
+            const collectionConnectionId =
+              metadata?.connectionId || activeConnectionId || "";
+            const collectionDatabase = metadata?.database || "";
+            updateTabMetadata(panelId, tabId, {
+              type: "mongo-collection",
+              title: collectionName,
+              table: collectionName,
+              connectionId: collectionConnectionId,
+              database: collectionDatabase,
+              schema: "",
+              objectKey: `mongo-${collectionConnectionId}-${collectionDatabase}-${collectionName}`,
+            });
           }}
         />
       );
@@ -361,21 +502,25 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
               <div className="absolute inset-0 px-1">
                 {activeView === "data" && (
                   <FeatureErrorBoundary featureName="Data Grid">
-                    <TableDataGrid
-                      mode="table"
-                      gridId={tableGridId ?? `table:${tabId}`}
+                    <SqlDataGrid
                       connectionId={
-                        activeConnectionId || metadata.connectionId || ""
+                        metadata.connectionId || activeConnectionId || ""
                       }
                       database={metadata.database || ""}
                       schema={metadata.schema}
                       table={metadata.table || ""}
-                      isView={isView}
+                      dbType={dbType ?? DbType.PostgreSQL}
                       kind={metadata.kind}
                       className="h-full"
                       onActionsChange={handleViewActionsChange}
                       initialFilter={metadata.initialFilter as string | undefined}
                       panelId={panelId}
+                      focused={isPanelFocused}
+                      sortGridId={perTabSortGridId(
+                        `${metadata.connectionId || activeConnectionId || ""}:${metadata.database || ""}:${metadata.schema}:${metadata.table || ""}`,
+                        tabId,
+                        metadata.syncSort,
+                      )}
                     />
                   </FeatureErrorBoundary>
                 )}
@@ -385,7 +530,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                     panelId={panelId}
                     tabId={tabId}
                     connectionId={
-                      activeConnectionId || metadata.connectionId || ""
+                      metadata.connectionId || activeConnectionId || ""
                     }
                     database={metadata.database || ""}
                     schema={metadata.schema}
@@ -399,7 +544,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 {activeView === "indexes" && (
                   <TableIndexes
                     connectionId={
-                      activeConnectionId || metadata.connectionId || ""
+                      metadata.connectionId || activeConnectionId || ""
                     }
                     database={metadata.database || ""}
                     schema={metadata.schema}
@@ -412,7 +557,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 {activeView === "triggers" && (
                   <TableTriggers
                     connectionId={
-                      activeConnectionId || metadata.connectionId || ""
+                      metadata.connectionId || activeConnectionId || ""
                     }
                     database={metadata.database || ""}
                     schema={metadata.schema}
@@ -424,7 +569,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 {activeView === "partitions" && dbType && isMySQLCompatible(dbType) && (
                   <TablePartitions
                     connectionId={
-                      activeConnectionId || metadata.connectionId || ""
+                      metadata.connectionId || activeConnectionId || ""
                     }
                     database={metadata.database || ""}
                     schema={metadata.schema}
@@ -436,7 +581,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 {activeView === "definition" && (
                   <ObjectDefinition
                     connectionId={
-                      activeConnectionId || metadata.connectionId || ""
+                      metadata.connectionId || activeConnectionId || ""
                     }
                     database={metadata.database || ""}
                     schema={metadata.schema || "public"}

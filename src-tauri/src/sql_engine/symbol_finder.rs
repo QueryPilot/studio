@@ -210,11 +210,7 @@ impl<'a> SymbolFinder<'a> {
     }
 
     /// Collect definitions from expressions (handles subqueries).
-    fn collect_definitions_from_expr(
-        &self,
-        expr: &Expr,
-        definitions: &mut Vec<SymbolDefinition>,
-    ) {
+    fn collect_definitions_from_expr(&self, expr: &Expr, definitions: &mut Vec<SymbolDefinition>) {
         match expr {
             Expr::Subquery(query) => {
                 // Find the subquery's span in source
@@ -243,12 +239,20 @@ impl<'a> SymbolFinder<'a> {
             Expr::Nested(inner) => {
                 self.collect_definitions_from_expr(inner, definitions);
             }
-            Expr::Between { expr, low, high, .. } => {
+            Expr::Between {
+                expr, low, high, ..
+            } => {
                 self.collect_definitions_from_expr(expr, definitions);
                 self.collect_definitions_from_expr(low, definitions);
                 self.collect_definitions_from_expr(high, definitions);
             }
-            Expr::Case { operand, conditions, results, else_result, .. } => {
+            Expr::Case {
+                operand,
+                conditions,
+                results,
+                else_result,
+                ..
+            } => {
                 if let Some(op) = operand {
                     self.collect_definitions_from_expr(op, definitions);
                 }
@@ -295,9 +299,7 @@ impl<'a> SymbolFinder<'a> {
                     .map(|s| s.end)
                     .unwrap_or(scope_start);
 
-                if let Some(span) =
-                    self.find_identifier_span(alias_name, search_start, scope_end)
-                {
+                if let Some(span) = self.find_identifier_span(alias_name, search_start, scope_end) {
                     definitions.push(SymbolDefinition {
                         name: alias_name.clone(),
                         kind: SymbolKind::TableAlias,
@@ -318,9 +320,7 @@ impl<'a> SymbolFinder<'a> {
                 }
                 // Subquery alias is also a table alias
                 let alias_name = &table_alias.name.value;
-                if let Some(span) =
-                    self.find_identifier_span(alias_name, scope_start, scope_end)
-                {
+                if let Some(span) = self.find_identifier_span(alias_name, scope_start, scope_end) {
                     definitions.push(SymbolDefinition {
                         name: alias_name.clone(),
                         kind: SymbolKind::TableAlias,
@@ -583,7 +583,10 @@ mod tests {
         assert!(result.is_some(), "Should find symbol at alias definition");
         let refs = result.unwrap();
         assert_eq!(refs.symbol_kind, SymbolKind::TableAlias);
-        assert_eq!(&sql[refs.definition_span.start..refs.definition_span.end], "u");
+        assert_eq!(
+            &sql[refs.definition_span.start..refs.definition_span.end],
+            "u"
+        );
         // Should find references: u.id and u.active (not the definition)
         assert_eq!(refs.references.len(), 2);
     }
@@ -604,7 +607,10 @@ mod tests {
         let refs = result.unwrap();
         assert_eq!(refs.symbol_kind, SymbolKind::TableAlias);
         // Definition should still point to "users u"
-        assert_eq!(&sql[refs.definition_span.start..refs.definition_span.end], "u");
+        assert_eq!(
+            &sql[refs.definition_span.start..refs.definition_span.end],
+            "u"
+        );
     }
 
     #[test]
@@ -740,7 +746,10 @@ mod tests {
         let result = finder.find_symbol_at(&statements, table_pos);
 
         // Table names are not renameable symbols (they're database objects)
-        assert!(result.is_none(), "Table name should not be a renameable symbol");
+        assert!(
+            result.is_none(),
+            "Table name should not be a renameable symbol"
+        );
     }
 
     #[test]
@@ -810,13 +819,23 @@ mod tests {
         let open_paren = sql.find('(').unwrap();
         let close_paren = finder.find_matching_paren(open_paren);
 
-        assert!(close_paren.is_some(), "Should find matching paren despite escaped quotes");
+        assert!(
+            close_paren.is_some(),
+            "Should find matching paren despite escaped quotes"
+        );
         let close_pos = close_paren.unwrap();
-        assert_eq!(&sql[close_pos..close_pos + 1], ")", "Should point to closing paren");
+        assert_eq!(
+            &sql[close_pos..close_pos + 1],
+            ")",
+            "Should point to closing paren"
+        );
 
         // Verify the matched content contains the full subquery
         let matched = &sql[open_paren..=close_pos];
-        assert!(matched.contains("O''Brien"), "Should include the escaped quote string");
+        assert!(
+            matched.contains("O''Brien"),
+            "Should include the escaped quote string"
+        );
     }
 
     #[test]
@@ -828,13 +847,17 @@ mod tests {
         let open_paren = sql.find('(').unwrap();
         let close_paren = finder.find_matching_paren(open_paren);
 
-        assert!(close_paren.is_some(), "Should find matching paren despite escaped double quotes");
+        assert!(
+            close_paren.is_some(),
+            "Should find matching paren despite escaped double quotes"
+        );
     }
 
     #[test]
     fn test_find_matching_paren_with_paren_inside_string() {
         // String contains parentheses that should be ignored
-        let sql = "SELECT * FROM (SELECT name FROM users WHERE note = 'has (parens) inside') AS sub";
+        let sql =
+            "SELECT * FROM (SELECT name FROM users WHERE note = 'has (parens) inside') AS sub";
         let finder = SymbolFinder::new(sql);
 
         let open_paren = sql.find('(').unwrap();
@@ -843,6 +866,9 @@ mod tests {
         assert!(close_paren.is_some(), "Should find correct matching paren");
         let close_pos = close_paren.unwrap();
         // The closing paren should be the one after "sub", not the one inside the string
-        assert!(close_pos > sql.find("inside')").unwrap(), "Should match outer paren, not string content");
+        assert!(
+            close_pos > sql.find("inside')").unwrap(),
+            "Should match outer paren, not string content"
+        );
     }
 }

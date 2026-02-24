@@ -3,6 +3,7 @@ import { databaseService, type TableMeta } from "@/services/databaseService";
 import { relationshipService } from "@/services/relationshipService";
 import { type ColumnMeta } from "@/types/database";
 import type { TableRelationshipGraph } from "@/types/relationships";
+import type { AIMongoCollection, AIRedisKeyPattern } from "@/types/aiContext";
 
 interface CacheEntry<T> {
   data: T;
@@ -48,6 +49,7 @@ class SchemaCache {
     processing: false,
   };
   private accessPatterns: Map<string, string[]> = new Map();
+  lastAccessTime = 0; // Tracks last cache read for idle detection
   private currentConnectionId: string | null = null;
 
   private readonly ttlConfig = {
@@ -58,6 +60,9 @@ class SchemaCache {
     functions: 30 * 60 * 1000, // 30 min - rarely changes
     relationships: 15 * 60 * 1000, // 15 min - FK constraints rarely change
     recent: 2 * 60 * 1000, // 2 min - for frequently accessed items
+    // NoSQL TTLs
+    collections: 10 * 60 * 1000, // 10 min - MongoDB collections can change
+    keyPatterns: 5 * 60 * 1000, // 5 min - Redis keys change frequently
   };
 
   // Reduced from 2000 to prevent memory bloat in long sessions
@@ -276,6 +281,144 @@ class SchemaCache {
       });
 
       return graph;
+    })().finally(() => {
+      this.inFlight.delete(key);
+    });
+
+    this.inFlight.set(key, promise);
+    return promise;
+  }
+
+  /**
+   * Get MongoDB collections for a database.
+   * Returns collection names with indexes and sample fields for AI context.
+   * Note: Backend API may not be fully implemented yet - returns empty array on failure.
+   */
+  async getMongoCollections(
+    connectionId: string,
+    database: string,
+  ): Promise<AIMongoCollection[]> {
+    const key = `collections:${connectionId}:${database}`;
+    const cached = this.get<AIMongoCollection[]>(key);
+
+    if (cached) {
+      this.recordAccess(key);
+      return cached.data;
+    }
+
+    // Coalesce concurrent fetches
+    const existing = this.inFlight.get(key) as
+      | Promise<AIMongoCollection[]>
+      | undefined;
+    if (existing) {
+      return existing;
+    }
+
+    this.metrics.misses++;
+    const promise = (async () => {
+      try {
+        // Try to get collections from backend
+        // Backend API: databaseService.listMongoCollections may not exist yet
+        // This will be implemented in Task 8
+        const rawCollections = await (databaseService as any).listMongoCollections?.(
+          connectionId,
+          database,
+        );
+
+        if (!rawCollections || !Array.isArray(rawCollections)) {
+          // Backend API not available yet - return empty array
+          logger.debug("schema-cache", "MongoDB collections API not available", { connectionId, database });
+          return [];
+        }
+
+        // Map raw collections to AI context format
+        const collections: AIMongoCollection[] = rawCollections.map((c: any) => ({
+          name: c.name,
+          documentCount: c.documentCount ?? c.document_count,
+          indexes: c.indexes || [],
+          sampleFields: c.sampleFields || c.sample_fields || [],
+        }));
+
+        this.set(key, collections, {
+          ttl: this.ttlConfig.collections,
+          priority: "medium",
+          connectionId,
+        });
+
+        return collections;
+      } catch (error) {
+        // Log and return empty array - backend API may not be implemented
+        logger.debug("schema-cache", "Failed to get MongoDB collections", { connectionId, database, error });
+        return [];
+      }
+    })().finally(() => {
+      this.inFlight.delete(key);
+    });
+
+    this.inFlight.set(key, promise);
+    return promise;
+  }
+
+  /**
+   * Get Redis key patterns for AI context.
+   * Scans keys and groups them by pattern to provide useful context.
+   * Note: Backend API may not be fully implemented yet - returns empty array on failure.
+   */
+  async getRedisKeyPatterns(
+    connectionId: string,
+  ): Promise<AIRedisKeyPattern[]> {
+    const key = `keypatterns:${connectionId}`;
+    const cached = this.get<AIRedisKeyPattern[]>(key);
+
+    if (cached) {
+      this.recordAccess(key);
+      return cached.data;
+    }
+
+    // Coalesce concurrent fetches
+    const existing = this.inFlight.get(key) as
+      | Promise<AIRedisKeyPattern[]>
+      | undefined;
+    if (existing) {
+      return existing;
+    }
+
+    this.metrics.misses++;
+    const promise = (async () => {
+      try {
+        // Try to get key patterns from backend
+        // Backend API: databaseService.getRedisKeyPatterns may not exist yet
+        // This will be implemented in Task 8
+        const rawPatterns = await (databaseService as any).getRedisKeyPatterns?.(
+          connectionId,
+        );
+
+        if (!rawPatterns || !Array.isArray(rawPatterns)) {
+          // Backend API not available yet - return empty array
+          logger.debug("schema-cache", "Redis key patterns API not available", { connectionId });
+          return [];
+        }
+
+        // Map raw patterns to AI context format
+        const patterns: AIRedisKeyPattern[] = rawPatterns.map((p: any) => ({
+          pattern: p.pattern,
+          count: p.count ?? 0,
+          types: p.types || [],
+          sampleKeys: p.sampleKeys || p.sample_keys,
+        }));
+
+        this.set(key, patterns, {
+          ttl: this.ttlConfig.keyPatterns,
+          priority: "medium",
+          connectionId,
+        });
+
+        return patterns;
+      } catch (error) {
+        // Log and return empty array - backend API may not be implemented
+        logger.debug("schema-cache", "Failed to get Redis key patterns", { connectionId, error });
+        return [];
+      }
     })().finally(() => {
       this.inFlight.delete(key);
     });
@@ -596,6 +739,7 @@ class SchemaCache {
     // Update access info
     entry.lastAccessed = now;
     entry.accessCount++;
+    this.lastAccessTime = now;
 
     // Promote frequently accessed items
     if (entry.accessCount > 10 && entry.priority === "low") {
@@ -700,7 +844,9 @@ class SchemaCache {
     for (const key of this.cache.keys()) {
       if (
         key.startsWith(`tables:${connectionId}:${schema}`) ||
-        key.startsWith(`columns:${connectionId}:${schema}.`)
+        key.startsWith(`columns:${connectionId}:${schema}.`) ||
+        key.startsWith(`functions:${connectionId}:${schema}`) ||
+        key.startsWith(`relationships:${connectionId}:${schema}`)
       ) {
         this.cache.delete(key);
       }
@@ -785,9 +931,12 @@ class SchemaCache {
 
 export const schemaCache = new SchemaCache();
 
-// Auto-refresh stale data every 5 minutes
+// Auto-refresh stale data every 5 minutes, but skip if cache hasn't been accessed recently
+const IDLE_THRESHOLD = 15 * 60 * 1000; // 15 minutes
 setInterval(() => {
-  schemaCache.refreshStale();
+  if (schemaCache.lastAccessTime > 0 && Date.now() - schemaCache.lastAccessTime < IDLE_THRESHOLD) {
+    schemaCache.refreshStale();
+  }
 }, 5 * 60 * 1000);
 
 export type { TableMeta };

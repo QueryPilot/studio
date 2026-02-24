@@ -1,7 +1,6 @@
 import { logger } from "@/lib/logger";
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { useAppStore } from "@/stores/appStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useHomeScreenStore } from "@/screens/home/store/homeScreenStore";
 import { check } from "@tauri-apps/plugin-updater";
@@ -9,14 +8,18 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { isTauri } from "@/utils/tauri";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { eventBus } from "@/services/eventBus";
 import { databaseService } from "@/services/databaseService";
+import { windowManager } from "@/services/windowManager";
+import { commandService } from "@/services/commandService";
+import { menuActionCommandMap } from "@/data/menuActionCommandMap";
 import { v4 as uuidv4 } from "uuid";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function useMenuEventListener() {
-  const { setTheme, toggleSidebar: toggleAppSidebar } = useAppStore();
   const { openPreferences } = usePreferencesStore();
   const { openConnectionForm } = useHomeScreenStore();
   const queryClient = useQueryClient();
@@ -26,6 +29,19 @@ export function useMenuEventListener() {
       const action = event.payload;
       logger.info(`[MenuAction] Received: ${action}`);
 
+      const mappedCommandId = menuActionCommandMap[action];
+      if (mappedCommandId && commandService.has(mappedCommandId)) {
+        try {
+          await commandService.execute(mappedCommandId);
+          return;
+        } catch (error) {
+          logger.error(
+            `[MenuAction] Failed to execute mapped command ${mappedCommandId}:`,
+            error,
+          );
+        }
+      }
+
       // Get current context
       const workspaceStore = useWorkspaceScreenStore.getState();
       const workbenchStore = useWorkbenchStore.getState();
@@ -33,7 +49,7 @@ export function useMenuEventListener() {
 
       // Debug: Log context for all database-related actions
       if (["connect", "disconnect", "refresh", "execute", "execute_selection", "export", "import", "erd", "new_query", "new_erd"].includes(action)) {
-        logger.info(`[MenuAction] Context for '${action}': activeConnectionId=${activeConnectionId}, focusedPanel=${workbenchStore.focusedPanelId}`);
+        logger.info(`[MenuAction] Context for '${action}': activeConnectionId=${activeConnectionId}, focusedPanel=${usePanelFocusStore.getState().focusedPanelId}`);
       }
 
       switch (action) {
@@ -59,38 +75,6 @@ export function useMenuEventListener() {
           break;
         case "close_tab":
           handleCloseTab(workbenchStore);
-          break;
-
-        // View Menu
-        case "toggle_sidebar":
-          if (activeConnectionId) {
-            workspaceStore.toggleSidebar("left");
-          } else {
-            toggleAppSidebar();
-          }
-          break;
-        case "toggle_ai":
-          if (activeConnectionId) {
-            workspaceStore.toggleSidebar("right");
-          }
-          break;
-        case "set_theme:light":
-          setTheme("light");
-          break;
-        case "set_theme:dark":
-          setTheme("dark");
-          break;
-        case "set_theme:system":
-          setTheme("system");
-          break;
-        case "zoom_in":
-          void handleZoom(1.1);
-          break;
-        case "zoom_out":
-          void handleZoom(0.9);
-          break;
-        case "zoom_reset":
-          void handleZoom(1.0, true);
           break;
 
         // Edit Menu
@@ -148,6 +132,17 @@ export function useMenuEventListener() {
             handleNewErd(activeConnectionId, workbenchStore);
           }
           break;
+        case "backup_restore": {
+          // Get profile ID from active connection (not runtime connection ID)
+          let profileId: string | undefined;
+          if (activeConnectionId) {
+            const bundleStore = useWorkspaceBundleStore.getState();
+            const connection = bundleStore.getConnectionById(activeConnectionId);
+            profileId = connection?.profile.id;
+          }
+          void windowManager.openBackupRestore(profileId);
+          break;
+        }
 
         // Help Menu
         case "open_docs":
@@ -167,14 +162,14 @@ export function useMenuEventListener() {
 
     return () => {
       unlistenPromise
-        .then((unlisten) => unlisten())
-        .catch((err) => {
+        .then((unlisten) => {
+          unlisten();
+        })
+        .catch((err: unknown) => {
           logger.error("[useMenuEventListener] Failed to unlisten:", err);
         });
     };
   }, [
-    setTheme,
-    toggleAppSidebar,
     openPreferences,
     openConnectionForm,
     queryClient,
@@ -185,8 +180,8 @@ function handleNewQuery(
   connectionId: string,
   workbenchStore: ReturnType<typeof useWorkbenchStore.getState>,
 ) {
-  const { focusedPanelId, panelContents, addTab, focusPanel } = workbenchStore;
-  let targetPanelId: string | null = focusedPanelId;
+  const { panelContents, addTab, focusPanel } = workbenchStore;
+  let targetPanelId: string | null = usePanelFocusStore.getState().focusedPanelId;
 
   // If no panel focused, use first available
   if (!targetPanelId && panelContents.size > 0) {
@@ -211,8 +206,8 @@ function handleNewErd(
   connectionId: string,
   workbenchStore: ReturnType<typeof useWorkbenchStore.getState>,
 ) {
-  const { focusedPanelId, panelContents, addTab, focusPanel } = workbenchStore;
-  let targetPanelId: string | null = focusedPanelId;
+  const { panelContents, addTab, focusPanel } = workbenchStore;
+  let targetPanelId: string | null = usePanelFocusStore.getState().focusedPanelId;
 
   if (!targetPanelId && panelContents.size > 0) {
     const firstPanelId = Array.from(panelContents.keys())[0];
@@ -235,26 +230,13 @@ function handleNewErd(
 function handleCloseTab(
   workbenchStore: ReturnType<typeof useWorkbenchStore.getState>,
 ) {
-  const { focusedPanelId, panelContents, removeTab } = workbenchStore;
+  const { panelContents, removeTab } = workbenchStore;
+  const focusedPanelId = usePanelFocusStore.getState().focusedPanelId;
   if (!focusedPanelId) return;
 
   const panel = panelContents.get(focusedPanelId);
   if (panel && panel.activeTabId) {
     removeTab(focusedPanelId, panel.activeTabId);
-  }
-}
-
-async function handleZoom(factor: number, reset = false) {
-  // Use CSS zoom as fallback/primary for now as it's safer than webview zoom
-  // which might affect the whole window including titlebar
-  try {
-    const currentZoom = parseFloat(document.body.style.zoom || "1");
-    const newZoom = reset ? 1 : currentZoom * factor;
-    // Clamp zoom
-    const clamped = Math.min(Math.max(newZoom, 0.5), 2.0);
-    document.body.style.zoom = clamped.toString();
-  } catch (e) {
-    logger.error("Failed to zoom", e);
   }
 }
 
@@ -304,14 +286,24 @@ async function handleCheckUpdates() {
   try {
     const update = await check();
     if (update) {
-      if (
-        confirm(
-          `Update available: ${update.version}\n\nDownload and install now?`,
-        )
-      ) {
-        await update.downloadAndInstall();
-        if (confirm("Update installed. Restart now?")) {
-          await relaunch();
+      try {
+        if (
+          confirm(
+            `Update available: ${update.version}\n\nDownload and install now?`,
+          )
+        ) {
+          await update.downloadAndInstall();
+          if (confirm("Update installed. Restart now?")) {
+            await relaunch();
+          } else {
+            alert("Update installed. Restart Query Pilot to apply it.");
+          }
+        }
+      } finally {
+        try {
+          await update.close();
+        } catch (closeError) {
+          logger.warn("Failed to close update handle", closeError);
         }
       }
     } else {

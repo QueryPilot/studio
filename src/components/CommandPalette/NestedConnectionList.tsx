@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import Fuse, { type IFuseOptions } from "fuse.js";
+import { matchSorter, rankings } from "match-sorter";
 import { IconPlus, IconExternalLink } from "@tabler/icons-react";
 import { toast } from "sonner";
 
@@ -28,18 +28,13 @@ interface ConnectionItem {
   dbType: DbType;
 }
 
-const CONNECTION_FUSE_OPTIONS: IFuseOptions<ConnectionItem> = {
-  keys: ["name", "database", "host"],
-  threshold: 0.4,
-  includeScore: true,
-  minMatchCharLength: 1,
-};
-
 interface NestedConnectionListProps {
   listRef?: React.RefObject<HTMLDivElement | null>;
   query: string;
   onSelect: (connectionId: string) => void;
   onClose?: () => void;
+  title?: string;
+  filterConnected?: boolean;
 }
 
 export function NestedConnectionList({
@@ -47,12 +42,31 @@ export function NestedConnectionList({
   query,
   onSelect,
   onClose,
+  title = "Connections",
+  filterConnected = false,
 }: NestedConnectionListProps): React.ReactElement {
-  const connections = useConnectionStore((state) => state.connections);
+  const allConnections = useConnectionStore((state) => state.connections);
   const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
   const addConnectionToWorkspace = useWorkspaceBundleStore(
     (s) => s.addConnectionToWorkspace,
   );
+
+  // Filter to only connected if requested (using runtime connection status)
+  const connections = useMemo(() => {
+    if (!filterConnected) return allConnections;
+
+    // Get connected connection IDs from the active workspace
+    const connectedIds = new Set<string>();
+    if (activeWorkspace) {
+      for (const [id, conn] of activeWorkspace.connections) {
+        if (conn.status === "connected") {
+          connectedIds.add(id);
+        }
+      }
+    }
+
+    return allConnections.filter((c) => connectedIds.has(c.profile.id));
+  }, [allConnections, filterConnected, activeWorkspace]);
 
   // Check if we're in a multi-connection workspace context
   const isMultiConnectionWorkspace =
@@ -70,19 +84,21 @@ export function NestedConnectionList({
     }));
   }, [connections]);
 
-  // Create Fuse index
-  const fuse = useMemo(
-    () => new Fuse(connectionItems, CONNECTION_FUSE_OPTIONS),
-    [connectionItems],
-  );
-
   // Filter results based on search query
   const filteredConnections = useMemo(() => {
-    if (!query.trim()) {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
       return connectionItems;
     }
-    return fuse.search(query).map((r) => r.item);
-  }, [connectionItems, fuse, query]);
+    return matchSorter(connectionItems, trimmedQuery, {
+      keys: [
+        { key: "name", maxRanking: rankings.STARTS_WITH },
+        { key: "database", maxRanking: rankings.WORD_STARTS_WITH },
+        { key: "host", maxRanking: rankings.WORD_STARTS_WITH },
+      ],
+      threshold: rankings.MATCHES,
+    });
+  }, [connectionItems, query]);
 
   const handleAddToWorkspace = async (connItem: ConnectionItem) => {
     if (!activeWorkspace) return;
@@ -98,10 +114,12 @@ export function NestedConnectionList({
   };
 
   return (
-    <CommandList ref={listRef}>
-      <CommandEmpty>No connections found.</CommandEmpty>
+    <CommandList ref={listRef} className="h-[300px]">
+      <CommandEmpty>
+        {filterConnected ? "No connected databases." : "No connections found."}
+      </CommandEmpty>
 
-      <CommandGroup heading="Connections">
+      <CommandGroup heading={title}>
         {filteredConnections.map((connItem) => (
           <CommandItem
             key={connItem.id}

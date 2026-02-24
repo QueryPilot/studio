@@ -6,16 +6,20 @@ import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import { useDialogStore } from "@/stores/ui/dialogStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useTabStateStore } from "@/stores/tabStateStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { tabGroupRegistry } from "@/services/tabGroupRegistry";
+import { dataGridRegistry } from "@/services/dataGridRegistry";
 import { clearAllCaches } from "@/lib/cacheManager";
 import { useCrudStore } from "@/stores/crudStore";
 import { toast } from "sonner";
 import React from "react";
 import { ConfirmationToast } from "@/components/ConfirmationToast";
 import { eventBus } from "@/services/eventBus";
+import { useQueryHistoryStore } from "@/stores/queryHistoryStore";
 import { windowManager } from "@/services/windowManager";
 import {
   openQueryWithSql,
@@ -24,6 +28,7 @@ import {
   getCreateDatabaseTemplate,
   getCreateSchemaTemplate,
 } from "@/utils/workbench/openers";
+import { getParadigm } from "@/types/connection";
 
 const commandPaletteStore = useCommandPaletteStore.getState();
 const dialogStore = useDialogStore.getState();
@@ -49,42 +54,15 @@ export const defaultCommands: Command[] = [
     },
   },
   {
-    id: "commandPalette.open",
-    label: "Show Command Palette",
-    category: "Command Palette",
-    handler: () => {
-      contextService.setValue("inQuickOpen", true);
-      contextService.setValue("inCommandPalette", true);
-      commandPaletteStore.openPalette();
-    },
-    when: "!inQuickOpen || !inCommandPalette",
-  },
-  {
-    id: "commandPalette.close",
-    label: "Close Command Palette",
-    category: "Command Palette",
+    id: "quickOpen.close",
+    label: "Close Quick Open",
+    category: "Navigation",
     handler: () => {
       contextService.setValue("inQuickOpen", false);
       contextService.setValue("inCommandPalette", false);
       commandPaletteStore.closePalette();
     },
     when: "inQuickOpen",
-  },
-  {
-    id: "commandPalette.toggle",
-    label: "Toggle Command Palette",
-    category: "Command Palette",
-    handler: () => {
-      const state = useCommandPaletteStore.getState();
-      const nextOpen = !state.isOpen;
-      contextService.setValue("inQuickOpen", nextOpen);
-      contextService.setValue("inCommandPalette", nextOpen);
-      if (nextOpen) {
-        commandPaletteStore.openPalette();
-      } else {
-        commandPaletteStore.closePalette();
-      }
-    },
   },
   {
     id: "preferences.open",
@@ -119,6 +97,65 @@ export const defaultCommands: Command[] = [
     },
   },
   {
+    id: "help.action.openDocs",
+    label: "Open Documentation",
+    category: "Help",
+    handler: () => {
+      window.open("https://querypilot.dev/docs", "_blank");
+    },
+  },
+  {
+    id: "help.action.reportIssue",
+    label: "Report Issue",
+    category: "Help",
+    handler: () => {
+      window.open(
+        "https://github.com/querypilot/querypilot/issues/new",
+        "_blank",
+      );
+    },
+  },
+  {
+    id: "editor.action.find",
+    label: "Find in Editor",
+    category: "Editor",
+    handler: () => {
+      eventBus.emit("query-editor:find", {});
+    },
+  },
+  {
+    id: "editor.action.replace",
+    label: "Replace in Editor",
+    category: "Editor",
+    handler: () => {
+      eventBus.emit("query-editor:replace", {});
+    },
+  },
+  {
+    id: "window.action.newMainWindow",
+    label: "New Main Window",
+    category: "Window",
+    handler: () => {
+      void windowManager.openNewMainWindow();
+    },
+  },
+  {
+    id: "database.action.backupRestore",
+    label: "Backup/Restore",
+    category: "Database",
+    handler: () => {
+      const workspaceStore = useWorkspaceScreenStore.getState();
+      const activeConnectionId = workspaceStore.activeConnectionId;
+      let profileId: string | undefined;
+      if (activeConnectionId) {
+        const bundleStore = useWorkspaceBundleStore.getState();
+        const connection = bundleStore.getConnectionById(activeConnectionId);
+        profileId = connection?.profile.id;
+      }
+      void windowManager.openBackupRestore(profileId);
+    },
+  },
+  {
     id: "workbench.action.toggleLeftSidebar",
     label: "Toggle Left Sidebar",
     category: "Workbench",
@@ -146,7 +183,7 @@ export const defaultCommands: Command[] = [
         return;
       }
       const firstId = panelIds[0] ?? "";
-      const currentId = store.focusedPanelId ?? firstId;
+      const currentId = usePanelFocusStore.getState().focusedPanelId ?? firstId;
       const currentIndex = panelIds.indexOf(currentId);
       const nextIndex =
         currentIndex >= 0 ? (currentIndex + 1) % panelIds.length : 0;
@@ -168,7 +205,7 @@ export const defaultCommands: Command[] = [
         return;
       }
       const firstId = panelIds[0] ?? "";
-      const currentId = store.focusedPanelId ?? firstId;
+      const currentId = usePanelFocusStore.getState().focusedPanelId ?? firstId;
       const currentIndex = panelIds.indexOf(currentId);
       const prevIndex =
         currentIndex >= 0
@@ -187,7 +224,7 @@ export const defaultCommands: Command[] = [
     when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
-      const panelId = store.focusedPanelId;
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
       if (!panelId) return;
       const panel = store.panelContents.get(panelId);
       if (!panel) return;
@@ -265,7 +302,6 @@ export const defaultCommands: Command[] = [
           // Show a promise-based toast that waits for user confirmation
           const confirmed = await new Promise<boolean>((resolve) => {
             let resolved = false;
-            let toastId: string | number;
 
             const handleConfirm = () => {
               resolved = true;
@@ -279,7 +315,7 @@ export const defaultCommands: Command[] = [
               resolve(false);
             };
 
-            toastId = toast(
+            const toastId = toast(
               React.createElement(ConfirmationToast, {
                 title: "Unsaved changes will be lost",
                 description: `You have ${description}. This action cannot be undone.`,
@@ -374,7 +410,7 @@ export const defaultCommands: Command[] = [
     when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
-      const panelId = store.focusedPanelId;
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
       if (!panelId) return;
       const panel = store.panelContents.get(panelId);
       if (!panel || panel.tabIds.length <= 1) return;
@@ -394,7 +430,7 @@ export const defaultCommands: Command[] = [
     when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
-      const panelId = store.focusedPanelId;
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
       if (!panelId) return;
       const panel = store.panelContents.get(panelId);
       if (!panel || panel.tabIds.length <= 1) return;
@@ -417,7 +453,7 @@ export const defaultCommands: Command[] = [
     when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
-      const panelId = store.focusedPanelId;
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
       if (!panelId) return;
       store.splitPanelAction({ targetPanelId: panelId, direction: "right" });
     },
@@ -429,7 +465,7 @@ export const defaultCommands: Command[] = [
     when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
-      const panelId = store.focusedPanelId;
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
       if (!panelId) return;
       store.splitPanelAction({ targetPanelId: panelId, direction: "down" });
     },
@@ -441,7 +477,7 @@ export const defaultCommands: Command[] = [
     when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
-      const panelId = store.focusedPanelId;
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
       if (!panelId) return;
       store.splitPanelAction({ targetPanelId: panelId, direction: "left" });
     },
@@ -453,7 +489,7 @@ export const defaultCommands: Command[] = [
     when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
-      const panelId = store.focusedPanelId;
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
       if (!panelId) return;
       store.splitPanelAction({ targetPanelId: panelId, direction: "up" });
     },
@@ -464,10 +500,29 @@ export const defaultCommands: Command[] = [
     category: "Workbench",
     when: "activeEditor",
     handler: () => {
+      const connectionStore = useConnectionStore.getState();
+      const workspaceBundleStore = useWorkspaceBundleStore.getState();
+
+      // Get connected connections from the active workspace
+      const activeWorkspace = workspaceBundleStore.activeWorkspace;
+      const connectedConnections = activeWorkspace
+        ? Array.from(activeWorkspace.connections.values())
+            .filter(c => c.status === "connected")
+        : [];
+
+      // If multiple connections, show picker
+      if (connectedConnections.length > 1) {
+        const paletteStore = useCommandPaletteStore.getState();
+        paletteStore.openPalette();
+        paletteStore.setNestedMode({ type: "new-query-connection" });
+        return;
+      }
+
+      // Single or no connection - use current behavior
       const workbench = useWorkbenchStore.getState();
       const panels = workbench.panelContents;
       const focusedPanelId =
-        workbench.focusedPanelId ?? panels.keys().next().value;
+        usePanelFocusStore.getState().focusedPanelId ?? panels.keys().next().value;
       if (!focusedPanelId) {
         return;
       }
@@ -483,9 +538,7 @@ export const defaultCommands: Command[] = [
           : `${Date.now().toString(36)}-${Math.random()
               .toString(36)
               .slice(2, 8)}`;
-      const tabId = `query-${uuid}`;
 
-      const connectionStore = useConnectionStore.getState();
       const workspaceSelection = useWorkspaceSelectionStore.getState();
       const selectedSchema = workspaceSelection.schema;
 
@@ -494,25 +547,49 @@ export const defaultCommands: Command[] = [
         ? connectionStore.getConnection(activeConnectionId)
         : null;
 
+      const dbType = connection?.profile.db_type;
+      const paradigm = dbType ? getParadigm(dbType) : "sql";
+
+      const tabTypePrefix = paradigm === "document"
+        ? "mongo-query"
+        : paradigm === "keyvalue"
+        ? "redis-cli"
+        : "query";
+
+      const tabId = `${tabTypePrefix}-${uuid}`;
+
+      const matchingTabTypes = [tabTypePrefix];
+
       const totalQueryCount = Array.from(panels.values()).reduce(
         (count, panelContent) => {
           return (
             count +
             panelContent.tabIds.filter((id: string) => {
               const metadata = panelContent.metadata?.[id];
-              return metadata?.type === "query" || id.startsWith("query-");
+              return matchingTabTypes.some(
+                (t) => metadata?.type === t || id.startsWith(`${t}-`)
+              );
             }).length
           );
         },
         0,
       );
 
-      const title =
-        totalQueryCount > 0 ? `Query ${totalQueryCount + 1}` : "New Query";
+      const getTitle = () => {
+        const num = totalQueryCount > 0 ? ` ${totalQueryCount + 1}` : "";
+        switch (paradigm) {
+          case "document":
+            return `Mongo Shell${num}`;
+          case "keyvalue":
+            return `Redis CLI${num}`;
+          default:
+            return totalQueryCount > 0 ? `Query ${totalQueryCount + 1}` : "New Query";
+        }
+      };
 
       workbench.addTab(focusedPanelId, tabId, {
-        type: "query",
-        title,
+        type: tabTypePrefix,
+        title: getTitle(),
         connectionId: activeConnectionId,
         database: connection?.profile.database || "",
         schema: selectedSchema || "",
@@ -739,6 +816,26 @@ export const defaultCommands: Command[] = [
       store.setNestedMode({ type: "open-connection" });
     },
   },
+  {
+    id: "connection.setSafeMode",
+    label: "Set Safe Mode",
+    category: "Connection",
+    description: "Restrict allowed operations on this connection",
+    handler: () => {
+      const store = useCommandPaletteStore.getState();
+      store.setNestedMode({ type: "set-safe-mode" });
+    },
+  },
+  {
+    id: "workspace.switch",
+    label: "Switch Workspace",
+    category: "Workspace",
+    description: "Switch to a different saved workspace",
+    handler: () => {
+      const store = useCommandPaletteStore.getState();
+      store.setNestedMode({ type: "switch-workspace" });
+    },
+  },
   // Tab Group Navigation Commands (Cmd/Ctrl + 1-9)
   {
     id: "tabs.switchToTab1",
@@ -821,14 +918,86 @@ export const defaultCommands: Command[] = [
       tabGroupRegistry.switchToTab(8);
     },
   },
-  // Data Grid Commands (registered dynamically by component via useCommand)
+  // Data Grid Commands (routed to focused grid instance)
+  {
+    id: "dataGrid.action.focusFilter",
+    label: "Focus Grid Filter",
+    category: "Data Grid",
+    when: "dataGridFocus && !editingCell",
+    handler: () => {
+      dataGridRegistry.getFocused()?.focusFilter?.();
+    },
+  },
+  {
+    id: "dataGrid.action.copySelection",
+    label: "Copy Selection",
+    category: "Data Grid",
+    when: "dataGridFocus && !selectionEmpty && !editingCell",
+    handler: () => {
+      void dataGridRegistry.getFocused()?.copySelection?.();
+    },
+  },
   {
     id: "dataGrid.action.copyAsJson",
     label: "Copy Selection as JSON",
     category: "Data Grid",
     when: "dataGridFocus && !selectionEmpty && !editingCell",
     handler: () => {
-      // Actual handler registered in TableDataGrid component
+      void dataGridRegistry.getFocused()?.copySelectionAsJson?.();
+    },
+  },
+  {
+    id: "dataGrid.action.fillDown",
+    label: "Fill Down",
+    category: "Data Grid",
+    when: "dataGridFocus && !editingCell",
+    handler: () => {
+      dataGridRegistry.getFocused()?.fillDown?.();
+    },
+  },
+  {
+    id: "dataGrid.action.fillRight",
+    label: "Fill Right",
+    category: "Data Grid",
+    when: "dataGridFocus && !editingCell",
+    handler: () => {
+      dataGridRegistry.getFocused()?.fillRight?.();
+    },
+  },
+  {
+    id: "dataGrid.action.duplicateRows",
+    label: "Duplicate Rows",
+    category: "Data Grid",
+    when: "dataGridFocus && !editingCell",
+    handler: () => {
+      dataGridRegistry.getFocused()?.duplicateRows?.();
+    },
+  },
+  {
+    id: "dataGrid.action.deleteRows",
+    label: "Delete Rows",
+    category: "Data Grid",
+    when: "dataGridFocus && !editingCell && dataGridEditable",
+    handler: () => {
+      dataGridRegistry.getFocused()?.deleteRows?.();
+    },
+  },
+  {
+    id: "dataGrid.action.showContextMenu",
+    label: "Show Context Menu",
+    category: "Data Grid",
+    when: "dataGridFocus && !editingCell",
+    handler: () => {
+      dataGridRegistry.getFocused()?.showContextMenu?.();
+    },
+  },
+  {
+    id: "dataGrid.action.clearSelection",
+    label: "Clear Selection",
+    category: "Data Grid",
+    when: "dataGridFocus && !editingCell",
+    handler: () => {
+      dataGridRegistry.getFocused()?.clearSelection?.();
     },
   },
   // Query Editor Commands (Event-Driven)
@@ -857,6 +1026,122 @@ export const defaultCommands: Command[] = [
     when: "editorTextFocus && queryEditor",
     handler: () => {
       eventBus.emit("query-editor:execute-background", {});
+    },
+  },
+  // Query History Commands
+  {
+    id: "query.history.show",
+    label: "Show Query History",
+    category: "Query History",
+    handler: () => {
+      // Open sidebar if closed, then switch to queries view
+      const screenStore = useWorkspaceScreenStore.getState();
+      if (!screenStore.getSidebars().left) {
+        screenStore.toggleSidebar("left");
+      }
+      eventBus.emit("sidebar:switch-view", { view: "queries" });
+      useQueryHistoryStore.getState().setActiveTab("history");
+    },
+  },
+  {
+    id: "query.saved.show",
+    label: "Show Saved Queries",
+    category: "Query History",
+    handler: () => {
+      // Open sidebar if closed, then switch to queries view
+      const screenStore = useWorkspaceScreenStore.getState();
+      if (!screenStore.getSidebars().left) {
+        screenStore.toggleSidebar("left");
+      }
+      eventBus.emit("sidebar:switch-view", { view: "queries" });
+      useQueryHistoryStore.getState().setActiveTab("saved");
+    },
+  },
+  {
+    id: "query.history.search",
+    label: "Search Query History",
+    category: "Query History",
+    handler: () => {
+      // Open sidebar if closed, then switch to queries view
+      const screenStore = useWorkspaceScreenStore.getState();
+      if (!screenStore.getSidebars().left) {
+        screenStore.toggleSidebar("left");
+      }
+      eventBus.emit("sidebar:switch-view", { view: "queries" });
+      useQueryHistoryStore.getState().setActiveTab("history");
+      // Focus the search input after a brief delay for view to render
+      setTimeout(() => {
+        eventBus.emit("query-history:focus-search", undefined);
+      }, 100);
+    },
+  },
+  {
+    id: "query.history.clear",
+    label: "Clear Query History",
+    category: "Query History",
+    handler: async () => {
+      const confirmed = await new Promise<boolean>((resolve) => {
+        let resolved = false;
+
+        const handleConfirm = () => {
+          resolved = true;
+          toast.dismiss(toastId);
+          resolve(true);
+        };
+
+        const handleCancel = () => {
+          resolved = true;
+          toast.dismiss(toastId);
+          resolve(false);
+        };
+
+        const toastId = toast(
+          React.createElement(ConfirmationToast, {
+            title: "Clear query history?",
+            description: "This action cannot be undone.",
+            confirmLabel: "Clear History",
+            cancelLabel: "Cancel",
+            onConfirm: handleConfirm,
+            onCancel: handleCancel,
+          }),
+          {
+            duration: 12000,
+            onDismiss: () => {
+              if (!resolved) {
+                resolve(false);
+              }
+            },
+            onAutoClose: () => {
+              if (!resolved) {
+                resolve(false);
+              }
+            },
+          },
+        );
+      });
+
+      if (!confirmed) return;
+      await useQueryHistoryStore.getState().clearHistory();
+      toast.success("Query history cleared");
+    },
+  },
+  {
+    id: "query.saved.create",
+    label: "Save Current Query",
+    category: "Query History",
+    when: "editorTextFocus && queryEditor",
+    handler: () => {
+      eventBus.emit("query-editor:save", {});
+    },
+  },
+  {
+    id: "query.saved.search",
+    label: "Search Saved Queries",
+    category: "Query History",
+    handler: () => {
+      const paletteStore = useCommandPaletteStore.getState();
+      paletteStore.setNestedMode({ type: "search-saved-queries" });
+      paletteStore.openPalette();
     },
   },
 ];

@@ -5,10 +5,7 @@ import {
 } from "@/stores/preferencesStore";
 import {
   IconSettings,
-  IconCode,
-  IconRobot,
   IconKeyboard,
-  IconWorld,
   IconActivity,
 } from "@tabler/icons-react";
 
@@ -19,24 +16,9 @@ const categories = [
     icon: IconSettings,
   },
   {
-    id: "editor" as PreferenceCategory,
-    label: "Editor",
-    icon: IconCode,
-  },
-  {
-    id: "ai" as PreferenceCategory,
-    label: "AI Runtime",
-    icon: IconRobot,
-  },
-  {
     id: "shortcuts" as PreferenceCategory,
     label: "Keyboard Shortcuts",
     icon: IconKeyboard,
-  },
-  {
-    id: "globalShortcuts" as PreferenceCategory,
-    label: "Global Shortcuts",
-    icon: IconWorld,
   },
   {
     id: "telemetry" as PreferenceCategory,

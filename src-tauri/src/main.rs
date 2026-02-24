@@ -3,13 +3,11 @@
     windows_subsystem = "windows"
 )]
 
-mod http_server;
 // NOTE: window_state module removed - tracking now uses BroadcastChannel API on frontend
 
 // Use library modules
 use query_pilot::*;
 
-use ai::manager::AIManager;
 use ssh::rate_limiter::RateLimiter;
 use state::AppState;
 use std::sync::Arc;
@@ -33,8 +31,29 @@ fn main() {
     // Create connection manager
     let manager = Arc::new(core::manager::ConnectionManager::new());
 
-    // Create AI manager with default provider
-    let ai_manager = Arc::new(AIManager::new());
+    // Create shared AI context store for both Tauri state and MCP bridge
+    let ai_context = Arc::new(ai_context::AiContextStore::new());
+
+    // Create and start MCP bridge for AI agent communication
+    let mcp_bridge = Arc::new(mcp::McpBridge::new(
+        manager.clone(),
+        Arc::clone(&ai_context),
+    ));
+    let mcp_bridge_for_cleanup = mcp_bridge.clone();
+
+    // Start MCP bridge in background
+    {
+        let bridge = mcp_bridge.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = bridge.start().await {
+                tracing::error!("Failed to start MCP bridge: {}", e);
+            }
+        });
+    }
+
+    // Create ACP manager for AI agent integration
+    let acp_manager = Arc::new(acp::manager::AcpManager::new());
+    let ollama_manager = Arc::new(acp::manager::OllamaManager::new());
 
     // Create app state
     let app_state = AppState {
@@ -54,11 +73,13 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(manager)
-        .manage(ai_manager.clone())
+        .manage(acp_manager)
+        .manage(ollama_manager)
         .manage(app_state)
+        .manage(ai_context::AiContextState(Arc::clone(&ai_context)))
         .setup(|app| {
             // Build and set the application menu
             let menu = query_pilot::menu::build_menu(&app.handle()).expect("Failed to build menu");
@@ -69,35 +90,6 @@ fn main() {
             app.on_menu_event(move |_app, event| {
                 query_pilot::menu::handle_menu_event(&app_handle, event);
             });
-
-            // Register default global shortcut to show/activate main window
-            #[cfg(target_os = "macos")]
-            let default_shortcut = "CommandOrControl+Shift+Space";
-            #[cfg(not(target_os = "macos"))]
-            let default_shortcut = "CommandOrControl+Shift+Space";
-
-            use tauri_plugin_global_shortcut::GlobalShortcutExt;
-
-            if let Err(e) =
-                app.global_shortcut()
-                    .on_shortcut(default_shortcut, |app, _shortcut, _event| {
-                        // Try to find main window or any existing window
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                            let _ = window.unminimize();
-                        } else if let Some((_, window)) = app.webview_windows().into_iter().next() {
-                            // If no main window, try to get any window
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                            let _ = window.unminimize();
-                        }
-                    })
-            {
-                tracing::warn!("Failed to register default global shortcut: {}", e);
-            } else {
-                tracing::info!("Registered global shortcut: {}", default_shortcut);
-            }
 
             Ok(())
         })
@@ -111,17 +103,12 @@ fn main() {
             commands::disconnect_all,
             commands::test_connection,
             commands::test_ssh_connection,
+            commands::update_safe_mode,
             // Query execution
             commands::query,
             commands::execute_query,
             commands::get_connection_health,
             commands::ping,
-            // AI sidecar
-            ai::commands::reload_ai_api_keys,
-            ai::commands::get_sidecar_status,
-            ai::commands::configure_telemetry,
-            ai::secure_storage::get_ai_api_key,
-            ai::secure_storage::set_ai_api_key,
             // Updater commands (for private repo releases)
             updater::check_for_updates,
             updater::download_update,
@@ -165,30 +152,49 @@ fn main() {
             commands::redis_lrange,
             commands::redis_smembers,
             commands::redis_type,
+            // Streaming commands
+            commands::mongo_find_documents_stream,
+            commands::redis_scan_stream,
+            // Paradigm-level IPC commands
+            commands::document_execute,
+            commands::keyvalue_execute,
+            // Backup and restore commands
+            commands::get_backup_capability,
+            commands::get_tool_status,
+            commands::get_backup_preview,
+            commands::start_backup,
+            commands::start_restore,
+            // Tool download commands
+            commands::get_tool_download_info,
+            commands::search_tool_paths,
+            commands::download_tool,
+            commands::install_tool_via_brew,
+            // ACP (AI agent) commands
+            acp::commands::acp_list_agents,
+            acp::commands::acp_fetch_agent_models,
+            acp::commands::acp_start_agent,
+            acp::commands::acp_create_session,
+            acp::commands::acp_set_session_model,
+            acp::commands::acp_get_session_id,
+            acp::commands::acp_send_prompt,
+            acp::commands::acp_cancel_session,
+            acp::commands::acp_install_package,
+            acp::commands::acp_check_package_updates,
+            acp::commands::acp_upgrade_package,
+            acp::commands::acp_initialize_llm_home,
+            acp::commands::acp_get_llm_home,
+            acp::commands::acp_get_mcp_sidecar_path,
+            // AI Context commands (for syncing context to MCP bridge)
+            ai_context::commands::sync_ai_context,
+            ai_context::commands::track_query_execution,
+            ai_context::commands::get_ai_query_history,
+            ai_context::commands::get_ai_active_context,
         ])
         .build(context)
         .expect("error while building tauri application");
 
-    // Initialize AI sidecar
-    let ai_manager = app.state::<Arc<ai::manager::AIManager>>();
-    let ai_manager_clone = ai_manager.inner().clone();
-    let app_handle = app.handle().clone();
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = ai_manager_clone.initialize_sidecar(&app_handle).await {
-            tracing::error!("Failed to initialize AI sidecar: {}", e);
-        }
-    });
-
-    // Start HTTP API server for AI tools
-    let app_handle_clone = app.handle().clone();
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = http_server::start_http_server(app_handle_clone).await {
-            tracing::error!("Failed to start HTTP API server: {}", e);
-        }
-    });
-
     // Run the app with proper cleanup
-    app.run(|app_handle, event| {
+    app.run(move |app_handle, event| {
         // Handle both ExitRequested and Exit to ensure cleanup on Cmd+Q
         let should_cleanup = matches!(
             event,
@@ -198,10 +204,11 @@ fn main() {
         if should_cleanup {
             tracing::info!("🛑 Application exit requested, cleaning up resources...");
 
+            // Shutdown MCP bridge
+            mcp_bridge_for_cleanup.shutdown();
+            tracing::info!("✅ MCP bridge shutdown signaled");
+
             // Run cleanup with overall timeout to prevent hanging
-            let ai_manager_opt = app_handle
-                .try_state::<Arc<AIManager>>()
-                .map(|s| s.inner().clone());
             let conn_manager_opt = app_handle
                 .try_state::<Arc<core::manager::ConnectionManager>>()
                 .map(|s| s.inner().clone());
@@ -209,13 +216,6 @@ fn main() {
             tauri::async_runtime::block_on(async move {
                 // Overall 3 second timeout for all cleanup
                 let cleanup_future = async {
-                    // Stop AI sidecar
-                    if let Some(ai_manager) = ai_manager_opt {
-                        if let Err(e) = ai_manager.sidecar_manager().stop().await {
-                            tracing::error!("Failed to stop AI sidecar: {}", e);
-                        }
-                    }
-
                     // Disconnect all database connections and close tunnels
                     if let Some(manager) = conn_manager_opt {
                         if let Err(e) = manager.disconnect_all().await {

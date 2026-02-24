@@ -295,10 +295,7 @@ async fn test_hstore_type() {
 
     // First ensure hstore extension exists
     let ext_check = client
-        .query(
-            "SELECT 1 FROM pg_extension WHERE extname = 'hstore'",
-            &[],
-        )
+        .query("SELECT 1 FROM pg_extension WHERE extname = 'hstore'", &[])
         .await;
 
     if ext_check.map(|r| r.is_empty()).unwrap_or(true) {
@@ -344,8 +341,7 @@ async fn test_hstore_with_null() {
         .execute("CREATE EXTENSION IF NOT EXISTS hstore", &[])
         .await;
 
-    let result =
-        query_first_cell(&client, "SELECT '\"a\"=>\"1\", \"b\"=>NULL'::hstore").await;
+    let result = query_first_cell(&client, "SELECT '\"a\"=>\"1\", \"b\"=>NULL'::hstore").await;
 
     if let Some(value) = result {
         assert!(
@@ -389,10 +385,16 @@ async fn test_large_coordinates() {
     }
 
     let client = connect().await.expect("Failed to connect");
-    let result =
-        query_first_cell(&client, "SELECT '<(1234567.89, -9876543.21), 999.999>'::circle").await;
+    let result = query_first_cell(
+        &client,
+        "SELECT '<(1234567.89, -9876543.21), 999.999>'::circle",
+    )
+    .await;
 
-    assert!(result.is_some(), "Expected result for large coordinate circle");
+    assert!(
+        result.is_some(),
+        "Expected result for large coordinate circle"
+    );
     let value = result.unwrap();
 
     assert!(

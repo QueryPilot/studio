@@ -9,7 +9,7 @@ export default defineConfig({
     environment: "jsdom", // Use jsdom for React component testing
     setupFiles: ["./src/test-utils/setup.ts"],
     include: ["src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}"],
-    exclude: ["node_modules", "dist", "src-tauri"],
+    exclude: ["node_modules", "dist", "src-tauri", "**/backup/**"],
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html"],

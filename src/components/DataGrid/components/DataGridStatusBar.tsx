@@ -287,6 +287,8 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   fetchCount,
   networkMs,
   conversionMs,
+  cursorSetupMs: _cursorSetupMs,
+  totalStreamingMs: _totalStreamingMs,
   isStreaming = false,
   isProcessing = false,
   onViewDetails,

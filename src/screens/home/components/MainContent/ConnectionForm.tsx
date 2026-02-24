@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { SafeMode } from "@/types/connection";
 import {
   Popover,
   PopoverContent,
@@ -39,6 +40,7 @@ import {
   IconArrowLeft,
   IconInfoCircle,
   IconFolderOpen,
+  IconLayout2,
 } from "@tabler/icons-react";
 import {
   Tooltip,
@@ -47,6 +49,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { toast } from "sonner";
 import {
@@ -56,7 +59,14 @@ import {
   type DatabaseType,
 } from "@/utils/connectionParser";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
-import { type ConnectionProfile, DbType, SslMode } from "@/types/connection";
+import {
+  type ConnectionProfile,
+  DbType,
+  SslMode,
+  type GroupTag,
+} from "@/types/connection";
+import { vaultStorage } from "@/services/vaultStorage";
+import { windowManager } from "@/services/windowManager";
 
 const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
 const { open } = await import("@tauri-apps/plugin-dialog");
@@ -80,20 +90,6 @@ const TAG_COLORS = [
   { value: "orange", class: "bg-orange-500", textClass: "text-orange-50" },
   { value: "cyan", class: "bg-cyan-500", textClass: "text-cyan-50" },
 ];
-
-interface GroupTag {
-  name: string;
-  color: string;
-}
-
-const getGroupTags = (): GroupTag[] => {
-  const stored = localStorage.getItem("query_pilot_group_tags");
-  return stored ? (JSON.parse(stored) as GroupTag[]) : [];
-};
-
-const saveGroupTags = (tags: GroupTag[]) => {
-  localStorage.setItem("query_pilot_group_tags", JSON.stringify(tags));
-};
 
 function getDefaultPort(type: DatabaseType): string {
   switch (type) {
@@ -166,6 +162,8 @@ export function ConnectionForm() {
         "2": "sqlite",
         "3": "mssql",
         "4": "mariadb",
+        "5": "mongodb",
+        "6": "redis",
         postgresql: "postgresql",
         postgres: "postgresql",
         mysql: "mysql",
@@ -173,6 +171,8 @@ export function ConnectionForm() {
         sqlite: "sqlite",
         mssql: "mssql",
         sqlserver: "mssql",
+        mongodb: "mongodb",
+        redis: "redis",
       };
       const key = String(connection.profile.db_type).toLowerCase();
       return dbTypeMap[key] || "postgresql";
@@ -193,6 +193,9 @@ export function ConnectionForm() {
   const [sslMode, setSslMode] = useState<SslMode>(
     connection?.profile.ssl_mode || SslMode.Disable,
   );
+  const [safeMode, setSafeMode] = useState<SafeMode>(
+    connection?.profile.safe_mode || "full_access",
+  );
   const [selectedTags, setSelectedTags] = useState<string[]>(() => {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (isEditMode && connection.metadata.tags) {
@@ -202,9 +205,50 @@ export function ConnectionForm() {
   });
 
   // Group tag management
-  const [groupTags, setGroupTags] = useState<GroupTag[]>(getGroupTags());
+  const [groupTags, setGroupTags] = useState<GroupTag[]>([]);
   const [tagsCommandOpen, setTagsCommandOpen] = useState(false);
   const [groupSearchValue, setGroupSearchValue] = useState("");
+
+  // Load group tags from vault
+  useEffect(() => {
+    vaultStorage
+      .listGroupTags()
+      .then(setGroupTags)
+      .catch((err) => {
+        logger.error("Failed to load group tags", err);
+      });
+  }, []);
+
+  // Workspace assignment state
+  const savedWorkspaces = useWorkspaceBundleStore((s) => s.savedWorkspaces);
+  const getWorkspacesForConnection = useWorkspaceBundleStore(
+    (s) => s.getWorkspacesForConnection,
+  );
+  const addConnectionToSavedWorkspace = useWorkspaceBundleStore(
+    (s) => s.addConnectionToSavedWorkspace,
+  );
+  const removeConnectionFromSavedWorkspace = useWorkspaceBundleStore(
+    (s) => s.removeConnectionFromSavedWorkspace,
+  );
+  const createWorkspace = useWorkspaceBundleStore((s) => s.createWorkspace);
+
+  const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>(
+    () => {
+      if (isEditMode && connection) {
+        return getWorkspacesForConnection(connection.profile.id).map(
+          (ws) => ws.id,
+        );
+      }
+      const preselectedId =
+        useHomeScreenStore.getState().formPreselectedWorkspaceId;
+      if (preselectedId) {
+        return [preselectedId];
+      }
+      return [];
+    },
+  );
+  const [workspacesCommandOpen, setWorkspacesCommandOpen] = useState(false);
+  const [workspaceSearchValue, setWorkspaceSearchValue] = useState("");
 
   // SSH tunnel state
   const existingSshTunnel = connection?.profile.ssh_tunnel;
@@ -443,7 +487,7 @@ export function ConnectionForm() {
     }
   };
 
-  const handleCreateGroup = (groupName: string) => {
+  const handleCreateGroup = async (groupName: string) => {
     if (!groupName.trim()) return;
 
     const exists = groupTags.some((t) => t.name === groupName);
@@ -457,9 +501,9 @@ export function ConnectionForm() {
     const color = randomColor?.class || "bg-gray-500";
 
     const newGroup: GroupTag = { name: groupName.trim(), color };
-    const updatedTags = [...groupTags, newGroup];
-    setGroupTags(updatedTags);
-    saveGroupTags(updatedTags);
+    await vaultStorage.storeGroupTag(newGroup);
+    const updated = await vaultStorage.listGroupTags();
+    setGroupTags(updated);
     handleTagToggle(groupName);
     setTagsCommandOpen(false);
     setGroupSearchValue("");
@@ -493,16 +537,16 @@ export function ConnectionForm() {
         dbType === "postgresql"
           ? DbType.PostgreSQL
           : dbType === "mysql"
-          ? DbType.MySQL
-          : dbType === "mariadb"
-          ? DbType.MariaDB
-          : dbType === "sqlite"
-          ? DbType.SQLite
-          : dbType === "mongodb"
-          ? DbType.MongoDB
-          : dbType === "redis"
-          ? DbType.Redis
-          : DbType.SQLServer,
+            ? DbType.MySQL
+            : dbType === "mariadb"
+              ? DbType.MariaDB
+              : dbType === "sqlite"
+                ? DbType.SQLite
+                : dbType === "mongodb"
+                  ? DbType.MongoDB
+                  : dbType === "redis"
+                    ? DbType.Redis
+                    : DbType.SQLServer,
       host: dbType !== "sqlite" ? host : "localhost",
       port:
         dbType !== "sqlite"
@@ -524,19 +568,20 @@ export function ConnectionForm() {
       bastion: undefined,
       options: parseConnectionOptions(connectionOptions),
       default_schema: defaultSchema || undefined,
+      safe_mode: safeMode,
     };
 
     if (useSSH) {
       const auth = useSSHAgent
         ? { Agent: true as const }
         : useSSHKey
-        ? {
-            KeyFile: {
-              path: sshKeyPath,
-              passphrase: sshKeyPassphrase || undefined,
-            },
-          }
-        : { Password: sshPassword };
+          ? {
+              KeyFile: {
+                path: sshKeyPath,
+                passphrase: sshKeyPassphrase || undefined,
+              },
+            }
+          : { Password: sshPassword };
 
       profile.ssh_tunnel = {
         host: sshHost,
@@ -548,6 +593,24 @@ export function ConnectionForm() {
     }
 
     return profile;
+  };
+
+  const syncWorkspaceMemberships = async (connectionId: string) => {
+    const currentWorkspaces = getWorkspacesForConnection(connectionId);
+    const currentWorkspaceIds = new Set(currentWorkspaces.map((ws) => ws.id));
+    const selectedIds = new Set(selectedWorkspaceIds);
+
+    for (const wsId of selectedWorkspaceIds) {
+      if (!currentWorkspaceIds.has(wsId)) {
+        await addConnectionToSavedWorkspace(wsId, connectionId);
+      }
+    }
+
+    for (const ws of currentWorkspaces) {
+      if (!selectedIds.has(ws.id)) {
+        await removeConnectionFromSavedWorkspace(ws.id, connectionId);
+      }
+    }
   };
 
   const handleTest = async () => {
@@ -600,6 +663,8 @@ export function ConnectionForm() {
         await persistConnection(profile, selectedTags);
       }
 
+      await syncWorkspaceMemberships(profile.id);
+
       toast.success("Success", {
         description: isEditMode
           ? "Connection updated successfully"
@@ -632,10 +697,13 @@ export function ConnectionForm() {
         await persistConnection(profile, selectedTags);
       }
 
-      // TODO: Implement actual connection
-      logger.info("Connect to", profile.id);
+      await syncWorkspaceMemberships(profile.id);
 
       closeForm();
+
+      await windowManager.openWorkspace(profile.id, profile.name, {
+        database: profile.database,
+      });
     } catch (error) {
       toast.error("Error", {
         description:
@@ -678,24 +746,21 @@ export function ConnectionForm() {
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={closeForm}
-          >
-            <IconArrowLeft className="h-4 w-4" />
-          </Button>
-
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 gap-2"
+          onClick={closeForm}
+        >
+          <IconArrowLeft className="h-4 w-4" />
           <span className="text-xs font-semibold">
             {isEditMode
               ? "Edit Connection"
               : formMode === "import"
-              ? "Import Connection"
-              : "New Connection"}
+                ? "Import Connection"
+                : "New Connection"}
           </span>
-        </div>
+        </Button>
 
         <Select
           value={dbType}
@@ -730,8 +795,8 @@ export function ConnectionForm() {
       {/* Form Body */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
         <div className="space-y-4">
-          {/* Name and Tags */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Name, Workspace, and Tags */}
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <Label htmlFor="name" className="text-xs">
                 Name
@@ -746,6 +811,146 @@ export function ConnectionForm() {
                 placeholder={`My ${dbType} Database`}
                 disabled={isTesting}
               />
+            </div>
+            <div>
+              <Label className="flex items-center gap-1.5 text-xs">
+                <IconLayout2 className="h-3 w-3 text-muted-foreground" />
+                Workspace
+              </Label>
+              <Popover
+                open={workspacesCommandOpen}
+                onOpenChange={setWorkspacesCommandOpen}
+              >
+                <PopoverTrigger
+                  render={
+                    <Button
+                      variant="outline"
+                      className="w-full justify-between mt-1 h-8 text-xs"
+                      disabled={isTesting}
+                    >
+                      <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+                        {selectedWorkspaceIds.length > 0 ? (
+                          <span className="truncate">
+                            {selectedWorkspaceIds
+                              .map(
+                                (id) =>
+                                  savedWorkspaces.find((ws) => ws.id === id)
+                                    ?.name || id,
+                              )
+                              .join(", ")}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">
+                            No workspaces
+                          </span>
+                        )}
+                      </div>
+                      <IconChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                    </Button>
+                  }
+                />
+                <PopoverContent className="w-[300px] p-0">
+                  <Command>
+                    <CommandInput
+                      placeholder="Search or create workspace..."
+                      value={workspaceSearchValue}
+                      onValueChange={setWorkspaceSearchValue}
+                      className="text-xs h-8"
+                    />
+                    <CommandList>
+                      <CommandEmpty>
+                        <div className="py-2 text-center">
+                          <p className="text-xs text-muted-foreground mb-2">
+                            No workspace found.
+                          </p>
+                          {workspaceSearchValue && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                void (async () => {
+                                  const wsId = await createWorkspace(
+                                    workspaceSearchValue.trim(),
+                                    [],
+                                  );
+                                  setSelectedWorkspaceIds((prev) => [
+                                    ...prev,
+                                    wsId,
+                                  ]);
+                                  setWorkspacesCommandOpen(false);
+                                  setWorkspaceSearchValue("");
+                                })();
+                              }}
+                              className="gap-1.5 h-6 px-2 text-xs"
+                            >
+                              <IconPlus className="h-3 w-3" />
+                              Create "{workspaceSearchValue}"
+                            </Button>
+                          )}
+                        </div>
+                      </CommandEmpty>
+
+                      {savedWorkspaces.length > 0 && (
+                        <CommandGroup heading="Workspaces" className="text-xs">
+                          {savedWorkspaces.map((ws) => (
+                            <CommandItem
+                              key={ws.id}
+                              value={ws.name}
+                              onSelect={() => {
+                                setSelectedWorkspaceIds((prev) =>
+                                  prev.includes(ws.id)
+                                    ? prev.filter((id) => id !== ws.id)
+                                    : [...prev, ws.id],
+                                );
+                              }}
+                              className="flex items-center justify-between text-xs"
+                            >
+                              <div className="flex items-center gap-2">
+                                <IconLayout2 className="h-3 w-3 text-muted-foreground" />
+                                <span>{ws.name}</span>
+                              </div>
+                              {selectedWorkspaceIds.includes(ws.id) && (
+                                <IconCheck className="h-3 w-3" />
+                              )}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      )}
+
+                      {workspaceSearchValue &&
+                        !savedWorkspaces.some(
+                          (ws) =>
+                            ws.name.toLowerCase() ===
+                            workspaceSearchValue.toLowerCase(),
+                        ) && (
+                          <CommandGroup>
+                            <CommandItem
+                              value={`create-${workspaceSearchValue}`}
+                              onSelect={() => {
+                                void (async () => {
+                                  const wsId = await createWorkspace(
+                                    workspaceSearchValue.trim(),
+                                    [],
+                                  );
+                                  setSelectedWorkspaceIds((prev) => [
+                                    ...prev,
+                                    wsId,
+                                  ]);
+                                  setWorkspacesCommandOpen(false);
+                                  setWorkspaceSearchValue("");
+                                })();
+                              }}
+                              className="text-xs"
+                            >
+                              <IconPlus className="h-3 w-3 mr-2" />
+                              Create "{workspaceSearchValue}"
+                            </CommandItem>
+                          </CommandGroup>
+                        )}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
             <div>
               <Label htmlFor="tags" className="text-xs">
@@ -773,7 +978,7 @@ export function ConnectionForm() {
                               >
                                 <div
                                   className={cn(
-                                    "w-2 h-2 rounded-full flex-shrink-0",
+                                    "w-2 h-2 rounded-full shrink-0",
                                     tagColor.bg,
                                   )}
                                 />
@@ -1074,6 +1279,28 @@ export function ConnectionForm() {
             </div>
           )}
 
+          {/* Safe Mode */}
+          <div>
+            <Label className="flex items-center gap-1.5 text-xs">
+              <IconShield className="h-3 w-3 text-muted-foreground" />
+              Safe Mode
+            </Label>
+            <Select
+              value={safeMode}
+              onValueChange={(value) => setSafeMode(value as SafeMode)}
+            >
+              <SelectTrigger className="mt-2 h-8 text-xs">
+                <SelectValue placeholder="Select safe mode" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="full_access">Full Access</SelectItem>
+                <SelectItem value="read_write_update">Read + Write + Update</SelectItem>
+                <SelectItem value="read_write">Read + Write</SelectItem>
+                <SelectItem value="read_only">Read Only</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Connection Options */}
           {dbType !== "sqlite" && (
             <div>
@@ -1126,8 +1353,8 @@ export function ConnectionForm() {
                   dbType === "mysql" || dbType === "mariadb"
                     ? "charset=utf8mb4\ntimezone=UTC"
                     : dbType === "mssql"
-                    ? "application_name=QueryPilot"
-                    : "application_name=QueryPilot"
+                      ? "application_name=QueryPilot"
+                      : "application_name=QueryPilot"
                 }
                 disabled={isTesting}
               />

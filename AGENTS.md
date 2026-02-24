@@ -1,80 +1,62 @@
-# Query Pilot Agent Guide
+# AGENTS.md
 
-This documentation outlines the development standards, commands, and architectural patterns for Query Pilot. Agents operating in this repository must adhere to these guidelines to ensure code consistency and stability.
+Query Pilot is a local-first desktop database IDE built with Tauri 2 + React 19 + Rust.
 
-## 1. Project Context
-Query Pilot is a local-first desktop database IDE built on a hybrid architecture:
-- **Frontend**: React 19 + TypeScript (Vite)
-- **Backend**: Rust + Tauri 2
-- **State**: Zustand (Multi-store pattern)
-- **Styling**: Tailwind CSS v4 + shadcn/ui
+## Quick Reference
 
-## 2. Development & Build Commands
+| Task | Command |
+|------|---------|
+| Dev server | `make dev` |
+| Lint (frontend) | `pnpm lint` |
+| Typecheck | `pnpm typecheck` |
+| Lint (backend) | `cargo clippy` (in src-tauri/) |
+| Test all | `make test` |
+| Test frontend | `pnpm test:unit` |
 
-### Core Workflows
-| Command | Description |
-|---------|-------------|
-| `make dev` | Start the full development environment (Tauri + React + Sidecars) |
-| `make build` | Build the application for production (includes all sidecars) |
-| `pnpm lint` | Run ESLint for frontend code |
-| `pnpm typecheck` | Run TypeScript type checking |
-| `cargo clippy` | Run Rust linter (run inside `src-tauri/`) |
+**Package manager**: `pnpm`
 
-### Testing
-**Frontend (Vitest)**
-- Run all unit tests: `pnpm test:unit`
-- Run a specific test file: `pnpm test:unit <filename_pattern>`
-  *Example: `pnpm test:unit QueryPanel` runs tests matching "QueryPanel"*
-- Watch mode: `pnpm test:watch`
+## Architecture at a Glance
 
-**Backend (Rust)**
-- Run all tests: `make test-backend`
-- Run a specific test function: `cd src-tauri && cargo test <test_function_name>`
-- Run a specific integration test file: `cd src-tauri && cargo test --test <test_file_name>`
+```
+Frontend (src/)           Backend (src-tauri/src/)
+├── React 19 + TS         ├── Rust + Tauri 2
+├── Zustand (state)       ├── commands/ (IPC handlers)
+├── shadcn/ui + Tailwind  ├── adapters/ (DB implementations)
+└── CodeMirror (editor)   └── core/manager.rs (connection pool)
+```
 
-## 3. Code Style & Conventions
+**Multi-paradigm databases**: SQL (Postgres, MySQL, SQLite, MSSQL) | Document (MongoDB) | Key-Value (Redis)
 
-### Frontend (React/TypeScript)
-- **Components**: Use Functional Components with named exports.
-  ```tsx
-  export const MyComponent = ({ prop }: Props) => { ... }
-  ```
-- **Hooks**: Isolate complex logic into custom hooks (`useMyLogic.ts`).
-- **State**: Use Zustand for global state; React state for local UI interactions.
-- **Styling**: Use Tailwind utility classes. Use `cn()` for conditional class merging.
-- **Imports**: Group imports:
-  1. External libraries (React, Zustand, etc.)
-  2. Internal components (`@components/...`)
-  3. Hooks and utilities (`@hooks/...`, `@utils/...`)
-  4. Types (`@types/...`)
-  5. Styles
-- **Naming**:
-  - Components: `PascalCase` (e.g., `QueryPanel.tsx`)
-  - Hooks: `camelCase` starting with `use` (e.g., `useConnection.ts`)
-  - Constants: `UPPER_SNAKE_CASE`
+## Verification Protocol
 
-### Backend (Rust)
-- **Error Handling**: Use `Result<T, E>` and the `?` operator. Avoid `unwrap()` or `expect()` unless in tests or specifically justified.
-- **Async**: Use `tokio` for async runtime. Ensure functions usually return `Result`.
-- **Modules**: Keep modules small and focused. Expose public API via `mod.rs` or `lib.rs` re-exports if necessary.
-- **Commands**: Tauri commands must be annotated with `#[tauri::command]` and handle errors by returning `Result<T, String>` or a serializable error struct.
+**After frontend changes**:
+```bash
+pnpm typecheck && pnpm lint
+```
 
-## 4. Architecture & Patterns
+**After backend changes**:
+```bash
+cd src-tauri && cargo clippy
+```
 
-- **IPC Communication**:
-  - Small data: Use standard Tauri commands (`invoke`).
-  - Large data (Grids/Results): Use **Streaming** via IPC channels (MessagePack) to avoid `window.emit` serialization overhead.
-- **Safety**:
-  - Never commit secrets.
-  - Use `vault` storage for sensitive user data (connection credentials).
-- **Filesystem**: Always use absolute paths when interfacing with tools.
+## Deep Dives
 
-## 5. Agent Operational Protocols
+Read these as needed for your task:
 
-- **Skills**: Before starting complex tasks, check available skills using `find_skills`.
-  - Use `superpowers:brainstorming` before implementing new features.
-  - Use `superpowers:test-driven-development` when writing logic.
-- **Context Management**: Proactively use `discard` to remove output from tools that is no longer needed (like `cat` of a large file after reading).
-- **Verification**: Always verify changes.
-  - After React changes: Run `pnpm typecheck` and `pnpm lint`.
-  - After Rust changes: Run `cargo check` or `cargo clippy`.
+| Topic | File |
+|-------|------|
+| System architecture | [docs/llm-context/architecture-overview.md](docs/llm-context/architecture-overview.md) |
+| React/Zustand patterns | [docs/llm-context/frontend-patterns.md](docs/llm-context/frontend-patterns.md) |
+| Rust commands & adapters | [docs/llm-context/backend-patterns.md](docs/llm-context/backend-patterns.md) |
+| Running tests | [docs/llm-context/testing.md](docs/llm-context/testing.md) |
+| AI sidecar | [docs/llm-context/ai-sidecar.md](docs/llm-context/ai-sidecar.md) |
+| SQL editor & linting | [docs/llm-context/code-editor.md](docs/llm-context/code-editor.md) |
+| Vault & keychain | [docs/llm-context/security.md](docs/llm-context/security.md) |
+| Building & releases | [docs/llm-context/build-and-release.md](docs/llm-context/build-and-release.md) |
+| Local databases | [docs/llm-context/dev-database-setup.md](docs/llm-context/dev-database-setup.md) |
+
+## Existing Architecture Docs
+
+- [Query Execution](docs/architecture/query-execution.md) - Dual-path query system
+- [DataGrid Adapters](docs/guides/datagrid-adapter-architecture.md) - Grid implementation
+- [Adding Databases](docs/guides/CONTRIBUTING_DB.md) - New adapter guide

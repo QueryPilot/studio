@@ -412,6 +412,50 @@ export interface PasteValidationError {
   error: string;
 }
 
+/**
+ * Detect if the first row of paste data looks like column headers
+ * by comparing against actual column names
+ */
+export function detectHeaderRow(
+  firstRow: (string | number | boolean | null)[],
+  columnNames: string[],
+  startColumnIndex: number = 0
+): boolean {
+  if (firstRow.length === 0) return false;
+
+  // Get the column names we'll be pasting into
+  const targetColumnNames = columnNames.slice(
+    startColumnIndex,
+    startColumnIndex + firstRow.length
+  );
+
+  // Count how many cells in the first row match column names (case-insensitive)
+  let matchCount = 0;
+  for (let i = 0; i < firstRow.length && i < targetColumnNames.length; i++) {
+    const cellValue = String(firstRow[i] ?? "").toLowerCase().trim();
+    const columnName = (targetColumnNames[i] ?? "").toLowerCase().trim();
+
+    // Consider it a match if the cell value matches the column name
+    // or is a common transformation (snake_case, camelCase, spaces)
+    const normalizedCell = cellValue.replace(/[_\s-]/g, "");
+    const normalizedColumn = columnName.replace(/[_\s-]/g, "");
+
+    if (
+      cellValue === columnName ||
+      normalizedCell === normalizedColumn ||
+      cellValue === columnName.replace(/_/g, " ") ||
+      cellValue === columnName.replace(/_/g, "-")
+    ) {
+      matchCount++;
+    }
+  }
+
+  // If more than half of the values match column names, it's likely a header row
+  // Use ceil to be stricter - require majority match
+  const threshold = Math.max(1, Math.ceil(firstRow.length * 0.5));
+  return matchCount >= threshold;
+}
+
 export function validatePasteData(
   rows: (string | number | boolean | null)[][],
   columnHints: ColumnTypeHint[]

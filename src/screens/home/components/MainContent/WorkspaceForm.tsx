@@ -1,226 +1,291 @@
-/**
- * WorkspaceForm - Create or edit workspace configuration
- */
-
 import { useState, useEffect } from "react";
-import { cn } from "@/lib/utils";
-import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
-import { useConnectionStore } from "@/stores/connectionStoreNew";
-import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { IconFolder, IconArrowLeft, IconCheck } from "@tabler/icons-react";
-import { getDatabaseLogo } from "@/utils/databaseLogos";
+import { IconLoader2, IconArrowLeft, IconCheck } from "@tabler/icons-react";
+import { cn } from "@/lib/utils";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
+import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { toast } from "sonner";
+import { getDatabaseLogo } from "@/utils/databaseLogos";
 
-const WORKSPACE_ICONS = ["📦", "🚀", "💼", "🔧", "📊", "🌐", "⚡", "🔒"];
+// Common emojis for workspaces
+const WORKSPACE_EMOJIS = [
+  "🚀",
+  "💼",
+  "🏢",
+  "🔧",
+  "⚡",
+  "🌟",
+  "🎯",
+  "📊",
+  "🔥",
+  "💻",
+  "🌈",
+  "🎨",
+  "🔬",
+  "🏗️",
+  "📱",
+  "🌐",
+  "⚙️",
+  "🎭",
+  "🎪",
+  "🎬",
+  "🎮",
+  "🎲",
+  "🎯",
+  "🎪",
+];
 
 export function WorkspaceForm() {
-  const connections = useConnectionStore((s) => s.connections);
-
-  const savedWorkspaces = useWorkspaceBundleStore((s) => s.savedWorkspaces);
-  const createWorkspace = useWorkspaceBundleStore((s) => s.createWorkspace);
-  const updateWorkspace = useWorkspaceBundleStore((s) => s.updateWorkspace);
-
   const workspaceFormMode = useHomeScreenStore((s) => s.workspaceFormMode);
-  const editingWorkspaceId = useHomeScreenStore((s) => s.editingWorkspaceId);
-  const setContentMode = useHomeScreenStore((s) => s.setContentMode);
+  const workspaceFormId = useHomeScreenStore((s) => s.workspaceFormId);
+  const closeWorkspaceForm = useHomeScreenStore((s) => s.closeWorkspaceForm);
 
-  const isEditing = workspaceFormMode === "edit" && editingWorkspaceId;
-  const existingWorkspace = isEditing
-    ? savedWorkspaces.find((ws) => ws.id === editingWorkspaceId)
-    : null;
+  const connections = useConnectionStore((s) => s.connections);
+  const {
+    createWorkspace,
+    updateWorkspace,
+    savedWorkspaces,
+    loadSavedWorkspaces,
+  } = useWorkspaceBundleStore();
 
-  // Form state
   const [name, setName] = useState("");
-  const [icon, setIcon] = useState("📦");
-  const [selectedConnectionIds, setSelectedConnectionIds] = useState<
-    Set<string>
-  >(new Set());
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [icon, setIcon] = useState(WORKSPACE_EMOJIS[0]);
+  const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>(
+    [],
+  );
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Populate form when editing
+  const isEditMode = workspaceFormMode === "edit";
+
+  // Load workspaces on mount
   useEffect(() => {
-    if (existingWorkspace) {
-      setName(existingWorkspace.name);
-      setIcon(existingWorkspace.icon || "📦");
-      setSelectedConnectionIds(new Set(existingWorkspace.connectionIds));
-    }
-  }, [existingWorkspace]);
+    void loadSavedWorkspaces();
+  }, [loadSavedWorkspaces]);
 
-  const handleBack = () => {
-    setContentMode("workspace-list");
-  };
-
-  const handleToggleConnection = (connectionId: string) => {
-    const newSet = new Set(selectedConnectionIds);
-    if (newSet.has(connectionId)) {
-      newSet.delete(connectionId);
+  // Load existing workspace data for edit mode
+  useEffect(() => {
+    if (isEditMode && workspaceFormId) {
+      const workspace = savedWorkspaces.find((ws) => ws.id === workspaceFormId);
+      if (workspace) {
+        setName(workspace.name);
+        setIcon(workspace.icon || WORKSPACE_EMOJIS[0]);
+        setSelectedConnectionIds(workspace.connectionIds);
+      }
     } else {
-      newSet.add(connectionId);
+      // Reset for create mode
+      setName("");
+      setIcon(WORKSPACE_EMOJIS[0]);
+      setSelectedConnectionIds([]);
     }
-    setSelectedConnectionIds(newSet);
+  }, [isEditMode, workspaceFormId, savedWorkspaces]);
+
+  const handleConnectionToggle = (connectionId: string) => {
+    setSelectedConnectionIds((prev) => {
+      if (prev.includes(connectionId)) {
+        return prev.filter((id) => id !== connectionId);
+      }
+      return [...prev, connectionId];
+    });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
+  const handleSave = async () => {
     if (!name.trim()) {
-      toast.error("Please enter a workspace name");
+      toast.error("Error", { description: "Please provide a workspace name" });
       return;
     }
 
-    if (selectedConnectionIds.size === 0) {
-      toast.error("Please select at least one connection");
+    if (selectedConnectionIds.length === 0) {
+      toast.error("Error", {
+        description: "Please select at least one connection",
+      });
       return;
     }
 
-    setIsSubmitting(true);
-
+    setIsSaving(true);
     try {
-      if (isEditing && editingWorkspaceId) {
-        await updateWorkspace(editingWorkspaceId, {
+      if (isEditMode && workspaceFormId) {
+        await updateWorkspace(workspaceFormId, {
           name: name.trim(),
           icon,
-          connectionIds: Array.from(selectedConnectionIds),
+          connectionIds: selectedConnectionIds,
         });
-        toast.success(`Updated workspace "${name}"`);
+        toast.success("Success", {
+          description: "Workspace updated successfully",
+        });
       } else {
-        await createWorkspace(name.trim(), Array.from(selectedConnectionIds));
-        toast.success(`Created workspace "${name}"`);
+        const workspaceId = await createWorkspace(
+          name.trim(),
+          selectedConnectionIds,
+        );
+        // Update the workspace config with the icon
+        await updateWorkspace(workspaceId, { icon });
+        toast.success("Success", {
+          description: "Workspace created successfully",
+        });
       }
-      setContentMode("workspace-list");
+
+      await loadSavedWorkspaces();
+
+      closeWorkspaceForm();
     } catch (error) {
-      toast.error(isEditing ? "Failed to update workspace" : "Failed to create workspace", {
-        description: error instanceof Error ? error.message : "Unknown error",
-      });
+      const errorMessage =
+        error instanceof Error ? error.message : "Failed to save workspace";
+      toast.error("Error", { description: errorMessage });
     } finally {
-      setIsSubmitting(false);
+      setIsSaving(false);
     }
   };
 
   return (
-    <div className="p-6 max-w-2xl mx-auto">
+    <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <Button variant="ghost" size="icon" onClick={handleBack}>
-          <IconArrowLeft className="w-5 h-5" />
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-border/40">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={closeWorkspaceForm}
+          className="h-8 w-8 p-0"
+        >
+          <IconArrowLeft className="h-4 w-4" />
         </Button>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
-            <IconFolder className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold">
-              {isEditing ? "Edit Workspace" : "Create Workspace"}
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              {isEditing
-                ? "Update workspace configuration"
-                : "Bundle connections into a workspace"}
-            </p>
-          </div>
+        <div>
+          <h2 className="text-base font-semibold">
+            {isEditMode ? "Edit Workspace" : "New Workspace"}
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            {isEditMode
+              ? "Update workspace details and connections"
+              : "Create a new workspace with multiple connections"}
+          </p>
         </div>
       </div>
 
-      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-6">
-        {/* Name */}
-        <div className="space-y-2">
-          <Label htmlFor="name">Name</Label>
-          <Input
-            id="name"
-            value={name}
-            onChange={(e) => { setName(e.target.value); }}
-            placeholder="Production Stack"
-            autoFocus
-          />
-        </div>
-
-        {/* Icon */}
-        <div className="space-y-2">
-          <Label>Icon</Label>
-          <div className="flex gap-2">
-            {WORKSPACE_ICONS.map((emoji) => (
-              <button
-                key={emoji}
-                type="button"
-                onClick={() => { setIcon(emoji); }}
-                className={cn(
-                  "w-10 h-10 rounded-lg flex items-center justify-center text-xl",
-                  "border transition-colors",
-                  icon === emoji
-                    ? "border-primary bg-primary/10"
-                    : "border-border hover:border-primary/50",
-                )}
-              >
-                {emoji}
-              </button>
-            ))}
+      {/* Form Content */}
+      <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="max-w-2xl space-y-6">
+          {/* Workspace Name */}
+          <div className="space-y-2">
+            <Label htmlFor="workspace-name">Workspace Name</Label>
+            <Input
+              id="workspace-name"
+              placeholder="e.g., Production Stack, Local Development"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="h-9"
+            />
           </div>
-        </div>
 
-        {/* Connections */}
-        <div className="space-y-2">
-          <Label>Select Connections ({selectedConnectionIds.size})</Label>
-          <div className="border rounded-lg max-h-64 overflow-y-auto">
-            {connections.length === 0 ? (
-              <div className="p-4 text-center text-muted-foreground text-sm">
-                No connections available
-              </div>
-            ) : (
-              <div className="divide-y">
-                {connections.map((conn) => (
-                  <label
-                    key={conn.profile.id}
+          {/* Icon Picker */}
+          <div className="space-y-2">
+            <Label>Icon</Label>
+            <div className="flex items-center gap-2">
+              <div className="text-3xl">{icon}</div>
+              <div className="flex flex-wrap gap-1">
+                {WORKSPACE_EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => setIcon(emoji)}
                     className={cn(
-                      "flex items-center gap-3 p-3 cursor-pointer",
-                      "hover:bg-accent/50 transition-colors",
-                      selectedConnectionIds.has(conn.profile.id) && "bg-accent/30",
+                      "text-2xl w-10 h-10 rounded-md hover:bg-accent transition-colors",
+                      icon === emoji && "bg-accent ring-2 ring-primary",
                     )}
                   >
-                    <Checkbox
-                      checked={selectedConnectionIds.has(conn.profile.id)}
-                      onCheckedChange={() => {
-                        handleToggleConnection(conn.profile.id);
-                      }}
-                    />
-                    <img
-                      src={getDatabaseLogo(conn.profile.db_type)}
-                      alt=""
-                      className="w-5 h-5 shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">
-                        {conn.profile.name}
-                      </div>
-                      <div className="text-xs text-muted-foreground truncate">
-                        {conn.profile.host}:{conn.profile.port}
-                      </div>
-                    </div>
-                  </label>
+                    {emoji}
+                  </button>
                 ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Connection Selection */}
+          <div className="space-y-3">
+            <div>
+              <Label>Connections</Label>
+              <p className="text-xs text-muted-foreground mt-1">
+                Select connections to include in this workspace
+              </p>
+            </div>
+
+            {connections.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground text-sm">
+                No connections available. Create a connection first.
+              </div>
+            ) : (
+              <div className="space-y-1 border border-border/40 rounded-lg p-3 max-h-[400px] overflow-y-auto">
+                {connections.map((connection) => {
+                  const isSelected = selectedConnectionIds.includes(
+                    connection.profile.id,
+                  );
+                  const logo = getDatabaseLogo(connection.profile.db_type);
+
+                  return (
+                    <div
+                      key={connection.profile.id}
+                      className={cn(
+                        "flex items-center gap-3 p-3 rounded-md hover:bg-accent/50 transition-colors cursor-pointer",
+                        isSelected && "bg-accent",
+                      )}
+                      onClick={() =>
+                        handleConnectionToggle(connection.profile.id)
+                      }
+                    >
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() =>
+                          handleConnectionToggle(connection.profile.id)
+                        }
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <img src={logo} alt="" className="w-6 h-6 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">
+                          {connection.profile.name}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {connection.profile.host}:{connection.profile.port} /{" "}
+                          {connection.profile.database}
+                        </div>
+                      </div>
+                      {isSelected && (
+                        <IconCheck className="h-4 w-4 text-primary shrink-0" />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {selectedConnectionIds.length > 0 && (
+              <div className="text-xs text-muted-foreground">
+                {selectedConnectionIds.length} connection
+                {selectedConnectionIds.length !== 1 ? "s" : ""} selected
               </div>
             )}
           </div>
         </div>
+      </div>
 
-        {/* Actions */}
-        <div className="flex gap-3 pt-4">
-          <Button type="button" variant="outline" onClick={handleBack}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={isSubmitting}>
-            <IconCheck className="w-4 h-4 mr-2" />
-            {isSubmitting
-              ? "Saving..."
-              : isEditing
-                ? "Update Workspace"
-                : "Create Workspace"}
-          </Button>
-        </div>
-      </form>
+      {/* Footer Actions */}
+      <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border/40">
+        <Button variant="outline" onClick={closeWorkspaceForm}>
+          Cancel
+        </Button>
+        <Button onClick={handleSave} disabled={isSaving}>
+          {isSaving ? (
+            <>
+              <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+              Saving...
+            </>
+          ) : (
+            <>{isEditMode ? "Update Workspace" : "Create Workspace"}</>
+          )}
+        </Button>
+      </div>
     </div>
   );
 }

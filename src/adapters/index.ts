@@ -42,11 +42,20 @@ import type {
   SequenceRenamePayload,
 } from '@/types/crud';
 import { sqlDiffGenerator } from '@/services/sqlDiffGenerator';
-import type { DatabaseAdapter, TableRef, RowData, WhereClause } from './types';
+import type {
+  DatabaseAdapter,
+  TableRef,
+  RowData,
+  WhereClause,
+  BaseAdapter,
+} from './types';
 import { useConnectionStore } from '@/stores/connectionStoreNew';
+import { getParadigm } from '@/types/connection';
+import { MongoDBAdapter } from './mongodb/MongoDBAdapter';
+import { RedisAdapter } from './redis/RedisAdapter';
 
-// Lazy imports to avoid circular dependencies
-const adapterModules: Partial<Record<DbType, () => Promise<new (connectionId: string) => DatabaseAdapter>>> = {
+// Lazy imports for SQL adapters to avoid circular dependencies
+const sqlAdapterModules: Partial<Record<DbType, () => Promise<new (connectionId: string) => DatabaseAdapter>>> = {
   [DbType.PostgreSQL]: () =>
     import('./dialects/PostgreSQLAdapter').then((m) => m.PostgreSQLAdapter),
   [DbType.MySQL]: () =>
@@ -57,42 +66,81 @@ const adapterModules: Partial<Record<DbType, () => Promise<new (connectionId: st
     import('./dialects/SQLiteAdapter').then((m) => m.SQLiteAdapter),
   [DbType.SQLServer]: () =>
     import('./dialects/MSSQLAdapter').then((m) => m.MSSQLAdapter),
-  // MongoDB and Redis use different paradigms and will have their own adapters
-  // They don't implement the SQL DatabaseAdapter interface
 };
 
-// Cache adapters by connection ID
-const adapterCache = new Map<string, DatabaseAdapter>();
+export function isSqlParadigm(dbType: DbType): boolean {
+  return getParadigm(dbType) === 'sql';
+}
+
+const adapterCache = new Map<string, BaseAdapter>();
+const pendingAdapters = new Map<string, Promise<BaseAdapter>>();
 
 /**
- * Get or create an adapter for the given connection
- *
- * @param connectionId - Connection ID
- * @param dbType - Database type
- * @returns Database adapter instance
+ * Get adapter for any database type (SQL, Document, or KeyValue)
+ * Returns BaseAdapter - use type guards to access paradigm-specific methods
  */
 export async function getAdapter(
   connectionId: string,
   dbType: DbType
-): Promise<DatabaseAdapter> {
-  // Return cached adapter if exists
+): Promise<BaseAdapter> {
   const cached = adapterCache.get(connectionId);
   if (cached) {
     return cached;
   }
 
-  // Create new adapter
-  const adapterLoader = adapterModules[dbType];
-  if (!adapterLoader) {
-    throw new Error(`Unsupported database type: ${dbType}`);
+  // Deduplicate concurrent calls for the same connection
+  const pending = pendingAdapters.get(connectionId);
+  if (pending) {
+    return pending;
   }
 
-  const AdapterClass = await adapterLoader();
-  const adapter = new AdapterClass(connectionId);
+  const promise = createAdapter(connectionId, dbType);
+  pendingAdapters.set(connectionId, promise);
 
-  // Cache and return
-  adapterCache.set(connectionId, adapter);
-  return adapter;
+  try {
+    const adapter = await promise;
+    adapterCache.set(connectionId, adapter);
+    return adapter;
+  } finally {
+    pendingAdapters.delete(connectionId);
+  }
+}
+
+async function createAdapter(
+  connectionId: string,
+  dbType: DbType
+): Promise<BaseAdapter> {
+  const paradigm = getParadigm(dbType);
+  switch (paradigm) {
+    case 'sql': {
+      const adapterLoader = sqlAdapterModules[dbType];
+      if (!adapterLoader) {
+        throw new Error(`Unsupported SQL database type: ${dbType}`);
+      }
+      const AdapterClass = await adapterLoader();
+      return new AdapterClass(connectionId);
+    }
+    case 'document':
+      return new MongoDBAdapter(connectionId);
+    case 'keyvalue':
+      return new RedisAdapter(connectionId);
+    default:
+      throw new Error(`Unsupported database paradigm for type: ${dbType}`);
+  }
+}
+
+/**
+ * Get a SQL adapter specifically (throws if not SQL paradigm)
+ */
+export async function getSqlAdapter(
+  connectionId: string,
+  dbType: DbType
+): Promise<DatabaseAdapter> {
+  if (!isSqlParadigm(dbType)) {
+    throw new Error(`${dbType} is not a SQL database`);
+  }
+  const adapter = await getAdapter(connectionId, dbType);
+  return adapter as DatabaseAdapter;
 }
 
 /**
@@ -112,16 +160,27 @@ export function getConnectionDbType(connectionId: string): DbType {
 /**
  * Get adapter for a connection (looks up db type automatically)
  */
-export async function getAdapterForConnection(connectionId: string): Promise<DatabaseAdapter> {
+export async function getAdapterForConnection(connectionId: string): Promise<BaseAdapter> {
   const dbType = getConnectionDbType(connectionId);
   return getAdapter(connectionId, dbType);
+}
+
+/**
+ * Get SQL adapter for a connection (returns null if not SQL paradigm)
+ */
+export async function getSqlAdapterForConnection(connectionId: string): Promise<DatabaseAdapter | null> {
+  const dbType = getConnectionDbType(connectionId);
+  if (!isSqlParadigm(dbType)) {
+    return null;
+  }
+  return getSqlAdapter(connectionId, dbType);
 }
 
 /**
  * Get adapter synchronously (throws if not cached)
  * Use this only when you're sure the adapter was already created
  */
-export function getAdapterSync(connectionId: string): DatabaseAdapter {
+export function getAdapterSync(connectionId: string): BaseAdapter {
   const adapter = adapterCache.get(connectionId);
   if (!adapter) {
     throw new Error(
@@ -132,11 +191,23 @@ export function getAdapterSync(connectionId: string): DatabaseAdapter {
 }
 
 /**
+ * Get SQL adapter synchronously (throws if not cached or not SQL)
+ */
+export function getSqlAdapterSync(connectionId: string): DatabaseAdapter {
+  const adapter = getAdapterSync(connectionId);
+  if (adapter.paradigm !== 'sql') {
+    throw new Error(`Adapter for ${connectionId} is not a SQL adapter`);
+  }
+  return adapter as DatabaseAdapter;
+}
+
+/**
  * Clear cached adapter for a connection
  * Call this when a connection is closed
  */
 export function clearAdapter(connectionId: string): void {
   adapterCache.delete(connectionId);
+  pendingAdapters.delete(connectionId);
 }
 
 /**
@@ -144,17 +215,21 @@ export function clearAdapter(connectionId: string): void {
  */
 export function clearAllAdapters(): void {
   adapterCache.clear();
+  pendingAdapters.clear();
 }
 
 // Re-export types
-export type { DatabaseAdapter, QueryPayload, QueryResult } from './types';
+export type { DatabaseAdapter, QueryPayload, QueryResult, BaseAdapter } from './types';
 export type {
   TableRef,
   WhereClause,
   RowData,
   SelectOptions,
   InsertOptions,
+  MongoDBAdapter as MongoDBAdapterType,
+  RedisAdapter as RedisAdapterType,
 } from './types';
+export { isSqlAdapter, isDocumentAdapter, isKeyValueAdapter } from './types';
 
 /**
  * Convert a single CrudCommand to SQL using an adapter

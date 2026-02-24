@@ -1,4 +1,10 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
 import type { IndexColumnsCell } from "./types";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,7 +55,7 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
   const filteredColumns = useMemo(() => {
     if (!searchQuery.trim()) return availableColumns;
     return availableColumns.filter((col) =>
-      col.toLowerCase().includes(searchQuery.toLowerCase())
+      col.toLowerCase().includes(searchQuery.toLowerCase()),
     );
   }, [availableColumns, searchQuery]);
 
@@ -250,7 +256,7 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
         tabIndex={0}
       >
         <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800/50">
-          <IconAlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-500 flex-shrink-0" />
+          <IconAlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-500 shrink-0" />
           <span className="text-xs font-medium text-amber-800 dark:text-amber-200">
             Recreate Required
           </span>
@@ -325,7 +331,9 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
                   <span className="text-[10px] text-muted-foreground w-4 text-center">
                     {index + 1}
                   </span>
-                  <span className="font-mono text-xs flex-1 truncate">{col}</span>
+                  <span className="font-mono text-xs flex-1 truncate">
+                    {col}
+                  </span>
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <Button
                       type="button"
