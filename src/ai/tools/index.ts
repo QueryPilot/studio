@@ -25,14 +25,19 @@ export interface ToolContext {
   };
 }
 
-export function createTools(ctx: ToolContext): ToolSet {
-  return {
-    queryDatabase: createQueryDatabaseTool(ctx.connectionId),
+export function createTools(ctx: ToolContext, options?: { autoExecuteQueries?: boolean }): ToolSet {
+  const tools: ToolSet = {
     listTables: createListTablesTool(ctx.connectionId),
     describeTable: createDescribeTableTool(ctx.connectionId),
     getCurrentContext: createGetCurrentContextTool(ctx.getEditorContext),
     listConnections: createListConnectionsTool(),
     getQueryHistory: createGetQueryHistoryTool(),
-    getExecutionPlan: createGetExecutionPlanTool(ctx.connectionId),
   };
+
+  if (options?.autoExecuteQueries !== false) {
+    tools.queryDatabase = createQueryDatabaseTool(ctx.connectionId);
+    tools.getExecutionPlan = createGetExecutionPlanTool(ctx.connectionId);
+  }
+
+  return tools;
 }

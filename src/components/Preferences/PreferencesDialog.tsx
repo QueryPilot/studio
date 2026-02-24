@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 
 // Lazy load the shortcuts panel (it might be heavy)
 const ShortcutsPanel = lazy(() => import("./panels/KeyboardShortcutsPanel"));
+const AIPreferencesPanel = lazy(() => import("./panels/AIPreferencesPanel"));
 
 interface PreferencesDialogProps {
   open?: boolean;
@@ -45,6 +46,18 @@ export function PreferencesDialog({
             }
           >
             <ShortcutsPanel />
+          </Suspense>
+        );
+      case "ai":
+        return (
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center h-full">
+                <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            }
+          >
+            <AIPreferencesPanel />
           </Suspense>
         );
       case "telemetry":
