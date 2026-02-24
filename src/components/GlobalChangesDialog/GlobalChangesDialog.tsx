@@ -1,5 +1,6 @@
 import { logger } from "@/lib/logger";
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCrudStore } from "@/stores/crudStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import type { CrudCommand, CrudCommandPayload } from "@/types/crud";
@@ -763,27 +764,21 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             )}
           </div>
 
-          {/* Changes List - Grouped by Row ID */}
+          {/* Changes List - Virtualized for performance with large row counts */}
           <TabsContent
             value="changes"
-            className="m-0 data-[state=active]:block min-h-[200px] max-h-[50vh] overflow-auto"
+            className="m-0 data-[state=active]:block min-h-[200px] max-h-[50vh]"
           >
-            <div className="space-y-2 px-1">
-              {groupedByRow.length === 0 ? (
-                <div className="text-sm text-muted-foreground text-center py-8">
-                  No changes to display
-                </div>
-              ) : (
-                groupedByRow.map((row, index) => (
-                  <RowChangesCard
-                    key={row.rowKey}
-                    row={row}
-                    index={index}
-                    onUndo={handleUndoRow}
-                  />
-                ))
-              )}
-            </div>
+            {groupedByRow.length === 0 ? (
+              <div className="text-sm text-muted-foreground text-center py-8">
+                No changes to display
+              </div>
+            ) : (
+              <VirtualizedChangesList
+                groupedByRow={groupedByRow}
+                onUndo={handleUndoRow}
+              />
+            )}
           </TabsContent>
 
           {/* SQL Preview */}
@@ -878,6 +873,76 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   );
 }
 
+// ---------- Virtualized Changes List ----------
+
+interface VirtualizedChangesListProps {
+  groupedByRow: Array<{
+    rowKey: string;
+    tableName: string;
+    commands: CrudCommand[];
+  }>;
+  onUndo: (commands: CrudCommand[]) => void;
+}
+
+/**
+ * Virtualized list of row change cards. Only renders cards in the viewport,
+ * preventing the UI from freezing when previewing thousands of changes.
+ */
+function VirtualizedChangesList({ groupedByRow, onUndo }: VirtualizedChangesListProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const virtualizer = useVirtualizer({
+    count: groupedByRow.length,
+    getScrollElement: () => scrollRef.current,
+    // Estimate: header (~36px) + diff content (~60px) + padding/border (~12px)
+    estimateSize: () => 108,
+    overscan: 5,
+  });
+
+  return (
+    <div
+      ref={scrollRef}
+      className="overflow-auto px-1"
+      style={{ maxHeight: "50vh" }}
+    >
+      <div
+        style={{
+          height: `${virtualizer.getTotalSize()}px`,
+          width: "100%",
+          position: "relative",
+        }}
+      >
+        {virtualizer.getVirtualItems().map((virtualItem) => {
+          const row = groupedByRow[virtualItem.index]!;
+          return (
+            <div
+              key={row.rowKey}
+              data-index={virtualItem.index}
+              ref={virtualizer.measureElement}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                transform: `translateY(${virtualItem.start}px)`,
+                paddingBottom: "8px", // gap between cards
+              }}
+            >
+              <MemoizedRowChangesCard
+                row={row}
+                index={virtualItem.index}
+                onUndo={onUndo}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Row Changes Card ----------
+
 interface RowChangesCardProps {
   row: {
     rowKey: string;
@@ -888,7 +953,7 @@ interface RowChangesCardProps {
   onUndo: (commands: CrudCommand[]) => void;
 }
 
-function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
+function RowChangesCardInner({ row, index, onUndo }: RowChangesCardProps) {
   const { resolvedTheme } = useTheme();
 
   // Determine the operation type (insert, update, delete, DDL)
@@ -924,7 +989,8 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
   }
 
   // Build old and new row representations for diff
-  const buildRowDiff = () => {
+  // Memoize diff computation — expensive for large payloads and many cards
+  const buildRowDiff = useCallback(() => {
     if (hasDDL) {
       // Handle DDL commands
       const ddlLines: string[] = [];
@@ -1249,9 +1315,10 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
     }
 
     return { old: "", new: "" };
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are the command list identity
+  }, [row.commands]);
 
-  const { old, new: newVal } = buildRowDiff();
+  const { old, new: newVal } = useMemo(() => buildRowDiff(), [buildRowDiff]);
 
   // Debug: log when diff is empty
   if (!old && !newVal) {
@@ -1404,6 +1471,16 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
     </div>
   );
 }
+
+const MemoizedRowChangesCard = memo(RowChangesCardInner, (prev, next) => {
+  // Re-render only when row identity or commands change
+  return (
+    prev.row.rowKey === next.row.rowKey &&
+    prev.row.commands === next.row.commands &&
+    prev.index === next.index &&
+    prev.onUndo === next.onUndo
+  );
+});
 
 /**
  * Format a value for display in the diff viewer.
