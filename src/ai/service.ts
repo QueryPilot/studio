@@ -16,6 +16,7 @@ export async function streamChat(options: {
   tools: ToolSet;
   callbacks: StreamCallbacks;
   abortSignal?: AbortSignal;
+  maxToolSteps?: number;
 }): Promise<void> {
   const { model, systemPrompt, messages, tools, callbacks, abortSignal } =
     options;
@@ -30,7 +31,7 @@ export async function streamChat(options: {
       system: systemPrompt,
       messages,
       tools,
-      stopWhen: stepCountIs(MAX_TOOL_STEPS),
+      stopWhen: stepCountIs(options.maxToolSteps ?? MAX_TOOL_STEPS),
       abortSignal,
       onChunk: ({ chunk }) => {
         if (chunk.type === "text-delta") {
