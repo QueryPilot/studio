@@ -22,8 +22,13 @@ export function createGetQueryHistoryTool() {
         .optional()
         .describe("Maximum number of history entries to return. Default 20."),
     }),
-    execute: ({ limit }) => {
+    execute: async ({ limit }) => {
       const effectiveLimit = Math.min(Math.max(limit ?? 20, 1), 100);
+
+      const store = useQueryHistoryStore.getState();
+      if (store.recentHistory.length === 0) {
+        await store.loadHistory({ limit: 100 });
+      }
       const history = useQueryHistoryStore.getState().recentHistory;
 
       if (history.length === 0) {
