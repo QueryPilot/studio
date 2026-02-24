@@ -12,10 +12,6 @@ import { CodeEditor, type SqlDialect } from "@/components/CodeEditor";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -36,11 +32,14 @@ import {
   IconCheck,
   IconRefresh,
   IconShieldCheck,
+  IconChevronLeft,
+  IconTable,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import { useTheme } from "next-themes";
 import { writeClipboardText } from "@/lib/clipboard";
+import { cn } from "@/lib/utils";
 
 // Map DbType to SqlDialect for CodeEditor (SQL databases only)
 const dbTypeToDialect: Record<DbType, SqlDialect> = {
@@ -96,6 +95,8 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   const [viewMode, setViewMode] = useState<"changes" | "sql">("changes");
   const [copiedSql, setCopiedSql] = useState(false);
   const [conflictError, setConflictError] = useState<string | null>(null);
+  // Selected table in sidebar (null = show all tables)
+  const [selectedTableKey, setSelectedTableKey] = useState<string | null>(null);
 
   // Get connection for database type
   const { getConnection } = useConnectionStore();
@@ -226,6 +227,33 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
     return result;
   }, [connectionCommands]);
+
+  // Per-table summaries for sidebar navigation
+  const tableSummaries = useMemo(() => {
+    return connectionCommands.map(([tableKey, commands]) => {
+      const parts = tableKey.split(":");
+      const tableName = parts[parts.length - 1] ?? "unknown";
+      const schemaName = parts.length > 3 ? parts[2] : undefined;
+      const displayName = schemaName
+        ? `${schemaName}.${tableName}`
+        : tableName;
+      const inserts = commands.filter((c) => c.type === "data.insert").length;
+      const updates = commands.filter((c) => c.type === "data.update").length;
+      const deletes = commands.filter((c) => c.type === "data.delete").length;
+      const ddl = commands.length - inserts - updates - deletes;
+      return { tableKey, displayName, total: commands.length, inserts, updates, deletes, ddl };
+    });
+  }, [connectionCommands]);
+
+  // Filter groupedByRow when a specific table is selected in the sidebar
+  const filteredGroupedByRow = useMemo(() => {
+    if (!selectedTableKey) return groupedByRow;
+    return groupedByRow.filter((row) => {
+      // Match by tableName (display name includes schema prefix)
+      const summary = tableSummaries.find((s) => s.tableKey === selectedTableKey);
+      return summary ? row.tableName === summary.displayName : true;
+    });
+  }, [groupedByRow, selectedTableKey, tableSummaries]);
 
   // Calculate total change count
   const totalChanges = connectionCommands.reduce(
@@ -671,203 +699,269 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     return null;
   }
 
+  const showSidebar = !isTableSpecific && tableSummaries.length > 1;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!max-w-[80vw] h-[70vh] flex flex-col p-4">
-        <DialogHeader>
-          <DialogTitle>
-            {isTableSpecific ? "Commit changes" : "Review All Changes"}
-          </DialogTitle>
-          <DialogDescription>
-            {isTableSpecific
-              ? "Review the changes that will be committed to the database."
-              : "Review and commit all pending changes across all tables"}
-          </DialogDescription>
-        </DialogHeader>
-
-        {/* Conflict Alert */}
-        {conflictError && (
-          <Alert
-            variant="destructive"
-            className="border-destructive/50 bg-destructive/10"
+      <DialogContent
+        className="max-w-none! w-screen! h-screen! rounded-none! p-0 gap-0 overflow-hidden border-none z-50 bg-secondary"
+        showCloseButton={false}
+      >
+        <div className="flex h-full flex-col">
+          {/* Top Bar */}
+          <div
+            data-tauri-drag-region
+            className="h-12 flex items-center gap-3 px-4 pl-20 border-b border-border/50 bg-secondary shrink-0"
           >
-            <IconAlertTriangle className="h-4 w-4" />
-            <AlertTitle className="text-sm font-semibold">
-              Conflict Detected
-            </AlertTitle>
-            <AlertDescription>
-              <p className="mb-3">
-                The row was modified by another user or process since you
-                started editing. You can either override with your changes or
-                refresh to see the latest data.
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  variant="destructive"
-                  onClick={handleForceCommit}
-                  disabled={isCommitting}
-                >
-                  {isCommitting ? (
-                    <IconLoader2 className="mr-1 h-3 w-3 animate-spin" />
-                  ) : (
-                    <IconShieldCheck className="mr-1 h-3 w-3" />
-                  )}
-                  Override with My Changes
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={handleRefreshAndDiscard}
-                  disabled={isCommitting}
-                >
-                  <IconRefresh className="mr-1 h-3 w-3" />
-                  Discard & Refresh
-                </Button>
-              </div>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* View Mode Tabs */}
-        <Tabs
-          value={viewMode}
-          onValueChange={(value) => {
-            setViewMode(value as "changes" | "sql");
-          }}
-          className="flex-1 flex flex-col min-h-0"
-        >
-          <div className="flex items-center justify-between">
-            <TabsList>
-              <TabsTrigger value="changes">
-                <IconList className="h-3.5 w-3.5" />
-                Changes
-              </TabsTrigger>
-              <TabsTrigger value="sql">
-                <IconCode className="h-3.5 w-3.5" />
-                SQL
-              </TabsTrigger>
-            </TabsList>
-
-            {viewMode === "sql" && (
-              <Button variant="outline" onClick={handleCopySQL}>
-                {copiedSql ? (
-                  <>
-                    <IconCheck className="h-3.5 w-3.5 mr-1.5 text-green-500" />
-                    Copied
-                  </>
-                ) : (
-                  <>
-                    <IconCopy className="h-3.5 w-3.5 mr-1.5" />
-                    Copy SQL
-                  </>
-                )}
-              </Button>
-            )}
+            <Button
+              variant="ghost"
+              className="px-2 gap-1 text-muted-foreground hover:text-foreground"
+              onClick={() => onOpenChange(false)}
+            >
+              <IconChevronLeft className="size-4!" />
+              <span className="text-sm">Back</span>
+            </Button>
+            <Separator orientation="vertical" className="h-5" />
+            <span className="text-sm font-medium">
+              {isTableSpecific ? "Commit Changes" : "Review All Changes"}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {totalChanges} {totalChanges === 1 ? "change" : "changes"}
+              {!isTableSpecific && tableSummaries.length > 0 && (
+                <> across {tableSummaries.length} {tableSummaries.length === 1 ? "table" : "tables"}</>
+              )}
+            </span>
           </div>
 
-          {/* Changes List - Virtualized for performance with large row counts */}
-          <TabsContent
-            value="changes"
-            className="m-0 data-[state=active]:block min-h-[200px] max-h-[50vh]"
-          >
-            {groupedByRow.length === 0 ? (
-              <div className="text-sm text-muted-foreground text-center py-8">
-                No changes to display
+          {/* Main Content Area */}
+          <div className="flex flex-1 min-h-0">
+            {/* Sidebar - table list (workspace-wide mode with multiple tables) */}
+            {showSidebar && (
+              <div className="w-56 shrink-0 border-r border-border/50 bg-secondary flex flex-col">
+                <div className="p-3 pb-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Tables</p>
+                </div>
+                <div className="flex-1 overflow-y-auto px-2 pb-2">
+                  {/* "All tables" option */}
+                  <button
+                    className={cn(
+                      "w-full text-left px-2.5 py-2 rounded-md text-sm mb-0.5 transition-colors",
+                      selectedTableKey === null
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground hover:bg-background/50",
+                    )}
+                    onClick={() => setSelectedTableKey(null)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">All tables</span>
+                      <span className="text-xs tabular-nums text-muted-foreground">{totalChanges}</span>
+                    </div>
+                  </button>
+                  {tableSummaries.map((ts) => (
+                    <button
+                      key={ts.tableKey}
+                      className={cn(
+                        "w-full text-left px-2.5 py-2 rounded-md text-sm mb-0.5 transition-colors",
+                        selectedTableKey === ts.tableKey
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground hover:bg-background/50",
+                      )}
+                      onClick={() => setSelectedTableKey(ts.tableKey)}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <IconTable className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                        <span className="truncate font-medium">{ts.displayName}</span>
+                      </div>
+                      <div className="flex gap-2 mt-1 ml-5 text-xs">
+                        {ts.inserts > 0 && <span className="text-green-500">+{ts.inserts}</span>}
+                        {ts.updates > 0 && <span className="text-blue-500">~{ts.updates}</span>}
+                        {ts.deletes > 0 && <span className="text-red-500">-{ts.deletes}</span>}
+                        {ts.ddl > 0 && <span className="text-purple-500">{ts.ddl} DDL</span>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
-            ) : (
-              <VirtualizedChangesList
-                groupedByRow={groupedByRow}
-                onUndo={handleUndoRow}
-              />
             )}
-          </TabsContent>
 
-          {/* SQL Preview */}
-          <TabsContent
-            value="sql"
-            className="m-0 data-[state=active]:flex-1 data-[state=active]:flex data-[state=active]:flex-col min-h-0"
-          >
-            <div className="h-full min-h-[200px] max-h-[50vh] overflow-hidden">
-              <CodeEditor
-                value={generatedSQL || "-- No SQL generated"}
-                readOnly={true}
-                language="sql"
-                dialect={dbTypeToDialect[dbType]}
-                lineNumbers={true}
-                height="100%"
-                minHeight="200px"
-                maxHeight="50vh"
-              />
+            {/* Content Panel */}
+            <div className="flex-1 flex flex-col min-h-0 min-w-0 p-2 pl-0 bg-transparent">
+              <div className="flex-1 flex flex-col overflow-hidden bg-background rounded-xl">
+                {/* Conflict Alert */}
+                {conflictError && (
+                  <Alert
+                    variant="destructive"
+                    className="m-4 mb-0 border-destructive/50 bg-destructive/10"
+                  >
+                    <IconAlertTriangle className="h-4 w-4" />
+                    <AlertTitle className="text-sm font-semibold">
+                      Conflict Detected
+                    </AlertTitle>
+                    <AlertDescription>
+                      <p className="mb-3">
+                        The row was modified by another user or process since you
+                        started editing. You can either override with your changes or
+                        refresh to see the latest data.
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="destructive"
+                          onClick={handleForceCommit}
+                          disabled={isCommitting}
+                        >
+                          {isCommitting ? (
+                            <IconLoader2 className="mr-1 h-3 w-3 animate-spin" />
+                          ) : (
+                            <IconShieldCheck className="mr-1 h-3 w-3" />
+                          )}
+                          Override with My Changes
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={handleRefreshAndDiscard}
+                          disabled={isCommitting}
+                        >
+                          <IconRefresh className="mr-1 h-3 w-3" />
+                          Discard & Refresh
+                        </Button>
+                      </div>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {/* View Mode Tabs */}
+                <Tabs
+                  value={viewMode}
+                  onValueChange={(value) => {
+                    setViewMode(value as "changes" | "sql");
+                  }}
+                  className="flex-1 flex flex-col min-h-0"
+                >
+                  <div className="flex items-center justify-between px-4 pt-4 pb-2">
+                    <TabsList>
+                      <TabsTrigger value="changes">
+                        <IconList className="h-3.5 w-3.5" />
+                        Changes
+                      </TabsTrigger>
+                      <TabsTrigger value="sql">
+                        <IconCode className="h-3.5 w-3.5" />
+                        SQL
+                      </TabsTrigger>
+                    </TabsList>
+
+                    {viewMode === "sql" && (
+                      <Button variant="outline" size="sm" onClick={handleCopySQL}>
+                        {copiedSql ? (
+                          <>
+                            <IconCheck className="h-3.5 w-3.5 mr-1.5 text-green-500" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <IconCopy className="h-3.5 w-3.5 mr-1.5" />
+                            Copy SQL
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Changes List - Virtualized */}
+                  <TabsContent
+                    value="changes"
+                    className="m-0 flex-1 min-h-0 data-[state=active]:flex data-[state=active]:flex-col"
+                  >
+                    {filteredGroupedByRow.length === 0 ? (
+                      <div className="text-sm text-muted-foreground text-center py-8">
+                        No changes to display
+                      </div>
+                    ) : (
+                      <VirtualizedChangesList
+                        groupedByRow={filteredGroupedByRow}
+                        onUndo={handleUndoRow}
+                      />
+                    )}
+                  </TabsContent>
+
+                  {/* SQL Preview */}
+                  <TabsContent
+                    value="sql"
+                    className="m-0 flex-1 min-h-0 data-[state=active]:flex data-[state=active]:flex-col"
+                  >
+                    <div className="flex-1 min-h-0 overflow-hidden px-4 pb-4">
+                      <CodeEditor
+                        value={generatedSQL || "-- No SQL generated"}
+                        readOnly={true}
+                        language="sql"
+                        dialect={dbTypeToDialect[dbType]}
+                        lineNumbers={true}
+                        height="100%"
+                      />
+                    </div>
+                  </TabsContent>
+                </Tabs>
+
+                {/* Validation Error Alert */}
+                {!validationStatus.canCommitAll && (
+                  <Alert variant="destructive" className="mx-4 mb-2">
+                    <IconAlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Cannot commit: validation errors</AlertTitle>
+                    <AlertDescription>
+                      {validationStatus.totalErrors} validation{" "}
+                      {validationStatus.totalErrors === 1 ? "error" : "errors"} in{" "}
+                      {Object.keys(validationStatus.tableErrors).length}{" "}
+                      {Object.keys(validationStatus.tableErrors).length === 1
+                        ? "table"
+                        : "tables"}
+                      :{" "}
+                      {Object.entries(validationStatus.tableErrors)
+                        .map(([tbl, count]) => `${tbl} (${count})`)
+                        .join(", ")}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Footer Actions */}
+                <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border/50 shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDiscardAll}
+                    disabled={isCommitting}
+                  >
+                    <IconX className="h-3.5 w-3.5 mr-1.5" />
+                    {isTableSpecific ? "Discard" : "Discard All"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleCommitAll}
+                    disabled={isCommitting || !validationStatus.canCommitAll}
+                    title={
+                      !validationStatus.canCommitAll
+                        ? `Fix ${validationStatus.totalErrors} validation error${
+                            validationStatus.totalErrors === 1 ? "" : "s"
+                          } before committing`
+                        : undefined
+                    }
+                  >
+                    {isCommitting ? (
+                      <>
+                        <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        Committing...
+                      </>
+                    ) : (
+                      <>
+                        <IconCircleCheckFilled className="h-3.5 w-3.5 mr-1.5" />
+                        Commit {totalChanges}{" "}
+                        {totalChanges === 1 ? "Change" : "Changes"}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
             </div>
-          </TabsContent>
-        </Tabs>
-
-        <Separator />
-
-        {/* Validation Error Alert */}
-        {!validationStatus.canCommitAll && (
-          <Alert variant="destructive">
-            <IconAlertTriangle className="h-4 w-4" />
-            <AlertTitle>Cannot commit: validation errors</AlertTitle>
-            <AlertDescription>
-              {validationStatus.totalErrors} validation{" "}
-              {validationStatus.totalErrors === 1 ? "error" : "errors"} in{" "}
-              {Object.keys(validationStatus.tableErrors).length}{" "}
-              {Object.keys(validationStatus.tableErrors).length === 1
-                ? "table"
-                : "tables"}
-              :{" "}
-              {Object.entries(validationStatus.tableErrors)
-                .map(([table, count]) => `${table} (${count})`)
-                .join(", ")}
-            </AlertDescription>
-          </Alert>
-        )}
-
-        <DialogFooter className="flex justify-end gap-2">
-          {!isTableSpecific && (
-            <Button
-              variant="outline"
-              onClick={() => {
-                onOpenChange(false);
-              }}
-              disabled={isCommitting}
-            >
-              Cancel
-            </Button>
-          )}
-          <Button
-            variant={isTableSpecific ? "destructive" : "outline"}
-            onClick={handleDiscardAll}
-            disabled={isCommitting}
-          >
-            <IconX className="h-3.5 w-3.5 mr-1.5" />
-            {isTableSpecific ? "Discard" : "Discard All"}
-          </Button>
-          <Button
-            onClick={handleCommitAll}
-            disabled={isCommitting || !validationStatus.canCommitAll}
-            title={
-              !validationStatus.canCommitAll
-                ? `Fix ${validationStatus.totalErrors} validation error${
-                    validationStatus.totalErrors === 1 ? "" : "s"
-                  } before committing`
-                : undefined
-            }
-          >
-            {isCommitting ? (
-              <>
-                <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                Committing...
-              </>
-            ) : (
-              <>
-                <IconCircleCheckFilled className="h-3.5 w-3.5 mr-1.5" />
-                Commit {totalChanges}{" "}
-                {totalChanges === 1 ? "Change" : "Changes"}
-              </>
-            )}
-          </Button>
-        </DialogFooter>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -902,8 +996,7 @@ function VirtualizedChangesList({ groupedByRow, onUndo }: VirtualizedChangesList
   return (
     <div
       ref={scrollRef}
-      className="overflow-auto px-1"
-      style={{ maxHeight: "50vh" }}
+      className="flex-1 overflow-auto px-4 pb-4"
     >
       <div
         style={{
@@ -913,7 +1006,8 @@ function VirtualizedChangesList({ groupedByRow, onUndo }: VirtualizedChangesList
         }}
       >
         {virtualizer.getVirtualItems().map((virtualItem) => {
-          const row = groupedByRow[virtualItem.index]!;
+          const row = groupedByRow[virtualItem.index];
+          if (!row) return null;
           return (
             <div
               key={row.rowKey}
