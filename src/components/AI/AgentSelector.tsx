@@ -8,6 +8,7 @@
 import { useState, useMemo } from "react";
 import { useTheme } from "@/components/theme-provider";
 import { useAcpStore } from "@/stores/acpStore";
+import { useByokStore } from "@/stores/byokStore";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -81,6 +82,8 @@ function AgentLogo({ agentId, className }: { agentId: string; className?: string
 export function AgentSelector() {
   const { availableAgents, selectedAgentId, selectAgent, isLoadingAgents, agentsWithUpdates } =
     useAcpStore();
+  const runtimeMode = useByokStore((s) => s.runtimeMode);
+  const setRuntimeMode = useByokStore((s) => s.setRuntimeMode);
 
   const [showInstallDialog, setShowInstallDialog] = useState(false);
   const [selectedForInstall, setSelectedForInstall] = useState<AgentInfo | null>(
@@ -140,6 +143,7 @@ export function AgentSelector() {
       setShowInstallDialog(true);
       return;
     }
+    setRuntimeMode("acp");
     selectAgent(agent.id);
   };
 
@@ -161,10 +165,10 @@ export function AgentSelector() {
               size="icon"
               className="h-6 w-6 text-muted-foreground hover:text-foreground"
             >
-              {selectedAgent ? (
-                <AgentLogo agentId={selectedAgent.id} className="h-4 w-4" />
-              ) : selectedAgentId === "byok" ? (
+              {runtimeMode === "byok" ? (
                 <IconKey className="h-4 w-4 text-muted-foreground" />
+              ) : selectedAgent ? (
+                <AgentLogo agentId={selectedAgent.id} className="h-4 w-4" />
               ) : (
                 <IconSparkles className="h-4 w-4" />
               )}
@@ -199,7 +203,7 @@ export function AgentSelector() {
                       <IconArrowUp className="h-3 w-3" />
                     </button>
                   )}
-                  {agent.id === selectedAgentId && (
+                  {runtimeMode === "acp" && agent.id === selectedAgentId && (
                     <IconCheck className="h-3 w-3 text-primary" />
                   )}
                 </DropdownMenuItem>
@@ -230,19 +234,19 @@ export function AgentSelector() {
             </>
           )}
 
-          {/* BYOK Providers */}
+          {/* SDK Agent (BYOK) */}
           {(installedAgents.length > 0 || availableToInstall.length > 0) && <DropdownMenuSeparator />}
           <DropdownMenuGroup>
             <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
-              Bring Your Own Key
+              SDK Agent
             </DropdownMenuLabel>
             <DropdownMenuItem
-              onClick={() => { selectAgent("byok"); }}
+              onClick={() => { setRuntimeMode("byok"); }}
               className="gap-2"
             >
               <IconKey className="h-4 w-4 text-muted-foreground" />
-              <span className="flex-1 text-[12px]">BYOK Provider</span>
-              {selectedAgentId === "byok" && (
+              <span className="flex-1 text-[12px]">Bring Your Own Key</span>
+              {runtimeMode === "byok" && (
                 <IconCheck className="h-3 w-3 text-primary" />
               )}
             </DropdownMenuItem>
