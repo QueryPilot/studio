@@ -1,27 +1,64 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   IconCheck,
   IconEye,
   IconEyeOff,
   IconLoader2,
+  IconRefresh,
+  IconRobot,
+  IconKey,
+  IconBolt,
+  IconWand,
 } from "@tabler/icons-react";
 import { useByokStore } from "@/stores/byokStore";
 import { useAcpStore } from "@/stores/acpStore";
 import { PROVIDER_CONFIGS } from "@/ai/providers";
-import type { ProviderId } from "@/ai/types";
+import type { ProviderId, ProviderModelInfo } from "@/ai/types";
 import { cn } from "@/lib/utils";
+
+// Provider logo path map (Mistral has no logo asset, uses text fallback)
+const PROVIDER_LOGOS: Record<ProviderId, string | null> = {
+  openai: "/logos/openai.svg",
+  anthropic: "/logos/claude-color.svg",
+  google: "/logos/gemini-color.svg",
+  mistral: null,
+  ollama: "/logos/ollama.svg",
+};
+
+function ProviderLogo({
+  providerId,
+  size = 24,
+}: {
+  providerId: ProviderId;
+  size?: number;
+}) {
+  const logo = PROVIDER_LOGOS[providerId];
+  if (logo) {
+    return (
+      <img
+        src={logo}
+        alt={PROVIDER_CONFIGS[providerId].name}
+        width={size}
+        height={size}
+        className="object-contain"
+      />
+    );
+  }
+  // Mistral text fallback
+  return (
+    <div
+      className="flex items-center justify-center rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold text-xs"
+      style={{ width: size, height: size }}
+    >
+      M
+    </div>
+  );
+}
 
 export default function AIPreferencesPanel() {
   // --- BYOK store selectors (atomic) ---
@@ -35,9 +72,10 @@ export default function AIPreferencesPanel() {
   const initSession = useByokStore((s) => s.initSession);
   const apiKeys = useByokStore((s) => s.apiKeys);
   const setApiKey = useByokStore((s) => s.setApiKey);
+  const fetchModels = useByokStore((s) => s.fetchModels);
+  const fetchedModels = useByokStore((s) => s.fetchedModels);
+  const isFetchingModels = useByokStore((s) => s.isFetchingModels);
   const apiKey = providerId ? (apiKeys[providerId] ?? "") : "";
-  const maxToolSteps = useByokStore((s) => s.maxToolSteps);
-  const setMaxToolSteps = useByokStore((s) => s.setMaxToolSteps);
   const autoExecuteQueries = useByokStore((s) => s.autoExecuteQueries);
   const setAutoExecuteQueries = useByokStore((s) => s.setAutoExecuteQueries);
   const includeSchemaContext = useByokStore((s) => s.includeSchemaContext);
@@ -55,7 +93,18 @@ export default function AIPreferencesPanel() {
   // Derived: current provider config
   const config = providerId ? PROVIDER_CONFIGS[providerId] : null;
 
-  // Derived: split agents into installed and available-to-install
+  // Derived: models to display (fetched override static)
+  const displayModels: ProviderModelInfo[] = useMemo(() => {
+    if (providerId && fetchedModels[providerId]?.length) {
+      return fetchedModels[providerId];
+    }
+    return config?.models ?? [];
+  }, [providerId, fetchedModels, config]);
+
+  // Derived: whether fetching is available for current provider
+  const canFetchModels = config?.listModels != null;
+
+  // Derived: split agents
   const installedAgents = useMemo(
     () => availableAgents.filter((a) => a.installed),
     [availableAgents],
@@ -64,11 +113,6 @@ export default function AIPreferencesPanel() {
     () => availableAgents.filter((a) => !a.installed),
     [availableAgents],
   );
-
-  // --- Handlers ---
-  const handleRuntimeChange = (value: string) => {
-    setRuntimeMode(value as "acp" | "byok");
-  };
 
   // Auto-connect for providers that don't require an API key (e.g., Ollama)
   useEffect(() => {
@@ -89,245 +133,354 @@ export default function AIPreferencesPanel() {
     initSession(apiKey);
   }, [initSession, apiKey]);
 
+  const handleFetchModels = useCallback(() => {
+    void fetchModels();
+  }, [fetchModels]);
+
   return (
-    <div className="max-w-3xl space-y-6 max-h-[calc(100vh-32px)] overflow-y-scroll -mx-4 px-4">
-      {/* Sticky header */}
-      <div className="sticky top-0 bg-background z-10 pb-2">
-        <h2 className="text-base font-semibold">AI Settings</h2>
-        <p className="text-xs text-muted-foreground">
+    <div className="max-w-2xl space-y-8 max-h-[calc(100vh-32px)] overflow-y-scroll -mx-4 px-4 pb-8">
+      {/* Header */}
+      <div className="sticky top-0 bg-background z-10 pb-3">
+        <h2 className="text-base font-semibold tracking-tight">AI</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
           Configure the AI assistant runtime, provider, and behavior
         </p>
       </div>
 
-      {/* Section 1: Runtime Mode */}
-      <div className="space-y-3">
-        <Label className="text-base">Runtime</Label>
-        <p className="text-xs text-muted-foreground">
-          Choose how the AI assistant connects to language models
-        </p>
-        <RadioGroup
-          value={runtimeMode}
-          onValueChange={handleRuntimeChange}
-          className="space-y-2"
-        >
-          <div className="flex items-center space-x-2">
-            <RadioGroupItem value="acp" id="acp" />
-            <Label htmlFor="acp" className="font-normal cursor-pointer">
-              Agent (ACP)
-            </Label>
-          </div>
-          <div className="flex items-center space-x-2">
-            <RadioGroupItem value="byok" id="byok" />
-            <Label htmlFor="byok" className="font-normal cursor-pointer">
-              Bring Your Own Key
-            </Label>
-          </div>
-        </RadioGroup>
-      </div>
+      {/* Section 1: Runtime Mode — two visual cards */}
+      <section className="space-y-3">
+        <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Runtime
+        </Label>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={() => { setRuntimeMode("acp"); }}
+            className={cn(
+              "group relative flex flex-col items-start gap-2 rounded-xl border p-4 text-left transition-all",
+              runtimeMode === "acp"
+                ? "border-primary bg-primary/5 shadow-sm"
+                : "border-border hover:border-muted-foreground/30 hover:bg-accent/50",
+            )}
+          >
+            <div
+              className={cn(
+                "flex h-9 w-9 items-center justify-center rounded-lg",
+                runtimeMode === "acp"
+                  ? "bg-primary/10 text-primary"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
+              <IconRobot className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-sm font-medium">Agent (ACP)</div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Managed AI agents with built-in tools
+              </div>
+            </div>
+            {runtimeMode === "acp" && (
+              <div className="absolute top-3 right-3">
+                <IconCheck className="h-4 w-4 text-primary" />
+              </div>
+            )}
+          </button>
+
+          <button
+            onClick={() => { setRuntimeMode("byok"); }}
+            className={cn(
+              "group relative flex flex-col items-start gap-2 rounded-xl border p-4 text-left transition-all",
+              runtimeMode === "byok"
+                ? "border-primary bg-primary/5 shadow-sm"
+                : "border-border hover:border-muted-foreground/30 hover:bg-accent/50",
+            )}
+          >
+            <div
+              className={cn(
+                "flex h-9 w-9 items-center justify-center rounded-lg",
+                runtimeMode === "byok"
+                  ? "bg-primary/10 text-primary"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
+              <IconKey className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-sm font-medium">Bring Your Own Key</div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Connect with your own API keys
+              </div>
+            </div>
+            {runtimeMode === "byok" && (
+              <div className="absolute top-3 right-3">
+                <IconCheck className="h-4 w-4 text-primary" />
+              </div>
+            )}
+          </button>
+        </div>
+      </section>
 
       {/* Section 2: ACP Agent Config */}
       {runtimeMode === "acp" && (
-        <div className="space-y-3 pt-4 border-t">
-          <Label className="text-base">Agent</Label>
+        <section className="space-y-3">
+          <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Agent
+          </Label>
           {isLoadingAgents ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground py-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground py-4">
               <IconLoader2 className="h-4 w-4 animate-spin" />
               Loading agents...
             </div>
           ) : installedAgents.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-3">
-              No agents installed. Install an agent to get started.
-            </p>
+            <div className="flex flex-col items-center justify-center py-8 text-center border border-dashed rounded-xl">
+              <IconRobot className="h-8 w-8 text-muted-foreground/40 mb-2" />
+              <p className="text-sm text-muted-foreground">
+                No agents installed
+              </p>
+              <p className="text-xs text-muted-foreground/60 mt-0.5">
+                Install an agent to get started
+              </p>
+            </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {installedAgents.map((agent) => (
-                <div
+                <button
                   key={agent.id}
                   onClick={() => { selectAgent(agent.id); }}
                   className={cn(
-                    "flex items-center gap-3 py-3 px-4 border rounded-xl cursor-pointer transition-colors",
+                    "w-full flex items-center gap-3 py-3 px-4 rounded-xl text-left transition-all",
                     agent.id === selectedAgentId
-                      ? "border-primary bg-primary/5"
-                      : "hover:bg-accent",
+                      ? "bg-primary/5 border border-primary shadow-sm"
+                      : "border border-transparent hover:bg-accent/50 hover:border-border",
                   )}
                 >
-                  <span className="text-sm font-medium flex-1">
+                  <div
+                    className={cn(
+                      "flex h-8 w-8 items-center justify-center rounded-lg shrink-0",
+                      agent.id === selectedAgentId
+                        ? "bg-primary/10 text-primary"
+                        : "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    <IconRobot className="h-4 w-4" />
+                  </div>
+                  <span className="text-sm font-medium flex-1 truncate">
                     {agent.name}
                   </span>
                   {agent.id === selectedAgentId && (
-                    <IconCheck className="h-4 w-4 text-primary" />
+                    <IconCheck className="h-4 w-4 text-primary shrink-0" />
                   )}
-                </div>
+                </button>
               ))}
             </div>
           )}
           {availableToInstall.length > 0 && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground pl-1">
               {availableToInstall.length} more agent
               {availableToInstall.length !== 1 ? "s" : ""} available to install
             </p>
           )}
-        </div>
+        </section>
       )}
 
-      {/* Section 3: BYOK Provider Config */}
+      {/* Section 3: BYOK Provider & Model Config */}
       {runtimeMode === "byok" && (
-        <div className="space-y-3 pt-4 border-t">
-          <Label className="text-base">Provider</Label>
-
-          {/* Provider dropdown */}
-          <div className="space-y-1">
-            <Label className="text-xs font-medium">Provider</Label>
-            <Select
-              value={providerId ?? ""}
-              onValueChange={(v) => {
-                if (v && v in PROVIDER_CONFIGS) {
-                  setProvider(v as ProviderId);
-                }
-              }}
-            >
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Select a provider..." />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.values(PROVIDER_CONFIGS).map((p) => (
-                  <SelectItem key={p.id} value={p.id} className="text-xs">
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* API Key (if required) */}
-          {config?.requiresApiKey && (
-            <div className="space-y-1">
-              <Label className="text-xs font-medium">API Key</Label>
-              <div className="flex gap-1">
-                <Input
-                  type={showKey ? "text" : "password"}
-                  value={apiKey}
-                  onChange={(e) => { setApiKey(e.target.value); }}
-                  placeholder={`Enter ${config.name} API key...`}
-                  className="h-8 text-xs font-mono"
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  onClick={() => { setShowKey(!showKey); }}
+        <>
+          {/* Provider cards */}
+          <section className="space-y-3">
+            <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Provider
+            </Label>
+            <div className="grid grid-cols-5 gap-2">
+              {Object.values(PROVIDER_CONFIGS).map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => { setProvider(p.id); }}
+                  className={cn(
+                    "flex flex-col items-center gap-2 rounded-xl border py-3 px-2 transition-all",
+                    p.id === providerId
+                      ? "border-primary bg-primary/5 shadow-sm"
+                      : "border-border hover:border-muted-foreground/30 hover:bg-accent/50",
+                  )}
                 >
-                  {showKey ? (
-                    <IconEyeOff className="h-3.5 w-3.5" />
+                  <ProviderLogo providerId={p.id} size={28} />
+                  <span
+                    className={cn(
+                      "text-[11px] font-medium truncate max-w-full",
+                      p.id === providerId
+                        ? "text-foreground"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {p.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* API Key */}
+          {config?.requiresApiKey && (
+            <section className="space-y-2">
+              <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                API Key
+              </Label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Input
+                    type={showKey ? "text" : "password"}
+                    value={apiKey}
+                    onChange={(e) => { setApiKey(e.target.value); }}
+                    placeholder={`Enter your ${config.name} API key...`}
+                    className="h-9 text-xs font-mono pr-9"
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => { setShowKey(!showKey); }}
+                  >
+                    {showKey ? (
+                      <IconEyeOff className="h-3.5 w-3.5" />
+                    ) : (
+                      <IconEye className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </div>
+                <Button
+                  size="sm"
+                  className="h-9 px-4 text-xs"
+                  onClick={handleConnect}
+                  disabled={!apiKey}
+                  variant={isSessionReady ? "outline" : "default"}
+                >
+                  {isSessionReady ? (
+                    <>
+                      <span className="h-2 w-2 rounded-full bg-green-500 mr-1.5" />
+                      Connected
+                    </>
                   ) : (
-                    <IconEye className="h-3.5 w-3.5" />
+                    "Connect"
                   )}
                 </Button>
               </div>
-            </div>
+            </section>
           )}
 
-          {/* No API key note for local providers */}
+          {/* Local provider note */}
           {config && !config.requiresApiKey && (
-            <p className="text-[11px] text-muted-foreground">
-              No API key needed — runs locally on your machine.
+            <p className="text-xs text-muted-foreground">
+              No API key needed — connects to local server on your machine.
             </p>
           )}
 
-          {/* Model dropdown */}
+          {/* Model selection — scrollable list */}
           {config && (
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Label className="text-xs font-medium">Model</Label>
-                {isSessionReady && (
-                  <span className="flex items-center gap-1 text-[11px] text-green-600 dark:text-green-400">
-                    <span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block" />
-                    Ready
-                  </span>
-                )}
+            <section className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Model
+                </Label>
+                <div className="flex items-center gap-2">
+                  {isSessionReady && (
+                    <span className="flex items-center gap-1 text-[11px] text-green-600 dark:text-green-400">
+                      <span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block animate-pulse" />
+                      Ready
+                    </span>
+                  )}
+                  {canFetchModels && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[11px] gap-1 text-muted-foreground hover:text-foreground"
+                      onClick={handleFetchModels}
+                      disabled={
+                        isFetchingModels ||
+                        (config.requiresApiKey && !apiKey)
+                      }
+                    >
+                      {isFetchingModels ? (
+                        <IconLoader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <IconRefresh className="h-3 w-3" />
+                      )}
+                      {isFetchingModels ? "Fetching..." : "Fetch models"}
+                    </Button>
+                  )}
+                </div>
               </div>
-              <Select
-                value={modelId ?? ""}
-                onValueChange={(value) => {
-                  if (value != null) {
-                    setModel(value);
-                  }
-                }}
-              >
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder="Select a model..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {config.models.map((m) => (
-                    <SelectItem key={m.id} value={m.id} className="text-xs">
-                      <span>{m.name}</span>
-                      <span className="ml-2 text-muted-foreground">
-                        {m.description}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
 
-          {/* Connect button for key-based providers */}
-          {config?.requiresApiKey && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full text-xs"
-              onClick={handleConnect}
-              disabled={!apiKey}
-            >
-              {isSessionReady ? (
-                <>
-                  <span className="h-2 w-2 rounded-full bg-green-500 mr-1.5" />
-                  Connected
-                </>
-              ) : (
-                "Connect"
-              )}
-            </Button>
+              <ScrollArea className="h-[220px] rounded-xl border">
+                <div className="p-1">
+                  {displayModels.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => { setModel(m.id); }}
+                      className={cn(
+                        "w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-all",
+                        m.id === modelId
+                          ? "bg-primary/8 text-foreground"
+                          : "hover:bg-accent/50 text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+                          m.id === modelId
+                            ? "border-primary bg-primary"
+                            : "border-muted-foreground/30",
+                        )}
+                      >
+                        {m.id === modelId && (
+                          <IconCheck className="h-2.5 w-2.5 text-primary-foreground" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-medium truncate">
+                          {m.name}
+                        </div>
+                        {m.description && (
+                          <div className="text-[11px] text-muted-foreground truncate">
+                            {m.description}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                  {displayModels.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-8 text-center">
+                      <IconWand className="h-6 w-6 text-muted-foreground/40 mb-1.5" />
+                      <p className="text-xs text-muted-foreground">
+                        {config.requiresApiKey && !apiKey
+                          ? "Enter an API key to fetch models"
+                          : "No models available"}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+            </section>
           )}
-        </div>
+        </>
       )}
 
-      {/* Section 4: Behavior (always shown) */}
-      <div className="space-y-3 pt-4 border-t">
-        <Label className="text-base">Behavior</Label>
-        <p className="text-xs text-muted-foreground">
-          Configure how the AI assistant interacts with your databases
-        </p>
+      {/* Section 4: Behavior */}
+      <section className="space-y-3">
+        <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Behavior
+        </Label>
 
-        {/* Max Tool Steps */}
         <div className="flex items-center justify-between py-3 border rounded-xl px-4">
-          <div className="space-y-0.5">
-            <Label className="text-xs font-medium">Max Tool Steps</Label>
-            <p className="text-xs text-muted-foreground">
-              Maximum number of tool calls per response (1-10)
-            </p>
-          </div>
-          <Input
-            type="number"
-            min={1}
-            max={10}
-            value={maxToolSteps}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10);
-              if (!isNaN(v)) setMaxToolSteps(v);
-            }}
-            className="w-16 h-8 text-xs"
-          />
-        </div>
-
-        {/* Auto-execute queries */}
-        <div className="flex items-center justify-between py-3 border rounded-xl px-4">
-          <div className="space-y-0.5">
-            <Label className="text-xs font-medium">Auto-execute Queries</Label>
-            <p className="text-xs text-muted-foreground">
-              Allow AI to run SQL queries automatically using tools
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground shrink-0">
+              <IconBolt className="h-4 w-4" />
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-xs font-medium">
+                Auto-execute Queries
+              </Label>
+              <p className="text-[11px] text-muted-foreground">
+                Allow AI to run SQL queries automatically
+              </p>
+            </div>
           </div>
           <Switch
             checked={autoExecuteQueries}
@@ -335,22 +488,26 @@ export default function AIPreferencesPanel() {
           />
         </div>
 
-        {/* Include schema context */}
         <div className="flex items-center justify-between py-3 border rounded-xl px-4">
-          <div className="space-y-0.5">
-            <Label className="text-xs font-medium">
-              Include Schema Context
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              Send database schema with each message (uses more tokens)
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground shrink-0">
+              <IconWand className="h-4 w-4" />
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-xs font-medium">
+                Include Schema Context
+              </Label>
+              <p className="text-[11px] text-muted-foreground">
+                Send database schema with each message
+              </p>
+            </div>
           </div>
           <Switch
             checked={includeSchemaContext}
             onCheckedChange={setIncludeSchemaContext}
           />
         </div>
-      </div>
+      </section>
     </div>
   );
 }

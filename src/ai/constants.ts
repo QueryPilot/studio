@@ -1,6 +1,6 @@
 // src/ai/constants.ts
 
-export const MAX_TOOL_STEPS = 5;
+export const MAX_TOOL_STEPS = 25;
 
 export function buildSystemPrompt(context?: {
   databaseType?: string;
