@@ -26,6 +26,7 @@ import {
 } from "@/hooks/useAIContext";
 import { getMentionAtCursor, formatMention } from "@/utils/mentionParser";
 import type { AIContext } from "@/types/aiContext";
+import { AgentSelector } from "./AgentSelector";
 import { CompactModelPicker } from "./CompactModelPicker";
 import { ImagePreviewPopover } from "./ImagePreviewPopover";
 import { Button } from "@/components/ui/button";
@@ -2084,6 +2085,7 @@ const InputArea = ({
 
         {/* Footer inside the input container */}
         <div className="flex items-center gap-1 p-1 px-1.5">
+          <AgentSelector />
           <CompactModelPicker />
           <div className="flex-1" />
 
