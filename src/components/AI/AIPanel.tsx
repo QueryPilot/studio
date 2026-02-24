@@ -28,6 +28,7 @@ import { getMentionAtCursor, formatMention } from "@/utils/mentionParser";
 import type { AIContext } from "@/types/aiContext";
 import { AgentSelector } from "./AgentSelector";
 import { CompactModelPicker } from "./CompactModelPicker";
+import { ModelSelector } from "./ModelSelector";
 import { ImagePreviewPopover } from "./ImagePreviewPopover";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -2086,7 +2087,7 @@ const InputArea = ({
         {/* Footer inside the input container */}
         <div className="flex items-center gap-1 p-1 px-1.5">
           <AgentSelector />
-          <CompactModelPicker />
+          {isByok ? <CompactModelPicker /> : <ModelSelector />}
           <div className="flex-1" />
 
           {/* Keyboard hint */}
