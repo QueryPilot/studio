@@ -10,12 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  IconCheck,
-  IconEye,
-  IconEyeOff,
-  IconLoader2,
-} from "@tabler/icons-react";
+import { IconCheck, IconEye, IconEyeOff } from "@tabler/icons-react";
 import { useByokStore } from "@/stores/byokStore";
 import { PROVIDER_CONFIGS } from "@/ai/providers";
 import type { ProviderId } from "@/ai/types";
@@ -25,28 +20,16 @@ export function ProviderSettings() {
     useByokStore();
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<"success" | "error" | null>(
-    null,
-  );
+  const [testResult, setTestResult] = useState<"success" | null>(null);
 
   const config = providerId ? PROVIDER_CONFIGS[providerId] : null;
 
-  const handleTestConnection = useCallback(() => {
+  const handleConnect = useCallback(() => {
     if (!providerId || !modelId) return;
     if (config?.requiresApiKey && !apiKey) return;
 
-    setTesting(true);
-    setTestResult(null);
-
-    try {
-      initSession(apiKey || undefined);
-      setTestResult("success");
-    } catch {
-      setTestResult("error");
-    } finally {
-      setTesting(false);
-    }
+    initSession(apiKey || undefined);
+    setTestResult("success");
   }, [providerId, modelId, apiKey, config, initSession]);
 
   return (
@@ -143,12 +126,10 @@ export function ProviderSettings() {
           variant="outline"
           size="sm"
           className="w-full text-xs"
-          onClick={handleTestConnection}
-          disabled={testing || (config.requiresApiKey && !apiKey)}
+          onClick={handleConnect}
+          disabled={config.requiresApiKey && !apiKey}
         >
-          {testing ? (
-            <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-          ) : testResult === "success" ? (
+          {testResult === "success" ? (
             <IconCheck className="h-3.5 w-3.5 mr-1.5 text-green-500" />
           ) : null}
           {session ? "Connected" : "Connect"}

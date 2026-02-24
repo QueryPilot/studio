@@ -125,18 +125,14 @@ export const useByokStore = create<BYOKState>()(
             onToolResult: (id, result) => {
               callbacks?.onToolResult?.(id, result);
             },
-            onFinish: () => {
-              const assistantMessage: ModelMessage = {
-                role: "assistant",
-                content: fullText,
-              };
+            onFinish: (responseMessages) => {
               set((state) => ({
-                messages: [...state.messages, assistantMessage],
+                messages: [...state.messages, ...responseMessages],
                 isStreaming: false,
                 streamingContent: "",
                 abortController: null,
               }));
-              callbacks?.onFinish?.();
+              callbacks?.onFinish?.(responseMessages);
             },
             onError: (error) => {
               set({ isStreaming: false, error, abortController: null });
