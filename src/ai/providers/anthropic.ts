@@ -5,6 +5,7 @@ export const anthropicConfig: ProviderConfig = {
   id: "anthropic",
   name: "Anthropic",
   requiresApiKey: true,
+  logo: "/logos/claude-color.svg",
   models: [
     {
       id: "claude-sonnet-4-20250514",

@@ -9,7 +9,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { ModelMessage } from "ai";
-import type { ProviderId, BYOKSession, StreamCallbacks, ByokToolCall } from "@/ai/types";
+import type { ProviderId, ProviderModelInfo, BYOKSession, StreamCallbacks, ByokToolCall } from "@/ai/types";
 import { PROVIDER_CONFIGS, createModel } from "@/ai/providers";
 import { buildSystemPrompt } from "@/ai/constants";
 import { streamChat } from "@/ai/service";
@@ -20,7 +20,6 @@ interface BYOKState {
   providerId: ProviderId | null;
   modelId: string | null;
   runtimeMode: "acp" | "byok";
-  maxToolSteps: number;
   autoExecuteQueries: boolean;
   includeSchemaContext: boolean;
 
@@ -33,12 +32,15 @@ interface BYOKState {
   session: BYOKSession | null;
   abortController: AbortController | null;
   activeToolCalls: ByokToolCall[];
+  fetchedModels: Partial<Record<ProviderId, ProviderModelInfo[]>>;
+  isFetchingModels: boolean;
 
   // Actions
   setProvider: (id: ProviderId) => void;
   setModel: (id: string) => void;
   setApiKey: (key: string) => void;
   initSession: (apiKey?: string) => void;
+  fetchModels: () => Promise<void>;
   sendMessage: (
     content: string,
     toolContext: ToolContext,
@@ -48,7 +50,6 @@ interface BYOKState {
   cancelGeneration: () => void;
   clearHistory: () => void;
   setRuntimeMode: (mode: "acp" | "byok") => void;
-  setMaxToolSteps: (steps: number) => void;
   setAutoExecuteQueries: (enabled: boolean) => void;
   setIncludeSchemaContext: (enabled: boolean) => void;
 }
@@ -60,7 +61,6 @@ export const useByokStore = create<BYOKState>()(
       providerId: null,
       modelId: null,
       runtimeMode: "acp",
-      maxToolSteps: 5,
       autoExecuteQueries: true,
       includeSchemaContext: true,
 
@@ -73,6 +73,8 @@ export const useByokStore = create<BYOKState>()(
       session: null,
       abortController: null,
       activeToolCalls: [],
+      fetchedModels: {},
+      isFetchingModels: false,
 
       setProvider: (id) => {
         const config = PROVIDER_CONFIGS[id];
@@ -127,8 +129,28 @@ export const useByokStore = create<BYOKState>()(
         });
       },
 
+      fetchModels: async () => {
+        const { providerId, apiKeys } = get();
+        if (!providerId) return;
+        const config = PROVIDER_CONFIGS[providerId];
+        if (!config.listModels) return;
+        const key = apiKeys[providerId];
+        if (config.requiresApiKey && !key) return;
+
+        set({ isFetchingModels: true });
+        try {
+          const models = await config.listModels(key);
+          set((state) => ({
+            fetchedModels: { ...state.fetchedModels, [providerId]: models },
+            isFetchingModels: false,
+          }));
+        } catch {
+          set({ isFetchingModels: false });
+        }
+      },
+
       sendMessage: async (content, toolContext, schemaContext, callbacks) => {
-        const { session, messages, isStreaming, autoExecuteQueries, includeSchemaContext, maxToolSteps } = get();
+        const { session, messages, isStreaming, autoExecuteQueries, includeSchemaContext } = get();
         if (!session || isStreaming) return;
 
         const userMessage: ModelMessage = { role: "user", content };
@@ -153,7 +175,6 @@ export const useByokStore = create<BYOKState>()(
           systemPrompt,
           messages: updatedMessages,
           tools,
-          maxToolSteps,
           abortSignal: abortController.signal,
           callbacks: {
             onChunk: (text) => {
@@ -212,7 +233,6 @@ export const useByokStore = create<BYOKState>()(
       },
 
       setRuntimeMode: (mode) => set({ runtimeMode: mode }),
-      setMaxToolSteps: (steps) => set({ maxToolSteps: Math.min(Math.max(steps, 1), 10) }),
       setAutoExecuteQueries: (enabled) => set({ autoExecuteQueries: enabled }),
       setIncludeSchemaContext: (enabled) => set({ includeSchemaContext: enabled }),
     }),
@@ -222,7 +242,6 @@ export const useByokStore = create<BYOKState>()(
         providerId: state.providerId,
         modelId: state.modelId,
         runtimeMode: state.runtimeMode,
-        maxToolSteps: state.maxToolSteps,
         autoExecuteQueries: state.autoExecuteQueries,
         includeSchemaContext: state.includeSchemaContext,
       }),
