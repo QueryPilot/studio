@@ -22,6 +22,7 @@ import {
   IconArrowUp,
   IconCheck,
   IconDownload,
+  IconKey,
   IconLoader2,
   IconSparkles,
   IconRobot,
@@ -47,10 +48,6 @@ const AGENT_LOGOS: Record<string, { light: string; dark: string }> = {
   "opencode": {
     light: "/logos/opencode-logo-light.svg",
     dark: "/logos/opencode-logo-dark.svg",
-  },
-  "ollama": {
-    light: "/logos/ollama.svg",
-    dark: "/logos/ollama.svg",
   },
 };
 
@@ -166,6 +163,8 @@ export function AgentSelector() {
             >
               {selectedAgent ? (
                 <AgentLogo agentId={selectedAgent.id} className="h-4 w-4" />
+              ) : selectedAgentId === "byok" ? (
+                <IconKey className="h-4 w-4 text-muted-foreground" />
               ) : (
                 <IconSparkles className="h-4 w-4" />
               )}
@@ -230,6 +229,24 @@ export function AgentSelector() {
               </DropdownMenuGroup>
             </>
           )}
+
+          {/* BYOK Providers */}
+          {(installedAgents.length > 0 || availableToInstall.length > 0) && <DropdownMenuSeparator />}
+          <DropdownMenuGroup>
+            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
+              Bring Your Own Key
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              onClick={() => { selectAgent("byok"); }}
+              className="gap-2"
+            >
+              <IconKey className="h-4 w-4 text-muted-foreground" />
+              <span className="flex-1 text-[12px]">BYOK Provider</span>
+              {selectedAgentId === "byok" && (
+                <IconCheck className="h-3 w-3 text-primary" />
+              )}
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
 
