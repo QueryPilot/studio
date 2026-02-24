@@ -33,8 +33,9 @@ export default function AIPreferencesPanel() {
   const setModel = useByokStore((s) => s.setModel);
   const session = useByokStore((s) => s.session);
   const initSession = useByokStore((s) => s.initSession);
-  const apiKey = useByokStore((s) => s.apiKey);
+  const apiKeys = useByokStore((s) => s.apiKeys);
   const setApiKey = useByokStore((s) => s.setApiKey);
+  const apiKey = providerId ? (apiKeys[providerId] ?? "") : "";
   const maxToolSteps = useByokStore((s) => s.maxToolSteps);
   const setMaxToolSteps = useByokStore((s) => s.setMaxToolSteps);
   const autoExecuteQueries = useByokStore((s) => s.autoExecuteQueries);
@@ -85,7 +86,7 @@ export default function AIPreferencesPanel() {
     session.modelId === modelId;
 
   const handleConnect = useCallback(() => {
-    initSession(apiKey || undefined);
+    initSession(apiKey);
   }, [initSession, apiKey]);
 
   return (

@@ -655,6 +655,8 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         isWarmingUp={isWarmingUp}
         canSend={canSend}
         disabled={!hasInstalledAgents && !isByok}
+        isByok={isByok}
+        byokSession={byokSession !== null}
         aiContext={aiContext}
         openTabs={openTabs}
         pendingImages={pendingImages}
@@ -1651,6 +1653,8 @@ interface InputAreaProps {
   isWarmingUp: boolean;
   canSend: boolean;
   disabled: boolean;
+  isByok: boolean;
+  byokSession: boolean;
   aiContext: AIContext;
   openTabs: Array<{ id: string; name: string; type: string; panelId: string }>;
   pendingImages: PreparedImage[];
@@ -1669,6 +1673,8 @@ const InputArea = ({
   isWarmingUp,
   canSend,
   disabled,
+  isByok,
+  byokSession,
   aiContext,
   openTabs,
   pendingImages,
@@ -1929,11 +1935,13 @@ const InputArea = ({
     [showMentions, suggestions, selectedIndex, insertMention, parentOnKeyDown],
   );
 
-  const placeholder = disabled
-    ? "No AI agent available"
-    : isWarmingUp
-      ? "Starting agent... you can type now"
-      : "Ask anything... use @ to mention tables";
+  const placeholder = isByok && !byokSession
+    ? "Configure a provider in Settings \u2192 AI"
+    : disabled
+      ? "No AI agent available"
+      : isWarmingUp
+        ? "Starting agent... you can type now"
+        : "Ask anything... use @ to mention tables";
 
   const getMentionIcon = (type: MentionSuggestion["type"]) => {
     switch (type) {
