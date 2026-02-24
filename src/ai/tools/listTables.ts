@@ -5,38 +5,67 @@ import { invoke } from "@tauri-apps/api/core";
 export function createListTablesTool(connectionId: string) {
   return tool({
     description:
-      "List all tables and views in the current database schema. Use this to understand what data is available.",
+      "List all tables and views in the current database. Use this to understand what data is available before writing queries.",
     inputSchema: z.object({
+      database: z
+        .string()
+        .optional()
+        .describe("Target database name (if different from current)"),
       schema: z
         .string()
         .optional()
         .describe(
-          "Schema name to list tables from. Omit for default schema."
+          "Schema name to list tables from. Omit to list all non-system schemas.",
         ),
     }),
     execute: async ({ schema }) => {
       try {
         const sql = schema
-          ? `SELECT table_name, table_type FROM information_schema.tables WHERE table_schema = '${schema}' ORDER BY table_name`
-          : `SELECT table_name, table_type FROM information_schema.tables WHERE table_schema NOT IN ('information_schema', 'pg_catalog') ORDER BY table_name`;
+          ? `SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_schema = '${schema}' ORDER BY table_schema, table_name`
+          : `SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_schema NOT IN ('information_schema', 'pg_catalog') ORDER BY table_schema, table_name`;
 
         const result = await invoke<{
           columns: { name: string }[];
           rows: unknown[][];
         }>("query", { connId: connectionId, sql, timeoutSecs: 10 });
 
-        return {
-          success: true as const,
-          tables: result.rows.map((r) => ({
-            name: r[0] as string,
-            type: r[1] as string,
-          })),
-        };
+        if (result.rows.length === 0) {
+          return schema
+            ? `No tables found in schema "${schema}".`
+            : "No tables found in non-system schemas.";
+        }
+
+        // Group by schema
+        const bySchema = new Map<
+          string,
+          Array<{ name: string; type: string }>
+        >();
+        for (const row of result.rows) {
+          const schemaName = String(row[0]);
+          const tableName = String(row[1]);
+          const tableType = String(row[2]);
+          const existing = bySchema.get(schemaName);
+          if (existing) {
+            existing.push({ name: tableName, type: tableType });
+          } else {
+            bySchema.set(schemaName, [{ name: tableName, type: tableType }]);
+          }
+        }
+
+        let output = "";
+        for (const [schemaName, tables] of bySchema) {
+          output += `Schema: ${schemaName}\n`;
+          output += "----------------------------------------\n";
+          for (const t of tables) {
+            output += `  - ${t.name} (${t.type})\n`;
+          }
+          output += "\n";
+        }
+
+        output += `Total: ${result.rows.length} table${result.rows.length !== 1 ? "s" : ""}`;
+        return output;
       } catch (err) {
-        return {
-          success: false as const,
-          error: err instanceof Error ? err.message : String(err),
-        };
+        return { error: err instanceof Error ? err.message : String(err) };
       }
     },
   });

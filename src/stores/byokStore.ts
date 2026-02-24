@@ -9,7 +9,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { ModelMessage } from "ai";
-import type { ProviderId, BYOKSession, StreamCallbacks } from "@/ai/types";
+import type { ProviderId, BYOKSession, StreamCallbacks, ByokToolCall } from "@/ai/types";
 import { PROVIDER_CONFIGS, createModel } from "@/ai/providers";
 import { buildSystemPrompt } from "@/ai/constants";
 import { streamChat } from "@/ai/service";
@@ -27,6 +27,7 @@ interface BYOKState {
   error: string | null;
   session: BYOKSession | null;
   abortController: AbortController | null;
+  activeToolCalls: ByokToolCall[];
 
   // Actions
   setProvider: (id: ProviderId) => void;
@@ -35,7 +36,7 @@ interface BYOKState {
   sendMessage: (
     content: string,
     toolContext: ToolContext,
-    schemaContext?: { databaseType?: string; schema?: string },
+    schemaContext?: { databaseType?: string; schemaJson?: string },
     callbacks?: Partial<StreamCallbacks>,
   ) => Promise<void>;
   cancelGeneration: () => void;
@@ -56,6 +57,7 @@ export const useByokStore = create<BYOKState>()(
       error: null,
       session: null,
       abortController: null,
+      activeToolCalls: [],
 
       setProvider: (id) => {
         const config = PROVIDER_CONFIGS[id];
@@ -120,9 +122,20 @@ export const useByokStore = create<BYOKState>()(
               callbacks?.onChunk?.(text);
             },
             onToolCall: (tc) => {
+              set((state) => ({
+                activeToolCalls: [
+                  ...state.activeToolCalls,
+                  { id: tc.id, name: tc.name, status: "calling" as const },
+                ],
+              }));
               callbacks?.onToolCall?.(tc);
             },
             onToolResult: (id, result) => {
+              set((state) => ({
+                activeToolCalls: state.activeToolCalls.map((tc) =>
+                  tc.id === id ? { ...tc, status: "complete" as const } : tc,
+                ),
+              }));
               callbacks?.onToolResult?.(id, result);
             },
             onFinish: (responseMessages) => {
@@ -131,11 +144,17 @@ export const useByokStore = create<BYOKState>()(
                 isStreaming: false,
                 streamingContent: "",
                 abortController: null,
+                activeToolCalls: [],
               }));
               callbacks?.onFinish?.(responseMessages);
             },
             onError: (error) => {
-              set({ isStreaming: false, error, abortController: null });
+              set({
+                isStreaming: false,
+                error,
+                abortController: null,
+                activeToolCalls: [],
+              });
               callbacks?.onError?.(error);
             },
           },
@@ -145,11 +164,11 @@ export const useByokStore = create<BYOKState>()(
       cancelGeneration: () => {
         const { abortController } = get();
         abortController?.abort();
-        set({ isStreaming: false, abortController: null });
+        set({ isStreaming: false, abortController: null, activeToolCalls: [] });
       },
 
       clearHistory: () => {
-        set({ messages: [], streamingContent: "", error: null });
+        set({ messages: [], streamingContent: "", error: null, activeToolCalls: [] });
       },
     }),
     {

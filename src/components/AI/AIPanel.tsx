@@ -306,6 +306,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     byokStore.streamingContent,
     streamingThinking,
     activeToolCalls,
+    byokStore.activeToolCalls,
     stickToBottom,
     effectiveIsStreaming,
     scrollViewportToBottom,
@@ -384,9 +385,11 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
           }),
         };
 
-        const schemaContext = focusedConn
-          ? { databaseType: focusedConn.profile.db_type }
-          : undefined;
+        const schemaJson = serializeAIContext(aiContext);
+        const schemaContext = {
+          databaseType: focusedConn?.profile.db_type,
+          schemaJson,
+        };
 
         await byokStore.sendMessage(content, toolContext, schemaContext);
         return;
@@ -589,6 +592,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
               isStreaming={byokStore.isStreaming}
               streamingContent={byokStore.streamingContent}
               error={byokStore.error}
+              activeToolCalls={byokStore.activeToolCalls}
             />
           ) : hasMessages ? (
             <MessageList
@@ -2119,9 +2123,10 @@ interface ByokMessageListProps {
   isStreaming: boolean;
   streamingContent: string;
   error: string | null;
+  activeToolCalls: Array<{ id: string; name: string; status: string }>;
 }
 
-function ByokMessageList({ messages, isStreaming, streamingContent, error }: ByokMessageListProps) {
+function ByokMessageList({ messages, isStreaming, streamingContent, error, activeToolCalls }: ByokMessageListProps) {
   return (
     <div className="flex flex-col">
       {messages.map((msg, idx) => {
@@ -2156,6 +2161,25 @@ function ByokMessageList({ messages, isStreaming, streamingContent, error }: Byo
         );
       })}
 
+      {/* Tool call indicators */}
+      {activeToolCalls.length > 0 && (
+        <div className="px-3 py-1.5 space-y-1">
+          {activeToolCalls.map((tc) => (
+            <div key={tc.id} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              {tc.status === "calling" ? (
+                <span className="h-1.5 w-1.5 rounded-full bg-yellow-500 animate-pulse" />
+              ) : tc.status === "complete" ? (
+                <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+              ) : (
+                <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+              )}
+              <span className="font-mono">{tc.name}</span>
+              <span>{tc.status === "calling" ? "running..." : tc.status}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {isStreaming && streamingContent && (
         <div className="group px-3 py-3">
           <div
@@ -2176,7 +2200,7 @@ function ByokMessageList({ messages, isStreaming, streamingContent, error }: Byo
         </div>
       )}
 
-      {isStreaming && !streamingContent && (
+      {isStreaming && !streamingContent && activeToolCalls.length === 0 && (
         <div className="flex items-center gap-2 px-3 py-3">
           <div className="flex gap-1">
             <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-pulse" />
