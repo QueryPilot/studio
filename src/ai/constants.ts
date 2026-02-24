@@ -1,6 +1,5 @@
 // src/ai/constants.ts
 
-export const MAX_HISTORY_MESSAGES = 30;
 export const MAX_TOOL_STEPS = 5;
 
 export function buildSystemPrompt(context?: {
