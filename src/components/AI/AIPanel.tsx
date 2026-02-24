@@ -29,7 +29,7 @@ import type { AIContext } from "@/types/aiContext";
 import { AgentSelector } from "./AgentSelector";
 import { ImagePreviewPopover } from "./ImagePreviewPopover";
 import { ModelSelector } from "./ModelSelector";
-import { OllamaSettings } from "./OllamaSettings";
+import { ProviderSettings } from "./ProviderSettings";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
@@ -79,6 +79,7 @@ import {
 import { CommandList } from "./CommandCard";
 import { QueryBlock } from "./QueryBlock";
 import { useAiCommandPermissionStore } from "@/stores/aiCommandPermissionStore";
+import { useByokStore } from "@/stores/byokStore";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { tableStreamingService } from "@/services/tableStreamingService";
@@ -222,13 +223,27 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   // Proactively warmup agent on mount and when switching agents
   // This creates a session immediately so sending messages is instant
   const selectedAgentId = useAcpStore((s) => s.selectedAgentId);
+  const byokMessages = useByokStore((s) => s.messages);
+  const byokIsStreaming = useByokStore((s) => s.isStreaming);
+  const byokStreamingContent = useByokStore((s) => s.streamingContent);
+  const byokError = useByokStore((s) => s.error);
+  const byokSession = useByokStore((s) => s.session);
+  const byokActiveToolCalls = useByokStore((s) => s.activeToolCalls);
+  const byokSendMessage = useByokStore((s) => s.sendMessage);
+  const byokCancelGeneration = useByokStore((s) => s.cancelGeneration);
+  const byokClearHistory = useByokStore((s) => s.clearHistory);
+  const isByok = selectedAgentId === "byok";
+  const effectiveIsStreaming = isByok ? byokIsStreaming : isStreaming;
+
   useEffect(() => {
+    if (isByok) return; // BYOK doesn't need warmup
     // Only warmup if we have an installed agent and no active session
     const agent = availableAgents.find((a) => a.id === selectedAgentId);
     if (agent?.installed && !activeSession && !isWarmingUp) {
       void warmupAgent(connectionId);
     }
   }, [
+    isByok,
     selectedAgentId,
     availableAgents,
     activeSession,
@@ -239,10 +254,11 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
 
   // Warmup when user starts typing (if no active session)
   const handleStartTyping = useCallback(() => {
+    if (isByok) return;
     if (!activeSession && !isWarmingUp) {
       void warmupAgent(connectionId);
     }
-  }, [activeSession, isWarmingUp, warmupAgent, connectionId]);
+  }, [isByok, activeSession, isWarmingUp, warmupAgent, connectionId]);
 
   const getScrollViewport = useCallback((): HTMLDivElement | null => {
     const root = scrollAreaRef.current;
@@ -287,18 +303,21 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     return () => {
       viewport.removeEventListener("scroll", handleScroll);
     };
-  }, [getScrollViewport, messages.length, isStreaming]);
+  }, [getScrollViewport, messages.length, byokMessages.length, effectiveIsStreaming]);
 
   useEffect(() => {
     if (!stickToBottom) return;
-    scrollViewportToBottom(isStreaming ? "auto" : "smooth");
+    scrollViewportToBottom(effectiveIsStreaming ? "auto" : "smooth");
   }, [
     messages,
+    byokMessages,
     streamingContent,
+    byokStreamingContent,
     streamingThinking,
     activeToolCalls,
+    byokActiveToolCalls,
     stickToBottom,
-    isStreaming,
+    effectiveIsStreaming,
     scrollViewportToBottom,
   ]);
 
@@ -332,14 +351,14 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
 
   // Focus input on mount and when streaming ends
   useEffect(() => {
-    if (!isStreaming) {
+    if (!effectiveIsStreaming) {
       focusInput();
     }
-  }, [isStreaming, focusInput]);
+  }, [effectiveIsStreaming, focusInput]);
 
   const handleSend = useCallback(async () => {
     const content = inputValue.trim();
-    if (!content || isStreaming) return;
+    if (!content || effectiveIsStreaming) return;
 
     setError(null);
     setInputValue("");
@@ -356,6 +375,36 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     scrollToBottom("auto");
 
     try {
+      if (isByok) {
+        // BYOK path: route through AI SDK
+        if (!byokSession) {
+          setError("Configure and connect a provider first.");
+          setInputValue(content);
+          return;
+        }
+
+        const focusedConn = useWorkspaceBundleStore.getState().getFocusedConnection();
+        const toolContext = {
+          connectionId: focusedConn?.id ?? "",
+          getEditorContext: () => ({
+            connectionId: focusedConn?.id ?? null,
+            database: focusedConn?.profile.database ?? null,
+            schema: null,
+            editorContent: null,
+          }),
+        };
+
+        const schemaJson = serializeAIContext(aiContext);
+        const schemaContext = {
+          databaseType: focusedConn?.profile.db_type,
+          schemaJson,
+        };
+
+        await byokSendMessage(content, toolContext, schemaContext);
+        return;
+      }
+
+      // Existing ACP flow
       if (!activeSession && !isWarmingUp) {
         await startSession(connectionId);
       }
@@ -385,7 +434,10 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     }
   }, [
     inputValue,
-    isStreaming,
+    effectiveIsStreaming,
+    isByok,
+    byokSession,
+    byokSendMessage,
     pendingImages,
     activeSession,
     isWarmingUp,
@@ -446,19 +498,27 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   );
 
   const handleCancel = useCallback(() => {
-    void cancelGeneration();
+    if (isByok) {
+      byokCancelGeneration();
+    } else {
+      void cancelGeneration();
+    }
     focusInput();
-  }, [cancelGeneration, focusInput]);
+  }, [isByok, byokCancelGeneration, cancelGeneration, focusInput]);
 
   // Permission store for command approval
   const resetPermissions = useAiCommandPermissionStore((s) => s.reset);
 
   const handleNewConversation = useCallback(() => {
-    newConversation();
-    resetPermissions();
+    if (isByok) {
+      byokClearHistory();
+    } else {
+      newConversation();
+      resetPermissions();
+    }
     focusInput();
     scrollToBottom("auto");
-  }, [newConversation, resetPermissions, focusInput, scrollToBottom]);
+  }, [isByok, byokClearHistory, newConversation, resetPermissions, focusInput, scrollToBottom]);
 
   const handleLoadSession = useCallback(
     (sessionId: string) => {
@@ -476,14 +536,16 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   );
 
   // Derived state
-  const displayError = error || streamingError;
+  const displayError = error || (isByok ? byokError : streamingError);
   const installedAgents = useMemo(
     () => availableAgents.filter((a) => a.installed),
     [availableAgents],
   );
   const hasInstalledAgents = installedAgents.length > 0;
-  const hasMessages = messages.length > 0 || isStreaming;
-  const canSend = (inputValue.trim().length > 0 || pendingImages.length > 0) && !isStreaming && hasInstalledAgents;
+  const hasMessages = isByok
+    ? byokMessages.length > 0 || byokIsStreaming
+    : messages.length > 0 || isStreaming;
+  const canSend = (inputValue.trim().length > 0 || pendingImages.length > 0) && !effectiveIsStreaming && (hasInstalledAgents || (isByok && byokSession !== null));
 
   return (
     <div
@@ -528,13 +590,20 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         </div>
       )}
 
-      {/* Ollama Status */}
-      <OllamaSettings />
+      {/* Provider Settings (BYOK) */}
+      {isByok && <ProviderSettings />}
 
       {/* Messages Area */}
       <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0">
         <div className="flex flex-col min-h-full">
-          {hasMessages ? (
+          {isByok ? (
+            <ByokMessageList
+              messages={byokMessages}
+              isStreaming={byokIsStreaming}
+              streamingContent={byokStreamingContent}
+              activeToolCalls={byokActiveToolCalls}
+            />
+          ) : hasMessages ? (
             <MessageList
               messages={messages}
               isStreaming={isStreaming}
@@ -586,10 +655,10 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         onKeyDown={handleKeyDown}
         onCancel={handleCancel}
         onStartTyping={handleStartTyping}
-        isStreaming={isStreaming}
+        isStreaming={effectiveIsStreaming}
         isWarmingUp={isWarmingUp}
         canSend={canSend}
-        disabled={!hasInstalledAgents}
+        disabled={!hasInstalledAgents && !isByok}
         aiContext={aiContext}
         openTabs={openTabs}
         pendingImages={pendingImages}
@@ -2053,3 +2122,102 @@ const InputArea = ({
     </div>
   );
 };
+
+// ============================================================================
+// BYOK Message List
+// ============================================================================
+
+interface ByokMessageListProps {
+  messages: Array<{ role: string; content: string | Array<{ type: string; text?: string }> }>;
+  isStreaming: boolean;
+  streamingContent: string;
+  activeToolCalls: Array<{ id: string; name: string; status: string }>;
+}
+
+function ByokMessageList({ messages, isStreaming, streamingContent, activeToolCalls }: ByokMessageListProps) {
+  return (
+    <div className="flex flex-col">
+      {messages.map((msg, idx) => {
+        const text = typeof msg.content === "string"
+          ? msg.content
+          : msg.content.filter((p) => p.type === "text").map((p) => p.text).join("");
+
+        return (
+          <div
+            key={`${msg.role}-${idx}`}
+            className={cn(
+              "group px-3 py-3 transition-colors",
+              msg.role === "user" && "bg-primary/5 border-l-3 border-primary",
+            )}
+          >
+            <div
+              className={cn(
+                "prose prose-sm dark:prose-invert max-w-none",
+                "prose-p:my-1 prose-p:leading-normal",
+                "prose-headings:mt-3 prose-headings:mb-1.5 prose-headings:font-semibold prose-headings:text-sm",
+                "prose-ul:my-1.5 prose-ol:my-1.5",
+                "prose-li:my-0",
+                "prose-pre:my-1.5 prose-pre:p-2 prose-pre:rounded-md prose-pre:bg-muted prose-pre:text-[11px] prose-pre:leading-tight",
+                "prose-code:text-[11px] prose-code:font-medium prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:bg-muted",
+                "prose-code:before:content-none prose-code:after:content-none",
+                "text-[12px] leading-normal",
+              )}
+            >
+              <Streamdown className="select-text">{text}</Streamdown>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Tool call indicators */}
+      {activeToolCalls.length > 0 && (
+        <div className="px-3 py-1.5 space-y-1">
+          {activeToolCalls.map((tc) => (
+            <div key={tc.id} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              {tc.status === "calling" ? (
+                <span className="h-1.5 w-1.5 rounded-full bg-yellow-500 animate-pulse" />
+              ) : tc.status === "complete" ? (
+                <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+              ) : (
+                <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+              )}
+              <span className="font-mono">{tc.name}</span>
+              <span>{tc.status === "calling" ? "running..." : tc.status}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {isStreaming && streamingContent && (
+        <div className="group px-3 py-3">
+          <div
+            className={cn(
+              "prose prose-sm dark:prose-invert max-w-none",
+              "prose-p:my-1 prose-p:leading-normal",
+              "prose-headings:mt-3 prose-headings:mb-1.5 prose-headings:font-semibold prose-headings:text-sm",
+              "prose-ul:my-1.5 prose-ol:my-1.5",
+              "prose-li:my-0",
+              "prose-pre:my-1.5 prose-pre:p-2 prose-pre:rounded-md prose-pre:bg-muted prose-pre:text-[11px] prose-pre:leading-tight",
+              "prose-code:text-[11px] prose-code:font-medium prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:bg-muted",
+              "prose-code:before:content-none prose-code:after:content-none",
+              "text-[12px] leading-normal",
+            )}
+          >
+            <Streamdown className="select-text">{streamingContent}</Streamdown>
+          </div>
+        </div>
+      )}
+
+      {isStreaming && !streamingContent && activeToolCalls.length === 0 && (
+        <div className="flex items-center gap-2 px-3 py-3">
+          <div className="flex gap-1">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-pulse" />
+            <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-pulse [animation-delay:150ms]" />
+            <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-pulse [animation-delay:300ms]" />
+          </div>
+          <span className="text-[11px] text-muted-foreground">Thinking...</span>
+        </div>
+      )}
+    </div>
+  );
+}

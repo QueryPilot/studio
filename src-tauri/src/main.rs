@@ -53,7 +53,6 @@ fn main() {
 
     // Create ACP manager for AI agent integration
     let acp_manager = Arc::new(acp::manager::AcpManager::new());
-    let ollama_manager = Arc::new(acp::manager::OllamaManager::new());
 
     // Create app state
     let app_state = AppState {
@@ -77,7 +76,6 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .manage(manager)
         .manage(acp_manager)
-        .manage(ollama_manager)
         .manage(app_state)
         .manage(ai_context::AiContextState(Arc::clone(&ai_context)))
         .setup(|app| {
