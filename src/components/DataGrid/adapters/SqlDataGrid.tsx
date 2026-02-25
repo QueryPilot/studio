@@ -465,6 +465,16 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     return map;
   }, [fkReferenceByColumn]);
 
+  // Build a set of PK column names from table structure as a fallback.
+  // The streaming path may not include is_pk in column metadata (the Rust backend
+  // always sets primary_key: false on streaming ColumnMeta). The table structure's
+  // primaryKeys array is derived from constraints and is always reliable.
+  const structurePKColumns = useMemo(() => {
+    const pks = tableStructure?.primaryKeys;
+    if (!pks || pks.length === 0) return null;
+    return new Set(pks);
+  }, [tableStructure?.primaryKeys]);
+
   // Convert ColumnMeta[] to GridColumnV2[] with FK metadata
   const columns = useMemo<GridColumnV2[]>(() => {
     const visibleColumns = columnMeta.filter(
@@ -475,14 +485,18 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
       const uniqueField = `col_${originalIndex}`;
       const fkRef = fkReferenceByColumn.get(meta.name);
 
+      // Enrich is_pk from table structure if the streaming column lacks it
+      const isPk = meta.is_pk || (structurePKColumns?.has(meta.name) ?? false);
+      const enrichedMeta = isPk !== meta.is_pk ? { ...meta, is_pk: isPk } : meta;
+
       // Merge FK reference info into column meta (fkRef is already in correct format)
       const mergedMeta = fkRef
         ? {
-            ...meta,
+            ...enrichedMeta,
             fk_reference: fkRef,
             is_fk: true,
           }
-        : meta;
+        : enrichedMeta;
 
       // Calculate width - increase for FK columns with embedded values
       let width = computeBaseWidth(meta.name, meta.db_type);
@@ -503,7 +517,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
         meta: mergedMeta,
       } as GridColumnV2;
     });
-  }, [columnMeta, fkReferenceByColumn, embeddedFKPrefs]);
+  }, [columnMeta, fkReferenceByColumn, embeddedFKPrefs, structurePKColumns]);
 
   // Build column name to field mapping
   const columnNameToFieldMap = useMemo(() => {

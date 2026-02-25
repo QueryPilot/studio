@@ -8,7 +8,7 @@ import { DbType } from "@/types/connection";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { useValidationStore } from "@/stores/validationStore";
 import { getOperationExecutor } from "@/services/operationExecutors";
-import { CodeEditor, type SqlDialect } from "@/components/CodeEditor";
+import { CodeEditor, type SqlDialect, type CodeEditorLanguage } from "@/components/CodeEditor";
 import {
   Dialog,
   DialogContent,
@@ -16,7 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   IconPencil,
   IconPlus,
@@ -41,7 +41,7 @@ import { useTheme } from "next-themes";
 import { writeClipboardText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 
-// Map DbType to SqlDialect for CodeEditor (SQL databases only)
+// Map DbType to CodeEditor language and dialect
 const dbTypeToDialect: Record<DbType, SqlDialect> = {
   [DbType.PostgreSQL]: "postgresql",
   [DbType.MySQL]: "mysql",
@@ -52,8 +52,15 @@ const dbTypeToDialect: Record<DbType, SqlDialect> = {
   [DbType.Redis]: "postgresql",
 };
 
-const isNoSqlDatabase = (dbType: DbType): boolean =>
-  dbType === DbType.MongoDB || dbType === DbType.Redis;
+const dbTypeToEditorLanguage: Record<DbType, CodeEditorLanguage> = {
+  [DbType.PostgreSQL]: "sql",
+  [DbType.MySQL]: "sql",
+  [DbType.MariaDB]: "sql",
+  [DbType.SQLite]: "sql",
+  [DbType.SQLServer]: "sql",
+  [DbType.MongoDB]: "json",
+  [DbType.Redis]: "redis",
+};
 
 interface GlobalChangesDialogProps {
   connectionId: string;
@@ -63,6 +70,128 @@ interface GlobalChangesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCommitSuccess?: () => void;
+}
+
+interface GroupedRowChange {
+  rowKey: string;
+  tableName: string;
+  commands: CrudCommand[];
+}
+
+interface TableSummary {
+  tableKey: string;
+  displayName: string;
+  total: number;
+  inserts: number;
+  updates: number;
+  deletes: number;
+  ddl: number;
+}
+
+interface DerivedChangesData {
+  groupedByRow: GroupedRowChange[];
+  tableSummaries: TableSummary[];
+  tableNameByKey: Map<string, string>;
+  totalChanges: number;
+}
+
+function getDisplayTableName(tableKey: string, fallback = "unknown"): string {
+  const parts = tableKey.split(":");
+  const tableName = parts[parts.length - 1] || fallback;
+  const schemaName = parts.length > 3 ? parts[2] : undefined;
+  return schemaName ? `${schemaName}.${tableName}` : tableName;
+}
+
+function getRowKeyForCommand(command: CrudCommand): string {
+  if (command.type === "data.insert") {
+    return `insert-${command.id}`;
+  }
+  if (command.type === "data.update") {
+    const payload = command.payload as {
+      primaryKeys?: Record<string, unknown>;
+    };
+    return payload.primaryKeys
+      ? JSON.stringify(payload.primaryKeys)
+      : `update-${command.id}`;
+  }
+  if (command.type === "data.delete") {
+    const payload = command.payload as {
+      primaryKeys?: Record<string, unknown>;
+    };
+    return payload.primaryKeys
+      ? JSON.stringify(payload.primaryKeys)
+      : `delete-${command.id}`;
+  }
+  return command.id;
+}
+
+function createEmptyDerivedChangesData(): DerivedChangesData {
+  return {
+    groupedByRow: [],
+    tableSummaries: [],
+    tableNameByKey: new Map(),
+    totalChanges: 0,
+  };
+}
+
+function buildDerivedChangesData(
+  connectionCommands: Array<[string, CrudCommand[]]>,
+): DerivedChangesData {
+  const groupedRows: GroupedRowChange[] = [];
+  const rowMap = new Map<string, CrudCommand[]>();
+  const tableNameByKeyMap = new Map<string, string>();
+  const summaryRows: TableSummary[] = [];
+  let changeCount = 0;
+
+  for (const [tableKey, commands] of connectionCommands) {
+    const displayName = getDisplayTableName(tableKey);
+    tableNameByKeyMap.set(tableKey, displayName);
+
+    let inserts = 0;
+    let updates = 0;
+    let deletes = 0;
+
+    for (const command of commands) {
+      changeCount++;
+      if (command.type === "data.insert") {
+        inserts++;
+      } else if (command.type === "data.update") {
+        updates++;
+      } else if (command.type === "data.delete") {
+        deletes++;
+      }
+
+      const rowKey = getRowKeyForCommand(command);
+      let rowCommands = rowMap.get(rowKey);
+      if (!rowCommands) {
+        rowCommands = [];
+        rowMap.set(rowKey, rowCommands);
+        groupedRows.push({
+          rowKey,
+          tableName: displayName,
+          commands: rowCommands,
+        });
+      }
+      rowCommands.push(command);
+    }
+
+    summaryRows.push({
+      tableKey,
+      displayName,
+      total: commands.length,
+      inserts,
+      updates,
+      deletes,
+      ddl: commands.length - inserts - updates - deletes,
+    });
+  }
+
+  return {
+    groupedByRow: groupedRows,
+    tableSummaries: summaryRows,
+    tableNameByKey: tableNameByKeyMap,
+    totalChanges: changeCount,
+  };
 }
 
 export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
@@ -92,11 +221,26 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   const [isCommittingLocal, setIsCommittingLocal] = useState(false);
   // Combined: either dialog is committing OR global Cmd+S is committing
   const isCommitting = isCommittingLocal || isCommittingAll;
-  const [viewMode, setViewMode] = useState<"changes" | "sql">("changes");
+  const [viewMode, setViewMode] = useState<"changes" | "ddl">("changes");
   const [copiedSql, setCopiedSql] = useState(false);
   const [conflictError, setConflictError] = useState<string | null>(null);
   // Selected table in sidebar (null = show all tables)
   const [selectedTableKey, setSelectedTableKey] = useState<string | null>(null);
+
+  // Defer heavy computation until after the dialog shell has painted.
+  // This prevents the UI from freezing when opening with thousands of commands.
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    if (!open) {
+      setReady(false);
+      return;
+    }
+    // Schedule after the browser has painted the dialog shell
+    const raf = requestAnimationFrame(() => {
+      setReady(true);
+    });
+    return () => { cancelAnimationFrame(raf); };
+  }, [open]);
 
   // Get connection for database type
   const { getConnection } = useConnectionStore();
@@ -111,175 +255,241 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   const isTableSpecific = database !== undefined && table !== undefined;
 
   // Filter commands based on scope - memoize to prevent unnecessary recalculations
-  // Skip computation if dialog is not open for better performance
-  const connectionCommands = useMemo(() => {
-    if (!open) {
+  // Skip computation until dialog is open AND ready (after first paint)
+  const connectionCommands = useMemo<Array<[string, CrudCommand[]]>>(() => {
+    if (!open || !ready) {
       return [];
     }
-    
-    return Array.from(stagedCommands.entries()).filter(([tableKey]) => {
-      if (isTableSpecific) {
-        const specificTableKey = getTableKey({
-          connectionId,
-          database: database,
-          schema,
-          table: table,
-        });
-        return tableKey === specificTableKey;
-      }
-      // In workspace-wide mode: if connectionId is provided, filter by it
-      // Otherwise show all staged commands
+
+    // Table-specific mode should not scan all tables. Fetch directly by table key.
+    if (isTableSpecific) {
+      const tableKey = getTableKey({
+        connectionId,
+        database: database,
+        schema,
+        table: table,
+      });
+      const commands = stagedCommands.get(tableKey);
+      return commands ? [[tableKey, commands]] : [];
+    }
+
+    const filtered: Array<[string, CrudCommand[]]> = [];
+    for (const [tableKey, commands] of stagedCommands.entries()) {
       if (connectionId) {
-        return tableKey.startsWith(`${connectionId}:`);
+        if (tableKey.startsWith(`${connectionId}:`)) {
+          filtered.push([tableKey, commands]);
+        }
+      } else {
+        filtered.push([tableKey, commands]);
       }
-      return true;
-    });
+    }
+
+    return filtered;
   }, [
     open,
+    ready,
     stagedCommands,
     isTableSpecific,
+    getTableKey,
     connectionId,
     database,
     schema,
     table,
-    getTableKey,
   ]);
 
   // Keep parent open state in sync when undo/discard removes every staged command.
   // Without this, the dialog unmounts while `open` stays true and reappears on next edit.
   useEffect(() => {
-    if (open && connectionCommands.length === 0) {
+    if (open && ready && connectionCommands.length === 0) {
       onOpenChange(false);
     }
-  }, [open, connectionCommands.length, onOpenChange]);
+  }, [open, ready, connectionCommands.length, onOpenChange]);
 
-  // Group commands by row ID only, preserving user edit order
-  const groupedByRow = useMemo(() => {
-    // Collect all commands with metadata
-    const allCommands: Array<{
-      tableName: string;
-      command: CrudCommand;
-    }> = [];
+  const [derivedData, setDerivedData] = useState<DerivedChangesData>(
+    createEmptyDerivedChangesData,
+  );
+  const [isDerivingChanges, setIsDerivingChanges] = useState(false);
 
-    for (const [tableKey, commands] of connectionCommands) {
-      const parts = tableKey.split(":");
-      const tableName = parts[parts.length - 1];
-      const schemaName = parts.length > 3 ? parts[2] : undefined;
-      const displayName = schemaName
-        ? `${schemaName}.${tableName}`
-        : tableName || "";
-
-      for (const cmd of commands) {
-        allCommands.push({
-          tableName: displayName,
-          command: cmd,
-        });
-      }
+  useEffect(() => {
+    if (connectionCommands.length === 0) {
+      setDerivedData(createEmptyDerivedChangesData());
+      setIsDerivingChanges(false);
+      return;
     }
 
-    // Group by row key while preserving order
+    const totalCommandCount = connectionCommands.reduce(
+      (sum, [, commands]) => sum + commands.length,
+      0,
+    );
+    const SHOULD_CHUNK_THRESHOLD = 2000;
+
+    if (totalCommandCount < SHOULD_CHUNK_THRESHOLD) {
+      setDerivedData(buildDerivedChangesData(connectionCommands));
+      setIsDerivingChanges(false);
+      return;
+    }
+
+    setIsDerivingChanges(true);
+
+    let cancelled = false;
+    let rafId = 0;
+
+    const groupedRows: GroupedRowChange[] = [];
     const rowMap = new Map<string, CrudCommand[]>();
-    const rowOrder: Array<{ rowKey: string; tableName: string }> = [];
+    const tableNameByKeyMap = new Map<string, string>();
+    const summaryRows: TableSummary[] = [];
 
-    for (const { tableName, command } of allCommands) {
-      let rowKey: string;
+    let changeCount = 0;
+    let tableIndex = 0;
+    let commandIndex = 0;
+    let currentSummary:
+      | {
+          tableKey: string;
+          displayName: string;
+          total: number;
+          inserts: number;
+          updates: number;
+          deletes: number;
+        }
+      | null = null;
+    let currentCommands: CrudCommand[] | null = null;
+    let currentDisplayName = "";
 
-      if (command.type === "data.insert") {
-        rowKey = `insert-${command.id}`;
-      } else if (command.type === "data.update") {
-        const payload = command.payload as {
-          primaryKeys?: Record<string, unknown>;
-        };
-        rowKey = payload.primaryKeys
-          ? JSON.stringify(payload.primaryKeys)
-          : `update-${command.id}`;
-      } else if (command.type === "data.delete") {
-        const payload = command.payload as {
-          primaryKeys?: Record<string, unknown>;
-        };
-        rowKey = payload.primaryKeys
-          ? JSON.stringify(payload.primaryKeys)
-          : `delete-${command.id}`;
-      } else {
-        rowKey = command.id;
+    const processChunk = () => {
+      if (cancelled) {
+        return;
       }
 
-      if (!rowMap.has(rowKey)) {
-        rowMap.set(rowKey, []);
-        rowOrder.push({ rowKey, tableName });
+      const startTime = performance.now();
+      const FRAME_BUDGET_MS = 8;
+
+      while (tableIndex < connectionCommands.length) {
+        const [tableKey, commands] = connectionCommands[tableIndex] ?? [];
+        if (!tableKey || !commands) {
+          tableIndex++;
+          commandIndex = 0;
+          currentSummary = null;
+          currentCommands = null;
+          continue;
+        }
+
+        if (commandIndex === 0) {
+          currentDisplayName = getDisplayTableName(tableKey);
+          tableNameByKeyMap.set(tableKey, currentDisplayName);
+          currentCommands = commands;
+          currentSummary = {
+            tableKey,
+            displayName: currentDisplayName,
+            total: commands.length,
+            inserts: 0,
+            updates: 0,
+            deletes: 0,
+          };
+        }
+
+        const commandsToProcess = currentCommands ?? commands;
+        while (commandIndex < commandsToProcess.length) {
+          const command = commandsToProcess[commandIndex];
+          if (!command) {
+            commandIndex++;
+            continue;
+          }
+
+          changeCount++;
+          if (command.type === "data.insert") {
+            if (currentSummary) currentSummary.inserts++;
+          } else if (command.type === "data.update") {
+            if (currentSummary) currentSummary.updates++;
+          } else if (command.type === "data.delete") {
+            if (currentSummary) currentSummary.deletes++;
+          }
+
+          const rowKey = getRowKeyForCommand(command);
+          let rowCommands = rowMap.get(rowKey);
+          if (!rowCommands) {
+            rowCommands = [];
+            rowMap.set(rowKey, rowCommands);
+            groupedRows.push({
+              rowKey,
+              tableName: currentDisplayName,
+              commands: rowCommands,
+            });
+          }
+          rowCommands.push(command);
+
+          commandIndex++;
+
+          if (performance.now() - startTime >= FRAME_BUDGET_MS) {
+            rafId = requestAnimationFrame(processChunk);
+            return;
+          }
+        }
+
+        if (currentSummary) {
+          summaryRows.push({
+            tableKey: currentSummary.tableKey,
+            displayName: currentSummary.displayName,
+            total: currentSummary.total,
+            inserts: currentSummary.inserts,
+            updates: currentSummary.updates,
+            deletes: currentSummary.deletes,
+            ddl:
+              currentSummary.total -
+              currentSummary.inserts -
+              currentSummary.updates -
+              currentSummary.deletes,
+          });
+        }
+
+        tableIndex++;
+        commandIndex = 0;
+        currentSummary = null;
+        currentCommands = null;
       }
 
-      rowMap.get(rowKey)!.push(command);
-    }
+      setDerivedData({
+        groupedByRow: groupedRows,
+        tableSummaries: summaryRows,
+        tableNameByKey: tableNameByKeyMap,
+        totalChanges: changeCount,
+      });
+      setIsDerivingChanges(false);
+    };
 
-    // Build final result array
-    const result = rowOrder.map(({ rowKey, tableName }) => ({
-      rowKey,
-      tableName,
-      commands: rowMap.get(rowKey) ?? [],
-    }));
+    rafId = requestAnimationFrame(processChunk);
 
-    logger.info("[GlobalChangesDialog] groupedByRow computed:", {
-      connectionCommandsCount: connectionCommands.length,
-      allCommandsCount: allCommands.length,
-      resultCount: result.length,
-    });
-
-    return result;
+    return () => {
+      cancelled = true;
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+      }
+    };
   }, [connectionCommands]);
 
-  // Per-table summaries for sidebar navigation
-  const tableSummaries = useMemo(() => {
-    return connectionCommands.map(([tableKey, commands]) => {
-      const parts = tableKey.split(":");
-      const tableName = parts[parts.length - 1] ?? "unknown";
-      const schemaName = parts.length > 3 ? parts[2] : undefined;
-      const displayName = schemaName
-        ? `${schemaName}.${tableName}`
-        : tableName;
-      let inserts = 0, updates = 0, deletes = 0;
-      for (const c of commands) {
-        if (c.type === "data.insert") inserts++;
-        else if (c.type === "data.update") updates++;
-        else if (c.type === "data.delete") deletes++;
-      }
-      const ddl = commands.length - inserts - updates - deletes;
-      return { tableKey, displayName, total: commands.length, inserts, updates, deletes, ddl };
-    });
-  }, [connectionCommands]);
+  const { groupedByRow, tableSummaries, tableNameByKey, totalChanges } =
+    derivedData;
 
   // Filter groupedByRow when a specific table is selected in the sidebar
-  const filteredGroupedByRow = useMemo(() => {
-    if (!selectedTableKey) return groupedByRow;
-    return groupedByRow.filter((row) => {
-      // Match by tableName (display name includes schema prefix)
-      const summary = tableSummaries.find((s) => s.tableKey === selectedTableKey);
-      return summary ? row.tableName === summary.displayName : true;
-    });
-  }, [groupedByRow, selectedTableKey, tableSummaries]);
+  const selectedTableName = useMemo(() => {
+    if (!selectedTableKey) return null;
+    return tableNameByKey.get(selectedTableKey) ?? null;
+  }, [selectedTableKey, tableNameByKey]);
 
-  // Calculate total change count
-  const totalChanges = connectionCommands.reduce(
-    (sum, [, commands]) => sum + commands.length,
-    0,
-  );
+  const filteredGroupedByRow = useMemo(() => {
+    if (!selectedTableName) return groupedByRow;
+    return groupedByRow.filter((row) => row.tableName === selectedTableName);
+  }, [groupedByRow, selectedTableName]);
 
   // Calculate validation errors across all tables in scope
   const validationStatus = useMemo(() => {
-    const tableKeys = connectionCommands.map(([tableKey]) => tableKey);
     let totalErrors = 0;
     const tableErrorMap: Record<string, number> = {};
 
-    for (const tableKey of tableKeys) {
+    for (const [tableKey] of connectionCommands) {
       const { allowed, errorCount } = canCommit(tableKey);
       if (!allowed) {
         totalErrors += errorCount;
-        const parts = tableKey.split(":");
-        const tableName = parts[parts.length - 1] ?? "unknown";
-        const schemaName = parts.length > 3 ? parts[2] : undefined;
-        const displayName = schemaName
-          ? `${schemaName}.${tableName}`
-          : tableName;
+        const displayName = tableNameByKey.get(tableKey) ?? getDisplayTableName(tableKey);
         tableErrorMap[displayName] = errorCount;
       }
     }
@@ -289,28 +499,20 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
       totalErrors,
       tableErrors: tableErrorMap,
     };
-  }, [connectionCommands, canCommit]);
+  }, [connectionCommands, canCommit, tableNameByKey]);
 
   // Generate SQL from staged commands (async) — deferred until SQL tab is active
-  const [generatedSQL, setGeneratedSQL] = useState<string>("-- Click the SQL tab to generate preview");
+  const [generatedSQL, setGeneratedSQL] = useState<string>("-- Click the DDL tab to generate preview");
   const [sqlGenerated, setSqlGenerated] = useState(false);
 
   useEffect(() => {
     // Only generate when the SQL tab is selected (avoid blocking on dialog open)
-    if (viewMode !== "sql") return;
+    if (viewMode !== "ddl") return;
     // Don't regenerate if already generated for the same commands
     if (sqlGenerated) return;
 
-    if (isNoSqlDatabase(dbType)) {
-      setGeneratedSQL(
-        `-- SQL preview not available for ${dbType === DbType.MongoDB ? "MongoDB" : "Redis"}\n-- Changes will be applied using native ${dbType === DbType.MongoDB ? "MongoDB" : "Redis"} operations`
-      );
-      setSqlGenerated(true);
-      return;
-    }
-
     const generatePreview = async () => {
-      setGeneratedSQL("-- Generating SQL preview...");
+      setGeneratedSQL("-- Generating preview...");
 
       const commandsMap = new Map(connectionCommands);
       const allCommands: CrudCommand[] = [];
@@ -368,7 +570,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     try {
       await writeClipboardText(generatedSQL);
       setCopiedSql(true);
-      toast.success("SQL copied to clipboard");
+      toast.success("Copied to clipboard");
       setTimeout(() => {
         setCopiedSql(false);
       }, 2000);
@@ -700,7 +902,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     onOpenChange(false);
   };
 
-  const handleUndoRow = (commands: CrudCommand[]) => {
+  const handleUndoRow = useCallback((commands: CrudCommand[]) => {
     commands.forEach((cmd) => {
       unstageCommand(cmd.id);
     });
@@ -712,21 +914,29 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         commandCount === 1 ? "field" : "fields"
       }`,
     });
-  };
+  }, [unstageCommand]);
 
-  if (connectionCommands.length === 0) {
+  // Don't render at all when truly empty (after ready is true and still no commands)
+  if (connectionCommands.length === 0 && ready) {
     return null;
   }
 
   const showSidebar = !isTableSpecific && tableSummaries.length > 1;
+  const isLoading = !ready || connectionCommands.length === 0 || isDerivingChanges;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-none! w-screen! h-screen! rounded-none! p-0 gap-0 overflow-hidden border-none z-50 bg-secondary"
+        className="flex flex-col max-w-none! w-screen! h-screen! rounded-none! p-0 gap-0 overflow-hidden border-none z-50 bg-secondary"
         showCloseButton={false}
       >
-        <div className="flex h-full flex-col">
+        <Tabs
+          value={viewMode}
+          onValueChange={(value) => {
+            setViewMode(value as "changes" | "ddl");
+          }}
+          className="flex flex-1 min-h-0 flex-col gap-0"
+        >
           {/* Top Bar */}
           <div
             data-tauri-drag-region
@@ -744,16 +954,46 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             <span className="text-sm font-medium">
               {isTableSpecific ? "Commit Changes" : "Review All Changes"}
             </span>
-            <span className="text-xs text-muted-foreground">
-              {totalChanges} {totalChanges === 1 ? "change" : "changes"}
-              {!isTableSpecific && tableSummaries.length > 0 && (
-                <> across {tableSummaries.length} {tableSummaries.length === 1 ? "table" : "tables"}</>
+            {!isLoading && (
+              <span className="text-xs text-muted-foreground">
+                {totalChanges} {totalChanges === 1 ? "change" : "changes"}
+                {!isTableSpecific && tableSummaries.length > 0 && (
+                  <> across {tableSummaries.length} {tableSummaries.length === 1 ? "table" : "tables"}</>
+                )}
+              </span>
+            )}
+
+            {/* View Mode Tabs — right-aligned in top bar */}
+            <div className="ml-auto flex items-center gap-1.5">
+              {viewMode === "ddl" && (
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground" onClick={handleCopySQL}>
+                  {copiedSql ? (
+                    <IconCheck className="h-3.5 w-3.5 text-green-500" />
+                  ) : (
+                    <IconCopy className="h-3.5 w-3.5" />
+                  )}
+                </Button>
               )}
-            </span>
+              <TabsList className="h-8">
+                <TabsTrigger value="changes" className="text-xs px-3 h-6 gap-1.5">
+                  <IconList className="h-3 w-3" />
+                  Changes
+                </TabsTrigger>
+                <TabsTrigger value="ddl" className="text-xs px-3 h-6 gap-1.5">
+                  <IconCode className="h-3 w-3" />
+                  DDL
+                </TabsTrigger>
+              </TabsList>
+            </div>
           </div>
 
           {/* Main Content Area */}
           <div className="flex flex-1 min-h-0">
+            {isLoading ? (
+              <div className="flex-1 flex items-center justify-center">
+                <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (<>
             {/* Sidebar - table list (workspace-wide mode with multiple tables) */}
             {showSidebar && (
               <div className="w-56 shrink-0 border-r border-border/50 bg-secondary flex flex-col">
@@ -848,48 +1088,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                   </Alert>
                 )}
 
-                {/* View Mode Tabs */}
-                <Tabs
-                  value={viewMode}
-                  onValueChange={(value) => {
-                    setViewMode(value as "changes" | "sql");
-                  }}
-                  className="flex-1 flex flex-col min-h-0"
-                >
-                  <div className="flex items-center justify-between px-4 pt-4 pb-2">
-                    <TabsList>
-                      <TabsTrigger value="changes">
-                        <IconList className="h-3.5 w-3.5" />
-                        Changes
-                      </TabsTrigger>
-                      <TabsTrigger value="sql">
-                        <IconCode className="h-3.5 w-3.5" />
-                        SQL
-                      </TabsTrigger>
-                    </TabsList>
-
-                    {viewMode === "sql" && (
-                      <Button variant="outline" size="sm" onClick={handleCopySQL}>
-                        {copiedSql ? (
-                          <>
-                            <IconCheck className="h-3.5 w-3.5 mr-1.5 text-green-500" />
-                            Copied
-                          </>
-                        ) : (
-                          <>
-                            <IconCopy className="h-3.5 w-3.5 mr-1.5" />
-                            Copy SQL
-                          </>
-                        )}
-                      </Button>
-                    )}
-                  </div>
-
-                  {/* Changes List - Virtualized */}
-                  <TabsContent
-                    value="changes"
-                    className="m-0 flex-1 min-h-0 data-[state=active]:flex data-[state=active]:flex-col"
-                  >
+                {/* Content area — plain conditional instead of TabsContent to keep flex chain intact */}
+                {viewMode === "changes" ? (
+                  <div className="flex-1 flex flex-col min-h-0">
                     {filteredGroupedByRow.length === 0 ? (
                       <div className="text-sm text-muted-foreground text-center py-8">
                         No changes to display
@@ -900,25 +1101,19 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                         onUndo={handleUndoRow}
                       />
                     )}
-                  </TabsContent>
-
-                  {/* SQL Preview */}
-                  <TabsContent
-                    value="sql"
-                    className="m-0 flex-1 min-h-0 data-[state=active]:flex data-[state=active]:flex-col"
-                  >
-                    <div className="flex-1 min-h-0 overflow-hidden px-4 pb-4">
-                      <CodeEditor
-                        value={generatedSQL || "-- No SQL generated"}
-                        readOnly={true}
-                        language="sql"
-                        dialect={dbTypeToDialect[dbType]}
-                        lineNumbers={true}
-                        height="100%"
-                      />
-                    </div>
-                  </TabsContent>
-                </Tabs>
+                  </div>
+                ) : (
+                  <div className="flex-1 min-h-0 overflow-hidden px-4 pb-4 pt-2">
+                    <CodeEditor
+                      value={generatedSQL || "-- No preview generated"}
+                      readOnly={true}
+                      language={dbTypeToEditorLanguage[dbType]}
+                      dialect={dbTypeToDialect[dbType]}
+                      lineNumbers={true}
+                      height="100%"
+                    />
+                  </div>
+                )}
 
                 {/* Validation Error Alert */}
                 {!validationStatus.canCommitAll && (
@@ -979,8 +1174,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                 </div>
               </div>
             </div>
+          </>)}
           </div>
-        </div>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );
@@ -997,29 +1193,33 @@ interface VirtualizedChangesListProps {
   onUndo: (commands: CrudCommand[]) => void;
 }
 
-/**
- * Virtualized list of row change cards. Only renders cards in the viewport,
- * preventing the UI from freezing when previewing thousands of changes.
- */
 function VirtualizedChangesList({ groupedByRow, onUndo }: VirtualizedChangesListProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const parentRef = useRef<HTMLDivElement>(null);
+  const useLightweightDiff = groupedByRow.length > 150;
 
   const virtualizer = useVirtualizer({
     count: groupedByRow.length,
-    getScrollElement: () => scrollRef.current,
-    // Estimate: header (~36px) + diff content (~60px) + padding/border (~12px)
-    estimateSize: () => 108,
-    overscan: 5,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => (useLightweightDiff ? 156 : 220),
+    overscan: 6,
+    getItemKey: (index) => {
+      const row = groupedByRow[index];
+      return row ? `${row.tableName}:${row.rowKey}:${index}` : `row-${index}`;
+    },
   });
+
+  useEffect(() => {
+    virtualizer.scrollToOffset(0);
+  }, [groupedByRow, virtualizer]);
 
   return (
     <div
-      ref={scrollRef}
-      className="flex-1 overflow-auto px-4 pb-4"
+      ref={parentRef}
+      className="flex-1 min-h-0 overflow-y-auto px-4 pb-4"
     >
       <div
         style={{
-          height: `${virtualizer.getTotalSize()}px`,
+          height: virtualizer.getTotalSize(),
           width: "100%",
           position: "relative",
         }}
@@ -1027,9 +1227,10 @@ function VirtualizedChangesList({ groupedByRow, onUndo }: VirtualizedChangesList
         {virtualizer.getVirtualItems().map((virtualItem) => {
           const row = groupedByRow[virtualItem.index];
           if (!row) return null;
+
           return (
             <div
-              key={row.rowKey}
+              key={`${row.tableName}:${row.rowKey}:${virtualItem.index}`}
               data-index={virtualItem.index}
               ref={virtualizer.measureElement}
               style={{
@@ -1038,13 +1239,14 @@ function VirtualizedChangesList({ groupedByRow, onUndo }: VirtualizedChangesList
                 left: 0,
                 width: "100%",
                 transform: `translateY(${virtualItem.start}px)`,
-                paddingBottom: "8px", // gap between cards
+                paddingBottom: "8px",
               }}
             >
               <MemoizedRowChangesCard
                 row={row}
                 index={virtualItem.index}
                 onUndo={onUndo}
+                useLightweightDiff={useLightweightDiff}
               />
             </div>
           );
@@ -1064,9 +1266,15 @@ interface RowChangesCardProps {
   };
   index: number;
   onUndo: (commands: CrudCommand[]) => void;
+  useLightweightDiff: boolean;
 }
 
-function RowChangesCardInner({ row, index, onUndo }: RowChangesCardProps) {
+function RowChangesCardInner({
+  row,
+  index,
+  onUndo,
+  useLightweightDiff,
+}: RowChangesCardProps) {
   const { resolvedTheme } = useTheme();
 
   // Determine the operation type (insert, update, delete, DDL)
@@ -1113,10 +1321,6 @@ function RowChangesCardInner({ row, index, onUndo }: RowChangesCardProps) {
 
         // Show payload details
         const payload = cmd.payload as Record<string, unknown>;
-        logger.info("[GlobalChangesDialog] DDL command:", {
-          type: cmd.type,
-          payload,
-        });
         if (cmd.type === "table.create") {
           // table.create - show table definition
           if (payload.tableName) {
@@ -1433,16 +1637,6 @@ function RowChangesCardInner({ row, index, onUndo }: RowChangesCardProps) {
 
   const { old, new: newVal } = useMemo(() => buildRowDiff(), [buildRowDiff]);
 
-  // Debug: log when diff is empty
-  if (!old && !newVal) {
-    logger.warn("[RowChangesCard] Empty diff for row:", {
-      rowKey: row.rowKey,
-      tableName: row.tableName,
-      commandCount: row.commands.length,
-      commandTypes: row.commands.map((c) => c.type),
-    });
-  }
-
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
       {/* Header */}
@@ -1527,57 +1721,13 @@ function RowChangesCardInner({ row, index, onUndo }: RowChangesCardProps) {
               </span>
             ))}
           </div>
+        ) : useLightweightDiff ? (
+          <SimpleDiffView oldValue={old} newValue={newVal} />
         ) : (
-          <ReactDiffViewer
+          <LegacyDiffView
             oldValue={old}
             newValue={newVal}
-            splitView={true}
-            hideLineNumbers={true}
-            showDiffOnly={false}
-            compareMethod={DiffMethod.WORDS}
             useDarkTheme={resolvedTheme === "dark"}
-            styles={{
-              variables: {
-                // Light theme - matches CodeEditor light theme from themes.ts
-                light: {
-                  diffViewerBackground: "#FAF8F5",  // CodeEditor light background
-                  addedBackground: "#16A34A1A",     // Green with transparency
-                  addedColor: "#27231E",            // CodeEditor light foreground
-                  removedBackground: "#DC26261A",   // Red with transparency
-                  removedColor: "#27231E",          // CodeEditor light foreground
-                  wordAddedBackground: "#16A34A33", // Green word highlight
-                  wordRemovedBackground: "#DC262633", // Red word highlight
-                  addedGutterBackground: "#16A34A14",
-                  removedGutterBackground: "#DC262614",
-                  gutterBackground: "#FAF8F5",      // CodeEditor light gutterBackground
-                  gutterBackgroundDark: "#F5F3F0",
-                  highlightBackground: "#D4A52B1A", // Brand golden with transparency
-                  highlightGutterBackground: "#D4A52B14",
-                  emptyLineBackground: "#FAF8F5",
-                  codeFoldBackground: "#F5F3F0",
-                  codeFoldGutterBackground: "#F5F3F0",
-                },
-                // Dark theme - matches CodeEditor dark theme from themes.ts
-                dark: {
-                  diffViewerBackground: "#110F0C",  // CodeEditor dark background
-                  addedBackground: "#22C55E1A",     // Green with transparency
-                  addedColor: "#EBE7E2",            // CodeEditor dark foreground
-                  removedBackground: "#EF44441A",   // Red with transparency
-                  removedColor: "#EBE7E2",          // CodeEditor dark foreground
-                  wordAddedBackground: "#22C55E33", // Green word highlight
-                  wordRemovedBackground: "#EF444433", // Red word highlight
-                  addedGutterBackground: "#22C55E14",
-                  removedGutterBackground: "#EF444414",
-                  gutterBackground: "#110F0C",      // CodeEditor dark gutterBackground
-                  gutterBackgroundDark: "#0D0B09",
-                  highlightBackground: "#D4A52B1A", // Brand golden with transparency
-                  highlightGutterBackground: "#D4A52B14",
-                  emptyLineBackground: "#110F0C",
-                  codeFoldBackground: "#1A1714",
-                  codeFoldGutterBackground: "#1A1714",
-                },
-              },
-            }}
           />
         )}
       </div>
@@ -1591,9 +1741,94 @@ const MemoizedRowChangesCard = memo(RowChangesCardInner, (prev, next) => {
     prev.row.rowKey === next.row.rowKey &&
     prev.row.commands === next.row.commands &&
     prev.index === next.index &&
-    prev.onUndo === next.onUndo
+    prev.onUndo === next.onUndo &&
+    prev.useLightweightDiff === next.useLightweightDiff
   );
 });
+
+function LegacyDiffView({
+  oldValue,
+  newValue,
+  useDarkTheme,
+}: {
+  oldValue: string;
+  newValue: string;
+  useDarkTheme: boolean;
+}) {
+  return (
+    <ReactDiffViewer
+      oldValue={oldValue}
+      newValue={newValue}
+      splitView={true}
+      hideLineNumbers={true}
+      showDiffOnly={false}
+      compareMethod={DiffMethod.WORDS}
+      useDarkTheme={useDarkTheme}
+      styles={{
+        variables: {
+          light: {
+            diffViewerBackground: "#FAF8F5",
+            addedBackground: "#16A34A1A",
+            addedColor: "#27231E",
+            removedBackground: "#DC26261A",
+            removedColor: "#27231E",
+            wordAddedBackground: "#16A34A33",
+            wordRemovedBackground: "#DC262633",
+            addedGutterBackground: "#16A34A14",
+            removedGutterBackground: "#DC262614",
+            gutterBackground: "#FAF8F5",
+            gutterBackgroundDark: "#F5F3F0",
+            highlightBackground: "#D4A52B1A",
+            highlightGutterBackground: "#D4A52B14",
+            emptyLineBackground: "#FAF8F5",
+            codeFoldBackground: "#F5F3F0",
+            codeFoldGutterBackground: "#F5F3F0",
+          },
+          dark: {
+            diffViewerBackground: "#110F0C",
+            addedBackground: "#22C55E1A",
+            addedColor: "#EBE7E2",
+            removedBackground: "#EF44441A",
+            removedColor: "#EBE7E2",
+            wordAddedBackground: "#22C55E33",
+            wordRemovedBackground: "#EF444433",
+            addedGutterBackground: "#22C55E14",
+            removedGutterBackground: "#EF444414",
+            gutterBackground: "#110F0C",
+            gutterBackgroundDark: "#0D0B09",
+            highlightBackground: "#D4A52B1A",
+            highlightGutterBackground: "#D4A52B14",
+            emptyLineBackground: "#110F0C",
+            codeFoldBackground: "#1A1714",
+            codeFoldGutterBackground: "#1A1714",
+          },
+        },
+      }}
+    />
+  );
+}
+
+function SimpleDiffView({
+  oldValue,
+  newValue,
+}: {
+  oldValue: string;
+  newValue: string;
+}) {
+  const oldDisplay = oldValue || " ";
+  const newDisplay = newValue || " ";
+
+  return (
+    <div className="grid grid-cols-2 divide-x divide-border">
+      <pre className="m-0 max-h-48 overflow-x-auto overflow-y-hidden bg-destructive/5 p-3 text-[11px] leading-relaxed whitespace-pre-wrap break-words">
+        {oldDisplay}
+      </pre>
+      <pre className="m-0 max-h-48 overflow-x-auto overflow-y-hidden bg-emerald-500/5 p-3 text-[11px] leading-relaxed whitespace-pre-wrap break-words">
+        {newDisplay}
+      </pre>
+    </div>
+  );
+}
 
 /**
  * Format a value for display in the diff viewer.

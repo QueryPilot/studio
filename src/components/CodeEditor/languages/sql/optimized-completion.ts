@@ -271,6 +271,17 @@ const MAX_CACHE_SIZE = 50;
 // In-flight request tracking
 const inflightRequests = new Map<string, Promise<Completion[] | null>>();
 
+interface RustCacheEntry {
+  result: CompletionResult | null;
+  timestamp: number;
+}
+
+const rustCompletionCache = new Map<string, RustCacheEntry>();
+const rustInflightRequests = new Map<string, Promise<CompletionResult | null>>();
+const RUST_CACHE_TTL = 2000; // Keep short - avoid stale context
+const RUST_TIMEOUT_MS = 120;
+const RUST_TIMEOUT_EXPLICIT_MS = 250;
+
 // ============================================================================
 // PREFIX-BASED CACHING - Cache raw metadata for fast incremental filtering
 // ============================================================================
@@ -345,6 +356,62 @@ function cleanCache(): void {
       }
     }
   }
+}
+
+function getCachedRustCompletion(cacheKey: string): CompletionResult | null | undefined {
+  const cached = rustCompletionCache.get(cacheKey);
+  if (!cached) return undefined;
+  if (Date.now() - cached.timestamp > RUST_CACHE_TTL) {
+    rustCompletionCache.delete(cacheKey);
+    return undefined;
+  }
+  return cached.result;
+}
+
+function setCachedRustCompletion(cacheKey: string, result: CompletionResult | null): void {
+  rustCompletionCache.set(cacheKey, {
+    result,
+    timestamp: Date.now(),
+  });
+
+  if (rustCompletionCache.size > MAX_CACHE_SIZE) {
+    const oldest = [...rustCompletionCache.entries()]
+      .sort((a, b) => a[1].timestamp - b[1].timestamp)[0];
+    if (oldest) {
+      rustCompletionCache.delete(oldest[0]);
+    }
+  }
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number
+): Promise<{ timedOut: boolean; value: T | null }> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = globalThis.setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve({ timedOut: true, value: null });
+      }
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        if (!settled) {
+          settled = true;
+          globalThis.clearTimeout(timer);
+          resolve({ timedOut: false, value });
+        }
+      })
+      .catch(() => {
+        if (!settled) {
+          settled = true;
+          globalThis.clearTimeout(timer);
+          resolve({ timedOut: false, value: null });
+        }
+      });
+  });
 }
 
 /**
@@ -424,6 +491,12 @@ function shouldPreferTypeScriptCompletion(context: CompletionContext): boolean {
 
   // JOIN ON condition context
   if (/\bON\s+[A-Za-z0-9_"`[\].]*$/i.test(beforeCursor)) {
+    return true;
+  }
+
+  // Partial table identifier after table keywords (Rust context detection is strict and
+  // may return empty until keyword boundary is exact, which delays fallback).
+  if (/\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+[A-Za-z0-9_"`[\].]*$/i.test(beforeCursor)) {
     return true;
   }
 
@@ -527,108 +600,136 @@ export function createOptimizedCompletionSource(config: CompletionConfig) {
       return null;
     }
 
+    const { state, pos } = context;
+    const line = state.doc.lineAt(pos);
+    const beforeCursor = line.text.slice(0, pos - line.from);
+    const contextHash = hashContext(pos, state.doc.length, beforeCursor);
     const preferTypeScript = shouldPreferTypeScriptCompletion(context);
+    const cacheKey = `${cacheNamespace}:${contextHash}`;
+    const inflightKey = `${cacheNamespace}:${contextHash}`;
+
+    const resolveTypeScriptCompletion = async (): Promise<CompletionResult | null> => {
+      // Check cache
+      const cached = completionCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        const word = context.matchBefore(/[\w_]+/);
+        return {
+          from: word?.from ?? pos,
+          options: cached.completions,
+          validFor: /^[\w_]*$/,
+        };
+      }
+
+      // Check for in-flight request
+      const inflight = inflightRequests.get(inflightKey);
+      if (inflight) {
+        try {
+          const results = await inflight;
+          if (results) {
+            const word = context.matchBefore(/[\w_]+/);
+            return {
+              from: word?.from ?? pos,
+              options: results,
+              validFor: /^[\w_]*$/,
+            };
+          }
+        } catch {
+          // Ignore - will retry
+        }
+      }
+
+      // Create new request
+      const requestPromise = fetchCompletions(
+        provider,
+        context,
+        analysis.intent,
+        defaultSchema,
+        dialect,
+        connectionId,
+        cacheNamespace
+      );
+
+      inflightRequests.set(inflightKey, requestPromise);
+
+      try {
+        const completions = await requestPromise;
+        inflightRequests.delete(inflightKey);
+
+        if (!completions || completions.length === 0) {
+          return null;
+        }
+
+        // Cache results
+        cleanCache();
+        completionCache.set(cacheKey, {
+          completions,
+          timestamp: Date.now(),
+          contextHash,
+        });
+
+        const word = context.matchBefore(/[\w_]+/);
+        return {
+          from: word?.from ?? pos,
+          options: completions,
+          validFor: /^[\w_]*$/,
+        };
+      } catch {
+        inflightRequests.delete(inflightKey);
+        return null;
+      }
+    };
 
     // Try Rust completion first (faster, uses pre-synced schema via sql_set_schema)
     // except in TS-rich contexts (JOIN/alias/qualified access).
     if (!preferTypeScript) {
       const rustSource = await getRustSource();
       if (rustSource) {
-        try {
-          const rustResult = await rustSource(context);
-          if (rustResult && rustResult.options.length > 0) {
+        const rustCacheKey = `${cacheNamespace}:rust:${contextHash}:${context.explicit ? "1" : "0"}`;
+        const cachedRust = getCachedRustCompletion(rustCacheKey);
+        if (cachedRust && cachedRust.options.length > 0) {
+          return augmentRustCompletionsWithAliases(
+            context,
+            cachedRust,
+            connectionId,
+          );
+        }
+
+        let rustRequest = rustInflightRequests.get(rustCacheKey);
+        if (!rustRequest) {
+          rustRequest = rustSource(context)
+            .catch((error: unknown) => {
+              console.warn(
+                "[optimized-completion] Rust completion failed, falling back to TypeScript:",
+                error
+              );
+              return null;
+            })
+            .finally(() => {
+              rustInflightRequests.delete(rustCacheKey);
+            });
+          rustInflightRequests.set(rustCacheKey, rustRequest);
+        }
+
+        const rustAttempt = await withTimeout(
+          rustRequest,
+          context.explicit ? RUST_TIMEOUT_EXPLICIT_MS : RUST_TIMEOUT_MS,
+        );
+
+        // Cache deterministic Rust response (including empty) to avoid repeated roundtrips.
+        if (!rustAttempt.timedOut) {
+          setCachedRustCompletion(rustCacheKey, rustAttempt.value);
+          if (rustAttempt.value && rustAttempt.value.options.length > 0) {
             return augmentRustCompletionsWithAliases(
               context,
-              rustResult,
+              rustAttempt.value,
               connectionId,
             );
           }
-          // Fall through to TypeScript if Rust returns empty
-        } catch (error) {
-          console.warn(
-            "[optimized-completion] Rust completion failed, falling back to TypeScript:",
-            error
-          );
         }
       }
     }
 
-    // TypeScript completion (fallback or non-Tauri environment)
-    const { state, pos } = context;
-    const line = state.doc.lineAt(pos);
-    const beforeCursor = line.text.slice(0, pos - line.from);
-    const contextHash = hashContext(pos, state.doc.length, beforeCursor);
-
-    // Check cache
-    const cacheKey = `${cacheNamespace}:${contextHash}`;
-    const cached = completionCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      const word = context.matchBefore(/[\w_]+/);
-      return {
-        from: word?.from ?? pos,
-        options: cached.completions,
-        validFor: /^[\w_]*$/,
-      };
-    }
-
-    // Check for in-flight request
-    const inflightKey = `${cacheNamespace}:${contextHash}`;
-    const inflight = inflightRequests.get(inflightKey);
-    if (inflight) {
-      try {
-        const results = await inflight;
-        if (results) {
-          const word = context.matchBefore(/[\w_]+/);
-          return {
-            from: word?.from ?? pos,
-            options: results,
-            validFor: /^[\w_]*$/,
-          };
-        }
-      } catch {
-        // Ignore - will retry
-      }
-    }
-
-    // Create new request
-    const requestPromise = fetchCompletions(
-      provider,
-      context,
-      analysis.intent,
-      defaultSchema,
-      dialect,
-      connectionId,
-      cacheNamespace
-    );
-
-    inflightRequests.set(inflightKey, requestPromise);
-
-    try {
-      const completions = await requestPromise;
-      inflightRequests.delete(inflightKey);
-
-      if (!completions || completions.length === 0) {
-        return null;
-      }
-
-      // Cache results
-      cleanCache();
-      completionCache.set(cacheKey, {
-        completions,
-        timestamp: Date.now(),
-        contextHash,
-      });
-
-      const word = context.matchBefore(/[\w_]+/);
-      return {
-        from: word?.from ?? pos,
-        options: completions,
-        validFor: /^[\w_]*$/,
-      };
-    } catch {
-      inflightRequests.delete(inflightKey);
-      return null;
-    }
+    return resolveTypeScriptCompletion();
   };
 }
 
@@ -1100,6 +1201,8 @@ export function clearCompletionCache(connectionId?: string): void {
     completionCache.clear();
     metadataCache.clear();
     inflightRequests.clear();
+    rustCompletionCache.clear();
+    rustInflightRequests.clear();
     return;
   }
 
@@ -1123,6 +1226,18 @@ export function clearCompletionCache(connectionId?: string): void {
     for (const key of inflightRequests.keys()) {
       if (key.startsWith(`${normalizedConnectionId}:`)) {
         inflightRequests.delete(key);
+      }
+    }
+
+    for (const key of rustCompletionCache.keys()) {
+      if (key.startsWith(`${normalizedConnectionId}:`)) {
+        rustCompletionCache.delete(key);
+      }
+    }
+
+    for (const key of rustInflightRequests.keys()) {
+      if (key.startsWith(`${normalizedConnectionId}:`)) {
+        rustInflightRequests.delete(key);
       }
     }
   }

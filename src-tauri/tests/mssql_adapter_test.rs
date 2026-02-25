@@ -3,7 +3,7 @@
 //! Tests the MssqlAdapter's ability to connect, query, and handle SQL Server data types.
 //!
 //! Requires Docker SQL Server running (make docker-up):
-//! - Host: localhost:11434
+//! - Host: localhost:11435
 //! - User: sa
 //! - Password: DevPass123
 //! - Database: todoapp
@@ -15,7 +15,7 @@ use serde_json::Value as JsonValue;
 
 /// Check if SQL Server is available for testing
 fn mssql_available() -> bool {
-    std::net::TcpStream::connect("127.0.0.1:11434").is_ok()
+    std::net::TcpStream::connect("127.0.0.1:11435").is_ok()
 }
 
 /// Create a test connection profile
@@ -25,7 +25,7 @@ fn test_profile() -> ConnectionProfile {
         name: "Test SQL Server".to_string(),
         db_type: DbType::SQLServer,
         host: "127.0.0.1".to_string(),
-        port: 11434,
+        port: 11435,
         database: "todoapp".to_string(),
         username: "sa".to_string(),
         password: Some("DevPass123".to_string()),

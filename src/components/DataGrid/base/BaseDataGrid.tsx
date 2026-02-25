@@ -1948,7 +1948,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
             displayData: String(edit.value ?? ""),
             allowOverlay: true,
           },
-          previousValue: null,
+          previousValue: (row[column.field] as import("@/types/cellValue").CellValue | null | undefined) ?? null,
         };
 
         const command = factory.createEditCommand(event);
@@ -2000,9 +2000,6 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
     if (cells.length > 0) {
       handleBatchClear(cells);
-      toast.success(`${cells.length} cell(s) staged for clearing`);
-    } else {
-      toast.info("Cannot clear read-only columns");
     }
   }, [readOnly, commandFactory, isCellEditorActive, handleBatchClear]);
 

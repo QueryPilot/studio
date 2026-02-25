@@ -90,6 +90,7 @@ function CommandInput({
         {onBack ? (
           <button
             type="button"
+            tabIndex={-1}
             onClick={onBack}
             className="text-muted-foreground pl-2 flex cursor-pointer items-center justify-center select-none order-first hover:text-foreground transition-colors"
           >

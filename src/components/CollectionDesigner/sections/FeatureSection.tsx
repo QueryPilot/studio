@@ -44,10 +44,10 @@ export const FeatureSection: React.FC<FeatureSectionProps> = ({
   return (
     <div
       className={cn(
-        "rounded-lg border-l-2 transition-all duration-200",
+        "rounded-lg border border-l-2 bg-card transition-all duration-200",
         enabled
-          ? "border-l-primary bg-card shadow-sm"
-          : "border-l-muted-foreground/15 bg-card/40",
+          ? "border-l-primary shadow-sm"
+          : "border-l-border",
         disabled && "opacity-50",
       )}
     >
@@ -98,7 +98,7 @@ export const FeatureSection: React.FC<FeatureSectionProps> = ({
         )}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="border-t border-border/50 px-3 pb-3 pt-2.5">
+          <div className="border-t border-border/30 px-3 pb-3 pt-2.5">
             {children}
           </div>
         </div>

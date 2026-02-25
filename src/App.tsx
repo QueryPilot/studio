@@ -20,6 +20,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useConnectionWindowStore } from "./stores/connectionWindowStore";
 import { useWorkspaceBundleStore } from "./stores/workspaceBundleStore";
 import { useAcpStore } from "./stores/acpStore";
+import { useByokStore } from "./stores/byokStore";
 import { AcpService } from "./services/acpService";
 
 function VaultLoadingScreen() {
@@ -91,6 +92,7 @@ function App() {
   const { initialize: initializeConnectionWindowStore } =
     useConnectionWindowStore();
   const loadAgents = useAcpStore((s) => s.loadAgents);
+  const loadApiKeys = useByokStore((s) => s.loadApiKeys);
 
   // Initialize connection window tracking
   // Note: BroadcastChannel works in both Tauri and browser
@@ -124,6 +126,9 @@ function App() {
           try {
             await vaultStorage.initialize();
             await vaultStorage.preloadAll();
+
+            // Hydrate BYOK API keys from vault
+            await loadApiKeys();
 
             // Check if keychain access failed
             if (!vaultStorage.isKeychainAccessible()) {
@@ -214,6 +219,7 @@ function App() {
             try {
               await vaultStorage.initialize();
               await vaultStorage.preloadAll();
+              await loadApiKeys();
             } catch (error) {
               logger.error(
                 "Background vault load for workspace window failed",
@@ -234,6 +240,7 @@ function App() {
             try {
               await vaultStorage.initialize();
               await vaultStorage.preloadAll();
+              await loadApiKeys();
             } catch (error) {
               logger.error("Background preload failed", error);
             }
@@ -291,7 +298,7 @@ function App() {
       disposed = true;
       removeListener?.();
     };
-  }, [loadAgents]);
+  }, [loadAgents, loadApiKeys]);
 
   useEffect(() => {
     if (!isTauri()) {

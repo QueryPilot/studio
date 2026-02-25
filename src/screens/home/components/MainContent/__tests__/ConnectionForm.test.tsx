@@ -20,7 +20,7 @@ describe("ConnectionForm", () => {
 
   it("keeps the parsed SQL Server port when pasting a config string", async () => {
     clipboardMock.readText.mockResolvedValue(
-      "Server=localhost,11434;Database=todoapp;User Id=sa;Password=DevPass123;",
+      "Server=localhost,11435;Database=todoapp;User Id=sa;Password=DevPass123;",
     );
 
     render(<ConnectionForm />);
@@ -30,7 +30,7 @@ describe("ConnectionForm", () => {
 
     const portInput = screen.getByLabelText("Port");
     await waitFor(() => {
-      expect(portInput).toHaveValue("11434");
+      expect(portInput).toHaveValue("11435");
     });
   });
 });

@@ -116,6 +116,7 @@ export default function AIPreferencesPanel() {
   const fetchModels = useByokStore((s) => s.fetchModels);
   const fetchedModels = useByokStore((s) => s.fetchedModels);
   const isFetchingModels = useByokStore((s) => s.isFetchingModels);
+  const fetchModelsError = useByokStore((s) => s.fetchModelsError);
   const apiKey = providerId ? (apiKeys[providerId] ?? "") : "";
   const autoExecuteQueries = useByokStore((s) => s.autoExecuteQueries);
   const setAutoExecuteQueries = useByokStore((s) => s.setAutoExecuteQueries);
@@ -164,6 +165,18 @@ export default function AIPreferencesPanel() {
       initSession();
     }
   }, [runtimeMode, providerId, modelId, session, initSession]);
+
+  // Auto-fetch models when provider is selected and conditions are met
+  useEffect(() => {
+    if (!providerId) return;
+    const providerConfig = PROVIDER_CONFIGS[providerId];
+    if (!providerConfig.listModels) return;
+    // Already have fetched models for this provider
+    if (fetchedModels[providerId]?.length) return;
+    // For providers requiring API key, only fetch if key is available
+    if (providerConfig.requiresApiKey && !apiKey) return;
+    void fetchModels();
+  }, [providerId, apiKey, fetchedModels, fetchModels]);
 
   const isSessionReady =
     session !== null &&
@@ -645,12 +658,34 @@ export default function AIPreferencesPanel() {
                 </button>
               ))}
               {displayModels.length === 0 && (
-                <div className="flex items-center justify-center py-6 text-center">
-                  <p className="text-xs text-muted-foreground">
-                    {config.requiresApiKey && !apiKey
-                      ? "Enter an API key to fetch models"
-                      : "No models available"}
-                  </p>
+                <div className="flex flex-col items-center justify-center py-6 text-center gap-2">
+                  {isFetchingModels ? (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                      Fetching models...
+                    </div>
+                  ) : fetchModelsError ? (
+                    <>
+                      <p className="text-xs text-destructive">{fetchModelsError}</p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-3 text-[11px] gap-1"
+                        onClick={handleFetchModels}
+                      >
+                        <IconRefresh className="h-3 w-3" />
+                        Retry
+                      </Button>
+                    </>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      {config.requiresApiKey && !apiKey
+                        ? "Enter an API key to fetch models"
+                        : canFetchModels
+                          ? "Click Fetch models to load available models"
+                          : "No models available"}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
