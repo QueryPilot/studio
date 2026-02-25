@@ -15,6 +15,8 @@ export interface VaultData {
   groupTags: GroupTag[];
   /** Saved workspace configurations */
   workspaces: WorkspaceConfig[];
+  /** BYOK provider API keys (provider ID → key) */
+  apiKeys?: Record<string, string>;
   /** Timestamp when data was migrated to this format */
   migratedAt?: string;
   /** Source of migration (for debugging) */

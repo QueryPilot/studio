@@ -22,7 +22,7 @@ make reseed-all
 | PostgreSQL | `make seed-postgres` | `localhost:15432` (devuser/devpass123) |
 | MySQL | `make seed-mysql` | `localhost:13306` (devuser/devpass123) |
 | MariaDB | Uses MySQL seeds | `localhost:13307` (devuser/devpass123) |
-| SQL Server | `make seed-sqlserver` | `localhost:11434` (sa/DevPass123) |
+| SQL Server | `make seed-sqlserver` | `localhost:11435` (sa/DevPass123) |
 | Oracle | `make seed-oracle` | `localhost:11521` (todoapp/DevPass123) |
 | SQLite | `make seed-sqlite` | `seeds/sqlite/query_pilot_test.db` |
 | MongoDB | Auto-seeds on container start | `localhost:17017` (devuser/devpass123) |

@@ -7,26 +7,17 @@ export const ollamaConfig: ProviderConfig = {
   requiresApiKey: false,
   defaultBaseUrl: "http://localhost:11434/v1",
   logo: "/logos/ollama.svg",
-  models: [
-    {
-      id: "qwen2.5-coder:7b",
-      name: "Qwen 2.5 Coder 7B",
-      description: "Recommended for coding",
-    },
-    {
-      id: "llama3.1:8b",
-      name: "Llama 3.1 8B",
-      description: "General purpose",
-    },
-    {
-      id: "deepseek-coder-v2:16b",
-      name: "DeepSeek Coder V2",
-      description: "Strong at code",
-    },
-  ],
+  models: [],
   listModels: async () => {
-    const res = await fetch("http://localhost:11434/api/tags");
-    if (!res.ok) throw new Error(`Failed to fetch models: ${res.status}`);
+    let res: Response;
+    try {
+      res = await fetch("http://localhost:11434/api/tags");
+    } catch {
+      throw new Error(
+        "Cannot connect to Ollama. Make sure it's running: ollama serve",
+      );
+    }
+    if (!res.ok) throw new Error(`Ollama responded with ${res.status}`);
     const data = (await res.json()) as {
       models: Array<{
         name: string;

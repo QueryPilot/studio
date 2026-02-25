@@ -7,9 +7,11 @@
 //! - CTEs and aliases in scope
 
 use super::dialect::SqlDialect;
-use super::parser::ParsedDocument;
+use super::parser::{ParsedDocument, ParsedStatement};
 use super::schema_store::CachedSchema;
 use serde::{Deserialize, Serialize};
+
+const MAX_COMPLETION_ITEMS: usize = 200;
 
 /// Completion item kind.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -109,6 +111,12 @@ pub fn expand_select_star(
 pub fn complete(request: &CompletionRequest) -> CompletionResult {
     let context = analyze_context(&request.document, request.position);
     let word_range = get_word_range(&request.document, request.position);
+    let typed_prefix = extract_typed_prefix(
+        &request.document,
+        request.position,
+        word_range.0,
+        word_range.1,
+    );
 
     let mut items = Vec::new();
 
@@ -195,6 +203,8 @@ pub fn complete(request: &CompletionRequest) -> CompletionResult {
         }
     }
 
+    items = filter_and_limit_items(items, &typed_prefix);
+
     CompletionResult {
         items,
         from: word_range.0,
@@ -202,14 +212,27 @@ pub fn complete(request: &CompletionRequest) -> CompletionResult {
     }
 }
 
-fn analyze_context(doc: &ParsedDocument, position: usize) -> CompletionContext {
-    // Find the statement containing the cursor
-    let stmt = doc
+fn statement_at_position<'a>(
+    doc: &'a ParsedDocument,
+    position: usize,
+) -> Option<&'a ParsedStatement> {
+    if let Some(stmt) = doc
         .statements
         .iter()
-        .find(|s| position >= s.range.0 && position <= s.range.1);
+        .find(|s| position >= s.range.0 && position <= s.range.1)
+    {
+        return Some(stmt);
+    }
 
-    let Some(stmt) = stmt else {
+    // Cursor can be on trailing whitespace beyond parsed statement range.
+    doc.statements
+        .iter()
+        .filter(|s| position >= s.range.0)
+        .max_by_key(|s| s.range.1)
+}
+
+fn analyze_context(doc: &ParsedDocument, position: usize) -> CompletionContext {
+    let Some(stmt) = statement_at_position(doc, position) else {
         return CompletionContext::Statement;
     };
 
@@ -271,18 +294,16 @@ fn analyze_context(doc: &ParsedDocument, position: usize) -> CompletionContext {
 }
 
 fn get_word_range(doc: &ParsedDocument, position: usize) -> (usize, usize) {
-    // Find current word boundaries
-    let stmt = doc
-        .statements
-        .iter()
-        .find(|s| position >= s.range.0 && position <= s.range.1);
-
-    let Some(stmt) = stmt else {
+    let Some(stmt) = statement_at_position(doc, position) else {
         return (position, position);
     };
 
-    let rel_pos = position.saturating_sub(stmt.range.0);
+    if position > stmt.range.1 {
+        return (position, position);
+    }
+
     let chars: Vec<char> = stmt.text.chars().collect();
+    let rel_pos = position.saturating_sub(stmt.range.0).min(chars.len());
 
     let mut start = rel_pos;
     while start > 0 && is_identifier_char(chars.get(start - 1).copied().unwrap_or(' ')) {
@@ -301,16 +322,75 @@ fn is_identifier_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
+fn extract_typed_prefix(doc: &ParsedDocument, position: usize, from: usize, to: usize) -> String {
+    let Some(stmt) = statement_at_position(doc, position) else {
+        return String::new();
+    };
+
+    let rel_from = from.saturating_sub(stmt.range.0);
+    let rel_to = position.min(to).saturating_sub(stmt.range.0);
+
+    if rel_to <= rel_from {
+        return String::new();
+    }
+
+    stmt.text
+        .chars()
+        .skip(rel_from)
+        .take(rel_to - rel_from)
+        .collect()
+}
+
+fn match_quality(label_lower: &str, prefix_lower: &str) -> Option<(u8, usize)> {
+    if prefix_lower.is_empty() {
+        return Some((2, 0));
+    }
+
+    if label_lower.starts_with(prefix_lower) {
+        return Some((0, 0));
+    }
+
+    label_lower.find(prefix_lower).map(|position| (1, position))
+}
+
+fn filter_and_limit_items(items: Vec<CompletionItem>, typed_prefix: &str) -> Vec<CompletionItem> {
+    let prefix_lower = typed_prefix.to_lowercase();
+    let mut ranked: Vec<(u8, usize, i32, String, CompletionItem)> = items
+        .into_iter()
+        .filter_map(|item| {
+            let label_lower = item.label.to_lowercase();
+            let (match_rank, match_position) = match_quality(&label_lower, &prefix_lower)?;
+            Some((
+                match_rank,
+                match_position,
+                item.sort_order,
+                label_lower,
+                item,
+            ))
+        })
+        .collect();
+
+    ranked.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then(a.2.cmp(&b.2))
+            .then(a.1.cmp(&b.1))
+            .then(a.3.cmp(&b.3))
+    });
+
+    ranked
+        .into_iter()
+        .take(MAX_COMPLETION_ITEMS)
+        .map(|(_, _, _, _, item)| item)
+        .collect()
+}
+
 fn is_likely_schema(name: &str) -> bool {
     let common_schemas = ["public", "pg_catalog", "information_schema", "sys", "dbo"];
     common_schemas.contains(&name.to_lowercase().as_str())
 }
 
 fn resolve_alias(doc: &ParsedDocument, position: usize, alias: &str) -> Option<String> {
-    let stmt = doc
-        .statements
-        .iter()
-        .find(|s| position >= s.range.0 && position <= s.range.1)?;
+    let stmt = statement_at_position(doc, position)?;
 
     stmt.aliases
         .iter()
@@ -319,12 +399,7 @@ fn resolve_alias(doc: &ParsedDocument, position: usize, alias: &str) -> Option<S
 }
 
 fn add_cte_completions(doc: &ParsedDocument, position: usize, items: &mut Vec<CompletionItem>) {
-    let stmt = doc
-        .statements
-        .iter()
-        .find(|s| position >= s.range.0 && position <= s.range.1);
-
-    if let Some(stmt) = stmt {
+    if let Some(stmt) = statement_at_position(doc, position) {
         for cte in &stmt.ctes {
             items.push(CompletionItem {
                 label: cte.name.clone(),
@@ -343,12 +418,7 @@ fn add_columns_in_scope(
     schema: &CachedSchema,
     items: &mut Vec<CompletionItem>,
 ) {
-    let stmt = doc
-        .statements
-        .iter()
-        .find(|s| position >= s.range.0 && position <= s.range.1);
-
-    if let Some(stmt) = stmt {
+    if let Some(stmt) = statement_at_position(doc, position) {
         for table_ref in &stmt.tables {
             if let Some(columns) = schema.columns.get(&table_ref.name) {
                 for col in columns.iter() {
@@ -551,6 +621,22 @@ fn add_expression_keywords(items: &mut Vec<CompletionItem>) {
 mod tests {
     use super::*;
     use crate::sql_engine::parser::parse_document;
+    use crate::sql_engine::schema_store::{CachedSchemaBuilder, TableInfo, TableType};
+
+    fn build_schema_with_tables(table_names: &[String]) -> CachedSchema {
+        table_names
+            .iter()
+            .fold(CachedSchemaBuilder::new(), |builder, name| {
+                builder.add_table(TableInfo {
+                    name: name.clone(),
+                    schema: Some("public".to_string()),
+                    table_type: TableType::Table,
+                    comment: None,
+                    row_count: None,
+                })
+            })
+            .build()
+    }
 
     #[test]
     fn test_generate_alias() {
@@ -582,8 +668,58 @@ mod tests {
         // Test with valid complete SQL - context analysis requires parsed statements
         let doc = parse_document("SELECT * FROM users WHERE id = 1", SqlDialect::PostgreSQL);
         // Position 26 is after "WHERE " (in the middle of the WHERE clause)
-        let context = analyze_context(&doc, 26);
+        let _context = analyze_context(&doc, 26);
         // Context detection works on parsed statements
         assert!(!doc.statements.is_empty(), "SQL should parse successfully");
+    }
+
+    #[test]
+    fn test_complete_limits_items_for_large_schema() {
+        let table_names: Vec<String> = (0..350).map(|i| format!("table_{}", i)).collect();
+        let schema = build_schema_with_tables(&table_names);
+        let doc = parse_document("SELECT * FROM ", SqlDialect::PostgreSQL);
+
+        let request = CompletionRequest {
+            document: doc,
+            position: "SELECT * FROM ".len(),
+            dialect: SqlDialect::PostgreSQL,
+            explicit: true,
+            schema: Some(schema),
+        };
+
+        let result = complete(&request);
+        assert_eq!(result.items.len(), MAX_COMPLETION_ITEMS);
+    }
+
+    #[test]
+    fn test_filter_and_limit_items_prefers_prefix_matches() {
+        let items = vec![
+            CompletionItem {
+                label: "analytics_users".to_string(),
+                kind: CompletionKind::Table,
+                detail: None,
+                insert_text: None,
+                sort_order: 10,
+            },
+            CompletionItem {
+                label: "users".to_string(),
+                kind: CompletionKind::Table,
+                detail: None,
+                insert_text: None,
+                sort_order: 10,
+            },
+            CompletionItem {
+                label: "orders".to_string(),
+                kind: CompletionKind::Table,
+                detail: None,
+                insert_text: None,
+                sort_order: 10,
+            },
+        ];
+
+        let filtered = filter_and_limit_items(items, "us");
+        let labels: Vec<&str> = filtered.iter().map(|item| item.label.as_str()).collect();
+
+        assert_eq!(labels, vec!["users", "analytics_users"]);
     }
 }
