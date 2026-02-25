@@ -8,19 +8,19 @@ export const anthropicConfig: ProviderConfig = {
   logo: "/logos/claude-color.svg",
   models: [
     {
-      id: "claude-sonnet-4-20250514",
-      name: "Claude Sonnet 4",
-      description: "Best for everyday tasks",
+      id: "claude-sonnet-4-6",
+      name: "Claude Sonnet 4.6",
+      description: "Balanced performance",
     },
     {
-      id: "claude-opus-4-20250514",
-      name: "Claude Opus 4",
+      id: "claude-opus-4-6",
+      name: "Claude Opus 4.6",
       description: "Most capable",
     },
     {
-      id: "claude-haiku-3-5-20241022",
-      name: "Claude Haiku 3.5",
-      description: "Fastest",
+      id: "claude-haiku-4-5-20251001",
+      name: "Claude Haiku 4.5",
+      description: "Fastest and cheapest",
     },
   ],
 };

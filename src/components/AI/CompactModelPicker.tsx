@@ -5,7 +5,7 @@
  * For ACP mode, use ModelSelector instead.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   Select,
   SelectContent,
@@ -21,6 +21,19 @@ export function CompactModelPicker() {
   const modelId = useByokStore((s) => s.modelId);
   const setModel = useByokStore((s) => s.setModel);
   const fetchedModels = useByokStore((s) => s.fetchedModels);
+  const fetchModels = useByokStore((s) => s.fetchModels);
+  const apiKeys = useByokStore((s) => s.apiKeys);
+
+  // Auto-fetch models if provider supports it and we don't have cached results
+  useEffect(() => {
+    if (!providerId) return;
+    const config = PROVIDER_CONFIGS[providerId];
+    if (!config.listModels) return;
+    if (fetchedModels[providerId]?.length) return;
+    const key = apiKeys[providerId] ?? "";
+    if (config.requiresApiKey && !key) return;
+    void fetchModels();
+  }, [providerId, fetchedModels, fetchModels, apiKeys]);
 
   const models = useMemo(() => {
     if (!providerId) return [];

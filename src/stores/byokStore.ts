@@ -14,6 +14,7 @@ import { PROVIDER_CONFIGS, createModel } from "@/ai/providers";
 import { buildSystemPrompt } from "@/ai/constants";
 import { streamChat } from "@/ai/service";
 import { createTools, type ToolContext } from "@/ai/tools";
+import { vaultStorage } from "@/services/vaultStorage";
 
 interface BYOKState {
   // Persisted
@@ -34,8 +35,10 @@ interface BYOKState {
   activeToolCalls: ByokToolCall[];
   fetchedModels: Partial<Record<ProviderId, ProviderModelInfo[]>>;
   isFetchingModels: boolean;
+  fetchModelsError: string | null;
 
   // Actions
+  loadApiKeys: () => Promise<void>;
   setProvider: (id: ProviderId) => void;
   setModel: (id: string) => void;
   setApiKey: (key: string) => void;
@@ -75,6 +78,16 @@ export const useByokStore = create<BYOKState>()(
       activeToolCalls: [],
       fetchedModels: {},
       isFetchingModels: false,
+      fetchModelsError: null,
+
+      loadApiKeys: async () => {
+        try {
+          const keys = await vaultStorage.getAllApiKeys();
+          set({ apiKeys: keys as Partial<Record<ProviderId, string>> });
+        } catch {
+          // Vault not ready yet — keys stay empty until loaded
+        }
+      },
 
       setProvider: (id) => {
         const config = PROVIDER_CONFIGS[id];
@@ -109,6 +122,8 @@ export const useByokStore = create<BYOKState>()(
         set((state) => ({
           apiKeys: { ...state.apiKeys, [providerId]: key },
         }));
+        // Persist to encrypted vault
+        void vaultStorage.storeApiKey(providerId, key);
       },
 
       initSession: (apiKeyArg) => {
@@ -121,6 +136,8 @@ export const useByokStore = create<BYOKState>()(
           set((state) => ({
             apiKeys: { ...state.apiKeys, [providerId]: apiKeyArg },
           }));
+          // Persist to encrypted vault
+          void vaultStorage.storeApiKey(providerId, apiKeyArg);
         }
         const model = createModel(providerId, modelId, key || undefined);
         set({
@@ -137,15 +154,17 @@ export const useByokStore = create<BYOKState>()(
         const key = apiKeys[providerId];
         if (config.requiresApiKey && !key) return;
 
-        set({ isFetchingModels: true });
+        set({ isFetchingModels: true, fetchModelsError: null });
         try {
           const models = await config.listModels(key);
           set((state) => ({
             fetchedModels: { ...state.fetchedModels, [providerId]: models },
             isFetchingModels: false,
+            fetchModelsError: null,
           }));
-        } catch {
-          set({ isFetchingModels: false });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Failed to fetch models";
+          set({ isFetchingModels: false, fetchModelsError: message });
         }
       },
 

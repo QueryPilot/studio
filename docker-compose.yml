@@ -66,7 +66,7 @@ services:
     platform: linux/amd64
     container_name: query-pilot-sqlserver
     ports:
-      - "11434:1433"
+      - "11435:1433"
     environment:
       MSSQL_SA_PASSWORD: "DevPass123"
       SA_PASSWORD: "DevPass123"

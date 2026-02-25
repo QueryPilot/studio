@@ -42,6 +42,8 @@ class VaultStorageService {
   private groupTagsDirty = false;
   private workspacesCache: WorkspaceConfig[] | null = null;
   private workspacesDirty = false;
+  private apiKeysCache: Record<string, string> = {};
+  private apiKeysDirty = false;
 
   private scheduleSave(): void {
     if (this.saveScheduled) return;
@@ -61,7 +63,8 @@ class VaultStorageService {
       this.dirtyIds.size === 0 &&
       this.deletedIds.size === 0 &&
       !this.groupTagsDirty &&
-      !this.workspacesDirty
+      !this.workspacesDirty &&
+      !this.apiKeysDirty
     ) {
       this.saveScheduled = false;
       return;
@@ -90,6 +93,7 @@ class VaultStorageService {
       this.indexDirty = false;
       this.groupTagsDirty = false;
       this.workspacesDirty = false;
+      this.apiKeysDirty = false;
       this.saveScheduled = false;
     }
   }
@@ -100,6 +104,7 @@ class VaultStorageService {
       connections: Array.from(this.connectionCache.values()),
       groupTags: this.groupTagsCache || [],
       workspaces: this.workspacesCache || [],
+      apiKeys: this.apiKeysCache,
       migratedAt: new Date().toISOString(),
     };
 
@@ -330,6 +335,12 @@ class VaultStorageService {
     this.dirtyIds.clear();
     this.deletedIds.clear();
     this.indexDirty = false;
+    this.groupTagsCache = null;
+    this.groupTagsDirty = false;
+    this.workspacesCache = null;
+    this.workspacesDirty = false;
+    this.apiKeysCache = {};
+    this.apiKeysDirty = false;
   }
 
   private async preloadAllInternal(): Promise<void> {
@@ -358,6 +369,7 @@ class VaultStorageService {
           }
           this.groupTagsCache = vaultData.groupTags || [];
           this.workspacesCache = vaultData.workspaces || [];
+          this.apiKeysCache = vaultData.apiKeys || {};
           if (!this.indexCache) {
             this.indexCache = vaultData.connections.map(s => s.profile.id).filter(Boolean);
           }
@@ -448,7 +460,12 @@ class VaultStorageService {
 
   hasPendingChanges(): boolean {
     return (
-      this.indexDirty || this.dirtyIds.size > 0 || this.deletedIds.size > 0
+      this.indexDirty ||
+      this.dirtyIds.size > 0 ||
+      this.deletedIds.size > 0 ||
+      this.groupTagsDirty ||
+      this.workspacesDirty ||
+      this.apiKeysDirty
     );
   }
 
@@ -485,6 +502,7 @@ class VaultStorageService {
           }
           this.groupTagsCache = vaultData.groupTags || [];
           this.workspacesCache = vaultData.workspaces || [];
+          this.apiKeysCache = vaultData.apiKeys || {};
           this.indexCache = vaultData.connections.map(s => s.profile.id).filter(Boolean);
         }
       }
@@ -606,6 +624,35 @@ class VaultStorageService {
     this.workspacesDirty = true;
     await this.flushPendingChanges();
     logger.info(`[VaultStorage] Deleted workspace: ${id}`);
+  }
+
+  // ============================================================================
+  // API Key Storage (BYOK providers)
+  // ============================================================================
+
+  async getApiKey(provider: string): Promise<string | null> {
+    await this.ensureInitialized();
+    return this.apiKeysCache[provider] ?? null;
+  }
+
+  async getAllApiKeys(): Promise<Record<string, string>> {
+    await this.ensureInitialized();
+    return { ...this.apiKeysCache };
+  }
+
+  async storeApiKey(provider: string, key: string): Promise<void> {
+    await this.ensureInitialized();
+    this.apiKeysCache[provider] = key;
+    this.apiKeysDirty = true;
+    this.scheduleSave();
+  }
+
+  async deleteApiKey(provider: string): Promise<void> {
+    await this.ensureInitialized();
+    const { [provider]: _, ...rest } = this.apiKeysCache;
+    this.apiKeysCache = rest;
+    this.apiKeysDirty = true;
+    this.scheduleSave();
   }
 
 }

@@ -91,7 +91,7 @@ make dev
 | MySQL      | localhost | 13306 | devuser  | devpass123  | todoapp                          |
 | MariaDB    | localhost | 13307 | devuser  | devpass123  | todoapp                          |
 | SQLite     | -         | -     | -        | -           | seeds/sqlite/query_pilot_test.db |
-| SQL Server | localhost | 11434 | sa       | DevPass123  | master (then switch to todoapp)  |
+| SQL Server | localhost | 11435 | sa       | DevPass123  | master (then switch to todoapp)  |
 | Oracle     | localhost | 11521 | system   | DevPass123  | XE (service)                     |
 | MongoDB    | localhost | 17017 | devuser  | devpass123  | todoapp                          |
 | Redis      | localhost | 16379 | -        | devpass123  | 0 (default)                      |
@@ -189,22 +189,22 @@ sqlite3 seeds/sqlite/query_pilot_test.db
 
 ```
 # Standard connection string
-Server=localhost,11434;Database=todoapp;User Id=sa;Password=DevPass123;
+Server=localhost,11435;Database=todoapp;User Id=sa;Password=DevPass123;
 
 # With additional options
-Server=localhost,11434;Database=todoapp;User Id=sa;Password=DevPass123;TrustServerCertificate=true;
+Server=localhost,11435;Database=todoapp;User Id=sa;Password=DevPass123;TrustServerCertificate=true;
 
 # ADO.NET format
-Data Source=localhost,11434;Initial Catalog=todoapp;User ID=sa;Password=DevPass123;
+Data Source=localhost,11435;Initial Catalog=todoapp;User ID=sa;Password=DevPass123;
 
 # JDBC format
-jdbc:sqlserver://localhost:11434;databaseName=todoapp;user=sa;password=DevPass123;
+jdbc:sqlserver://localhost:11435;databaseName=todoapp;user=sa;password=DevPass123;
 
 # sqlcmd command line
-sqlcmd -S localhost,11434 -U sa -P "DevPass123" -d todoapp
+sqlcmd -S localhost,11435 -U sa -P "DevPass123" -d todoapp
 
 # Node.js mssql format
-mssql://sa:DevPass123@localhost:11434/todoapp
+mssql://sa:DevPass123@localhost:11435/todoapp
 ```
 
 ### Oracle
@@ -319,7 +319,7 @@ When connecting from Query Pilot, use these settings:
 ### SQL Server Connection
 
 - Host: `localhost`
-- Port: `11434`
+- Port: `11435`
 - Database: `todoapp`
 - Username: `sa`
 - Password: `DevPass123`

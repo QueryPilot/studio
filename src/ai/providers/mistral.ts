@@ -8,18 +8,23 @@ export const mistralConfig: ProviderConfig = {
   models: [
     {
       id: "mistral-large-latest",
-      name: "Mistral Large",
-      description: "Most capable",
+      name: "Mistral Large 3",
+      description: "Most capable, 675B MoE",
     },
     {
       id: "mistral-small-latest",
-      name: "Mistral Small",
+      name: "Mistral Small 3.2",
       description: "Fast and efficient",
     },
     {
       id: "codestral-latest",
       name: "Codestral",
-      description: "Optimized for code",
+      description: "Code generation specialist",
+    },
+    {
+      id: "devstral-small-latest",
+      name: "Devstral Small 2",
+      description: "Code agent, 24B",
     },
   ],
   listModels: async (apiKey) => {

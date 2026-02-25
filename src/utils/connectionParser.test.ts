@@ -682,12 +682,12 @@ DB_PORT=5432`;
     describe("SQL Server connection strings", () => {
       it("should parse ADO.NET style SQL Server connection string", () => {
         const uri =
-          "Server=localhost,11434;Database=todoapp;User Id=sa;Password=DevPass123;TrustServerCertificate=true;";
+          "Server=localhost,11435;Database=todoapp;User Id=sa;Password=DevPass123;TrustServerCertificate=true;";
         const config = parseConnectionUri(uri);
 
         expect(config.dbType).toBe("mssql");
         expect(config.host).toBe("localhost");
-        expect(config.port).toBe("11434");
+        expect(config.port).toBe("11435");
         expect(config.username).toBe("sa");
         expect(config.password).toBe("DevPass123");
         expect(config.database).toBe("todoapp");

@@ -65,7 +65,7 @@ make seed-mysql      # Seed MySQL only
 - PostgreSQL: `localhost:15432`
 - MySQL: `localhost:13306`
 - SQLite: `seeds/sqlite/query_pilot_test.db`
-- SQL Server: `localhost:11434`
+- SQL Server: `localhost:11435`
 - Oracle: `localhost:11521`
 
 See [Dev Database Setup](./dev-database-setup.md) for credentials.
