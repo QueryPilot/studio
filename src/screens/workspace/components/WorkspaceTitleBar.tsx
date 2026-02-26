@@ -136,17 +136,14 @@ export function WorkspaceTitleBar({
   // Combined connecting state (initial + reconnecting)
   const isConnecting = isInitiallyConnecting || isReconnecting;
 
-  // Calculate total pending changes for this connection
+  // Calculate total pending changes across the workspace
   const totalChanges = useMemo(() => {
     let count = 0;
-    stagedCommands.forEach((commands, tableKey) => {
-      // tableKey format: "connectionId:database:schema:table"
-      if (tableKey.startsWith(`${connectionId}:`)) {
-        count += commands.length;
-      }
+    stagedCommands.forEach((commands) => {
+      count += commands.length;
     });
     return count;
-  }, [stagedCommands, connectionId]);
+  }, [stagedCommands]);
 
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
@@ -1055,7 +1052,6 @@ export function WorkspaceTitleBar({
 
       {/* Global Changes Dialog */}
       <GlobalChangesDialog
-        connectionId={connectionId}
         open={showGlobalChanges}
         onOpenChange={setShowGlobalChanges}
       />

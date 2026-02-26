@@ -3,7 +3,7 @@ import { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCrudStore } from "@/stores/crudStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
-import type { CrudCommand, CrudCommandPayload } from "@/types/crud";
+import type { CrudCommand } from "@/types/crud";
 import { DbType } from "@/types/connection";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { useValidationStore } from "@/stores/validationStore";
@@ -63,7 +63,7 @@ const dbTypeToEditorLanguage: Record<DbType, CodeEditorLanguage> = {
 };
 
 interface GlobalChangesDialogProps {
-  connectionId: string;
+  connectionId?: string;
   database?: string;
   schema?: string;
   table?: string;
@@ -88,11 +88,32 @@ interface TableSummary {
   ddl: number;
 }
 
+interface ConnectionGroup {
+  connectionId: string;
+  connectionName: string;
+  dbType: DbType;
+  tables: TableSummary[];
+  totalChanges: number;
+}
+
 interface DerivedChangesData {
   groupedByRow: GroupedRowChange[];
   tableSummaries: TableSummary[];
   tableNameByKey: Map<string, string>;
   totalChanges: number;
+}
+
+function isSchemaChangingCommand(command: CrudCommand): boolean {
+  return (
+    command.type === "table.create" ||
+    command.type === "table.drop" ||
+    command.type === "table.duplicate" ||
+    command.type === "table.truncate" ||
+    command.type === "view.create" ||
+    command.type === "view.drop" ||
+    command.type === "sequence.create" ||
+    command.type === "sequence.drop"
+  );
 }
 
 function getDisplayTableName(tableKey: string, fallback = "unknown"): string {
@@ -161,7 +182,7 @@ function buildDerivedChangesData(
         deletes++;
       }
 
-      const rowKey = getRowKeyForCommand(command);
+      const rowKey = `${tableKey}::${getRowKeyForCommand(command)}`;
       let rowCommands = rowMap.get(rowKey);
       if (!rowCommands) {
         rowCommands = [];
@@ -208,7 +229,6 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   // Use selective zustand subscriptions to avoid unnecessary re-renders
   // Only subscribe to the parts of the store we actually need
   const stagedCommands = useCrudStore((state) => state.stagedCommands);
-  const commitAll = useCrudStore((state) => state.commitAll);
   const discardAll = useCrudStore((state) => state.discardAll);
   const getTableKey = useCrudStore((state) => state.getTableKey);
   const commitChanges = useCrudStore((state) => state.commitChanges);
@@ -224,6 +244,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   const [viewMode, setViewMode] = useState<"changes" | "ddl">("changes");
   const [copiedSql, setCopiedSql] = useState(false);
   const [conflictError, setConflictError] = useState<string | null>(null);
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
   // Selected table in sidebar (null = show all tables)
   const [selectedTableKey, setSelectedTableKey] = useState<string | null>(null);
 
@@ -243,16 +264,36 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   }, [open]);
 
   // Get connection for database type
-  const { getConnection } = useConnectionStore();
-  const connection = getConnection(connectionId);
-  const dbType: DbType =
-    (connection?.profile?.db_type as DbType) ?? DbType.PostgreSQL;
+  const connections = useConnectionStore((state) => state.connections);
+  const connection = useMemo(() => {
+    if (!connectionId) {
+      return undefined;
+    }
+    return connections.find((candidate) => candidate.profile.id === connectionId);
+  }, [connectionId, connections]);
+  const dbType: DbType = connection ? connection.profile.db_type : DbType.PostgreSQL;
 
   // Validation store for checking errors
   const { canCommit } = useValidationStore();
 
   // Check if this is table-specific or workspace-wide
   const isTableSpecific = database !== undefined && table !== undefined;
+  const isWorkspaceWide = connectionId === undefined;
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    if (isTableSpecific && !connectionId) {
+      logger.error(
+        "[GlobalChangesDialog] Invalid table-specific scope: missing connectionId",
+      );
+      toast.error(
+        "Internal error: missing connection context for table-specific changes",
+      );
+      onOpenChange(false);
+    }
+  }, [open, isTableSpecific, connectionId, onOpenChange]);
 
   // Filter commands based on scope - memoize to prevent unnecessary recalculations
   // Skip computation until dialog is open AND ready (after first paint)
@@ -263,6 +304,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
     // Table-specific mode should not scan all tables. Fetch directly by table key.
     if (isTableSpecific) {
+      if (!connectionId) {
+        return [];
+      }
       const tableKey = getTableKey({
         connectionId,
         database: database,
@@ -404,7 +448,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             if (currentSummary) currentSummary.deletes++;
           }
 
-          const rowKey = getRowKeyForCommand(command);
+          const rowKey = `${tableKey}::${getRowKeyForCommand(command)}`;
           let rowCommands = rowMap.get(rowKey);
           if (!rowCommands) {
             rowCommands = [];
@@ -469,16 +513,24 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   const { groupedByRow, tableSummaries, tableNameByKey, totalChanges } =
     derivedData;
 
-  // Filter groupedByRow when a specific table is selected in the sidebar
-  const selectedTableName = useMemo(() => {
-    if (!selectedTableKey) return null;
-    return tableNameByKey.get(selectedTableKey) ?? null;
-  }, [selectedTableKey, tableNameByKey]);
-
   const filteredGroupedByRow = useMemo(() => {
-    if (!selectedTableName) return groupedByRow;
-    return groupedByRow.filter((row) => row.tableName === selectedTableName);
-  }, [groupedByRow, selectedTableName]);
+    let filtered = groupedByRow;
+
+    if (selectedConnectionId) {
+      filtered = filtered.filter((row) => {
+        const command = row.commands[0];
+        return command?.target.connectionId === selectedConnectionId;
+      });
+    }
+
+    if (selectedTableKey) {
+      filtered = filtered.filter((row) =>
+        row.rowKey.startsWith(`${selectedTableKey}::`),
+      );
+    }
+
+    return filtered;
+  }, [groupedByRow, selectedConnectionId, selectedTableKey]);
 
   // Calculate validation errors across all tables in scope
   const validationStatus = useMemo(() => {
@@ -501,9 +553,105 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     };
   }, [connectionCommands, canCommit, tableNameByKey]);
 
+  const connectionGroups = useMemo<ConnectionGroup[]>(() => {
+    if (!isWorkspaceWide) {
+      return [];
+    }
+
+    const groupMap = new Map<string, { tables: TableSummary[]; total: number }>();
+
+    for (const summary of tableSummaries) {
+      const [connId] = summary.tableKey.split(":");
+      if (!connId) {
+        continue;
+      }
+
+      let group = groupMap.get(connId);
+      if (!group) {
+        group = { tables: [], total: 0 };
+        groupMap.set(connId, group);
+      }
+      group.tables.push(summary);
+      group.total += summary.total;
+    }
+
+    const groups: ConnectionGroup[] = [];
+    for (const [connId, group] of groupMap) {
+      const conn = connections.find((candidate) => candidate.profile.id === connId);
+      groups.push({
+        connectionId: connId,
+        connectionName: conn ? conn.profile.name : connId.slice(0, 8),
+        dbType: conn ? conn.profile.db_type : DbType.PostgreSQL,
+        tables: group.tables,
+        totalChanges: group.total,
+      });
+    }
+
+    return groups;
+  }, [isWorkspaceWide, tableSummaries, connections]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setSelectedConnectionId(null);
+    setSelectedTableKey(null);
+  }, [open]);
+
+  useEffect(() => {
+    if (!selectedConnectionId) {
+      return;
+    }
+    const exists = tableSummaries.some((summary) =>
+      summary.tableKey.startsWith(`${selectedConnectionId}:`),
+    );
+    if (!exists) {
+      setSelectedConnectionId(null);
+      setSelectedTableKey(null);
+    }
+  }, [selectedConnectionId, tableSummaries]);
+
+  useEffect(() => {
+    if (!selectedTableKey) {
+      return;
+    }
+    if (!tableNameByKey.has(selectedTableKey)) {
+      setSelectedTableKey(null);
+    }
+  }, [selectedTableKey, tableNameByKey]);
+
   // Generate SQL from staged commands (async) — deferred until SQL tab is active
   const [generatedSQL, setGeneratedSQL] = useState<string>("-- Click the DDL tab to generate preview");
   const [sqlGenerated, setSqlGenerated] = useState(false);
+  const ddlPreviewCommands = useMemo<CrudCommand[]>(() => {
+    return filteredGroupedByRow.flatMap((row) => row.commands);
+  }, [filteredGroupedByRow]);
+
+  const ddlEditorLanguage = useMemo<CodeEditorLanguage>(() => {
+    if (!isWorkspaceWide) {
+      return dbTypeToEditorLanguage[dbType];
+    }
+
+    const connectionIds = new Set(
+      ddlPreviewCommands.map((command) => command.target.connectionId),
+    );
+    const languages = new Set<CodeEditorLanguage>();
+
+    for (const connId of connectionIds) {
+      const conn = connections.find((candidate) => candidate.profile.id === connId);
+      const connDbType = conn ? conn.profile.db_type : DbType.PostgreSQL;
+      languages.add(dbTypeToEditorLanguage[connDbType]);
+    }
+
+    if (languages.size === 1) {
+      const [singleLanguage] = languages;
+      if (singleLanguage) {
+        return singleLanguage;
+      }
+    }
+
+    return "text";
+  }, [isWorkspaceWide, dbType, ddlPreviewCommands, connections]);
 
   useEffect(() => {
     // Only generate when the SQL tab is selected (avoid blocking on dialog open)
@@ -514,26 +662,52 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     const generatePreview = async () => {
       setGeneratedSQL("-- Generating preview...");
 
-      const commandsMap = new Map(connectionCommands);
-      const allCommands: CrudCommand[] = [];
-      commandsMap.forEach((commands) => allCommands.push(...commands));
-
-      if (allCommands.length === 0) {
+      if (ddlPreviewCommands.length === 0) {
         setGeneratedSQL("-- No changes to commit");
         setSqlGenerated(true);
         return;
       }
 
       try {
-        const executor = await getOperationExecutor(connectionId, dbType);
-        const preview = executor.preview(allCommands);
+        const commandsByConnection = new Map<string, CrudCommand[]>();
+        for (const command of ddlPreviewCommands) {
+          const connId = command.target.connectionId;
+          let list = commandsByConnection.get(connId);
+          if (!list) {
+            list = [];
+            commandsByConnection.set(connId, list);
+          }
+          list.push(command);
+        }
 
-        logger.info("[GlobalChangesDialog] Generated preview:", {
-          type: preview.type,
-          operationCount: preview.operations.length,
-        });
+        if (commandsByConnection.size === 1) {
+          const singleEntry = commandsByConnection.entries().next().value;
+          if (!singleEntry) {
+            setGeneratedSQL("-- No changes to commit");
+            setSqlGenerated(true);
+            return;
+          }
 
-        setGeneratedSQL(preview.content);
+          const [connId, commands] = singleEntry;
+          const conn = connections.find((candidate) => candidate.profile.id === connId);
+          const connDbType = conn ? conn.profile.db_type : DbType.PostgreSQL;
+          const executor = await getOperationExecutor(connId, connDbType);
+          const preview = executor.preview(commands);
+          setGeneratedSQL(preview.content);
+          setSqlGenerated(true);
+          return;
+        }
+
+        const sections: string[] = [];
+        for (const [connId, commands] of commandsByConnection) {
+          const conn = connections.find((candidate) => candidate.profile.id === connId);
+          const connName = conn ? conn.profile.name : connId.slice(0, 8);
+          const connDbType = conn ? conn.profile.db_type : DbType.PostgreSQL;
+          const executor = await getOperationExecutor(connId, connDbType);
+          const preview = executor.preview(commands);
+          sections.push(`-- === ${connName} ===\n\n${preview.content}`);
+        }
+        setGeneratedSQL(sections.join("\n\n"));
       } catch (error) {
         logger.error("[GlobalChangesDialog] Failed to generate preview:", error);
         setGeneratedSQL("-- Error generating preview");
@@ -541,12 +715,12 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
       setSqlGenerated(true);
     };
     void generatePreview();
-  }, [viewMode, sqlGenerated, connectionCommands, connectionId, dbType]);
+  }, [viewMode, sqlGenerated, ddlPreviewCommands, connections]);
 
   // Reset SQL cache when commands change
   useEffect(() => {
     setSqlGenerated(false);
-  }, [connectionCommands]);
+  }, [ddlPreviewCommands, connections]);
 
   // Debug: Log when dialog state changes (not on every render)
   useEffect(() => {
@@ -579,60 +753,58 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     }
   }, [generatedSQL]);
 
+  const ensureValidTableScope = useCallback(() => {
+    if (isTableSpecific && !connectionId) {
+      logger.error(
+        "[GlobalChangesDialog] Invalid table-specific scope: missing connectionId",
+      );
+      toast.error(
+        "Internal error: missing connection context for table-specific changes",
+      );
+      onOpenChange(false);
+      return null;
+    }
+    return connectionId ?? null;
+  }, [isTableSpecific, connectionId, onOpenChange]);
+
+  const isConflictErrorMessage = useCallback((errorMessage: string): boolean => {
+    return (
+      errorMessage.includes("modified by another user") ||
+      errorMessage.includes("CONFLICT")
+    );
+  }, []);
+
   const handleCommitAll = async () => {
     setIsCommittingLocal(true);
+    setConflictError(null);
     try {
-      if (isTableSpecific) {
-        // Table-specific commit
+      const scopedConnectionId = ensureValidTableScope();
+      if (isTableSpecific && !scopedConnectionId) {
+        return;
+      }
+
+      if (isTableSpecific && scopedConnectionId) {
         const tableKey = getTableKey({
-          connectionId,
+          connectionId: scopedConnectionId,
           database: database,
           schema,
           table: table,
         });
         const result = await commitChanges(tableKey);
 
-        logger.info(
-          `[GlobalChangesDialog] Commit succeeded, waiting 100ms before invalidating...`,
-        );
-
-        // Small delay to ensure database transaction is fully committed
-        // before triggering refetch in other components
         await new Promise((resolve) => setTimeout(resolve, 100));
 
-        // Check if we have schema-altering operations (create, drop, duplicate, truncate)
         const tableCommands = stagedCommands.get(tableKey) ?? [];
-        const hasSchemaChanges = tableCommands.some(cmd => 
-          cmd.type === 'table.create' || 
-          cmd.type === 'table.drop' || 
-          cmd.type === 'table.duplicate' ||
-          cmd.type === 'table.truncate' ||
-          cmd.type === 'view.create' ||
-          cmd.type === 'view.drop' ||
-          cmd.type === 'sequence.create' ||
-          cmd.type === 'sequence.drop'
-        );
+        const hasSchemaChanges = tableCommands.some(isSchemaChangingCommand);
+        const { invalidateTable, invalidateSchema } =
+          useDataInvalidationStore.getState();
 
-        // Broadcast invalidation to all components displaying this table
-        const { invalidateTable, invalidateSchema } = useDataInvalidationStore.getState();
-        
         if (hasSchemaChanges) {
-          // For schema-altering operations, refresh the entire schema to show new/removed tables
-          invalidateSchema(connectionId, database, schema);
-          logger.info(
-            `[GlobalChangesDialog] Invalidated schema after DDL commit: ${database}.${schema ?? "public"}`,
-          );
+          invalidateSchema(scopedConnectionId, database, schema);
         } else {
-          // For data-only changes, just invalidate the specific table
-          invalidateTable(connectionId, database, schema, table);
-          logger.info(
-            `[GlobalChangesDialog] Invalidated table after commit: ${database}.${
-              schema ?? "public"
-            }.${table}`,
-          );
+          invalidateTable(scopedConnectionId, database, schema, table);
         }
 
-        // Clear committed changes from store now that commit succeeded
         clearCommittedChanges(tableKey);
 
         toast.success("Changes committed", {
@@ -642,106 +814,114 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             result.durationMs
           }ms`,
         });
-      } else {
-        // Workspace-wide commit
-        const results = await commitAll();
-        const totalCommitted = Object.values(results).reduce(
-          (sum, result) => sum + result.committed.length,
-          0,
-        );
 
-        // Check if any commands are schema-altering
-        const allCommands: CrudCommand<CrudCommandPayload>[] = [];
-        connectionCommands.forEach(([tableKey]) => {
+        onOpenChange(false);
+        onCommitSuccess?.();
+        return;
+      }
+
+      const successful: Array<{ tableKey: string; committedCount: number }> = [];
+      const failed: Array<{ tableKey: string; error: string }> = [];
+
+      for (const [tableKey] of connectionCommands) {
+        try {
+          const result = await commitChanges(tableKey);
+          successful.push({ tableKey, committedCount: result.committed.length });
+        } catch (error) {
+          failed.push({
+            tableKey,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      if (successful.length > 0) {
+        const successfulCommands: CrudCommand[] = [];
+        successful.forEach(({ tableKey }) => {
           const commands = stagedCommands.get(tableKey) ?? [];
-          allCommands.push(...commands);
+          successfulCommands.push(...commands);
         });
-        
-        const hasSchemaChanges = allCommands.some(cmd => 
-          cmd.type === 'table.create' || 
-          cmd.type === 'table.drop' || 
-          cmd.type === 'table.duplicate' ||
-          cmd.type === 'table.truncate' ||
-          cmd.type === 'view.create' ||
-          cmd.type === 'view.drop' ||
-          cmd.type === 'sequence.create' ||
-          cmd.type === 'sequence.drop'
-        );
+        const hasSchemaChanges = successfulCommands.some(isSchemaChangingCommand);
+        const { invalidateTable, invalidateSchema } =
+          useDataInvalidationStore.getState();
 
-        // Broadcast invalidation for all affected tables/schemas
-        const { invalidateTable, invalidateSchema } = useDataInvalidationStore.getState();
-        
         if (hasSchemaChanges) {
-          // Group by schema and invalidate each schema once
           const schemas = new Set<string>();
-          connectionCommands.forEach(([tableKey]) => {
-            const parts = tableKey.split(":");
-            const [connId, db, sch] = parts;
+          successful.forEach(({ tableKey }) => {
+            const [connId, db, sch] = tableKey.split(":");
             if (connId && db && sch) {
               schemas.add(`${connId}:${db}:${sch}`);
             }
           });
-          
           schemas.forEach((schemaKey) => {
             const [connId, db, sch] = schemaKey.split(":");
             if (connId && db && sch) {
               invalidateSchema(connId, db, sch);
-              logger.info(
-                `[GlobalChangesDialog] Invalidated schema after DDL commit: ${db}.${sch}`,
-              );
             }
           });
         } else {
-          // For data-only changes, invalidate each table
-          connectionCommands.forEach(([tableKey]) => {
-            const parts = tableKey.split(":");
-            const [connId, db, sch, tbl] = parts;
+          successful.forEach(({ tableKey }) => {
+            const [connId, db, sch, tbl] = tableKey.split(":");
             if (connId && db && tbl) {
               invalidateTable(connId, db, sch, tbl);
-              logger.info(
-                `[GlobalChangesDialog] Invalidated table after commit: ${db}.${
-                  sch ?? "public"
-                }.${tbl}`,
-              );
             }
           });
         }
 
-        // Clear committed changes from store for all tables
-        connectionCommands.forEach(([tableKey]) => {
+        successful.forEach(({ tableKey }) => {
           clearCommittedChanges(tableKey);
         });
+      }
 
-        toast.success("All changes committed", {
-          description: `Successfully committed ${totalCommitted} change${
-            totalCommitted === 1 ? "" : "s"
-          } across all tables`,
+      const totalCommitted = successful.reduce(
+        (sum, item) => sum + item.committedCount,
+        0,
+      );
+
+      if (failed.length > 0) {
+        const conflictFailure = failed.find(({ error }) =>
+          isConflictErrorMessage(error),
+        );
+        if (conflictFailure) {
+          setConflictError(conflictFailure.error);
+        }
+
+        if (totalCommitted > 0) {
+          toast.success("Partially committed changes", {
+            description: `Committed ${totalCommitted} change${
+              totalCommitted === 1 ? "" : "s"
+            }.`,
+          });
+        }
+
+        const failedTables = failed
+          .map(({ tableKey }) => getDisplayTableName(tableKey))
+          .join(", ");
+        toast.error("Some changes failed to commit", {
+          description: failedTables || failed[0]?.error || "Unknown error",
         });
+        return;
       }
 
+      toast.success("All changes committed", {
+        description: `Successfully committed ${totalCommitted} change${
+          totalCommitted === 1 ? "" : "s"
+        } across all tables`,
+      });
       onOpenChange(false);
-
-      if (onCommitSuccess) {
-        onCommitSuccess();
-      }
+      onCommitSuccess?.();
     } catch (error) {
       logger.error("❌ Commit failed:", error);
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error occurred";
 
-      // Check for conflict detection error - show inline alert instead of toast
-      if (
-        errorMessage.includes("modified by another user") ||
-        errorMessage.includes("CONFLICT")
-      ) {
+      if (isConflictErrorMessage(errorMessage)) {
         setConflictError(errorMessage);
-        // Don't close dialog - let user choose Override or Refresh
       } else {
         toast.error("Commit failed", {
           description: errorMessage,
         });
       }
-      setIsCommittingLocal(false);
     } finally {
       setIsCommittingLocal(false);
     }
@@ -753,15 +933,21 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     setConflictError(null);
 
     try {
+      const scopedConnectionId = ensureValidTableScope();
+      if (isTableSpecific && !scopedConnectionId) {
+        return;
+      }
+
       // Get current staged commands and create NEW commands without oldValue
-      const tableKey = isTableSpecific
-        ? getTableKey({
-            connectionId,
-            database: database,
-            schema,
-            table: table,
-          })
-        : null;
+      const tableKey =
+        isTableSpecific && scopedConnectionId
+          ? getTableKey({
+              connectionId: scopedConnectionId,
+              database: database,
+              schema,
+              table: table,
+            })
+          : null;
 
       // Helper to strip oldValue from a command (creates new object)
       const stripOldValue = (cmd: CrudCommand): CrudCommand => {
@@ -778,10 +964,17 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
       };
 
       // Update staged commands in store with oldValue removed
-      const { stageCommands, discardChanges: discardTableChanges } =
-        useCrudStore.getState();
+      const {
+        stageCommands,
+        discardChanges: discardTableChanges,
+        clearCommittedChanges: clearChanges,
+      } = useCrudStore.getState();
 
-      if (isTableSpecific && tableKey) {
+      if (isTableSpecific) {
+        if (!tableKey || !scopedConnectionId) {
+          return;
+        }
+
         const originalCommands = stagedCommands.get(tableKey) ?? [];
         const strippedCommands = originalCommands.map(stripOldValue);
 
@@ -795,10 +988,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         await new Promise((resolve) => setTimeout(resolve, 100));
 
         const { invalidateTable } = useDataInvalidationStore.getState();
-        invalidateTable(connectionId, database, schema, table);
+        invalidateTable(scopedConnectionId, database, schema, table);
 
         // Clear committed changes from store
-        const { clearCommittedChanges: clearChanges } = useCrudStore.getState();
         clearChanges(tableKey);
 
         toast.success("Changes force-committed", {
@@ -806,39 +998,76 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             result.committed.length
           } change${result.committed.length === 1 ? "" : "s"})`,
         });
-      } else {
-        // For workspace-wide, process each table
-        for (const [tk, commands] of connectionCommands) {
-          const strippedCommands = commands.map(stripOldValue);
-          discardTableChanges(tk);
-          stageCommands(strippedCommands);
-        }
-
-        const results = await commitAll();
-        const totalCommitted = Object.values(results).reduce(
-          (sum, result) => sum + result.committed.length,
-          0,
-        );
-
-        const { invalidateTable } = useDataInvalidationStore.getState();
-        const { clearCommittedChanges: clearChanges } = useCrudStore.getState();
-        connectionCommands.forEach(([tk]) => {
-          const parts = tk.split(":");
-          const [connId, db, sch, tbl] = parts;
-          if (connId && db && tbl) {
-            invalidateTable(connId, db, sch, tbl);
-          }
-          // Clear committed changes for each table
-          clearChanges(tk);
-        });
-
-        toast.success("All changes force-committed", {
-          description: `Overwrote with your changes (${totalCommitted} total)`,
-        });
+        onOpenChange(false);
+        onCommitSuccess?.();
+        return;
       }
 
+      // For workspace-wide, process each table
+      for (const [tk, commands] of connectionCommands) {
+        const strippedCommands = commands.map(stripOldValue);
+        discardTableChanges(tk);
+        stageCommands(strippedCommands);
+      }
+
+      const successful: Array<{ tableKey: string; committedCount: number }> = [];
+      const failed: Array<{ tableKey: string; error: string }> = [];
+
+      for (const [tableKeyToCommit] of connectionCommands) {
+        try {
+          const result = await commitChanges(tableKeyToCommit);
+          successful.push({
+            tableKey: tableKeyToCommit,
+            committedCount: result.committed.length,
+          });
+        } catch (error) {
+          failed.push({
+            tableKey: tableKeyToCommit,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      const totalCommitted = successful.reduce(
+        (sum, item) => sum + item.committedCount,
+        0,
+      );
+
+      const { invalidateTable } = useDataInvalidationStore.getState();
+      successful.forEach(({ tableKey: successfulTableKey }) => {
+        const [connId, db, sch, tbl] = successfulTableKey.split(":");
+        if (connId && db && tbl) {
+          invalidateTable(connId, db, sch, tbl);
+        }
+        clearChanges(successfulTableKey);
+      });
+
+      if (failed.length > 0) {
+        if (totalCommitted > 0) {
+          toast.success("Partially force-committed changes", {
+            description: `Committed ${totalCommitted} change${
+              totalCommitted === 1 ? "" : "s"
+            }.`,
+          });
+        }
+
+        const failedTables = failed
+          .map(({ tableKey: failedTableKey }) =>
+            getDisplayTableName(failedTableKey),
+          )
+          .join(", ");
+        toast.error("Some force commits failed", {
+          description: failedTables || failed[0]?.error || "Unknown error",
+        });
+        return;
+      }
+
+      toast.success("All changes force-committed", {
+        description: `Overwrote with your changes (${totalCommitted} total)`,
+      });
       onOpenChange(false);
       onCommitSuccess?.();
+      return;
     } catch (error) {
       logger.error("❌ Force commit failed:", error);
       toast.error("Force commit failed", {
@@ -851,23 +1080,32 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
   // Refresh - discard changes and refresh table data
   const handleRefreshAndDiscard = () => {
+    const scopedConnectionId = ensureValidTableScope();
+    if (isTableSpecific && !scopedConnectionId) {
+      return;
+    }
+
     // Discard staged changes
-    if (isTableSpecific) {
+    if (isTableSpecific && scopedConnectionId) {
       const tableKey = getTableKey({
-        connectionId,
+        connectionId: scopedConnectionId,
         database: database,
         schema,
         table: table,
       });
       discardChanges(tableKey);
+    } else if (connectionId) {
+      connectionCommands.forEach(([tableKey]) => {
+        discardChanges(tableKey);
+      });
     } else {
       discardAll();
     }
 
     // Invalidate to trigger refetch
     const { invalidateTable } = useDataInvalidationStore.getState();
-    if (isTableSpecific) {
-      invalidateTable(connectionId, database, schema, table);
+    if (isTableSpecific && scopedConnectionId) {
+      invalidateTable(scopedConnectionId, database, schema, table);
     } else {
       connectionCommands.forEach(([tk]) => {
         const parts = tk.split(":");
@@ -886,15 +1124,25 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   };
 
   const handleDiscardAll = () => {
-    if (isTableSpecific) {
+    const scopedConnectionId = ensureValidTableScope();
+    if (isTableSpecific && !scopedConnectionId) {
+      return;
+    }
+
+    if (isTableSpecific && scopedConnectionId) {
       const tableKey = getTableKey({
-        connectionId,
+        connectionId: scopedConnectionId,
         database: database,
         schema,
         table: table,
       });
       discardChanges(tableKey);
       toast.success("Changes discarded");
+    } else if (connectionId) {
+      connectionCommands.forEach(([tableKey]) => {
+        discardChanges(tableKey);
+      });
+      toast.success("All changes discarded");
     } else {
       discardAll();
       toast.success("All changes discarded");
@@ -921,7 +1169,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     return null;
   }
 
-  const showSidebar = !isTableSpecific && tableSummaries.length > 1;
+  const showSidebar = !isTableSpecific && (tableSummaries.length > 1 || isWorkspaceWide);
   const isLoading = !ready || connectionCommands.length === 0 || isDerivingChanges;
 
   return (
@@ -945,19 +1193,28 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             <Button
               variant="ghost"
               className="px-2 gap-1 text-muted-foreground hover:text-foreground"
-              onClick={() => onOpenChange(false)}
+              onClick={() => {
+                onOpenChange(false);
+              }}
             >
               <IconChevronLeft className="size-4!" />
               <span className="text-sm">Back</span>
             </Button>
             <Separator orientation="vertical" className="h-5" />
             <span className="text-sm font-medium">
-              {isTableSpecific ? "Commit Changes" : "Review All Changes"}
+              {isTableSpecific
+                ? "Commit Changes"
+                : isWorkspaceWide
+                  ? "Review All Changes"
+                  : "Review Changes"}
             </span>
             {!isLoading && (
               <span className="text-xs text-muted-foreground">
                 {totalChanges} {totalChanges === 1 ? "change" : "changes"}
-                {!isTableSpecific && tableSummaries.length > 0 && (
+                {isWorkspaceWide && connectionGroups.length > 1 && (
+                  <> across {connectionGroups.length} connections</>
+                )}
+                {!isTableSpecific && !isWorkspaceWide && tableSummaries.length > 0 && (
                   <> across {tableSummaries.length} {tableSummaries.length === 1 ? "table" : "tables"}</>
                 )}
               </span>
@@ -998,47 +1255,118 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             {showSidebar && (
               <div className="w-56 shrink-0 border-r border-border/50 bg-secondary flex flex-col">
                 <div className="p-3 pb-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Tables</p>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    {isWorkspaceWide ? "Connections" : "Tables"}
+                  </p>
                 </div>
                 <div className="flex-1 overflow-y-auto px-2 pb-2">
-                  {/* "All tables" option */}
+                  {/* "All" option */}
                   <button
                     className={cn(
                       "w-full text-left px-2.5 py-2 rounded-md text-sm mb-0.5 transition-colors",
-                      selectedTableKey === null
+                      selectedTableKey === null && selectedConnectionId === null
                         ? "bg-background text-foreground shadow-sm"
                         : "text-muted-foreground hover:text-foreground hover:bg-background/50",
                     )}
-                    onClick={() => setSelectedTableKey(null)}
+                    onClick={() => {
+                      setSelectedTableKey(null);
+                      setSelectedConnectionId(null);
+                    }}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-medium">All tables</span>
+                      <span className="font-medium">All</span>
                       <span className="text-xs tabular-nums text-muted-foreground">{totalChanges}</span>
                     </div>
                   </button>
-                  {tableSummaries.map((ts) => (
-                    <button
-                      key={ts.tableKey}
-                      className={cn(
-                        "w-full text-left px-2.5 py-2 rounded-md text-sm mb-0.5 transition-colors",
-                        selectedTableKey === ts.tableKey
-                          ? "bg-background text-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground hover:bg-background/50",
-                      )}
-                      onClick={() => setSelectedTableKey(ts.tableKey)}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <IconTable className="h-3.5 w-3.5 shrink-0 opacity-50" />
-                        <span className="truncate font-medium">{ts.displayName}</span>
+
+                  {isWorkspaceWide && connectionGroups.length > 0 ? (
+                    connectionGroups.map((group) => (
+                      <div key={group.connectionId} className="mt-1">
+                        <button
+                          className={cn(
+                            "w-full text-left px-2.5 py-1.5 rounded-md text-sm transition-colors",
+                            selectedConnectionId === group.connectionId &&
+                              selectedTableKey === null
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground hover:bg-background/50",
+                          )}
+                          onClick={() => {
+                            setSelectedConnectionId(group.connectionId);
+                            setSelectedTableKey(null);
+                          }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium truncate">{group.connectionName}</span>
+                            <span className="text-xs tabular-nums text-muted-foreground">
+                              {group.totalChanges}
+                            </span>
+                          </div>
+                        </button>
+                        <div className="ml-2 mt-0.5">
+                          {group.tables.map((ts) => (
+                            <button
+                              key={ts.tableKey}
+                              className={cn(
+                                "w-full text-left px-2.5 py-1.5 rounded-md text-sm mb-0.5 transition-colors",
+                                selectedTableKey === ts.tableKey
+                                  ? "bg-background text-foreground shadow-sm"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-background/50",
+                              )}
+                              onClick={() => {
+                                setSelectedConnectionId(group.connectionId);
+                                setSelectedTableKey(ts.tableKey);
+                              }}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <IconTable className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                                <span className="truncate font-medium">{ts.displayName}</span>
+                              </div>
+                              <div className="flex gap-2 mt-0.5 ml-5 text-xs">
+                                {ts.inserts > 0 && (
+                                  <span className="text-green-500">+{ts.inserts}</span>
+                                )}
+                                {ts.updates > 0 && (
+                                  <span className="text-blue-500">~{ts.updates}</span>
+                                )}
+                                {ts.deletes > 0 && (
+                                  <span className="text-red-500">-{ts.deletes}</span>
+                                )}
+                                {ts.ddl > 0 && (
+                                  <span className="text-purple-500">{ts.ddl} DDL</span>
+                                )}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                      <div className="flex gap-2 mt-1 ml-5 text-xs">
-                        {ts.inserts > 0 && <span className="text-green-500">+{ts.inserts}</span>}
-                        {ts.updates > 0 && <span className="text-blue-500">~{ts.updates}</span>}
-                        {ts.deletes > 0 && <span className="text-red-500">-{ts.deletes}</span>}
-                        {ts.ddl > 0 && <span className="text-purple-500">{ts.ddl} DDL</span>}
-                      </div>
-                    </button>
-                  ))}
+                    ))
+                  ) : (
+                    tableSummaries.map((ts) => (
+                        <button
+                          key={ts.tableKey}
+                          className={cn(
+                            "w-full text-left px-2.5 py-2 rounded-md text-sm mb-0.5 transition-colors",
+                            selectedTableKey === ts.tableKey
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground hover:bg-background/50",
+                          )}
+                          onClick={() => {
+                            setSelectedTableKey(ts.tableKey);
+                          }}
+                        >
+                        <div className="flex items-center gap-1.5">
+                          <IconTable className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                          <span className="truncate font-medium">{ts.displayName}</span>
+                        </div>
+                        <div className="flex gap-2 mt-1 ml-5 text-xs">
+                          {ts.inserts > 0 && <span className="text-green-500">+{ts.inserts}</span>}
+                          {ts.updates > 0 && <span className="text-blue-500">~{ts.updates}</span>}
+                          {ts.deletes > 0 && <span className="text-red-500">-{ts.deletes}</span>}
+                          {ts.ddl > 0 && <span className="text-purple-500">{ts.ddl} DDL</span>}
+                        </div>
+                      </button>
+                    ))
+                  )}
                 </div>
               </div>
             )}
@@ -1107,8 +1435,8 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                     <CodeEditor
                       value={generatedSQL || "-- No preview generated"}
                       readOnly={true}
-                      language={dbTypeToEditorLanguage[dbType]}
-                      dialect={dbTypeToDialect[dbType]}
+                      language={ddlEditorLanguage}
+                      dialect={!isWorkspaceWide ? dbTypeToDialect[dbType] : undefined}
                       lineNumbers={true}
                       height="100%"
                     />
@@ -1197,6 +1525,8 @@ function VirtualizedChangesList({ groupedByRow, onUndo }: VirtualizedChangesList
   const parentRef = useRef<HTMLDivElement>(null);
   const useLightweightDiff = groupedByRow.length > 150;
 
+  // TanStack Virtual exposes mutable callbacks that React Compiler currently flags.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: groupedByRow.length,
     getScrollElement: () => parentRef.current,
@@ -1313,6 +1643,8 @@ function RowChangesCardInner({
   // Memoize diff computation — expensive for large payloads and many cards
   const buildRowDiff = useCallback(() => {
     if (hasDDL) {
+      const formatDdlValue = (value: unknown): string => formatValue(value);
+
       // Handle DDL commands
       const ddlLines: string[] = [];
       row.commands.forEach((cmd) => {
@@ -1324,14 +1656,14 @@ function RowChangesCardInner({
         if (cmd.type === "table.create") {
           // table.create - show table definition
           if (payload.tableName) {
-            ddlLines.push(`  Table: ${payload.tableName}`);
+            ddlLines.push(`  Table: ${formatDdlValue(payload.tableName)}`);
           }
           if (Array.isArray(payload.columns)) {
             ddlLines.push(`  Columns:`);
             payload.columns.forEach((col: { name?: string; dataType?: string; nullable?: boolean; defaultValue?: unknown; isPrimaryKey?: boolean; checkExpression?: string; comment?: string }) => {
               let colDef = `    - ${col.name}: ${col.dataType}`;
               if (col.nullable === false) colDef += " NOT NULL";
-              if (col.defaultValue !== undefined && col.defaultValue !== null) colDef += ` DEFAULT ${col.defaultValue}`;
+              if (col.defaultValue !== undefined && col.defaultValue !== null) colDef += ` DEFAULT ${formatDdlValue(col.defaultValue)}`;
               if (col.isPrimaryKey) colDef += " (PK)";
               if (col.checkExpression) colDef += ` CHECK (${col.checkExpression})`;
               if (col.comment) colDef += ` -- ${col.comment}`;
@@ -1345,12 +1677,12 @@ function RowChangesCardInner({
           // table.rename - show old → new
           const oldName = cmd.target.table;
           if (oldName && payload.newName) {
-            ddlLines.push(`  ${oldName} → ${payload.newName}`);
+            ddlLines.push(`  ${oldName} → ${formatDdlValue(payload.newName)}`);
           }
         } else if (cmd.type === "table.drop") {
           // table.drop - show table name
           if (payload.tableName) {
-            ddlLines.push(`  Table: ${payload.tableName}`);
+            ddlLines.push(`  Table: ${formatDdlValue(payload.tableName)}`);
           }
           if (payload.cascade) {
             ddlLines.push(`  Cascade: true`);
@@ -1358,7 +1690,7 @@ function RowChangesCardInner({
         } else if (cmd.type === "table.truncate") {
           // table.truncate - show table name and options
           if (payload.tableName) {
-            ddlLines.push(`  Table: ${payload.tableName}`);
+            ddlLines.push(`  Table: ${formatDdlValue(payload.tableName)}`);
           }
           if (payload.restartIdentity) {
             ddlLines.push(`  Restart Identity: true`);
@@ -1369,7 +1701,9 @@ function RowChangesCardInner({
         } else if (cmd.type === "table.duplicate") {
           // table.duplicate - show source → target and options
           if (payload.sourceTableName && payload.newTableName) {
-            ddlLines.push(`  ${payload.sourceTableName} → ${payload.newTableName}`);
+            ddlLines.push(
+              `  ${formatDdlValue(payload.sourceTableName)} → ${formatDdlValue(payload.newTableName)}`,
+            );
           }
           const options: string[] = [];
           if (payload.includeData) options.push("data");
@@ -1396,7 +1730,9 @@ function RowChangesCardInner({
         } else if (cmd.type === "view.drop") {
           // view.drop - show view name
           if (payload.viewName) {
-            ddlLines.push(`  View: ${payload.viewName}${payload.isMaterialized ? " (MATERIALIZED)" : ""}`);
+            ddlLines.push(
+              `  View: ${formatDdlValue(payload.viewName)}${payload.isMaterialized ? " (MATERIALIZED)" : ""}`,
+            );
           }
           if (payload.cascade) {
             ddlLines.push(`  Cascade: true`);
@@ -1404,18 +1740,27 @@ function RowChangesCardInner({
         } else if (cmd.type === "view.replace") {
           // view.replace - show view name and new definition
           if (payload.viewName) {
-            ddlLines.push(`  View: ${payload.viewName}${payload.isMaterialized ? " (MATERIALIZED)" : ""}`);
+            ddlLines.push(
+              `  View: ${formatDdlValue(payload.viewName)}${payload.isMaterialized ? " (MATERIALIZED)" : ""}`,
+            );
           }
-          if (payload.definition) {
-            const defPreview = (payload.definition as string).length > 100 
-              ? (payload.definition as string).slice(0, 100) + "..." 
-              : payload.definition;
+          if (payload.definition !== undefined && payload.definition !== null) {
+            const definitionText =
+              typeof payload.definition === "string"
+                ? payload.definition
+                : formatDdlValue(payload.definition);
+            const defPreview =
+              definitionText.length > 100
+                ? definitionText.slice(0, 100) + "..."
+                : definitionText;
             ddlLines.push(`  New Definition: ${defPreview}`);
           }
         } else if (cmd.type === "view.rename") {
           // view.rename - show old → new
           if (payload.viewName && payload.newName) {
-            ddlLines.push(`  ${payload.viewName} → ${payload.newName}${payload.isMaterialized ? " (MATERIALIZED)" : ""}`);
+            ddlLines.push(
+              `  ${formatDdlValue(payload.viewName)} → ${formatDdlValue(payload.newName)}${payload.isMaterialized ? " (MATERIALIZED)" : ""}`,
+            );
           }
         } else if (cmd.type.startsWith("constraint.")) {
           // constraint operations
@@ -1434,12 +1779,16 @@ function RowChangesCardInner({
             }
           } else if (cmd.type === "constraint.rename") {
             if (payload.constraintName && payload.newName) {
-              ddlLines.push(`  ${payload.constraintName} → ${payload.newName}`);
+              ddlLines.push(
+                `  ${formatDdlValue(payload.constraintName)} → ${formatDdlValue(payload.newName)}`,
+              );
             }
           } else {
             // drop operations
             if (payload.constraintName) {
-              ddlLines.push(`  Constraint: ${payload.constraintName}`);
+              ddlLines.push(
+                `  Constraint: ${formatDdlValue(payload.constraintName)}`,
+              );
             }
             if (payload.cascade) {
               ddlLines.push(`  Cascade: true`);
@@ -1471,18 +1820,18 @@ function RowChangesCardInner({
         } else if (cmd.type === "sequence.alter") {
           // sequence.alter - show changes
           if (payload.sequenceName) {
-            ddlLines.push(`  Sequence: ${payload.sequenceName}`);
+            ddlLines.push(`  Sequence: ${formatDdlValue(payload.sequenceName)}`);
           }
           if (payload.changes) {
             const changes = payload.changes as Record<string, unknown>;
             Object.entries(changes).forEach(([key, value]) => {
-              ddlLines.push(`  ${key}: ${value}`);
+              ddlLines.push(`  ${key}: ${formatDdlValue(value)}`);
             });
           }
         } else if (cmd.type === "sequence.drop") {
           // sequence.drop - show sequence name
           if (payload.sequenceName) {
-            ddlLines.push(`  Sequence: ${payload.sequenceName}`);
+            ddlLines.push(`  Sequence: ${formatDdlValue(payload.sequenceName)}`);
           }
           if (payload.cascade) {
             ddlLines.push(`  Cascade: true`);
@@ -1490,7 +1839,9 @@ function RowChangesCardInner({
         } else if (cmd.type === "sequence.rename") {
           // sequence.rename - show old → new
           if (payload.sequenceName && payload.newName) {
-            ddlLines.push(`  ${payload.sequenceName} → ${payload.newName}`);
+            ddlLines.push(
+              `  ${formatDdlValue(payload.sequenceName)} → ${formatDdlValue(payload.newName)}`,
+            );
           }
         } else if (payload.column) {
           // column.add - show full column definition
@@ -1503,7 +1854,7 @@ function RowChangesCardInner({
         } else if (payload.columnName && payload.newDefinition) {
           // column.modify - show what changed
           const name = payload.columnName;
-          ddlLines.push(`  Column: ${name}`);
+          ddlLines.push(`  Column: ${formatDdlValue(name)}`);
           const newDef = payload.newDefinition as {
             dataType?: string;
             nullable?: boolean;
@@ -1524,7 +1875,9 @@ function RowChangesCardInner({
           }
         } else if (payload.newName && payload.columnName) {
           // column.rename - show old → new
-          ddlLines.push(`  ${payload.columnName} → ${payload.newName}`);
+          ddlLines.push(
+            `  ${formatDdlValue(payload.columnName)} → ${formatDdlValue(payload.newName)}`,
+          );
         } else if (
           payload.columnName ||
           payload.indexName ||
@@ -1534,7 +1887,7 @@ function RowChangesCardInner({
           // Other DDL operations (drop, etc.)
           const name =
             payload.columnName || payload.indexName || payload.triggerName || payload.constraintName;
-          ddlLines.push(`  Name: ${name}`);
+          ddlLines.push(`  Name: ${formatDdlValue(name)}`);
           if (payload.cascade) {
             ddlLines.push(`  Cascade: true`);
           }
@@ -1854,7 +2207,21 @@ function formatValue(value: unknown): string {
   if (typeof value === "object") {
     return JSON.stringify(value, null, 2);
   }
-  return String(value);
+  if (typeof value === "symbol") {
+    return value.toString();
+  }
+  if (typeof value === "function") {
+    return "[Function]";
+  }
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized) {
+      return serialized;
+    }
+  } catch {
+    // Fall through to Object.prototype fallback below.
+  }
+  return Object.prototype.toString.call(value);
 }
 
 /**
