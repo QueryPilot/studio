@@ -80,7 +80,10 @@ export function FKPreviewPopover({
 }: FKPreviewPopoverProps) {
   const [copiedColumn, setCopiedColumn] = useState<string | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const [position, setPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
 
   const storageKey = useMemo(
     () =>
@@ -147,7 +150,8 @@ export function FKPreviewPopover({
         if (!colName || !refCol) continue;
         if (seen.has(colName)) continue;
 
-        const refDisplayColumns = refTableEmbeddedPrefs.embeddedColumns[colName];
+        const refDisplayColumns =
+          refTableEmbeddedPrefs.embeddedColumns[colName];
         if (refDisplayColumns && refDisplayColumns.length > 0) {
           seen.add(colName);
           configs.push({
@@ -195,12 +199,14 @@ export function FKPreviewPopover({
     pkColumn: fkReference.referenced_column,
     pkValue: fkValue,
     enabled: open,
-    embeddedFKs: refTableEmbeddedFKs.length > 0 ? refTableEmbeddedFKs : undefined,
+    embeddedFKs:
+      refTableEmbeddedFKs.length > 0 ? refTableEmbeddedFKs : undefined,
   });
 
   // Build a map of embedded FK values: fkColumn → embeddedDisplayValues[]
   const embeddedFKValueMap = useMemo(() => {
-    if (!data || refTableEmbeddedFKs.length === 0) return new Map<string, string[]>();
+    if (!data || refTableEmbeddedFKs.length === 0)
+      return new Map<string, string[]>();
     const map = new Map<string, string[]>();
     for (const fk of refTableEmbeddedFKs) {
       const values: string[] = [];
@@ -240,7 +246,6 @@ export function FKPreviewPopover({
     writeClipboardText(value)
       .then(() => {
         setCopiedColumn(columnName);
-        toast("Copied to clipboard");
         setTimeout(() => {
           setCopiedColumn(null);
         }, 2000);
@@ -275,7 +280,7 @@ export function FKPreviewPopover({
       if (bottomSpace >= popoverHeight) {
         const left = Math.min(
           Math.max(cellLeft, POPOVER_PADDING),
-          viewportWidth - POPOVER_WIDTH - POPOVER_PADDING
+          viewportWidth - POPOVER_WIDTH - POPOVER_PADDING,
         );
         return { top: cellBottom + gap, left };
       }
@@ -285,7 +290,7 @@ export function FKPreviewPopover({
       if (topSpace >= popoverHeight) {
         const left = Math.min(
           Math.max(cellLeft, POPOVER_PADDING),
-          viewportWidth - POPOVER_WIDTH - POPOVER_PADDING
+          viewportWidth - POPOVER_WIDTH - POPOVER_PADDING,
         );
         return { top: cellTop - popoverHeight - gap, left };
       }
@@ -295,7 +300,7 @@ export function FKPreviewPopover({
       if (rightSpace >= POPOVER_WIDTH) {
         const top = Math.min(
           Math.max(cellTop, POPOVER_PADDING),
-          viewportHeight - popoverHeight - POPOVER_PADDING
+          viewportHeight - popoverHeight - POPOVER_PADDING,
         );
         return { top, left: cellRight + gap };
       }
@@ -305,17 +310,20 @@ export function FKPreviewPopover({
       if (leftSpace >= POPOVER_WIDTH) {
         const top = Math.min(
           Math.max(cellTop, POPOVER_PADDING),
-          viewportHeight - popoverHeight - POPOVER_PADDING
+          viewportHeight - popoverHeight - POPOVER_PADDING,
         );
         return { top, left: cellLeft - POPOVER_WIDTH - gap };
       }
 
       // Fallback: position below cell, constrained to viewport
       return {
-        top: Math.min(cellBottom + gap, viewportHeight - popoverHeight - POPOVER_PADDING),
+        top: Math.min(
+          cellBottom + gap,
+          viewportHeight - popoverHeight - POPOVER_PADDING,
+        ),
         left: Math.min(
           Math.max(cellLeft, POPOVER_PADDING),
-          viewportWidth - POPOVER_WIDTH - POPOVER_PADDING
+          viewportWidth - POPOVER_WIDTH - POPOVER_PADDING,
         ),
       };
     };
@@ -324,19 +332,26 @@ export function FKPreviewPopover({
     setPosition(calculatePosition());
 
     // Recalculate on resize
-    const handleResize = () => setPosition(calculatePosition());
+    const handleResize = () => {
+      setPosition(calculatePosition());
+    };
     window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
   }, [open, cellBounds]);
 
   // Close on click outside
   const handleClickOutside = useCallback(
     (e: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+      if (
+        popoverRef.current &&
+        !popoverRef.current.contains(e.target as Node)
+      ) {
         onOpenChange(false);
       }
     },
-    [onOpenChange]
+    [onOpenChange],
   );
 
   // Close on Escape
@@ -346,7 +361,7 @@ export function FKPreviewPopover({
         onOpenChange(false);
       }
     },
-    [onOpenChange]
+    [onOpenChange],
   );
 
   useEffect(() => {
@@ -468,17 +483,26 @@ export function FKPreviewPopover({
                   <div className="relative group rounded bg-background">
                     <div className="text-xs font-mono break-all line-clamp-5 p-2 pr-8">
                       {rawValue === "NULL" ? (
-                        <span className="text-muted-foreground/50 italic">NULL</span>
+                        <span className="text-muted-foreground/50 italic">
+                          NULL
+                        </span>
                       ) : isTypePlaceholder(rawValue) ? (
-                        <span className="text-muted-foreground/50 italic">{rawValue}</span>
+                        <span className="text-muted-foreground/50 italic">
+                          {rawValue}
+                        </span>
                       ) : (
                         rawValue
                       )}
                       {embeddedFKValues && embeddedFKValues.length > 0 && (
                         <>
-                          <span className="text-muted-foreground/50">{" → "}</span>
+                          <span className="text-muted-foreground/50">
+                            {" → "}
+                          </span>
                           {embeddedFKValues.map((val, i) => (
-                            <span key={i} className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] bg-muted text-muted-foreground mr-1">
+                            <span
+                              key={i}
+                              className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] bg-muted text-muted-foreground mr-1"
+                            >
                               {val}
                             </span>
                           ))}
@@ -507,6 +531,6 @@ export function FKPreviewPopover({
         )}
       </div>
     </div>,
-    document.body
+    document.body,
   );
 }

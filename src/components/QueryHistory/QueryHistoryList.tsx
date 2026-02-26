@@ -44,7 +44,8 @@ export function QueryHistoryList() {
   const history = useFilteredHistory();
   const loadHistory = useQueryHistoryStore((s) => s.loadHistory);
   const isLoading = useQueryHistoryStore((s) => s.isLoading);
-  const [saveDialogEntry, setSaveDialogEntry] = useState<QueryHistoryEntry | null>(null);
+  const [saveDialogEntry, setSaveDialogEntry] =
+    useState<QueryHistoryEntry | null>(null);
 
   useEffect(() => {
     void loadHistory();
@@ -58,9 +59,7 @@ export function QueryHistoryList() {
   });
 
   if (isLoading && history.length === 0) {
-    return (
-      <div className="p-4 text-xs text-muted-foreground">Loading...</div>
-    );
+    return <div className="p-4 text-xs text-muted-foreground">Loading...</div>;
   }
 
   if (history.length === 0) {
@@ -130,7 +129,8 @@ function HistoryItem({
     const workspaceSelection = useWorkspaceSelectionStore.getState();
     const panels = workbench.panelContents;
     const focusedPanelId =
-      usePanelFocusStore.getState().focusedPanelId ?? panels.keys().next().value;
+      usePanelFocusStore.getState().focusedPanelId ??
+      panels.keys().next().value;
 
     if (!focusedPanelId) {
       toast.error("No panel available");
@@ -152,7 +152,6 @@ function HistoryItem({
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(entry.query);
-    toast.success("Query copied to clipboard");
   };
 
   const workspaceSelection = useWorkspaceSelectionStore.getState();
@@ -178,7 +177,7 @@ function HistoryItem({
               style={style}
               className={cn(
                 "px-2 py-1.5 border-b cursor-pointer hover:bg-accent",
-                "flex flex-col gap-0.5"
+                "flex flex-col gap-0.5",
               )}
               onClick={handleOpenInTab}
             >

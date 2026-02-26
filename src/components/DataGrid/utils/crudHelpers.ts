@@ -12,6 +12,51 @@ import type {
 import type { GridRowModel, GridColumnV2, GridEditCommitEvent } from "../types";
 import { convertEditValue } from "../hooks/crudConversion";
 
+export type RowMatcherMode = "deterministic" | "best_effort";
+
+export interface RowMatcherOptions {
+  /**
+   * Column names used to identify a row.
+   * If omitted, fallback behavior uses columns marked `meta.is_pk`.
+   */
+  identityColumns?: string[];
+  /**
+   * Diagnostic mode tag for command metadata.
+   */
+  matcherMode?: RowMatcherMode;
+}
+
+const toCrudPrimitive = (value: unknown): CrudPrimitive => {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    value === null
+  ) {
+    return value;
+  }
+
+  return value != null ? String(value) : null;
+};
+
+function appendMatcherTags(
+  existingTags: string[] | undefined,
+  options: RowMatcherOptions | undefined,
+  matcherColumns: string[],
+): string[] | undefined {
+  if (!options?.matcherMode) {
+    return existingTags;
+  }
+
+  const tags = new Set(existingTags ?? []);
+  tags.add(`matcher:${options.matcherMode}`);
+  if (matcherColumns.length > 0) {
+    tags.add(`matcher-columns:${matcherColumns.join("|")}`);
+  }
+
+  return Array.from(tags);
+}
+
 /**
  * Extract primary key values from a row
  * Uses col.field for row data access, but col.name for SQL column names
@@ -19,30 +64,50 @@ import { convertEditValue } from "../hooks/crudConversion";
 export function extractPrimaryKeys(
   row: GridRowModel,
   columns: GridColumnV2[],
+  options?: RowMatcherOptions,
 ): Record<string, CrudPrimitive> {
-  const pkColumns = columns.filter((col) => col.meta?.is_pk);
-  if (pkColumns.length === 0) {
-    throw new Error("Cannot edit row: No primary key columns found");
+  const requestedIdentityColumns = options?.identityColumns;
+  if (requestedIdentityColumns && requestedIdentityColumns.length === 0) {
+    throw new Error("Cannot edit row: No deterministic identity columns configured");
+  }
+
+  const matcherPairs: Array<{ columnName: string; field: string }> = [];
+
+  if (requestedIdentityColumns && requestedIdentityColumns.length > 0) {
+    for (const identityColumn of requestedIdentityColumns) {
+      const matched = columns.find(
+        (col) =>
+          col.name === identityColumn ||
+          col.field === identityColumn ||
+          col.title === identityColumn,
+      );
+      if (!matched) {
+        throw new Error(
+          `Cannot edit row: Identity column \"${identityColumn}\" is not available in the row`,
+        );
+      }
+      matcherPairs.push({ columnName: identityColumn, field: matched.field });
+    }
+  } else {
+    const pkColumns = columns.filter((col) => col.meta?.is_pk);
+    if (pkColumns.length === 0) {
+      throw new Error("Cannot edit row: No primary key columns found");
+    }
+
+    for (const pkCol of pkColumns) {
+      matcherPairs.push({
+        columnName: pkCol.name ?? pkCol.field,
+        field: pkCol.field,
+      });
+    }
   }
 
   const primaryKeys: Record<string, CrudPrimitive> = {};
-  pkColumns.forEach((pkCol) => {
-    // Use field (col_N) to access row data, but name for SQL column identifier
-    const cellValue = row[pkCol.field] as CellValue | null | undefined;
+  matcherPairs.forEach((pair) => {
+    // Use field (col_N) to access row data, but columnName for SQL identifier
+    const cellValue = row[pair.field] as CellValue | null | undefined;
     const value = cellValue?.value ?? null;
-    const columnName = pkCol.name ?? pkCol.field;
-    // Ensure value is a CrudPrimitive (string, number, boolean, or null)
-    if (
-      typeof value === "string" ||
-      typeof value === "number" ||
-      typeof value === "boolean" ||
-      value === null
-    ) {
-      primaryKeys[columnName] = value;
-    } else {
-      // Convert other types to string or null
-      primaryKeys[columnName] = value != null ? String(value) : null;
-    }
+    primaryKeys[pair.columnName] = toCrudPrimitive(value);
   });
 
   return primaryKeys;
@@ -55,12 +120,14 @@ export function createUpdateCommand(
   event: GridEditCommitEvent,
   target: CrudCommandTarget,
   columns: GridColumnV2[],
+  options?: RowMatcherOptions,
 ): CrudCommand<DataUpdatePayload> {
   if (!event.row) {
     throw new Error("Cannot create update command: Missing row data");
   }
 
-  const primaryKeys = extractPrimaryKeys(event.row, columns);
+  const primaryKeys = extractPrimaryKeys(event.row, columns, options);
+  const matcherColumns = Object.keys(primaryKeys);
 
   // Check if this row is from an INSERT command (by checking for tempId metadata)
   const tempIdCell = event.row["__insert_temp_id__"] as CellValue | null | undefined;
@@ -132,6 +199,7 @@ export function createUpdateCommand(
     metadata: {
       timestamp: new Date().toISOString(),
       description: `Update ${event.column.field} in ${target.table}`,
+      tags: appendMatcherTags(undefined, options, matcherColumns),
     },
     state: "staged",
   };
@@ -198,8 +266,10 @@ export function createDeleteCommand(
   row: GridRowModel,
   target: CrudCommandTarget,
   columns: GridColumnV2[],
+  options?: RowMatcherOptions,
 ): CrudCommand<DataDeletePayload> {
-  const primaryKeys = extractPrimaryKeys(row, columns);
+  const primaryKeys = extractPrimaryKeys(row, columns, options);
+  const matcherColumns = Object.keys(primaryKeys);
 
   const payload: DataDeletePayload = {
     primaryKeys,
@@ -213,6 +283,7 @@ export function createDeleteCommand(
     metadata: {
       timestamp: new Date().toISOString(),
       description: `Delete row from ${target.table}`,
+      tags: appendMatcherTags(undefined, options, matcherColumns),
     },
     state: "staged",
   };
