@@ -5,29 +5,35 @@
  * Used by both database adapters (CRUD) and export utilities (clipboard).
  */
 
-import { DbType } from '@/types/connection';
-import type { FilterConfig, FilterCondition, FilterGroup, FilterOperator, SortConfig } from '@/types/filter';
+import { DbType } from "@/types/connection";
+import type {
+  FilterConfig,
+  FilterCondition,
+  FilterGroup,
+  FilterOperator,
+  SortConfig,
+} from "@/types/filter";
 
 /**
  * Map DatabaseType string to DbType enum
  * Supports both formats for flexibility
  */
 export function toDbType(dbType: string | DbType): DbType {
-  if (typeof dbType !== 'string') {
+  if (typeof dbType !== "string") {
     return dbType === DbType.MariaDB ? DbType.MySQL : dbType;
   }
 
   switch (dbType.toLowerCase()) {
-    case 'postgresql':
-    case 'postgres':
+    case "postgresql":
+    case "postgres":
       return DbType.PostgreSQL;
-    case 'mysql':
-    case 'mariadb':
+    case "mysql":
+    case "mariadb":
       return DbType.MySQL;
-    case 'sqlite':
+    case "sqlite":
       return DbType.SQLite;
-    case 'mssql':
-    case 'sqlserver':
+    case "mssql":
+    case "sqlserver":
       return DbType.SQLServer;
     default:
       return DbType.PostgreSQL;
@@ -43,10 +49,10 @@ export function quoteIdentifier(name: string, dbType: DbType | string): string {
   switch (type) {
     case DbType.MySQL:
       // Backticks with escaping
-      return `\`${name.replace(/`/g, '``')}\``;
+      return `\`${name.replace(/`/g, "``")}\``;
     case DbType.SQLServer:
       // Square brackets with escaping
-      return `[${name.replace(/]/g, ']]')}]`;
+      return `[${name.replace(/]/g, "]]")}]`;
     case DbType.PostgreSQL:
     case DbType.SQLite:
     default:
@@ -61,7 +67,7 @@ export function quoteIdentifier(name: string, dbType: DbType | string): string {
 export function formatTableName(
   schema: string | undefined,
   table: string,
-  dbType: DbType | string
+  dbType: DbType | string,
 ): string {
   const type = toDbType(dbType);
 
@@ -73,11 +79,21 @@ export function formatTableName(
 }
 
 /**
- * Escape a string for SQL (double single quotes)
+ * Escape a string for SQL (double single quotes and handle backslashes)
  */
-export function escapeString(value: string, _dbType?: DbType | string): string {
-  // Standard SQL escaping: double single quotes
-  // Works correctly in all sql_modes including MySQL's NO_BACKSLASH_ESCAPES
+export function escapeString(value: string, dbType?: DbType | string): string {
+  const type = dbType ? toDbType(dbType) : undefined;
+
+  // MySQL and MariaDB need backslash escaping (unless NO_BACKSLASH_ESCAPES is set)
+  // In standard MySQL, backslash is an escape character
+  if (type === DbType.MySQL || type === "mariadb") {
+    return value
+      .replace(/\\/g, "\\\\") // Escape backslashes first
+      .replace(/'/g, "''"); // Then escape single quotes
+  }
+
+  // Standard SQL escaping: double single quotes only
+  // Works correctly for PostgreSQL, SQLServer, SQLite and MySQL with NO_BACKSLASH_ESCAPES
   return value.replace(/'/g, "''");
 }
 
@@ -106,49 +122,52 @@ export function formatValue(value: unknown, dbType: DbType | string): string {
 
   // NULL handling
   if (value === null || value === undefined) {
-    return 'NULL';
+    return "NULL";
   }
 
   // Boolean handling
-  if (typeof value === 'boolean') {
+  if (typeof value === "boolean") {
     switch (type) {
       case DbType.PostgreSQL:
-        return value ? 'TRUE' : 'FALSE';
+        return value ? "TRUE" : "FALSE";
       case DbType.MySQL:
       case DbType.SQLite:
       case DbType.SQLServer:
       default:
-        return value ? '1' : '0';
+        return value ? "1" : "0";
     }
   }
 
   // Number handling
-  if (typeof value === 'number') {
+  if (typeof value === "number") {
     if (!Number.isFinite(value)) {
-      return 'NULL';
+      return "NULL";
     }
     return String(value);
   }
 
   // BigInt handling
-  if (typeof value === 'bigint') {
+  if (typeof value === "bigint") {
     return String(value);
   }
 
   // Date handling
   if (value instanceof Date) {
     if (isNaN(value.getTime())) {
-      return 'NULL';
+      return "NULL";
     }
     return quoteString(value.toISOString(), type);
   }
 
   // Buffer/Uint8Array handling
-  if (value instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(value))) {
+  if (
+    value instanceof Uint8Array ||
+    (typeof Buffer !== "undefined" && Buffer.isBuffer(value))
+  ) {
     const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
     const hex = Array.from(bytes)
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
 
     switch (type) {
       case DbType.PostgreSQL:
@@ -164,12 +183,12 @@ export function formatValue(value: unknown, dbType: DbType | string): string {
   }
 
   // Object/Array handling (JSON)
-  if (typeof value === 'object') {
+  if (typeof value === "object") {
     try {
       const json = JSON.stringify(value);
       return quoteString(json, type);
     } catch {
-      return 'NULL';
+      return "NULL";
     }
   }
 
@@ -186,7 +205,8 @@ export function getDialectQuoting(dbType: DbType | string) {
 
   return {
     quoteIdentifier: (name: string) => quoteIdentifier(name, type),
-    formatTableName: (schema: string, table: string) => formatTableName(schema, table, type),
+    formatTableName: (schema: string, table: string) =>
+      formatTableName(schema, table, type),
     formatValue: (value: unknown) => formatValue(value, type),
     quoteString: (value: string) => quoteString(value, type),
     escapeString: (value: string) => escapeString(value, type),
@@ -196,48 +216,51 @@ export function getDialectQuoting(dbType: DbType | string) {
 /**
  * Convert a FilterOperator to dialect-specific SQL operator
  */
-function operatorToSql(operator: FilterOperator | string, dbType: DbType): string {
+function operatorToSql(
+  operator: FilterOperator | string,
+  dbType: DbType,
+): string {
   switch (operator) {
-    case 'REGEX':
+    case "REGEX":
       // PostgreSQL: ~ (case-sensitive regex)
       // MySQL/MariaDB: REGEXP BINARY (case-sensitive)
       // SQLite: REGEXP (requires extension, may not be available)
       // SQL Server: No native regex - fall back to LIKE (limited pattern support)
       switch (dbType) {
         case DbType.PostgreSQL:
-          return '~';
+          return "~";
         case DbType.MySQL:
-          return 'REGEXP BINARY';
+          return "REGEXP BINARY";
         case DbType.SQLite:
-          return 'REGEXP'; // Note: requires regexp extension
+          return "REGEXP"; // Note: requires regexp extension
         case DbType.SQLServer:
-          return 'LIKE'; // Fallback - regex patterns won't work correctly
+          return "LIKE"; // Fallback - regex patterns won't work correctly
         default:
-          return 'REGEXP BINARY';
+          return "REGEXP BINARY";
       }
-    case 'REGEX_I':
+    case "REGEX_I":
       // PostgreSQL: ~* (case-insensitive regex)
       // MySQL/MariaDB: REGEXP (case-insensitive by default)
       // SQLite: REGEXP (no case-insensitive variant)
       // SQL Server: No native regex - fall back to LIKE
       switch (dbType) {
         case DbType.PostgreSQL:
-          return '~*';
+          return "~*";
         case DbType.MySQL:
-          return 'REGEXP';
+          return "REGEXP";
         case DbType.SQLite:
-          return 'REGEXP'; // Note: requires regexp extension
+          return "REGEXP"; // Note: requires regexp extension
         case DbType.SQLServer:
-          return 'LIKE'; // Fallback - regex patterns won't work correctly
+          return "LIKE"; // Fallback - regex patterns won't work correctly
         default:
-          return 'REGEXP';
+          return "REGEXP";
       }
-    case 'ILIKE':
+    case "ILIKE":
       // MySQL/SQLite don't have ILIKE, use LIKE (case-insensitive by default in MySQL)
       // SQLite LIKE is case-insensitive for ASCII letters
-      return dbType === DbType.PostgreSQL ? 'ILIKE' : 'LIKE';
-    case 'NOT ILIKE':
-      return dbType === DbType.PostgreSQL ? 'NOT ILIKE' : 'NOT LIKE';
+      return dbType === DbType.PostgreSQL ? "ILIKE" : "LIKE";
+    case "NOT ILIKE":
+      return dbType === DbType.PostgreSQL ? "NOT ILIKE" : "NOT LIKE";
     default:
       return operator;
   }
@@ -268,24 +291,30 @@ function castToText(column: string, dbType: DbType): string {
 function conditionToSql(
   condition: FilterCondition,
   dbType: DbType,
-  columnPrefix?: string
+  columnPrefix?: string,
 ): string {
   const baseColumn = quoteIdentifier(condition.column, dbType);
-  const qualifiedColumn = columnPrefix ? `${columnPrefix}.${baseColumn}` : baseColumn;
-  const column = condition.castToText ? castToText(qualifiedColumn, dbType) : qualifiedColumn;
+  const qualifiedColumn = columnPrefix
+    ? `${columnPrefix}.${baseColumn}`
+    : baseColumn;
+  const column = condition.castToText
+    ? castToText(qualifiedColumn, dbType)
+    : qualifiedColumn;
 
   const operator = condition.operator as FilterOperator;
 
   // Null checks don't need a value
-  if (operator === 'IS NULL' || operator === 'IS NOT NULL') {
+  if (operator === "IS NULL" || operator === "IS NOT NULL") {
     const sql = `${column} ${operator}`;
     return condition.negated ? `NOT (${sql})` : sql;
   }
 
   // IN / NOT IN operators need array handling
-  if (operator === 'IN' || operator === 'NOT IN') {
-    const values = Array.isArray(condition.value) ? condition.value : [condition.value];
-    const formatted = values.map((v) => formatValue(v, dbType)).join(', ');
+  if (operator === "IN" || operator === "NOT IN") {
+    const values = Array.isArray(condition.value)
+      ? condition.value
+      : [condition.value];
+    const formatted = values.map((v) => formatValue(v, dbType)).join(", ");
     const sql = `${column} ${operator} (${formatted})`;
     return condition.negated ? `NOT (${sql})` : sql;
   }
@@ -304,17 +333,17 @@ function conditionToSql(
 function groupToSql(
   group: FilterGroup,
   dbType: DbType,
-  columnPrefix?: string
+  columnPrefix?: string,
 ): string {
   if (group.conditions.length === 0) {
-    return '';
+    return "";
   }
 
   const parts: string[] = [];
 
   for (const item of group.conditions) {
-    if ('type' in item && item.type === 'group') {
-      const nested = groupToSql(item as FilterGroup, dbType, columnPrefix);
+    if ("type" in item && item.type === "group") {
+      const nested = groupToSql(item, dbType, columnPrefix);
       if (nested) {
         parts.push(`(${nested})`);
       }
@@ -333,7 +362,7 @@ function qualifyRawWhereClause(
   clause: string,
   columnPrefix: string,
   columnNames: string[],
-  dbType?: DbType
+  dbType?: DbType,
 ): string {
   const prefix = `${columnPrefix}.`;
   const columnSet = new Set(columnNames);
@@ -364,7 +393,7 @@ function qualifyRawWhereClause(
   const isIdentifierStart = (char: string) => /[A-Za-z_]/.test(char);
   const isIdentifierPart = (char: string) => /[A-Za-z0-9_]/.test(char);
 
-  let result = '';
+  let result = "";
   let i = 0;
   let inSingleQuote = false;
   let inLineComment = false;
@@ -376,7 +405,7 @@ function qualifyRawWhereClause(
 
     if (inLineComment) {
       result += char;
-      if (char === '\n') {
+      if (char === "\n") {
         inLineComment = false;
       }
       i += 1;
@@ -385,7 +414,7 @@ function qualifyRawWhereClause(
 
     if (inBlockComment) {
       result += char;
-      if (char === '*' && nextChar === '/') {
+      if (char === "*" && nextChar === "/") {
         result += nextChar;
         i += 2;
         inBlockComment = false;
@@ -395,14 +424,14 @@ function qualifyRawWhereClause(
       continue;
     }
 
-    if (!inSingleQuote && char === '-' && nextChar === '-') {
+    if (!inSingleQuote && char === "-" && nextChar === "-") {
       result += char + nextChar;
       i += 2;
       inLineComment = true;
       continue;
     }
 
-    if (!inSingleQuote && char === '/' && nextChar === '*') {
+    if (!inSingleQuote && char === "/" && nextChar === "*") {
       result += char + nextChar;
       i += 2;
       inBlockComment = true;
@@ -410,13 +439,16 @@ function qualifyRawWhereClause(
     }
 
     // PostgreSQL dollar-quoted strings: $tag$...$tag$ or $$...$$
-    if (!inSingleQuote && char === '$') {
+    if (!inSingleQuote && char === "$") {
       // Try to match a dollar-quote tag: $ optionally followed by identifier chars then $
       let tagEnd = i + 1;
-      while (tagEnd < clause.length && isIdentifierPart(clause.charAt(tagEnd))) {
+      while (
+        tagEnd < clause.length &&
+        isIdentifierPart(clause.charAt(tagEnd))
+      ) {
         tagEnd++;
       }
-      if (tagEnd < clause.length && clause.charAt(tagEnd) === '$') {
+      if (tagEnd < clause.length && clause.charAt(tagEnd) === "$") {
         const tag = clause.slice(i, tagEnd + 1); // e.g. "$$" or "$tag$"
         result += tag;
         i = tagEnd + 1;
@@ -437,7 +469,7 @@ function qualifyRawWhereClause(
     if (inSingleQuote) {
       result += char;
       // MySQL backslash escaping: \' keeps the string open
-      if (isMySQL && char === '\\' && nextChar) {
+      if (isMySQL && char === "\\" && nextChar) {
         result += nextChar;
         i += 2;
         continue;
@@ -461,11 +493,11 @@ function qualifyRawWhereClause(
       continue;
     }
 
-    if (char === '"' || char === '`') {
+    if (char === '"' || char === "`") {
       const quoteChar = char;
       const start = i;
       i += 1;
-      let identifier = '';
+      let identifier = "";
       while (i < clause.length) {
         const innerChar = clause.charAt(i);
         const innerNext = clause.charAt(i + 1);
@@ -485,26 +517,26 @@ function qualifyRawWhereClause(
       const prevChar = findPrevNonWhitespace(start - 1);
       const nextNonWhitespace = findNextNonWhitespace(i);
       const isQualified =
-        prevChar === '.' || prevChar === ':' || nextNonWhitespace === '.';
+        prevChar === "." || prevChar === ":" || nextNonWhitespace === ".";
       const shouldPrefix = !isQualified && columnSet.has(identifier);
 
       result += shouldPrefix ? prefix + token : token;
       continue;
     }
 
-    if (char === '[') {
+    if (char === "[") {
       const start = i;
       i += 1;
-      let identifier = '';
+      let identifier = "";
       while (i < clause.length) {
         const innerChar = clause.charAt(i);
         const innerNext = clause.charAt(i + 1);
-        if (innerChar === ']' && innerNext === ']') {
-          identifier += ']';
+        if (innerChar === "]" && innerNext === "]") {
+          identifier += "]";
           i += 2;
           continue;
         }
-        if (innerChar === ']') {
+        if (innerChar === "]") {
           i += 1;
           break;
         }
@@ -515,7 +547,7 @@ function qualifyRawWhereClause(
       const prevChar = findPrevNonWhitespace(start - 1);
       const nextNonWhitespace = findNextNonWhitespace(i);
       const isQualified =
-        prevChar === '.' || prevChar === ':' || nextNonWhitespace === '.';
+        prevChar === "." || prevChar === ":" || nextNonWhitespace === ".";
       const shouldPrefix = !isQualified && columnSet.has(identifier);
 
       result += shouldPrefix ? prefix + token : token;
@@ -532,8 +564,8 @@ function qualifyRawWhereClause(
       const prevChar = findPrevNonWhitespace(start - 1);
       const nextNonWhitespace = findNextNonWhitespace(i);
       const isQualified =
-        prevChar === '.' || prevChar === ':' || nextNonWhitespace === '.';
-      const isFunctionCall = nextNonWhitespace === '(';
+        prevChar === "." || prevChar === ":" || nextNonWhitespace === ".";
+      const isFunctionCall = nextNonWhitespace === "(";
       const shouldPrefix =
         !isQualified &&
         !isFunctionCall &&
@@ -558,7 +590,7 @@ export function filterConfigToWhereClause(
   filter: FilterConfig | undefined,
   dbType: DbType | string,
   columnPrefix?: string,
-  columnNames?: string[]
+  columnNames?: string[],
 ): string | undefined {
   if (!filter) {
     return undefined;
@@ -571,7 +603,7 @@ export function filterConfigToWhereClause(
         filter.rawWhereClause,
         columnPrefix,
         columnNames,
-        toDbType(dbType)
+        toDbType(dbType),
       );
     }
     return filter.rawWhereClause;
@@ -588,14 +620,14 @@ export function filterConfigToWhereClause(
  * Convert SortConfig array to SQL ORDER BY clause components
  */
 export function sortConfigToOrderBy(
-  sorts: SortConfig[] | undefined
-): Array<{ column: string; direction: 'ASC' | 'DESC' }> | undefined {
+  sorts: SortConfig[] | undefined,
+): Array<{ column: string; direction: "ASC" | "DESC" }> | undefined {
   if (!sorts || sorts.length === 0) {
     return undefined;
   }
 
   return sorts.map((s) => ({
     column: s.column,
-    direction: s.direction.toUpperCase() as 'ASC' | 'DESC',
+    direction: s.direction.toUpperCase() as "ASC" | "DESC",
   }));
 }

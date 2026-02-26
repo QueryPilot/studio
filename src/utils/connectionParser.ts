@@ -1139,6 +1139,14 @@ function preprocessUri(uri: string): string {
 
   const [, protocol, username, password, rest] = match;
 
+  // Check if password is already percent-encoded by looking for %XX patterns
+  const isAlreadyEncoded = /%[0-9A-Fa-f]{2}/.test(password);
+  
+  if (isAlreadyEncoded) {
+    // Password is already encoded, don't double-encode
+    return uri;
+  }
+
   // Encode special characters in password that break URL parsing
   const encodedPassword = password
     .replace(/%/g, '%25')  // Encode % first to avoid double-encoding

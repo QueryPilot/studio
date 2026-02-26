@@ -992,7 +992,10 @@ export function WorkspaceTitleBar({
         {/* Update available notice */}
         {pendingUpdate && (
           <button
-            className="h-5 px-2 text-[10px] font-medium gap-1.5 rounded-full running-border running-border--red inline-flex items-center text-red-600 dark:text-red-400 cursor-pointer hover:opacity-80 transition-opacity"
+            className={cn(
+              "h-5 px-2 text-[10px] font-medium gap-1.5 rounded-full running-border running-border--red inline-flex items-center text-red-600 dark:text-red-400 transition-opacity",
+              isInstallingUpdate ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-80"
+            )}
             onClick={() => { triggerAppUpdate(); }}
             disabled={isInstallingUpdate}
             title={`Update to v${pendingUpdate.version}`}

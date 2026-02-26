@@ -1,8 +1,8 @@
-import { IconSettings, IconMoon, IconSun, IconRotate, IconLoader2 } from '@tabler/icons-react';
-import { useAppStore } from '@/stores/appStore';
-import { usePreferencesStore } from '@/stores/preferencesStore';
-import { cn } from '@/lib/utils';
-import { triggerAppUpdate } from '@/utils/appUpdate';
+import { IconSettings, IconMoon, IconSun, IconRotate, IconLoader2 } from "@tabler/icons-react";
+import { useAppStore } from "@/stores/appStore";
+import { usePreferencesStore } from "@/stores/preferencesStore";
+import { cn } from "@/lib/utils";
+import { triggerAppUpdate } from "@/utils/appUpdate";
 
 export function ActionBarFooter() {
   const theme = useAppStore((state) => state.theme);
@@ -27,7 +27,10 @@ export function ActionBarFooter() {
       {pendingUpdate && (
         <button
           type="button"
-          className="flex items-center gap-2 w-full px-3 py-2 mb-0.5 rounded-full running-border running-border--red text-xs font-medium text-red-600 dark:text-red-400 cursor-pointer hover:opacity-80 transition-opacity"
+          className={cn(
+            "flex items-center gap-2 w-full px-3 py-2 mb-0.5 rounded-full running-border running-border--red text-xs font-medium text-red-600 dark:text-red-400 transition-opacity",
+            isInstallingUpdate ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-80"
+          )}
           onClick={() => { triggerAppUpdate(); }}
           disabled={isInstallingUpdate}
         >

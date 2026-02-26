@@ -134,8 +134,8 @@ describe('formatting utilities', () => {
         expect(escapeString("a'b'c", DbType.MySQL)).toBe("a''b''c");
       });
 
-      it('should not escape backslashes (safe with NO_BACKSLASH_ESCAPES)', () => {
-        expect(escapeString('path\\to', DbType.MySQL)).toBe('path\\to');
+      it('should escape backslashes for MySQL (default behavior)', () => {
+        expect(escapeString('path\\to', DbType.MySQL)).toBe('path\\\\to');
       });
     });
   });
