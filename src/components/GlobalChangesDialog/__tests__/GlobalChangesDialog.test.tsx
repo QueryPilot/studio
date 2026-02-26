@@ -2,8 +2,8 @@
  * Tests for GlobalChangesDialog - verifies UI rendering for all CRUD operation types
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import { GlobalChangesDialog } from '../GlobalChangesDialog';
 import { useCrudStore } from '@/stores/crudStore';
 import { useConnectionStore } from '@/stores/connectionStoreNew';
@@ -14,6 +14,18 @@ import { DbType } from '@/types/connection';
 vi.mock('@/stores/crudStore');
 vi.mock('@/stores/connectionStoreNew');
 vi.mock('@/stores/dataInvalidationStore');
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: ({ count }: { count: number }) => ({
+    getVirtualItems: () =>
+      Array.from({ length: count }, (_, index) => ({
+        index,
+        start: index * 220,
+      })),
+    getTotalSize: () => count * 220,
+    measureElement: () => {},
+    scrollToOffset: () => {},
+  }),
+}));
 vi.mock('@/stores/validationStore', () => ({
   useValidationStore: () => ({
     canCommit: () => ({ allowed: true, errorCount: 0 }),
@@ -27,6 +39,9 @@ vi.mock('@/components/CodeEditor', () => ({
 
 // Mock react-diff-viewer
 vi.mock('react-diff-viewer-continued', () => ({
+  DiffMethod: {
+    WORDS: 'WORDS',
+  },
   default: ({ oldValue, newValue }: { oldValue: string; newValue: string }) => (
     <div data-testid="diff-viewer">
       <div data-testid="old-value">{oldValue}</div>
@@ -55,12 +70,73 @@ const createMockCommand = (
   state: 'staged',
 });
 
+type MockCrudStoreState = {
+  stagedCommands: Map<string, CrudCommand[]>;
+  commitAll: ReturnType<typeof vi.fn>;
+  discardAll: ReturnType<typeof vi.fn>;
+  getTableKey: (target: {
+    connectionId: string;
+    database: string;
+    schema?: string;
+    table: string;
+  }) => string;
+  commitChanges: ReturnType<typeof vi.fn>;
+  discardChanges: ReturnType<typeof vi.fn>;
+  unstageCommand: ReturnType<typeof vi.fn>;
+  clearCommittedChanges: ReturnType<typeof vi.fn>;
+  isCommittingAll: boolean;
+  stageCommands: ReturnType<typeof vi.fn>;
+};
+
+const createDefaultCrudStoreState = (): MockCrudStoreState => ({
+  stagedCommands: new Map(),
+  commitAll: vi.fn().mockResolvedValue({}),
+  discardAll: vi.fn(),
+  getTableKey: vi.fn(() => 'test-conn:testdb:public:users'),
+  commitChanges: vi.fn().mockResolvedValue({
+    transactionId: 'test',
+    success: true,
+    durationMs: 1,
+    committed: [],
+    failures: [],
+  }),
+  discardChanges: vi.fn(),
+  unstageCommand: vi.fn(),
+  clearCommittedChanges: vi.fn(),
+  isCommittingAll: false,
+  stageCommands: vi.fn(),
+});
+
+const mockCrudStoreState = (overrides: Partial<MockCrudStoreState>) => {
+  const state: MockCrudStoreState = {
+    ...createDefaultCrudStoreState(),
+    ...overrides,
+  };
+  vi.mocked(useCrudStore).mockImplementation(
+    ((selector?: (store: MockCrudStoreState) => unknown) =>
+      selector ? selector(state) : state) as typeof useCrudStore,
+  );
+};
+
 describe('GlobalChangesDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    
-    // Mock connection store
-    vi.mocked(useConnectionStore).mockReturnValue({
+    vi.stubGlobal('requestAnimationFrame', ((cb: FrameRequestCallback) => {
+      cb(0);
+      return 1;
+    }) as typeof requestAnimationFrame);
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+    const connectionState = {
+      connections: [
+        {
+          profile: {
+            id: 'test-conn',
+            db_type: DbType.PostgreSQL,
+            name: 'Test DB',
+          },
+        },
+      ],
       getConnection: () => ({
         profile: {
           id: 'test-conn',
@@ -68,7 +144,18 @@ describe('GlobalChangesDialog', () => {
           name: 'Test DB',
         },
       }),
-    } as never);
+    };
+
+    vi.mocked(useConnectionStore).mockImplementation(
+      ((selector?: (state: typeof connectionState) => unknown) =>
+        selector ? selector(connectionState) : connectionState) as typeof useConnectionStore,
+    );
+
+    mockCrudStoreState({});
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   describe('DML Operations Display', () => {
@@ -77,10 +164,10 @@ describe('GlobalChangesDialog', () => {
         values: { name: 'John Doe', email: 'john@example.com', age: 30 },
       });
 
-      vi.mocked(useCrudStore).mockReturnValue({
+      mockCrudStoreState({
         stagedCommands: new Map([['test-conn:testdb:public:users', [insertCommand]]]),
         getTableKey: () => 'test-conn:testdb:public:users',
-      } as never);
+      });
 
       const { container } = render(
         <GlobalChangesDialog
@@ -106,10 +193,10 @@ describe('GlobalChangesDialog', () => {
         primaryKeys: { id: 1 },
       });
 
-      vi.mocked(useCrudStore).mockReturnValue({
+      mockCrudStoreState({
         stagedCommands: new Map([['test-conn:testdb:public:users', [updateCommand]]]),
         getTableKey: () => 'test-conn:testdb:public:users',
-      } as never);
+      });
 
       const { container } = render(
         <GlobalChangesDialog
@@ -132,10 +219,10 @@ describe('GlobalChangesDialog', () => {
         primaryKeys: { id: 1 },
       });
 
-      vi.mocked(useCrudStore).mockReturnValue({
+      mockCrudStoreState({
         stagedCommands: new Map([['test-conn:testdb:public:users', [deleteCommand]]]),
         getTableKey: () => 'test-conn:testdb:public:users',
-      } as never);
+      });
 
       const { container } = render(
         <GlobalChangesDialog
@@ -164,10 +251,10 @@ describe('GlobalChangesDialog', () => {
         primaryKey: ['id'],
       });
 
-      vi.mocked(useCrudStore).mockReturnValue({
+      mockCrudStoreState({
         stagedCommands: new Map([['test-conn:testdb:public:new_table', [createTableCommand]]]),
         getTableKey: () => 'test-conn:testdb:public:new_table',
-      } as never);
+      });
 
       const { container } = render(
         <GlobalChangesDialog
@@ -181,7 +268,7 @@ describe('GlobalChangesDialog', () => {
       );
 
       expect(container).toMatchSnapshot();
-      expect(screen.getByText('DDL')).toBeInTheDocument();
+      expect(screen.getByText('DDL', { selector: 'span' })).toBeInTheDocument();
       expect(screen.getByText(/Table: new_table/)).toBeInTheDocument();
       expect(screen.getByText(/id: INTEGER/)).toBeInTheDocument();
     });
@@ -195,10 +282,10 @@ describe('GlobalChangesDialog', () => {
         },
       });
 
-      vi.mocked(useCrudStore).mockReturnValue({
+      mockCrudStoreState({
         stagedCommands: new Map([['test-conn:testdb:public:users', [createViewCommand]]]),
         getTableKey: () => 'test-conn:testdb:public:users',
-      } as never);
+      });
 
       const { container } = render(
         <GlobalChangesDialog
@@ -212,7 +299,7 @@ describe('GlobalChangesDialog', () => {
       );
 
       expect(container).toMatchSnapshot();
-      expect(screen.getByText('DDL')).toBeInTheDocument();
+      expect(screen.getByText('DDL', { selector: 'span' })).toBeInTheDocument();
       expect(screen.getByText(/View: active_users/)).toBeInTheDocument();
     });
 
@@ -225,10 +312,10 @@ describe('GlobalChangesDialog', () => {
         },
       });
 
-      vi.mocked(useCrudStore).mockReturnValue({
+      mockCrudStoreState({
         stagedCommands: new Map([['test-conn:testdb:public:users', [createMatViewCommand]]]),
         getTableKey: () => 'test-conn:testdb:public:users',
-      } as never);
+      });
 
       render(
         <GlobalChangesDialog
@@ -251,10 +338,10 @@ describe('GlobalChangesDialog', () => {
         isMaterialized: false,
       });
 
-      vi.mocked(useCrudStore).mockReturnValue({
+      mockCrudStoreState({
         stagedCommands: new Map([['test-conn:testdb:public:users', [renameViewCommand]]]),
         getTableKey: () => 'test-conn:testdb:public:users',
-      } as never);
+      });
 
       const { container } = render(
         <GlobalChangesDialog
@@ -280,10 +367,10 @@ describe('GlobalChangesDialog', () => {
         },
       });
 
-      vi.mocked(useCrudStore).mockReturnValue({
+      mockCrudStoreState({
         stagedCommands: new Map([['test-conn:testdb:public:users', [addPKCommand]]]),
         getTableKey: () => 'test-conn:testdb:public:users',
-      } as never);
+      });
 
       const { container } = render(
         <GlobalChangesDialog
@@ -310,10 +397,10 @@ describe('GlobalChangesDialog', () => {
         },
       });
 
-      vi.mocked(useCrudStore).mockReturnValue({
+      mockCrudStoreState({
         stagedCommands: new Map([['test-conn:testdb:public:users', [addCheckCommand]]]),
         getTableKey: () => 'test-conn:testdb:public:users',
-      } as never);
+      });
 
       render(
         <GlobalChangesDialog
@@ -342,10 +429,10 @@ describe('GlobalChangesDialog', () => {
         },
       });
 
-      vi.mocked(useCrudStore).mockReturnValue({
+      mockCrudStoreState({
         stagedCommands: new Map([['test-conn:testdb:public:users', [createSeqCommand]]]),
         getTableKey: () => 'test-conn:testdb:public:users',
-      } as never);
+      });
 
       const { container } = render(
         <GlobalChangesDialog
@@ -373,10 +460,10 @@ describe('GlobalChangesDialog', () => {
         },
       });
 
-      vi.mocked(useCrudStore).mockReturnValue({
+      mockCrudStoreState({
         stagedCommands: new Map([['test-conn:testdb:public:users', [alterSeqCommand]]]),
         getTableKey: () => 'test-conn:testdb:public:users',
-      } as never);
+      });
 
       render(
         <GlobalChangesDialog
@@ -404,10 +491,10 @@ describe('GlobalChangesDialog', () => {
         },
       });
 
-      vi.mocked(useCrudStore).mockReturnValue({
+      mockCrudStoreState({
         stagedCommands: new Map([['test-conn:testdb:public:users', [addColCommand]]]),
         getTableKey: () => 'test-conn:testdb:public:users',
-      } as never);
+      });
 
       const { container } = render(
         <GlobalChangesDialog
@@ -421,7 +508,7 @@ describe('GlobalChangesDialog', () => {
       );
 
       expect(container).toMatchSnapshot();
-      expect(screen.getByText('DDL')).toBeInTheDocument();
+      expect(screen.getByText('DDL', { selector: 'span' })).toBeInTheDocument();
     });
   });
 
@@ -434,7 +521,7 @@ describe('GlobalChangesDialog', () => {
         },
       });
 
-      vi.mocked(useCrudStore).mockReturnValue({
+      mockCrudStoreState({
         stagedCommands: new Map([['test-conn:testdb:public:users', [createViewCommand]]]),
         getTableKey: () => 'test-conn:testdb:public:users',
         commitChanges: vi.fn().mockResolvedValue({
@@ -444,7 +531,7 @@ describe('GlobalChangesDialog', () => {
           committed: [],
           failures: [],
         }),
-      } as never);
+      });
 
       render(
         <GlobalChangesDialog
@@ -458,7 +545,7 @@ describe('GlobalChangesDialog', () => {
       );
 
       // The component should render without errors
-      expect(screen.getByText('DDL')).toBeInTheDocument();
+      expect(screen.getByText('DDL', { selector: 'span' })).toBeInTheDocument();
     });
 
     it('should detect schema-altering operations for sequences', () => {
@@ -469,10 +556,10 @@ describe('GlobalChangesDialog', () => {
         },
       });
 
-      vi.mocked(useCrudStore).mockReturnValue({
+      mockCrudStoreState({
         stagedCommands: new Map([['test-conn:testdb:public:users', [createSeqCommand]]]),
         getTableKey: () => 'test-conn:testdb:public:users',
-      } as never);
+      });
 
       render(
         <GlobalChangesDialog
@@ -485,7 +572,7 @@ describe('GlobalChangesDialog', () => {
         />,
       );
 
-      expect(screen.getByText('DDL')).toBeInTheDocument();
+      expect(screen.getByText('DDL', { selector: 'span' })).toBeInTheDocument();
     });
   });
 
@@ -505,10 +592,10 @@ describe('GlobalChangesDialog', () => {
         primaryKeys: { id: 1 },
       });
 
-      vi.mocked(useCrudStore).mockReturnValue({
+      mockCrudStoreState({
         stagedCommands: new Map([['test-conn:testdb:public:users', [update1, update2]]]),
         getTableKey: () => 'test-conn:testdb:public:users',
-      } as never);
+      });
 
       render(
         <GlobalChangesDialog
@@ -538,12 +625,12 @@ describe('GlobalChangesDialog', () => {
         definition: { name: 'email_unique', type: 'unique', columns: ['email'] },
       });
 
-      vi.mocked(useCrudStore).mockReturnValue({
+      mockCrudStoreState({
         stagedCommands: new Map([
           ['test-conn:testdb:public:users', [viewCreate, seqCreate, constraintAdd]],
         ]),
         getTableKey: () => 'test-conn:testdb:public:users',
-      } as never);
+      });
 
       const { container } = render(
         <GlobalChangesDialog
@@ -557,7 +644,7 @@ describe('GlobalChangesDialog', () => {
       );
 
       expect(container).toMatchSnapshot();
-      expect(screen.getAllByText('DDL')).toHaveLength(3);
+      expect(screen.getAllByText('DDL', { selector: 'span' })).toHaveLength(3);
     });
   });
 
@@ -610,7 +697,7 @@ describe('GlobalChangesDialog', () => {
         />,
       );
 
-      expect(screen.getByText('Commit changes')).toBeInTheDocument();
+      expect(screen.getByText('Commit Changes')).toBeInTheDocument();
 
       // Simulate undo/discard leaving no staged commands while parent still passes open=true.
       stagedCommands = new Map();
