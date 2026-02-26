@@ -411,7 +411,24 @@ Use @systematic-debugging and fix regressions before final commit.
 **Step 4: Commit verification-safe final state**
 
 ```bash
-git add -A
+git add \
+  src/components/DataGrid/utils/rowIdentity.ts \
+  src/components/DataGrid/utils/__tests__/rowIdentity.test.ts \
+  src/components/DataGrid/utils/index.ts \
+  src/components/DataGrid/adapters/SqlDataGrid.tsx \
+  src/components/DataGrid/adapters/__tests__/SqlDataGrid.test.tsx \
+  src/components/DataGrid/utils/crudHelpers.ts \
+  src/components/DataGrid/utils/__tests__/crudHelpers.rowIdentity.test.ts \
+  src/components/DataGrid/base/BaseDataGrid.tsx \
+  src/components/DataGrid/components/GridContextMenuItems.tsx \
+  src/components/DataGrid/components/UnifiedContextMenu.tsx \
+  src/components/DataGrid/base/__tests__/BaseDataGrid.delete-rows.test.tsx \
+  src/components/DataGrid/utils/bestEffortMatcher.ts \
+  src/components/DataGrid/utils/__tests__/bestEffortMatcher.test.ts \
+  src/components/DataGrid/hooks/useOptimisticRows.ts \
+  src/components/DataGrid/hooks/features/useOptimisticRows.ts \
+  src/components/DataGrid/hooks/features/useStagedChangesIndicator.ts \
+  src/components/DataGrid/hooks/useOptimisticRows.test.ts
 git commit -m "feat(datagrid): strict and best-effort editing for tables without PK"
 ```
 
