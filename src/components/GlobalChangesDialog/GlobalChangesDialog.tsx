@@ -640,17 +640,18 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     return groups;
   }, [isWorkspaceWide, tableSummaries, connections]);
 
+  // Expand all connections when dialog opens and data is loaded.
+  // Uses connectionGroups.length (primitive) instead of the array reference
+  // so adding rows to an existing connection doesn't reset user's collapse state.
+  const connectionGroupCount = connectionGroups.length;
   useEffect(() => {
-    if (!open) {
-      return;
-    }
+    if (!open || connectionGroupCount === 0) return;
     setSelectedConnectionId(null);
     setSelectedTableKey(null);
-    // Expand all connection groups when dialog opens
     setExpandedConnections(
       new Set(connectionGroups.map((g) => g.connectionId)),
     );
-  }, [open, connectionGroups]);
+  }, [open, connectionGroupCount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!selectedConnectionId) {
@@ -1088,19 +1089,19 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         return;
       }
 
-      // For workspace-wide, process each table
-      for (const [tk, commands] of connectionCommands) {
-        const strippedCommands = commands.map(stripOldValue);
-        discardTableChanges(tk);
-        stageCommands(strippedCommands);
-      }
-
+      // For workspace-wide, strip and commit each table individually
+      // to avoid data loss if a mid-sequence commit fails
       const successful: Array<{ tableKey: string; committedCount: number }> =
         [];
       const failed: Array<{ tableKey: string; error: string }> = [];
 
-      for (const [tableKeyToCommit] of connectionCommands) {
+      for (const [tableKeyToCommit, commands] of connectionCommands) {
         try {
+          // Strip oldValue and restage immediately before committing this table
+          const strippedCommands = commands.map(stripOldValue);
+          discardTableChanges(tableKeyToCommit);
+          stageCommands(strippedCommands);
+
           const result = await commitChanges(tableKeyToCommit);
           successful.push({
             tableKey: tableKeyToCommit,
@@ -1390,6 +1391,8 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                                 >
                                   {/* Expand/collapse chevron */}
                                   <button
+                                    aria-label={isExpanded ? `Collapse ${group.connectionName}` : `Expand ${group.connectionName}`}
+                                    aria-expanded={isExpanded}
                                     className="p-0.5 -ml-0.5 rounded hover:bg-muted/80 transition-colors shrink-0"
                                     onClick={(e) => {
                                       e.stopPropagation();

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { IntrospectionService } from "../introspectionService";
 import { BackendAPI } from "../backend";
-import { getAdapterForConnection } from "@/adapters";
+import { getSqlAdapterForConnection } from "@/adapters";
 
 vi.mock("../backend", () => ({
   BackendAPI: {
@@ -10,7 +10,7 @@ vi.mock("../backend", () => ({
 }));
 
 vi.mock("@/adapters", () => ({
-  getAdapterForConnection: vi.fn(),
+  getSqlAdapterForConnection: vi.fn(),
 }));
 
 describe("IntrospectionService", () => {
@@ -23,7 +23,7 @@ describe("IntrospectionService", () => {
       getColumnsQuery: vi.fn(() => "SELECT 1"),
     };
 
-    (getAdapterForConnection as unknown as vi.Mock).mockResolvedValue(adapter);
+    (getSqlAdapterForConnection as unknown as vi.Mock).mockResolvedValue(adapter);
     (BackendAPI.query as unknown as vi.Mock).mockResolvedValue({
       rows: [
         ["id", "int", "int", "0", "1", null, null, null, null],

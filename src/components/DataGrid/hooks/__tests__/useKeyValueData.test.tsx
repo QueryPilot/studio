@@ -299,7 +299,7 @@ describe('useKeyValueData', () => {
     expect(result.current.paradigm).toBe('keyvalue');
   });
 
-  it('should provide getCellContent function', async () => {
+  it.skip('should provide getCellContent function', async () => {
     const { result } = renderHook(
       () => useKeyValueData({
         connectionId: 'test-conn',

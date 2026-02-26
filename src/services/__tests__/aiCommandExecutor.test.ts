@@ -56,6 +56,25 @@ vi.mock("@/stores/connectionStoreNew", () => ({
 vi.mock("@/stores/workspaceScreenStore", () => ({
   useWorkspaceScreenStore: {
     getState: () => ({
+      activeConnectionId: "test-conn-id",
+      workspaces: new Map([
+        [
+          "test-conn-id",
+          {
+            panels: new Map([
+              [
+                "panel-1",
+                {
+                  activeTabId: "tab-1",
+                  tabs: new Map([
+                    ["tab-1", { payload: { sql: "SELECT 1" }, title: "Query" }],
+                  ]),
+                },
+              ],
+            ]),
+          },
+        ],
+      ]),
       getPanels: () => {
         const panel = {
           activeTabId: "tab-1",

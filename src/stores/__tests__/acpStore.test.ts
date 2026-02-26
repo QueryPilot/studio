@@ -198,13 +198,13 @@ describe("acpStore", () => {
     });
 
     it("should not change selection if agent already selected", async () => {
-      useAcpStore.setState({ selectedAgentId: "existing-agent" });
+      useAcpStore.setState({ selectedAgentId: "another-agent" });
       vi.mocked(AcpService.listAgents).mockResolvedValue(mockAgents);
 
       await useAcpStore.getState().loadAgents();
 
       const state = useAcpStore.getState();
-      expect(state.selectedAgentId).toBe("existing-agent");
+      expect(state.selectedAgentId).toBe("another-agent");
     });
 
     it("should handle empty agents list", async () => {
@@ -252,7 +252,8 @@ describe("acpStore", () => {
       // createSession uses the LLM home directory from AcpService.getLlmHome()
       expect(AcpService.createSession).toHaveBeenCalledWith(
         "instance-123",
-        "/home/user/.querypilot/llm"
+        "/home/user/.querypilot/llm",
+        undefined // mcpServers can be undefined if sidecar not available
       );
       expect(db.saveSession).toHaveBeenCalled();
 
@@ -323,7 +324,7 @@ describe("acpStore", () => {
 
       const state = useAcpStore.getState();
       expect(state.activeSession).toEqual(mockSession);
-      expect(state.activeInstanceId).toBe("instance-123");
+      expect(state.activeInstanceId).toBe(null); // Old instance is dead
       expect(state.messages).toEqual(mockMessages);
     });
 
@@ -366,15 +367,17 @@ describe("acpStore", () => {
       expect(db.saveMessage).toHaveBeenCalled();
     });
 
-    it("should throw error if no active session", async () => {
+    it("should set error state if no active session", async () => {
       useAcpStore.setState({
         activeSession: null,
         activeInstanceId: null,
       });
 
-      await expect(useAcpStore.getState().sendMessage("Hello!")).rejects.toThrow(
-        "No active session"
-      );
+      await useAcpStore.getState().sendMessage("Hello!");
+      
+      const state = useAcpStore.getState();
+      expect(state.streamingError).toBe("No active session");
+      expect(state.isStreaming).toBe(false);
     });
 
     it("should pass context JSON to AcpService", async () => {
@@ -402,7 +405,11 @@ describe("acpStore", () => {
         "instance-123",
         "Query users",
         contextJson,
-        expect.any(Object)
+        undefined, // images
+        expect.objectContaining({
+          onChunk: expect.any(Function),
+          onComplete: expect.any(Function),
+        })
       );
     });
   });
