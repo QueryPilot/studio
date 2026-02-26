@@ -69,7 +69,6 @@ export class ErrorBoundary extends Component<Props, State> {
     try {
       await writeClipboardText(errorText);
       this.setState({ copied: true });
-      toast.success("Error details copied to clipboard");
       setTimeout(() => {
         this.setState({ copied: false });
       }, 2000);

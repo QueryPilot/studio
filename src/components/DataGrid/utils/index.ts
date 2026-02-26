@@ -97,3 +97,5 @@ export {
   type BulkPasteProgress,
   type BulkPasteResult,
 } from "./bulkPaste";
+
+export { chooseDeterministicIdentityColumns } from "./rowIdentity";

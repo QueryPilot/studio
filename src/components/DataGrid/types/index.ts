@@ -236,6 +236,11 @@ export interface CrudCommandFactory {
 
   /** Create a delete command for a row */
   createDeleteCommand: (row: GridRowModel, rowKey: string) => import('@/types/crud').CrudCommand;
+
+  /** Optional async validation hook before staging a command */
+  validateCommand?: (
+    command: import("@/types/crud").CrudCommand,
+  ) => Promise<{ valid: boolean; reason?: string }>;
 }
 
 export * from './cellState';

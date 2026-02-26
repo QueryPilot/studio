@@ -46,12 +46,15 @@ import { DbType, type GridCellValue } from "@/types";
 import type { FilterColumnInfo } from "@/utils/filterParser";
 import { useEmbeddedFKPreferencesStore } from "../stores/embeddedFKPreferencesStore";
 import type { EmbeddedFKConfig } from "@/adapters/types";
+import { getAdapterForConnection } from "@/adapters";
 import {
   createInsertCommand,
   createUpdateCommand,
   createDeleteCommand,
   createCrudTarget,
 } from "../utils/crudHelpers";
+import { canProceedBestEffort } from "../utils/bestEffortMatcher";
+import { chooseDeterministicIdentityColumns } from "../utils/rowIdentity";
 import { useOptimisticRows } from "../hooks/useOptimisticRows";
 import { useCrudStore } from "@/stores/crudStore";
 import { useGridPreferencesStore } from "../stores/gridPreferencesStore";
@@ -119,7 +122,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
 
   const isViewOrMatView = kind === "View" || kind === "MaterializedView";
   const isReadOnly = readOnly || isViewOrMatView;
-  const readOnlyReason =
+  const viewReadOnlyReason =
     kind === "View"
       ? "Read-only: View"
       : kind === "MaterializedView"
@@ -135,6 +138,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
     options: {
       includeConstraints: true, // Required for FK data (FKs are extracted from constraints)
       includeForeignKeys: true, // Required for FK preview and embed features
+      includeIndexes: true, // Required for deterministic identity fallback (UNIQUE indexes)
     },
   });
 
@@ -537,10 +541,34 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     return map;
   }, [columns]);
 
-  // Primary key columns
+  const structureIdentityColumns = useMemo(() => {
+    return (
+      chooseDeterministicIdentityColumns({
+        primaryKeys: tableStructure?.primaryKeys,
+        constraints: tableStructure?.constraints,
+        indexes: tableStructure?.indexes,
+      }) ?? []
+    );
+  }, [
+    tableStructure?.primaryKeys,
+    tableStructure?.constraints,
+    tableStructure?.indexes,
+  ]);
+
+  // Deterministic row identity columns
   const primaryKeyColumns = useMemo(() => {
+    if (structureIdentityColumns.length > 0) {
+      return structureIdentityColumns;
+    }
     return columns.filter((col) => col.meta?.is_pk).map((col) => col.name);
-  }, [columns]);
+  }, [columns, structureIdentityColumns]);
+
+  const hasDeterministicIdentity = primaryKeyColumns.length > 0;
+  const mutationGuardReason =
+    !isReadOnly && !hasDeterministicIdentity
+      ? "Update/Delete disabled: no primary/unique key"
+      : undefined;
+  const readOnlyReason = viewReadOnlyReason ?? mutationGuardReason;
 
   // Row key generation
   const rowKeyMapRef = useRef(new WeakMap<GridRowModel, string>());
@@ -582,6 +610,15 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     [primaryKeyColumns, schema, table],
   );
 
+  const bestEffortIdentityColumns = useMemo(() => {
+    const filteredColumns = columns
+      .map((col) => col.name ?? col.field)
+      .filter((columnName) => !columnName.startsWith("__qp_fk__"));
+    return filteredColumns.length > 0
+      ? filteredColumns
+      : columns.map((col) => col.name ?? col.field);
+  }, [columns]);
+
   // --- Command Factory ---
   // Creates SQL-specific CRUD commands for BaseDataGrid to use
   const commandFactory = useMemo<CrudCommandFactory | undefined>(() => {
@@ -606,7 +643,17 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
 
       createEditCommand: (event: GridEditCommitEvent) => {
         try {
-          return createUpdateCommand(event, target, columns);
+          const matcherMode =
+            primaryKeyColumns.length > 0 ? "deterministic" : "best_effort";
+          const identityColumns =
+            primaryKeyColumns.length > 0
+              ? primaryKeyColumns
+              : bestEffortIdentityColumns;
+
+          return createUpdateCommand(event, target, columns, {
+            identityColumns,
+            matcherMode,
+          });
         } catch (err) {
           console.error("Failed to create update command:", err);
           return null;
@@ -650,7 +697,71 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
       },
 
       createDeleteCommand: (row: GridRowModel, _rowKey: string) => {
-        return createDeleteCommand(row, target, columns);
+        const matcherMode =
+          primaryKeyColumns.length > 0 ? "deterministic" : "best_effort";
+        const identityColumns =
+          primaryKeyColumns.length > 0
+            ? primaryKeyColumns
+            : bestEffortIdentityColumns;
+        return createDeleteCommand(row, target, columns, {
+          identityColumns,
+          matcherMode,
+        });
+      },
+
+      validateCommand: async (command) => {
+        if (command.type !== "data.update" && command.type !== "data.delete") {
+          return { valid: true };
+        }
+
+        const tags = command.metadata.tags ?? [];
+        if (!tags.includes("matcher:best_effort")) {
+          return { valid: true };
+        }
+
+        const payload = command.payload as { primaryKeys?: Record<string, unknown> };
+        const where = payload.primaryKeys;
+        try {
+          const adapter = await getAdapterForConnection(connectionId);
+          const probeResult = await canProceedBestEffort({
+            adapter:
+              (adapter as unknown) as Parameters<
+                typeof canProceedBestEffort
+              >[0]["adapter"],
+            target: { schema, table },
+            where: where ?? {},
+          });
+
+          if (probeResult.ok) {
+            return { valid: true };
+          }
+
+          if (probeResult.reason === "invalid_matcher") {
+            return {
+              valid: false,
+              reason: "Best-effort blocked: no row matcher values were provided",
+            };
+          }
+
+          if (probeResult.reason === "not_found") {
+            return {
+              valid: false,
+              reason: "Best-effort blocked: row no longer matches current values",
+            };
+          }
+
+          return {
+            valid: false,
+            reason: "Best-effort blocked: multiple rows match current values",
+          };
+        } catch (error) {
+          return {
+            valid: false,
+            reason: `Best-effort validation failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          };
+        }
       },
     };
   }, [
@@ -660,6 +771,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     schema,
     table,
     columns,
+    bestEffortIdentityColumns,
     primaryKeyColumns,
     columnNameToFieldMap,
     columnByFieldMap,

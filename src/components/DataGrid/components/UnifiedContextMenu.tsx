@@ -39,6 +39,8 @@ export interface UnifiedContextMenuProps {
   onInsertRowBelow?: () => void;
   onDuplicateRows?: () => void;
   onDeleteRows?: () => void;
+  onBestEffortEditRows?: () => void;
+  onBestEffortDeleteRows?: () => void;
   onPaste?: () => void;
   onViewDetails?: (rows: GridRowModel[]) => void;
   // Header context menu props
@@ -83,6 +85,8 @@ export function UnifiedContextMenu({
   onInsertRowBelow,
   onDuplicateRows,
   onDeleteRows,
+  onBestEffortEditRows,
+  onBestEffortDeleteRows,
   onPaste,
   onViewDetails,
   allColumnsForVisibility,
@@ -211,6 +215,8 @@ export function UnifiedContextMenu({
               onInsertRowBelow={onInsertRowBelow}
               onDuplicateRows={onDuplicateRows}
               onDeleteRows={onDeleteRows}
+              onBestEffortEditRows={onBestEffortEditRows}
+              onBestEffortDeleteRows={onBestEffortDeleteRows}
               onPaste={onPaste}
             />
           )}

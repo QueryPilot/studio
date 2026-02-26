@@ -40,6 +40,8 @@ export function useOptimisticRows({
       return displayRows;
     }
 
+    const canMatchExistingRowsByIdentity = primaryKeyColumns.length > 0;
+
     // Build index: PK signature → array of UPDATE commands (O(M) where M = commands)
     const updateCommandsByPK = new Map<
       string,
@@ -54,6 +56,7 @@ export function useOptimisticRows({
         newValue?: unknown;
       };
       if (!payload.primaryKeys || !payload.column) continue;
+      if (!canMatchExistingRowsByIdentity) continue;
 
       // Create stable PK signature from sorted keys
       const pkEntries = Object.entries(payload.primaryKeys).sort(([a], [b]) =>
@@ -74,7 +77,7 @@ export function useOptimisticRows({
 
     // Apply UPDATE commands - only create new objects for modified rows
     let updatedRows: GridRowModel[];
-    if (updateCommandsByPK.size === 0) {
+    if (!canMatchExistingRowsByIdentity || updateCommandsByPK.size === 0) {
       updatedRows = displayRows;
     } else {
       // Pre-compute PK signatures for ALL rows once (avoids repeated computation)
