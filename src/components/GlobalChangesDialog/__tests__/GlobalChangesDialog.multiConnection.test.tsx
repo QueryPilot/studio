@@ -688,9 +688,11 @@ describe("GlobalChangesDialog multi-connection behavior", () => {
         screen.getByText(/2 changes across 2 tables in 2 connections/i),
       ).toBeInTheDocument();
       expect(screen.getAllByRole("button", { name: /^Undo$/ })).toHaveLength(2);
-      expect(screen.getAllByText("db1.public.users")).toHaveLength(2);
-      expect(screen.getAllByText("db2.public.users")).toHaveLength(2);
+      // Full display name appears in the changes list row headers
+      expect(screen.getByText("db1.public.users")).toBeInTheDocument();
+      expect(screen.getByText("db2.public.users")).toBeInTheDocument();
+      // Sidebar shows shortened names (schema.table without database prefix)
+      expect(screen.getAllByText("public.users")).toHaveLength(2);
     });
-  });
   });
 });
