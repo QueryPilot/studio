@@ -30,7 +30,18 @@ vi.mock("@/components/DataGrid", () => ({
       ))}
     </div>
   ),
-  QueryResultGrid: () => <div data-testid="query-result-grid" />,
+  QueryResultGrid: ({ data }: { data?: TableDataGridData }) => (
+    <div data-testid="query-result-grid">
+      <div data-testid="columns">{JSON.stringify(data?.columns ?? [])}</div>
+      <div data-testid="rows">{JSON.stringify(data?.rows ?? [])}</div>
+      {/* Render first row values for easy testing */}
+      {data?.rows?.[0]?.map((cell, i) => (
+        <div key={i} data-testid={`cell-${i}`}>
+          {cell === null ? "NULL" : String(cell)}
+        </div>
+      ))}
+    </div>
+  ),
 }));
 
 // Mock next-themes
@@ -300,8 +311,8 @@ describe("ResultViewer - Empty results", () => {
       />
     );
 
-    // Should render without errors
-    expect(screen.getByTestId("mock-data-grid")).toBeInTheDocument();
+    // Should render without errors (QueryResultGrid is used, not TableDataGrid)
+    expect(screen.getByTestId("query-result-grid")).toBeInTheDocument();
   });
 
   it("should handle null result", () => {

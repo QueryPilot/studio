@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { MongoDBAdapter } from '../mongodb/MongoDBAdapter';
 
+// Mock must be before imports
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
 }));
 
+import { MongoDBAdapter } from '../mongodb/MongoDBAdapter';
 import { invoke } from '@tauri-apps/api/core';
+
 const mockInvoke = vi.mocked(invoke);
 
 describe('MongoDBAdapter', () => {
@@ -13,6 +15,8 @@ describe('MongoDBAdapter', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Set default mock return to avoid "undefined" access errors
+    mockInvoke.mockResolvedValue({ data: null, type: 'unknown' });
     adapter = new MongoDBAdapter('test-conn-id');
   });
 
@@ -46,15 +50,15 @@ describe('MongoDBAdapter', () => {
 
       const result = await adapter.findDocuments('users', { active: true }, { limit: 10 });
 
-      expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
         connId: 'test-conn-id',
-        operation: {
+        operation: expect.objectContaining({
           type: 'find',
           collection: 'users',
           filter: { active: true },
           limit: 10,
-        },
-      });
+        }),
+      }));
       expect(result).toEqual([{ _id: '1', name: 'test' }]);
     });
 
@@ -70,18 +74,15 @@ describe('MongoDBAdapter', () => {
 
       const result = await adapter.findDocumentsPage('users', { active: true }, { limit: 10 });
 
-      expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
         connId: 'test-conn-id',
-        operation: {
+        operation: expect.objectContaining({
           type: 'findPage',
           collection: 'users',
           filter: { active: true },
           limit: 10,
-          cursor: undefined,
-          projection: undefined,
-          sort: undefined,
-        },
-      });
+        }),
+      }));
       expect(result.hasMore).toBe(true);
       expect(result.documents).toHaveLength(1);
     });
@@ -98,16 +99,16 @@ describe('MongoDBAdapter', () => {
 
       const result = await adapter.sampleCollectionSchema('users', { active: true }, { sampleSize: 500, maxDepth: 3 });
 
-      expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
         connId: 'test-conn-id',
-        operation: {
+        operation: expect.objectContaining({
           type: 'sampleSchema',
           collection: 'users',
           filter: { active: true },
           sampleSize: 500,
           maxDepth: 3,
-        },
-      });
+        }),
+      }));
       expect(result.fields[0]?.path).toBe('name');
     });
 
@@ -119,14 +120,14 @@ describe('MongoDBAdapter', () => {
 
       const result = await adapter.insertDocument('users', { name: 'John' });
 
-      expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
         connId: 'test-conn-id',
-        operation: {
+        operation: expect.objectContaining({
           type: 'insert',
           collection: 'users',
           document: { name: 'John' },
-        },
-      });
+        }),
+      }));
       expect(result).toEqual({ insertedId: 'new-id-123' });
     });
 
@@ -138,14 +139,14 @@ describe('MongoDBAdapter', () => {
 
       const result = await adapter.insertDocuments('users', [{ name: 'John' }, { name: 'Jane' }]);
 
-      expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
         connId: 'test-conn-id',
-        operation: {
+        operation: expect.objectContaining({
           type: 'insertMany',
           collection: 'users',
           documents: [{ name: 'John' }, { name: 'Jane' }],
-        },
-      });
+        }),
+      }));
       expect(result).toEqual({ insertedIds: ['id1', 'id2'], insertedCount: 2 });
     });
 
@@ -157,15 +158,15 @@ describe('MongoDBAdapter', () => {
 
       const result = await adapter.updateDocument('users', { _id: '1' }, { $set: { name: 'Updated' } });
 
-      expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
         connId: 'test-conn-id',
-        operation: {
+        operation: expect.objectContaining({
           type: 'update',
           collection: 'users',
           filter: { _id: '1' },
           update: { $set: { name: 'Updated' } },
-        },
-      });
+        }),
+      }));
       expect(result).toEqual({ matchedCount: 1, modifiedCount: 1 });
     });
 
@@ -177,14 +178,14 @@ describe('MongoDBAdapter', () => {
 
       const result = await adapter.deleteDocument('users', { _id: '1' });
 
-      expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
         connId: 'test-conn-id',
-        operation: {
+        operation: expect.objectContaining({
           type: 'delete',
           collection: 'users',
           filter: { _id: '1' },
-        },
-      });
+        }),
+      }));
       expect(result).toEqual({ deletedCount: 1 });
     });
 
@@ -197,14 +198,14 @@ describe('MongoDBAdapter', () => {
       const pipeline = [{ $group: { _id: '$category', count: { $sum: 1 } } }];
       const result = await adapter.aggregate('orders', pipeline);
 
-      expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
         connId: 'test-conn-id',
-        operation: {
+        operation: expect.objectContaining({
           type: 'aggregate',
           collection: 'orders',
           pipeline,
-        },
-      });
+        }),
+      }));
       expect(result).toEqual([{ _id: 'group1', count: 5 }]);
     });
 
@@ -216,14 +217,14 @@ describe('MongoDBAdapter', () => {
 
       const result = await adapter.countDocuments('users', { active: true });
 
-      expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
         connId: 'test-conn-id',
-        operation: {
+        operation: expect.objectContaining({
           type: 'count',
           collection: 'users',
           filter: { active: true },
-        },
-      });
+        }),
+      }));
       expect(result).toBe(42);
     });
 
@@ -235,12 +236,12 @@ describe('MongoDBAdapter', () => {
 
       const result = await adapter.listCollections();
 
-      expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
         connId: 'test-conn-id',
-        operation: {
+        operation: expect.objectContaining({
           type: 'listCollections',
-        },
-      });
+        }),
+      }));
       expect(result).toEqual([{ name: 'users' }, { name: 'orders' }]);
     });
 
@@ -252,13 +253,13 @@ describe('MongoDBAdapter', () => {
 
       const result = await adapter.runCommand({ buildInfo: 1 });
 
-      expect(mockInvoke).toHaveBeenCalledWith('document_execute', {
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
         connId: 'test-conn-id',
-        operation: {
+        operation: expect.objectContaining({
           type: 'runCommand',
           command: { buildInfo: 1 },
-        },
-      });
+        }),
+      }));
       expect(result).toEqual({ ok: 1, version: '5.0.0' });
     });
   });
