@@ -48,11 +48,12 @@ help:
 	@echo "  make reseed-all     - Drop and reseed all databases (DELETES existing data)"
 	@echo ""
 	@echo "Release Management:"
-	@echo "  make release                - Create release with cross-repo publishing"
-	@echo "  make relc [V=0.7.1]         - Local build, sign, notarize & upload"
-	@echo "  make release-publish V=0.5.0 - Publish built release to studio-app repo"
-	@echo "  make release-manual VERSION=1.2.3  - Manual release with specific version"
-	@echo "  make version VERSION=1.2.3  - Bump version only (no commit)"
+	@echo "  make release                       - Create release with cross-repo publishing"
+	@echo "  make relc [V=2026.1.0]             - Local build, sign, notarize & upload"
+	@echo "  make release-publish V=2026.1.0    - Publish built release to studio-app repo"
+	@echo "  make release-manual VERSION=2026.1.0         - Stable release"
+	@echo "  make release-manual VERSION=2026.1.0-beta.1  - Beta release"
+	@echo "  make version VERSION=2026.1.0      - Bump version only (no commit)"
 	@echo "  make generate-keys          - Generate Tauri updater signing keys"
 	@echo ""
 	@echo "Quick Start:"
@@ -363,7 +364,8 @@ release-publish:
 release-manual:
 	@if [ -z "$(VERSION)" ]; then \
 		echo "❌ Error: VERSION not specified"; \
-		echo "Usage: make release-manual VERSION=1.2.3"; \
+		echo "Usage: make release-manual VERSION=2026.1.0"; \
+		echo "  or:  make release-manual VERSION=2026.1.0-beta.1"; \
 		exit 1; \
 	fi
 	@echo "🚀 Creating release v$(VERSION)..."
@@ -397,7 +399,7 @@ release-manual:
 version:
 	@if [ -z "$(VERSION)" ]; then \
 		echo "❌ Error: VERSION not specified"; \
-		echo "Usage: make version VERSION=1.2.3"; \
+		echo "Usage: make version VERSION=2026.1.0"; \
 		exit 1; \
 	fi
 	@bash scripts/bump-version.sh $(VERSION)

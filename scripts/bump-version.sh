@@ -1,16 +1,28 @@
 #!/bin/bash
 
 # Version Bump Script for Query Pilot
+# Uses DataGrip-style versioning: YYYY.MAJOR.MINOR[-beta.BUILD]
+#
 # Usage: ./scripts/bump-version.sh <new-version>
-# Example: ./scripts/bump-version.sh 1.2.3
+#
+# Examples:
+#   ./scripts/bump-version.sh 2026.1.0           # stable release
+#   ./scripts/bump-version.sh 2026.1.0-beta.1    # beta build
+#   ./scripts/bump-version.sh 2026.2.0-beta.42   # beta with build number
 
 set -e
 
 if [ -z "$1" ]; then
-  echo "❌ Error: No version specified"
+  echo "Error: No version specified"
   echo ""
   echo "Usage: $0 <version>"
-  echo "Example: $0 1.2.3"
+  echo ""
+  echo "Format: YYYY.MAJOR.MINOR[-beta.BUILD]"
+  echo ""
+  echo "Examples:"
+  echo "  $0 2026.1.0            # stable release"
+  echo "  $0 2026.1.0-beta.1     # first beta"
+  echo "  $0 2026.2.0-beta.42    # beta build 42"
   exit 1
 fi
 
@@ -19,15 +31,25 @@ NEW_VERSION="$1"
 # Remove 'v' prefix if present
 NEW_VERSION="${NEW_VERSION#v}"
 
-# Validate version format (semantic versioning)
-if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
-  echo "❌ Error: Invalid version format"
-  echo "Expected: MAJOR.MINOR.PATCH (e.g., 1.2.3)"
-  echo "Or with pre-release: 1.2.3-beta.1"
+# Validate version format: YYYY.MAJOR.MINOR or YYYY.MAJOR.MINOR-beta.BUILD
+if ! echo "$NEW_VERSION" | grep -qE '^[0-9]{4}\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$'; then
+  echo "Error: Invalid version format '$NEW_VERSION'"
+  echo ""
+  echo "Expected: YYYY.MAJOR.MINOR (e.g., 2026.1.0)"
+  echo "Or beta:  YYYY.MAJOR.MINOR-beta.BUILD (e.g., 2026.1.0-beta.3)"
   exit 1
 fi
 
-echo "🔄 Bumping version to $NEW_VERSION..."
+# Extract year for sanity check
+YEAR=$(echo "$NEW_VERSION" | cut -d. -f1)
+CURRENT_YEAR=$(date +%Y)
+if [ "$YEAR" -lt 2025 ] || [ "$YEAR" -gt $((CURRENT_YEAR + 1)) ]; then
+  echo "Warning: Year $YEAR seems unusual (current year: $CURRENT_YEAR)"
+  echo "Press Enter to continue or Ctrl+C to abort..."
+  read -r
+fi
+
+echo "Bumping version to $NEW_VERSION..."
 echo ""
 
 # Get current directory
@@ -40,14 +62,14 @@ CARGO_TOML="$ROOT_DIR/src-tauri/Cargo.toml"
 TAURI_CONF="$ROOT_DIR/src-tauri/tauri.conf.json"
 
 # Backup files
-echo "📦 Creating backups..."
+echo "Creating backups..."
 cp "$PACKAGE_JSON" "$PACKAGE_JSON.backup"
 cp "$CARGO_TOML" "$CARGO_TOML.backup"
 cp "$TAURI_CONF" "$TAURI_CONF.backup"
 
 # Function to restore backups on error
 restore_backups() {
-  echo "⚠️  Error occurred, restoring backups..."
+  echo "Error occurred, restoring backups..."
   mv "$PACKAGE_JSON.backup" "$PACKAGE_JSON"
   mv "$CARGO_TOML.backup" "$CARGO_TOML"
   mv "$TAURI_CONF.backup" "$TAURI_CONF"
@@ -57,45 +79,35 @@ restore_backups() {
 trap restore_backups ERR
 
 # Update package.json
-echo "📝 Updating package.json..."
+echo "Updating package.json..."
 if command -v jq &> /dev/null; then
-  # Use jq if available (more reliable)
   jq --arg version "$NEW_VERSION" '.version = $version' "$PACKAGE_JSON" > "$PACKAGE_JSON.tmp"
   mv "$PACKAGE_JSON.tmp" "$PACKAGE_JSON"
 else
-  # Fallback to sed
   if [[ "$OSTYPE" == "darwin"* ]]; then
-    # macOS
     sed -i '' "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" "$PACKAGE_JSON"
   else
-    # Linux
     sed -i "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" "$PACKAGE_JSON"
   fi
 fi
 
 # Update Cargo.toml
-echo "📝 Updating src-tauri/Cargo.toml..."
+echo "Updating src-tauri/Cargo.toml..."
 if [[ "$OSTYPE" == "darwin"* ]]; then
-  # macOS
   sed -i '' "s/^version = \".*\"/version = \"$NEW_VERSION\"/" "$CARGO_TOML"
 else
-  # Linux
   sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" "$CARGO_TOML"
 fi
 
 # Update tauri.conf.json
-echo "📝 Updating src-tauri/tauri.conf.json..."
+echo "Updating src-tauri/tauri.conf.json..."
 if command -v jq &> /dev/null; then
-  # Use jq if available
   jq --arg version "$NEW_VERSION" '.version = $version' "$TAURI_CONF" > "$TAURI_CONF.tmp"
   mv "$TAURI_CONF.tmp" "$TAURI_CONF"
 else
-  # Fallback to sed
   if [[ "$OSTYPE" == "darwin"* ]]; then
-    # macOS
     sed -i '' "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" "$TAURI_CONF"
   else
-    # Linux
     sed -i "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" "$TAURI_CONF"
   fi
 fi
@@ -104,14 +116,14 @@ fi
 rm "$PACKAGE_JSON.backup" "$CARGO_TOML.backup" "$TAURI_CONF.backup"
 
 echo ""
-echo "✅ Version updated successfully!"
+echo "Version updated successfully!"
 echo ""
-echo "📋 Updated files:"
+echo "Updated files:"
 echo "  - package.json"
 echo "  - src-tauri/Cargo.toml"
 echo "  - src-tauri/tauri.conf.json"
 echo ""
-echo "🔍 Verifying changes..."
+echo "Verifying changes..."
 echo ""
 
 # Verify changes
@@ -125,28 +137,42 @@ echo "  tauri.conf.json:        $TAURI_VERSION"
 echo ""
 
 if [ "$PACKAGE_VERSION" = "$NEW_VERSION" ] && [ "$CARGO_VERSION" = "$NEW_VERSION" ] && [ "$TAURI_VERSION" = "$NEW_VERSION" ]; then
-  echo "✅ All versions match!"
+  echo "All versions match!"
 else
-  echo "❌ Version mismatch detected!"
+  echo "Version mismatch detected!"
   exit 1
 fi
 
+# Determine if this is a beta
+IS_BETA=false
+if echo "$NEW_VERSION" | grep -qE '\-beta\.'; then
+  IS_BETA=true
+fi
+
 echo ""
-echo "🎯 Next steps:"
+echo "Next steps:"
 echo ""
-echo "1. Update CHANGELOG.md:"
-echo "   vim CHANGELOG.md"
+if [ "$IS_BETA" = true ]; then
+  echo "  [Beta release - skip changelog update]"
+  echo ""
+  echo "  1. Commit and tag:"
+  echo "     git add ."
+  echo "     git commit -m \"chore: bump version to v$NEW_VERSION\""
+  echo "     git tag v$NEW_VERSION"
+  echo "     git push origin master"
+  echo "     git push origin v$NEW_VERSION"
+else
+  echo "  1. Update CHANGELOG.md:"
+  echo "     vim CHANGELOG.md"
+  echo ""
+  echo "  2. Commit and tag:"
+  echo "     git add ."
+  echo "     git commit -m \"chore: bump version to v$NEW_VERSION\""
+  echo "     git tag v$NEW_VERSION"
+  echo "     git push origin master"
+  echo "     git push origin v$NEW_VERSION"
+fi
 echo ""
-echo "2. Review changes:"
-echo "   git diff"
-echo ""
-echo "3. Commit and tag:"
-echo "   git add ."
-echo "   git commit -m \"chore: bump version to v$NEW_VERSION\""
-echo "   git tag v$NEW_VERSION"
-echo "   git push origin master"
-echo "   git push origin v$NEW_VERSION"
-echo ""
-echo "4. Monitor release build:"
+echo "  Monitor release build:"
 echo "   https://github.com/$(git config --get remote.origin.url | sed 's/.*github.com[:/]\(.*\)\.git/\1/')/actions"
 echo ""
