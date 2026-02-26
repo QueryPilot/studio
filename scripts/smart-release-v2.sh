@@ -204,10 +204,10 @@ $VERSION_PROMPT" | claude -p 2>/dev/null | tail -1 | tr -d '[:space:]' | sed 's/
 fi
 
 # Validate version format
-if ! echo "$NEXT_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+if ! echo "$NEXT_VERSION" | grep -qE '^[0-9]{4}\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$'; then
     echo -e "${RED}❌ AI returned invalid version: $NEXT_VERSION${NC}"
     echo ""
-    read -p "Enter version manually (e.g., 1.2.0): " MANUAL_VERSION
+    read -p "Enter version manually (e.g., 2026.1.0): " MANUAL_VERSION
     NEXT_VERSION="$MANUAL_VERSION"
 fi
 
