@@ -172,23 +172,24 @@ echo -e "${BLUE}🤖 Asking $AI_CLI to analyze commits and suggest next version.
 echo ""
 
 # Use Codex to determine next version
-VERSION_PROMPT="Analyze the git commits above and determine the next semantic version.
+CURRENT_YEAR=$(date +%Y)
+VERSION_PROMPT="Analyze the git commits above and determine the next version.
 
+We use DataGrip-style versioning: YYYY.MAJOR.MINOR (e.g., 2026.1.0, 2026.2.0)
 Current version: $CURRENT_VERSION
 
 Rules:
-- MAJOR bump (x.0.0): Breaking changes, API changes, major refactors
-- MINOR bump (0.x.0): New features, enhancements (feat:, feature:)
-- PATCH bump (0.0.x): Bug fixes, docs, chores (fix:, chore:, docs:)
+- The year prefix is always the current year: $CURRENT_YEAR
+- MAJOR bump (YYYY.x.0): New features, breaking changes, major refactors (feat:, BREAKING CHANGE:)
+- MINOR bump (YYYY.0.x): Bug fixes, improvements, docs (fix:, chore:, docs:, refactor:)
+- If the current version has a different year, start fresh with $CURRENT_YEAR.1.0
 
 Look for conventional commit prefixes:
-- feat: / feature: → MINOR bump
-- fix: / bugfix: → PATCH bump
-- BREAKING CHANGE: → MAJOR bump
-- refactor:, perf: → evaluate context
-- chore:, docs:, style: → PATCH bump
+- feat: / feature: / BREAKING CHANGE: → MAJOR bump
+- fix: / bugfix: / refactor: / perf: → MINOR bump
+- chore:, docs:, style: → MINOR bump
 
-Based on the commits, respond with ONLY the next version number (e.g., 1.2.0).
+Based on the commits, respond with ONLY the next version number (e.g., $CURRENT_YEAR.2.0).
 No explanation, just the version number."
 
 # Get version from AI CLI
