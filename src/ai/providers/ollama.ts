@@ -37,11 +37,15 @@ export const ollamaConfig: ProviderConfig = {
 };
 
 // Ollama exposes an OpenAI-compatible API at /v1, so we reuse @ai-sdk/openai
-// with a custom baseURL. This returns a proper LanguageModelV3, unlike the
-// community ollama-ai-provider which is stuck on LanguageModelV1.
+// with a custom baseURL. We return `provider.chat` to force the
+// /chat/completions endpoint — the default `provider(modelId)` would use
+// the OpenAI Responses API (/responses) which Ollama doesn't support.
 export function createOllamaProvider(baseUrl?: string) {
-  return createOpenAI({
+  const provider = createOpenAI({
     baseURL: baseUrl ?? ollamaConfig.defaultBaseUrl,
     apiKey: "ollama", // Ollama ignores the API key but the SDK requires one
   });
+  // Bind .chat so the method keeps its provider context when called
+  // separately (avoids @typescript-eslint/unbound-method)
+  return provider.chat.bind(provider);
 }
