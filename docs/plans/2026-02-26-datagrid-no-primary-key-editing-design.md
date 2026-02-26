@@ -149,7 +149,7 @@ This keeps `commandToSql()` and adapter `update/delete` methods reusable.
 
 ## Rollout Notes
 
-1. Keep feature flag optional for initial rollout if needed (`sqlBestEffortRowMatch`).
+1. No feature flag: ship as default behavior.
 2. Instrument blocked reasons (`no_deterministic_key`, `best_effort_ambiguous`, `best_effort_not_found`) for UX tuning.
 3. Ship strict deterministic support first, then enable best-effort actions.
 
