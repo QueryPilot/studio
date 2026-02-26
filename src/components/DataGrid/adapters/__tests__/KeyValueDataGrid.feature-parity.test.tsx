@@ -20,8 +20,55 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Mock dependencies
 vi.mock('@/adapters/redis/RedisAdapter');
-vi.mock('@/stores/crudStore');
-vi.mock('../hooks/useKeyValueData');
+
+// Mock crudStore with proper Zustand store structure
+const mockGetTableKey = vi.fn(({ connectionId, database, schema, table }) =>
+  `${connectionId}:${database ?? ''}:${schema ?? 'public'}:${table ?? ''}`
+);
+
+vi.mock('@/stores/crudStore', () => ({
+  useCrudStore: vi.fn((selector) => {
+    const state = {
+      getTableKey: mockGetTableKey,
+      stagedCommands: new Map(),
+      unstageCommand: vi.fn(),
+    };
+    return selector ? selector(state) : state;
+  }),
+}));
+
+// Mock useKeyValueData hook with default return values
+vi.mock('../hooks/useKeyValueData', () => ({
+  useKeyValueData: vi.fn(() => ({
+    currentKey: { key: 'test-key', type: 'string', ttl: -1, size: 10 },
+    rows: [],
+    columns: [
+      { id: 'key', field: 'col_0', title: 'Key', name: 'key', width: 300, type: 'string' },
+      { id: 'value', field: 'col_1', title: 'Value', name: 'value', width: 400, type: 'string' },
+    ],
+    isLoading: false,
+    error: null,
+    getCellContent: vi.fn(),
+    selectKey: vi.fn(),
+    clearSelection: vi.fn(),
+    setKeyTTL: vi.fn(),
+    deleteCurrentKey: vi.fn(),
+    refetch: vi.fn(),
+    fetchNextPage: vi.fn(),
+    hasMore: false,
+    pattern: '*',
+    setPattern: vi.fn(),
+    valueFilter: '',
+    setValueFilter: vi.fn(),
+    totalKeyCount: 0,
+    executionTime: undefined,
+    commandFactory: null,
+    paradigm: 'keyvalue' as const,
+    showLoadAll: false,
+    loadAllKeys: vi.fn(),
+    allKeysLoaded: true,
+  })),
+}));
 
 const createTestQueryClient = () => new QueryClient({
   defaultOptions: {

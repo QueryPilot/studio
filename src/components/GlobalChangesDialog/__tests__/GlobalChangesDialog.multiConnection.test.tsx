@@ -292,8 +292,9 @@ describe("GlobalChangesDialog multi-connection behavior", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Connections")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Conn PG/ })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Conn Redis/ })).toBeInTheDocument();
+      // Connection names are in clickable divs, not buttons
+      expect(screen.getByText("Conn PG")).toBeInTheDocument();
+      expect(screen.getByText("Conn Redis")).toBeInTheDocument();
     });
   });
 
@@ -348,7 +349,8 @@ describe("GlobalChangesDialog multi-connection behavior", () => {
       expect(editor.textContent).toContain("conn-redis:keys:data.insert");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Conn PG/ }));
+    // Connection name is in a clickable div, not a button
+    fireEvent.click(screen.getByText("Conn PG"));
 
     await waitFor(() => {
       const editor = screen.getByTestId("code-editor");
@@ -642,7 +644,7 @@ describe("GlobalChangesDialog multi-connection behavior", () => {
     const usersDb1 = createCommand({
       id: "users-db1-update",
       type: "data.update",
-      connectionId: "conn-sql",
+      connectionId: "conn-sql",  // PostgreSQL connection
       database: "db1",
       table: "users",
       payload: {
@@ -655,7 +657,7 @@ describe("GlobalChangesDialog multi-connection behavior", () => {
     const usersDb2 = createCommand({
       id: "users-db2-update",
       type: "data.update",
-      connectionId: "conn-sql",
+      connectionId: "conn-redis",  // Different connection (Redis)
       database: "db2",
       table: "users",
       payload: {
@@ -668,7 +670,7 @@ describe("GlobalChangesDialog multi-connection behavior", () => {
 
     crudState.stagedCommands = new Map([
       ["conn-sql:db1:public:users", [usersDb1]],
-      ["conn-sql:db2:public:users", [usersDb2]],
+      ["conn-redis:db2:public:users", [usersDb2]],
     ]);
     setupCrudStoreMock();
 
@@ -683,11 +685,12 @@ describe("GlobalChangesDialog multi-connection behavior", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/2 changes across 2 tables/i),
+        screen.getByText(/2 changes across 2 tables in 2 connections/i),
       ).toBeInTheDocument();
       expect(screen.getAllByRole("button", { name: /^Undo$/ })).toHaveLength(2);
       expect(screen.getAllByText("db1.public.users")).toHaveLength(2);
       expect(screen.getAllByText("db2.public.users")).toHaveLength(2);
     });
+  });
   });
 });

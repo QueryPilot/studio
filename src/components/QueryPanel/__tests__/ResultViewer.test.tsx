@@ -30,6 +30,7 @@ vi.mock("@/components/DataGrid", () => ({
       ))}
     </div>
   ),
+  QueryResultGrid: () => <div data-testid="query-result-grid" />,
 }));
 
 // Mock next-themes

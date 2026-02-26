@@ -30,6 +30,7 @@ vi.mock("@/lib/db/aiConversations", () => ({
   getSession: vi.fn(),
   getSessionMessages: vi.fn(),
   saveMessage: vi.fn(),
+  listRecentSessions: vi.fn().mockResolvedValue([]),
 }));
 
 describe("acpStore", () => {

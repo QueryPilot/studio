@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useKeyValueData } from '../useKeyValueData';
 import type { RedisAdapter } from '@/adapters/redis/RedisAdapter';
@@ -49,7 +49,12 @@ describe('useKeyValueData', () => {
 
     expect(result.current.currentKey).toBeNull();
     expect(result.current.rows).toEqual([]);
-    expect(result.current.columns).toEqual([]);
+    // Browser mode returns BROWSER_COLUMNS (Key, Type, Value, TTL)
+    expect(result.current.columns).toHaveLength(4);
+    expect(result.current.columns[0].id).toBe('key');
+    expect(result.current.columns[1].id).toBe('type');
+    expect(result.current.columns[2].id).toBe('value');
+    expect(result.current.columns[3].id).toBe('ttl');
   });
 
   it('should fetch key metadata when key is selected', async () => {
@@ -128,8 +133,11 @@ describe('useKeyValueData', () => {
     });
 
     // Clear selection
-    result.current.clearSelection();
+    act(() => {
+      result.current.clearSelection();
+    });
 
+    // Should clear immediately
     expect(result.current.currentKey).toBeNull();
   });
 
@@ -169,7 +177,9 @@ describe('useKeyValueData', () => {
     });
 
     // Delete key
-    await result.current.deleteCurrentKey();
+    await act(async () => {
+      await result.current.deleteCurrentKey();
+    });
 
     // Key should be cleared after deletion
     expect(result.current.currentKey).toBeNull();
@@ -299,6 +309,12 @@ describe('useKeyValueData', () => {
       { wrapper }
     );
 
+    // Wait for key to be loaded
+    await waitFor(() => {
+      expect(result.current.currentKey).not.toBeNull();
+    });
+
+    // Columns should be populated based on key type
     await waitFor(() => {
       expect(result.current.columns.length).toBeGreaterThan(0);
     });

@@ -47,11 +47,8 @@ describe("cellFactory - PostgreSQL Geometric Types", () => {
 
     const cell = buildGridCellV2({ value, column });
 
-    expect(cell.kind).toBe(GridCellKind.Text);
-    if (cell.kind === GridCellKind.Text) {
-      expect(cell.data).toBe("((1.0,1.0),(0.0,0.0))");
-      expect(cell.displayData).toBe("((1.0,1.0),(0.0,0.0))");
-    }
+    expect(cell.kind).toBe(GridCellKind.Custom);
+    expect(cell.copyData).toBe("((1.0,1.0),(0.0,0.0))");
   });
 
   it("should render circle type as text", () => {
@@ -60,10 +57,8 @@ describe("cellFactory - PostgreSQL Geometric Types", () => {
 
     const cell = buildGridCellV2({ value, column });
 
-    expect(cell.kind).toBe(GridCellKind.Text);
-    if (cell.kind === GridCellKind.Text) {
-      expect(cell.data).toBe("<(0.0,0.0),5.0>");
-    }
+    expect(cell.kind).toBe(GridCellKind.Custom);
+    expect(cell.copyData).toBe("<(0.0,0.0),5.0>");
   });
 
   it("should render line type as text", () => {
@@ -72,10 +67,8 @@ describe("cellFactory - PostgreSQL Geometric Types", () => {
 
     const cell = buildGridCellV2({ value, column });
 
-    expect(cell.kind).toBe(GridCellKind.Text);
-    if (cell.kind === GridCellKind.Text) {
-      expect(cell.data).toBe("{1.0,2.0,3.0}");
-    }
+    expect(cell.kind).toBe(GridCellKind.Custom);
+    expect(cell.copyData).toBe("{1.0,2.0,3.0}");
   });
 
   it("should render lseg type as text", () => {
@@ -84,10 +77,8 @@ describe("cellFactory - PostgreSQL Geometric Types", () => {
 
     const cell = buildGridCellV2({ value, column });
 
-    expect(cell.kind).toBe(GridCellKind.Text);
-    if (cell.kind === GridCellKind.Text) {
-      expect(cell.data).toBe("[(0.0,0.0),(1.0,1.0)]");
-    }
+    expect(cell.kind).toBe(GridCellKind.Custom);
+    expect(cell.copyData).toBe("[(0.0,0.0),(1.0,1.0)]");
   });
 
   it("should render path (open) type as text", () => {
@@ -96,10 +87,8 @@ describe("cellFactory - PostgreSQL Geometric Types", () => {
 
     const cell = buildGridCellV2({ value, column });
 
-    expect(cell.kind).toBe(GridCellKind.Text);
-    if (cell.kind === GridCellKind.Text) {
-      expect(cell.data).toBe("[(0.0,0.0),(1.0,1.0),(2.0,2.0)]");
-    }
+    expect(cell.kind).toBe(GridCellKind.Custom);
+    expect(cell.copyData).toBe("[(0.0,0.0),(1.0,1.0),(2.0,2.0)]");
   });
 
   it("should render path (closed) type as text", () => {
@@ -108,10 +97,8 @@ describe("cellFactory - PostgreSQL Geometric Types", () => {
 
     const cell = buildGridCellV2({ value, column });
 
-    expect(cell.kind).toBe(GridCellKind.Text);
-    if (cell.kind === GridCellKind.Text) {
-      expect(cell.data).toBe("((0.0,0.0),(1.0,1.0),(2.0,2.0))");
-    }
+    expect(cell.kind).toBe(GridCellKind.Custom);
+    expect(cell.copyData).toBe("((0.0,0.0),(1.0,1.0),(2.0,2.0))");
   });
 
   it("should render polygon type as text", () => {
@@ -120,10 +107,8 @@ describe("cellFactory - PostgreSQL Geometric Types", () => {
 
     const cell = buildGridCellV2({ value, column });
 
-    expect(cell.kind).toBe(GridCellKind.Text);
-    if (cell.kind === GridCellKind.Text) {
-      expect(cell.data).toBe("((0.0,0.0),(1.0,1.0),(2.0,0.0))");
-    }
+    expect(cell.kind).toBe(GridCellKind.Custom);
+    expect(cell.copyData).toBe("((0.0,0.0),(1.0,1.0),(2.0,0.0))");
   });
 
   it("should render point type as text", () => {
@@ -132,10 +117,8 @@ describe("cellFactory - PostgreSQL Geometric Types", () => {
 
     const cell = buildGridCellV2({ value, column });
 
-    expect(cell.kind).toBe(GridCellKind.Text);
-    if (cell.kind === GridCellKind.Text) {
-      expect(cell.data).toBe("(1.5,2.5)");
-    }
+    expect(cell.kind).toBe(GridCellKind.Custom);
+    expect(cell.copyData).toBe("(1.5,2.5)");
   });
 });
 
@@ -146,10 +129,8 @@ describe("cellFactory - PostgreSQL tsvector Type", () => {
 
     const cell = buildGridCellV2({ value, column });
 
-    expect(cell.kind).toBe(GridCellKind.Text);
-    if (cell.kind === GridCellKind.Text) {
-      expect(cell.data).toBe("'cat' 'fat' 'rat'");
-    }
+    expect(cell.kind).toBe(GridCellKind.Custom);
+    expect(cell.copyData).toBe("'cat' 'fat' 'rat'");
   });
 
   it("should render tsvector with positions as text", () => {
@@ -158,10 +139,8 @@ describe("cellFactory - PostgreSQL tsvector Type", () => {
 
     const cell = buildGridCellV2({ value, column });
 
-    expect(cell.kind).toBe(GridCellKind.Text);
-    if (cell.kind === GridCellKind.Text) {
-      expect(cell.data).toBe("'brown':3 'fox':4 'quick':2");
-    }
+    expect(cell.kind).toBe(GridCellKind.Custom);
+    expect(cell.copyData).toBe("'brown':3 'fox':4 'quick':2");
   });
 
   it("should render tsvector with weights as text", () => {
@@ -170,10 +149,8 @@ describe("cellFactory - PostgreSQL tsvector Type", () => {
 
     const cell = buildGridCellV2({ value, column });
 
-    expect(cell.kind).toBe(GridCellKind.Text);
-    if (cell.kind === GridCellKind.Text) {
-      expect(cell.data).toBe("'important':1A 'normal':2");
-    }
+    expect(cell.kind).toBe(GridCellKind.Custom);
+    expect(cell.copyData).toBe("'important':1A 'normal':2");
   });
 });
 
@@ -264,11 +241,9 @@ describe("cellFactory - Edge cases", () => {
 
     const cell = buildGridCellV2({ value, column });
 
-    expect(cell.kind).toBe(GridCellKind.Text);
-    if (cell.kind === GridCellKind.Text) {
-      expect(cell.data).toContain("1234567");
-      expect(cell.data).toContain("9876543");
-    }
+    expect(cell.kind).toBe(GridCellKind.Custom);
+    expect(cell.copyData).toContain("1234567");
+    expect(cell.copyData).toContain("9876543");
   });
 
   it("should handle polygon with many points", () => {
@@ -278,11 +253,9 @@ describe("cellFactory - Edge cases", () => {
 
     const cell = buildGridCellV2({ value, column });
 
-    expect(cell.kind).toBe(GridCellKind.Text);
-    if (cell.kind === GridCellKind.Text) {
-      expect(cell.data).toContain("(0.0,0.0)");
-      expect(cell.data).toContain("(9.0,18.0)");
-    }
+    expect(cell.kind).toBe(GridCellKind.Custom);
+    expect(cell.copyData).toContain("(0.0,0.0)");
+    expect(cell.copyData).toContain("(9.0,18.0)");
   });
 
   it("should handle tsvector with special characters in lexemes", () => {
@@ -291,11 +264,9 @@ describe("cellFactory - Edge cases", () => {
 
     const cell = buildGridCellV2({ value, column });
 
-    expect(cell.kind).toBe(GridCellKind.Text);
-    if (cell.kind === GridCellKind.Text) {
-      expect(cell.data).toContain("hello-world");
-      expect(cell.data).toContain("test_value");
-    }
+    expect(cell.kind).toBe(GridCellKind.Custom);
+    expect(cell.copyData).toContain("hello-world");
+    expect(cell.copyData).toContain("test_value");
   });
 
   it("should handle hstore with special characters in keys/values", () => {
