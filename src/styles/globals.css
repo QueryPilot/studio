@@ -251,6 +251,43 @@
   box-shadow: inset 0 0 8px rgb(251 146 60 / 0.08);
 }
 
+/* Red variant — for update notices */
+.running-border--red::before {
+  background: conic-gradient(
+    transparent 20%,
+    rgb(239 68 68 / 0.15) 35%,
+    rgb(239 68 68 / 0.7) 50%,
+    rgb(239 68 68 / 0.15) 65%,
+    transparent 80%
+  );
+}
+
+.running-border--red {
+  box-shadow: 0 0 6px -1px rgb(239 68 68 / 0.2);
+}
+
+.running-border--red::after {
+  box-shadow: inset 0 0 8px rgb(239 68 68 / 0.05);
+}
+
+:is(.dark) .running-border--red::before {
+  background: conic-gradient(
+    transparent 20%,
+    rgb(252 129 129 / 0.2) 35%,
+    rgb(252 129 129 / 0.8) 50%,
+    rgb(252 129 129 / 0.2) 65%,
+    transparent 80%
+  );
+}
+
+:is(.dark) .running-border--red {
+  box-shadow: 0 0 8px -1px rgb(252 129 129 / 0.25);
+}
+
+:is(.dark) .running-border--red::after {
+  box-shadow: inset 0 0 8px rgb(252 129 129 / 0.06);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
