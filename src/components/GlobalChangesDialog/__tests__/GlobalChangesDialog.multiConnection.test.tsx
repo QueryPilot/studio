@@ -578,7 +578,7 @@ describe("GlobalChangesDialog multi-connection behavior", () => {
     });
   });
 
-  it("filters by selected table key even when display names are duplicated", async () => {
+  it("filters by selected table key across databases with same schema.table", async () => {
     const usersDb1 = createCommand({
       id: "users-db1-update",
       type: "data.update",
@@ -624,15 +624,70 @@ describe("GlobalChangesDialog multi-connection behavior", () => {
       expect(screen.getAllByRole("button", { name: /^Undo$/ })).toHaveLength(2);
     });
 
-    const [firstDuplicateTableLabel] = screen.getAllByText("public.users");
-    expect(firstDuplicateTableLabel).toBeDefined();
-    if (!firstDuplicateTableLabel) {
-      throw new Error("Expected at least one duplicated table label");
+    const [db1TableButton] = screen.getAllByRole("button", {
+      name: /db1\.public\.users/i,
+    });
+    expect(db1TableButton).toBeDefined();
+    if (!db1TableButton) {
+      throw new Error("Expected db1 table button");
     }
-    fireEvent.click(firstDuplicateTableLabel);
+    fireEvent.click(db1TableButton);
 
     await waitFor(() => {
       expect(screen.getAllByRole("button", { name: /^Undo$/ })).toHaveLength(1);
+    });
+  });
+
+  it("shows changes from multiple databases in workspace-wide mode", async () => {
+    const usersDb1 = createCommand({
+      id: "users-db1-update",
+      type: "data.update",
+      connectionId: "conn-sql",
+      database: "db1",
+      table: "users",
+      payload: {
+        column: "email",
+        oldValue: "db1-old@example.com",
+        newValue: "db1-new@example.com",
+        primaryKeys: { id: 1 },
+      },
+    });
+    const usersDb2 = createCommand({
+      id: "users-db2-update",
+      type: "data.update",
+      connectionId: "conn-sql",
+      database: "db2",
+      table: "users",
+      payload: {
+        column: "email",
+        oldValue: "db2-old@example.com",
+        newValue: "db2-new@example.com",
+        primaryKeys: { id: 1 },
+      },
+    });
+
+    crudState.stagedCommands = new Map([
+      ["conn-sql:db1:public:users", [usersDb1]],
+      ["conn-sql:db2:public:users", [usersDb2]],
+    ]);
+    setupCrudStoreMock();
+
+    render(
+      <GlobalChangesDialog
+        {...({
+          open: true,
+          onOpenChange: () => {},
+        } as Parameters<typeof GlobalChangesDialog>[0])}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/2 changes across 2 tables/i),
+      ).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: /^Undo$/ })).toHaveLength(2);
+      expect(screen.getAllByText("db1.public.users")).toHaveLength(2);
+      expect(screen.getAllByText("db2.public.users")).toHaveLength(2);
     });
   });
 });

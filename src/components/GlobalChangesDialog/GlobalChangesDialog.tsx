@@ -118,9 +118,19 @@ function isSchemaChangingCommand(command: CrudCommand): boolean {
 
 function getDisplayTableName(tableKey: string, fallback = "unknown"): string {
   const parts = tableKey.split(":");
-  const tableName = parts[parts.length - 1] || fallback;
+  const tableName = parts.slice(3).join(":") || parts[parts.length - 1] || fallback;
+  const databaseName = parts.length > 3 ? parts[1] : undefined;
   const schemaName = parts.length > 3 ? parts[2] : undefined;
-  return schemaName ? `${schemaName}.${tableName}` : tableName;
+
+  if (databaseName && schemaName) {
+    return `${databaseName}.${schemaName}.${tableName}`;
+  }
+
+  if (schemaName) {
+    return `${schemaName}.${tableName}`;
+  }
+
+  return tableName;
 }
 
 function getRowKeyForCommand(command: CrudCommand): string {
@@ -1211,11 +1221,11 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             {!isLoading && (
               <span className="text-xs text-muted-foreground">
                 {totalChanges} {totalChanges === 1 ? "change" : "changes"}
-                {isWorkspaceWide && connectionGroups.length > 1 && (
-                  <> across {connectionGroups.length} connections</>
-                )}
-                {!isTableSpecific && !isWorkspaceWide && tableSummaries.length > 0 && (
+                {!isTableSpecific && tableSummaries.length > 0 && (
                   <> across {tableSummaries.length} {tableSummaries.length === 1 ? "table" : "tables"}</>
+                )}
+                {isWorkspaceWide && connectionGroups.length > 1 && (
+                  <> in {connectionGroups.length} connections</>
                 )}
               </span>
             )}
