@@ -356,7 +356,10 @@ function App() {
           if (!pending) {
             return;
           }
-          const { setIsInstallingUpdate, setPendingUpdate } = useAppStore.getState();
+          const { setIsInstallingUpdate, setPendingUpdate, isInstallingUpdate: alreadyInstalling } = useAppStore.getState();
+          if (alreadyInstalling) {
+            return;
+          }
           setIsInstallingUpdate(true);
           try {
             await pending.downloadAndInstall();
@@ -381,6 +384,8 @@ function App() {
 
     return () => {
       disposed = true;
+      setInstallHandler(null);
+      useAppStore.getState().setPendingUpdate(null);
       void closeUpdate();
     };
   }, []);

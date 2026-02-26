@@ -288,6 +288,20 @@
   box-shadow: inset 0 0 8px rgb(252 129 129 / 0.06);
 }
 
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .running-border::before {
+    animation: none;
+    background: none;
+  }
+  .running-border {
+    border: 1px solid rgb(249 115 22 / 0.4);
+  }
+  .running-border--red {
+    border-color: rgb(239 68 68 / 0.4);
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
