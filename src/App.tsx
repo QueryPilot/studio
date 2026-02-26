@@ -22,6 +22,8 @@ import { useWorkspaceBundleStore } from "./stores/workspaceBundleStore";
 import { useAcpStore } from "./stores/acpStore";
 import { useByokStore } from "./stores/byokStore";
 import { AcpService } from "./services/acpService";
+import { useAppStore } from "./stores/appStore";
+import { setInstallHandler } from "./utils/appUpdate";
 
 function VaultLoadingScreen() {
   return (
@@ -342,38 +344,33 @@ function App() {
           return;
         }
 
-        const handleInstall = () => {
-          const pendingUpdate = updateResource;
-          if (!pendingUpdate) {
+        // Store the update info for title bar / home screen notice
+        useAppStore.getState().setPendingUpdate({
+          version: update.version,
+          body: update.body ?? undefined,
+        });
+
+        // Store the install handler so UI components can trigger it
+        setInstallHandler(async () => {
+          const pending = updateResource;
+          if (!pending) {
             return;
           }
-
-          toast.promise((async () => {
-            await pendingUpdate.downloadAndInstall();
+          const { setIsInstallingUpdate, setPendingUpdate } = useAppStore.getState();
+          setIsInstallingUpdate(true);
+          try {
+            await pending.downloadAndInstall();
             await closeUpdate();
+            setPendingUpdate(null);
             await relaunch();
-          })(), {
-            loading: "Downloading update…",
-            success: "Restarting to apply update…",
-            error: (err) => {
-              logger.error("Failed to install update", err);
-              return err instanceof Error
-                ? err.message
-                : "Failed to install update";
-            },
-          });
-        };
-
-        toast(`Update ${update.version} available`, {
-          description:
-            update.body ?? "A new version of Query Pilot is ready to install.",
-          action: {
-            label: "Install",
-            onClick: () => {
-              handleInstall();
-            },
-          },
-          duration: 60000,
+          } catch (err) {
+            logger.error("Failed to install update", err);
+            toast.error("Update failed", {
+              description: err instanceof Error ? err.message : "Failed to install update",
+            });
+          } finally {
+            setIsInstallingUpdate(false);
+          }
         });
       } catch (error) {
         logger.error("Update check failed", error);

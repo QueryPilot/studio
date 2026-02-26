@@ -58,6 +58,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
+import { triggerAppUpdate } from "@/utils/appUpdate";
 
 interface WorkspaceTitleBarProps {
   connectionId: string;
@@ -117,6 +118,8 @@ export function WorkspaceTitleBar({
   const [isReconnecting, setIsReconnecting] = useState(false);
   const theme = useAppStore((state) => state.theme);
   const setTheme = useAppStore((state) => state.setTheme);
+  const pendingUpdate = useAppStore((state) => state.pendingUpdate);
+  const isInstallingUpdate = useAppStore((state) => state.isInstallingUpdate);
 
 
   const { toggleSidebar: onToggleSidebar } = useWorkspaceScreenStore();
@@ -985,6 +988,23 @@ export function WorkspaceTitleBar({
         >
           <IconRobot className="!size-4" />
         </Button>
+
+        {/* Update available notice */}
+        {pendingUpdate && (
+          <button
+            className="h-5 px-2 text-[10px] font-medium gap-1.5 rounded-full running-border running-border--red inline-flex items-center text-red-600 dark:text-red-400 cursor-pointer hover:opacity-80 transition-opacity"
+            onClick={() => { triggerAppUpdate(); }}
+            disabled={isInstallingUpdate}
+            title={`Update to v${pendingUpdate.version}`}
+          >
+            {isInstallingUpdate ? (
+              <IconLoader2 className="h-2.5 w-2.5 animate-spin" />
+            ) : (
+              <IconRotate className="h-2.5 w-2.5" />
+            )}
+            <span>{isInstallingUpdate ? "Updating…" : `v${pendingUpdate.version}`}</span>
+          </button>
+        )}
 
         {/* IconSettings Dropdown - Now at the far right */}
         <DropdownMenu>
