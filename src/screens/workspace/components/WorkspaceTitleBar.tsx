@@ -836,7 +836,7 @@ export function WorkspaceTitleBar({
               onClick={() => {
                 setShowGlobalChanges(true);
               }}
-              className="h-5 px-2 text-xs gap-1.5 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/20 rounded-full animate-pulse"
+              className="h-5 px-2 text-xs gap-1.5 rounded-full running-border"
               title="Click to review and commit changes"
             >
               <IconGitCommit className="h-2.5 w-2.5 text-orange-600 dark:text-orange-400" />

@@ -2134,61 +2134,198 @@ const InputArea = ({
 // ============================================================================
 
 interface ByokMessageListProps {
-  messages: Array<{ role: string; content: string | Array<{ type: string; text?: string }> }>;
+  messages: Array<{
+    role: string;
+    content: string | Array<{
+      type: string;
+      text?: string;
+      toolName?: string;
+      toolCallId?: string;
+      input?: unknown;
+      output?: unknown;
+    }>;
+  }>;
   isStreaming: boolean;
   streamingContent: string;
   activeToolCalls: Array<{ id: string; name: string; status: string }>;
 }
 
+const byokProseClasses = cn(
+  "prose prose-sm dark:prose-invert max-w-none",
+  "prose-p:my-1 prose-p:leading-normal",
+  "prose-headings:mt-3 prose-headings:mb-1.5 prose-headings:font-semibold prose-headings:text-sm",
+  "prose-ul:my-1.5 prose-ol:my-1.5",
+  "prose-li:my-0",
+  "prose-pre:my-1.5 prose-pre:p-2 prose-pre:rounded-md prose-pre:bg-muted prose-pre:text-[11px] prose-pre:leading-tight",
+  "prose-code:text-[11px] prose-code:font-medium prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:bg-muted",
+  "prose-code:before:content-none prose-code:after:content-none",
+  "text-[12px] leading-normal",
+);
+
+/**
+ * Extract the display string from a ToolResultOutput.
+ * AI SDK v6 wraps tool results as { type: 'text'|'json'|..., value: ... }.
+ * Falls back to JSON.stringify for unknown shapes.
+ */
+function extractToolResultValue(output: unknown): string | null {
+  if (output === undefined || output === null) return null;
+  if (typeof output === "string") return output;
+  if (typeof output === "object") {
+    const typed = output as Record<string, unknown>;
+    // ToolResultOutput { type: 'execution-denied', reason?: string }
+    if (typed.type === "execution-denied") {
+      return `Execution denied${typeof typed.reason === "string" ? `: ${typed.reason}` : ""}`;
+    }
+    // ToolResultOutput { type: 'text'|'json'|'error-text'|'error-json'|'content', value: ... }
+    if ("value" in typed) {
+      if (typeof typed.value === "string") return typed.value;
+      return JSON.stringify(typed.value, null, 2);
+    }
+  }
+  return JSON.stringify(output, null, 2);
+}
+
+function ByokToolCallInline({ name, output }: { name: string; output?: unknown }) {
+  const [expanded, setExpanded] = useState(false);
+  const resultStr = extractToolResultValue(output);
+  const hasResult = resultStr !== null;
+  const isLong = hasResult && resultStr.length > 120;
+
+  return (
+    <div className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2 my-1">
+      <div className="flex items-center gap-2">
+        <IconCheck className="h-3 w-3 shrink-0 text-green-500" />
+        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <IconWand className="h-2.5 w-2.5" />
+          <span>Tool</span>
+        </div>
+        <span className="text-[11px] font-mono font-medium text-foreground/90">{name}</span>
+        {hasResult && isLong && (
+          <button
+            onClick={() => { setExpanded((v) => !v); }}
+            className="ml-auto flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <IconEye className="h-2.5 w-2.5" />
+            {expanded ? "Hide" : "Show"}
+          </button>
+        )}
+      </div>
+      {hasResult && (!isLong || expanded) && (
+        <pre className="mt-1.5 max-h-40 overflow-auto rounded bg-muted/40 px-2 py-1.5 text-[10px] leading-tight text-muted-foreground whitespace-pre-wrap break-all">
+          {resultStr.length > 2000 ? resultStr.slice(0, 2000) + "\n… (truncated)" : resultStr}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function ByokMessageList({ messages, isStreaming, streamingContent, activeToolCalls }: ByokMessageListProps) {
+  // Build a map of toolCallId → output from tool-role messages
+  const toolResultMap = useMemo(() => {
+    const map = new Map<string, unknown>();
+    for (const msg of messages) {
+      if (msg.role === "tool" && Array.isArray(msg.content)) {
+        for (const part of msg.content) {
+          if (part.type === "tool-result" && part.toolCallId) {
+            map.set(part.toolCallId, part.output);
+          }
+        }
+      }
+    }
+    return map;
+  }, [messages]);
+
   return (
     <div className="flex flex-col">
       {messages.map((msg, idx) => {
+        // Skip tool-role messages (results are shown inline with tool-call)
+        if (msg.role === "tool") return null;
+
+        if (msg.role === "user") {
+          const text = typeof msg.content === "string"
+            ? msg.content
+            : msg.content.filter((p) => p.type === "text").map((p) => p.text).join("");
+          return (
+            <div
+              key={`user-${idx}`}
+              className="group px-3 py-3 bg-primary/5 border-l-3 border-primary"
+            >
+              <div className={byokProseClasses}>
+                <Streamdown className="select-text">{text}</Streamdown>
+              </div>
+            </div>
+          );
+        }
+
+        // Assistant message — render text and tool-call parts in order
+        if (msg.role === "assistant") {
+          const parts = typeof msg.content === "string"
+            ? [{ type: "text" as const, text: msg.content }]
+            : msg.content;
+
+          const textParts = parts.filter((p) => p.type === "text");
+          const toolCallParts = parts.filter((p) => p.type === "tool-call");
+          const hasText = textParts.some((p) => p.text && p.text.trim());
+
+          return (
+            <div key={`assistant-${idx}`} className="group px-3 py-3">
+              {hasText && (
+                <div className={byokProseClasses}>
+                  <Streamdown className="select-text">
+                    {textParts.map((p) => p.text).join("")}
+                  </Streamdown>
+                </div>
+              )}
+              {toolCallParts.length > 0 && (
+                <div className="space-y-1 mt-1">
+                  {toolCallParts.map((tc) => (
+                    <ByokToolCallInline
+                      key={tc.toolCallId ?? tc.toolName}
+                      name={tc.toolName ?? "unknown"}
+                      output={toolResultMap.get(tc.toolCallId ?? "")}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        // Other roles (system, etc.) — render as text
         const text = typeof msg.content === "string"
           ? msg.content
           : msg.content.filter((p) => p.type === "text").map((p) => p.text).join("");
-
-        return (
-          <div
-            key={`${msg.role}-${idx}`}
-            className={cn(
-              "group px-3 py-3 transition-colors",
-              msg.role === "user" && "bg-primary/5 border-l-3 border-primary",
-            )}
-          >
-            <div
-              className={cn(
-                "prose prose-sm dark:prose-invert max-w-none",
-                "prose-p:my-1 prose-p:leading-normal",
-                "prose-headings:mt-3 prose-headings:mb-1.5 prose-headings:font-semibold prose-headings:text-sm",
-                "prose-ul:my-1.5 prose-ol:my-1.5",
-                "prose-li:my-0",
-                "prose-pre:my-1.5 prose-pre:p-2 prose-pre:rounded-md prose-pre:bg-muted prose-pre:text-[11px] prose-pre:leading-tight",
-                "prose-code:text-[11px] prose-code:font-medium prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:bg-muted",
-                "prose-code:before:content-none prose-code:after:content-none",
-                "text-[12px] leading-normal",
-              )}
-            >
+        return text ? (
+          <div key={`${msg.role}-${idx}`} className="group px-3 py-3">
+            <div className={byokProseClasses}>
               <Streamdown className="select-text">{text}</Streamdown>
             </div>
           </div>
-        );
+        ) : null;
       })}
 
-      {/* Tool call indicators */}
+      {/* Live tool call indicators during streaming */}
       {activeToolCalls.length > 0 && (
         <div className="px-3 py-1.5 space-y-1">
           {activeToolCalls.map((tc) => (
-            <div key={tc.id} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              {tc.status === "calling" ? (
-                <span className="h-1.5 w-1.5 rounded-full bg-yellow-500 animate-pulse" />
-              ) : tc.status === "complete" ? (
-                <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-              ) : (
-                <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
-              )}
-              <span className="font-mono">{tc.name}</span>
-              <span>{tc.status === "calling" ? "running..." : tc.status}</span>
+            <div key={tc.id} className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
+              <div className="flex items-center gap-2">
+                {tc.status === "calling" ? (
+                  <IconLoader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+                ) : tc.status === "complete" ? (
+                  <IconCheck className="h-3 w-3 shrink-0 text-green-500" />
+                ) : (
+                  <IconX className="h-3 w-3 shrink-0 text-destructive" />
+                )}
+                <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                  <IconWand className="h-2.5 w-2.5" />
+                  <span>Tool</span>
+                </div>
+                <span className="text-[11px] font-mono font-medium text-foreground/90">{tc.name}</span>
+                <span className="ml-auto text-[10px] text-muted-foreground">
+                  {tc.status === "calling" ? "Running..." : tc.status}
+                </span>
+              </div>
             </div>
           ))}
         </div>
@@ -2196,19 +2333,7 @@ function ByokMessageList({ messages, isStreaming, streamingContent, activeToolCa
 
       {isStreaming && streamingContent && (
         <div className="group px-3 py-3">
-          <div
-            className={cn(
-              "prose prose-sm dark:prose-invert max-w-none",
-              "prose-p:my-1 prose-p:leading-normal",
-              "prose-headings:mt-3 prose-headings:mb-1.5 prose-headings:font-semibold prose-headings:text-sm",
-              "prose-ul:my-1.5 prose-ol:my-1.5",
-              "prose-li:my-0",
-              "prose-pre:my-1.5 prose-pre:p-2 prose-pre:rounded-md prose-pre:bg-muted prose-pre:text-[11px] prose-pre:leading-tight",
-              "prose-code:text-[11px] prose-code:font-medium prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:bg-muted",
-              "prose-code:before:content-none prose-code:after:content-none",
-              "text-[12px] leading-normal",
-            )}
-          >
+          <div className={byokProseClasses}>
             <Streamdown className="select-text">{streamingContent}</Streamdown>
           </div>
         </div>

@@ -8,11 +8,12 @@ import { DbType } from "@/types/connection";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { useValidationStore } from "@/stores/validationStore";
 import { getOperationExecutor } from "@/services/operationExecutors";
-import { CodeEditor, type SqlDialect, type CodeEditorLanguage } from "@/components/CodeEditor";
 import {
-  Dialog,
-  DialogContent,
-} from "@/components/ui/dialog";
+  CodeEditor,
+  type SqlDialect,
+  type CodeEditorLanguage,
+} from "@/components/CodeEditor";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
@@ -33,8 +34,16 @@ import {
   IconRefresh,
   IconShieldCheck,
   IconChevronLeft,
+  IconChevronDown,
+  IconChevronRight,
   IconTable,
 } from "@tabler/icons-react";
+import { getDatabaseLogo } from "@/utils/databaseLogos";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import { useTheme } from "next-themes";
@@ -116,9 +125,22 @@ function isSchemaChangingCommand(command: CrudCommand): boolean {
   );
 }
 
+// For sidebar context: show schema.table (omit database since connection header already provides context)
+function getSidebarTableName(tableKey: string): string {
+  const parts = tableKey.split(":");
+  // Format: connectionId:database:schema:table
+  if (parts.length >= 4) {
+    const schema = parts[2];
+    const table = parts.slice(3).join(":");
+    return schema ? `${schema}.${table}` : table;
+  }
+  return parts[parts.length - 1] || "unknown";
+}
+
 function getDisplayTableName(tableKey: string, fallback = "unknown"): string {
   const parts = tableKey.split(":");
-  const tableName = parts.slice(3).join(":") || parts[parts.length - 1] || fallback;
+  const tableName =
+    parts.slice(3).join(":") || parts[parts.length - 1] || fallback;
   const databaseName = parts.length > 3 ? parts[1] : undefined;
   const schemaName = parts.length > 3 ? parts[2] : undefined;
 
@@ -235,7 +257,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     onOpenChange,
     onCommitSuccess,
   } = props;
-  
+
   // Use selective zustand subscriptions to avoid unnecessary re-renders
   // Only subscribe to the parts of the store we actually need
   const stagedCommands = useCrudStore((state) => state.stagedCommands);
@@ -244,7 +266,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   const commitChanges = useCrudStore((state) => state.commitChanges);
   const discardChanges = useCrudStore((state) => state.discardChanges);
   const unstageCommand = useCrudStore((state) => state.unstageCommand);
-  const clearCommittedChanges = useCrudStore((state) => state.clearCommittedChanges);
+  const clearCommittedChanges = useCrudStore(
+    (state) => state.clearCommittedChanges,
+  );
   const isCommittingAll = useCrudStore((state) => state.isCommittingAll);
 
   // Local committing state for dialog-initiated commits
@@ -254,9 +278,15 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   const [viewMode, setViewMode] = useState<"changes" | "ddl">("changes");
   const [copiedSql, setCopiedSql] = useState(false);
   const [conflictError, setConflictError] = useState<string | null>(null);
-  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
+  const [selectedConnectionId, setSelectedConnectionId] = useState<
+    string | null
+  >(null);
   // Selected table in sidebar (null = show all tables)
   const [selectedTableKey, setSelectedTableKey] = useState<string | null>(null);
+  // Collapsible connection groups in sidebar (tracks which are expanded)
+  const [expandedConnections, setExpandedConnections] = useState<Set<string>>(
+    new Set(),
+  );
 
   // Defer heavy computation until after the dialog shell has painted.
   // This prevents the UI from freezing when opening with thousands of commands.
@@ -270,7 +300,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     const raf = requestAnimationFrame(() => {
       setReady(true);
     });
-    return () => { cancelAnimationFrame(raf); };
+    return () => {
+      cancelAnimationFrame(raf);
+    };
   }, [open]);
 
   // Get connection for database type
@@ -279,9 +311,13 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     if (!connectionId) {
       return undefined;
     }
-    return connections.find((candidate) => candidate.profile.id === connectionId);
+    return connections.find(
+      (candidate) => candidate.profile.id === connectionId,
+    );
   }, [connectionId, connections]);
-  const dbType: DbType = connection ? connection.profile.db_type : DbType.PostgreSQL;
+  const dbType: DbType = connection
+    ? connection.profile.db_type
+    : DbType.PostgreSQL;
 
   // Validation store for checking errors
   const { canCommit } = useValidationStore();
@@ -396,16 +432,14 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     let changeCount = 0;
     let tableIndex = 0;
     let commandIndex = 0;
-    let currentSummary:
-      | {
-          tableKey: string;
-          displayName: string;
-          total: number;
-          inserts: number;
-          updates: number;
-          deletes: number;
-        }
-      | null = null;
+    let currentSummary: {
+      tableKey: string;
+      displayName: string;
+      total: number;
+      inserts: number;
+      updates: number;
+      deletes: number;
+    } | null = null;
     let currentCommands: CrudCommand[] | null = null;
     let currentDisplayName = "";
 
@@ -551,7 +585,8 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
       const { allowed, errorCount } = canCommit(tableKey);
       if (!allowed) {
         totalErrors += errorCount;
-        const displayName = tableNameByKey.get(tableKey) ?? getDisplayTableName(tableKey);
+        const displayName =
+          tableNameByKey.get(tableKey) ?? getDisplayTableName(tableKey);
         tableErrorMap[displayName] = errorCount;
       }
     }
@@ -568,7 +603,10 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
       return [];
     }
 
-    const groupMap = new Map<string, { tables: TableSummary[]; total: number }>();
+    const groupMap = new Map<
+      string,
+      { tables: TableSummary[]; total: number }
+    >();
 
     for (const summary of tableSummaries) {
       const [connId] = summary.tableKey.split(":");
@@ -587,7 +625,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
     const groups: ConnectionGroup[] = [];
     for (const [connId, group] of groupMap) {
-      const conn = connections.find((candidate) => candidate.profile.id === connId);
+      const conn = connections.find(
+        (candidate) => candidate.profile.id === connId,
+      );
       groups.push({
         connectionId: connId,
         connectionName: conn ? conn.profile.name : connId.slice(0, 8),
@@ -606,7 +646,11 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     }
     setSelectedConnectionId(null);
     setSelectedTableKey(null);
-  }, [open]);
+    // Expand all connection groups when dialog opens
+    setExpandedConnections(
+      new Set(connectionGroups.map((g) => g.connectionId)),
+    );
+  }, [open, connectionGroups]);
 
   useEffect(() => {
     if (!selectedConnectionId) {
@@ -631,7 +675,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   }, [selectedTableKey, tableNameByKey]);
 
   // Generate SQL from staged commands (async) — deferred until SQL tab is active
-  const [generatedSQL, setGeneratedSQL] = useState<string>("-- Click the DDL tab to generate preview");
+  const [generatedSQL, setGeneratedSQL] = useState<string>(
+    "-- Click the DDL tab to generate preview",
+  );
   const [sqlGenerated, setSqlGenerated] = useState(false);
   const ddlPreviewCommands = useMemo<CrudCommand[]>(() => {
     return filteredGroupedByRow.flatMap((row) => row.commands);
@@ -648,7 +694,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     const languages = new Set<CodeEditorLanguage>();
 
     for (const connId of connectionIds) {
-      const conn = connections.find((candidate) => candidate.profile.id === connId);
+      const conn = connections.find(
+        (candidate) => candidate.profile.id === connId,
+      );
       const connDbType = conn ? conn.profile.db_type : DbType.PostgreSQL;
       languages.add(dbTypeToEditorLanguage[connDbType]);
     }
@@ -699,7 +747,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
           }
 
           const [connId, commands] = singleEntry;
-          const conn = connections.find((candidate) => candidate.profile.id === connId);
+          const conn = connections.find(
+            (candidate) => candidate.profile.id === connId,
+          );
           const connDbType = conn ? conn.profile.db_type : DbType.PostgreSQL;
           const executor = await getOperationExecutor(connId, connDbType);
           const preview = executor.preview(commands);
@@ -710,7 +760,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
         const sections: string[] = [];
         for (const [connId, commands] of commandsByConnection) {
-          const conn = connections.find((candidate) => candidate.profile.id === connId);
+          const conn = connections.find(
+            (candidate) => candidate.profile.id === connId,
+          );
           const connName = conn ? conn.profile.name : connId.slice(0, 8);
           const connDbType = conn ? conn.profile.db_type : DbType.PostgreSQL;
           const executor = await getOperationExecutor(connId, connDbType);
@@ -719,7 +771,10 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         }
         setGeneratedSQL(sections.join("\n\n"));
       } catch (error) {
-        logger.error("[GlobalChangesDialog] Failed to generate preview:", error);
+        logger.error(
+          "[GlobalChangesDialog] Failed to generate preview:",
+          error,
+        );
         setGeneratedSQL("-- Error generating preview");
       }
       setSqlGenerated(true);
@@ -747,7 +802,18 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         viewMode,
       });
     }
-  }, [open, connectionId, database, schema, table, isTableSpecific, connectionCommands.length, groupedByRow.length, totalChanges, viewMode]);
+  }, [
+    open,
+    connectionId,
+    database,
+    schema,
+    table,
+    isTableSpecific,
+    connectionCommands.length,
+    groupedByRow.length,
+    totalChanges,
+    viewMode,
+  ]);
 
   // Copy SQL to clipboard
   const handleCopySQL = useCallback(async () => {
@@ -777,12 +843,15 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     return connectionId ?? null;
   }, [isTableSpecific, connectionId, onOpenChange]);
 
-  const isConflictErrorMessage = useCallback((errorMessage: string): boolean => {
-    return (
-      errorMessage.includes("modified by another user") ||
-      errorMessage.includes("CONFLICT")
-    );
-  }, []);
+  const isConflictErrorMessage = useCallback(
+    (errorMessage: string): boolean => {
+      return (
+        errorMessage.includes("modified by another user") ||
+        errorMessage.includes("CONFLICT")
+      );
+    },
+    [],
+  );
 
   const handleCommitAll = async () => {
     setIsCommittingLocal(true);
@@ -830,13 +899,17 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         return;
       }
 
-      const successful: Array<{ tableKey: string; committedCount: number }> = [];
+      const successful: Array<{ tableKey: string; committedCount: number }> =
+        [];
       const failed: Array<{ tableKey: string; error: string }> = [];
 
       for (const [tableKey] of connectionCommands) {
         try {
           const result = await commitChanges(tableKey);
-          successful.push({ tableKey, committedCount: result.committed.length });
+          successful.push({
+            tableKey,
+            committedCount: result.committed.length,
+          });
         } catch (error) {
           failed.push({
             tableKey,
@@ -851,7 +924,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
           const commands = stagedCommands.get(tableKey) ?? [];
           successfulCommands.push(...commands);
         });
-        const hasSchemaChanges = successfulCommands.some(isSchemaChangingCommand);
+        const hasSchemaChanges = successfulCommands.some(
+          isSchemaChangingCommand,
+        );
         const { invalidateTable, invalidateSchema } =
           useDataInvalidationStore.getState();
 
@@ -1020,7 +1095,8 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         stageCommands(strippedCommands);
       }
 
-      const successful: Array<{ tableKey: string; committedCount: number }> = [];
+      const successful: Array<{ tableKey: string; committedCount: number }> =
+        [];
       const failed: Array<{ tableKey: string; error: string }> = [];
 
       for (const [tableKeyToCommit] of connectionCommands) {
@@ -1160,27 +1236,32 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     onOpenChange(false);
   };
 
-  const handleUndoRow = useCallback((commands: CrudCommand[]) => {
-    commands.forEach((cmd) => {
-      unstageCommand(cmd.id);
-    });
+  const handleUndoRow = useCallback(
+    (commands: CrudCommand[]) => {
+      commands.forEach((cmd) => {
+        unstageCommand(cmd.id);
+      });
 
-    const commandCount = commands.length;
-    const commandType = commands[0]?.type.split(".")[1] || "change";
-    toast.success(`${commandType} change undone`, {
-      description: `Removed ${commandCount} ${
-        commandCount === 1 ? "field" : "fields"
-      }`,
-    });
-  }, [unstageCommand]);
+      const commandCount = commands.length;
+      const commandType = commands[0]?.type.split(".")[1] || "change";
+      toast.success(`${commandType} change undone`, {
+        description: `Removed ${commandCount} ${
+          commandCount === 1 ? "field" : "fields"
+        }`,
+      });
+    },
+    [unstageCommand],
+  );
 
   // Don't render at all when truly empty (after ready is true and still no commands)
   if (connectionCommands.length === 0 && ready) {
     return null;
   }
 
-  const showSidebar = !isTableSpecific && (tableSummaries.length > 1 || isWorkspaceWide);
-  const isLoading = !ready || connectionCommands.length === 0 || isDerivingChanges;
+  const showSidebar =
+    !isTableSpecific && (tableSummaries.length > 1 || isWorkspaceWide);
+  const isLoading =
+    !ready || connectionCommands.length === 0 || isDerivingChanges;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1198,7 +1279,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
           {/* Top Bar */}
           <div
             data-tauri-drag-region
-            className="h-12 flex items-center gap-3 px-4 pl-20 border-b border-border/50 bg-secondary shrink-0"
+            className="h-9 flex items-center gap-3 px-4 pl-20 bg-secondary shrink-0"
           >
             <Button
               variant="ghost"
@@ -1222,7 +1303,11 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
               <span className="text-xs text-muted-foreground">
                 {totalChanges} {totalChanges === 1 ? "change" : "changes"}
                 {!isTableSpecific && tableSummaries.length > 0 && (
-                  <> across {tableSummaries.length} {tableSummaries.length === 1 ? "table" : "tables"}</>
+                  <>
+                    {" "}
+                    across {tableSummaries.length}{" "}
+                    {tableSummaries.length === 1 ? "table" : "tables"}
+                  </>
                 )}
                 {isWorkspaceWide && connectionGroups.length > 1 && (
                   <> in {connectionGroups.length} connections</>
@@ -1230,28 +1315,6 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
               </span>
             )}
 
-            {/* View Mode Tabs — right-aligned in top bar */}
-            <div className="ml-auto flex items-center gap-1.5">
-              {viewMode === "ddl" && (
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground" onClick={handleCopySQL}>
-                  {copiedSql ? (
-                    <IconCheck className="h-3.5 w-3.5 text-green-500" />
-                  ) : (
-                    <IconCopy className="h-3.5 w-3.5" />
-                  )}
-                </Button>
-              )}
-              <TabsList className="h-8">
-                <TabsTrigger value="changes" className="text-xs px-3 h-6 gap-1.5">
-                  <IconList className="h-3 w-3" />
-                  Changes
-                </TabsTrigger>
-                <TabsTrigger value="ddl" className="text-xs px-3 h-6 gap-1.5">
-                  <IconCode className="h-3 w-3" />
-                  DDL
-                </TabsTrigger>
-              </TabsList>
-            </div>
           </div>
 
           {/* Main Content Area */}
@@ -1260,259 +1323,427 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
               <div className="flex-1 flex items-center justify-center">
                 <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
-            ) : (<>
-            {/* Sidebar - table list (workspace-wide mode with multiple tables) */}
-            {showSidebar && (
-              <div className="w-56 shrink-0 border-r border-border/50 bg-secondary flex flex-col">
-                <div className="p-3 pb-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    {isWorkspaceWide ? "Connections" : "Tables"}
-                  </p>
-                </div>
-                <div className="flex-1 overflow-y-auto px-2 pb-2">
-                  {/* "All" option */}
-                  <button
-                    className={cn(
-                      "w-full text-left px-2.5 py-2 rounded-md text-sm mb-0.5 transition-colors",
-                      selectedTableKey === null && selectedConnectionId === null
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground hover:bg-background/50",
-                    )}
-                    onClick={() => {
-                      setSelectedTableKey(null);
-                      setSelectedConnectionId(null);
-                    }}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">All</span>
-                      <span className="text-xs tabular-nums text-muted-foreground">{totalChanges}</span>
+            ) : (
+              <>
+                {/* Sidebar - table list (workspace-wide mode with multiple tables) */}
+                {showSidebar && (
+                  <div className="w-64 shrink-0 bg-secondary flex flex-col">
+                    <div className="px-3 pt-3 pb-1.5">
+                      <p className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-widest">
+                        {isWorkspaceWide ? "Connections" : "Tables"}
+                      </p>
                     </div>
-                  </button>
-
-                  {isWorkspaceWide && connectionGroups.length > 0 ? (
-                    connectionGroups.map((group) => (
-                      <div key={group.connectionId} className="mt-1">
-                        <button
-                          className={cn(
-                            "w-full text-left px-2.5 py-1.5 rounded-md text-sm transition-colors",
-                            selectedConnectionId === group.connectionId &&
-                              selectedTableKey === null
-                              ? "bg-background text-foreground shadow-sm"
-                              : "text-muted-foreground hover:text-foreground hover:bg-background/50",
-                          )}
-                          onClick={() => {
-                            setSelectedConnectionId(group.connectionId);
-                            setSelectedTableKey(null);
-                          }}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-medium truncate">{group.connectionName}</span>
-                            <span className="text-xs tabular-nums text-muted-foreground">
-                              {group.totalChanges}
-                            </span>
-                          </div>
-                        </button>
-                        <div className="ml-2 mt-0.5">
-                          {group.tables.map((ts) => (
-                            <button
-                              key={ts.tableKey}
-                              className={cn(
-                                "w-full text-left px-2.5 py-1.5 rounded-md text-sm mb-0.5 transition-colors",
-                                selectedTableKey === ts.tableKey
-                                  ? "bg-background text-foreground shadow-sm"
-                                  : "text-muted-foreground hover:text-foreground hover:bg-background/50",
-                              )}
-                              onClick={() => {
-                                setSelectedConnectionId(group.connectionId);
-                                setSelectedTableKey(ts.tableKey);
-                              }}
-                            >
-                              <div className="flex items-center gap-1.5">
-                                <IconTable className="h-3.5 w-3.5 shrink-0 opacity-50" />
-                                <span className="truncate font-medium">{ts.displayName}</span>
-                              </div>
-                              <div className="flex gap-2 mt-0.5 ml-5 text-xs">
-                                {ts.inserts > 0 && (
-                                  <span className="text-green-500">+{ts.inserts}</span>
-                                )}
-                                {ts.updates > 0 && (
-                                  <span className="text-blue-500">~{ts.updates}</span>
-                                )}
-                                {ts.deletes > 0 && (
-                                  <span className="text-red-500">-{ts.deletes}</span>
-                                )}
-                                {ts.ddl > 0 && (
-                                  <span className="text-purple-500">{ts.ddl} DDL</span>
-                                )}
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    tableSummaries.map((ts) => (
-                        <button
-                          key={ts.tableKey}
-                          className={cn(
-                            "w-full text-left px-2.5 py-2 rounded-md text-sm mb-0.5 transition-colors",
-                            selectedTableKey === ts.tableKey
-                              ? "bg-background text-foreground shadow-sm"
-                              : "text-muted-foreground hover:text-foreground hover:bg-background/50",
-                          )}
-                          onClick={() => {
-                            setSelectedTableKey(ts.tableKey);
-                          }}
-                        >
-                        <div className="flex items-center gap-1.5">
-                          <IconTable className="h-3.5 w-3.5 shrink-0 opacity-50" />
-                          <span className="truncate font-medium">{ts.displayName}</span>
-                        </div>
-                        <div className="flex gap-2 mt-1 ml-5 text-xs">
-                          {ts.inserts > 0 && <span className="text-green-500">+{ts.inserts}</span>}
-                          {ts.updates > 0 && <span className="text-blue-500">~{ts.updates}</span>}
-                          {ts.deletes > 0 && <span className="text-red-500">-{ts.deletes}</span>}
-                          {ts.ddl > 0 && <span className="text-purple-500">{ts.ddl} DDL</span>}
+                    <div className="flex-1 overflow-y-auto px-1.5 pb-2">
+                      {/* "All" option */}
+                      <button
+                        className={cn(
+                          "w-full text-left px-2.5 py-2 rounded-lg text-sm mb-1 transition-all duration-150",
+                          selectedTableKey === null &&
+                            selectedConnectionId === null
+                            ? "bg-background text-foreground shadow-sm ring-1 ring-border/40"
+                            : "text-muted-foreground hover:text-foreground hover:bg-background/50",
+                        )}
+                        onClick={() => {
+                          setSelectedTableKey(null);
+                          setSelectedConnectionId(null);
+                        }}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium">All changes</span>
+                          <span
+                            className={cn(
+                              "text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded-full",
+                              selectedTableKey === null &&
+                                selectedConnectionId === null
+                                ? "bg-primary/10 text-primary"
+                                : "bg-muted text-muted-foreground",
+                            )}
+                          >
+                            {totalChanges}
+                          </span>
                         </div>
                       </button>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
 
-            {/* Content Panel */}
-            <div className="flex-1 flex flex-col min-h-0 min-w-0 p-2 pl-0 bg-transparent">
-              <div className="flex-1 flex flex-col overflow-hidden bg-background rounded-xl">
-                {/* Conflict Alert */}
-                {conflictError && (
-                  <Alert
-                    variant="destructive"
-                    className="m-4 mb-0 border-destructive/50 bg-destructive/10"
-                  >
-                    <IconAlertTriangle className="h-4 w-4" />
-                    <AlertTitle className="text-sm font-semibold">
-                      Conflict Detected
-                    </AlertTitle>
-                    <AlertDescription>
-                      <p className="mb-3">
-                        The row was modified by another user or process since you
-                        started editing. You can either override with your changes or
-                        refresh to see the latest data.
-                      </p>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="destructive"
-                          onClick={handleForceCommit}
-                          disabled={isCommitting}
+                      {isWorkspaceWide && connectionGroups.length > 0
+                        ? connectionGroups.map((group) => {
+                            const isExpanded = expandedConnections.has(
+                              group.connectionId,
+                            );
+                            const isConnectionSelected =
+                              selectedConnectionId === group.connectionId &&
+                              selectedTableKey === null;
+
+                            return (
+                              <div key={group.connectionId} className="mt-0.5">
+                                {/* Connection header */}
+                                <div
+                                  className={cn(
+                                    "w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-sm transition-all duration-150 cursor-pointer group",
+                                    isConnectionSelected
+                                      ? "bg-background text-foreground shadow-sm ring-1 ring-border/40"
+                                      : "text-muted-foreground hover:text-foreground hover:bg-background/50",
+                                  )}
+                                  onClick={() => {
+                                    setSelectedConnectionId(group.connectionId);
+                                    setSelectedTableKey(null);
+                                  }}
+                                >
+                                  {/* Expand/collapse chevron */}
+                                  <button
+                                    className="p-0.5 -ml-0.5 rounded hover:bg-muted/80 transition-colors shrink-0"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setExpandedConnections((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(group.connectionId)) {
+                                          next.delete(group.connectionId);
+                                        } else {
+                                          next.add(group.connectionId);
+                                        }
+                                        return next;
+                                      });
+                                    }}
+                                  >
+                                    {isExpanded ? (
+                                      <IconChevronDown className="h-3 w-3 text-muted-foreground" />
+                                    ) : (
+                                      <IconChevronRight className="h-3 w-3 text-muted-foreground" />
+                                    )}
+                                  </button>
+                                  {/* DB type logo */}
+                                  <img
+                                    src={getDatabaseLogo(group.dbType)}
+                                    alt={group.dbType}
+                                    className="h-3.5 w-3.5 shrink-0"
+                                  />
+                                  <span className="font-medium truncate flex-1 min-w-0">
+                                    {group.connectionName}
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      "text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded-full shrink-0",
+                                      isConnectionSelected
+                                        ? "bg-primary/10 text-primary"
+                                        : "bg-muted text-muted-foreground",
+                                    )}
+                                  >
+                                    {group.totalChanges}
+                                  </span>
+                                </div>
+
+                                {/* Table list — collapsible */}
+                                {isExpanded && (
+                                  <div className="ml-3 mt-0.5 pl-2.5 border-l border-border/40">
+                                    {group.tables.map((ts) => {
+                                      const sidebarName = getSidebarTableName(
+                                        ts.tableKey,
+                                      );
+                                      return (
+                                        <Tooltip key={ts.tableKey}>
+                                          <TooltipTrigger
+                                            render={
+                                              <button
+                                                className={cn(
+                                                  "w-full text-left px-2 py-1.5 rounded-md text-sm mb-px transition-all duration-150",
+                                                  selectedTableKey ===
+                                                    ts.tableKey
+                                                    ? "bg-background text-foreground shadow-sm ring-1 ring-border/40"
+                                                    : "text-muted-foreground hover:text-foreground hover:bg-background/50",
+                                                )}
+                                                onClick={() => {
+                                                  setSelectedConnectionId(
+                                                    group.connectionId,
+                                                  );
+                                                  setSelectedTableKey(
+                                                    ts.tableKey,
+                                                  );
+                                                }}
+                                              />
+                                            }
+                                          >
+                                            <div className="flex items-center gap-1.5 min-w-0">
+                                              <IconTable className="h-3 w-3 shrink-0 opacity-40" />
+                                              <span className="truncate text-xs font-medium">
+                                                {sidebarName}
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 mt-0.5 ml-[18px]">
+                                              {ts.inserts > 0 && (
+                                                <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+                                                  <span className="h-1.5 w-1.5 rounded-full bg-green-500 shrink-0" />
+                                                  +{ts.inserts}
+                                                </span>
+                                              )}
+                                              {ts.updates > 0 && (
+                                                <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
+                                                  <span className="h-1.5 w-1.5 rounded-full bg-blue-500 shrink-0" />
+                                                  ~{ts.updates}
+                                                </span>
+                                              )}
+                                              {ts.deletes > 0 && (
+                                                <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-red-600 dark:text-red-400">
+                                                  <span className="h-1.5 w-1.5 rounded-full bg-red-500 shrink-0" />
+                                                  -{ts.deletes}
+                                                </span>
+                                              )}
+                                              {ts.ddl > 0 && (
+                                                <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-purple-600 dark:text-purple-400">
+                                                  <span className="h-1.5 w-1.5 rounded-full bg-purple-500 shrink-0" />
+                                                  {ts.ddl} DDL
+                                                </span>
+                                              )}
+                                            </div>
+                                          </TooltipTrigger>
+                                          <TooltipContent
+                                            side="right"
+                                            sideOffset={8}
+                                          >
+                                            {ts.displayName}
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                        : tableSummaries.map((ts) => (
+                            <Tooltip key={ts.tableKey}>
+                              <TooltipTrigger
+                                render={
+                                  <button
+                                    className={cn(
+                                      "w-full text-left px-2.5 py-2 rounded-lg text-sm mb-0.5 transition-all duration-150",
+                                      selectedTableKey === ts.tableKey
+                                        ? "bg-background text-foreground shadow-sm ring-1 ring-border/40"
+                                        : "text-muted-foreground hover:text-foreground hover:bg-background/50",
+                                    )}
+                                    onClick={() => {
+                                      setSelectedTableKey(ts.tableKey);
+                                    }}
+                                  />
+                                }
+                              >
+                                <div className="flex items-center gap-1.5">
+                                  <IconTable className="h-3.5 w-3.5 shrink-0 opacity-40" />
+                                  <span className="truncate font-medium">
+                                    {ts.displayName}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2 mt-1 ml-5">
+                                  {ts.inserts > 0 && (
+                                    <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-green-500 shrink-0" />
+                                      +{ts.inserts}
+                                    </span>
+                                  )}
+                                  {ts.updates > 0 && (
+                                    <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-blue-500 shrink-0" />
+                                      ~{ts.updates}
+                                    </span>
+                                  )}
+                                  {ts.deletes > 0 && (
+                                    <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-red-600 dark:text-red-400">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-red-500 shrink-0" />
+                                      -{ts.deletes}
+                                    </span>
+                                  )}
+                                  {ts.ddl > 0 && (
+                                    <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-purple-600 dark:text-purple-400">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-purple-500 shrink-0" />
+                                      {ts.ddl} DDL
+                                    </span>
+                                  )}
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent side="right" sideOffset={8}>
+                                {ts.displayName}
+                              </TooltipContent>
+                            </Tooltip>
+                          ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Content Panel */}
+                <div className="flex-1 flex flex-col min-h-0 min-w-0 p-2 bg-transparent">
+                  <div className="flex-1 flex flex-col overflow-hidden bg-background rounded-xl">
+                    {/* Conflict Alert */}
+                    {conflictError && (
+                      <Alert
+                        variant="destructive"
+                        className="m-4 mb-0 border-destructive/50 bg-destructive/10"
+                      >
+                        <IconAlertTriangle className="h-4 w-4" />
+                        <AlertTitle className="text-sm font-semibold">
+                          Conflict Detected
+                        </AlertTitle>
+                        <AlertDescription>
+                          <p className="mb-3">
+                            The row was modified by another user or process
+                            since you started editing. You can either override
+                            with your changes or refresh to see the latest data.
+                          </p>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="destructive"
+                              onClick={handleForceCommit}
+                              disabled={isCommitting}
+                            >
+                              {isCommitting ? (
+                                <IconLoader2 className="mr-1 h-3 w-3 animate-spin" />
+                              ) : (
+                                <IconShieldCheck className="mr-1 h-3 w-3" />
+                              )}
+                              Override with My Changes
+                            </Button>
+                            <Button
+                              variant="outline"
+                              onClick={handleRefreshAndDiscard}
+                              disabled={isCommitting}
+                            >
+                              <IconRefresh className="mr-1 h-3 w-3" />
+                              Discard & Refresh
+                            </Button>
+                          </div>
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
+                    {/* Content area — plain conditional instead of TabsContent to keep flex chain intact */}
+                    {viewMode === "changes" ? (
+                      <div className="flex-1 flex flex-col min-h-0">
+                        {filteredGroupedByRow.length === 0 ? (
+                          <div className="text-sm text-muted-foreground text-center py-8">
+                            No changes to display
+                          </div>
+                        ) : (
+                          <VirtualizedChangesList
+                            groupedByRow={filteredGroupedByRow}
+                            onUndo={handleUndoRow}
+                          />
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex-1 min-h-0 overflow-hidden px-4 pb-4 pt-2">
+                        <CodeEditor
+                          value={generatedSQL || "-- No preview generated"}
+                          readOnly={true}
+                          language={ddlEditorLanguage}
+                          dialect={
+                            !isWorkspaceWide
+                              ? dbTypeToDialect[dbType]
+                              : undefined
+                          }
+                          lineNumbers={true}
+                          height="100%"
+                        />
+                      </div>
+                    )}
+
+                    {/* Validation Error Alert */}
+                    {!validationStatus.canCommitAll && (
+                      <Alert variant="destructive" className="mx-4 mb-2">
+                        <IconAlertTriangle className="h-4 w-4" />
+                        <AlertTitle>
+                          Cannot commit: validation errors
+                        </AlertTitle>
+                        <AlertDescription>
+                          {validationStatus.totalErrors} validation{" "}
+                          {validationStatus.totalErrors === 1
+                            ? "error"
+                            : "errors"}{" "}
+                          in {Object.keys(validationStatus.tableErrors).length}{" "}
+                          {Object.keys(validationStatus.tableErrors).length ===
+                          1
+                            ? "table"
+                            : "tables"}
+                          :{" "}
+                          {Object.entries(validationStatus.tableErrors)
+                            .map(([tbl, count]) => `${tbl} (${count})`)
+                            .join(", ")}
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
+                    {/* Footer Actions */}
+                    <div className="flex items-center gap-2 px-4 py-3 border-t border-border/50 shrink-0">
+                      {/* View Mode Tabs — left side of footer */}
+                      <TabsList className="h-8">
+                        <TabsTrigger
+                          value="changes"
+                          className="text-xs px-3 h-6 gap-1.5"
                         >
-                          {isCommitting ? (
-                            <IconLoader2 className="mr-1 h-3 w-3 animate-spin" />
+                          <IconList className="h-3 w-3" />
+                          Changes
+                        </TabsTrigger>
+                        <TabsTrigger value="ddl" className="text-xs px-3 h-6 gap-1.5">
+                          <IconCode className="h-3 w-3" />
+                          DDL
+                        </TabsTrigger>
+                      </TabsList>
+                      {viewMode === "ddl" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                          onClick={handleCopySQL}
+                        >
+                          {copiedSql ? (
+                            <IconCheck className="h-3.5 w-3.5 text-green-500" />
                           ) : (
-                            <IconShieldCheck className="mr-1 h-3 w-3" />
+                            <IconCopy className="h-3.5 w-3.5" />
                           )}
-                          Override with My Changes
                         </Button>
-                        <Button
-                          variant="outline"
-                          onClick={handleRefreshAndDiscard}
-                          disabled={isCommitting}
-                        >
-                          <IconRefresh className="mr-1 h-3 w-3" />
-                          Discard & Refresh
-                        </Button>
+                      )}
+                      {/* Spacer */}
+                      <div className="flex-1" />
+                      {/* Action buttons — right side */}
+                      <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="lg"
+                        onClick={handleDiscardAll}
+                        disabled={isCommitting}
+                      >
+                        <IconX className="h-3.5 w-3.5 mr-1.5" />
+                        {isTableSpecific ? "Discard" : "Discard All"}
+                      </Button>
+                      <Button
+                        size="lg"
+                        onClick={handleCommitAll}
+                        disabled={
+                          isCommitting || !validationStatus.canCommitAll
+                        }
+                        title={
+                          !validationStatus.canCommitAll
+                            ? `Fix ${validationStatus.totalErrors} validation error${
+                                validationStatus.totalErrors === 1 ? "" : "s"
+                              } before committing`
+                            : undefined
+                        }
+                      >
+                        {isCommitting ? (
+                          <>
+                            <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                            Committing...
+                          </>
+                        ) : (
+                          <>
+                            <IconCircleCheckFilled className="h-3.5 w-3.5 mr-1.5" />
+                            Commit {totalChanges}{" "}
+                            {totalChanges === 1 ? "Change" : "Changes"}
+                          </>
+                        )}
+                      </Button>
                       </div>
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                {/* Content area — plain conditional instead of TabsContent to keep flex chain intact */}
-                {viewMode === "changes" ? (
-                  <div className="flex-1 flex flex-col min-h-0">
-                    {filteredGroupedByRow.length === 0 ? (
-                      <div className="text-sm text-muted-foreground text-center py-8">
-                        No changes to display
-                      </div>
-                    ) : (
-                      <VirtualizedChangesList
-                        groupedByRow={filteredGroupedByRow}
-                        onUndo={handleUndoRow}
-                      />
-                    )}
+                    </div>
                   </div>
-                ) : (
-                  <div className="flex-1 min-h-0 overflow-hidden px-4 pb-4 pt-2">
-                    <CodeEditor
-                      value={generatedSQL || "-- No preview generated"}
-                      readOnly={true}
-                      language={ddlEditorLanguage}
-                      dialect={!isWorkspaceWide ? dbTypeToDialect[dbType] : undefined}
-                      lineNumbers={true}
-                      height="100%"
-                    />
-                  </div>
-                )}
-
-                {/* Validation Error Alert */}
-                {!validationStatus.canCommitAll && (
-                  <Alert variant="destructive" className="mx-4 mb-2">
-                    <IconAlertTriangle className="h-4 w-4" />
-                    <AlertTitle>Cannot commit: validation errors</AlertTitle>
-                    <AlertDescription>
-                      {validationStatus.totalErrors} validation{" "}
-                      {validationStatus.totalErrors === 1 ? "error" : "errors"} in{" "}
-                      {Object.keys(validationStatus.tableErrors).length}{" "}
-                      {Object.keys(validationStatus.tableErrors).length === 1
-                        ? "table"
-                        : "tables"}
-                      :{" "}
-                      {Object.entries(validationStatus.tableErrors)
-                        .map(([tbl, count]) => `${tbl} (${count})`)
-                        .join(", ")}
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                {/* Footer Actions */}
-                <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border/50 shrink-0">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleDiscardAll}
-                    disabled={isCommitting}
-                  >
-                    <IconX className="h-3.5 w-3.5 mr-1.5" />
-                    {isTableSpecific ? "Discard" : "Discard All"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={handleCommitAll}
-                    disabled={isCommitting || !validationStatus.canCommitAll}
-                    title={
-                      !validationStatus.canCommitAll
-                        ? `Fix ${validationStatus.totalErrors} validation error${
-                            validationStatus.totalErrors === 1 ? "" : "s"
-                          } before committing`
-                        : undefined
-                    }
-                  >
-                    {isCommitting ? (
-                      <>
-                        <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                        Committing...
-                      </>
-                    ) : (
-                      <>
-                        <IconCircleCheckFilled className="h-3.5 w-3.5 mr-1.5" />
-                        Commit {totalChanges}{" "}
-                        {totalChanges === 1 ? "Change" : "Changes"}
-                      </>
-                    )}
-                  </Button>
                 </div>
-              </div>
-            </div>
-          </>)}
+              </>
+            )}
           </div>
         </Tabs>
       </DialogContent>
@@ -1531,7 +1762,10 @@ interface VirtualizedChangesListProps {
   onUndo: (commands: CrudCommand[]) => void;
 }
 
-function VirtualizedChangesList({ groupedByRow, onUndo }: VirtualizedChangesListProps) {
+function VirtualizedChangesList({
+  groupedByRow,
+  onUndo,
+}: VirtualizedChangesListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const useLightweightDiff = groupedByRow.length > 150;
 
@@ -1553,10 +1787,7 @@ function VirtualizedChangesList({ groupedByRow, onUndo }: VirtualizedChangesList
   }, [groupedByRow, virtualizer]);
 
   return (
-    <div
-      ref={parentRef}
-      className="flex-1 min-h-0 overflow-y-auto px-4 pb-4"
-    >
+    <div ref={parentRef} className="flex-1 min-h-0 overflow-y-auto p-4">
       <div
         style={{
           height: virtualizer.getTotalSize(),
@@ -1670,18 +1901,35 @@ function RowChangesCardInner({
           }
           if (Array.isArray(payload.columns)) {
             ddlLines.push(`  Columns:`);
-            payload.columns.forEach((col: { name?: string; dataType?: string; nullable?: boolean; defaultValue?: unknown; isPrimaryKey?: boolean; checkExpression?: string; comment?: string }) => {
-              let colDef = `    - ${col.name}: ${col.dataType}`;
-              if (col.nullable === false) colDef += " NOT NULL";
-              if (col.defaultValue !== undefined && col.defaultValue !== null) colDef += ` DEFAULT ${formatDdlValue(col.defaultValue)}`;
-              if (col.isPrimaryKey) colDef += " (PK)";
-              if (col.checkExpression) colDef += ` CHECK (${col.checkExpression})`;
-              if (col.comment) colDef += ` -- ${col.comment}`;
-              ddlLines.push(colDef);
-            });
+            payload.columns.forEach(
+              (col: {
+                name?: string;
+                dataType?: string;
+                nullable?: boolean;
+                defaultValue?: unknown;
+                isPrimaryKey?: boolean;
+                checkExpression?: string;
+                comment?: string;
+              }) => {
+                let colDef = `    - ${col.name}: ${col.dataType}`;
+                if (col.nullable === false) colDef += " NOT NULL";
+                if (col.defaultValue !== undefined && col.defaultValue !== null)
+                  colDef += ` DEFAULT ${formatDdlValue(col.defaultValue)}`;
+                if (col.isPrimaryKey) colDef += " (PK)";
+                if (col.checkExpression)
+                  colDef += ` CHECK (${col.checkExpression})`;
+                if (col.comment) colDef += ` -- ${col.comment}`;
+                ddlLines.push(colDef);
+              },
+            );
           }
-          if (Array.isArray(payload.primaryKey) && payload.primaryKey.length > 0) {
-            ddlLines.push(`  Primary Key: (${(payload.primaryKey as string[]).join(", ")})`);
+          if (
+            Array.isArray(payload.primaryKey) &&
+            payload.primaryKey.length > 0
+          ) {
+            ddlLines.push(
+              `  Primary Key: (${(payload.primaryKey as string[]).join(", ")})`,
+            );
           }
         } else if (cmd.type === "table.rename") {
           // table.rename - show old → new
@@ -1726,14 +1974,21 @@ function RowChangesCardInner({
         } else if (cmd.type === "view.create") {
           // view.create - show view definition
           if (payload.definition) {
-            const viewDef = payload.definition as { name?: string; definition?: string; isMaterialized?: boolean };
+            const viewDef = payload.definition as {
+              name?: string;
+              definition?: string;
+              isMaterialized?: boolean;
+            };
             if (viewDef.name) {
-              ddlLines.push(`  View: ${viewDef.name}${viewDef.isMaterialized ? " (MATERIALIZED)" : ""}`);
+              ddlLines.push(
+                `  View: ${viewDef.name}${viewDef.isMaterialized ? " (MATERIALIZED)" : ""}`,
+              );
             }
             if (viewDef.definition) {
-              const defPreview = viewDef.definition.length > 100 
-                ? viewDef.definition.slice(0, 100) + "..." 
-                : viewDef.definition;
+              const defPreview =
+                viewDef.definition.length > 100
+                  ? viewDef.definition.slice(0, 100) + "..."
+                  : viewDef.definition;
               ddlLines.push(`  Definition: ${defPreview}`);
             }
           }
@@ -1774,11 +2029,22 @@ function RowChangesCardInner({
           }
         } else if (cmd.type.startsWith("constraint.")) {
           // constraint operations
-          if (cmd.type === "constraint.addPrimaryKey" || cmd.type === "constraint.addUnique" || cmd.type === "constraint.addCheck") {
+          if (
+            cmd.type === "constraint.addPrimaryKey" ||
+            cmd.type === "constraint.addUnique" ||
+            cmd.type === "constraint.addCheck"
+          ) {
             if (payload.definition) {
-              const constraintDef = payload.definition as { name?: string; type?: string; columns?: string[]; expression?: string };
+              const constraintDef = payload.definition as {
+                name?: string;
+                type?: string;
+                columns?: string[];
+                expression?: string;
+              };
               if (constraintDef.name) {
-                ddlLines.push(`  Constraint: ${constraintDef.name} (${constraintDef.type?.toUpperCase()})`);
+                ddlLines.push(
+                  `  Constraint: ${constraintDef.name} (${constraintDef.type?.toUpperCase()})`,
+                );
               }
               if (constraintDef.columns && constraintDef.columns.length > 0) {
                 ddlLines.push(`  Columns: ${constraintDef.columns.join(", ")}`);
@@ -1807,7 +2073,14 @@ function RowChangesCardInner({
         } else if (cmd.type === "sequence.create") {
           // sequence.create - show sequence definition
           if (payload.definition) {
-            const seqDef = payload.definition as { name?: string; increment?: number; minValue?: number; maxValue?: number; startValue?: number; cycle?: boolean };
+            const seqDef = payload.definition as {
+              name?: string;
+              increment?: number;
+              minValue?: number;
+              maxValue?: number;
+              startValue?: number;
+              cycle?: boolean;
+            };
             if (seqDef.name) {
               ddlLines.push(`  Sequence: ${seqDef.name}`);
             }
@@ -1830,7 +2103,9 @@ function RowChangesCardInner({
         } else if (cmd.type === "sequence.alter") {
           // sequence.alter - show changes
           if (payload.sequenceName) {
-            ddlLines.push(`  Sequence: ${formatDdlValue(payload.sequenceName)}`);
+            ddlLines.push(
+              `  Sequence: ${formatDdlValue(payload.sequenceName)}`,
+            );
           }
           if (payload.changes) {
             const changes = payload.changes as Record<string, unknown>;
@@ -1841,7 +2116,9 @@ function RowChangesCardInner({
         } else if (cmd.type === "sequence.drop") {
           // sequence.drop - show sequence name
           if (payload.sequenceName) {
-            ddlLines.push(`  Sequence: ${formatDdlValue(payload.sequenceName)}`);
+            ddlLines.push(
+              `  Sequence: ${formatDdlValue(payload.sequenceName)}`,
+            );
           }
           if (payload.cascade) {
             ddlLines.push(`  Cascade: true`);
@@ -1896,7 +2173,10 @@ function RowChangesCardInner({
         ) {
           // Other DDL operations (drop, etc.)
           const name =
-            payload.columnName || payload.indexName || payload.triggerName || payload.constraintName;
+            payload.columnName ||
+            payload.indexName ||
+            payload.triggerName ||
+            payload.constraintName;
           ddlLines.push(`  Name: ${formatDdlValue(name)}`);
           if (payload.cascade) {
             ddlLines.push(`  Cascade: true`);
@@ -1995,7 +2275,7 @@ function RowChangesCardInner({
     }
 
     return { old: "", new: "" };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are the command list identity
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are the command list identity
   }, [row.commands]);
 
   const { old, new: newVal } = useMemo(() => buildRowDiff(), [buildRowDiff]);
