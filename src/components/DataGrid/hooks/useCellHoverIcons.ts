@@ -28,7 +28,7 @@ export interface UseCellHoverIconsOptions {
     schema: string,
     table: string,
     column: string,
-    value: unknown
+    value: unknown,
   ) => void;
   enabled?: boolean;
   /** Ref to the grid container for attaching click listeners */
@@ -72,7 +72,7 @@ const COPIED_FEEDBACK_MS = 3000; // Duration to show copied checkmark
 
 // Detect dark mode from theme bgCell
 function isDarkTheme(bgCell: string): boolean {
-  if (bgCell.startsWith('#')) {
+  if (bgCell.startsWith("#")) {
     const hex = bgCell.slice(1);
     const r = parseInt(hex.slice(0, 2), 16);
     const g = parseInt(hex.slice(2, 4), 16);
@@ -83,7 +83,13 @@ function isDarkTheme(bgCell: string): boolean {
 }
 
 // Draw Tabler copy icon (stroke-based)
-function drawCopyIcon(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string): void {
+function drawCopyIcon(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+): void {
   const scale = size / 24;
   ctx.save();
   ctx.translate(x, y);
@@ -112,7 +118,13 @@ function drawCopyIcon(ctx: CanvasRenderingContext2D, x: number, y: number, size:
 }
 
 // Draw Tabler clipboard-check icon (copied feedback)
-function drawCopiedIcon(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string): void {
+function drawCopiedIcon(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+): void {
   const scale = size / 24;
   ctx.save();
   ctx.translate(x, y);
@@ -152,7 +164,13 @@ function drawCopiedIcon(ctx: CanvasRenderingContext2D, x: number, y: number, siz
 }
 
 // Draw Tabler external-link icon
-function drawLinkIcon(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string): void {
+function drawLinkIcon(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+): void {
   const scale = size / 24;
   ctx.save();
   ctx.translate(x, y);
@@ -191,14 +209,17 @@ function drawLinkIcon(ctx: CanvasRenderingContext2D, x: number, y: number, size:
 }
 
 // Determine content alignment based on data type
-function getContentAlignment(column: GridColumnV2): "left" | "right" | "center" {
+function getContentAlignment(
+  column: GridColumnV2,
+): "left" | "right" | "center" {
   // FK columns are rendered as reference cells with left-aligned content
   // (format: "42 → john@email.com"), so always align left regardless of underlying type
   if (column.meta?.is_fk || getFkReference(column)) {
     return "left";
   }
 
-  const dbType = column.meta?.db_type?.toLowerCase() ?? column.type?.toLowerCase() ?? "text";
+  const dbType =
+    column.meta?.db_type?.toLowerCase() ?? column.type?.toLowerCase() ?? "text";
 
   // Numbers align right
   if (
@@ -224,7 +245,9 @@ function getContentAlignment(column: GridColumnV2): "left" | "right" | "center" 
 }
 
 // Check if a column has a foreign key reference
-function getFkReference(column: GridColumnV2): { schema: string; table: string; column: string } | null {
+function getFkReference(
+  column: GridColumnV2,
+): { schema: string; table: string; column: string } | null {
   // Check for FK reference (may be EnhancedColumnMeta)
   const metaWithFk = column.meta as
     | (typeof column.meta & {
@@ -248,16 +271,28 @@ function getFkReference(column: GridColumnV2): { schema: string; table: string; 
 }
 
 export function useCellHoverIcons(
-  options: UseCellHoverIconsOptions
+  options: UseCellHoverIconsOptions,
 ): UseCellHoverIconsResult {
-  const { columns, rows, onOpenReference, enabled = true, containerRef, enableFKPreview = false, gridRef } = options;
+  const {
+    columns,
+    rows,
+    onOpenReference,
+    enabled = true,
+    containerRef,
+    enableFKPreview = false,
+    gridRef,
+  } = options;
   const [hoveredCell, setHoveredCell] = useState<Item | null>(null);
   const [hoveredButton, setHoveredButton] = useState<string | null>(null);
   const [copiedCell, setCopiedCell] = useState<string | null>(null); // Track which cell was just copied
-  const [fkPreviewState, setFkPreviewState] = useState<FKPreviewState | null>(null);
+  const [fkPreviewState, setFkPreviewState] = useState<FKPreviewState | null>(
+    null,
+  );
 
   // Track icon bounds for click detection
-  const iconBoundsRef = useRef<Map<string, { action: string; bounds: Rectangle }[]>>(new Map());
+  const iconBoundsRef = useRef<
+    Map<string, { action: string; bounds: Rectangle }[]>
+  >(new Map());
 
   // Track current hovered cell bounds for FK preview positioning
   const hoveredCellBoundsRef = useRef<Rectangle | null>(null);
@@ -323,7 +358,10 @@ export function useCellHoverIcons(
         const [col, row] = args.location;
         const currentHovered = hoveredCellRef.current;
         // Check if this is a different cell than currently hovered
-        if (currentHovered && (currentHovered[0] !== col || currentHovered[1] !== row)) {
+        if (
+          currentHovered &&
+          (currentHovered[0] !== col || currentHovered[1] !== row)
+        ) {
           // Immediately hide icons when moving to a different cell
           setHoveredCell(null);
           setHoveredButton(null);
@@ -338,7 +376,7 @@ export function useCellHoverIcons(
         setHoveredButton(null);
       }
     },
-    [enabled] // Removed hoveredCell from dependencies - use ref instead
+    [enabled], // Removed hoveredCell from dependencies - use ref instead
   );
 
   // Cleanup on unmount
@@ -387,7 +425,8 @@ export function useCellHoverIcons(
       }
 
       const cellValue = rowData[column.field] as CellValue | undefined;
-      const hasValue = cellValue?.value !== null && cellValue?.value !== undefined;
+      const hasValue =
+        cellValue?.value !== null && cellValue?.value !== undefined;
 
       // Determine which icons to show
       const icons: { id: string; icon: "copy" | "reference" }[] = [];
@@ -459,23 +498,49 @@ export function useCellHoverIcons(
         // Draw hover highlight for individual button (stronger contrast)
         if (isButtonHovered) {
           const isDark = isDarkTheme(theme.bgCell);
-          ctx.fillStyle = isDark ? "rgba(255, 255, 255, 0.15)" : "rgba(0, 0, 0, 0.1)";
+          ctx.fillStyle = isDark
+            ? "rgba(255, 255, 255, 0.15)"
+            : "rgba(0, 0, 0, 0.1)";
           ctx.beginPath();
           // Apply rounded corners only on the edges
           if (icons.length === 1) {
             ctx.roundRect(buttonX, groupY, BUTTON_SIZE, groupHeight, 4);
           } else if (index === 0 && iconsOnLeft) {
             // First button (left side)
-            ctx.roundRect(buttonX, groupY, BUTTON_SIZE, groupHeight, [4, 0, 0, 4]);
+            ctx.roundRect(
+              buttonX,
+              groupY,
+              BUTTON_SIZE,
+              groupHeight,
+              [4, 0, 0, 4],
+            );
           } else if (index === icons.length - 1 && iconsOnLeft) {
             // Last button (right side)
-            ctx.roundRect(buttonX, groupY, BUTTON_SIZE, groupHeight, [0, 4, 4, 0]);
+            ctx.roundRect(
+              buttonX,
+              groupY,
+              BUTTON_SIZE,
+              groupHeight,
+              [0, 4, 4, 0],
+            );
           } else if (index === 0 && !iconsOnLeft) {
             // First button on right-aligned (right edge)
-            ctx.roundRect(buttonX, groupY, BUTTON_SIZE, groupHeight, [0, 4, 4, 0]);
+            ctx.roundRect(
+              buttonX,
+              groupY,
+              BUTTON_SIZE,
+              groupHeight,
+              [0, 4, 4, 0],
+            );
           } else if (index === icons.length - 1 && !iconsOnLeft) {
             // Last button on right-aligned (left edge)
-            ctx.roundRect(buttonX, groupY, BUTTON_SIZE, groupHeight, [4, 0, 0, 4]);
+            ctx.roundRect(
+              buttonX,
+              groupY,
+              BUTTON_SIZE,
+              groupHeight,
+              [4, 0, 0, 4],
+            );
           } else {
             // Middle buttons (no rounded corners)
             ctx.rect(buttonX, groupY, BUTTON_SIZE, groupHeight);
@@ -485,9 +550,7 @@ export function useCellHoverIcons(
 
         // Draw divider between buttons (except for last button)
         if (index < icons.length - 1) {
-          const dividerX = iconsOnLeft
-            ? buttonX + BUTTON_SIZE
-            : buttonX;
+          const dividerX = iconsOnLeft ? buttonX + BUTTON_SIZE : buttonX;
           ctx.strokeStyle = theme.borderColor ?? theme.bgCellMedium;
           ctx.lineWidth = 1;
           ctx.beginPath();
@@ -534,7 +597,7 @@ export function useCellHoverIcons(
 
       ctx.restore();
     },
-    [enabled, hoveredCell, hoveredButton, copiedCell, columns, rows]
+    [enabled, hoveredCell, hoveredButton, copiedCell, columns, rows],
   );
 
   // Clear hover state when mouse leaves the container
@@ -613,11 +676,16 @@ export function useCellHoverIcons(
           // Handle the action
           const cellValue = rowData[column.field] as CellValue | undefined;
 
-          if (action === "copy" && cellValue?.value !== null && cellValue?.value !== undefined) {
+          if (
+            action === "copy" &&
+            cellValue?.value !== null &&
+            cellValue?.value !== undefined
+          ) {
             // Copy cell value
-            const valueStr = typeof cellValue.value === "object"
-              ? JSON.stringify(cellValue.value)
-              : String(cellValue.value);
+            const valueStr =
+              typeof cellValue.value === "object"
+                ? JSON.stringify(cellValue.value)
+                : String(cellValue.value);
 
             copyToClipboard(valueStr)
               .then(() => {
@@ -634,11 +702,6 @@ export function useCellHoverIcons(
                   setCopiedCell(null);
                   copiedTimerRef.current = null;
                 }, COPIED_FEEDBACK_MS);
-
-                toast.success("Copied to clipboard", {
-                  description: valueStr.length > 50 ? `${valueStr.slice(0, 50)}...` : valueStr,
-                  duration: 2000,
-                });
               })
               .catch((err) => {
                 toast.error("Failed to copy", {
@@ -651,14 +714,19 @@ export function useCellHoverIcons(
 
           if (action === "reference") {
             const fkRef = getFkReference(column);
-            if (fkRef && cellValue?.value !== null && cellValue?.value !== undefined) {
+            if (
+              fkRef &&
+              cellValue?.value !== null &&
+              cellValue?.value !== undefined
+            ) {
               // If FK preview is enabled, show popover instead of navigating
               if (enableFKPreview) {
                 const cellBounds = hoveredCellBoundsRef.current;
                 if (cellBounds && containerRef?.current) {
                   // Convert canvas coordinates to viewport coordinates
                   // by adding the container's offset
-                  const containerRect = containerRef.current.getBoundingClientRect();
+                  const containerRect =
+                    containerRef.current.getBoundingClientRect();
                   setFkPreviewState({
                     col,
                     row,
@@ -681,12 +749,15 @@ export function useCellHoverIcons(
                   fkRef.schema,
                   fkRef.table,
                   fkRef.column,
-                  cellValue.value
+                  cellValue.value,
                 );
               } else {
-                toast.info(`FK Reference: ${fkRef.schema}.${fkRef.table}.${fkRef.column}`, {
-                  description: `Value: ${String(cellValue.value)}`,
-                });
+                toast.info(
+                  `FK Reference: ${fkRef.schema}.${fkRef.table}.${fkRef.column}`,
+                  {
+                    description: `Value: ${String(cellValue.value)}`,
+                  },
+                );
               }
               return;
             }
@@ -795,7 +866,16 @@ export function useCellHoverIcons(
       if (rafId !== null) cancelAnimationFrame(rafId);
       container.style.cursor = "";
     };
-  }, [enabled, containerRef, hoveredCell, hoveredButton, columns, rows, onOpenReference, enableFKPreview]);
+  }, [
+    enabled,
+    containerRef,
+    hoveredCell,
+    hoveredButton,
+    columns,
+    rows,
+    onOpenReference,
+    enableFKPreview,
+  ]);
 
   const clearFkPreview = useCallback(() => {
     setFkPreviewState(null);

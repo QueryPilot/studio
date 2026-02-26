@@ -198,16 +198,6 @@ function createPrimaryKeyStringFast(
   pkColumns: GridColumnV2[],
 ): string | null {
   if (pkColumns.length === 0) {
-    // Fallback: use 'id' field if no PK columns found
-    const idCell = row["id"];
-    if (
-      idCell &&
-      typeof idCell === "object" &&
-      "value" in idCell &&
-      idCell.value !== null
-    ) {
-      return String(idCell.value);
-    }
     return null;
   }
 

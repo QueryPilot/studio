@@ -434,6 +434,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   // Store refs for callbacks
   const onCellEditCommitRef = useRef(onCellEditCommitCallback);
   const commandFactoryRef = useRef(commandFactory);
+  const bestEffortEditArmedRowKeyRef = useRef<string | null>(null);
 
   // --- State ---
   const [isGridFocused, setIsGridFocused] = useState(false);
@@ -444,6 +445,10 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     onCellEditCommitRef.current = onCellEditCommitCallback;
     commandFactoryRef.current = commandFactory;
   });
+
+  useEffect(() => {
+    bestEffortEditArmedRowKeyRef.current = null;
+  }, [commandFactory, readOnly]);
 
   useEffect(() => {
     hasAutoFocusedRef.current = false;
@@ -1691,6 +1696,84 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   );
 
   // --- CRUD Handlers (using commandFactory) ---
+  const hasDeterministicIdentity = useCallback(
+    (factory: CrudCommandFactory): boolean =>
+      factory.primaryKeyColumns.length > 0,
+    [],
+  );
+
+  const showMissingIdentityError = useCallback(() => {
+    toast.error("Update/Delete requires a primary or unique row identity");
+  }, []);
+
+  const getContextualSelectedRowIndexes = useCallback((): number[] => {
+    const selected = Array.from(
+      collectSelectedRowIndexes(gridSelectionRef.current),
+    );
+    if (selected.length > 0) {
+      return selected;
+    }
+
+    const contextTarget = contextMenuTargetRef.current;
+    if (contextTarget?.type === "cell") {
+      return [contextTarget.rowIndex];
+    }
+
+    return [];
+  }, []);
+
+  const validateBestEffortCommand = useCallback(
+    async (
+      factory: CrudCommandFactory,
+      command: import("@/types/crud").CrudCommand,
+    ): Promise<boolean> => {
+      const tags = command.metadata.tags ?? [];
+      if (!tags.includes("matcher:best_effort")) {
+        return true;
+      }
+
+      const validation = await factory.validateCommand?.(command);
+      if (validation && !validation.valid) {
+        toast.error(validation.reason ?? "Best-effort operation was blocked");
+        return false;
+      }
+
+      return true;
+    },
+    [],
+  );
+
+  const handleBestEffortEditRows = useCallback(() => {
+    const factory = commandFactoryRef.current;
+    if (!factory || readOnly) return;
+    if (hasDeterministicIdentity(factory)) return;
+
+    const selectedIndices = getContextualSelectedRowIndexes();
+    if (selectedIndices.length !== 1) {
+      toast.error("Best-effort edit requires selecting exactly one row");
+      return;
+    }
+
+    const rowIndex = selectedIndices[0];
+    if (rowIndex === undefined) return;
+    const row = rowsRef.current[rowIndex];
+    if (!row) return;
+
+    const confirmed = window.confirm(
+      "Best-effort edit matches this row by current values and proceeds only when exactly one row matches. Continue?",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    bestEffortEditArmedRowKeyRef.current = factory.getRowKey(row, rowIndex);
+    toast.success("Best-effort edit enabled for the selected row");
+  }, [
+    getContextualSelectedRowIndexes,
+    hasDeterministicIdentity,
+    readOnly,
+  ]);
+
   const handleCellEditCommit = useCallback(
     (event: GridEditCommitEvent) => {
       if (readOnly) return undefined;
@@ -1699,6 +1782,37 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
       // If commandFactory exists (SQL paradigm), use it to create and stage commands
       if (factory) {
+        if (!hasDeterministicIdentity(factory)) {
+          const armedRowKey = bestEffortEditArmedRowKeyRef.current;
+          if (!armedRowKey) {
+            showMissingIdentityError();
+            return undefined;
+          }
+
+          const eventRowKey = factory.getRowKey(event.row, event.rowIndex);
+          if (eventRowKey !== armedRowKey) {
+            toast.error(
+              "Best-effort edit is only enabled for the selected row",
+            );
+            return undefined;
+          }
+
+          bestEffortEditArmedRowKeyRef.current = null;
+          const command = factory.createEditCommand(event);
+          if (command) {
+            void (async () => {
+              if (!(await validateBestEffortCommand(factory, command))) {
+                return;
+              }
+
+              stageCommand(command);
+              onCellEditCommitRef.current?.(event);
+              toast.success("Best-effort update staged");
+            })();
+          }
+          return undefined;
+        }
+
         const command = factory.createEditCommand(event);
         if (command) {
           stageCommand(command);
@@ -1713,7 +1827,13 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
       return undefined;
     },
-    [stageCommand, readOnly],
+    [
+      hasDeterministicIdentity,
+      showMissingIdentityError,
+      stageCommand,
+      readOnly,
+      validateBestEffortCommand,
+    ],
   );
 
   const handleAddRow = useCallback(() => {
@@ -1860,6 +1980,10 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const handleDeleteRows = useCallback(() => {
     const factory = commandFactoryRef.current;
     if (!factory || readOnly) return;
+    if (!hasDeterministicIdentity(factory)) {
+      showMissingIdentityError();
+      return;
+    }
 
     const hasExplicitRowSelection = (gridSelection?.rows?.length ?? 0) > 0;
     const selectedIndices = Array.from(collectSelectedRowIndexes(gridSelection));
@@ -1893,7 +2017,58 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       stageBatchWithSingleHistoryEntry(commands);
       toast.success(`${commands.length} row deletion(s) staged`);
     }
-  }, [stageCommand, stageBatchWithSingleHistoryEntry, readOnly, gridSelection]);
+  }, [
+    hasDeterministicIdentity,
+    showMissingIdentityError,
+    stageCommand,
+    stageBatchWithSingleHistoryEntry,
+    readOnly,
+    gridSelection,
+  ]);
+
+  const handleBestEffortDeleteRows = useCallback(() => {
+    const factory = commandFactoryRef.current;
+    if (!factory || readOnly) return;
+    if (hasDeterministicIdentity(factory)) {
+      return;
+    }
+
+    const selectedIndices = getContextualSelectedRowIndexes();
+    if (selectedIndices.length !== 1) {
+      toast.error("Best-effort delete requires selecting exactly one row");
+      return;
+    }
+
+    const rowIndex = selectedIndices[0];
+    if (rowIndex === undefined) return;
+    const row = rowsRef.current[rowIndex];
+    if (!row) return;
+
+    const confirmed = window.confirm(
+      "Best-effort delete matches this row by current values and proceeds only when exactly one row matches. Continue?",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    bestEffortEditArmedRowKeyRef.current = null;
+    const rowKey = factory.getRowKey(row, rowIndex);
+    const command = factory.createDeleteCommand(row, rowKey);
+    void (async () => {
+      if (!(await validateBestEffortCommand(factory, command))) {
+        return;
+      }
+
+      stageCommand(command);
+      toast.success("Best-effort row deletion staged");
+    })();
+  }, [
+    getContextualSelectedRowIndexes,
+    hasDeterministicIdentity,
+    readOnly,
+    stageCommand,
+    validateBestEffortCommand,
+  ]);
 
   // Adapter for EditableDataGrid's onRowDelete prop (Glide onDelete → batch stage).
   // Without this, Glide falls through to clearing every cell individually via
@@ -1902,6 +2077,10 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     (event: import("../types").GridRowDeleteEvent) => {
       const factory = commandFactoryRef.current;
       if (!factory || readOnly) return undefined;
+      if (!hasDeterministicIdentity(factory)) {
+        showMissingIdentityError();
+        return undefined;
+      }
 
       const commands: import("@/types/crud").CrudCommand[] = [];
       for (let i = 0; i < event.rowIndexes.length; i++) {
@@ -1919,13 +2098,22 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       }
       return undefined;
     },
-    [stageBatchWithSingleHistoryEntry, readOnly],
+    [
+      hasDeterministicIdentity,
+      showMissingIdentityError,
+      stageBatchWithSingleHistoryEntry,
+      readOnly,
+    ],
   );
 
   const handleBatchEdit = useCallback(
     (edits: Array<{ cell: Item; value: unknown }>, _rows: GridRowModel[]) => {
       const factory = commandFactoryRef.current;
       if (!factory || readOnly) return;
+      if (!hasDeterministicIdentity(factory)) {
+        showMissingIdentityError();
+        return;
+      }
 
       // Collect all commands for batch staging (single undo)
       const commands: import("@/types/crud").CrudCommand[] = [];
@@ -1962,7 +2150,12 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         stageBatchWithSingleHistoryEntry(commands);
       }
     },
-    [stageBatchWithSingleHistoryEntry, readOnly],
+    [
+      hasDeterministicIdentity,
+      showMissingIdentityError,
+      stageBatchWithSingleHistoryEntry,
+      readOnly,
+    ],
   );
 
   const handleBatchClear = useCallback(
@@ -2876,6 +3069,20 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         }
         onDeleteRows={
           commandFactory && !readOnly ? handleDeleteRows : undefined
+        }
+        onBestEffortEditRows={
+          commandFactory &&
+          !readOnly &&
+          commandFactory.primaryKeyColumns.length === 0
+            ? handleBestEffortEditRows
+            : undefined
+        }
+        onBestEffortDeleteRows={
+          commandFactory &&
+          !readOnly &&
+          commandFactory.primaryKeyColumns.length === 0
+            ? handleBestEffortDeleteRows
+            : undefined
         }
         onPaste={commandFactory && !readOnly ? handlePaste : undefined}
         onFilterByColumn={

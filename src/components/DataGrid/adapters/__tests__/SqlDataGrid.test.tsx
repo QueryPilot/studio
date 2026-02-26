@@ -1,12 +1,58 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render } from '@testing-library/react';
 import { SqlDataGrid } from '../SqlDataGrid';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DbType } from '@/types';
+import { ConstraintType } from '@/services/backend';
+import { useTableFullStructure } from '@/hooks/useTableFullStructure';
+import { useTableDataQuery } from '@/hooks/useTableDataQuery';
+
+const {
+  createUpdateCommandMock,
+  createInsertCommandMock,
+  createDeleteCommandMock,
+  createCrudTargetMock,
+} = vi.hoisted(() => ({
+  createUpdateCommandMock: vi.fn(() => ({
+    id: 'mock-update',
+    type: 'data.update',
+    target: { connectionId: 'test', database: 'test', schema: 'public', table: 'users' },
+    payload: { primaryKeys: {} },
+    metadata: { timestamp: new Date().toISOString(), description: 'mock update' },
+    state: 'staged',
+  })),
+  createInsertCommandMock: vi.fn(() => ({
+    id: 'mock-insert',
+    type: 'data.insert',
+    target: { connectionId: 'test', database: 'test', schema: 'public', table: 'users' },
+    payload: { values: {} },
+    metadata: { timestamp: new Date().toISOString(), description: 'mock insert' },
+    state: 'staged',
+  })),
+  createDeleteCommandMock: vi.fn(() => ({
+    id: 'mock-delete',
+    type: 'data.delete',
+    target: { connectionId: 'test', database: 'test', schema: 'public', table: 'users' },
+    payload: { primaryKeys: {} },
+    metadata: { timestamp: new Date().toISOString(), description: 'mock delete' },
+    state: 'staged',
+  })),
+  createCrudTargetMock: vi.fn(() => 'test-target'),
+}));
+
+const capturedBaseGridProps: Array<Record<string, unknown>> = [];
+
+vi.mock('../../base/BaseDataGrid', () => ({
+  BaseDataGrid: (props: Record<string, unknown>) => {
+    capturedBaseGridProps.push(props);
+    return <div data-testid="base-datagrid" />;
+  },
+}));
 
 // Mock the hooks and components
 vi.mock('@/hooks/useTableDataQuery', () => ({
   useTableDataQuery: vi.fn(() => ({
+    data: undefined,
     rows: [],
     columns: [],
     status: 'success',
@@ -14,8 +60,10 @@ vi.mock('@/hooks/useTableDataQuery', () => ({
     isFetching: false,
     isFetchingNextPage: false,
     hasNextPage: false,
-    fetchNextPage: vi.fn(),
-    refetch: vi.fn(),
+    fetchNextPage: vi.fn(async () => {}),
+    refetch: vi.fn(async () => ({ data: undefined })) as unknown as ReturnType<
+      typeof useTableDataQuery
+    >["refetch"],
     cancelStream: vi.fn(),
     progress: null,
     estimatedTotal: 0,
@@ -91,8 +139,10 @@ vi.mock('../../hooks', () => ({
 }));
 
 vi.mock('../../utils/crudHelpers', () => ({
-  createInsertCommand: vi.fn(),
-  createCrudTarget: vi.fn(() => 'test-target'),
+  createUpdateCommand: createUpdateCommandMock,
+  createInsertCommand: createInsertCommandMock,
+  createDeleteCommand: createDeleteCommandMock,
+  createCrudTarget: createCrudTargetMock,
 }));
 
 const queryClient = new QueryClient({
@@ -105,7 +155,49 @@ const Wrapper = ({ children }: { children: React.ReactNode }) => (
   <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 );
 
+function makeTableDataQueryResult(
+  overrides: Partial<ReturnType<typeof useTableDataQuery>> = {},
+): ReturnType<typeof useTableDataQuery> {
+  return {
+    data: undefined,
+    rows: [],
+    columns: [],
+    status: 'success',
+    error: null,
+    isFetching: false,
+    isFetchingNextPage: false,
+    hasNextPage: false,
+    fetchNextPage: vi.fn(async () => {}),
+    refetch: vi.fn(async () => ({ data: undefined })) as unknown as ReturnType<
+      typeof useTableDataQuery
+    >["refetch"],
+    cancelStream: vi.fn(),
+    progress: null,
+    estimatedTotal: 0,
+    isEstimatedCount: false,
+    ...overrides,
+  };
+}
+
 describe('SqlDataGrid', () => {
+  const mockUseTableFullStructure = vi.mocked(useTableFullStructure);
+  const mockUseTableDataQuery = vi.mocked(useTableDataQuery);
+
+  beforeEach(() => {
+    capturedBaseGridProps.length = 0;
+    createUpdateCommandMock.mockClear();
+    createInsertCommandMock.mockClear();
+    createDeleteCommandMock.mockClear();
+    createCrudTargetMock.mockClear();
+    mockUseTableFullStructure.mockReturnValue({
+      structure: null,
+      isLoading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockUseTableDataQuery.mockReturnValue(makeTableDataQueryResult());
+  });
+
   it('should render SQL data grid with BaseDataGrid', () => {
     const { container } = render(
       <SqlDataGrid
@@ -171,5 +263,134 @@ describe('SqlDataGrid', () => {
 
     // Should render something (may not have data-testid in all states)
     expect(container.firstChild).toBeTruthy();
+  });
+
+  it('should derive deterministic identity from unique constraints when PK is missing', () => {
+    mockUseTableFullStructure.mockReturnValue({
+      structure: {
+        name: 'users',
+        schema: 'public',
+        database: 'test-db',
+        columns: [],
+        primaryKeys: [],
+        foreignKeys: [],
+        indexes: [],
+        constraints: [
+          {
+            name: 'users_email_key',
+            table_name: 'users',
+            constraint_type: ConstraintType.Unique,
+            definition: 'UNIQUE ("email")',
+          },
+        ],
+        triggers: [],
+      },
+      isLoading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(
+      <SqlDataGrid
+        connectionId="test-conn"
+        database="test-db"
+        schema="public"
+        table="users"
+        dbType={DbType.PostgreSQL}
+      />,
+      { wrapper: Wrapper },
+    );
+
+    const latestProps = capturedBaseGridProps.at(-1);
+    const commandFactory = latestProps?.commandFactory as
+      | { primaryKeyColumns: string[] }
+      | undefined;
+
+    expect(commandFactory?.primaryKeyColumns).toEqual(['email']);
+  });
+
+  it('excludes embedded FK alias columns from best-effort matcher identity', () => {
+    mockUseTableDataQuery.mockReturnValue(
+      makeTableDataQueryResult({
+        rows: [
+          {
+            col_0: { value: 'alice', db_type: 'text', value_type: 'Text', is_truncated: false },
+            col_1: { value: 'alice@example.com', db_type: 'text', value_type: 'Text', is_truncated: false },
+          },
+        ],
+        columns: [
+          {
+            name: 'name',
+            db_type: 'text',
+            nullable: true,
+            default: null,
+            is_pk: false,
+            is_fk: false,
+            ordinal: 0,
+          },
+          {
+            name: '__qp_fk__owner_id__email',
+            db_type: 'text',
+            nullable: true,
+            default: null,
+            is_pk: false,
+            is_fk: false,
+            ordinal: 1,
+          },
+        ],
+        estimatedTotal: 1,
+      }),
+    );
+    mockUseTableFullStructure.mockReturnValue({
+      structure: {
+        name: 'users',
+        schema: 'public',
+        database: 'test-db',
+        columns: [],
+        primaryKeys: [],
+        foreignKeys: [],
+        indexes: [],
+        constraints: [],
+        triggers: [],
+      },
+      isLoading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(
+      <SqlDataGrid
+        connectionId="test-conn"
+        database="test-db"
+        schema="public"
+        table="users"
+        dbType={DbType.PostgreSQL}
+      />,
+      { wrapper: Wrapper },
+    );
+
+    const latestProps = capturedBaseGridProps.at(-1);
+    const commandFactory = latestProps?.commandFactory as
+      | { createDeleteCommand: (row: Record<string, unknown>, rowKey: string) => unknown }
+      | undefined;
+    expect(commandFactory).toBeDefined();
+
+    commandFactory?.createDeleteCommand(
+      {
+        col_0: { value: 'alice', db_type: 'text', value_type: 'Text', is_truncated: false },
+        col_1: { value: 'alice@example.com', db_type: 'text', value_type: 'Text', is_truncated: false },
+      },
+      'row-key',
+    );
+
+    expect(createDeleteCommandMock).toHaveBeenCalledWith(
+      expect.anything(),
+      'test-target',
+      expect.anything(),
+      expect.objectContaining({
+        matcherMode: 'best_effort',
+        identityColumns: ['name'],
+      }),
+    );
   });
 });

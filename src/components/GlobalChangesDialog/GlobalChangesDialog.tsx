@@ -821,7 +821,6 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     try {
       await writeClipboardText(generatedSQL);
       setCopiedSql(true);
-      toast.success("Copied to clipboard");
       setTimeout(() => {
         setCopiedSql(false);
       }, 2000);
@@ -1315,7 +1314,6 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                 )}
               </span>
             )}
-
           </div>
 
           {/* Main Content Area */}
@@ -1391,7 +1389,11 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                                 >
                                   {/* Expand/collapse chevron */}
                                   <button
-                                    aria-label={isExpanded ? `Collapse ${group.connectionName}` : `Expand ${group.connectionName}`}
+                                    aria-label={
+                                      isExpanded
+                                        ? `Collapse ${group.connectionName}`
+                                        : `Expand ${group.connectionName}`
+                                    }
                                     aria-expanded={isExpanded}
                                     className="p-0.5 -ml-0.5 rounded hover:bg-muted/80 transition-colors shrink-0"
                                     onClick={(e) => {
@@ -1682,7 +1684,10 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                           <IconList className="h-3 w-3" />
                           Changes
                         </TabsTrigger>
-                        <TabsTrigger value="ddl" className="text-xs px-3 h-6 gap-1.5">
+                        <TabsTrigger
+                          value="ddl"
+                          className="text-xs px-3 h-6 gap-1.5"
+                        >
                           <IconCode className="h-3 w-3" />
                           DDL
                         </TabsTrigger>
@@ -1705,42 +1710,42 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                       <div className="flex-1" />
                       {/* Action buttons — right side */}
                       <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="lg"
-                        onClick={handleDiscardAll}
-                        disabled={isCommitting}
-                      >
-                        <IconX className="h-3.5 w-3.5 mr-1.5" />
-                        {isTableSpecific ? "Discard" : "Discard All"}
-                      </Button>
-                      <Button
-                        size="lg"
-                        onClick={handleCommitAll}
-                        disabled={
-                          isCommitting || !validationStatus.canCommitAll
-                        }
-                        title={
-                          !validationStatus.canCommitAll
-                            ? `Fix ${validationStatus.totalErrors} validation error${
-                                validationStatus.totalErrors === 1 ? "" : "s"
-                              } before committing`
-                            : undefined
-                        }
-                      >
-                        {isCommitting ? (
-                          <>
-                            <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                            Committing...
-                          </>
-                        ) : (
-                          <>
-                            <IconCircleCheckFilled className="h-3.5 w-3.5 mr-1.5" />
-                            Commit {totalChanges}{" "}
-                            {totalChanges === 1 ? "Change" : "Changes"}
-                          </>
-                        )}
-                      </Button>
+                        <Button
+                          variant="outline"
+                          size="lg"
+                          onClick={handleDiscardAll}
+                          disabled={isCommitting}
+                        >
+                          <IconX className="h-3.5 w-3.5 mr-1.5" />
+                          {isTableSpecific ? "Discard" : "Discard All"}
+                        </Button>
+                        <Button
+                          size="lg"
+                          onClick={handleCommitAll}
+                          disabled={
+                            isCommitting || !validationStatus.canCommitAll
+                          }
+                          title={
+                            !validationStatus.canCommitAll
+                              ? `Fix ${validationStatus.totalErrors} validation error${
+                                  validationStatus.totalErrors === 1 ? "" : "s"
+                                } before committing`
+                              : undefined
+                          }
+                        >
+                          {isCommitting ? (
+                            <>
+                              <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                              Committing...
+                            </>
+                          ) : (
+                            <>
+                              <IconCircleCheckFilled className="h-3.5 w-3.5 mr-1.5" />
+                              Commit {totalChanges}{" "}
+                              {totalChanges === 1 ? "Change" : "Changes"}
+                            </>
+                          )}
+                        </Button>
                       </div>
                     </div>
                   </div>

@@ -601,7 +601,7 @@ SELECT
     ACTION_ORIENTATION as level,
     ACTION_STATEMENT as function_body,
     1 as enabled,
-    NULL as condition
+    NULL as \`condition\`
 FROM information_schema.TRIGGERS
 WHERE TRIGGER_SCHEMA = '${this.escapeString(schema)}'
     AND EVENT_OBJECT_TABLE = '${this.escapeString(table)}'

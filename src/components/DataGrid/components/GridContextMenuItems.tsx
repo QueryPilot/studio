@@ -61,6 +61,8 @@ export interface GridContextMenuItemsProps {
   onInsertRowBelow?: () => void;
   onDuplicateRows?: () => void;
   onDeleteRows?: () => void;
+  onBestEffortEditRows?: () => void;
+  onBestEffortDeleteRows?: () => void;
   onPaste?: () => void;
 }
 
@@ -85,6 +87,8 @@ export function GridContextMenuItems({
   onInsertRowBelow,
   onDuplicateRows,
   onDeleteRows,
+  onBestEffortEditRows,
+  onBestEffortDeleteRows,
   onPaste,
 }: GridContextMenuItemsProps) {
   const hasSelection = selectedRows.length > 0;
@@ -721,6 +725,31 @@ export function GridContextMenuItems({
         <span className="flex-1">Delete</span>
         {shortcuts.deleteRows}
       </ContextMenuItem>
+
+      {(onBestEffortEditRows || onBestEffortDeleteRows) && (
+        <>
+          <ContextMenuSeparator className="my-1" />
+          {onBestEffortEditRows && (
+            <ContextMenuItem
+              onClick={onBestEffortEditRows}
+              className="text-xs py-1.5 px-3 outline-none"
+            >
+              <IconCopyPlus className="mr-1.5 h-3 w-3 text-foreground" />
+              <span className="flex-1">Best-effort Edit Row</span>
+            </ContextMenuItem>
+          )}
+          {onBestEffortDeleteRows && (
+            <ContextMenuItem
+              variant="destructive"
+              onClick={onBestEffortDeleteRows}
+              className="text-xs py-1.5 px-3 outline-none"
+            >
+              <IconTrash className="mr-1.5 h-3 w-3 text-destructive" />
+              <span className="flex-1">Best-effort Delete</span>
+            </ContextMenuItem>
+          )}
+        </>
+      )}
     </>
   );
 }
