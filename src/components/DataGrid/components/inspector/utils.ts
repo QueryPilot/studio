@@ -115,6 +115,9 @@ export function mergeFieldValues(values: unknown[]): MergedFieldValue {
  * Computes the set of top-level field names that differ between two documents.
  *
  * Uses JSON serialisation for deep equality comparison.
+ * Note: comparison is shallow at the document key level. Two records where
+ * only `address.city` differs will surface "address" as a diff field, not
+ * "address.city". This is intentional — DiffView renders full value badges.
  */
 export function computeDiffFields(
   reference: InspectorDocument,
@@ -152,7 +155,9 @@ export function computeDiffFields(
 }
 
 /**
- * Converts any value into a searchable lowercase string.
+ * Converts any value into a string representation suitable for searching.
+ *
+ * Callers should apply their own case normalisation for case-insensitive matching.
  *
  * - `null` / `undefined` -> empty string
  * - Primitives -> `String(value)`
