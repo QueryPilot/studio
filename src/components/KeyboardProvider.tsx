@@ -69,7 +69,6 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): React.JSX
     // because context isn't ready yet when user presses a key
 
     const setSidebarContext = (sidebars: { left: boolean; right: boolean }) => {
-      contextService.setValue('sideBarVisible', sidebars.left || sidebars.right);
       contextService.setValue('assistantVisible', sidebars.right);
     };
 

@@ -1047,6 +1047,15 @@ export const defaultCommands: Command[] = [
       dataGridRegistry.getFocused()?.clearSelection?.();
     },
   },
+  {
+    id: "dataGrid.action.toggleInspector",
+    label: "Toggle Inspector",
+    category: "Data Grid",
+    when: "dataGridFocus && !editingCell",
+    handler: () => {
+      dataGridRegistry.getFocused()?.toggleInspector?.();
+    },
+  },
   // Query Editor Commands (Event-Driven)
   {
     id: "editor.action.formatQuery",

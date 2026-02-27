@@ -28,6 +28,7 @@ import { useDataGridRenderers } from "../renderers";
 import { inferValueType } from "../utils/valueHelpers";
 import { navigateToCell, type NavigationBounds } from "../utils/keyboardNavigation";
 import { dataGridRegistry } from "@/services/dataGridRegistry";
+import { contextService } from "@/services/contextService";
 
 const isPromise = <T,>(value: unknown): value is Promise<T> =>
   typeof value === "object" &&
@@ -307,6 +308,9 @@ export const EditableDataGrid = forwardRef<
     const handleCmdDelete = (e: KeyboardEvent) => {
       // Only handle cmd+delete or cmd+backspace
       if (!e.metaKey || (e.key !== 'Delete' && e.key !== 'Backspace')) return;
+
+      // Never intercept keys while command palette is open
+      if (contextService.getValue("inQuickOpen")) return;
 
       // Primary focus signal: focused-grid registry (works even when canvas focus is transient)
       const focusedGridId = dataGridRegistry.getFocused()?.id;

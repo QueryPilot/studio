@@ -9,7 +9,8 @@ import {
 } from "@/components/ui/tooltip";
 import { formatExecutionTime } from "@/utils/formatTime";
 import { SelectionSummary } from "./SelectionSummary";
-import type { GridRowModel, GridColumnV2 } from "../types";
+import { IdentifierColumnsSelector } from "./IdentifierColumnsSelector";
+import type { GridRowModel, GridColumnV2, IdentifierSelectorConfig } from "../types";
 import { type GridSelection } from "@glideapps/glide-data-grid";
 
 // ============================================================================
@@ -266,6 +267,10 @@ interface DataGridStatusBarProps {
   isProcessing?: boolean;
   onViewDetails?: () => void;
   readOnlyReason?: string;
+  /** Callback to select custom row identifier columns for non-PK tables */
+  onSelectIdentifierColumns?: () => void;
+  /** State and handlers for the identifier selector popover */
+  identifierSelector?: IdentifierSelectorConfig;
   /** Callback to refresh materialized view - only shown for materialized views */
   onRefreshMaterializedView?: () => void;
   /** Whether the materialized view is currently being refreshed */
@@ -293,6 +298,8 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   isProcessing = false,
   onViewDetails,
   readOnlyReason,
+  onSelectIdentifierColumns,
+  identifierSelector,
   onRefreshMaterializedView,
   isRefreshingMatView = false,
   className,
@@ -342,29 +349,46 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
       {/* Right side: Read-only badge, refresh, progress, row count, timing */}
       <div className="flex items-center gap-2">
         {readOnlyReason && (
-          <div className="flex items-center gap-1.5">
-            <ReadOnlyBadge reason={readOnlyReason} />
-            {onRefreshMaterializedView && (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 disabled:opacity-50"
-                      onClick={onRefreshMaterializedView}
-                      disabled={isRefreshingMatView}
-                    >
-                      <IconRefresh className={cn("h-3.5 w-3.5", isRefreshingMatView && "animate-spin")} />
-                    </Button>
-                  }
-                />
-                <TooltipContent side="top" className="text-xs">
-                  {isRefreshingMatView ? "Refreshing..." : "Refresh Materialized View"}
-                </TooltipContent>
-              </Tooltip>
+          <ReadOnlyBadge reason={readOnlyReason} />
+        )}
+
+        {onSelectIdentifierColumns && identifierSelector && (
+          <IdentifierColumnsSelector
+            open={identifierSelector.open}
+            tableName={identifierSelector.tableName}
+            availableColumns={identifierSelector.availableColumns}
+            selectedColumns={identifierSelector.selectedColumns}
+            onOpen={onSelectIdentifierColumns}
+            onToggleColumn={identifierSelector.onToggleColumn}
+            onClear={identifierSelector.onClear}
+            onCancel={identifierSelector.onCancel}
+            triggerClassName={cn(
+              readOnlyReason
+                ? "text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300"
+                : "text-muted-foreground hover:text-foreground",
             )}
-          </div>
+          />
+        )}
+
+        {readOnlyReason && onRefreshMaterializedView && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 disabled:opacity-50"
+                  onClick={onRefreshMaterializedView}
+                  disabled={isRefreshingMatView}
+                >
+                  <IconRefresh className={cn("h-3.5 w-3.5", isRefreshingMatView && "animate-spin")} />
+                </Button>
+              }
+            />
+            <TooltipContent side="top" className="text-xs">
+              {isRefreshingMatView ? "Refreshing..." : "Refresh Materialized View"}
+            </TooltipContent>
+          </Tooltip>
         )}
 
         {showProgressBar && estimatedTotal && (

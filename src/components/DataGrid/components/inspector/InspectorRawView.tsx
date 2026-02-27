@@ -23,10 +23,12 @@ export const InspectorRawView = memo(function InspectorRawView({
     if (documents.length === 0) {
       return "";
     }
-    if (documents.length === 1) {
-      return JSON.stringify(documents[0], null, 2);
+    try {
+      const target = documents.length === 1 ? documents[0] : documents;
+      return JSON.stringify(target, null, 2);
+    } catch {
+      return "// Unable to serialize document(s) to JSON";
     }
-    return JSON.stringify(documents, null, 2);
   }, [documents]);
 
   if (documents.length === 0) {

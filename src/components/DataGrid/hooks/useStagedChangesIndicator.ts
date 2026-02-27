@@ -31,6 +31,8 @@ interface UseStagedChangesIndicatorOptions {
   database: string;
   schema?: string;
   table: string;
+  /** Optional row identity column names (PK/UNIQUE/custom) used by command matcher */
+  rowIdentityColumns?: string[];
   rows: GridRowModel[];
   /** Original rows before optimistic updates — stable reference for PK map.
    *  Falls back to `rows` if not provided. */
@@ -51,7 +53,16 @@ interface UseStagedChangesIndicatorOptions {
 export function useStagedChangesIndicator(
   options: UseStagedChangesIndicatorOptions,
 ): StagedChangesMap {
-  const { connectionId, database, schema, table, rows, baseRows, columns } = options;
+  const {
+    connectionId,
+    database,
+    schema,
+    table,
+    rowIdentityColumns,
+    rows,
+    baseRows,
+    columns,
+  } = options;
   // Use scoped selectors to avoid re-renders from changes in other tabs.
   const getTableKey = useCrudStore((s) => s.getTableKey);
 
@@ -69,6 +80,27 @@ export function useStagedChangesIndicator(
   // For document paradigm (MongoDB), _id is always the PK
   // For keyvalue paradigm (Redis), key is always the PK
   const pkColumns = useMemo(() => {
+    if (rowIdentityColumns && rowIdentityColumns.length > 0) {
+      const matchedColumns = rowIdentityColumns
+        .map((identityColumn) =>
+          columns.find(
+            (col) =>
+              col.name === identityColumn ||
+              col.field === identityColumn ||
+              col.title === identityColumn,
+          ),
+        )
+        .filter((column): column is GridColumnV2 => Boolean(column));
+
+      if (matchedColumns.length > 0) {
+        const deduped = new Map<string, GridColumnV2>();
+        matchedColumns.forEach((column) => {
+          deduped.set(column.field, column);
+        });
+        return Array.from(deduped.values());
+      }
+    }
+
     let pks = columns.filter((col) => col.meta?.is_pk);
 
     // Fallback: If no PK columns found, check for common paradigm-specific keys
@@ -86,7 +118,7 @@ export function useStagedChangesIndicator(
     }
 
     return pks;
-  }, [columns]);
+  }, [columns, rowIdentityColumns]);
 
   // Use baseRows (pre-optimistic, stable reference) for the PK map when safe.
   // Optimistic cell UPDATES don't change PKs or row count, so baseRows indices
@@ -202,7 +234,9 @@ function createPrimaryKeyStringFast(
   }
 
   // Sort columns by name to match createPrimaryKeyStringFromRecord's alphabetical sorting
-  const sortedPkColumns = [...pkColumns].sort((a, b) => a.name.localeCompare(b.name));
+  const sortedPkColumns = [...pkColumns].sort((a, b) =>
+    (a.name ?? a.field).localeCompare(b.name ?? b.field),
+  );
 
   // Build composite PK string from all PK columns
   // IMPORTANT: Must match createPrimaryKeyStringFromRecord's serialization format

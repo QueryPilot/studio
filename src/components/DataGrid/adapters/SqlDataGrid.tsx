@@ -42,7 +42,6 @@ import { computeBaseWidth } from "./columnUtils";
 import { databaseService } from "@/services/databaseService";
 import { DataGridSkeleton } from "../components/DataGridSkeleton";
 import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
-import { IdentifierColumnsSelector } from "../components/IdentifierColumnsSelector";
 import { useQuickFilter } from "../hooks/useQuickFilter";
 import { DbType, type GridCellValue } from "@/types";
 import type { FilterColumnInfo } from "@/utils/filterParser";
@@ -128,7 +127,6 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
     () => persistedInspector?.open ?? false,
   );
   const [showIdentifierSelector, setShowIdentifierSelector] = useState(false);
-  const [draftIdentifierColumns, setDraftIdentifierColumns] = useState<string[]>([]);
 
   const persistedRowIdentifierColumns = useGridPreferencesStore(
     (state) =>
@@ -803,7 +801,17 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
           return { valid: true };
         }
 
-        const payload = command.payload as { primaryKeys?: Record<string, unknown> };
+        const payload = command.payload as {
+          primaryKeys?: Record<string, unknown>;
+          tempId?: string;
+        };
+
+        // UPDATE commands linked to a staged INSERT (via tempId) should not probe
+        // live DB rows. The command will be merged into INSERT payload in store.
+        if (command.type === "data.update" && payload.tempId) {
+          return { valid: true };
+        }
+
         const where = payload.primaryKeys;
         try {
           const adapter = await getAdapterForConnection(connectionId);
@@ -1044,33 +1052,28 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     selectableIdentifierColumns.length > 0;
 
   const handleSelectIdentifierColumns = useCallback(() => {
-    setDraftIdentifierColumns(customIdentityColumns);
     setShowIdentifierSelector(true);
-  }, [customIdentityColumns]);
-
-  const handleToggleDraftIdentifierColumn = useCallback((column: string) => {
-    setDraftIdentifierColumns((prev) =>
-      prev.includes(column)
-        ? prev.filter((item) => item !== column)
-        : [...prev, column],
-    );
   }, []);
 
-  const handleSaveIdentifierColumns = useCallback(() => {
+  const handleToggleIdentifierColumn = useCallback(
+    (column: string) => {
+      const nextColumns = customIdentityColumns.includes(column)
+        ? customIdentityColumns.filter((item) => item !== column)
+        : [...customIdentityColumns, column];
+
       useGridPreferencesStore.getState().setRowIdentifierColumns(
         gridId,
-        draftIdentifierColumns.length > 0 ? draftIdentifierColumns : undefined,
+        nextColumns.length > 0 ? nextColumns : undefined,
       );
-      setShowIdentifierSelector(false);
-    }, [draftIdentifierColumns, gridId]);
+    },
+    [customIdentityColumns, gridId],
+  );
 
   const handleClearIdentifierColumns = useCallback(() => {
     useGridPreferencesStore.getState().setRowIdentifierColumns(
       gridId,
       undefined,
     );
-    setDraftIdentifierColumns([]);
-    setShowIdentifierSelector(false);
   }, [gridId]);
 
   const handleCancelIdentifierColumns = useCallback(() => {
@@ -1109,34 +1112,22 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
               />
             </div>
             <Button
-              size="sm"
+              size="icon"
               variant="outline"
-              className="h-7 text-[11px] shrink-0"
+              className="h-7 w-7 shrink-0"
               onClick={() => {
                 setShowInspector((prev) => !prev);
               }}
             >
               {showInspector ? (
-                <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5 mr-1" />
+                <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
               ) : (
-                <IconLayoutSidebarRightExpand className="h-3.5 w-3.5 mr-1" />
+                <IconLayoutSidebarRightExpand className="h-3.5 w-3.5" />
               )}
-              Inspector
             </Button>
           </div>
         </div>
       )}
-
-      <IdentifierColumnsSelector
-        open={showIdentifierSelector}
-        tableName={tableName}
-        availableColumns={selectableIdentifierColumns}
-        selectedColumns={draftIdentifierColumns}
-        onToggleColumn={handleToggleDraftIdentifierColumn}
-        onSave={handleSaveIdentifierColumns}
-        onClear={handleClearIdentifierColumns}
-        onCancel={handleCancelIdentifierColumns}
-      />
 
       {/* BaseDataGrid handles all CRUD operations internally */}
       <BaseDataGrid
@@ -1159,6 +1150,19 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
         readOnlyReason={readOnlyReason}
         onSelectIdentifierColumns={
           canConfigureIdentifierColumns ? handleSelectIdentifierColumns : undefined
+        }
+        identifierSelector={
+          canConfigureIdentifierColumns
+            ? {
+                open: showIdentifierSelector,
+                tableName,
+                availableColumns: selectableIdentifierColumns,
+                selectedColumns: customIdentityColumns,
+                onToggleColumn: handleToggleIdentifierColumn,
+                onClear: handleClearIdentifierColumns,
+                onCancel: handleCancelIdentifierColumns,
+              }
+            : undefined
         }
         entityType={entityType}
         enableFiltering={false} // Filter managed by SqlDataGrid, not BaseDataGrid
