@@ -6,7 +6,7 @@ import tseslint from "typescript-eslint";
 import pluginQuery from "@tanstack/eslint-plugin-query";
 
 export default tseslint.config(
-  { ignores: ["dist", "src-tauri", ".query-pilot"] },
+  { ignores: ["dist", "src-tauri", ".query-pilot", "target"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.strictTypeChecked],
     files: ["**/*.{ts,tsx}"],
