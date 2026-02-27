@@ -34,6 +34,7 @@ import type { FilterColumnInfo } from "@/utils/filterParser";
 import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
 import type { FilterMode } from "@/utils/filterParser";
 import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
+import { useGridPreferencesStore } from "../stores/gridPreferencesStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -97,7 +98,12 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   const [filterError, setFilterError] = useState<string | null>(null);
   const [flattenMode, setFlattenMode] = useState(false);
   const [flattenDepth, setFlattenDepth] = useState(3);
-  const [showInspector, setShowInspector] = useState(false);
+  const persistedInspector = useGridPreferencesStore(
+    (s) => s.preferences[gridId]?.inspector,
+  );
+  const [showInspector, setShowInspector] = useState(
+    () => persistedInspector?.open ?? false,
+  );
   const [objectIdJump, setObjectIdJump] = useState("");
   const [planHint, setPlanHint] = useState<string | null>(null);
   const [savedViews, setSavedViews] = useState<DocumentGridView[]>(() => {
@@ -150,6 +156,12 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   useEffect(() => {
     window.localStorage.setItem(savedViewStorageKey, JSON.stringify(savedViews));
   }, [savedViews, savedViewStorageKey]);
+
+  // Persist inspector panel open/close state
+  const setInspectorPref = useGridPreferencesStore((s) => s.setInspector);
+  useEffect(() => {
+    setInspectorPref(gridId, { open: showInspector, tab: "tree" });
+  }, [gridId, showInspector, setInspectorPref]);
 
   // Handle filter submission
   const handleFilterSubmit = useCallback(() => {

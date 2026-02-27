@@ -17,6 +17,10 @@ export interface GridPreferences {
   view: GridViewState;
   pinnedRows: string[];
   sortColumns: SortColumn[];
+  /**
+   * Optional user-defined row identifier columns for tables that lack PK/UNIQUE identity.
+   */
+  rowIdentifierColumns?: string[];
   historySnapshot?: {
     undoStack: GridHistoryEntry[];
     redoStack: GridHistoryEntry[];
@@ -28,6 +32,11 @@ export interface GridPreferences {
   };
   /** Search query for structure view */
   structureSearch?: string;
+  /** Inspector panel state */
+  inspector?: {
+    open: boolean;
+    tab: string;
+  };
   createdAt: number;
   updatedAt: number;
 }
@@ -56,7 +65,12 @@ export interface GridPreferencesState {
     gridId: string,
     filter: { value: string; mode: FilterMode } | undefined,
   ) => void;
+  setRowIdentifierColumns: (
+    gridId: string,
+    columns: string[] | undefined,
+  ) => void;
   setStructureSearch: (gridId: string, search: string | undefined) => void;
+  setInspector: (gridId: string, inspector: { open: boolean; tab: string } | undefined) => void;
   reset: (gridId: string) => void;
   resetAll: () => void;
 }
@@ -232,6 +246,30 @@ export const useGridPreferencesStore = create<GridPreferencesState>()(
             prefs.updatedAt = Date.now();
           }, false, `gridPreferences/setQuickFilter:${gridId}`);
         },
+        setRowIdentifierColumns: (gridId, columns) => {
+          set((state) => {
+            const prefs =
+              state.preferences[gridId] ?? createDefaultPreferences();
+            if (!state.preferences[gridId]) {
+              state.preferences[gridId] = prefs as any;
+            }
+            if (!columns || columns.length === 0) {
+              prefs.rowIdentifierColumns = undefined;
+            } else {
+              // De-duplicate while preserving order.
+              const seen = new Set<string>();
+              const normalized: string[] = [];
+              for (const column of columns) {
+                if (!column || seen.has(column)) continue;
+                seen.add(column);
+                normalized.push(column);
+              }
+              prefs.rowIdentifierColumns =
+                normalized.length > 0 ? normalized : undefined;
+            }
+            prefs.updatedAt = Date.now();
+          }, false, `gridPreferences/setRowIdentifierColumns:${gridId}`);
+        },
         setStructureSearch: (gridId, search) => {
           set((state) => {
             const prefs =
@@ -242,6 +280,17 @@ export const useGridPreferencesStore = create<GridPreferencesState>()(
             prefs.structureSearch = search;
             prefs.updatedAt = Date.now();
           }, false, `gridPreferences/setStructureSearch:${gridId}`);
+        },
+        setInspector: (gridId, inspector) => {
+          set((state) => {
+            const prefs =
+              state.preferences[gridId] ?? createDefaultPreferences();
+            if (!state.preferences[gridId]) {
+              state.preferences[gridId] = prefs as any;
+            }
+            prefs.inspector = inspector;
+            prefs.updatedAt = Date.now();
+          }, false, `gridPreferences/setInspector:${gridId}`);
         },
         reset: (gridId) => {
           set((state) => {
