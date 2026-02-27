@@ -213,6 +213,8 @@ export interface BaseDataGridProps {
   inspectorDefaultOpen?: boolean;
   inspectorOpen?: boolean;
   onInspectorOpenChange?: (open: boolean) => void;
+  inspectorDefaultTab?: import("../components/inspector").InspectorTab;
+  onInspectorTabChange?: (tab: import("../components/inspector").InspectorTab) => void;
   renderInspectorPanel?: (props: InspectorPanelProps) => React.ReactNode;
 
   /** Minimum rendered rows before infinite load trigger can fire */
@@ -332,6 +334,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     inspectorDefaultOpen = false,
     inspectorOpen,
     onInspectorOpenChange,
+    inspectorDefaultTab,
+    onInspectorTabChange,
     readOnly = false,
     // Command factory for CRUD
     commandFactory,
@@ -1748,6 +1752,14 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     [],
   );
 
+  const isBestEffortMatcherCommand = useCallback(
+    (command: import("@/types/crud").CrudCommand): boolean => {
+      const tags = command.metadata.tags ?? [];
+      return tags.includes("matcher:best_effort");
+    },
+    [],
+  );
+
   const handleBestEffortEditRows = useCallback(() => {
     const factory = commandFactoryRef.current;
     if (!factory || readOnly) return;
@@ -1820,10 +1832,20 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
         const command = factory.createEditCommand(event);
         if (command) {
-          stageCommand(command);
+          if (isBestEffortMatcherCommand(command)) {
+            void (async () => {
+              if (!(await validateBestEffortCommand(factory, command))) {
+                return;
+              }
+              stageCommand(command);
+              onCellEditCommitRef.current?.(event);
+            })();
+          } else {
+            stageCommand(command);
+            // Call optional callback for paradigm-specific post-processing
+            onCellEditCommitRef.current?.(event);
+          }
         }
-        // Call optional callback for paradigm-specific post-processing
-        onCellEditCommitRef.current?.(event);
       } else {
         // No commandFactory - let the paradigm adapter handle staging directly
         // (Document and KeyValue paradigms provide their own onCellEditCommit)
@@ -1834,6 +1856,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     },
     [
       hasDeterministicIdentity,
+      isBestEffortMatcherCommand,
       showMissingIdentityError,
       stageCommand,
       readOnly,
@@ -2001,8 +2024,18 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         if (row) {
           const rowKey = factory.getRowKey(row, rowIndex);
           const command = factory.createDeleteCommand(row, rowKey);
-          stageCommand(command);
-          toast.success("Row deletion staged");
+          if (isBestEffortMatcherCommand(command)) {
+            void (async () => {
+              if (!(await validateBestEffortCommand(factory, command))) {
+                return;
+              }
+              stageCommand(command);
+              toast.success("Row deletion staged");
+            })();
+          } else {
+            stageCommand(command);
+            toast.success("Row deletion staged");
+          }
         }
       }
       return;
@@ -2019,14 +2052,30 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       }
     }
     if (commands.length > 0) {
-      stageBatchWithSingleHistoryEntry(commands);
-      toast.success(`${commands.length} row deletion(s) staged`);
+      const containsBestEffort = commands.some(isBestEffortMatcherCommand);
+      if (!containsBestEffort) {
+        stageBatchWithSingleHistoryEntry(commands);
+        toast.success(`${commands.length} row deletion(s) staged`);
+        return;
+      }
+
+      void (async () => {
+        for (const command of commands) {
+          if (!(await validateBestEffortCommand(factory, command))) {
+            return;
+          }
+        }
+        stageBatchWithSingleHistoryEntry(commands);
+        toast.success(`${commands.length} row deletion(s) staged`);
+      })();
     }
   }, [
     hasDeterministicIdentity,
+    isBestEffortMatcherCommand,
     showMissingIdentityError,
     stageCommand,
     stageBatchWithSingleHistoryEntry,
+    validateBestEffortCommand,
     readOnly,
     gridSelection,
   ]);
@@ -2098,15 +2147,31 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         }
       }
       if (commands.length > 0) {
-        stageBatchWithSingleHistoryEntry(commands);
-        toast.success(`${commands.length} row deletion(s) staged`);
+        const containsBestEffort = commands.some(isBestEffortMatcherCommand);
+        if (!containsBestEffort) {
+          stageBatchWithSingleHistoryEntry(commands);
+          toast.success(`${commands.length} row deletion(s) staged`);
+          return undefined;
+        }
+
+        void (async () => {
+          for (const command of commands) {
+            if (!(await validateBestEffortCommand(factory, command))) {
+              return;
+            }
+          }
+          stageBatchWithSingleHistoryEntry(commands);
+          toast.success(`${commands.length} row deletion(s) staged`);
+        })();
       }
       return undefined;
     },
     [
       hasDeterministicIdentity,
+      isBestEffortMatcherCommand,
       showMissingIdentityError,
       stageBatchWithSingleHistoryEntry,
+      validateBestEffortCommand,
       readOnly,
     ],
   );
@@ -2152,13 +2217,28 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
       // Stage all commands with a single history entry for atomic undo
       if (commands.length > 0) {
-        stageBatchWithSingleHistoryEntry(commands);
+        const containsBestEffort = commands.some(isBestEffortMatcherCommand);
+        if (!containsBestEffort) {
+          stageBatchWithSingleHistoryEntry(commands);
+          return;
+        }
+
+        void (async () => {
+          for (const command of commands) {
+            if (!(await validateBestEffortCommand(factory, command))) {
+              return;
+            }
+          }
+          stageBatchWithSingleHistoryEntry(commands);
+        })();
       }
     },
     [
       hasDeterministicIdentity,
+      isBestEffortMatcherCommand,
       showMissingIdentityError,
       stageBatchWithSingleHistoryEntry,
+      validateBestEffortCommand,
       readOnly,
     ],
   );
@@ -2990,19 +3070,75 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     [enableInspector, onCellClicked],
   );
 
-  // Collect ALL selected rows for the inspector panel
-  const inspectorSelectedRows = useMemo((): GridRowModel[] => {
+  // Collect ALL selected row indexes for the inspector panel
+  const inspectorSelectedRowIndexes = useMemo((): number[] => {
     const selectedIndexes = collectSelectedRowIndexes(gridSelection);
     if (selectedIndexes.size > 0) {
-      return Array.from(selectedIndexes)
-        .sort((a, b) => a - b)
-        .map((idx) => effectiveDisplayRows[idx])
-        .filter((row): row is GridRowModel => Boolean(row));
+      return Array.from(selectedIndexes).sort((a, b) => a - b);
     }
-    // Fall back to single inspectorSelectedRow from cell click
-    if (inspectorSelectedRow) return [inspectorSelectedRow];
+    // For single cell-click fallback, find the row's index
+    if (inspectorSelectedRow) {
+      const idx = effectiveDisplayRows.indexOf(inspectorSelectedRow);
+      return idx >= 0 ? [idx] : [];
+    }
     return [];
   }, [gridSelection, effectiveDisplayRows, inspectorSelectedRow]);
+
+  const inspectorSelectedRows = useMemo((): GridRowModel[] => {
+    return inspectorSelectedRowIndexes
+      .map((idx) => effectiveDisplayRows[idx])
+      .filter((row): row is GridRowModel => Boolean(row));
+  }, [inspectorSelectedRowIndexes, effectiveDisplayRows]);
+
+  // Handle inline edits from Inspector tree view → route through CRUD pipeline
+  const handleInspectorCellEdit = useCallback(
+    (field: string, value: unknown) => {
+      if (readOnly) return;
+
+      const column = finalColumns.find((col) => col.field === field);
+      if (!column) return;
+      const colIndex = finalColumns.indexOf(column);
+      const factory = commandFactoryRef.current;
+
+      for (const rowIndex of inspectorSelectedRowIndexes) {
+        const row = effectiveDisplayRows[rowIndex];
+        if (!row) continue;
+
+        // Extract previous value from cell wrapper
+        const rawPrev: unknown = row[field];
+        const previousValue =
+          rawPrev &&
+          typeof rawPrev === "object" &&
+          "value" in (rawPrev as Record<string, unknown>)
+            ? (rawPrev as { value?: unknown }).value
+            : rawPrev;
+
+        const event: GridEditCommitEvent = {
+          cell: [colIndex, rowIndex] as Item,
+          rowIndex,
+          columnIndex: colIndex,
+          column,
+          row,
+          newValue: {
+            kind: GridCellKind.Text,
+            data: String(value ?? ""),
+            displayData: String(value ?? ""),
+            allowOverlay: true,
+          },
+          previousValue: previousValue as GridEditCommitEvent["previousValue"],
+        };
+
+        if (factory) {
+          const command = factory.createEditCommand(event);
+          if (command) stageCommand(command);
+        } else {
+          // For non-SQL paradigms, delegate to adapter's onCellEditCommit
+          onCellEditCommitRef.current?.(event);
+        }
+      }
+    },
+    [readOnly, finalColumns, inspectorSelectedRowIndexes, effectiveDisplayRows, stageCommand],
+  );
 
   const activeInspectorPanel =
     showInspector && enableInspector ? (
@@ -3010,11 +3146,17 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         renderInspectorPanel({
           selectedRows: inspectorSelectedRows,
           columns: finalColumns,
+          onCellEdit: handleInspectorCellEdit,
+          defaultTab: inspectorDefaultTab,
+          onTabChange: onInspectorTabChange,
         })
       ) : (
         <InspectorPanel
           selectedRows={inspectorSelectedRows}
           columns={finalColumns}
+          onCellEdit={readOnly ? undefined : handleInspectorCellEdit}
+          defaultTab={inspectorDefaultTab}
+          onTabChange={onInspectorTabChange}
         />
       )
     ) : null;
