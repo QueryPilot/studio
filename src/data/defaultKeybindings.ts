@@ -132,7 +132,7 @@ export const defaultKeybindings: Keybinding[] = [
   {
     command: 'dataGrid.action.focusFilter',
     key: '/',
-    when: 'dataGridFocus && !editingCell',
+    when: 'dataGridFocus && !editingCell && !inQuickOpen',
   },
   {
     command: 'dataGrid.action.copySelection',
@@ -167,12 +167,12 @@ export const defaultKeybindings: Keybinding[] = [
   {
     command: 'dataGrid.action.clearSelection',
     key: 'delete',
-    when: 'dataGridFocus && !editingCell',
+    when: 'dataGridFocus && !editingCell && !inQuickOpen',
   },
   {
     command: 'dataGrid.action.clearSelection',
     key: 'backspace',
-    when: 'dataGridFocus && !editingCell',
+    when: 'dataGridFocus && !editingCell && !inQuickOpen',
   },
   {
     command: 'workspace.commitAll',
