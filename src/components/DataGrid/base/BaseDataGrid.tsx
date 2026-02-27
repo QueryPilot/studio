@@ -86,7 +86,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import type { ImperativePanelHandle } from "react-resizable-panels";
+import type { PanelImperativeHandle } from "react-resizable-panels";
 import {
   applyClientSideFilter,
   type FilterOptions,
@@ -441,7 +441,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const quickFilterRef = useRef<QuickFilterRef>(null);
   const scrollDebounceRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const loadingMoreRef = useRef(false); // Ref-based guard to prevent duplicate fetches
-  const inspectorPanelRef = useRef<ImperativePanelHandle>(null);
+  const inspectorPanelRef = useRef<PanelImperativeHandle>(null);
   // Use external ref if provided (parent-managed QuickFilter), otherwise use internal ref
   const effectiveQuickFilterRef = externalQuickFilterRef ?? quickFilterRef;
 
@@ -633,7 +633,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     if (!panel) return;
     try {
       if (showInspector) {
-        if (panel.isCollapsed()) panel.resize(28);
+        if (panel.isCollapsed()) panel.resize("28");
       } else {
         if (!panel.isCollapsed()) panel.collapse();
       }
@@ -813,13 +813,16 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     // Check synchronously first using relatedTarget (the element receiving focus)
     const relatedTarget = e.relatedTarget as HTMLElement | null;
 
-    // If focus is moving to another element within this grid, don't blur
+    // If focus is moving to another element within the grid container, don't blur.
+    // We intentionally check containerRef (the actual grid) rather than wrapperRef
+    // so that focus moving to inputs outside the grid (inspector search, quick
+    // filter, etc.) correctly clears dataGridFocus and prevents keybindings like
+    // Delete/Backspace from intercepting native text input behavior.
     if (relatedTarget && currentTarget.contains(relatedTarget)) {
       return;
     }
 
-    // Also check wrapperRef since containerRef is nested inside it
-    if (relatedTarget && wrapperRef.current?.contains(relatedTarget)) {
+    if (relatedTarget && containerRef.current?.contains(relatedTarget)) {
       return;
     }
 
@@ -2730,7 +2733,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       const isFocusedByRegistry = focusedGridId === gridId;
       const isFocusedByDom =
         !!activeElement &&
-        !!wrapperRef.current?.contains(activeElement);
+        !!containerRef.current?.contains(activeElement);
       const isFocused =
         isFocusedByRegistry || isFocusedByDom || isGridFocusedRef.current;
 
@@ -3522,20 +3525,18 @@ export const BaseDataGrid = memo(function BaseDataGrid(
           />
         </div>
       ) : enableInspector ? (
-        <ResizablePanelGroup direction="horizontal" className="flex-1 min-h-0">
-          <ResizablePanel defaultSize={inspectorDefaultOpen ? 72 : 100} minSize={40} order={1}>
+        <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0">
+          <ResizablePanel defaultSize={inspectorDefaultOpen ? "72" : "100"} minSize="40">
             {gridContainer}
           </ResizablePanel>
           <ResizableHandle withHandle className={cn(!showInspector && "sr-only")} />
           <ResizablePanel
-            ref={inspectorPanelRef}
-            defaultSize={inspectorDefaultOpen ? 28 : 0}
-            minSize={20}
+            panelRef={inspectorPanelRef}
+            defaultSize={inspectorDefaultOpen ? "28" : "0"}
+            minSize="20"
             collapsible
-            collapsedSize={0}
-            order={2}
-            onCollapse={() => { setInspectorOpen(false); }}
-            onExpand={() => { setInspectorOpen(true); }}
+            collapsedSize="0"
+            onResize={(size) => { setInspectorOpen(size.asPercentage > 0.1); }}
           >
             {activeInspectorPanel}
           </ResizablePanel>

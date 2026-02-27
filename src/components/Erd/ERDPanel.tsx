@@ -976,18 +976,17 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         </div>
       ) : null}
 
-      <ResizablePanelGroup direction="horizontal" className="flex-1">
+      <ResizablePanelGroup orientation="horizontal" className="flex-1">
         {/* Code Editor Panel - LEFT side */}
         {isCodeVisible && (
           <ResizablePanel
-            defaultSize={40}
-            minSize={20}
-            maxSize={70}
-            order={1}
+            defaultSize="40"
+            minSize="20"
+            maxSize="70"
             collapsible={true}
-            collapsedSize={0}
-            onCollapse={() => {
-              setIsCodeVisible(false);
+            collapsedSize="0"
+            onResize={(size) => {
+              if (size.asPercentage <= 0.1) setIsCodeVisible(false);
             }}
             className="border-r bg-background"
             style={{
@@ -1004,9 +1003,8 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
 
         {/* Visual Diagram Panel - RIGHT side or full width */}
         <ResizablePanel
-          defaultSize={isCodeVisible ? 60 : 100}
-          minSize={30}
-          order={2}
+          defaultSize={isCodeVisible ? "60" : "100"}
+          minSize="30"
           className="relative"
           style={{
             // GPU acceleration for smooth rendering

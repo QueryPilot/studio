@@ -156,9 +156,9 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
       onMouseDown={handleFocusPanel}
       onFocus={handleFocusPanel}
     >
-      <ResizablePanelGroup direction="vertical" className="h-full rounded-xl overflow-hidden">
+      <ResizablePanelGroup orientation="vertical" className="h-full rounded-xl overflow-hidden">
         {/* Top: Editor */}
-        <ResizablePanel defaultSize={40} minSize={20} className="flex flex-col">
+        <ResizablePanel defaultSize="40" minSize="20" className="flex flex-col">
           <div className="flex-1 min-h-0 relative flex flex-col">
             <CodeEditor
               value={query}
@@ -184,7 +184,7 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
         <ResizableHandle className="bg-secondary hover:bg-primary/50 transition-colors h-1" />
 
         {/* Bottom: Results */}
-        <ResizablePanel defaultSize={60} minSize={20}>
+        <ResizablePanel defaultSize="60" minSize="20">
           <div className="h-full flex flex-col bg-muted/10">
             {executionTime !== null && (
               <div className="px-3 py-1 text-xs text-muted-foreground border-b bg-muted/20 flex justify-between">
