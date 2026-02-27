@@ -358,6 +358,8 @@ export function FKPreviewPopover({
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
         onOpenChange(false);
       }
     },

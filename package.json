@@ -74,6 +74,7 @@
     "decimal.js": "^10.6.0",
     "dexie": "^4.2.1",
     "dexie-react-hooks": "^4.2.0",
+    "diff": "^8.0.3",
     "embla-carousel-react": "^8.6.0",
     "html-to-image": "^1.11.13",
     "immer": "^10.2.0",

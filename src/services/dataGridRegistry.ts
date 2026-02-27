@@ -16,6 +16,7 @@ export interface DataGridController {
   deleteRows?: () => void;
   clearSelection?: () => void;
   showContextMenu?: () => void;
+  toggleInspector?: () => void;
 }
 
 class DataGridRegistry {

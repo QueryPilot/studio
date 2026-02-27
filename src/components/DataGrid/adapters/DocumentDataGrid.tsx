@@ -480,37 +480,35 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
             />
           </div>
           <Button
-            size="sm"
+            size="icon"
             variant="outline"
-            className="h-7 text-[11px] shrink-0"
+            className="h-7 w-7 shrink-0"
             onClick={() => {
               setShowInspector((prev) => !prev);
             }}
           >
             {showInspector ? (
-              <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5 mr-1" />
+              <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
             ) : (
-              <IconLayoutSidebarRightExpand className="h-3.5 w-3.5 mr-1" />
+              <IconLayoutSidebarRightExpand className="h-3.5 w-3.5" />
             )}
-            Inspector
           </Button>
         </div>
       ) : (
         <div className="flex justify-end">
           <Button
-            size="sm"
+            size="icon"
             variant="outline"
-            className="h-7 text-[11px]"
+            className="h-7 w-7"
             onClick={() => {
               setShowInspector((prev) => !prev);
             }}
           >
             {showInspector ? (
-              <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5 mr-1" />
+              <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
             ) : (
-              <IconLayoutSidebarRightExpand className="h-3.5 w-3.5 mr-1" />
+              <IconLayoutSidebarRightExpand className="h-3.5 w-3.5" />
             )}
-            Inspector
           </Button>
         </div>
       )}

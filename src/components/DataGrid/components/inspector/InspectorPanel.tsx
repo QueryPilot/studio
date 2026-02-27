@@ -12,9 +12,12 @@ export const InspectorPanel = memo(function InspectorPanel({
   selectedRows,
   columns,
   onCellEdit,
+  pendingEditFields,
+  onUndoCellEdit,
   className,
   defaultTab = "tree",
   onTabChange,
+  activeTab,
 }: InspectorPanelProps) {
   const documents = useMemo(
     () => rowsToDocuments(selectedRows, columns),
@@ -27,6 +30,18 @@ export const InspectorPanel = memo(function InspectorPanel({
     [columns],
   );
 
+  // Convert field keys → display labels for the tree view
+  const pendingEditLabels = useMemo((): Set<string> => {
+    if (!pendingEditFields || pendingEditFields.size === 0) return new Set();
+    const labels = new Set<string>();
+    for (const [label, field] of labelToFieldMap) {
+      if (pendingEditFields.has(field)) {
+        labels.add(label);
+      }
+    }
+    return labels;
+  }, [pendingEditFields, labelToFieldMap]);
+
   const handleTreeCellEdit = useCallback(
     (label: string, value: unknown) => {
       if (!onCellEdit) return;
@@ -38,19 +53,25 @@ export const InspectorPanel = memo(function InspectorPanel({
     [onCellEdit, labelToFieldMap],
   );
 
-  if (selectedRows.length === 0) {
-    return (
-      <div
-        className={cn(
-          "h-full w-full border-l bg-background p-4 text-xs text-muted-foreground",
-          className,
-        )}
-      >
-        Select a row or cell to inspect structured data.
-      </div>
-    );
-  }
+  const handleTreeCellUndo = useCallback(
+    (label: string) => {
+      if (!onUndoCellEdit) return;
+      const field = labelToFieldMap.get(label);
+      if (field) {
+        onUndoCellEdit(field);
+      }
+    },
+    [onUndoCellEdit, labelToFieldMap],
+  );
 
+  const handleTabChange = useCallback(
+    (value: string) => {
+      onTabChange?.(value as InspectorTab);
+    },
+    [onTabChange],
+  );
+
+  const isEmpty = selectedRows.length === 0;
   const recordCount = selectedRows.length;
   const recordLabel = recordCount === 1 ? "1 record" : `${recordCount} records`;
 
@@ -61,22 +82,14 @@ export const InspectorPanel = memo(function InspectorPanel({
         className,
       )}
     >
-      {/* Header */}
-      <div className="px-3 py-2 border-b flex items-center gap-2">
-        <span className="text-xs font-medium">Inspector</span>
-        <Badge variant="secondary">{recordLabel}</Badge>
-      </div>
-
-      {/* Tabs */}
+      {/* Tabs + record count — always rendered so subcomponent state is preserved */}
       <Tabs
-        defaultValue={defaultTab}
+        value={activeTab ?? defaultTab}
         className="flex-1 flex flex-col min-h-0"
-        onValueChange={(value) => {
-          onTabChange?.(value as InspectorTab);
-        }}
+        onValueChange={handleTabChange}
       >
-        <div className="px-3 pt-2">
-          <TabsList className="h-8">
+        <div className="px-3 py-2 border-b flex items-center gap-2">
+          <TabsList className="h-7">
             <TabsTrigger value="tree" className="text-[11px]">
               Tree
             </TabsTrigger>
@@ -87,19 +100,35 @@ export const InspectorPanel = memo(function InspectorPanel({
               Diff
             </TabsTrigger>
           </TabsList>
+          {!isEmpty && (
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{recordLabel}</Badge>
+          )}
         </div>
 
-        <TabsContent value="tree" className="flex-1 min-h-0 mt-2 px-3 pb-3">
-          <InspectorTreeView documents={documents} onCellEdit={onCellEdit ? handleTreeCellEdit : undefined} />
-        </TabsContent>
+        {isEmpty ? (
+          <div className="flex-1 flex items-center justify-center p-4 text-xs text-muted-foreground">
+            Select a row or cell to inspect structured data.
+          </div>
+        ) : (
+          <>
+            <TabsContent value="tree" className="flex-1 min-h-0 mt-2 px-3 pb-3" keepMounted>
+              <InspectorTreeView
+                documents={documents}
+                onCellEdit={onCellEdit ? handleTreeCellEdit : undefined}
+                pendingEditLabels={pendingEditLabels}
+                onUndoCellEdit={onUndoCellEdit ? handleTreeCellUndo : undefined}
+              />
+            </TabsContent>
 
-        <TabsContent value="raw" className="flex-1 min-h-0 mt-2 px-3 pb-3">
-          <InspectorRawView documents={documents} />
-        </TabsContent>
+            <TabsContent value="raw" className="flex-1 min-h-0 mt-2 px-3 pb-3" keepMounted>
+              <InspectorRawView documents={documents} />
+            </TabsContent>
 
-        <TabsContent value="diff" className="flex-1 min-h-0 mt-2 px-3 pb-3">
-          <InspectorDiffView documents={documents} />
-        </TabsContent>
+            <TabsContent value="diff" className="flex-1 min-h-0 mt-2 px-3 pb-3" keepMounted>
+              <InspectorDiffView documents={documents} />
+            </TabsContent>
+          </>
+        )}
       </Tabs>
     </div>
   );

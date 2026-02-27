@@ -27,13 +27,16 @@ export function getColumnLabel(column: GridColumnV2): string {
   const title = column.title.trim();
   if (title && !/^col_\d+$/i.test(title)) return title;
 
+  // Check meta.name before column.name so descriptive DB names from
+  // introspection are preferred over generic "col_N" patterns.
+  const metaName = column.meta?.name.trim();
+  if (metaName && !/^col_\d+$/i.test(metaName)) return metaName;
+
   const name = column.name.trim();
   if (name && !/^col_\d+$/i.test(name)) return name;
 
-  const metaName = column.meta?.name.trim();
-  if (metaName) return metaName;
-
   if (title) return title;
+  if (metaName) return metaName;
   if (name) return name;
   return column.field;
 }
@@ -225,5 +228,26 @@ export function formatValueForDisplay(value: unknown): string {
     return JSON.stringify(value, null, 2);
   } catch {
     return "[unserializable]";
+  }
+}
+
+/**
+ * Returns a value formatted for pre-filling inline edit inputs.
+ *
+ * Unlike `formatValueForDisplay`, strings are NOT wrapped in double quotes
+ * so the user edits the raw content directly (e.g. `hello` not `"hello"`).
+ * Non-string values use the same format as `formatValueForDisplay`.
+ */
+export function rawValueForEdit(value: unknown): string {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return "";
   }
 }

@@ -54,8 +54,11 @@ BaseDataGrid
 interface InspectorPanelProps {
   selectedRows: GridRowModel[];
   columns: GridColumnV2[];
-  onCellEdit?: (rowIndex: number, field: string, value: unknown) => void;
+  onCellEdit?: (field: string, value: unknown) => void;
   className?: string;
+  defaultTab?: InspectorTab;
+  activeTab?: InspectorTab;
+  onTabChange?: (tab: InspectorTab) => void;
 }
 ```
 
