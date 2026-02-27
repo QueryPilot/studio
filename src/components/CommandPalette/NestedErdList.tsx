@@ -251,7 +251,7 @@ export function NestedErdList({
               <CommandItem
                 key={key}
                 value={key}
-                onSelect={() => onSelect(target)}
+                onSelect={() => { onSelect(target); }}
               >
                 <div className="flex items-center gap-3 w-full">
                   <IconLayout2 className="size-4! text-muted-foreground shrink-0" />
