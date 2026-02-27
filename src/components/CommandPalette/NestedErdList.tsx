@@ -36,7 +36,6 @@ interface NestedErdListProps {
   listRef?: React.RefObject<HTMLDivElement | null>;
   query: string;
   onSelect: (target: ErdTarget) => void;
-  onClose?: () => void;
 }
 
 // --- Helpers ---
