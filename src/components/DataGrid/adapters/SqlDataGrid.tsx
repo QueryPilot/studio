@@ -26,6 +26,7 @@ import {
   IconLayoutSidebarRightExpand,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import type { InspectorTab } from "../components/inspector";
 import { BaseDataGrid } from "../base/BaseDataGrid";
 import type {
   GridColumnV2,
@@ -393,11 +394,14 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     }
   }, []); // Only on mount
 
-  // Persist inspector panel open/close state
+  // Inspector tab state with persistence
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>(
+    () => (persistedInspector?.tab as InspectorTab) ?? "tree",
+  );
   const setInspectorPref = useGridPreferencesStore((s) => s.setInspector);
   useEffect(() => {
-    setInspectorPref(gridId, { open: showInspector, tab: "tree" });
-  }, [gridId, showInspector, setInspectorPref]);
+    setInspectorPref(gridId, { open: showInspector, tab: inspectorTab });
+  }, [gridId, showInspector, inspectorTab, setInspectorPref]);
 
   // --- Sort Configuration ---
   // Get sort state from grid preferences and convert to SortConfig format
@@ -1191,6 +1195,8 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
         focused={focused}
         inspectorOpen={showInspector}
         onInspectorOpenChange={setShowInspector}
+        inspectorDefaultTab={inspectorTab}
+        onInspectorTabChange={setInspectorTab}
         showInspectorToggleButton={false}
         // Pass QuickFilter ref for Cmd+F handling (since we manage our own QuickFilter)
         externalQuickFilterRef={quickFilterRef}

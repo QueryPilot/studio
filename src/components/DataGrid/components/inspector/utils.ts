@@ -64,6 +64,32 @@ export function rowToDocument(
 }
 
 /**
+ * Builds a mapping from display label → column field key.
+ *
+ * This is the reverse of what `rowToDocument` does: `rowToDocument` maps
+ * field → label, and this function maps label → field. Used by the panel
+ * shell to translate tree-view edit callbacks (which use labels) back to
+ * column field keys that the CRUD pipeline understands.
+ */
+export function buildLabelToFieldMap(
+  columns: GridColumnV2[],
+): Map<string, string> {
+  const map = new Map<string, string>();
+  const usedLabels = new Map<string, number>();
+
+  for (const column of columns) {
+    const baseLabel = getColumnLabel(column);
+    const duplicateCount = usedLabels.get(baseLabel) ?? 0;
+    usedLabels.set(baseLabel, duplicateCount + 1);
+    const label =
+      duplicateCount === 0 ? baseLabel : `${baseLabel} (${duplicateCount + 1})`;
+    map.set(label, column.field);
+  }
+
+  return map;
+}
+
+/**
  * Converts an array of grid row models to inspector documents.
  */
 export function rowsToDocuments(
