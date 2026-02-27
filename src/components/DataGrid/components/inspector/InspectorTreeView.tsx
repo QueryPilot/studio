@@ -127,18 +127,16 @@ function NestedTreeNode({
     ? value.map((entry, index) => [String(index), entry] as const)
     : Object.entries(value as Record<string, unknown>);
 
-  const children = entries
-    .map(([key, childValue]) => (
-      <NestedTreeNode
-        key={`${path}.${key}`}
-        label={key}
-        value={childValue}
-        path={path ? `${path}.${key}` : key}
-        search={search}
-        depth={depth + 1}
-      />
-    ))
-    .filter(Boolean);
+  const children = entries.map(([key, childValue]) => (
+    <NestedTreeNode
+      key={`${path}.${key}`}
+      label={key}
+      value={childValue}
+      path={path ? `${path}.${key}` : key}
+      search={search}
+      depth={depth + 1}
+    />
+  ));
 
   if (!matchSelf && children.length === 0) {
     return null;
@@ -150,7 +148,7 @@ function NestedTreeNode({
 
   return (
     <details
-      defaultOpen={depth < 2}
+      open={depth < 2 || undefined}
       className="text-xs"
       style={{ paddingLeft: `${depth * 14}px` }}
     >
