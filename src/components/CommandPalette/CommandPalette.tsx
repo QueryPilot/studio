@@ -942,7 +942,6 @@ export function CommandPalette(): React.ReactElement {
               listRef={listRef}
               query={query}
               onSelect={handleErdSelect}
-              onClose={closePalette}
             />
           ) : (
             <NestedConnectionList
