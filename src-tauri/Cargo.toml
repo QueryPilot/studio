@@ -13,10 +13,10 @@ tauri = { version = "2.10", features = [ "macos-private-api"] }
 tauri-plugin-shell = "2.3"
 tauri-plugin-opener = "2.5"
 tauri-plugin-clipboard-manager = "2.3"
-tauri-plugin-dialog = "2.4"
+tauri-plugin-dialog = "2.6"
 tauri-plugin-fs = "2.4"
 tauri-plugin-window-state = "2.4"
-tauri-plugin-updater = "2.9"
+tauri-plugin-updater = "2.10"
 tauri-plugin-process = "2.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -113,7 +113,7 @@ tauri-plugin-os = "2.3"
 # Telemetry (optional, enabled via telemetry feature flag)
 sentry = { version = "0.34", optional = true, default-features = false, features = ["backtrace", "contexts", "panic", "rustls"] }
 sentry-tracing = { version = "0.34", optional = true }
-tauri-plugin-deep-link = "2"
+tauri-plugin-deep-link = "2.4"
 
 [features]
 default = ["custom-protocol"]
