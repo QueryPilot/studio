@@ -5,7 +5,8 @@ export type InspectorTab = "tree" | "diff" | "raw";
 export interface InspectorPanelProps {
   selectedRows: GridRowModel[];
   columns: GridColumnV2[];
-  onCellEdit?: (rowIndexes: number[], field: string, value: unknown) => void;
+  /** The panel shell closes over the selected row indexes when constructing this callback. */
+  onCellEdit?: (field: string, value: unknown) => void;
   className?: string;
   defaultTab?: InspectorTab;
   onTabChange?: (tab: InspectorTab) => void;
