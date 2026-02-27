@@ -70,6 +70,7 @@ import {
 
 import { useTheme } from "@/components/theme-provider";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
+import { v4 as uuid } from "uuid";
 import { logger } from "@/lib/logger";
 import { getThemeExtensions } from "./themes";
 import { getQueryAtCursor } from "./core";
@@ -267,6 +268,9 @@ export const SqlEditor = memo(
     const { resolvedTheme } = useTheme();
     const keyboardServices = useKeyboardServicesOptional();
     const contextServiceRef = useRef(keyboardServices?.contextService);
+    // Stable scope ID for this editor instance - used to isolate context keys
+    // so multiple editors don't clobber each other's editorTextFocus values
+    const scopeIdRef = useRef(uuid());
 
     // Keep context service ref updated
     useEffect(() => {
@@ -803,10 +807,15 @@ export const SqlEditor = memo(
       };
 
       // Track focus state for keyboard shortcuts
+      // Uses a scope so multiple editors don't clobber each other's context keys.
+      // enterScope on focus moves this scope to the end of activeScopes, ensuring
+      // this editor's values win during keybinding resolution.
+      const scopeId = scopeIdRef.current;
       const handleFocus = () => {
         hasLocalEditsSinceFocusRef.current = false;
-        contextServiceRef.current?.setValue("editorTextFocus", true);
-        contextServiceRef.current?.setValue("queryEditor", true);
+        contextServiceRef.current?.enterScope(scopeId);
+        contextServiceRef.current?.setValue("editorTextFocus", true, scopeId);
+        contextServiceRef.current?.setValue("queryEditor", true, scopeId);
       };
       const handleBlur = (e: FocusEvent) => {
         const relatedTarget = e.relatedTarget as Element | null;
@@ -818,8 +827,9 @@ export const SqlEditor = memo(
 
         if (!relatedTarget || !view.dom.contains(relatedTarget)) {
           hasLocalEditsSinceFocusRef.current = false;
-          contextServiceRef.current?.setValue("editorTextFocus", false);
-          contextServiceRef.current?.setValue("queryEditor", false);
+          contextServiceRef.current?.setValue("editorTextFocus", false, scopeId);
+          contextServiceRef.current?.setValue("queryEditor", false, scopeId);
+          contextServiceRef.current?.exitScope(scopeId);
 
           // SLEEP: Strip heavy extensions from unfocused editor.
           // Keeps only syntax highlighting (sqlLang) for near-zero-cost display.
@@ -881,8 +891,8 @@ export const SqlEditor = memo(
         view.dom.removeEventListener("focusin", handleWake, true);
         view.dom.removeEventListener("focusin", handleFocus);
         view.dom.removeEventListener("focusout", handleBlur);
-        contextServiceRef.current?.setValue("editorTextFocus", false);
-        contextServiceRef.current?.setValue("queryEditor", false);
+        contextServiceRef.current?.exitScope(scopeId);
+        contextServiceRef.current?.disposeScope(scopeId);
         view.destroy();
         viewRef.current = null;
       };

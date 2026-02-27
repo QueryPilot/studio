@@ -9,7 +9,7 @@ import {
   memo,
 } from "react";
 import { useDebounce } from "@/hooks/useDebounce";
-import { useContextKey } from "@/hooks/useContextKey";
+import { useContextKey, useScopedKeybindings } from "@/hooks/useContextKey";
 import {
   IconSearch,
   IconCode,
@@ -429,9 +429,12 @@ export const QuickFilter = memo(
     const { resolvedTheme } = useTheme();
     const editorViewRef = useRef<EditorView | null>(null);
 
+    // Scoped keybinding context so multiple QuickFilters / editors don't clobber each other
+    const scopeId = useScopedKeybindings();
+
     // Set editorTextFocus context when QuickFilter is focused
     // This prevents global keybindings (like workspace.undo) from capturing Cmd+Z
-    useContextKey("editorTextFocus", isFocused, { resetOnUnmount: true });
+    useContextKey("editorTextFocus", isFocused, { scopeId, resetOnUnmount: true });
 
     // Cleanup focus listeners on unmount
     useEffect(() => {
