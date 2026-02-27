@@ -29,7 +29,7 @@ import {
   getCreateSchemaTemplate,
   openErdView,
 } from "@/utils/workbench/openers";
-import { getParadigm } from "@/types/connection";
+import { DbType, getParadigm } from "@/types/connection";
 
 const commandPaletteStore = useCommandPaletteStore.getState();
 const dialogStore = useDialogStore.getState();
@@ -622,22 +622,25 @@ export const defaultCommands: Command[] = [
 
       if (sqlConnections.length === 0) return;
 
-      // Single SQL connection → open ERD directly
+      // Single non-schema DB connection → open ERD directly (skip picker)
+      // Schema-supporting DBs (Postgres, MSSQL) always show picker for schema selection
       if (sqlConnections.length === 1) {
         const conn = sqlConnections[0];
         if (!conn) return;
-        const stored = connectionStore.getConnection(conn.id);
-        const name = stored?.profile.name ?? conn.profile.name;
-        openErdView({
-          connectionId: conn.id,
-          connectionName: name,
-          database: conn.database || conn.profile.database,
-          schema: conn.schema,
-        });
-        return;
+        const dbType = conn.profile.db_type;
+        if (dbType !== DbType.PostgreSQL && dbType !== DbType.SQLServer) {
+          const stored = connectionStore.getConnection(conn.id);
+          const name = stored?.profile.name ?? conn.profile.name;
+          openErdView({
+            connectionId: conn.id,
+            connectionName: name,
+            database: conn.database || conn.profile.database,
+          });
+          return;
+        }
       }
 
-      // Multiple SQL connections → show picker
+      // Multiple connections or schema-supporting DB → show picker
       const paletteStore = useCommandPaletteStore.getState();
       paletteStore.openPalette();
       paletteStore.setNestedMode({ type: "open-erd" });
