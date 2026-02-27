@@ -87,9 +87,9 @@ function InlineEditInput({
   const handleBlur = useCallback(() => {
     if (!committedRef.current) {
       committedRef.current = true;
-      onCommit(value);
+      onCancel();
     }
-  }, [value, onCommit]);
+  }, [onCancel]);
 
   return (
     <Input
@@ -518,7 +518,7 @@ export const InspectorTreeView = memo(function InspectorTreeView({
         placeholder="Search fields or values..."
         className="h-7 text-xs mb-2 shrink-0"
       />
-      <ScrollArea className="flex-1 rounded border px-3 py-2">
+      <ScrollArea className="flex-1 rounded px-3 py-2">
         {visibleKeys.map((key) => {
           const merged = mergedFields.get(key);
           if (!merged) return null;

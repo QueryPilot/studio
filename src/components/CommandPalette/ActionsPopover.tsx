@@ -40,6 +40,18 @@ export function ActionsPopover({
     if (!open) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept keys when focus is on a text input outside the popover
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable) &&
+        !listRef.current?.contains(target)
+      ) {
+        return;
+      }
+
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();

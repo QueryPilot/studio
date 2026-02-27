@@ -11,6 +11,7 @@ import type { InspectorPanelProps, InspectorTab } from "./types";
 export const InspectorPanel = memo(function InspectorPanel({
   selectedRows,
   columns,
+  totalSelectedCount,
   onCellEdit,
   pendingEditFields,
   onUndoCellEdit,
@@ -72,8 +73,14 @@ export const InspectorPanel = memo(function InspectorPanel({
   );
 
   const isEmpty = selectedRows.length === 0;
-  const recordCount = selectedRows.length;
-  const recordLabel = recordCount === 1 ? "1 record" : `${recordCount} records`;
+  const total = totalSelectedCount ?? selectedRows.length;
+  const displayCount = selectedRows.length;
+  const isCapped = total > displayCount;
+  const recordLabel = isCapped
+    ? `${displayCount} of ${total}`
+    : displayCount === 1
+      ? "1 record"
+      : `${displayCount} records`;
 
   return (
     <div
