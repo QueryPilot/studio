@@ -1279,7 +1279,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
           {/* Top Bar */}
           <div
             data-tauri-drag-region
-            className="h-9 flex items-center gap-3 px-4 pl-20 bg-secondary shrink-0"
+            className="h-8 flex items-center gap-3 px-4 pl-20 bg-secondary shrink-0 pt-0.5"
           >
             <Button
               variant="ghost"
@@ -1291,7 +1291,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
               <IconChevronLeft className="size-4!" />
               <span className="text-sm">Back</span>
             </Button>
-            <Separator orientation="vertical" className="h-5" />
+            <Separator orientation="vertical" className="h-4 mt-2" />
             <span className="text-sm font-medium">
               {isTableSpecific
                 ? "Commit Changes"
