@@ -7,7 +7,7 @@ import {
   ResizableHandle,
 } from "@/components/ui/resizable";
 import { cn } from "@/lib/cn";
-import type { ImperativePanelGroupHandle } from "react-resizable-panels";
+import type { GroupImperativeHandle, Layout } from "react-resizable-panels";
 import { PanelContainer } from "./PanelPortalContext";
 
 interface GridRendererProps {
@@ -16,13 +16,16 @@ interface GridRendererProps {
   className?: string;
 }
 
+const PRIMARY_ID = "primary";
+const SECONDARY_ID = "secondary";
+
 export const GridRenderer: React.FC<GridRendererProps> = ({
   node,
   path = [],
   className,
 }) => {
   const resizePanelAction = useWorkbenchStore((s) => s.resizePanelAction);
-  const panelGroupRef = useRef<ImperativePanelGroupHandle | null>(null);
+  const panelGroupRef = useRef<GroupImperativeHandle | null>(null);
   const isSyncingRef = useRef(false);
   const resizeRafRef = useRef<number | null>(null);
 
@@ -36,7 +39,8 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
   }, []);
 
   const handlePanelResize = useCallback(
-    (sizes: number[]) => {
+    (layout: Layout) => {
+      const sizes = Object.values(layout);
       if (
         node.type === "branch" &&
         sizes.length === 2 &&
@@ -63,13 +67,15 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
     const desiredPrimary = ratio * 100;
     const desiredSecondary = 100 - desiredPrimary;
     const layout = ref.getLayout();
-    if (layout.length !== 2 || layout[0] === undefined || layout[1] === undefined) return;
+    const primary = layout[PRIMARY_ID];
+    const secondary = layout[SECONDARY_ID];
+    if (primary === undefined || secondary === undefined) return;
     const delta =
-      Math.abs(layout[0] - desiredPrimary) +
-      Math.abs(layout[1] - desiredSecondary);
+      Math.abs(primary - desiredPrimary) +
+      Math.abs(secondary - desiredSecondary);
     if (delta > 0.1) {
       isSyncingRef.current = true;
-      ref.setLayout([desiredPrimary, desiredSecondary]);
+      ref.setLayout({ [PRIMARY_ID]: desiredPrimary, [SECONDARY_ID]: desiredSecondary });
       if (typeof window !== "undefined") {
         const frame = window.requestAnimationFrame(() => {
           isSyncingRef.current = false;
@@ -84,8 +90,6 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
   }, [node.type, node.splitRatio]);
 
   if (node.type === "leaf") {
-    // Render a container that the Panel will portal into
-    // This keeps Panel components at a stable position in the React tree
     return (
       <PanelContainer
         panelId={node.id}
@@ -95,22 +99,22 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
   }
 
   if (node.children && node.children.length === 2) {
-    const defaultSizes = [
-      (node.splitRatio ?? 0.5) * 100,
-      (1 - (node.splitRatio ?? 0.5)) * 100,
-    ];
+    const splitRatio = node.splitRatio ?? 0.5;
+    const primaryPct = `${splitRatio * 100}`;
+    const secondaryPct = `${(1 - splitRatio) * 100}`;
 
     return (
       <ResizablePanelGroup
-        ref={panelGroupRef}
-        direction={node.orientation ?? "horizontal"}
-        onLayout={handlePanelResize}
+        groupRef={panelGroupRef}
+        orientation={node.orientation ?? "horizontal"}
+        onLayoutChanged={handlePanelResize}
         className={className}
       >
         <ResizablePanel
-          defaultSize={defaultSizes[0]}
-          minSize={10}
-          maxSize={90}
+          id={PRIMARY_ID}
+          defaultSize={primaryPct}
+          minSize="10"
+          maxSize="90"
           className="rounded-xl overflow-hidden bg-transparent"
         >
           {node.children[0] && (
@@ -121,9 +125,10 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
           style={{ cursor: node.orientation === "vertical" ? "row-resize" : "col-resize" }}
         />
         <ResizablePanel
-          defaultSize={defaultSizes[1]}
-          minSize={10}
-          maxSize={90}
+          id={SECONDARY_ID}
+          defaultSize={secondaryPct}
+          minSize="10"
+          maxSize="90"
           className="rounded-xl overflow-hidden bg-transparent"
         >
           {node.children[1] && (
