@@ -1,11 +1,11 @@
-import { memo, useMemo } from "react";
+import { memo, useCallback, useMemo } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { InspectorTreeView } from "./InspectorTreeView";
 import { InspectorDiffView } from "./InspectorDiffView";
 import { InspectorRawView } from "./InspectorRawView";
-import { rowsToDocuments } from "./utils";
+import { rowsToDocuments, buildLabelToFieldMap } from "./utils";
 import type { InspectorPanelProps, InspectorTab } from "./types";
 
 export const InspectorPanel = memo(function InspectorPanel({
@@ -19,6 +19,23 @@ export const InspectorPanel = memo(function InspectorPanel({
   const documents = useMemo(
     () => rowsToDocuments(selectedRows, columns),
     [selectedRows, columns],
+  );
+
+  // Translate display labels (used by tree view) back to column field keys
+  const labelToFieldMap = useMemo(
+    () => buildLabelToFieldMap(columns),
+    [columns],
+  );
+
+  const handleTreeCellEdit = useCallback(
+    (label: string, value: unknown) => {
+      if (!onCellEdit) return;
+      const field = labelToFieldMap.get(label);
+      if (field) {
+        onCellEdit(field, value);
+      }
+    },
+    [onCellEdit, labelToFieldMap],
   );
 
   if (selectedRows.length === 0) {
@@ -73,7 +90,7 @@ export const InspectorPanel = memo(function InspectorPanel({
         </div>
 
         <TabsContent value="tree" className="flex-1 min-h-0 mt-2 px-3 pb-3">
-          <InspectorTreeView documents={documents} onCellEdit={onCellEdit} />
+          <InspectorTreeView documents={documents} onCellEdit={onCellEdit ? handleTreeCellEdit : undefined} />
         </TabsContent>
 
         <TabsContent value="raw" className="flex-1 min-h-0 mt-2 px-3 pb-3">

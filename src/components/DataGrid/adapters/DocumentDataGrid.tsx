@@ -35,6 +35,7 @@ import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
 import type { FilterMode } from "@/utils/filterParser";
 import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
 import { useGridPreferencesStore } from "../stores/gridPreferencesStore";
+import type { InspectorTab } from "../components/inspector";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -157,11 +158,14 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
     window.localStorage.setItem(savedViewStorageKey, JSON.stringify(savedViews));
   }, [savedViews, savedViewStorageKey]);
 
-  // Persist inspector panel open/close state
+  // Inspector tab state with persistence
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>(
+    () => (persistedInspector?.tab as InspectorTab) ?? "tree",
+  );
   const setInspectorPref = useGridPreferencesStore((s) => s.setInspector);
   useEffect(() => {
-    setInspectorPref(gridId, { open: showInspector, tab: "tree" });
-  }, [gridId, showInspector, setInspectorPref]);
+    setInspectorPref(gridId, { open: showInspector, tab: inspectorTab });
+  }, [gridId, showInspector, inspectorTab, setInspectorPref]);
 
   // Handle filter submission
   const handleFilterSubmit = useCallback(() => {
@@ -557,6 +561,8 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       topToolbar={topToolbar}
       inspectorOpen={showInspector}
       onInspectorOpenChange={setShowInspector}
+      inspectorDefaultTab={inspectorTab}
+      onInspectorTabChange={setInspectorTab}
       showInspectorToggleButton={false}
       enableHoverCellIcons={false}
       connectionId={connectionId}
