@@ -1092,27 +1092,27 @@ export const QueryPanel = memo(function QueryPanel({
       {/* Main Content */}
       <div className="flex-1 min-h-0 overflow-hidden">
         <ResizablePanelGroup
-          direction="horizontal"
+          orientation="horizontal"
           className="h-full rounded-xl overflow-hidden"
         >
           {/* Editor and Results */}
           <ResizablePanel
-            defaultSize={100}
-            minSize={30}
+            defaultSize="100"
+            minSize="30"
             className="rounded-xl overflow-hidden"
           >
-            <ResizablePanelGroup direction="vertical" className="h-full">
+            <ResizablePanelGroup orientation="vertical" className="h-full">
               {/* Editor */}
               <ResizablePanel
-                defaultSize={50}
-                minSize={20}
+                defaultSize="50"
+                minSize="20"
                 className="border-none"
               >
-                <ResizablePanelGroup direction="horizontal" className="h-full">
+                <ResizablePanelGroup orientation="horizontal" className="h-full">
                   {/* Editor Panel */}
                   <ResizablePanel
-                    defaultSize={75}
-                    minSize={30}
+                    defaultSize="75"
+                    minSize="30"
                     className="flex flex-col relative"
                   >
                     {/* Transaction indicator badge */}
@@ -1178,9 +1178,9 @@ export const QueryPanel = memo(function QueryPanel({
                     <>
                       <ResizableHandle className="bg-border !w-0.5 hover:bg-primary/50 transition-colors" />
                       <ResizablePanel
-                        defaultSize={25}
-                        minSize={15}
-                        maxSize={50}
+                        defaultSize="25"
+                        minSize="15"
+                        maxSize="50"
                       >
                         <div className="h-full flex flex-col overflow-hidden bg-muted/30">
                           <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/50 shrink-0">
@@ -1234,7 +1234,7 @@ export const QueryPanel = memo(function QueryPanel({
                   </div>
 
                   {/* Results */}
-                  <ResizablePanel defaultSize={50} minSize={20}>
+                  <ResizablePanel defaultSize="50" minSize="20">
                     <div className="flex flex-col h-full">
                       {/* Results */}
                       <div className="flex-1 min-h-0">

@@ -470,7 +470,7 @@ export function WorkspaceScreen() {
         <WorkbenchDndProvider>
         {/* Resizable Panels */}
         <ResizablePanelGroup
-          direction="horizontal"
+          orientation="horizontal"
           className="flex-1 p-1.5 pt-0 bg-secondary"
         >
           {/* Left Sidebar - Database Explorer */}
@@ -478,10 +478,9 @@ export function WorkspaceScreen() {
             <>
               <ResizablePanel
                 id="sidebar-left"
-                order={1}
-                defaultSize={18}
-                minSize={12}
-                maxSize={30}
+                defaultSize="18"
+                minSize="12"
+                maxSize="30"
                 className="flex flex-col rounded-xl bg-background"
               >
                 <div className="flex-1 overflow-hidden">
@@ -495,15 +494,14 @@ export function WorkspaceScreen() {
           {/* Central Content - Workbench Layout */}
           <ResizablePanel
             id="main-content"
-            order={2}
             defaultSize={
               sidebars.left
                 ? sidebars.right
-                  ? 59
-                  : 82
+                  ? "59"
+                  : "82"
                 : sidebars.right
-                  ? 77
-                  : 100
+                  ? "77"
+                  : "100"
             }
           >
             <WorkbenchLayout
@@ -519,10 +517,9 @@ export function WorkspaceScreen() {
               <ResizableHandle />
               <ResizablePanel
                 id="sidebar-right"
-                order={3}
-                defaultSize={23}
-                minSize={18}
-                maxSize={40}
+                defaultSize="23"
+                minSize="18"
+                maxSize="40"
                 className="flex flex-col rounded-xl bg-background"
               >
                 <AIPanel
