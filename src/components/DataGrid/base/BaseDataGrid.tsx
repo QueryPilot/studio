@@ -739,7 +739,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     setValue: setQuickFilterValue,
     setMode: setQuickFilterMode,
     submit: handleFilterSubmit,
-    clear: _clearFilter,
+    clear: clearQuickFilter,
   } = useQuickFilter({
     columns: filterColumns,
     initialFilter: undefined,
@@ -3181,6 +3181,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
                 onValueChange={setQuickFilterValue}
                 onModeChange={setQuickFilterMode}
                 onSubmit={handleFilterSubmit}
+                onClear={clearQuickFilter}
                 isLoading={false}
                 error={quickFilterError}
                 explanation={aiExplanation}

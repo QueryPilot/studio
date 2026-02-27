@@ -351,6 +351,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     setValue: setQuickFilterValue,
     setMode: setQuickFilterMode,
     submit: handleFilterSubmit,
+    clear: clearQuickFilter,
   } = useQuickFilter({
     columns: filterColumns,
     initialFilter: props.initialFilter,
@@ -977,6 +978,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
                 onValueChange={setQuickFilterValue}
                 onModeChange={setQuickFilterMode}
                 onSubmit={handleFilterSubmit}
+                onClear={clearQuickFilter}
                 isLoading={quickFilterLoading}
                 error={quickFilterError}
                 explanation={aiExplanation}

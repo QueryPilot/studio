@@ -455,6 +455,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
               onValueChange={quickFilter.setValue}
               onModeChange={handleModeChange}
               onSubmit={handleFilterSubmit}
+              onClear={quickFilter.clear}
               error={filterError}
               explanation={quickFilter.aiExplanation}
               isLoading={false}

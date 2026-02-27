@@ -50,6 +50,8 @@ interface QuickFilterProps {
   onValueChange: (value: string) => void;
   onModeChange: (mode: FilterMode) => void;
   onSubmit: () => void;
+  /** Called when user clears the filter (X button, Escape, Cmd+Backspace). Persists the cleared state. */
+  onClear?: () => void;
   isLoading?: boolean;
   error?: string | null;
   explanation?: string | null;
@@ -369,6 +371,7 @@ export const QuickFilter = memo(
       onValueChange,
       onModeChange,
       onSubmit,
+      onClear,
       isLoading = false,
       error = null,
       explanation = null,
@@ -407,6 +410,7 @@ export const QuickFilter = memo(
       value: "",
       cursorPosition: 0,
       columns: [] as FilterColumnInfo[],
+      onClear: undefined as (() => void) | undefined,
     });
     // Keep refs in sync (critical for stable keymap callbacks)
     stateRefs.current.showSuggestions = showSuggestions;
@@ -419,6 +423,7 @@ export const QuickFilter = memo(
     stateRefs.current.value = value;
     stateRefs.current.cursorPosition = cursorPosition;
     stateRefs.current.columns = columns;
+    stateRefs.current.onClear = onClear;
 
     // Theme for CodeMirror
     const { resolvedTheme } = useTheme();
@@ -888,7 +893,11 @@ export const QuickFilter = memo(
                 return true;
               }
               if (s.value) {
-                onValueChange("");
+                if (s.onClear) {
+                  s.onClear();
+                } else {
+                  onValueChange("");
+                }
                 return true;
               }
               return false;
@@ -959,10 +968,15 @@ export const QuickFilter = memo(
           {
             key: "Mod-Backspace",
             run: (view) => {
+              const s = stateRefs.current;
               const editorContent = view.state.doc.toString();
-              if (editorContent === "" && stateRefs.current.mode !== "search") {
-                onValueChange("");
-                onModeChange("search");
+              if (editorContent === "" && s.mode !== "search") {
+                if (s.onClear) {
+                  s.onClear();
+                } else {
+                  onValueChange("");
+                  onModeChange("search");
+                }
                 return true;
               }
               if (editorContent !== "") {
@@ -970,9 +984,13 @@ export const QuickFilter = memo(
                 view.dispatch({
                   changes: { from: 0, to: view.state.doc.length, insert: "" },
                 });
-                onValueChange("");
-                if (stateRefs.current.mode !== "search") {
-                  onModeChange("search");
+                if (s.onClear) {
+                  s.onClear();
+                } else {
+                  onValueChange("");
+                  if (s.mode !== "search") {
+                    onModeChange("search");
+                  }
                 }
                 requestAnimationFrame(() => {
                   justSwitchedMode.current = false;
@@ -1013,10 +1031,14 @@ export const QuickFilter = memo(
     // Clear button handler (Phase 1.4)
     const handleClearClick = useCallback(() => {
       justSwitchedMode.current = true;
-      onValueChange("");
-      // Reset to search mode when clearing
-      if (mode !== "search") {
-        onModeChange("search");
+      // Call onClear to persist cleared state to store, or fall back to manual reset
+      if (onClear) {
+        onClear();
+      } else {
+        onValueChange("");
+        if (mode !== "search") {
+          onModeChange("search");
+        }
       }
       // Clear the editor content
       const view = editorViewRef.current;
@@ -1028,7 +1050,7 @@ export const QuickFilter = memo(
       requestAnimationFrame(() => {
         justSwitchedMode.current = false;
       });
-    }, [onValueChange, onModeChange, mode]);
+    }, [onClear, onValueChange, onModeChange, mode]);
 
     // CodeMirror change handler (Phase 1.4) - Optimized to reduce unnecessary state updates
     const handleEditorChange = useCallback(
