@@ -554,22 +554,70 @@ ORDER BY i.name`;
 
   getIndexUsageStatsQuery(schema: string, table: string): string {
     // Uses COLLATE DATABASE_DEFAULT to avoid collation conflicts
+    // Column order: [0] index_name, [1] scan_count, [2] rows_read, [3] rows_returned, 
+    //               [4] size_pretty, [5] size_bytes, [6] is_unused, [7] cache_hit_ratio, [8] last_used
     return `
 SELECT
     i.name COLLATE DATABASE_DEFAULT as index_name,
-    us.user_seeks as seek_count,
-    us.user_scans as scan_count,
-    us.user_lookups as lookup_count,
-    us.user_updates as update_count,
-    us.last_user_seek as last_seek,
-    us.last_user_scan as last_scan
-FROM sys.dm_db_index_usage_stats us
-JOIN sys.indexes i ON us.object_id = i.object_id AND us.index_id = i.index_id
+    COALESCE(us.user_seeks + us.user_scans, 0) as scan_count,
+    NULL as rows_read,
+    NULL as rows_returned,
+    NULL as size_pretty,
+    COALESCE(SUM(ps.used_page_count), 0) * 8192 as size_bytes,
+    CASE 
+        WHEN COALESCE(us.user_seeks + us.user_scans, 0) = 0 THEN 1
+        ELSE 0 
+    END as is_unused,
+    NULL as cache_hit_ratio,
+    COALESCE(
+        CASE
+            WHEN us.last_user_scan IS NULL THEN us.last_user_seek
+            WHEN us.last_user_seek IS NULL THEN us.last_user_scan
+            WHEN us.last_user_seek >= us.last_user_scan THEN us.last_user_seek
+            ELSE us.last_user_scan
+        END,
+        us.last_user_seek,
+        us.last_user_scan
+    ) as last_used
+FROM sys.indexes i
+JOIN sys.tables t ON i.object_id = t.object_id
+JOIN sys.schemas s ON t.schema_id = s.schema_id
+LEFT JOIN sys.dm_db_index_usage_stats us 
+    ON us.object_id = i.object_id 
+    AND us.index_id = i.index_id 
+    AND us.database_id = DB_ID()
+LEFT JOIN sys.dm_db_partition_stats ps
+    ON ps.object_id = i.object_id 
+    AND ps.index_id = i.index_id
+WHERE s.name = '${this.escapeString(schema)}'
+    AND t.name = '${this.escapeString(table)}'
+    AND i.name IS NOT NULL
+GROUP BY i.name, us.user_seeks, us.user_scans, us.last_user_seek, us.last_user_scan
+ORDER BY i.name`;
+  }
+
+  /**
+   * Fallback query when DMV access is restricted (e.g. no VIEW DATABASE STATE permission).
+   * Returns index names with neutral/default metrics.
+   */
+  getIndexUsageStatsFallbackQuery(schema: string, table: string): string {
+    return `
+SELECT
+    i.name COLLATE DATABASE_DEFAULT as index_name,
+    0 as scan_count,
+    0 as rows_read,
+    0 as rows_returned,
+    NULL as size_pretty,
+    NULL as size_bytes,
+    0 as is_unused,
+    NULL as cache_hit_ratio,
+    NULL as last_used
+FROM sys.indexes i
 JOIN sys.tables t ON i.object_id = t.object_id
 JOIN sys.schemas s ON t.schema_id = s.schema_id
 WHERE s.name = '${this.escapeString(schema)}'
     AND t.name = '${this.escapeString(table)}'
-    AND us.database_id = DB_ID()
+    AND i.name IS NOT NULL
 ORDER BY i.name`;
   }
 

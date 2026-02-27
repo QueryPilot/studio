@@ -88,6 +88,20 @@ function getStringArray(value: RawCellValue | undefined): string[] {
   return [];
 }
 
+function mapIndexUsageStatsRow(row: RawCellValue[]): IndexUsageStats {
+  return {
+    index_name: getString(row[0]),
+    scan_count: getNumber(row[1]),
+    rows_read: getNumber(row[2]),
+    rows_returned: getNumber(row[3]),
+    size_pretty: getString(row[4]) || undefined,
+    size_bytes: getNumber(row[5]),
+    is_unused: getBool(row[6]),
+    cache_hit_ratio: getNumber(row[7]),
+    last_used: getString(row[8]) || undefined,
+  };
+}
+
 function parseMySqlEnumOrSet(
   formattedType: string,
 ): { kind: "enum" | "set"; values: string[] } | null {
@@ -361,20 +375,33 @@ export const IntrospectionService = {
   ): Promise<IndexUsageStats[]> {
     const adapter = await getSqlAdapterForConnection(connectionId);
     if (!adapter) return [];
-    const sql = adapter.getIndexUsageStatsQuery(schema, table);
-    const result = await BackendAPI.query(connectionId, sql);
+    
+    try {
+      const sql = adapter.getIndexUsageStatsQuery(schema, table);
+      const result = await BackendAPI.query(connectionId, sql);
+      return result.rows.map((row) => mapIndexUsageStatsRow(row));
+    } catch (error) {
+      const fallbackSql = adapter.getIndexUsageStatsFallbackQuery(schema, table);
+      if (!fallbackSql) {
+        throw error;
+      }
 
-    return result.rows.map((row) => ({
-      index_name: getString(row[0]),
-      scan_count: getNumber(row[1]),
-      rows_read: getNumber(row[2]),
-      rows_returned: getNumber(row[3]),
-      size_pretty: getString(row[4]) || undefined,
-      size_bytes: getNumber(row[5]),
-      is_unused: getBool(row[6]),
-      cache_hit_ratio: getNumber(row[7]),
-      last_used: getString(row[8]) || undefined,
-    }));
+      logger.warn(
+        `[IntrospectionService] Primary index stats query failed for ${connectionId}, attempting fallback`,
+        error,
+      );
+
+      try {
+        const result = await BackendAPI.query(connectionId, fallbackSql);
+        return result.rows.map((row) => mapIndexUsageStatsRow(row));
+      } catch (fallbackError) {
+        logger.warn(
+          `[IntrospectionService] Index stats fallback query failed for ${connectionId}`,
+          fallbackError,
+        );
+        return [];
+      }
+    }
   },
 
   /**

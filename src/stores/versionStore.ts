@@ -122,6 +122,8 @@ export function getMySQLFeaturesForConnection(connectionId: string): MySQLVersio
       supportsCTEs: false,
       supportsJsonTable: false,
       supportsInvisibleColumns: false,
+      supportsPerformanceSchemaIndexStats: false,
+      supportsInnoDbSysTableStats: false,
     };
   }
   return features;
@@ -168,6 +170,7 @@ export function getPostgreSQLFeaturesForConnection(connectionId: string): Postgr
       supportsIdentityColumns: true,
       supportsParallelQuery: true,
       supportsJsonTable: false, // PG 17+ only
+      supportsIndexLastScan: false, // Conservative - PG 16+ only
     };
   }
   return features;

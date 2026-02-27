@@ -433,6 +433,13 @@ ORDER BY i.relname`;
   }
 
   getIndexUsageStatsQuery(schema: string, table: string): string {
+    const features = this.getFeatures();
+    
+    // PG 16+ has last_idx_scan column
+    const lastScanColumn = features.supportsIndexLastScan
+      ? 's.last_idx_scan AS last_used'
+      : 'NULL::timestamp AS last_used';
+    
     return `
 SELECT
     s.indexrelname AS index_name,
@@ -449,7 +456,7 @@ SELECT
         WHEN io.idx_blks_read + io.idx_blks_hit = 0 THEN NULL
         ELSE (io.idx_blks_hit::float / (io.idx_blks_read + io.idx_blks_hit)) * 100
     END AS cache_hit_ratio,
-    NULL::timestamp AS last_idx_scan
+    ${lastScanColumn}
 FROM
     pg_stat_all_indexes s
     LEFT JOIN pg_statio_all_indexes io

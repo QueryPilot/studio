@@ -833,6 +833,15 @@ export abstract class SqlAdapter implements DatabaseAdapter {
   abstract quoteString(value: string): string;
   abstract formatValue(value: unknown, column: ColumnInfo): string;
 
+  /**
+   * Optional fallback query for index usage stats when primary telemetry views
+   * are unavailable due to permissions or engine limitations.
+   * Return null when no fallback is defined for this dialect.
+   */
+  getIndexUsageStatsFallbackQuery(_schema: string, _table: string): string | null {
+    return null;
+  }
+
   // ─────────────────────────────────────────────────────────────────
   // Introspection Queries - must be implemented by each dialect
   // ─────────────────────────────────────────────────────────────────
