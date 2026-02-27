@@ -180,4 +180,61 @@ export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
     });
     return result.map((db) => ({ name: db.name }));
   }
+
+  /**
+   * Get index usage statistics for a collection using $indexStats aggregation
+   * Returns statistics on index usage including access counts
+   */
+  async getIndexUsageStats(collection: string, _database?: string): Promise<MongoIndexStats[]> {
+    try {
+      const stats = await this.aggregate(collection, [{ $indexStats: {} }]);
+      return stats as MongoIndexStats[];
+    } catch (error) {
+      // If $indexStats fails (permissions, old version), return empty array
+      console.warn(`Failed to get index stats for ${collection}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Get list of indexes for a collection
+   * This is a simpler alternative when $indexStats is not available
+   */
+  async listIndexes(collection: string, database?: string): Promise<MongoIndexInfo[]> {
+    try {
+      const result = await this.runCommand(
+        { listIndexes: collection },
+        database
+      );
+      // MongoDB returns { cursor: { firstBatch: [...indexes] } }
+      return ((result as any).cursor?.firstBatch || []) as MongoIndexInfo[];
+    } catch (error) {
+      console.warn(`Failed to list indexes for ${collection}:`, error);
+      return [];
+    }
+  }
+}
+
+// Types for MongoDB index operations
+export interface MongoIndexStats {
+  name: string;
+  key: Record<string, number>;
+  host: string;
+  accesses: {
+    ops: number;
+    since: Date;
+  };
+  spec: Record<string, unknown>;
+  building?: boolean;
+}
+
+export interface MongoIndexInfo {
+  v: number;
+  key: Record<string, number>;
+  name: string;
+  ns?: string;
+  unique?: boolean;
+  sparse?: boolean;
+  expireAfterSeconds?: number;
+  [key: string]: unknown;
 }
