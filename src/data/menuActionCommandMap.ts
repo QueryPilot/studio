@@ -2,6 +2,8 @@ export const menuActionCommandMap: Record<string, string> = {
   open_preferences: "preferences.open",
   new_connection: "connection.open",
   new_query: "workbench.action.newQueryTab",
+  new_erd: "workbench.action.openErd",
+  erd: "workbench.action.openErd",
   close_tab: "workbench.action.closeActiveTab",
 
   toggle_sidebar: "workbench.action.toggleLeftSidebar",
