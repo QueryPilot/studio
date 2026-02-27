@@ -34,7 +34,7 @@ import type { EditableDataGridRef } from "./EditableDataGrid";
 import { EditableDataGrid } from "./EditableDataGrid";
 import { DataGridStatusBar } from "../components/DataGridStatusBar";
 import { DataGridErrorState } from "../components/DataGridStates";
-import { InspectorPanel, type InspectorPanelProps } from "../components/InspectorPanel";
+import { InspectorPanel, type InspectorPanelProps } from "../components/inspector";
 import { QuickFilter } from "../components/QuickFilter";
 import { UnifiedContextMenu } from "../components/UnifiedContextMenu";
 import { FKPreviewPopover } from "../components/FKPreviewPopover";
@@ -244,6 +244,12 @@ export interface BaseDataGridProps {
    */
   onReconnect?: () => Promise<void>;
 
+  /**
+   * Optional callback to configure custom row identifier columns.
+   * Used for SQL tables without deterministic PK/UNIQUE identity.
+   */
+  onSelectIdentifierColumns?: () => void;
+
   // --- Query Performance Metrics ---
   /**
    * Total query execution time in milliseconds
@@ -354,6 +360,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     // Error handling
     error,
     onReconnect,
+    onSelectIdentifierColumns,
     // Focus management
     focused,
     autoFocus = true,
@@ -602,8 +609,6 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     [inspectorOpen, onInspectorOpenChange, showInspector],
   );
   const [inspectorSelectedRow, setInspectorSelectedRow] =
-    useState<GridRowModel | null>(null);
-  const [inspectorBaselineRow, setInspectorBaselineRow] =
     useState<GridRowModel | null>(null);
 
   // Programmatically collapse/expand inspector panel without unmounting grid
@@ -2715,6 +2720,14 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         dataGridRegistry.getFocused()?.showContextMenu?.();
         return;
       }
+
+      // Cmd/Ctrl + J -> toggle Inspector panel
+      if (isMod && key === "j" && enableInspector) {
+        event.preventDefault();
+        event.stopPropagation();
+        setInspectorOpen((prev: boolean) => !prev);
+        return;
+      }
     };
 
     document.addEventListener("keydown", handleDataGridShortcuts, true);
@@ -2726,10 +2739,12 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     copySelection,
     effectiveQuickFilterRef,
     enableClipboard,
+    enableInspector,
     gridId,
     handleDeleteRows,
     isCellEditorActive,
     readOnly,
+    setInspectorOpen,
   ]);
 
   // Native copy event handler.
@@ -2975,38 +2990,34 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     [enableInspector, onCellClicked],
   );
 
-  // Prefer the currently selected row from the live grid data.
-  // This avoids stale inspector rows after drill-in path changes.
-  // Compute just the first selected row index via CompactSelection.first() (O(1))
-  // instead of materializing the full selection set into selectedRowsData.
-  const firstSelectedRowIndex = useMemo((): number | undefined => {
-    // Check explicit row selection first (CompactSelection.first() is O(1))
-    const firstRowIdx = gridSelection?.rows.first();
-    if (firstRowIdx !== undefined) return firstRowIdx;
-    // Fall back to range selection
-    const range = gridSelection?.current?.range;
-    if (range && range.height > 0) return range.y;
-    return undefined;
-  }, [gridSelection]);
-  const activeInspectorRow =
-    (firstSelectedRowIndex !== undefined
-      ? effectiveDisplayRows[firstSelectedRowIndex]
-      : undefined) ?? inspectorSelectedRow ?? null;
-  const activeInspectorPanel = (showInspector && enableInspector)
-    ? (renderInspectorPanel
-        ? renderInspectorPanel({
-            selectedRow: activeInspectorRow,
-            columns: finalColumns,
-            baselineRow: inspectorBaselineRow,
-            onSetBaseline: setInspectorBaselineRow,
-          })
-        : <InspectorPanel
-            selectedRow={activeInspectorRow}
-            columns={finalColumns}
-            baselineRow={inspectorBaselineRow}
-            onSetBaseline={setInspectorBaselineRow}
-          />)
-    : null;
+  // Collect ALL selected rows for the inspector panel
+  const inspectorSelectedRows = useMemo((): GridRowModel[] => {
+    const selectedIndexes = collectSelectedRowIndexes(gridSelection);
+    if (selectedIndexes.size > 0) {
+      return Array.from(selectedIndexes)
+        .sort((a, b) => a - b)
+        .map((idx) => effectiveDisplayRows[idx])
+        .filter((row): row is GridRowModel => Boolean(row));
+    }
+    // Fall back to single inspectorSelectedRow from cell click
+    if (inspectorSelectedRow) return [inspectorSelectedRow];
+    return [];
+  }, [gridSelection, effectiveDisplayRows, inspectorSelectedRow]);
+
+  const activeInspectorPanel =
+    showInspector && enableInspector ? (
+      renderInspectorPanel ? (
+        renderInspectorPanel({
+          selectedRows: inspectorSelectedRows,
+          columns: finalColumns,
+        })
+      ) : (
+        <InspectorPanel
+          selectedRows={inspectorSelectedRows}
+          columns={finalColumns}
+        />
+      )
+    ) : null;
 
   // Only materialize full selection data for the status bar's SelectionSummary
   // when the selection is small enough to be practical. For large selections
@@ -3084,6 +3095,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
             ? handleBestEffortDeleteRows
             : undefined
         }
+        onSelectIdentifierColumns={onSelectIdentifierColumns}
         onPaste={commandFactory && !readOnly ? handlePaste : undefined}
         onFilterByColumn={
           enableFiltering ? handleFilterByColumn : undefined
@@ -3318,6 +3330,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         columns={finalColumns}
         gridSelection={gridSelection as any}
         readOnlyReason={readOnlyReason}
+        onSelectIdentifierColumns={onSelectIdentifierColumns}
         onRefreshMaterializedView={onRefreshMaterializedView}
         isRefreshingMatView={isRefreshingMatView}
         // Query performance metrics
