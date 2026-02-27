@@ -45,6 +45,7 @@ import {
   openTableObject,
   openTableInSplitRight,
   openFunctionInSplitRight,
+  openErdView,
 } from "@/utils/workbench/openers";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
@@ -59,6 +60,7 @@ import { NestedConnectionList } from "./NestedConnectionList";
 import { NestedWorkspaceList } from "./NestedWorkspaceList";
 import { NestedSavedQueriesList } from "./NestedSavedQueriesList";
 import { NestedSafeModeList } from "./NestedSafeModeList";
+import { NestedErdList, type ErdTarget } from "./NestedErdList";
 import { ActionsPopover } from "./ActionsPopover";
 import type { SavedQuery } from "@/lib/db/queryHistory";
 import {
@@ -781,6 +783,20 @@ export function CommandPalette(): React.ReactElement {
     [closePalette],
   );
 
+  // Handler for open-erd: open ERD view for selected target
+  const handleErdSelect = useCallback(
+    (target: ErdTarget) => {
+      openErdView({
+        connectionId: target.connectionId,
+        connectionName: target.connectionName,
+        database: target.database,
+        schema: target.schema,
+      });
+      closePalette();
+    },
+    [closePalette],
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       // Handle undo/redo for the input
@@ -853,6 +869,8 @@ export function CommandPalette(): React.ReactElement {
         return "Search saved queries...";
       case "set-safe-mode":
         return "Search connections or safe mode levels...";
+      case "open-erd":
+        return "Select ERD target...";
     }
   };
 
@@ -917,6 +935,13 @@ export function CommandPalette(): React.ReactElement {
             <NestedSafeModeList
               listRef={listRef}
               query={query}
+              onClose={closePalette}
+            />
+          ) : nestedMode.type === "open-erd" ? (
+            <NestedErdList
+              listRef={listRef}
+              query={query}
+              onSelect={handleErdSelect}
               onClose={closePalette}
             />
           ) : (
