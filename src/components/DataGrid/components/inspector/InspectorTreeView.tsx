@@ -44,6 +44,7 @@ function InlineEditInput({
 }) {
   const [value, setValue] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
+  const committedRef = useRef(false);
 
   useEffect(() => {
     // Auto-focus and select when the inline editor appears
@@ -55,9 +56,11 @@ function InlineEditInput({
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === "Enter") {
         e.preventDefault();
+        committedRef.current = true;
         onCommit(value);
       } else if (e.key === "Escape") {
         e.preventDefault();
+        committedRef.current = true;
         onCancel();
       }
     },
@@ -72,7 +75,9 @@ function InlineEditInput({
         setValue(e.target.value);
       }}
       onBlur={() => {
-        onCommit(value);
+        if (!committedRef.current) {
+          onCommit(value);
+        }
       }}
       onKeyDown={handleKeyDown}
       className="h-6 text-xs font-mono inline-flex w-auto min-w-[80px] max-w-[200px] px-1 py-0"
@@ -145,7 +150,7 @@ function NestedTreeNode({
 
   return (
     <details
-      open={depth < 2}
+      defaultOpen={depth < 2}
       className="text-xs"
       style={{ paddingLeft: `${depth * 14}px` }}
     >
@@ -280,9 +285,9 @@ function MergedFieldRow({
             >
               &lt;multiple values&gt;
             </span>
-            {shown.map((v, i) => (
+            {shown.map((v) => (
               <Badge
-                key={i}
+                key={formatValueForDisplay(v)}
                 variant="secondary"
                 className="max-w-[60px] truncate"
               >
