@@ -41,6 +41,7 @@ import { computeBaseWidth } from "./columnUtils";
 import { databaseService } from "@/services/databaseService";
 import { DataGridSkeleton } from "../components/DataGridSkeleton";
 import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
+import { IdentifierColumnsSelector } from "../components/IdentifierColumnsSelector";
 import { useQuickFilter } from "../hooks/useQuickFilter";
 import { DbType, type GridCellValue } from "@/types";
 import type { FilterColumnInfo } from "@/utils/filterParser";
@@ -66,6 +67,15 @@ import { Button } from "@/components/ui/button";
 
 // Stable empty array to prevent infinite re-renders when sortColumns is undefined
 const EMPTY_SORT_COLUMNS: SortColumn[] = [];
+const EMPTY_ROW_IDENTIFIER_COLUMNS: string[] = [];
+
+const areStringArraysEqual = (a: string[], b: string[]): boolean => {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+};
 
 export interface SqlDataGridProps {
   connectionId: string;
@@ -110,7 +120,20 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
 
   // Ref for QuickFilter - passed to BaseDataGrid for Cmd+F handling
   const quickFilterRef = useRef<QuickFilterRef>(null);
-  const [showInspector, setShowInspector] = useState(false);
+  const persistedInspector = useGridPreferencesStore(
+    (s) => s.preferences[gridId]?.inspector,
+  );
+  const [showInspector, setShowInspector] = useState(
+    () => persistedInspector?.open ?? false,
+  );
+  const [showIdentifierSelector, setShowIdentifierSelector] = useState(false);
+  const [draftIdentifierColumns, setDraftIdentifierColumns] = useState<string[]>([]);
+
+  const persistedRowIdentifierColumns = useGridPreferencesStore(
+    (state) =>
+      state.preferences[gridId]?.rowIdentifierColumns ??
+      EMPTY_ROW_IDENTIFIER_COLUMNS,
+  );
 
   // Determine entity type and read-only status based on kind
   const entityType: "table" | "view" | "materialized_view" =
@@ -370,6 +393,12 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     }
   }, []); // Only on mount
 
+  // Persist inspector panel open/close state
+  const setInspectorPref = useGridPreferencesStore((s) => s.setInspector);
+  useEffect(() => {
+    setInspectorPref(gridId, { open: showInspector, tab: "tree" });
+  }, [gridId, showInspector, setInspectorPref]);
+
   // --- Sort Configuration ---
   // Get sort state from grid preferences and convert to SortConfig format
   // Uses sortGridId for per-tab sort isolation (initialization handled by useColumnSorting in BaseDataGrid)
@@ -556,17 +585,71 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     tableStructure?.indexes,
   ]);
 
-  // Deterministic row identity columns
-  const primaryKeyColumns = useMemo(() => {
+  // Deterministic identity inferred from PK/UNIQUE metadata.
+  const deterministicIdentityColumns = useMemo(() => {
     if (structureIdentityColumns.length > 0) {
       return structureIdentityColumns;
     }
     return columns.filter((col) => col.meta?.is_pk).map((col) => col.name);
   }, [columns, structureIdentityColumns]);
 
-  const hasDeterministicIdentity = primaryKeyColumns.length > 0;
+  const selectableIdentifierColumns = useMemo(() => {
+    const seen = new Set<string>();
+    const result: string[] = [];
+
+    for (const col of columns) {
+      const columnName = col.name ?? col.field;
+      if (!columnName || columnName.startsWith("__qp_fk__")) continue;
+      if (seen.has(columnName)) continue;
+      seen.add(columnName);
+      result.push(columnName);
+    }
+
+    return result;
+  }, [columns]);
+
+  const customIdentityColumns = useMemo(() => {
+    if (persistedRowIdentifierColumns.length === 0) return [];
+    const allowed = new Set(selectableIdentifierColumns);
+    return persistedRowIdentifierColumns.filter((column) =>
+      allowed.has(column),
+    );
+  }, [persistedRowIdentifierColumns, selectableIdentifierColumns]);
+
+  useEffect(() => {
+    // Wait until columns are available before normalizing persisted identifiers.
+    // Otherwise we may clear valid saved columns during initial empty/loading states.
+    if (selectableIdentifierColumns.length === 0) {
+      return;
+    }
+
+    if (
+      areStringArraysEqual(persistedRowIdentifierColumns, customIdentityColumns)
+    ) {
+      return;
+    }
+
+    useGridPreferencesStore.getState().setRowIdentifierColumns(
+      gridId,
+      customIdentityColumns.length > 0 ? customIdentityColumns : undefined,
+    );
+  }, [
+    customIdentityColumns,
+    gridId,
+    persistedRowIdentifierColumns,
+    selectableIdentifierColumns.length,
+  ]);
+
+  const hasDeterministicIdentity = deterministicIdentityColumns.length > 0;
+  const configuredIdentityColumns = hasDeterministicIdentity
+    ? deterministicIdentityColumns
+    : customIdentityColumns;
+  const rowMatcherMode = hasDeterministicIdentity
+    ? "deterministic"
+    : "best_effort";
+  const hasConfiguredIdentity = configuredIdentityColumns.length > 0;
   const mutationGuardReason =
-    !isReadOnly && !hasDeterministicIdentity
+    !isReadOnly && !hasConfiguredIdentity
       ? "Update/Delete disabled: no primary/unique key"
       : undefined;
   const readOnlyReason = viewReadOnlyReason ?? mutationGuardReason;
@@ -585,7 +668,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
       const cached = rowKeyMapRef.current.get(row);
       if (cached) return cached;
 
-      const parts = primaryKeyColumns.map((columnName) => {
+      const parts = configuredIdentityColumns.map((columnName) => {
         const field =
           columnNameToFieldMapRef.current.get(columnName) ?? columnName;
         const cell = row[field];
@@ -600,7 +683,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
 
       let computed = `${schema ?? "public"}.${table}:row-${draftRowCounterRef.current++}`;
       if (
-        primaryKeyColumns.length > 0 &&
+        configuredIdentityColumns.length > 0 &&
         parts.some((part) => part !== "__null__")
       ) {
         computed = `${schema ?? "public"}.${table}:pk:${parts.join("|")}`;
@@ -608,7 +691,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
       rowKeyMapRef.current.set(row, computed);
       return computed;
     },
-    [primaryKeyColumns, schema, table],
+    [configuredIdentityColumns, schema, table],
   );
 
   const bestEffortIdentityColumns = useMemo(() => {
@@ -637,23 +720,21 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
       database,
       schema,
       table,
-      primaryKeyColumns,
+      primaryKeyColumns: configuredIdentityColumns,
       columnNameToFieldMap,
       columnByFieldMap,
       getRowKey,
 
       createEditCommand: (event: GridEditCommitEvent) => {
         try {
-          const matcherMode =
-            primaryKeyColumns.length > 0 ? "deterministic" : "best_effort";
           const identityColumns =
-            primaryKeyColumns.length > 0
-              ? primaryKeyColumns
+            configuredIdentityColumns.length > 0
+              ? configuredIdentityColumns
               : bestEffortIdentityColumns;
 
           return createUpdateCommand(event, target, columns, {
             identityColumns,
-            matcherMode,
+            matcherMode: rowMatcherMode,
           });
         } catch (err) {
           console.error("Failed to create update command:", err);
@@ -698,15 +779,13 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
       },
 
       createDeleteCommand: (row: GridRowModel, _rowKey: string) => {
-        const matcherMode =
-          primaryKeyColumns.length > 0 ? "deterministic" : "best_effort";
         const identityColumns =
-          primaryKeyColumns.length > 0
-            ? primaryKeyColumns
+          configuredIdentityColumns.length > 0
+            ? configuredIdentityColumns
             : bestEffortIdentityColumns;
         return createDeleteCommand(row, target, columns, {
           identityColumns,
-          matcherMode,
+          matcherMode: rowMatcherMode,
         });
       },
 
@@ -773,7 +852,8 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     table,
     columns,
     bestEffortIdentityColumns,
-    primaryKeyColumns,
+    configuredIdentityColumns,
+    rowMatcherMode,
     columnNameToFieldMap,
     columnByFieldMap,
     getRowKey,
@@ -798,7 +878,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
   const optimisticRows = useOptimisticRows({
     displayRows: rows,
     stagedCommands: pendingChanges,
-    primaryKeyColumns,
+    primaryKeyColumns: configuredIdentityColumns,
     columnNameToFieldMap,
     columnByFieldMap,
     columns,
@@ -954,6 +1034,45 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     }
   }, [connectionId, refetch]);
 
+  const canConfigureIdentifierColumns =
+    !isReadOnly &&
+    !hasDeterministicIdentity &&
+    selectableIdentifierColumns.length > 0;
+
+  const handleSelectIdentifierColumns = useCallback(() => {
+    setDraftIdentifierColumns(customIdentityColumns);
+    setShowIdentifierSelector(true);
+  }, [customIdentityColumns]);
+
+  const handleToggleDraftIdentifierColumn = useCallback((column: string) => {
+    setDraftIdentifierColumns((prev) =>
+      prev.includes(column)
+        ? prev.filter((item) => item !== column)
+        : [...prev, column],
+    );
+  }, []);
+
+  const handleSaveIdentifierColumns = useCallback(() => {
+      useGridPreferencesStore.getState().setRowIdentifierColumns(
+        gridId,
+        draftIdentifierColumns.length > 0 ? draftIdentifierColumns : undefined,
+      );
+      setShowIdentifierSelector(false);
+    }, [draftIdentifierColumns, gridId]);
+
+  const handleClearIdentifierColumns = useCallback(() => {
+    useGridPreferencesStore.getState().setRowIdentifierColumns(
+      gridId,
+      undefined,
+    );
+    setDraftIdentifierColumns([]);
+    setShowIdentifierSelector(false);
+  }, [gridId]);
+
+  const handleCancelIdentifierColumns = useCallback(() => {
+    setShowIdentifierSelector(false);
+  }, []);
+
   // --- Loading States ---
   if (isLoading) {
     return <DataGridSkeleton />;
@@ -1004,6 +1123,17 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
         </div>
       )}
 
+      <IdentifierColumnsSelector
+        open={showIdentifierSelector}
+        tableName={tableName}
+        availableColumns={selectableIdentifierColumns}
+        selectedColumns={draftIdentifierColumns}
+        onToggleColumn={handleToggleDraftIdentifierColumn}
+        onSave={handleSaveIdentifierColumns}
+        onClear={handleClearIdentifierColumns}
+        onCancel={handleCancelIdentifierColumns}
+      />
+
       {/* BaseDataGrid handles all CRUD operations internally */}
       <BaseDataGrid
         gridId={gridId}
@@ -1023,6 +1153,9 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
         isLoadingMore={isFetchingNextPage}
         readOnly={isReadOnly}
         readOnlyReason={readOnlyReason}
+        onSelectIdentifierColumns={
+          canConfigureIdentifierColumns ? handleSelectIdentifierColumns : undefined
+        }
         entityType={entityType}
         enableFiltering={false} // Filter managed by SqlDataGrid, not BaseDataGrid
         enableSorting={true}
