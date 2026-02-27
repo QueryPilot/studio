@@ -48,7 +48,7 @@ export function useMenuEventListener() {
       const activeConnectionId = workspaceStore.activeConnectionId;
 
       // Debug: Log context for all database-related actions
-      if (["connect", "disconnect", "refresh", "execute", "execute_selection", "export", "import", "erd", "new_query", "new_erd"].includes(action)) {
+      if (["connect", "disconnect", "refresh", "execute", "execute_selection", "export", "import", "new_query"].includes(action)) {
         logger.info(`[MenuAction] Context for '${action}': activeConnectionId=${activeConnectionId}, focusedPanel=${usePanelFocusStore.getState().focusedPanelId}`);
       }
 
@@ -66,11 +66,6 @@ export function useMenuEventListener() {
         case "new_query":
           if (activeConnectionId) {
             handleNewQuery(activeConnectionId, workbenchStore);
-          }
-          break;
-        case "new_erd":
-          if (activeConnectionId) {
-            handleNewErd(activeConnectionId, workbenchStore);
           }
           break;
         case "close_tab":
@@ -126,11 +121,6 @@ export function useMenuEventListener() {
         case "import":
           // TODO: Implement import
           logger.warn("Import not implemented");
-          break;
-        case "erd":
-          if (activeConnectionId) {
-            handleNewErd(activeConnectionId, workbenchStore);
-          }
           break;
         case "backup_restore": {
           // Get profile ID from active connection (not runtime connection ID)
@@ -197,31 +187,6 @@ function handleNewQuery(
     addTab(targetPanelId, tabId, {
       type: "query",
       title: "New Query",
-      connectionId,
-    });
-  }
-}
-
-function handleNewErd(
-  connectionId: string,
-  workbenchStore: ReturnType<typeof useWorkbenchStore.getState>,
-) {
-  const { panelContents, addTab, focusPanel } = workbenchStore;
-  let targetPanelId: string | null = usePanelFocusStore.getState().focusedPanelId;
-
-  if (!targetPanelId && panelContents.size > 0) {
-    const firstPanelId = Array.from(panelContents.keys())[0];
-    if (firstPanelId) {
-      targetPanelId = firstPanelId;
-      focusPanel(targetPanelId);
-    }
-  }
-
-  if (targetPanelId) {
-    const tabId = `erd-${uuidv4()}`;
-    addTab(targetPanelId, tabId, {
-      type: "erd",
-      title: "ERD",
       connectionId,
     });
   }
