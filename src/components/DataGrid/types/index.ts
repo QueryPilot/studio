@@ -198,6 +198,16 @@ export type CustomCellRenderer<T extends CustomCell> = {
   provideEditor: ProvideEditorCallback<T>;
 };
 
+export interface IdentifierSelectorConfig {
+  open: boolean;
+  tableName: string;
+  availableColumns: string[];
+  selectedColumns: string[];
+  onToggleColumn: (column: string) => void;
+  onClear: () => void;
+  onCancel: () => void;
+}
+
 /**
  * Command factory interface for paradigm-specific CRUD operations.
  *
@@ -217,7 +227,7 @@ export interface CrudCommandFactory {
   /** Table/collection/key name */
   table: string;
 
-  /** Primary key column names for row identification */
+  /** Row identity column names used for update/delete matching */
   primaryKeyColumns: string[];
 
   /** Column name to field mapping (for optimistic updates) */

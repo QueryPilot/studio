@@ -59,39 +59,9 @@ export const contextKeyDefinitions: ContextKeyDefinition[] = [
     owner: 'editor',
   },
   {
-    key: 'editorReadonly',
-    defaultValue: false,
-    description: 'Focused editor is read-only',
-    owner: 'editor',
-  },
-  {
-    key: 'findWidgetVisible',
-    defaultValue: false,
-    description: 'Find widget is open in editor',
-    owner: 'editor',
-  },
-  {
-    key: 'renameInputVisible',
-    defaultValue: false,
-    description: 'Rename input is active in editor',
-    owner: 'editor',
-  },
-  {
-    key: 'parameterHintsVisible',
-    defaultValue: false,
-    description: 'Parameter hints are visible',
-    owner: 'editor',
-  },
-  {
     key: 'queryEditor',
     defaultValue: false,
     description: 'Focused editor is a SQL query editor',
-    owner: 'editor',
-  },
-  {
-    key: 'hasSelection',
-    defaultValue: false,
-    description: 'Focused editor has selected text',
     owner: 'editor',
   },
   {
@@ -119,33 +89,9 @@ export const contextKeyDefinitions: ContextKeyDefinition[] = [
     owner: 'dataGrid',
   },
   {
-    key: 'dataGridCanUndo',
-    defaultValue: false,
-    description: 'Data grid history contains undo entries',
-    owner: 'dataGrid',
-  },
-  {
-    key: 'dataGridCanRedo',
-    defaultValue: false,
-    description: 'Data grid history contains redo entries',
-    owner: 'dataGrid',
-  },
-  {
-    key: 'filterActive',
-    defaultValue: false,
-    description: 'Data grid filters active',
-    owner: 'dataGrid',
-  },
-  {
     key: 'assistantVisible',
     defaultValue: false,
     description: 'AI assistant panel visible',
-    owner: 'assistant',
-  },
-  {
-    key: 'assistantInputFocus',
-    defaultValue: false,
-    description: 'AI assistant input focused',
     owner: 'assistant',
   },
   {

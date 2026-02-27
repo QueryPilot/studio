@@ -467,6 +467,160 @@ describe("BaseDataGrid row deletion staging", () => {
     expect(stagedCommands).toHaveLength(0);
   });
 
+  it("validates best-effort tagged delete commands even when deterministic identity exists", async () => {
+    const validateCommand = vi.fn(() =>
+      Promise.resolve({
+        valid: false,
+        reason: "Best-effort blocked: multiple rows match current values",
+      }),
+    );
+    const deterministicFactory: CrudCommandFactory = {
+      ...commandFactory,
+      validateCommand,
+      createDeleteCommand: (row, rowKey) => {
+        const baseCommand = commandFactory.createDeleteCommand(row, rowKey);
+        return {
+          ...baseCommand,
+          metadata: {
+            ...baseCommand.metadata,
+            tags: ["matcher:best_effort"],
+          },
+        };
+      },
+    };
+
+    render(
+      <BaseDataGrid
+        gridId={GRID_ID}
+        rows={rows}
+        columns={columns}
+        connectionId={DELETE_TARGET.connectionId}
+        database={DELETE_TARGET.database}
+        schema={DELETE_TARGET.schema}
+        tableName={DELETE_TARGET.table}
+        paradigm="sql"
+        commandFactory={deterministicFactory}
+        getCellContent={getCellContent}
+      />,
+    );
+
+    const onSelectionChange = editableGridPropsRef.current?.onSelectionChange as
+      | ((selection: GridSelection) => void)
+      | undefined;
+
+    act(() => {
+      onSelectionChange?.({
+        rows: CompactSelection.empty(),
+        columns: CompactSelection.empty(),
+        current: {
+          cell: [0, 0],
+          range: { x: 0, y: 0, width: 1, height: 1 },
+          rangeStack: [],
+        },
+      });
+    });
+
+    act(() => {
+      dataGridRegistry.setFocused(GRID_ID);
+      dataGridRegistry.getFocused()?.deleteRows?.();
+    });
+    await flushAsyncWork();
+
+    const tableKey = buildCrudTableKey(DELETE_TARGET);
+    const stagedCommands = useCrudStore.getState().stagedCommands.get(tableKey) ?? [];
+
+    expect(validateCommand).toHaveBeenCalledTimes(1);
+    expect(stagedCommands).toHaveLength(0);
+  });
+
+  it("validates best-effort tagged edit commands even when deterministic identity exists", async () => {
+    const validateCommand = vi.fn(() =>
+      Promise.resolve({
+        valid: false,
+        reason: "Best-effort blocked: multiple rows match current values",
+      }),
+    );
+    const createEditCommand = vi.fn(() => ({
+      id: "update:best-effort-deterministic-path",
+      type: "data.update" as const,
+      target: DELETE_TARGET,
+      payload: {
+        column: "value",
+        oldValue: "value-0",
+        newValue: "value-0-updated",
+        primaryKeys: { value: "value-0" },
+      },
+      metadata: {
+        timestamp: new Date().toISOString(),
+        description: "Best-effort update in deterministic flow",
+        tags: ["matcher:best_effort"],
+      },
+      state: "staged" as const,
+    }));
+    const deterministicFactory: CrudCommandFactory = {
+      ...commandFactory,
+      validateCommand,
+      createEditCommand,
+    };
+
+    render(
+      <BaseDataGrid
+        gridId={GRID_ID}
+        rows={rows}
+        columns={columns}
+        connectionId={DELETE_TARGET.connectionId}
+        database={DELETE_TARGET.database}
+        schema={DELETE_TARGET.schema}
+        tableName={DELETE_TARGET.table}
+        paradigm="sql"
+        commandFactory={deterministicFactory}
+        getCellContent={getCellContent}
+      />,
+    );
+
+    const onCellEditCommit = editableGridPropsRef.current?.onCellEditCommit as
+      | ((event: {
+          cell: [number, number];
+          rowIndex: number;
+          columnIndex: number;
+          column: GridColumnV2;
+          row: GridRowModel;
+          newValue: GridCell;
+          previousValue: unknown;
+        }) => unknown)
+      | undefined;
+
+    const row = rows[0];
+    if (!row) {
+      throw new Error("Expected test row");
+    }
+
+    act(() => {
+      onCellEditCommit?.({
+        cell: [1, 0],
+        rowIndex: 0,
+        columnIndex: 1,
+        column: valueColumn,
+        row,
+        newValue: {
+          kind: GridCellKind.Text,
+          data: "value-0-updated",
+          displayData: "value-0-updated",
+          allowOverlay: true,
+        },
+        previousValue: row.col_1,
+      });
+    });
+    await flushAsyncWork();
+
+    const tableKey = buildCrudTableKey(DELETE_TARGET);
+    const stagedCommands = useCrudStore.getState().stagedCommands.get(tableKey) ?? [];
+
+    expect(createEditCommand).toHaveBeenCalledTimes(1);
+    expect(validateCommand).toHaveBeenCalledTimes(1);
+    expect(stagedCommands).toHaveLength(0);
+  });
+
   it("stages best-effort edit only after explicit arm action", async () => {
     const validateCommand = vi.fn(() => Promise.resolve({ valid: true }));
     const createEditCommand = vi.fn(() => ({
@@ -579,5 +733,63 @@ describe("BaseDataGrid row deletion staging", () => {
     expect(createEditCommand).toHaveBeenCalledTimes(1);
     expect(validateCommand).toHaveBeenCalledTimes(1);
     expect(stagedCommands).toHaveLength(1);
+  });
+
+  it("keeps delete shortcut active when Glide hidden input is focused", () => {
+    const { container } = render(
+      <BaseDataGrid
+        gridId={GRID_ID}
+        rows={rows}
+        columns={columns}
+        connectionId={DELETE_TARGET.connectionId}
+        database={DELETE_TARGET.database}
+        schema={DELETE_TARGET.schema}
+        tableName={DELETE_TARGET.table}
+        paradigm="sql"
+        commandFactory={commandFactory}
+        getCellContent={getCellContent}
+      />,
+    );
+
+    const onSelectionChange = editableGridPropsRef.current?.onSelectionChange as
+      | ((selection: GridSelection) => void)
+      | undefined;
+
+    act(() => {
+      onSelectionChange?.({
+        rows: CompactSelection.fromSingleSelection(0),
+        columns: CompactSelection.empty(),
+        current: {
+          cell: [0, 0],
+          range: { x: 0, y: 0, width: 1, height: 1 },
+          rangeStack: [],
+        },
+      });
+    });
+
+    const gridRoot = container.querySelector('[data-testid="base-datagrid"]');
+    const hiddenInputHost = document.createElement("div");
+    hiddenInputHost.className = "gdg-style";
+    const hiddenInput = document.createElement("input");
+    hiddenInputHost.appendChild(hiddenInput);
+    gridRoot?.appendChild(hiddenInputHost);
+    hiddenInput.focus();
+
+    act(() => {
+      dataGridRegistry.setFocused(GRID_ID);
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "d",
+          metaKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    const tableKey = buildCrudTableKey(DELETE_TARGET);
+    const stagedCommands = useCrudStore.getState().stagedCommands.get(tableKey) ?? [];
+    expect(stagedCommands).toHaveLength(1);
+    expect(stagedCommands[0]?.type).toBe("data.delete");
   });
 });

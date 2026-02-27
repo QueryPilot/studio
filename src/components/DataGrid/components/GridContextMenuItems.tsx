@@ -7,7 +7,7 @@ import {
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
-import { IconCopy, IconCopyPlus, IconDownload, IconEye, IconPin, IconPinnedOff, IconPlus, IconTrash, IconClipboardText } from '@tabler/icons-react';
+import { IconCopy, IconCopyPlus, IconDownload, IconEye, IconPin, IconPinnedOff, IconPlus, IconTrash, IconClipboardText, IconKey } from '@tabler/icons-react';
 import type { GridColumnV2, GridRowModel } from "../types";
 import type { DatabaseType } from "@/types";
 import {
@@ -63,6 +63,7 @@ export interface GridContextMenuItemsProps {
   onDeleteRows?: () => void;
   onBestEffortEditRows?: () => void;
   onBestEffortDeleteRows?: () => void;
+  onSelectIdentifierColumns?: () => void;
   onPaste?: () => void;
 }
 
@@ -89,6 +90,7 @@ export function GridContextMenuItems({
   onDeleteRows,
   onBestEffortEditRows,
   onBestEffortDeleteRows,
+  onSelectIdentifierColumns,
   onPaste,
 }: GridContextMenuItemsProps) {
   const hasSelection = selectedRows.length > 0;
@@ -425,6 +427,18 @@ export function GridContextMenuItems({
   if (!hasSelection) {
     return (
       <>
+        {onSelectIdentifierColumns && (
+          <ContextMenuItem
+            onClick={onSelectIdentifierColumns}
+            className="text-xs py-1.5 px-3 outline-none"
+          >
+            <IconKey className="mr-1.5 h-3 w-3 text-foreground" />
+            <span className="flex-1">Select Identifier Columns</span>
+          </ContextMenuItem>
+        )}
+        {onSelectIdentifierColumns && (onAddRow || onPaste) && (
+          <ContextMenuSeparator className="my-1" />
+        )}
         {onAddRow && (
           <ContextMenuItem
             onClick={onAddRow}
@@ -748,6 +762,19 @@ export function GridContextMenuItems({
               <span className="flex-1">Best-effort Delete</span>
             </ContextMenuItem>
           )}
+        </>
+      )}
+
+      {onSelectIdentifierColumns && (
+        <>
+          <ContextMenuSeparator className="my-1" />
+          <ContextMenuItem
+            onClick={onSelectIdentifierColumns}
+            className="text-xs py-1.5 px-3 outline-none"
+          >
+            <IconKey className="mr-1.5 h-3 w-3 text-foreground" />
+            <span className="flex-1">Select Identifier Columns</span>
+          </ContextMenuItem>
         </>
       )}
     </>

@@ -1676,18 +1676,12 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                     {/* Footer Actions */}
                     <div className="flex items-center gap-2 px-4 py-3 border-t border-border/50 shrink-0">
                       {/* View Mode Tabs — left side of footer */}
-                      <TabsList className="h-8">
-                        <TabsTrigger
-                          value="changes"
-                          className="text-xs px-3 h-6 gap-1.5"
-                        >
+                      <TabsList>
+                        <TabsTrigger value="changes" className="gap-1.5">
                           <IconList className="h-3 w-3" />
                           Changes
                         </TabsTrigger>
-                        <TabsTrigger
-                          value="ddl"
-                          className="text-xs px-3 h-6 gap-1.5"
-                        >
+                        <TabsTrigger value="ddl" className="gap-1.5">
                           <IconCode className="h-3 w-3" />
                           DDL
                         </TabsTrigger>
@@ -1695,14 +1689,13 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                       {viewMode === "ddl" && (
                         <Button
                           variant="ghost"
-                          size="sm"
                           className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
                           onClick={handleCopySQL}
                         >
                           {copiedSql ? (
-                            <IconCheck className="h-3.5 w-3.5 text-green-500" />
+                            <IconCheck className="h-4 w-4 text-green-500" />
                           ) : (
-                            <IconCopy className="h-3.5 w-3.5" />
+                            <IconCopy className="h-4 w-4" />
                           )}
                         </Button>
                       )}
@@ -1712,7 +1705,6 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                       <div className="flex items-center gap-2">
                         <Button
                           variant="outline"
-                          size="lg"
                           onClick={handleDiscardAll}
                           disabled={isCommitting}
                         >
@@ -1720,7 +1712,6 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                           {isTableSpecific ? "Discard" : "Discard All"}
                         </Button>
                         <Button
-                          size="lg"
                           onClick={handleCommitAll}
                           disabled={
                             isCommitting || !validationStatus.canCommitAll
@@ -1778,7 +1769,7 @@ function VirtualizedChangesList({
   const useLightweightDiff = groupedByRow.length > 150;
 
   // TanStack Virtual exposes mutable callbacks that React Compiler currently flags.
-  // eslint-disable-next-line react-hooks/incompatible-library
+
   const virtualizer = useVirtualizer({
     count: groupedByRow.length,
     getScrollElement: () => parentRef.current,

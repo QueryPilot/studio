@@ -6,12 +6,16 @@ import { DbType } from '@/types';
 import { ConstraintType } from '@/services/backend';
 import { useTableFullStructure } from '@/hooks/useTableFullStructure';
 import { useTableDataQuery } from '@/hooks/useTableDataQuery';
+import { useGridPreferencesStore } from '../../stores/gridPreferencesStore';
+import { GridCellKind, type GridCell } from '@glideapps/glide-data-grid';
 
 const {
   createUpdateCommandMock,
   createInsertCommandMock,
   createDeleteCommandMock,
   createCrudTargetMock,
+  getAdapterForConnectionMock,
+  canProceedBestEffortMock,
 } = vi.hoisted(() => ({
   createUpdateCommandMock: vi.fn(() => ({
     id: 'mock-update',
@@ -38,6 +42,8 @@ const {
     state: 'staged',
   })),
   createCrudTargetMock: vi.fn(() => 'test-target'),
+  getAdapterForConnectionMock: vi.fn(async () => ({})),
+  canProceedBestEffortMock: vi.fn(async () => ({ ok: true, matchCount: 1 })),
 }));
 
 const capturedBaseGridProps: Array<Record<string, unknown>> = [];
@@ -145,6 +151,14 @@ vi.mock('../../utils/crudHelpers', () => ({
   createCrudTarget: createCrudTargetMock,
 }));
 
+vi.mock('@/adapters', () => ({
+  getAdapterForConnection: getAdapterForConnectionMock,
+}));
+
+vi.mock('../../utils/bestEffortMatcher', () => ({
+  canProceedBestEffort: canProceedBestEffortMock,
+}));
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { retry: false },
@@ -189,6 +203,11 @@ describe('SqlDataGrid', () => {
     createInsertCommandMock.mockClear();
     createDeleteCommandMock.mockClear();
     createCrudTargetMock.mockClear();
+    getAdapterForConnectionMock.mockClear();
+    canProceedBestEffortMock.mockClear();
+    getAdapterForConnectionMock.mockResolvedValue({});
+    canProceedBestEffortMock.mockResolvedValue({ ok: true, matchCount: 1 });
+    useGridPreferencesStore.setState({ preferences: {} });
     mockUseTableFullStructure.mockReturnValue({
       structure: null,
       isLoading: false,
@@ -392,5 +411,417 @@ describe('SqlDataGrid', () => {
         identityColumns: ['name'],
       }),
     );
+  });
+
+  it('should use persisted custom identifier columns when deterministic identity is missing', () => {
+    mockUseTableDataQuery.mockReturnValue(
+      makeTableDataQueryResult({
+        rows: [
+          {
+            col_0: { value: 'alice@example.com', db_type: 'text', value_type: 'Text', is_truncated: false },
+            col_1: { value: 'tenant-a', db_type: 'text', value_type: 'Text', is_truncated: false },
+          },
+        ],
+        columns: [
+          {
+            name: 'email',
+            db_type: 'text',
+            nullable: true,
+            default: null,
+            is_pk: false,
+            is_fk: false,
+            ordinal: 0,
+          },
+          {
+            name: 'tenant_id',
+            db_type: 'text',
+            nullable: true,
+            default: null,
+            is_pk: false,
+            is_fk: false,
+            ordinal: 1,
+          },
+        ],
+        estimatedTotal: 1,
+      }),
+    );
+    mockUseTableFullStructure.mockReturnValue({
+      structure: {
+        name: 'users',
+        schema: 'public',
+        database: 'test-db',
+        columns: [],
+        primaryKeys: [],
+        foreignKeys: [],
+        indexes: [],
+        constraints: [],
+        triggers: [],
+      },
+      isLoading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    useGridPreferencesStore.getState().setRowIdentifierColumns(
+      'test-conn:test-db:public:users',
+      ['email', 'tenant_id'],
+    );
+
+    render(
+      <SqlDataGrid
+        connectionId="test-conn"
+        database="test-db"
+        schema="public"
+        table="users"
+        dbType={DbType.PostgreSQL}
+      />,
+      { wrapper: Wrapper },
+    );
+
+    const latestProps = capturedBaseGridProps.at(-1);
+    const commandFactory = latestProps?.commandFactory as
+      | { primaryKeyColumns: string[] }
+      | undefined;
+
+    expect(commandFactory?.primaryKeyColumns).toEqual(['email', 'tenant_id']);
+    expect(latestProps?.readOnlyReason).toBeUndefined();
+    expect(typeof latestProps?.onSelectIdentifierColumns).toBe('function');
+  });
+
+  it('uses best-effort matcher for custom identifier update/delete commands', () => {
+    mockUseTableDataQuery.mockReturnValue(
+      makeTableDataQueryResult({
+        rows: [
+          {
+            col_0: { value: 'alice@example.com', db_type: 'text', value_type: 'Text', is_truncated: false },
+            col_1: { value: 'tenant-a', db_type: 'text', value_type: 'Text', is_truncated: false },
+          },
+        ],
+        columns: [
+          {
+            name: 'email',
+            db_type: 'text',
+            nullable: true,
+            default: null,
+            is_pk: false,
+            is_fk: false,
+            ordinal: 0,
+          },
+          {
+            name: 'tenant_id',
+            db_type: 'text',
+            nullable: true,
+            default: null,
+            is_pk: false,
+            is_fk: false,
+            ordinal: 1,
+          },
+        ],
+        estimatedTotal: 1,
+      }),
+    );
+    mockUseTableFullStructure.mockReturnValue({
+      structure: {
+        name: 'users',
+        schema: 'public',
+        database: 'test-db',
+        columns: [],
+        primaryKeys: [],
+        foreignKeys: [],
+        indexes: [],
+        constraints: [],
+        triggers: [],
+      },
+      isLoading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    useGridPreferencesStore.getState().setRowIdentifierColumns(
+      'test-conn:test-db:public:users',
+      ['email', 'tenant_id'],
+    );
+
+    render(
+      <SqlDataGrid
+        connectionId="test-conn"
+        database="test-db"
+        schema="public"
+        table="users"
+        dbType={DbType.PostgreSQL}
+      />,
+      { wrapper: Wrapper },
+    );
+
+    const latestProps = capturedBaseGridProps.at(-1);
+    const commandFactory = latestProps?.commandFactory as
+      | {
+          createEditCommand: (event: {
+            cell: [number, number];
+            rowIndex: number;
+            columnIndex: number;
+            column: Record<string, unknown>;
+            row: Record<string, unknown>;
+            newValue: GridCell;
+            previousValue: unknown;
+          }) => unknown;
+          createDeleteCommand: (
+            row: Record<string, unknown>,
+            rowKey: string,
+          ) => unknown;
+          getRowKey: (row: Record<string, unknown>, index: number) => string;
+        }
+      | undefined;
+    const gridColumns = (latestProps?.columns as Array<Record<string, unknown>> | undefined) ?? [];
+    const row = {
+      col_0: { value: 'alice@example.com', db_type: 'text', value_type: 'Text', is_truncated: false },
+      col_1: { value: 'tenant-a', db_type: 'text', value_type: 'Text', is_truncated: false },
+    };
+
+    expect(commandFactory).toBeDefined();
+    expect(gridColumns.length).toBeGreaterThan(0);
+
+    const firstColumn = gridColumns[0];
+    if (!firstColumn) {
+      throw new Error('Expected first grid column');
+    }
+    const rowKey = commandFactory?.getRowKey(row, 0);
+    if (!rowKey) {
+      throw new Error('Expected generated row key');
+    }
+
+    commandFactory?.createEditCommand({
+      cell: [0, 0],
+      rowIndex: 0,
+      columnIndex: 0,
+      column: firstColumn,
+      row,
+      newValue: {
+        kind: GridCellKind.Text,
+        data: 'alice+updated@example.com',
+        displayData: 'alice+updated@example.com',
+        allowOverlay: true,
+      },
+      previousValue: row.col_0,
+    });
+
+    commandFactory?.createDeleteCommand(row, rowKey);
+
+    expect(createUpdateCommandMock).toHaveBeenCalledWith(
+      expect.anything(),
+      'test-target',
+      expect.anything(),
+      expect.objectContaining({
+        matcherMode: 'best_effort',
+        identityColumns: ['email', 'tenant_id'],
+      }),
+    );
+    expect(createDeleteCommandMock).toHaveBeenCalledWith(
+      expect.anything(),
+      'test-target',
+      expect.anything(),
+      expect.objectContaining({
+        matcherMode: 'best_effort',
+        identityColumns: ['email', 'tenant_id'],
+      }),
+    );
+  });
+
+  it('should not clear persisted custom identifiers while columns are still loading', () => {
+    mockUseTableDataQuery.mockReturnValue(
+      makeTableDataQueryResult({
+        rows: [],
+        columns: [],
+      }),
+    );
+    mockUseTableFullStructure.mockReturnValue({
+      structure: {
+        name: 'users',
+        schema: 'public',
+        database: 'test-db',
+        columns: [],
+        primaryKeys: [],
+        foreignKeys: [],
+        indexes: [],
+        constraints: [],
+        triggers: [],
+      },
+      isLoading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    useGridPreferencesStore.getState().setRowIdentifierColumns(
+      'test-conn:test-db:public:users',
+      ['email', 'tenant_id'],
+    );
+
+    render(
+      <SqlDataGrid
+        connectionId="test-conn"
+        database="test-db"
+        schema="public"
+        table="users"
+        dbType={DbType.PostgreSQL}
+      />,
+      { wrapper: Wrapper },
+    );
+
+    const persisted =
+      useGridPreferencesStore.getState().preferences[
+        'test-conn:test-db:public:users'
+      ]?.rowIdentifierColumns;
+    expect(persisted).toEqual(['email', 'tenant_id']);
+  });
+
+  it('should keep update/delete disabled for tables without deterministic or custom identity', () => {
+    mockUseTableDataQuery.mockReturnValue(
+      makeTableDataQueryResult({
+        rows: [],
+        columns: [
+          {
+            name: 'email',
+            db_type: 'text',
+            nullable: true,
+            default: null,
+            is_pk: false,
+            is_fk: false,
+            ordinal: 0,
+          },
+        ],
+      }),
+    );
+    mockUseTableFullStructure.mockReturnValue({
+      structure: {
+        name: 'users',
+        schema: 'public',
+        database: 'test-db',
+        columns: [],
+        primaryKeys: [],
+        foreignKeys: [],
+        indexes: [],
+        constraints: [],
+        triggers: [],
+      },
+      isLoading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(
+      <SqlDataGrid
+        connectionId="test-conn"
+        database="test-db"
+        schema="public"
+        table="users"
+        dbType={DbType.PostgreSQL}
+      />,
+      { wrapper: Wrapper },
+    );
+
+    const latestProps = capturedBaseGridProps.at(-1);
+    const commandFactory = latestProps?.commandFactory as
+      | { primaryKeyColumns: string[] }
+      | undefined;
+
+    expect(commandFactory?.primaryKeyColumns).toEqual([]);
+    expect(latestProps?.readOnlyReason).toBe('Update/Delete disabled: no primary/unique key');
+    expect(typeof latestProps?.onSelectIdentifierColumns).toBe('function');
+  });
+
+  it('should skip best-effort probe for inserted-row updates linked by tempId', async () => {
+    mockUseTableDataQuery.mockReturnValue(
+      makeTableDataQueryResult({
+        rows: [],
+        columns: [
+          {
+            name: 'id',
+            db_type: 'integer',
+            nullable: true,
+            default: null,
+            is_pk: false,
+            is_fk: false,
+            ordinal: 0,
+          },
+          {
+            name: 'name',
+            db_type: 'text',
+            nullable: true,
+            default: null,
+            is_pk: false,
+            is_fk: false,
+            ordinal: 1,
+          },
+        ],
+      }),
+    );
+    mockUseTableFullStructure.mockReturnValue({
+      structure: {
+        name: 'no_constraints',
+        schema: 'public',
+        database: 'test-db',
+        columns: [],
+        primaryKeys: [],
+        foreignKeys: [],
+        indexes: [],
+        constraints: [],
+        triggers: [],
+      },
+      isLoading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    useGridPreferencesStore.getState().setRowIdentifierColumns(
+      'test-conn:test-db:public:no_constraints',
+      ['id'],
+    );
+
+    render(
+      <SqlDataGrid
+        connectionId="test-conn"
+        database="test-db"
+        schema="public"
+        table="no_constraints"
+        dbType={DbType.PostgreSQL}
+      />,
+      { wrapper: Wrapper },
+    );
+
+    const latestProps = capturedBaseGridProps.at(-1);
+    const commandFactory = latestProps?.commandFactory as
+      | {
+          validateCommand?: (command: Record<string, unknown>) => Promise<{ valid: boolean; reason?: string }>;
+        }
+      | undefined;
+
+    expect(commandFactory?.validateCommand).toBeDefined();
+
+    const validation = await commandFactory?.validateCommand?.({
+      id: 'update-temp-1',
+      type: 'data.update',
+      target: {
+        connectionId: 'test-conn',
+        database: 'test-db',
+        schema: 'public',
+        table: 'no_constraints',
+      },
+      payload: {
+        column: 'name',
+        newValue: 'draft-name',
+        primaryKeys: { id: 1 },
+        tempId: 'temp-row-1',
+      },
+      metadata: {
+        timestamp: new Date().toISOString(),
+        description: 'Update inserted draft row',
+        tags: ['matcher:best_effort'],
+      },
+      state: 'staged',
+    });
+
+    expect(validation).toEqual({ valid: true });
+    expect(getAdapterForConnectionMock).not.toHaveBeenCalled();
+    expect(canProceedBestEffortMock).not.toHaveBeenCalled();
   });
 });

@@ -55,6 +55,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { contextService } from "@/services/contextService";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import type {
   CrudCommandTarget,
@@ -1537,6 +1538,9 @@ export const TableStructure = memo(function TableStructure({
   // Keyboard shortcut handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Never intercept keys while command palette is open
+      if (contextService.getValue("inQuickOpen")) return;
+
       // Cmd+D / Ctrl+D - Duplicate selected column
       if ((e.metaKey || e.ctrlKey) && e.key === "d") {
         e.preventDefault();

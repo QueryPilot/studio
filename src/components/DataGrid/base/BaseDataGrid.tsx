@@ -26,6 +26,7 @@ import type {
   GridRowInsertEvent,
   CrudCommandFactory,
   GridCellContentGetter,
+  IdentifierSelectorConfig,
 } from "../types";
 import type { ContextMenuTarget } from "../components/UnifiedContextMenu";
 import type { QuickFilterRef } from "../components/QuickFilter";
@@ -251,6 +252,8 @@ export interface BaseDataGridProps {
    * Used for SQL tables without deterministic PK/UNIQUE identity.
    */
   onSelectIdentifierColumns?: () => void;
+  /** Optional state/handlers for the identifier selector command popover */
+  identifierSelector?: IdentifierSelectorConfig;
 
   // --- Query Performance Metrics ---
   /**
@@ -365,6 +368,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     error,
     onReconnect,
     onSelectIdentifierColumns,
+    identifierSelector,
     // Focus management
     focused,
     autoFocus = true,
@@ -381,6 +385,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   // Functions are stable references and safe to select individually.
   const stageCommand = useCrudStore((s) => s.stageCommand);
   const stageBatchWithSingleHistoryEntry = useCrudStore((s) => s.stageBatchWithSingleHistoryEntry);
+  const unstageCommands = useCrudStore((s) => s.unstageCommands);
   const getTableKey = useCrudStore((s) => s.getTableKey);
   const tableKey = commandFactory
     ? getTableKey({
@@ -591,7 +596,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     scopeId,
     resetOnUnmount: true,
   });
-  useContextKey("editingCell", isEditingCell, {
+  const isIdentifierSelectorOpen = Boolean(identifierSelector?.open);
+  const suppressGridShortcuts = isEditingCell || isIdentifierSelectorOpen;
+  useContextKey("editingCell", suppressGridShortcuts, {
     scopeId,
     resetOnUnmount: true,
   });
@@ -768,16 +775,16 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       );
       if (editorShell) return true;
     }
-    // Also check if the active element is an input/textarea inside the grid context
-    // This catches cases where the editor is open but focus tracking didn't update
+
+    // Also check known editor container slots. Do NOT treat Glide's internal
+    // hidden keyboard-capture input inside `.gdg-style` as an active editor.
     if (
       activeElement &&
       (activeElement.tagName === "INPUT" ||
         activeElement.tagName === "TEXTAREA")
     ) {
-      // Check if this input is part of a data grid editor (not QuickFilter or other UI)
       const isInGridEditor = activeElement.closest(
-        '.gdg-style, [data-slot="grid-editor"]',
+        '[data-slot="grid-editor"], .gdg-editor-shell, .click-outside-ignore',
       );
       if (isInGridEditor) return true;
     }
@@ -1226,6 +1233,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     database: database ?? "",
     schema: schema ?? "",
     table: tableName ?? "",
+    rowIdentityColumns: commandFactory?.primaryKeyColumns,
     rows: effectiveDisplayRows,
     baseRows: displayRows, // Stable pre-optimistic reference for PK map
     columns: finalColumns,
@@ -2006,6 +2014,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   }, [stageBatchWithSingleHistoryEntry, readOnly, gridSelection]);
 
   const handleDeleteRows = useCallback(() => {
+    if (identifierSelector?.open) return;
     const factory = commandFactoryRef.current;
     if (!factory || readOnly) return;
     if (!hasDeterministicIdentity(factory)) {
@@ -2078,6 +2087,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     validateBestEffortCommand,
     readOnly,
     gridSelection,
+    identifierSelector?.open,
   ]);
 
   const handleBestEffortDeleteRows = useCallback(() => {
@@ -2253,6 +2263,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   );
 
   const handleClearSelection = useCallback(() => {
+    if (identifierSelector?.open) return;
     if (readOnly || !commandFactory || isCellEditorActive()) return;
 
     const hasActiveElementInGrid = wrapperRef.current?.contains(
@@ -2279,7 +2290,13 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     if (cells.length > 0) {
       handleBatchClear(cells);
     }
-  }, [readOnly, commandFactory, isCellEditorActive, handleBatchClear]);
+  }, [
+    readOnly,
+    commandFactory,
+    isCellEditorActive,
+    handleBatchClear,
+    identifierSelector?.open,
+  ]);
 
   // Paste handler for clipboard data (called from context menu)
   const handlePaste = useCallback(async () => {
@@ -2591,6 +2608,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       clearSelection: () => {
         handleClearSelection();
       },
+      toggleInspector: enableInspector
+        ? () => {
+            setInspectorOpen((prev: boolean) => !prev);
+          }
+        : undefined,
       showContextMenu: () => {
         // Find the canvas inside the grid — events must originate from INSIDE
         // the ContextMenuTrigger so they bubble UP to its onContextMenu handler.
@@ -2676,12 +2698,22 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
       if (event.defaultPrevented) return;
 
+      // Never intercept keys while command palette is open
+      if (contextService.getValue("inQuickOpen")) return;
+
       const target = event.target as HTMLElement | null;
       const isTextInputTarget =
         !!target &&
         (target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
           target.isContentEditable);
+
+      // Don't override native text-input behavior for copy/delete —
+      // UNLESS the target is GlideDataGrid's internal hidden <input>,
+      // which lives inside the grid wrapper. Skip only for external inputs.
+      if (isTextInputTarget && !wrapperRef.current?.contains(target)) {
+        return;
+      }
 
       const focusedGridId = dataGridRegistry.getFocused()?.id;
       const activeElement = document.activeElement;
@@ -2696,18 +2728,15 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         return;
       }
 
+      if (identifierSelector?.open) {
+        return;
+      }
+
       // Cmd/Ctrl + F -> focus quick filter
       if (isMod && key === "f") {
         event.preventDefault();
         event.stopPropagation();
         effectiveQuickFilterRef.current?.focus();
-        return;
-      }
-
-      // Don't override native text-input behavior for copy/delete —
-      // UNLESS the target is GlideDataGrid's internal hidden <input>,
-      // which lives inside the grid wrapper. Skip only for external inputs.
-      if (isTextInputTarget && !wrapperRef.current?.contains(target)) {
         return;
       }
 
@@ -2801,13 +2830,6 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         return;
       }
 
-      // Cmd/Ctrl + J -> toggle Inspector panel
-      if (isMod && key === "j" && enableInspector) {
-        event.preventDefault();
-        event.stopPropagation();
-        setInspectorOpen((prev: boolean) => !prev);
-        return;
-      }
     };
 
     document.addEventListener("keydown", handleDataGridShortcuts, true);
@@ -2819,12 +2841,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     copySelection,
     effectiveQuickFilterRef,
     enableClipboard,
-    enableInspector,
     gridId,
     handleDeleteRows,
+    identifierSelector?.open,
     isCellEditorActive,
     readOnly,
-    setInspectorOpen,
   ]);
 
   // Native copy event handler.
@@ -2873,6 +2894,10 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     (newSelection: GridSelection) => {
       setGridSelection(newSelection);
       gridSelectionRef.current = newSelection;
+      // Clear stale single-cell fallback when explicit row selection exists
+      if (collectSelectedRowIndexes(newSelection).size > 0) {
+        setInspectorSelectedRow(null);
+      }
     },
     [],
   );
@@ -3090,6 +3115,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       .filter((row): row is GridRowModel => Boolean(row));
   }, [inspectorSelectedRowIndexes, effectiveDisplayRows]);
 
+  // Stable ref for inspector-selected row indexes so callbacks don't
+  // create new function references when the selection changes.
+  const inspectorSelectedRowIndexesRef = useRef(inspectorSelectedRowIndexes);
+  inspectorSelectedRowIndexesRef.current = inspectorSelectedRowIndexes;
+
   // Handle inline edits from Inspector tree view → route through CRUD pipeline
   const handleInspectorCellEdit = useCallback(
     (field: string, value: unknown) => {
@@ -3100,7 +3130,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       const colIndex = finalColumns.indexOf(column);
       const factory = commandFactoryRef.current;
 
-      for (const rowIndex of inspectorSelectedRowIndexes) {
+      for (const rowIndex of inspectorSelectedRowIndexesRef.current) {
         const row = effectiveDisplayRows[rowIndex];
         if (!row) continue;
 
@@ -3120,9 +3150,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
           column,
           row,
           newValue: {
-            kind: GridCellKind.Text,
-            data: String(value ?? ""),
-            displayData: String(value ?? ""),
+            kind: GridCellKind.Custom,
+            data: { value: value ?? null },
+            copyData: String(value ?? ""),
             allowOverlay: true,
           },
           previousValue: previousValue as GridEditCommitEvent["previousValue"],
@@ -3137,7 +3167,97 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         }
       }
     },
-    [readOnly, finalColumns, inspectorSelectedRowIndexes, effectiveDisplayRows, stageCommand],
+    [readOnly, finalColumns, effectiveDisplayRows, stageCommand],
+  );
+
+  // Collect column field keys with pending edits across all inspector-selected rows
+  const inspectorPendingEditFields = useMemo((): Set<string> => {
+    const fields = new Set<string>();
+    for (const rowIndex of inspectorSelectedRowIndexes) {
+      const rowChanges = stagedChanges.rowChanges.get(rowIndex);
+      if (rowChanges) {
+        for (const field of rowChanges) {
+          fields.add(field);
+        }
+      }
+    }
+    return fields;
+  }, [inspectorSelectedRowIndexes, stagedChanges]);
+
+  // Undo (unstage) all pending edits for a given column field across inspector-selected rows
+  const handleInspectorCellUndo = useCallback(
+    (field: string) => {
+      if (pendingChanges.length === 0) return;
+
+      const pkCols = finalColumns.filter((col) => col.meta?.is_pk);
+
+      // For PK-less rows, unstage ALL data.update commands for this column
+      // since we cannot match specific rows without PKs.
+      if (pkCols.length === 0) {
+        const commandIds: string[] = [];
+        for (const command of pendingChanges) {
+          if (command.type !== "data.update") continue;
+          const payload = command.payload as { column?: string };
+          if (payload.column === field) {
+            commandIds.push(command.id);
+          }
+        }
+        if (commandIds.length > 0) {
+          unstageCommands(commandIds);
+        }
+        return;
+      }
+
+      // Build a set of PK keys for the inspector's selected rows
+      const selectedPkKeys = new Set<string>();
+      const sorted = [...pkCols].sort((a, b) => a.name.localeCompare(b.name));
+      for (const rowIndex of inspectorSelectedRowIndexesRef.current) {
+        const row = effectiveDisplayRows[rowIndex];
+        if (!row) continue;
+        const pkValues = sorted.map((col) => {
+          const cellValue = row[col.field];
+          if (cellValue && typeof cellValue === "object" && "value" in cellValue) {
+            const v = (cellValue as { value?: unknown }).value;
+            if (v === null || v === undefined) return "null";
+            if (typeof v === "object") return JSON.stringify(v);
+            if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+            return "null";
+          }
+          return "null";
+        });
+        selectedPkKeys.add(pkValues.join("|"));
+      }
+
+      // Find matching data.update commands for this field + selected rows
+      const commandIds: string[] = [];
+      for (const command of pendingChanges) {
+        if (command.type !== "data.update") continue;
+        const payload = command.payload as {
+          column?: string;
+          primaryKeys?: Record<string, unknown>;
+        };
+        if (payload.column !== field || !payload.primaryKeys) continue;
+
+        const pkKey = Object.entries(payload.primaryKeys)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([, v]) => {
+            if (v === null || v === undefined) return "null";
+            if (typeof v === "object") return JSON.stringify(v);
+            if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+            return "null";
+          })
+          .join("|");
+
+        if (selectedPkKeys.has(pkKey)) {
+          commandIds.push(command.id);
+        }
+      }
+
+      if (commandIds.length > 0) {
+        unstageCommands(commandIds);
+      }
+    },
+    [pendingChanges, effectiveDisplayRows, finalColumns, unstageCommands],
   );
 
   const activeInspectorPanel =
@@ -3147,6 +3267,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(
           selectedRows: inspectorSelectedRows,
           columns: finalColumns,
           onCellEdit: handleInspectorCellEdit,
+          pendingEditFields: inspectorPendingEditFields,
+          onUndoCellEdit: handleInspectorCellUndo,
           defaultTab: inspectorDefaultTab,
           onTabChange: onInspectorTabChange,
         })
@@ -3154,7 +3276,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         <InspectorPanel
           selectedRows={inspectorSelectedRows}
           columns={finalColumns}
-          onCellEdit={readOnly ? undefined : handleInspectorCellEdit}
+          onCellEdit={handleInspectorCellEdit}
+          pendingEditFields={inspectorPendingEditFields}
+          onUndoCellEdit={handleInspectorCellUndo}
           defaultTab={inspectorDefaultTab}
           onTabChange={onInspectorTabChange}
         />
@@ -3347,19 +3471,18 @@ export const BaseDataGrid = memo(function BaseDataGrid(
             {toolbarActions}
             {enableInspector && showInspectorToggleButton && (
               <Button
-                size="sm"
+                size="icon"
                 variant="outline"
-                className="h-7 text-[11px]"
+                className="h-7 w-7"
                 onClick={() => {
                   setInspectorOpen((prev) => !prev);
                 }}
               >
                 {showInspector ? (
-                  <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5 mr-1" />
+                  <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
                 ) : (
-                  <IconLayoutSidebarRightExpand className="h-3.5 w-3.5 mr-1" />
+                  <IconLayoutSidebarRightExpand className="h-3.5 w-3.5" />
                 )}
-                Inspector
               </Button>
             )}
           </div>
@@ -3473,6 +3596,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         gridSelection={gridSelection as any}
         readOnlyReason={readOnlyReason}
         onSelectIdentifierColumns={onSelectIdentifierColumns}
+        identifierSelector={identifierSelector}
         onRefreshMaterializedView={onRefreshMaterializedView}
         isRefreshingMatView={isRefreshingMatView}
         // Query performance metrics

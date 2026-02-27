@@ -184,7 +184,7 @@ export const DataGridBase = forwardRef(function DataGridBase(
         keybindings={rest.keybindings} // Undefined by default = Glide's native copy/paste enabled
         columnSelect="multi"
         rowSelect="multi"
-        editOnType={false}
+        editOnType={true}
         fixedShadowX={false}
         fixedShadowY={false}
         fillHandle

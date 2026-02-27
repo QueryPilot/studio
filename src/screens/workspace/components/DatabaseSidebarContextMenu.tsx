@@ -77,6 +77,8 @@ export function DatabaseSidebarContextMenu({
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
         onClose();
       }
     };
