@@ -61,7 +61,7 @@ export function NestedErdList({
   const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
   const connections = useConnectionStore((state) => state.connections);
 
-  // Build list of connected SQL connections
+  // Build list of connected SQL connections (workspace connections only)
   const sqlConnections = useMemo<ConnectionInfo[]>(() => {
     if (!activeWorkspace) return [];
     const result: ConnectionInfo[] = [];
@@ -80,23 +80,7 @@ export function NestedErdList({
     return result;
   }, [activeWorkspace, connections]);
 
-  // Load databases for each SQL connection
-  const databaseQueries = useQueries({
-    queries: sqlConnections.map((conn) => ({
-      queryKey: ["databases", conn.connectionId],
-      queryFn: async () => {
-        if (!databaseService.isConnectionActive(conn.connectionId)) {
-          throw new Error("Connection is not active");
-        }
-        return databaseService.listDatabases(conn.connectionId);
-      },
-      enabled: databaseService.isConnectionActive(conn.connectionId),
-      staleTime: 60_000,
-      retry: 2,
-    })),
-  });
-
-  // Load schemas for schema-supporting DBs (current database only)
+  // For schema-supporting DBs, load schemas for the current database
   const schemaConnections = useMemo(
     () =>
       sqlConnections.filter(
@@ -120,7 +104,8 @@ export function NestedErdList({
     })),
   });
 
-  // Assemble groups: connection -> targets
+  // Assemble groups: one group per workspace connection, targets are schemas
+  // (for schema-supporting DBs) or just the current database (for others)
   const groups = useMemo(() => {
     const schemaMap = new Map<string, string[]>();
     schemaConnections.forEach((conn, i) => {
@@ -130,15 +115,18 @@ export function NestedErdList({
       }
     });
 
-    return sqlConnections.map((conn, connIdx) => {
-      const dbResult = databaseQueries[connIdx];
-      const databases = dbResult?.data ?? [];
-      const isLoading = dbResult?.isLoading ?? false;
-      const isError = dbResult?.isError ?? false;
+    return sqlConnections.map((conn) => {
+      const schemaIdx = schemaConnections.findIndex(
+        (sc) => sc.connectionId === conn.connectionId,
+      );
+      const schemaResult = schemaIdx >= 0 ? schemaQueries[schemaIdx] : undefined;
+      const isLoading = schemaResult?.isLoading ?? false;
+      const isError = schemaResult?.isError ?? false;
 
       const targets: ErdTarget[] = [];
 
       if (supportsSchemas(conn.dbType)) {
+        // Schema-supporting: list each schema as a separate ERD target
         const schemas = schemaMap.get(conn.connectionId) ?? [];
         if (schemas.length > 0) {
           for (const schema of schemas) {
@@ -151,6 +139,7 @@ export function NestedErdList({
             });
           }
         } else if (conn.database) {
+          // Schemas still loading or empty — show database as fallback target
           targets.push({
             connectionId: conn.connectionId,
             connectionName: conn.name,
@@ -158,26 +147,9 @@ export function NestedErdList({
             dbType: conn.dbType,
           });
         }
-        for (const db of databases) {
-          if (db === conn.database) continue;
-          targets.push({
-            connectionId: conn.connectionId,
-            connectionName: conn.name,
-            database: db,
-            dbType: conn.dbType,
-          });
-        }
       } else {
-        if (databases.length > 0) {
-          for (const db of databases) {
-            targets.push({
-              connectionId: conn.connectionId,
-              connectionName: conn.name,
-              database: db,
-              dbType: conn.dbType,
-            });
-          }
-        } else if (conn.database) {
+        // Non-schema DBs: the current database is the ERD target
+        if (conn.database) {
           targets.push({
             connectionId: conn.connectionId,
             connectionName: conn.name,
@@ -196,7 +168,7 @@ export function NestedErdList({
         isError,
       };
     });
-  }, [sqlConnections, databaseQueries, schemaConnections, schemaQueries]);
+  }, [sqlConnections, schemaConnections, schemaQueries]);
 
   // Filter by search query
   const filteredGroups = useMemo(() => {
