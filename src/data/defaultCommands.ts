@@ -27,6 +27,7 @@ import {
   openTableDesigner,
   getCreateDatabaseTemplate,
   getCreateSchemaTemplate,
+  openErdView,
 } from "@/utils/workbench/openers";
 import { getParadigm } from "@/types/connection";
 
@@ -597,6 +598,49 @@ export const defaultCommands: Command[] = [
       });
       workbench.setActiveTab(focusedPanelId, tabId);
       workbench.focusPanel(focusedPanelId);
+    },
+  },
+  {
+    id: "workbench.action.openErd",
+    label: "Open ERD",
+    category: "Workbench",
+    when: "activeEditor",
+    handler: () => {
+      const workspaceBundleStore = useWorkspaceBundleStore.getState();
+      const connectionStore = useConnectionStore.getState();
+      const activeWorkspace = workspaceBundleStore.activeWorkspace;
+
+      if (!activeWorkspace) return;
+
+      // Get connected SQL connections
+      const sqlConnections = Array.from(activeWorkspace.connections.values())
+        .filter(
+          (c) =>
+            c.status === "connected" &&
+            getParadigm(c.profile.db_type) === "sql",
+        );
+
+      if (sqlConnections.length === 0) return;
+
+      // Single SQL connection → open ERD directly
+      if (sqlConnections.length === 1) {
+        const conn = sqlConnections[0];
+        if (!conn) return;
+        const stored = connectionStore.getConnection(conn.id);
+        const name = stored?.profile.name ?? conn.profile.name;
+        openErdView({
+          connectionId: conn.id,
+          connectionName: name,
+          database: conn.database || conn.profile.database,
+          schema: conn.schema,
+        });
+        return;
+      }
+
+      // Multiple SQL connections → show picker
+      const paletteStore = useCommandPaletteStore.getState();
+      paletteStore.openPalette();
+      paletteStore.setNestedMode({ type: "open-erd" });
     },
   },
   {
