@@ -5,6 +5,8 @@ export type InspectorTab = "tree" | "diff" | "raw";
 export interface InspectorPanelProps {
   selectedRows: GridRowModel[];
   columns: GridColumnV2[];
+  /** Total number of selected rows (before any capping). Used for the badge display. */
+  totalSelectedCount?: number;
   /** The panel shell closes over the selected row indexes when constructing this callback. */
   onCellEdit?: (field: string, value: unknown) => void;
   /** Column field keys that have pending (staged) edits for the selected rows. */

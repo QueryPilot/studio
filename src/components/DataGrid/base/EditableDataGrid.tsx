@@ -312,6 +312,17 @@ export const EditableDataGrid = forwardRef<
       // Never intercept keys while command palette is open
       if (contextService.getValue("inQuickOpen")) return;
 
+      // Don't intercept when focus is on a real text input (e.g. inspector search)
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
       // Primary focus signal: focused-grid registry (works even when canvas focus is transient)
       const focusedGridId = dataGridRegistry.getFocused()?.id;
       const isFocusedByRegistry = focusedGridId === tableKey;
