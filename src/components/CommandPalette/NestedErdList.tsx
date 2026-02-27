@@ -44,6 +44,13 @@ function supportsSchemas(dbType: DbType): boolean {
   return dbType === DbType.PostgreSQL || dbType === DbType.SQLServer;
 }
 
+function getTargetLabel(target: ErdTarget): string {
+  if (target.schema) {
+    return `${target.database} / ${target.schema}`;
+  }
+  return target.database;
+}
+
 // --- Component ---
 
 export function NestedErdList({
@@ -90,8 +97,12 @@ export function NestedErdList({
   });
 
   // Load schemas for schema-supporting DBs (current database only)
-  const schemaConnections = sqlConnections.filter(
-    (conn) => supportsSchemas(conn.dbType) && conn.database,
+  const schemaConnections = useMemo(
+    () =>
+      sqlConnections.filter(
+        (conn) => supportsSchemas(conn.dbType) && conn.database,
+      ),
+    [sqlConnections],
   );
 
   const schemaQueries = useQueries({
@@ -123,6 +134,7 @@ export function NestedErdList({
       const dbResult = databaseQueries[connIdx];
       const databases = dbResult?.data ?? [];
       const isLoading = dbResult?.isLoading ?? false;
+      const isError = dbResult?.isError ?? false;
 
       const targets: ErdTarget[] = [];
 
@@ -181,6 +193,7 @@ export function NestedErdList({
         dbType: conn.dbType,
         targets,
         isLoading,
+        isError,
       };
     });
   }, [sqlConnections, databaseQueries, schemaConnections, schemaQueries]);
@@ -215,13 +228,6 @@ export function NestedErdList({
     return result;
   }, [groups, query]);
 
-  const getTargetLabel = (target: ErdTarget): string => {
-    if (target.schema) {
-      return `${target.database} / ${target.schema}`;
-    }
-    return target.database;
-  };
-
   return (
     <CommandList ref={listRef} className="h-[500px]">
       <CommandEmpty>No ERD targets found.</CommandEmpty>
@@ -229,7 +235,7 @@ export function NestedErdList({
         <CommandGroup
           key={group.connectionId}
           heading={
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 sticky top-0 z-10">
               <img
                 src={getDatabaseLogo(group.dbType)}
                 alt={group.dbType}
@@ -239,6 +245,11 @@ export function NestedErdList({
               {group.isLoading && (
                 <span className="ml-auto text-[10px] text-muted-foreground">
                   Loading...
+                </span>
+              )}
+              {group.isError && (
+                <span className="ml-auto text-[10px] text-destructive">
+                  Failed to load
                 </span>
               )}
             </div>
