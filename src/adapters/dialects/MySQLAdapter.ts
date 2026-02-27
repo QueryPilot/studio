@@ -425,9 +425,75 @@ GROUP BY INDEX_NAME, TABLE_NAME, NON_UNIQUE, INDEX_TYPE
 ORDER BY INDEX_NAME`;
   }
 
-  getIndexUsageStatsQuery(_schema: string, _table: string): string {
-    // MySQL doesn't have built-in index usage stats in the same way as PostgreSQL
-    return `SELECT 'Not supported' as message`;
+  getIndexUsageStatsQuery(schema: string, table: string): string {
+    const features = this.getFeatures();
+
+    // MySQL 5.7+ and MariaDB 10.0+ expose index usage in performance_schema.
+    // For older versions, we return an empty typed result.
+    if (!features.supportsPerformanceSchemaIndexStats) {
+      return `
+SELECT 
+    NULL as index_name,
+    NULL as scan_count,
+    NULL as rows_read,
+    NULL as rows_returned,
+    NULL as size_pretty,
+    NULL as size_bytes,
+    0 as is_unused,
+    NULL as cache_hit_ratio,
+    NULL as last_used
+WHERE 0`;
+    }
+
+    // Primary query uses performance_schema; IntrospectionService can retry
+    // with getIndexUsageStatsFallbackQuery() on permission errors.
+    return `
+SELECT 
+    idx.INDEX_NAME as index_name,
+    COALESCE(ps.COUNT_READ, 0) as scan_count,
+    COALESCE(ps.COUNT_READ, 0) as rows_read,
+    COALESCE(ps.COUNT_FETCH, 0) as rows_returned,
+    NULL as size_pretty,
+    NULL as size_bytes,
+    CASE 
+        WHEN COALESCE(ps.COUNT_READ, 0) = 0 THEN 1
+        ELSE 0 
+    END as is_unused,
+    NULL as cache_hit_ratio,
+    NULL as last_used
+FROM (
+    SELECT DISTINCT TABLE_SCHEMA, TABLE_NAME, INDEX_NAME
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
+        AND TABLE_NAME = '${this.escapeString(table)}'
+) idx
+LEFT JOIN performance_schema.table_io_waits_summary_by_index_usage ps
+    ON ps.OBJECT_SCHEMA = idx.TABLE_SCHEMA
+    AND ps.OBJECT_NAME = idx.TABLE_NAME
+    AND (ps.INDEX_NAME = idx.INDEX_NAME OR (ps.INDEX_NAME IS NULL AND idx.INDEX_NAME = 'PRIMARY'))
+ORDER BY idx.INDEX_NAME`;
+  }
+
+  /**
+   * Fallback index usage stats query that works without performance_schema access
+   * Returns basic index information from information_schema only
+   */
+  getIndexUsageStatsFallbackQuery(schema: string, table: string): string {
+    return `
+SELECT DISTINCT
+    INDEX_NAME as index_name,
+    0 as scan_count,
+    0 as rows_read,
+    0 as rows_returned,
+    NULL as size_pretty,
+    NULL as size_bytes,
+    0 as is_unused,
+    NULL as cache_hit_ratio,
+    NULL as last_used
+FROM information_schema.STATISTICS
+WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
+    AND TABLE_NAME = '${this.escapeString(table)}'
+ORDER BY INDEX_NAME`;
   }
 
   getConstraintsQuery(schema: string, table: string): string {

@@ -139,6 +139,10 @@ export interface MySQLVersionFeatures {
   supportsJsonTable: boolean;
   // INVISIBLE columns (MySQL 8.0.23+, MariaDB 10.3.3+)
   supportsInvisibleColumns: boolean;
+  // Performance Schema index stats (MySQL 5.7+, MariaDB 10.0+)
+  supportsPerformanceSchemaIndexStats: boolean;
+  // INNODB_SYS_TABLESTATS for size info (MySQL 5.7+, MariaDB 10.0+)
+  supportsInnoDbSysTableStats: boolean;
 }
 
 export function getMySQLFeatures(version: ParsedVersion): MySQLVersionFeatures {
@@ -151,6 +155,8 @@ export function getMySQLFeatures(version: ParsedVersion): MySQLVersionFeatures {
       supportsCTEs: isVersionAtLeast(version, 10, 2, 1),
       supportsJsonTable: isVersionAtLeast(version, 10, 6, 0),
       supportsInvisibleColumns: isVersionAtLeast(version, 10, 3, 3),
+      supportsPerformanceSchemaIndexStats: isVersionAtLeast(version, 10, 0, 0),
+      supportsInnoDbSysTableStats: isVersionAtLeast(version, 10, 0, 0),
     };
   }
 
@@ -163,6 +169,8 @@ export function getMySQLFeatures(version: ParsedVersion): MySQLVersionFeatures {
     supportsCTEs: isVersionAtLeast(version, 8, 0, 0),
     supportsJsonTable: isVersionAtLeast(version, 8, 0, 0),
     supportsInvisibleColumns: isVersionAtLeast(version, 8, 0, 23),
+    supportsPerformanceSchemaIndexStats: isVersionAtLeast(version, 5, 7, 0),
+    supportsInnoDbSysTableStats: isVersionAtLeast(version, 5, 7, 0),
   };
 }
 
@@ -228,6 +236,8 @@ export interface PostgreSQLVersionFeatures {
   supportsParallelQuery: boolean;
   // JSON_TABLE (PG 17+)
   supportsJsonTable: boolean;
+  // last_idx_scan column in pg_stat_all_indexes (PG 16+)
+  supportsIndexLastScan: boolean;
 }
 
 export function getPostgreSQLFeatures(version: ParsedVersion): PostgreSQLVersionFeatures {
@@ -244,5 +254,6 @@ export function getPostgreSQLFeatures(version: ParsedVersion): PostgreSQLVersion
     supportsIdentityColumns: isVersionAtLeast(version, 10, 0, 0),
     supportsParallelQuery: isVersionAtLeast(version, 9, 6, 0),
     supportsJsonTable: isVersionAtLeast(version, 17, 0, 0),
+    supportsIndexLastScan: isVersionAtLeast(version, 16, 0, 0),
   };
 }

@@ -552,6 +552,12 @@ export interface DatabaseAdapter {
   /** Query to get index usage statistics */
   getIndexUsageStatsQuery(schema: string, table: string): string;
 
+  /**
+   * Optional fallback query for index usage statistics.
+   * Return null when no fallback is available.
+   */
+  getIndexUsageStatsFallbackQuery(schema: string, table: string): string | null;
+
   /** Query to list constraints on a table */
   getConstraintsQuery(schema: string, table: string): string;
 
