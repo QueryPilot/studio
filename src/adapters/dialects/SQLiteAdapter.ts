@@ -408,8 +408,20 @@ ORDER BY il.name`;
   }
 
   getIndexUsageStatsQuery(_schema: string, _table: string): string {
-    // SQLite doesn't track index usage stats
-    return `SELECT 'Not supported' as message WHERE 0`;
+    // SQLite doesn't track runtime index usage stats
+    // Return empty result set matching the expected schema
+    return `
+SELECT 
+    NULL as index_name,
+    NULL as scan_count,
+    NULL as rows_read,
+    NULL as rows_returned,
+    NULL as size_pretty,
+    NULL as size_bytes,
+    0 as is_unused,
+    NULL as cache_hit_ratio,
+    NULL as last_used
+WHERE 0`;
   }
 
   getConstraintsQuery(_schema: string, table: string): string {
