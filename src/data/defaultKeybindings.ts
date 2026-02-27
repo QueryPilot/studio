@@ -70,6 +70,11 @@ export const defaultKeybindings: Keybinding[] = [
     when: 'activeEditor',
   },
   {
+    command: 'workbench.action.openErd',
+    key: 'cmd+e',
+    when: 'activeEditor',
+  },
+  {
     command: 'editor.action.executeQuery',
     key: 'cmd+enter',
     when: 'editorTextFocus && queryEditor',
