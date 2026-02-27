@@ -105,6 +105,11 @@ const EMPTY_PENDING_CHANGES: import("@/types/crud").CrudCommand[] = [];
 
 const SELECTION_SUMMARY_THRESHOLD = 10_000;
 
+// Maximum rows the inspector panel will process. Prevents millions of
+// JSON.stringify calls for large range selections while still showing
+// enough data for practical use.
+const MAX_INSPECTOR_ROWS = 200;
+
 // Stable theme objects to avoid allocating new objects per staged cell render
 const STAGED_CELL_THEME = {
   bgCell: "rgba(251, 146, 60, 0.15)",
@@ -2710,8 +2715,13 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
       // Don't override native text-input behavior for copy/delete —
       // UNLESS the target is GlideDataGrid's internal hidden <input>,
-      // which lives inside the grid wrapper. Skip only for external inputs.
-      if (isTextInputTarget && !wrapperRef.current?.contains(target)) {
+      // which lives inside the grid container (containerRef). Any real
+      // user-facing input (inspector search, quick filter, etc.) should
+      // keep its native keyboard behavior even if it's inside the wrapper.
+      if (
+        isTextInputTarget &&
+        !containerRef.current?.contains(target)
+      ) {
         return;
       }
 
@@ -2894,8 +2904,13 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     (newSelection: GridSelection) => {
       setGridSelection(newSelection);
       gridSelectionRef.current = newSelection;
-      // Clear stale single-cell fallback when explicit row selection exists
-      if (collectSelectedRowIndexes(newSelection).size > 0) {
+      // Clear stale single-cell fallback when explicit row selection exists.
+      // Use O(1) checks instead of materializing the full index set.
+      const hasRows =
+        (newSelection.rows?.length ?? 0) > 0 ||
+        (newSelection.current?.range != null && newSelection.current.range.height > 0) ||
+        (newSelection.current?.rangeStack?.length ?? 0) > 0;
+      if (hasRows) {
         setInspectorSelectedRow(null);
       }
     },
@@ -3095,9 +3110,14 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     [enableInspector, onCellClicked],
   );
 
-  // Collect ALL selected row indexes for the inspector panel
+  // Defer the grid selection for inspector computation so row selection in
+  // the grid stays snappy. The grid renders its selection highlight instantly;
+  // the inspector catches up in the next idle frame.
+  const deferredSelectionForInspector = useDeferredValue(gridSelection);
+
+  // Collect ALL selected row indexes for the inspector panel (deferred)
   const inspectorSelectedRowIndexes = useMemo((): number[] => {
-    const selectedIndexes = collectSelectedRowIndexes(gridSelection);
+    const selectedIndexes = collectSelectedRowIndexes(deferredSelectionForInspector);
     if (selectedIndexes.size > 0) {
       return Array.from(selectedIndexes).sort((a, b) => a - b);
     }
@@ -3107,10 +3127,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       return idx >= 0 ? [idx] : [];
     }
     return [];
-  }, [gridSelection, effectiveDisplayRows, inspectorSelectedRow]);
+  }, [deferredSelectionForInspector, effectiveDisplayRows, inspectorSelectedRow]);
 
   const inspectorSelectedRows = useMemo((): GridRowModel[] => {
     return inspectorSelectedRowIndexes
+      .slice(0, MAX_INSPECTOR_ROWS)
       .map((idx) => effectiveDisplayRows[idx])
       .filter((row): row is GridRowModel => Boolean(row));
   }, [inspectorSelectedRowIndexes, effectiveDisplayRows]);
@@ -3265,20 +3286,22 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       renderInspectorPanel ? (
         renderInspectorPanel({
           selectedRows: inspectorSelectedRows,
+          totalSelectedCount: inspectorSelectedRowIndexes.length,
           columns: finalColumns,
-          onCellEdit: handleInspectorCellEdit,
+          onCellEdit: readOnly ? undefined : handleInspectorCellEdit,
           pendingEditFields: inspectorPendingEditFields,
-          onUndoCellEdit: handleInspectorCellUndo,
+          onUndoCellEdit: readOnly ? undefined : handleInspectorCellUndo,
           defaultTab: inspectorDefaultTab,
           onTabChange: onInspectorTabChange,
         })
       ) : (
         <InspectorPanel
           selectedRows={inspectorSelectedRows}
+          totalSelectedCount={inspectorSelectedRowIndexes.length}
           columns={finalColumns}
-          onCellEdit={handleInspectorCellEdit}
+          onCellEdit={readOnly ? undefined : handleInspectorCellEdit}
           pendingEditFields={inspectorPendingEditFields}
-          onUndoCellEdit={handleInspectorCellUndo}
+          onUndoCellEdit={readOnly ? undefined : handleInspectorCellUndo}
           defaultTab={inspectorDefaultTab}
           onTabChange={onInspectorTabChange}
         />

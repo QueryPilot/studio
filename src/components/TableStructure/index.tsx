@@ -1541,6 +1541,17 @@ export const TableStructure = memo(function TableStructure({
       // Never intercept keys while command palette is open
       if (contextService.getValue("inQuickOpen")) return;
 
+      // Don't intercept keys when focus is on a text input
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
       // Cmd+D / Ctrl+D - Duplicate selected column
       if ((e.metaKey || e.ctrlKey) && e.key === "d") {
         e.preventDefault();
