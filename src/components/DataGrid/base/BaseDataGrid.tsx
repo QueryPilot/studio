@@ -3684,7 +3684,6 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         isEstimatedCount={props.isEstimatedCount}
         hasMore={props.hasMore}
         isStreaming={props.isLoadingMore}
-        selectedRows={selectedRowCount}
         selectedRowsData={statusBarRowsData}
         selectedRowIndices={statusBarRowIndices}
         allRows={effectiveDisplayRows}

@@ -1,10 +1,11 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   GridCellKind,
   type Item,
   type CustomCell,
   type CustomRenderer,
   type EditableGridCell,
+  type GridMouseEventArgs,
 } from "@glideapps/glide-data-grid";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconAlertCircle, IconBolt } from "@tabler/icons-react";
@@ -40,6 +41,7 @@ import TriggerNameCellRenderer from "./TriggerNameCellRenderer";
 import { TriggerEnabledCellRenderer } from "./TriggerEnabledCellRenderer";
 import { TriggerDefinitionPreviewDialog } from "./TriggerDefinitionPreviewDialog";
 import { ActionsCellRenderer } from "@/components/TableStructure/ActionsCellRenderer";
+import { TriggerTableContextMenu } from "./TriggerTableContextMenu";
 
 type AnyCell = CustomCell<Record<string, unknown>>;
 
@@ -68,6 +70,7 @@ export const TableTriggers = memo(function TableTriggers({
   const [globalChangesDialogOpen, setGlobalChangesDialogOpen] = useState(false);
   const [definitionPreviewOpen, setDefinitionPreviewOpen] = useState(false);
   const [previewTrigger, setPreviewTrigger] = useState<TriggerGridRow | null>(null);
+  const contextMenuRowRef = useRef<TriggerGridRow | null>(null);
 
   // crudStore integration
   const { stagedCommands, stageCommand, unstageCommand } = useCrudStore();
@@ -552,6 +555,83 @@ export const TableTriggers = memo(function TableTriggers({
     [sizedColumns, gridRows],
   );
 
+  // Context menu: hover tracking
+  const handleItemHovered = useCallback(
+    (args: GridMouseEventArgs) => {
+      if (args.kind === "cell") {
+        contextMenuRowRef.current = gridRows[args.location[1]] ?? null;
+      } else {
+        contextMenuRowRef.current = null;
+      }
+    },
+    [gridRows],
+  );
+
+  // Context menu: toggle enabled/disabled
+  const handleContextToggleEnabled = useCallback(
+    (row: TriggerGridRow) => {
+      const target: CrudCommandTarget = { connectionId, database, schema, table };
+      const originalName = row._original.name;
+      const currentlyEnabled = row.enabled === "YES";
+      const originalEnabled = row._original.enabled;
+
+      // Check for existing toggle command
+      const existingToggle = pendingCommands.find(
+        (cmd) =>
+          (cmd.type === "trigger.enable" || cmd.type === "trigger.disable") &&
+          (cmd.payload as TriggerTogglePayload).triggerName === originalName,
+      );
+
+      if (existingToggle) {
+        // Toggling back to original state — remove the command
+        if (!currentlyEnabled === originalEnabled) {
+          unstageCommand(existingToggle.id);
+          return;
+        }
+        // Replace with new toggle command
+        unstageCommand(existingToggle.id);
+      }
+
+      // Don't create command if same as original
+      if (!currentlyEnabled === originalEnabled) {
+        return;
+      }
+
+      const toggleCmd = currentlyEnabled
+        ? createTriggerDisableCommand(target, originalName)
+        : createTriggerEnableCommand(target, originalName);
+      stageCommand(toggleCmd);
+    },
+    [connectionId, database, schema, table, pendingCommands, stageCommand, unstageCommand],
+  );
+
+  // Context menu: undo delete
+  const handleContextUndoDelete = useCallback(
+    (row: TriggerGridRow) => {
+      const dropCommand = pendingCommands.find(
+        (cmd) =>
+          cmd.type === "trigger.drop" &&
+          (cmd.payload as TriggerDropPayload).triggerName === row._original.name,
+      );
+      if (dropCommand) {
+        unstageCommand(dropCommand.id);
+        toast.success("Delete undone", {
+          description: `${row._original.name} will no longer be dropped`,
+        });
+      }
+    },
+    [pendingCommands, unstageCommand],
+  );
+
+  // Context menu: show delete confirmation
+  const handleContextShowDeleteConfirm = useCallback(
+    (row: TriggerGridRow) => {
+      setDeleteTarget(row);
+      setDeleteDialogOpen(true);
+    },
+    [],
+  );
+
   if (isLoading) {
     return <TableTriggersSkeleton />;
   }
@@ -614,19 +694,27 @@ export const TableTriggers = memo(function TableTriggers({
           pendingChangesCount={pendingTriggerCommands.length}
         />
         <div className="flex-1">
-          <DataGridBase
-            columns={sizedColumns}
-            rowCount={gridRows.length}
-            getCellContent={getCellContent}
-            customRenderers={customRenderers}
-            rowSelect="none"
-            columnSelect="none"
-            onColumnResize={handleColumnResize}
-            onColumnResizeEnd={handleColumnResizeEnd}
-            onCellClicked={handleCellClick}
-            onCellEdited={handleCellEdited}
-            onCellActivated={handleCellActivated}
-          />
+          <TriggerTableContextMenu
+            hoveredRowRef={contextMenuRowRef}
+            onToggleEnabled={handleContextToggleEnabled}
+            onUndoDelete={handleContextUndoDelete}
+            onShowDeleteConfirm={handleContextShowDeleteConfirm}
+          >
+            <DataGridBase
+              columns={sizedColumns}
+              rowCount={gridRows.length}
+              getCellContent={getCellContent}
+              customRenderers={customRenderers}
+              rowSelect="none"
+              columnSelect="none"
+              onColumnResize={handleColumnResize}
+              onColumnResizeEnd={handleColumnResizeEnd}
+              onCellClicked={handleCellClick}
+              onCellEdited={handleCellEdited}
+              onCellActivated={handleCellActivated}
+              onItemHovered={handleItemHovered}
+            />
+          </TriggerTableContextMenu>
         </div>
         <div className="px-4 py-2 text-xs text-muted-foreground border-t">
           Total triggers: {triggers.length}
