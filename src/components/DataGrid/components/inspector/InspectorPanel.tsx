@@ -95,7 +95,7 @@ export const InspectorPanel = memo(function InspectorPanel({
         className="flex-1 flex flex-col min-h-0"
         onValueChange={handleTabChange}
       >
-        <div className="px-3 py-2 border-b flex items-center gap-2">
+        <div className="p-2 border-b flex items-center gap-2">
           <TabsList className="h-7">
             <TabsTrigger value="tree" className="text-[11px]">
               Tree
@@ -108,7 +108,9 @@ export const InspectorPanel = memo(function InspectorPanel({
             </TabsTrigger>
           </TabsList>
           {!isEmpty && (
-            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{recordLabel}</Badge>
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+              {recordLabel}
+            </Badge>
           )}
         </div>
 
@@ -118,7 +120,7 @@ export const InspectorPanel = memo(function InspectorPanel({
           </div>
         ) : (
           <>
-            <TabsContent value="tree" className="flex-1 min-h-0 mt-2 px-3 pb-3" keepMounted>
+            <TabsContent value="tree" className="flex-1 min-h-0 mt-2 px-3 pb-3">
               <InspectorTreeView
                 documents={documents}
                 onCellEdit={onCellEdit ? handleTreeCellEdit : undefined}
@@ -127,11 +129,11 @@ export const InspectorPanel = memo(function InspectorPanel({
               />
             </TabsContent>
 
-            <TabsContent value="raw" className="flex-1 min-h-0 mt-2 px-3 pb-3" keepMounted>
+            <TabsContent value="raw" className="flex-1 min-h-0 mt-2 px-3 pb-3">
               <InspectorRawView documents={documents} />
             </TabsContent>
 
-            <TabsContent value="diff" className="flex-1 min-h-0 mt-2 px-3 pb-3" keepMounted>
+            <TabsContent value="diff" className="flex-1 min-h-0 mt-2 px-3 pb-3">
               <InspectorDiffView documents={documents} />
             </TabsContent>
           </>

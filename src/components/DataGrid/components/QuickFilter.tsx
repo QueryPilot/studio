@@ -329,7 +329,7 @@ const QuickFilterModeMenu = memo(function QuickFilterModeMenu({
                   {agent.name}
                 </div>
                 {/* Models for this agent */}
-                {agent.models.map((model) => {
+                {agent.models?.map((model) => {
                   const isSelected = selectedAgentId === agent.id && selectedModel === model.id;
                   return (
                     <DropdownMenuItem

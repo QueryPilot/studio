@@ -1,17 +1,22 @@
 import { renderHook } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import { useOptimisticRows } from "../useOptimisticRows";
+import type { GridRowModel } from "../../../types";
 
 describe("useOptimisticRows", () => {
   it("should return optimistic rows", () => {
+    const displayRows: GridRowModel[] = [
+      { col_0: { value: 1, db_type: "int4", value_type: "Integer", is_truncated: false } },
+    ];
     const { result } = renderHook(() =>
       useOptimisticRows({
-        displayRows: [{ data: { id: 1 } }],
+        displayRows,
         stagedCommands: [],
         primaryKeyColumns: ["id"],
         columnNameToFieldMap: new Map(),
         columnByFieldMap: new Map(),
-        getRowId: (row: any) => String(row.data.id),
+        columns: [],
+        getRowKey: (_row, index) => String(index),
       }),
     );
 

@@ -750,8 +750,6 @@ ORDER BY table_name, column_name`;
     schema: string,
     name: string
   ): string {
-    const qualifiedName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(name)}`;
-
     switch (objectType) {
       case 'view':
         return `

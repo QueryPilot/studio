@@ -425,7 +425,7 @@ export function buildKeyValueCell(opts: KeyValueCellOptions): GridCell {
   const strValue = String(rawValue);
   const isMultiLine = strValue.length > 200 || strValue.includes('\n');
 
-  const cell = {
+  const cell: GridCell = {
     kind: GridCellKind.Custom,
     data: {
       kind: isMultiLine ? 'text-multi-cell' : 'text-single-cell',
@@ -442,7 +442,7 @@ export function buildKeyValueCell(opts: KeyValueCellOptions): GridCell {
 
   logger.info('keyvalue-cell', 'buildKeyValueCell result (text)', {
     columnField: column.field,
-    cellKind: cell.data.kind,
+    cellKind: (cell.data as Record<string, unknown>).kind,
     cellValue: strValue.slice(0, 100),
     readonly: cell.readonly,
     allowOverlay: cell.allowOverlay,

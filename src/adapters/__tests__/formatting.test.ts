@@ -282,7 +282,7 @@ describe('formatting utilities', () => {
 
     const qualify = (raw: string, dbType: DbType = DbType.PostgreSQL) =>
       filterConfigToWhereClause(
-        { rawWhereClause: raw, root: { logical: 'AND', conditions: [] } },
+        { rawWhereClause: raw, root: { id: 'root', type: 'group' as const, logical: 'AND', conditions: [] } },
         dbType,
         prefix,
         columns

@@ -2,8 +2,8 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { GridCellKind } from '@glideapps/glide-data-grid';
 import { useKeyValueData } from '../useKeyValueData';
-import type { RedisAdapter } from '@/adapters/redis/RedisAdapter';
 import type { RedisType, RedisValue } from '@/adapters/types/redis';
 
 // Mock the RedisAdapter
@@ -51,10 +51,10 @@ describe('useKeyValueData', () => {
     expect(result.current.rows).toEqual([]);
     // Browser mode returns BROWSER_COLUMNS (Key, Type, Value, TTL)
     expect(result.current.columns).toHaveLength(4);
-    expect(result.current.columns[0].id).toBe('key');
-    expect(result.current.columns[1].id).toBe('type');
-    expect(result.current.columns[2].id).toBe('value');
-    expect(result.current.columns[3].id).toBe('ttl');
+    expect(result.current.columns[0]!.id).toBe('key');
+    expect(result.current.columns[1]!.id).toBe('type');
+    expect(result.current.columns[2]!.id).toBe('value');
+    expect(result.current.columns[3]!.id).toBe('ttl');
   });
 
   it('should fetch key metadata when key is selected', async () => {
@@ -203,10 +203,10 @@ describe('useKeyValueData', () => {
       cell: [0, 0],
       rowIndex: 0,
       columnIndex: 0,
-      column: result.current.columns[0],
+      column: result.current.columns[0]!,
       row: result.current.rows[0],
       newValue: {
-        kind: 0,
+        kind: GridCellKind.Uri,
         data: 'new-value',
         displayData: 'new-value',
         allowOverlay: true,
@@ -254,7 +254,7 @@ describe('useKeyValueData', () => {
       expect(result.current.currentKey).not.toBeNull();
     });
 
-    const command = result.current.createDeleteCommand({ key: { value: 'test-key' } });
+    const command = result.current.createDeleteCommand({ key: { value: 'test-key', db_type: 'string', value_type: 'Text', is_truncated: false } });
 
     expect(command).not.toBeNull();
     expect(command.type).toBe('data.delete');

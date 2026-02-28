@@ -17,7 +17,7 @@ interface UseColumnSortingParams {
 interface UseColumnSortingResult {
   sortColumns: SortColumn[];
   getSortIndex: (columnId: string) => number | undefined;
-  getSortDirection: (columnId: string) => 'asc' | 'desc' | undefined;
+  getSortDirection: (columnId: string) => 'asc' | 'desc' | null;
   toggleSort: (columnId: string, multiSort: boolean) => void;
   handleHeaderClick: (colIndex: number, event: { shiftKey: boolean }) => void;
   drawHeader: DrawHeaderCallback;
@@ -44,9 +44,9 @@ export function useColumnSorting({
   );
 
   const getSortDirection = useCallback(
-    (columnId: string): 'asc' | 'desc' | undefined => {
+    (columnId: string): 'asc' | 'desc' | null => {
       const sortCol = sortColumns.find((s) => s.columnId === columnId);
-      return sortCol?.direction ?? undefined;
+      return sortCol?.direction ?? null;
     },
     [sortColumns]
   );

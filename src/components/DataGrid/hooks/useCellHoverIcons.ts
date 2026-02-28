@@ -691,6 +691,7 @@ export function useCellHoverIcons(
               .then(() => {
                 // Show copied feedback icon
                 setCopiedCell(cellKey);
+                gridRef?.current?.updateCells([{ cell: [col, row] }]);
 
                 // Clear any existing timer
                 if (copiedTimerRef.current !== null) {
@@ -700,6 +701,7 @@ export function useCellHoverIcons(
                 // Reset after delay
                 copiedTimerRef.current = window.setTimeout(() => {
                   setCopiedCell(null);
+                  gridRef?.current?.updateCells([{ cell: [col, row] }]);
                   copiedTimerRef.current = null;
                 }, COPIED_FEEDBACK_MS);
               })
@@ -875,6 +877,7 @@ export function useCellHoverIcons(
     rows,
     onOpenReference,
     enableFKPreview,
+    gridRef,
   ]);
 
   const clearFkPreview = useCallback(() => {
