@@ -1,6 +1,6 @@
 import { memo, useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { IconLoader2, IconEye, IconRefresh } from "@tabler/icons-react";
+import { IconLoader2, IconRefresh } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -185,50 +185,6 @@ const ExecutionTimeDisplay = memo(function ExecutionTimeDisplay({
   );
 });
 
-/**
- * Selection info with view details button
- */
-const SelectionInfo = memo(function SelectionInfo({
-  selectedRows,
-  onViewDetails,
-  showSeparator,
-}: {
-  selectedRows: number;
-  onViewDetails?: () => void;
-  showSeparator: boolean;
-}) {
-  return (
-    <div
-      className={cn("flex items-center gap-1.5", {
-        "pl-2": showSeparator,
-      })}
-    >
-      <span className="text-primary font-medium">
-        {selectedRows} {selectedRows !== 1 ? "rows" : "row"} selected
-      </span>
-      {onViewDetails && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-5 w-5"
-                onClick={onViewDetails}
-              >
-                <IconEye className="h-3 w-3" />
-              </Button>
-            }
-          />
-          <TooltipContent side="top" className="text-xs">
-            View Details
-          </TooltipContent>
-        </Tooltip>
-      )}
-    </div>
-  );
-});
-
 // ============================================================================
 // Main Component
 // ============================================================================
@@ -238,7 +194,6 @@ interface DataGridStatusBarProps {
   estimatedTotal?: number;
   isEstimatedCount?: boolean; // True if count is estimated, false if exact
   hasMore?: boolean;
-  selectedRows?: number;
   selectedRowsData?: GridRowModel[];
   selectedRowIndices?: Set<number>;
   allRows?: GridRowModel[];
@@ -265,7 +220,6 @@ interface DataGridStatusBarProps {
   isStreaming?: boolean;
   /** Whether a batch/paste operation is in progress */
   isProcessing?: boolean;
-  onViewDetails?: () => void;
   readOnlyReason?: string;
   /** Callback to select custom row identifier columns for non-PK tables */
   onSelectIdentifierColumns?: () => void;
@@ -282,7 +236,6 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   estimatedTotal,
   isEstimatedCount,
   hasMore,
-  selectedRows = 0,
   selectedRowsData = [],
   selectedRowIndices,
   allRows = [],
@@ -296,7 +249,6 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   totalStreamingMs: _totalStreamingMs,
   isStreaming = false,
   isProcessing = false,
-  onViewDetails,
   readOnlyReason,
   onSelectIdentifierColumns,
   identifierSelector,
@@ -322,27 +274,18 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
         className,
       )}
     >
-      {/* Left side: Processing indicator and selection info */}
+      {/* Left side: Processing indicator and selection summary */}
       <div className="flex items-center gap-3">
         {isProcessing && <ProcessingIndicator />}
 
-        {selectedRows > 0 && (
-          <div className="flex items-center gap-3">
-            <SelectionInfo
-              selectedRows={selectedRows}
-              onViewDetails={onViewDetails}
-              showSeparator={false}
-            />
-            {selectedRowIndices && showSelectionSummary && (
-              <SelectionSummary
-                selectedRows={selectedRowsData}
-                selectedRowIndices={selectedRowIndices}
-                allRows={allRows}
-                columns={columns}
-                gridSelection={gridSelection as unknown as GridSelection}
-              />
-            )}
-          </div>
+        {showSelectionSummary && selectedRowIndices && (
+          <SelectionSummary
+            selectedRows={selectedRowsData}
+            selectedRowIndices={selectedRowIndices}
+            allRows={allRows}
+            columns={columns}
+            gridSelection={gridSelection as unknown as GridSelection}
+          />
         )}
       </div>
 

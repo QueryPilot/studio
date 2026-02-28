@@ -242,6 +242,7 @@ export const TableStructure = memo(function TableStructure({
     null,
   );
   const [globalChangesDialogOpen, setGlobalChangesDialogOpen] = useState(false);
+  const contextMenuRowRef = useRef<StructureGridRow | null>(null);
   const [selection, setSelection] = useState<GridSelection>({
     columns: CompactSelection.empty(),
     rows: CompactSelection.empty(),
@@ -613,6 +614,99 @@ export const TableStructure = memo(function TableStructure({
       existingColumnNames,
       stageCommand,
     ],
+  );
+
+  // Context menu: hover tracking
+  const handleItemHovered = useCallback(
+    (args: GridMouseEventArgs) => {
+      if (args.kind === "cell") {
+        contextMenuRowRef.current = gridRows[args.location[1]] ?? null;
+      } else {
+        contextMenuRowRef.current = null;
+      }
+    },
+    [gridRows],
+  );
+
+  // Context menu: duplicate column by row reference
+  const handleContextDuplicate = useCallback(
+    (row: StructureGridRow) => {
+      const rowIndex = gridRows.indexOf(row);
+      if (rowIndex >= 0) {
+        handleDuplicateColumn(rowIndex);
+      }
+    },
+    [gridRows, handleDuplicateColumn],
+  );
+
+  // Context menu: set nullable for a single row
+  const handleContextSetNullable = useCallback(
+    (row: StructureGridRow, value: "YES" | "NO") => {
+      if (row.nullable === value) return;
+
+      const target: CrudCommandTarget = {
+        connectionId,
+        database,
+        schema,
+        table,
+      };
+
+      if (row._isPending) {
+        const command = pendingCommands.find(
+          (cmd) =>
+            cmd.type === "column.add" &&
+            (cmd.payload as ColumnAddPayload).tempId === row._tempId,
+        );
+        if (command) {
+          const payload = command.payload as ColumnAddPayload;
+          const updatedCmd = {
+            ...command,
+            payload: {
+              ...payload,
+              column: { ...payload.column, nullable: value === "YES" },
+            },
+          };
+          stageCommand(updatedCmd);
+        }
+      } else {
+        const modifyCmd = createColumnModifyCommand(target, row.column_name, {
+          nullable: value === "YES",
+        });
+        stageCommand(modifyCmd);
+      }
+
+      toast.success(`Set nullable to ${value}`, {
+        description: row.column_name,
+      });
+    },
+    [connectionId, database, schema, table, pendingCommands, stageCommand],
+  );
+
+  // Context menu: undo delete
+  const handleContextUndoDelete = useCallback(
+    (row: StructureGridRow) => {
+      const dropCommand = pendingCommands.find(
+        (cmd) =>
+          cmd.type === "column.drop" &&
+          (cmd.payload as ColumnDropPayload).columnName === row.column_name,
+      );
+      if (dropCommand) {
+        unstageCommand(dropCommand.id);
+        toast.success("Delete undone", {
+          description: `${row.column_name} will no longer be dropped`,
+        });
+      }
+    },
+    [pendingCommands, unstageCommand],
+  );
+
+  // Context menu: show delete confirmation dialog
+  const handleContextShowDeleteConfirm = useCallback(
+    (row: StructureGridRow) => {
+      setDeleteTarget(row);
+      setDeleteDialogOpen(true);
+    },
+    [],
   );
 
   // Handler: Delete selected rows (batch)
@@ -1660,32 +1754,56 @@ export const TableStructure = memo(function TableStructure({
           </div>
         </div>
         <div className="flex-1">
-          <DataGridBase
-            columns={sizedColumns}
-            rowCount={gridRows.length}
-            getCellContent={getCellContent}
-            customRenderers={customRenderers}
-            rowSelect="multi"
-            columnSelect="none"
-            gridSelection={selection}
-            onGridSelectionChange={setSelection}
-            onColumnResize={handleColumnResize}
-            onColumnResizeEnd={handleColumnResizeEnd}
-            onCellActivated={isReadOnly ? undefined : handleCellActivated}
-            onCellEdited={isReadOnly ? undefined : handleCellEdited}
-            onCellClicked={isReadOnly ? undefined : handleCellClick}
-            overscrollX={0}
-            overscrollY={300}
-            trailingRowOptions={
-              isReadOnly
-                ? undefined
-                : {
-                    sticky: false,
-                    tint: false,
-                  }
-            }
-            onRowAppended={isReadOnly ? undefined : handleAddColumn}
-          />
+          {isReadOnly ? (
+            <DataGridBase
+              columns={sizedColumns}
+              rowCount={gridRows.length}
+              getCellContent={getCellContent}
+              customRenderers={customRenderers}
+              rowSelect="multi"
+              columnSelect="none"
+              gridSelection={selection}
+              onGridSelectionChange={setSelection}
+              onColumnResize={handleColumnResize}
+              onColumnResizeEnd={handleColumnResizeEnd}
+              overscrollX={0}
+              overscrollY={300}
+            />
+          ) : (
+            <StructureTableContextMenu
+              hoveredRowRef={contextMenuRowRef}
+              onAddColumn={handleAddColumn}
+              onDuplicate={handleContextDuplicate}
+              onSetNullable={handleContextSetNullable}
+              onDeleteColumn={handleDeleteColumn}
+              onUndoDelete={handleContextUndoDelete}
+              onShowDeleteConfirm={handleContextShowDeleteConfirm}
+            >
+              <DataGridBase
+                columns={sizedColumns}
+                rowCount={gridRows.length}
+                getCellContent={getCellContent}
+                customRenderers={customRenderers}
+                rowSelect="multi"
+                columnSelect="none"
+                gridSelection={selection}
+                onGridSelectionChange={setSelection}
+                onColumnResize={handleColumnResize}
+                onColumnResizeEnd={handleColumnResizeEnd}
+                onCellActivated={handleCellActivated}
+                onCellEdited={handleCellEdited}
+                onCellClicked={handleCellClick}
+                onItemHovered={handleItemHovered}
+                overscrollX={0}
+                overscrollY={300}
+                trailingRowOptions={{
+                  sticky: false,
+                  tint: false,
+                }}
+                onRowAppended={handleAddColumn}
+              />
+            </StructureTableContextMenu>
+          )}
         </div>
         <div className="px-4 py-2 text-xs text-muted-foreground border-t">
           Last refreshed:{" "}

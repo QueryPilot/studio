@@ -1143,7 +1143,7 @@ export const ConnectionSection = forwardRef<
     }
 
     await refetchRedisDatabases();
-    toast.success(`Truncated db${targetDb}`);
+    toast.success(`Truncated db${targetDb} (executed immediately)`);
   };
 
   const stageSqlCommandsAndOpenGlobalChanges = useCallback(
@@ -1315,7 +1315,7 @@ export const ConnectionSection = forwardRef<
 
     await collectionsRefetch();
     toast.success(
-      `Truncated ${collectionItems.length} collection${collectionItems.length === 1 ? "" : "s"}`,
+      `Truncated ${collectionItems.length} collection${collectionItems.length === 1 ? "" : "s"} (executed immediately)`,
     );
   };
 
@@ -1331,7 +1331,7 @@ export const ConnectionSection = forwardRef<
 
     await collectionsRefetch();
     toast.success(
-      `Deleted ${collectionItems.length} collection${collectionItems.length === 1 ? "" : "s"}`,
+      `Deleted ${collectionItems.length} collection${collectionItems.length === 1 ? "" : "s"} (executed immediately)`,
     );
   };
 
@@ -1358,7 +1358,7 @@ export const ConnectionSection = forwardRef<
       title: "Truncate Objects",
       description:
         isImmediateExecution(selectedTypes)
-          ? "This will remove all documents in the selected collection(s). This action cannot be undone."
+          ? "This will remove all documents in the selected collection(s) immediately. It will not be staged in Global Changes."
           : "This will stage TRUNCATE commands in Global Changes. Data will be permanently removed when committed.",
       entityName,
       kind: isImmediateExecution(selectedTypes) ? "nosql-truncate" : "sql-truncate",
@@ -1396,7 +1396,7 @@ export const ConnectionSection = forwardRef<
       title: "Delete Objects",
       description:
         isImmediateExecution(selectedTypes)
-          ? "This will drop the selected collection(s). This action cannot be undone."
+          ? "This will drop the selected collection(s) immediately. It will not be staged in Global Changes."
           : "This will stage DROP commands in Global Changes. Objects will be removed when committed.",
       entityName,
       kind: isImmediateExecution(selectedTypes) ? "nosql-delete" : "sql-delete",
@@ -2555,7 +2555,7 @@ export const ConnectionSection = forwardRef<
                                 kind: "redis-truncate",
                                 title: "Truncate Redis Database",
                                 description:
-                                  "This will remove all keys in the selected Redis database immediately. This action cannot be undone.",
+                                  "This will remove all keys in the selected Redis database immediately. It will not be staged in Global Changes.",
                                 entityName: dbLabel,
                                 confirmLabel: "Flush DB",
                                 onConfirm: async () => {

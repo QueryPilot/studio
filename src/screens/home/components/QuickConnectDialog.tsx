@@ -216,37 +216,36 @@ export function QuickConnectDialog({
             variables.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-3 py-4">
-          <Textarea
-            placeholder={`postgresql://user:pass@localhost:5432/mydb\nServer=localhost;Database=master;User Id=sa;\nDATABASE_URL=postgres://...\nPOSTGRES_HOST=localhost`}
-            value={uri}
-            onChange={(e) => {
-              handleUriChange(e.target.value);
+
+        <Textarea
+          placeholder={`postgresql://user:pass@localhost:5432/mydb\nServer=localhost;Database=master;User Id=sa;\nDATABASE_URL=postgres://...\nPOSTGRES_HOST=localhost`}
+          value={uri}
+          onChange={(e) => {
+            handleUriChange(e.target.value);
+          }}
+          className="min-h-[100px] font-mono text-xs break-all"
+        />
+
+        {parsedInfo && <ConnectionSummary info={parsedInfo} />}
+
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              onOpenChange(false);
+              setUri("");
+              setParsedInfo(null);
             }}
-            className="min-h-[100px] font-mono text-xs break-all"
-          />
-
-          {parsedInfo && <ConnectionSummary info={parsedInfo} />}
-
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                onOpenChange(false);
-                setUri("");
-                setParsedInfo(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleConnect}
-              disabled={!parsedInfo || isConnecting}
-            >
-              {isConnecting ? "Connecting..." : "Connect"}
-              <IconArrowRight className="h-4 w-4 ml-1" />
-            </Button>
-          </div>
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConnect}
+            disabled={!parsedInfo || isConnecting}
+          >
+            {isConnecting ? "Connecting..." : "Connect"}
+            <IconArrowRight className="h-4 w-4 ml-1" />
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

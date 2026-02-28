@@ -1137,16 +1137,20 @@ mod tests {
     }
 
     #[test]
-    fn test_is_similar() {
-        // Distance 1 - should be similar
-        assert!(is_similar("user", "users", 1));
-        assert!(is_similar("email", "emal", 1));
+    fn test_levenshtein_similarity() {
+        // Distance 1 - similar (potential typo)
+        let d = levenshtein_distance("user", "users");
+        assert!(d > 0 && d <= 1);
+        let d = levenshtein_distance("email", "emal");
+        assert!(d > 0 && d <= 1);
 
-        // Identical - not similar (not a typo)
-        assert!(!is_similar("users", "users", 1));
+        // Identical - not a typo
+        let d = levenshtein_distance("users", "users");
+        assert_eq!(d, 0);
 
         // Distance > threshold - not similar
-        assert!(!is_similar("users", "customers", 1));
+        let d = levenshtein_distance("users", "customers");
+        assert!(d > 1);
     }
 
     #[test]
