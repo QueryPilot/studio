@@ -102,6 +102,23 @@ describe("DatabaseSidebarContextMenu export submenus", () => {
     expect(onTruncate).toHaveBeenCalledOnce();
   });
 
+  it("enables duplicate for single-table selection when wired", () => {
+    const onDuplicate = vi.fn();
+    render(
+      <DatabaseSidebarContextMenu
+        {...baseProps}
+        onCopyDefinition={vi.fn()}
+        onDuplicate={onDuplicate}
+      />,
+    );
+
+    const duplicateButton = screen.getByRole("button", { name: "Duplicate" });
+    expect(duplicateButton).toBeEnabled();
+
+    fireEvent.click(duplicateButton);
+    expect(onDuplicate).toHaveBeenCalledOnce();
+  });
+
   it("positions menu above cursor when bottom space is insufficient", async () => {
     const originalInnerHeight = window.innerHeight;
     const originalInnerWidth = window.innerWidth;

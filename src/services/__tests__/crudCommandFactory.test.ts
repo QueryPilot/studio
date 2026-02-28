@@ -38,6 +38,26 @@ describe("CrudCommandFactory destructive object commands", () => {
     expect(command.payload.cascade).toBe(false);
   });
 
+  it("creates table.duplicate command", () => {
+    const command = CrudCommandFactory.createTableDuplicateCommand({
+      target,
+      sourceTableName: "orders",
+      newTableName: "orders_copy",
+      includeData: true,
+      includeIndexes: true,
+      includeConstraints: true,
+      includeTriggers: false,
+    });
+
+    expect(command.type).toBe("table.duplicate");
+    expect(command.payload.sourceTableName).toBe("orders");
+    expect(command.payload.newTableName).toBe("orders_copy");
+    expect(command.payload.includeData).toBe(true);
+    expect(command.payload.includeIndexes).toBe(true);
+    expect(command.payload.includeConstraints).toBe(true);
+    expect(command.payload.includeTriggers).toBe(false);
+  });
+
   it("creates view.drop command", () => {
     const command = CrudCommandFactory.createViewDropCommand({
       target: {

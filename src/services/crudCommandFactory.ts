@@ -24,6 +24,7 @@ import type {
   TableRenamePayload,
   TableDropPayload,
   TableTruncatePayload,
+  TableDuplicatePayload,
   ViewDropPayload,
   TriggerCreatePayload,
   TriggerDefinitionInput,
@@ -105,6 +106,16 @@ interface TableTruncateParams extends CommandBuildOptions {
   readonly tableName: string;
   readonly restartIdentity?: boolean;
   readonly cascade?: boolean;
+}
+
+interface TableDuplicateParams extends CommandBuildOptions {
+  readonly target: CrudCommandTarget;
+  readonly sourceTableName: string;
+  readonly newTableName: string;
+  readonly includeData?: boolean;
+  readonly includeIndexes?: boolean;
+  readonly includeConstraints?: boolean;
+  readonly includeTriggers?: boolean;
 }
 
 interface ViewDropParams extends CommandBuildOptions {
@@ -602,6 +613,43 @@ export const CrudCommandFactory = {
     return buildCommand(
       "table.truncate",
       buildTarget(params.target, params.tableName),
+      payload,
+      {
+        ...params,
+        description,
+      },
+    );
+  },
+
+  createTableDuplicateCommand(
+    params: TableDuplicateParams,
+  ): CrudCommandFor<"table.duplicate"> {
+    ensureTargetHasTable(params.target, "table.duplicate");
+    assertNonEmpty(
+      params.sourceTableName,
+      "CrudCommandFactory: sourceTableName is required for table.duplicate",
+    );
+    assertNonEmpty(
+      params.newTableName,
+      "CrudCommandFactory: newTableName is required for table.duplicate",
+    );
+
+    const payload: TableDuplicatePayload = {
+      sourceTableName: params.sourceTableName,
+      newTableName: params.newTableName,
+      includeData: params.includeData,
+      includeIndexes: params.includeIndexes,
+      includeConstraints: params.includeConstraints,
+      includeTriggers: params.includeTriggers,
+    };
+
+    const description =
+      params.description ??
+      `Duplicate table ${params.sourceTableName} to ${params.newTableName}`;
+
+    return buildCommand(
+      "table.duplicate",
+      buildTarget(params.target, params.newTableName),
       payload,
       {
         ...params,

@@ -31,7 +31,7 @@ describe('useColumnSorting', () => {
     act(() => {
       result.current.toggleSort('col_0', false);
     });
-    expect(result.current.getSortDirection('col_0')).toBeUndefined();
+    expect(result.current.getSortDirection('col_0')).toBeNull();
   });
 
   it('should support multi-column sorting with shift key', () => {

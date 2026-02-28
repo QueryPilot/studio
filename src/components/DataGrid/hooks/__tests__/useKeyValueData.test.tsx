@@ -6,20 +6,20 @@ import { GridCellKind } from '@glideapps/glide-data-grid';
 import { useKeyValueData } from '../useKeyValueData';
 import type { RedisType, RedisValue } from '@/adapters/types/redis';
 
-// Mock the RedisAdapter
+// Mock the RedisAdapter (Vitest 4 requires function/class syntax for constructors)
 vi.mock('@/adapters/redis/RedisAdapter', () => ({
-  RedisAdapter: vi.fn().mockImplementation(() => ({
-    getCurrentDatabase: vi.fn(() => 0),
-    selectDatabase: vi.fn(),
-    getKeyType: vi.fn(() => Promise.resolve('string' as RedisType)),
-    getKeyTTL: vi.fn(() => Promise.resolve(-1)),
-    getKey: vi.fn(() => Promise.resolve({
+  RedisAdapter: vi.fn().mockImplementation(function (this: any) {
+    this.getCurrentDatabase = vi.fn(() => 0);
+    this.selectDatabase = vi.fn();
+    this.getKeyType = vi.fn(() => Promise.resolve('string' as RedisType));
+    this.getKeyTTL = vi.fn(() => Promise.resolve(-1));
+    this.getKey = vi.fn(() => Promise.resolve({
       type: 'string',
       value: 'test-value',
-    } as RedisValue)),
-    setKeyTTL: vi.fn(() => Promise.resolve(true)),
-    deleteKeys: vi.fn(() => Promise.resolve(1)),
-  })),
+    } as RedisValue));
+    this.setKeyTTL = vi.fn(() => Promise.resolve(true));
+    this.deleteKeys = vi.fn(() => Promise.resolve(1));
+  }),
 }));
 
 const queryClient = new QueryClient({
@@ -264,12 +264,12 @@ describe('useKeyValueData', () => {
   it('should handle error state', async () => {
     // Mock adapter to throw error
     const { RedisAdapter: MockAdapter } = await import('@/adapters/redis/RedisAdapter');
-    vi.mocked(MockAdapter).mockImplementation(() => ({
-      getCurrentDatabase: vi.fn(() => 0),
-      selectDatabase: vi.fn(),
-      getKeyType: vi.fn(() => Promise.reject(new Error('Connection failed'))),
-      getKeyTTL: vi.fn(() => Promise.reject(new Error('Connection failed'))),
-    } as any));
+    vi.mocked(MockAdapter).mockImplementation(function (this: any) {
+      this.getCurrentDatabase = vi.fn(() => 0);
+      this.selectDatabase = vi.fn();
+      this.getKeyType = vi.fn(() => Promise.reject(new Error('Connection failed')));
+      this.getKeyTTL = vi.fn(() => Promise.reject(new Error('Connection failed')));
+    } as any);
 
     const { result } = renderHook(
       () => useKeyValueData({
@@ -351,16 +351,16 @@ describe('useKeyValueData', () => {
   it('should handle database selection', async () => {
     const { RedisAdapter: MockAdapter } = await import('@/adapters/redis/RedisAdapter');
     const selectDatabaseMock = vi.fn();
-    vi.mocked(MockAdapter).mockImplementation(() => ({
-      getCurrentDatabase: vi.fn(() => 1), // Different DB
-      selectDatabase: selectDatabaseMock,
-      getKeyType: vi.fn(() => Promise.resolve('string' as RedisType)),
-      getKeyTTL: vi.fn(() => Promise.resolve(-1)),
-      getKey: vi.fn(() => Promise.resolve({
+    vi.mocked(MockAdapter).mockImplementation(function (this: any) {
+      this.getCurrentDatabase = vi.fn(() => 1); // Different DB
+      this.selectDatabase = selectDatabaseMock;
+      this.getKeyType = vi.fn(() => Promise.resolve('string' as RedisType));
+      this.getKeyTTL = vi.fn(() => Promise.resolve(-1));
+      this.getKey = vi.fn(() => Promise.resolve({
         type: 'string',
         value: 'test-value',
-      } as RedisValue)),
-    } as any));
+      } as RedisValue));
+    } as any);
 
     renderHook(
       () => useKeyValueData({
