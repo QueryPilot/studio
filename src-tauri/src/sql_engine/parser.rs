@@ -383,6 +383,7 @@ fn split_statements(sql: &str) -> Vec<(usize, usize, String)> {
     let mut current_start = 0;
     let chars: Vec<char> = sql.chars().collect();
     let mut i = 0;
+    let dollar_quote_re = regex::Regex::new(r"^\$([a-zA-Z_]*)\$").unwrap();
 
     while i < chars.len() {
         // Skip single-quoted strings
@@ -414,9 +415,7 @@ fn split_statements(sql: &str) -> Vec<(usize, usize, String)> {
         // Skip dollar quotes (PostgreSQL)
         if chars[i] == '$' {
             let rest: String = chars[i..].iter().collect();
-            if let Some(m) = regex::Regex::new(r"^\$([a-zA-Z_]*)\$")
-                .ok()
-                .and_then(|r| r.find(&rest))
+            if let Some(m) = dollar_quote_re.find(&rest)
             {
                 let tag = m.as_str();
                 if let Some(end_pos) = rest[tag.len()..].find(tag) {
@@ -571,15 +570,13 @@ fn extract_table_factor(factor: &TableFactor, tables: &mut Vec<TableReference>) 
                 position: 0,
             });
         }
-        TableFactor::Derived { alias, .. } => {
-            if let Some(a) = alias {
-                tables.push(TableReference {
-                    name: a.name.value.clone(),
-                    schema: None,
-                    alias: Some(a.name.value.clone()),
-                    position: 0,
-                });
-            }
+        TableFactor::Derived { alias: Some(a), .. } => {
+            tables.push(TableReference {
+                name: a.name.value.clone(),
+                schema: None,
+                alias: Some(a.name.value.clone()),
+                position: 0,
+            });
         }
         _ => {}
     }
@@ -798,10 +795,8 @@ fn extract_columns_from_expr(expr: &ast::Expr, columns: &mut Vec<ColumnReference
         ast::Expr::Function(func) => {
             if let ast::FunctionArguments::List(arg_list) = &func.args {
                 for arg in &arg_list.args {
-                    if let ast::FunctionArg::Unnamed(arg_expr) = arg {
-                        if let ast::FunctionArgExpr::Expr(e) = arg_expr {
-                            extract_columns_from_expr(e, columns);
-                        }
+                    if let ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(e)) = arg {
+                        extract_columns_from_expr(e, columns);
                     }
                 }
             }

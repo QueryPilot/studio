@@ -80,7 +80,7 @@ impl MySqlAdapter {
         // This avoids issues with special characters and URL encoding
         let mut builder = OptsBuilder::default()
             .ip_or_hostname(&profile.host)
-            .tcp_port(profile.port as u16)
+            .tcp_port(profile.port)
             .user(Some(&profile.username))
             .db_name(Some(&profile.database));
 

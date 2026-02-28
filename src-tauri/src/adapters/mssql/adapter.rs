@@ -128,7 +128,7 @@ impl MssqlAdapter {
     }
 
     fn parse_table_ref(table_ref: &str) -> Option<(String, String)> {
-        let token = table_ref.trim().split_whitespace().next()?;
+        let token = table_ref.split_whitespace().next()?;
         let parts: Vec<&str> = token.split('.').collect();
         match parts.len() {
             1 => Some(("dbo".to_string(), Self::unquote_identifier(parts[0]))),

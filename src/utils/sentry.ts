@@ -8,7 +8,7 @@
 import { logger } from "@/lib/logger";
 import * as Sentry from "@sentry/react";
 import type { TelemetryPreferences } from "@/stores/preferencesStore";
-import { invoke } from "@tauri-apps/api/core";
+
 
 /**
  * Check if Sentry should be initialized based on environment and user preference

@@ -298,7 +298,7 @@ impl PostgresTypeParser {
 
         for pair in pairs {
             if let Some(arrow_pos) = pair.find("=>") {
-                let key = unquote_hstore_value(&pair[..arrow_pos].trim());
+                let key = unquote_hstore_value(pair[..arrow_pos].trim());
                 let value = &pair[arrow_pos + 2..].trim();
 
                 if *value == "NULL" {
@@ -662,12 +662,11 @@ fn parse_array_recursive(input: &str) -> Result<JsonValue> {
                     depth -= 1;
                     if depth > 0 {
                         current.push(ch);
-                    } else if depth == 0 {
-                        if !current.is_empty() {
+                    } else if depth == 0
+                        && !current.is_empty() {
                             elements.push(parse_array_recursive(&current)?);
                             current.clear();
                         }
-                    }
                 }
                 ',' if depth == 1 => {
                     // Separator at current level

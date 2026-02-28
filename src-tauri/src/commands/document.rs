@@ -53,6 +53,7 @@ pub async fn mongo_list_collections(
 }
 
 /// Find documents in a MongoDB collection
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn mongo_find_documents(
     conn_id: String,
@@ -313,6 +314,7 @@ pub async fn mongo_drop_index(
 // MongoDB Streaming Commands
 // ============================================================================
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn mongo_find_documents_stream(
     conn_id: String,

@@ -129,8 +129,9 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
     // then target.table (key view mode where table is the key name).
     const pkKey = this.toNonEmptyString(payload.primaryKeys?.key);
     const valueKey = this.toNonEmptyString(values.key);
-    const isBrowserPseudoTable = /^db\d+_keys$/.test(command.target.table);
-    const key = pkKey ?? valueKey ?? (isBrowserPseudoTable ? null : command.target.table);
+    const tableName = command.target.table ?? '';
+    const isBrowserPseudoTable = /^db\d+_keys$/.test(tableName);
+    const key = pkKey ?? valueKey ?? (isBrowserPseudoTable ? null : tableName);
     if (!key) return null;
 
     switch (command.type) {

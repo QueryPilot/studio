@@ -300,6 +300,7 @@ fn write_6digits(dst: &mut [u8], offset: usize, val: u32) {
 
 /// Fast timestamp format: "YYYY-MM-DD HH:MM:SS.ffffff"
 /// Returns slice length (26 bytes)
+#[allow(clippy::too_many_arguments)]
 #[inline]
 fn format_timestamp_fast(
     dst: &mut [u8; 26],
@@ -328,6 +329,7 @@ fn format_timestamp_fast(
 
 /// Fast timestamptz format: "YYYY-MM-DD HH:MM:SS.ffffff+HH:MM"
 /// Returns slice length (32 bytes)
+#[allow(clippy::too_many_arguments)]
 #[inline]
 fn format_timestamptz_fast(
     dst: &mut [u8; 32],
@@ -737,7 +739,7 @@ impl DirectMsgPackEncoder {
     /// reducing allocations from N (one per row) to ~num_threads.
     fn encode_parallel_two_pass(&self, rows: &[Row]) -> Result<Vec<u8>> {
         let num_threads = rayon::current_num_threads().max(1);
-        let chunk_size = (rows.len() + num_threads - 1) / num_threads;
+        let chunk_size = rows.len().div_ceil(num_threads);
         let column_count = self.column_types.len();
 
         let chunk_buffers: Vec<Vec<u8>> = rows
@@ -987,7 +989,7 @@ impl DirectMsgPackEncoder {
                 let unix_us = ts + PG_EPOCH_OFFSET;
                 let secs = unix_us / 1_000_000;
                 let micros = (unix_us % 1_000_000).unsigned_abs() as u32;
-                let nsecs = (micros * 1000) as u32;
+                let nsecs = micros * 1000;
 
                 if let Some(dt) = DateTime::from_timestamp(secs, nsecs) {
                     let naive = dt.naive_utc();
@@ -1024,7 +1026,7 @@ impl DirectMsgPackEncoder {
                 let unix_us = ts + PG_EPOCH_OFFSET;
                 let secs = unix_us / 1_000_000;
                 let micros = (unix_us % 1_000_000).unsigned_abs() as u32;
-                let nsecs = (micros * 1000) as u32;
+                let nsecs = micros * 1000;
 
                 if let Some(dt) = DateTime::<Utc>::from_timestamp(secs, nsecs) {
                     // Use fast formatter instead of chrono's format!()
@@ -1185,7 +1187,7 @@ impl DirectMsgPackEncoder {
                 );
                 let s = unsafe { std::str::from_utf8_unchecked(&ipv4_buf[..len]) };
                 encode::write_str(buf, s).map_err(Self::map_encode_err)?;
-                return Ok(());
+                Ok(())
             }
             3 if addr_len == 16 => {
                 let ip = std::net::Ipv6Addr::from(<[u8; 16]>::try_from(addr_bytes).unwrap());
@@ -1195,9 +1197,9 @@ impl DirectMsgPackEncoder {
                     format!("{}/{}", ip, prefix)
                 };
                 encode::write_str(buf, &s).map_err(Self::map_encode_err)?;
-                return Ok(());
+                Ok(())
             }
-            _ => return self.encode_fallback(buf, raw),
+            _ => self.encode_fallback(buf, raw),
         }
     }
 
@@ -1748,19 +1750,12 @@ impl DirectMsgPackEncoder {
         &self,
         element_type: &Type,
         bound: proto::RangeBound<Option<&[u8]>>,
-        is_lower: bool,
+        _is_lower: bool,
     ) -> Result<(String, bool)> {
         use proto::RangeBound;
 
         match bound {
-            RangeBound::Unbounded => Ok((
-                if is_lower {
-                    String::new()
-                } else {
-                    String::new()
-                },
-                false,
-            )),
+            RangeBound::Unbounded => Ok((String::new(), false)),
             RangeBound::Inclusive(Some(bytes)) => {
                 let mut temp_buf = Vec::new();
                 self.encode_value(&mut temp_buf, element_type, bytes)?;

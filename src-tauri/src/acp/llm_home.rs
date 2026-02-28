@@ -4,7 +4,7 @@
 //! Handles template file installation and version tracking.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Current version of the LLM templates
 /// Bump this when templates change to trigger reinstallation
@@ -48,7 +48,7 @@ pub fn initialize_llm_home() -> Result<PathBuf, String> {
 }
 
 /// Install template files to the LLM home directory
-fn install_templates(llm_home: &PathBuf) -> Result<(), String> {
+fn install_templates(llm_home: &Path) -> Result<(), String> {
     // CLAUDE.md template
     let claude_md = r#"# Query Pilot - Claude Code Agent Instructions
 

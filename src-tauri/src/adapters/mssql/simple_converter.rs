@@ -23,7 +23,7 @@ impl SimpleConverter {
                 if let Some(v) = row.try_get::<i64, _>(i).ok().flatten() {
                     const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
                     const MIN_SAFE_INTEGER: i64 = -9_007_199_254_740_991;
-                    if v > MAX_SAFE_INTEGER || v < MIN_SAFE_INTEGER {
+                    if !(MIN_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&v) {
                         return JsonValue::String(v.to_string());
                     }
                     return JsonValue::Number(v.into());

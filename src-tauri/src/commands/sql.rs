@@ -213,7 +213,6 @@ fn is_select_query(sql: &str) -> bool {
 
     // Get first word
     let first_keyword = cleaned
-        .trim()
         .split_whitespace()
         .find(|word| !word.is_empty())
         .unwrap_or("")
@@ -271,11 +270,10 @@ fn find_main_statement_keyword(sql: &str) -> Option<String> {
 
                 // Only consider keywords at depth 0 (not inside CTE definitions)
                 // Track the FIRST (leftmost) keyword at depth 0
-                if depth == 0 {
-                    if first_keyword_pos.map_or(true, |(p, _)| abs_pos < p) {
+                if depth == 0
+                    && first_keyword_pos.is_none_or(|(p, _)| abs_pos < p) {
                         first_keyword_pos = Some((abs_pos, keyword));
                     }
-                }
             }
 
             search_start = abs_pos + 1;
@@ -1343,7 +1341,7 @@ async fn execute_postgres_stream(
         // CRITICAL: Check for cancellation periodically (every 100 rows)
         // This ensures we detect cancellation even if no batches have been sent yet
         check_interval += 1;
-        if check_interval % 100 == 0 {
+        if check_interval.is_multiple_of(100) {
             // Attempt to send to data channel - if it fails, user cancelled
             if data_channel
                 .send(tauri::ipc::Response::new(vec![]))
@@ -1607,6 +1605,7 @@ async fn execute_postgres_stream(
 ///
 /// See: `docs/query-execution-architecture.md` for architecture details.
 /// See also: [`query`] for simple direct queries.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn execute_query(
     conn_id: String,

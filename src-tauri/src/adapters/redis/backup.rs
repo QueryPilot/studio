@@ -489,8 +489,8 @@ async fn execute_json_backup(
             }
 
             processed += 1;
-            if processed % 100 == 0 {
-                if progress
+            if processed.is_multiple_of(100)
+                && progress
                     .send(BackupProgress::Progress {
                         current: processed as u32,
                         total: total_keys as u32,
@@ -501,7 +501,6 @@ async fn execute_json_backup(
                 {
                     return Err(AppError::InvalidInput("Operation cancelled".into()));
                 }
-            }
         }
 
         cursor = new_cursor;
@@ -756,8 +755,8 @@ async fn execute_json_restore(
         }
 
         let processed = restored + skipped + errors;
-        if processed % 100 == 0 {
-            if progress
+        if processed.is_multiple_of(100)
+            && progress
                 .send(BackupProgress::Progress {
                     current: processed as u32,
                     total: total as u32,
@@ -771,7 +770,6 @@ async fn execute_json_restore(
             {
                 return Err(AppError::InvalidInput("Operation cancelled".into()));
             }
-        }
     }
 
     let message = format!(
