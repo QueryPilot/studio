@@ -78,6 +78,13 @@ import {
 } from "@/components/ui/context-menu";
 import { SchemaDropdown } from "./SchemaDropdown";
 import { DatabaseSidebarContextMenu } from "./DatabaseSidebarContextMenu";
+import {
+  exportSidebarObjectDataToFile,
+  exportSidebarObjectsToFile,
+  type SidebarDataExportFormat,
+  type SidebarDataExportItem,
+  type SidebarExportItem,
+} from "./databaseSidebarExport";
 import { windowManager } from "@/services/windowManager";
 import { toast } from "sonner";
 import { writeClipboardText } from "@/lib/clipboard";
@@ -212,10 +219,12 @@ export const ConnectionSection = forwardRef<
       for (const line of lines) {
         const match = line.match(/^db(\d+):keys=(\d+),expires=(\d+)/);
         if (match) {
+          const [, dbRaw, keysRaw, expiresRaw] = match;
+          if (!dbRaw || !keysRaw || !expiresRaw) continue;
           databases.push({
-            db: parseInt(match[1]!, 10),
-            keys: parseInt(match[2]!, 10),
-            expires: parseInt(match[3]!, 10),
+            db: parseInt(dbRaw, 10),
+            keys: parseInt(keysRaw, 10),
+            expires: parseInt(expiresRaw, 10),
           });
         }
       }
@@ -587,6 +596,34 @@ export const ConnectionSection = forwardRef<
     );
   };
 
+  const openMongoCollection = (collectionName: string) => {
+    if (!database) return;
+
+    setFocusedConnection(connectionId);
+    const { addTab, panelContents, focusPanel } = useWorkbenchStore.getState();
+    let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
+    if (!targetPanelId && panelContents.size > 0) {
+      const firstPanelId = Array.from(panelContents.keys())[0];
+      if (firstPanelId) {
+        targetPanelId = firstPanelId;
+        focusPanel(firstPanelId);
+      }
+    }
+
+    if (!targetPanelId) return;
+
+    const objectKey = `mongo-${connectionId}-${database}-${collectionName}`;
+    const tabId = `${objectKey}:::${nanoid(6)}`;
+    addTab(targetPanelId, tabId, {
+      type: "mongo-collection",
+      title: collectionName,
+      connectionId,
+      database,
+      table: collectionName,
+      objectKey,
+    });
+  };
+
   const isRedisDatabaseActive = (dbIndex: number): boolean => {
     if (!focusedPanelId) return false;
     const focusedPanel = panelContents.get(focusedPanelId);
@@ -755,6 +792,7 @@ export const ConnectionSection = forwardRef<
       views: 0,
       materializedViews: 0,
       functions: 0,
+      collections: 0,
     };
     selectedItems.forEach((key) => {
       const [type] = key.split(":");
@@ -767,6 +805,7 @@ export const ConnectionSection = forwardRef<
           breakdown.materializedViews++;
         else breakdown.views++;
       } else if (type === "function") breakdown.functions++;
+      else if (type === "collection") breakdown.collections++;
     });
     return breakdown;
   };
@@ -777,12 +816,18 @@ export const ConnectionSection = forwardRef<
       schema: string;
       name: string;
       kind?: string;
+      routineType?: FunctionMeta["routine_type"];
+      returnType?: FunctionMeta["return_type"];
     }> = [];
     selectedItems.forEach((key) => {
       const colonIndex = key.indexOf(":");
       if (colonIndex === -1) return;
       const type = key.slice(0, colonIndex);
       const rest = key.slice(colonIndex + 1);
+      if (type === "collection") {
+        items.push({ type, schema: "", name: rest });
+        return;
+      }
       const dotIndex = rest.indexOf(".");
       if (dotIndex === -1) return;
       const itemSchema = rest.slice(0, dotIndex);
@@ -792,11 +837,92 @@ export const ConnectionSection = forwardRef<
           (v) => v.schema === itemSchema && v.name === name,
         );
         items.push({ type, schema: itemSchema, name, kind: viewItem?.kind });
+      } else if (type === "function") {
+        const functionItem = functions.find(
+          (f) => f.schema === itemSchema && f.name === name,
+        );
+        items.push({
+          type,
+          schema: itemSchema,
+          name,
+          routineType: functionItem?.routine_type,
+          returnType: functionItem?.return_type,
+        });
       } else {
         items.push({ type, schema: itemSchema, name });
       }
     });
     return items;
+  };
+
+  const mapSelectedItemsToExport = (
+    items: ReturnType<typeof getSelectedItems>,
+  ): SidebarExportItem[] => {
+    return items
+      .map((item): SidebarExportItem | null => {
+        if (item.type === "table") {
+          return {
+            schema: item.schema,
+            name: item.name,
+            objectType: "table",
+          };
+        }
+
+        if (item.type === "view") {
+          return {
+            schema: item.schema,
+            name: item.name,
+            objectType:
+              item.kind === "MaterializedView"
+                ? "materialized_view"
+                : "view",
+          };
+        }
+
+        if (item.type === "function") {
+          const isRoutineProcedure =
+            item.routineType === "PROCEDURE" ||
+            (!item.routineType &&
+              isMySQLDb &&
+              item.returnType?.toLowerCase() === "void");
+
+          return {
+            schema: item.schema,
+            name: item.name,
+            objectType: isRoutineProcedure ? "procedure" : "function",
+          };
+        }
+
+        return null;
+      })
+      .filter((item): item is SidebarExportItem => item !== null);
+  };
+
+  const mapSelectedItemsToDataExport = (
+    items: ReturnType<typeof getSelectedItems>,
+  ): SidebarDataExportItem | null => {
+    if (items.length !== 1) return null;
+    const [item] = items;
+    if (!item) return null;
+
+    if (item.type === "table") {
+      return {
+        schema: item.schema,
+        name: item.name,
+        objectType: "table",
+      };
+    }
+
+    if (item.type === "view") {
+      return {
+        schema: item.schema,
+        name: item.name,
+        objectType:
+          item.kind === "MaterializedView" ? "materialized_view" : "view",
+      };
+    }
+
+    return null;
   };
 
   const handleCopyName = async () => {
@@ -814,21 +940,93 @@ export const ConnectionSection = forwardRef<
     toast.info("Copy definition - coming soon");
   };
 
-  const handleExport = () => {
-    toast.info("Export - coming soon");
+  const handleExportDefinition = async () => {
+    const items = getSelectedItems();
+    const exportItems = mapSelectedItemsToExport(items);
+
+    if (exportItems.length === 0) {
+      toast.error("No exportable objects selected");
+      return;
+    }
+
+    try {
+      const result = await exportSidebarObjectsToFile({
+        connectionId,
+        database,
+        items: exportItems,
+      });
+
+      if (result.cancelled) return;
+
+      toast.success("Export completed", {
+        description: `${result.itemCount} object(s) exported`,
+      });
+    } catch (error) {
+      toast.error("Export failed", {
+        description:
+          error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
+
+  const handleExportData = async (format: SidebarDataExportFormat) => {
+    const items = getSelectedItems();
+    const exportItem = mapSelectedItemsToDataExport(items);
+
+    if (!exportItem) {
+      toast.error("Data export requires exactly one table or view");
+      return;
+    }
+
+    try {
+      const result = await exportSidebarObjectDataToFile({
+        connectionId,
+        database,
+        dbType,
+        item: exportItem,
+        format,
+      });
+
+      if (result.cancelled) return;
+
+      const formatLabel = {
+        csv: "CSV",
+        json: "JSON",
+        insert: "SQL INSERT",
+        markdown: "Markdown",
+      }[format];
+
+      toast.success(`Data exported as ${formatLabel}`, {
+        description: `${result.rowCount.toLocaleString()} row(s) exported`,
+      });
+    } catch (error) {
+      toast.error("Data export failed", {
+        description:
+          error instanceof Error ? error.message : "Unknown error",
+      });
+    }
   };
 
   const handlePin = () => {
     const items = getSelectedItems();
-    items.forEach((item) => {
+    const pinnableItems = items.filter(
+      (item): item is typeof item & { type: StarredItemType } =>
+        item.type === "table" || item.type === "view" || item.type === "function",
+    );
+
+    pinnableItems.forEach((item) => {
       toggleStarred({
         connectionId,
         database,
         schema: item.schema,
-        type: item.type as StarredItemType,
+        type: item.type,
         name: item.name,
       });
     });
+
+    if (pinnableItems.length === 0) {
+      toast.error("Selected item cannot be pinned");
+    }
     setSelectedItems(new Set());
   };
 
@@ -851,8 +1049,10 @@ export const ConnectionSection = forwardRef<
               )
             : views.find(
                 (v) => v.schema === item.schema && v.name === item.name,
-              );
+        );
         if (meta) handleTableClick(meta, "data");
+      } else if (item.type === "collection") {
+        openMongoCollection(item.name);
       }
     });
     setSelectedItems(new Set());
@@ -1739,34 +1939,13 @@ export const ConnectionSection = forwardRef<
                           name={collection.name}
                           isActive={isMongoCollectionActive(collection.name)}
                           onClick={() => {
-                            setFocusedConnection(connectionId);
-                            const {
-                              addTab,
-                              panelContents,
-                              focusPanel,
-                            } = useWorkbenchStore.getState();
-                            let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
-                            if (!targetPanelId && panelContents.size > 0) {
-                              const firstPanelId = Array.from(
-                                panelContents.keys(),
-                              )[0];
-                              if (firstPanelId) {
-                                targetPanelId = firstPanelId;
-                                focusPanel(firstPanelId);
-                              }
-                            }
-                            if (targetPanelId) {
-                              const objectKey = `mongo-${connectionId}-${database}-${collection.name}`;
-                              const tabId = `${objectKey}:::${nanoid(6)}`;
-                              addTab(targetPanelId, tabId, {
-                                type: "mongo-collection",
-                                title: collection.name,
-                                connectionId,
-                                database,
-                                table: collection.name,
-                                objectKey,
-                              });
-                            }
+                            openMongoCollection(collection.name);
+                          }}
+                          isSelected={selectedItems.has(
+                            `collection:${collection.name}`,
+                          )}
+                          onContextMenu={(e) => {
+                            handleContextMenu(`collection:${collection.name}`, e);
                           }}
                           rowCount={collection.docCount}
                         />
@@ -1851,27 +2030,51 @@ export const ConnectionSection = forwardRef<
 
       {/* Context Menu */}
       {contextMenu?.visible && selectedItems.size > 0 && (
-        <DatabaseSidebarContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          selectedCount={selectedItems.size}
-          selectedTypes={getSelectedTypesBreakdown()}
-          onClose={() => {
-            setContextMenu(null);
-            setSelectedItems(new Set());
-          }}
-          onExport={handleExport}
-          onCopyName={handleCopyName}
-          onCopyDefinition={handleCopyDefinition}
-          onPin={handlePin}
-          onTruncate={handleTruncate}
-          onDelete={handleDelete}
-          onViewData={handleViewData}
-          onViewStructure={handleViewStructure}
-          onViewIndexes={handleViewIndexes}
-          onViewTriggers={handleViewTriggers}
-          onViewDefinition={handleViewDefinition}
-        />
+        (() => {
+          const sidebarItems = getSelectedItems();
+          const dataExportItem = mapSelectedItemsToDataExport(sidebarItems);
+          const definitionExportItems = mapSelectedItemsToExport(sidebarItems);
+
+          return (
+            <DatabaseSidebarContextMenu
+              x={contextMenu.x}
+              y={contextMenu.y}
+              selectedCount={selectedItems.size}
+              selectedTypes={getSelectedTypesBreakdown()}
+              onClose={() => {
+                setContextMenu(null);
+                setSelectedItems(new Set());
+              }}
+              canExportData={dataExportItem !== null}
+              canExportDefinition={definitionExportItems.length > 0}
+              onExportDataCSV={() => {
+                void handleExportData("csv");
+              }}
+              onExportDataJSON={() => {
+                void handleExportData("json");
+              }}
+              onExportDataInsert={() => {
+                void handleExportData("insert");
+              }}
+              onExportDataMarkdown={() => {
+                void handleExportData("markdown");
+              }}
+              onExportDefinition={() => {
+                void handleExportDefinition();
+              }}
+              onCopyName={handleCopyName}
+              onCopyDefinition={handleCopyDefinition}
+              onPin={handlePin}
+              onTruncate={handleTruncate}
+              onDelete={handleDelete}
+              onViewData={handleViewData}
+              onViewStructure={handleViewStructure}
+              onViewIndexes={handleViewIndexes}
+              onViewTriggers={handleViewTriggers}
+              onViewDefinition={handleViewDefinition}
+            />
+          );
+        })()
       )}
     </div>
   );

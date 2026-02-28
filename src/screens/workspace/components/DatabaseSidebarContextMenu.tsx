@@ -1,4 +1,10 @@
-import { useEffect, useRef, useCallback } from "react";
+import {
+  useEffect,
+  useRef,
+  useCallback,
+  useState,
+  useLayoutEffect,
+} from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import {
@@ -14,6 +20,7 @@ import {
   IconBookmark,
   IconBolt,
   IconCode,
+  IconChevronRight,
 } from "@tabler/icons-react";
 import {
   ContextMenuSeparator,
@@ -28,9 +35,16 @@ interface ContextMenuProps {
     views: number;
     materializedViews: number;
     functions: number;
+    collections: number;
   };
   onClose: () => void;
-  onExport: () => void;
+  canExportData?: boolean;
+  canExportDefinition?: boolean;
+  onExportDataCSV?: () => void;
+  onExportDataJSON?: () => void;
+  onExportDataInsert?: () => void;
+  onExportDataMarkdown?: () => void;
+  onExportDefinition?: () => void;
   onCopyName: () => void;
   onCopyDefinition: () => void;
   onPin: () => void;
@@ -45,13 +59,29 @@ interface ContextMenuProps {
   onRefreshMaterializedView?: () => void | Promise<void>;
 }
 
+interface MenuPosition {
+  left: number;
+  top: number;
+  maxHeight: number;
+  overflowY: "auto" | "visible";
+}
+
+const MENU_EDGE_PADDING = 8;
+const MIN_MENU_MAX_HEIGHT = 160;
+
 export function DatabaseSidebarContextMenu({
   x,
   y,
   selectedCount,
   selectedTypes,
   onClose,
-  onExport,
+  canExportData = false,
+  canExportDefinition = false,
+  onExportDataCSV,
+  onExportDataJSON,
+  onExportDataInsert,
+  onExportDataMarkdown,
+  onExportDefinition,
   onCopyName,
   onCopyDefinition,
   onPin,
@@ -66,6 +96,18 @@ export function DatabaseSidebarContextMenu({
   onRefreshMaterializedView,
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [openSubmenu, setOpenSubmenu] = useState<"data" | "definition" | null>(
+    null,
+  );
+  const [menuPosition, setMenuPosition] = useState<MenuPosition>(() => ({
+    left: x,
+    top: y,
+    maxHeight:
+      typeof window !== "undefined"
+        ? Math.max(MIN_MENU_MAX_HEIGHT, window.innerHeight - MENU_EDGE_PADDING * 2)
+        : MIN_MENU_MAX_HEIGHT,
+    overflowY: "visible",
+  }));
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -92,29 +134,6 @@ export function DatabaseSidebarContextMenu({
     };
   }, [onClose]);
 
-  // Adjust position if menu goes off screen
-  useEffect(() => {
-    if (menuRef.current) {
-      const rect = menuRef.current.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-
-      let adjustedX = x;
-      let adjustedY = y;
-
-      if (rect.right > viewportWidth) {
-        adjustedX = viewportWidth - rect.width - 10;
-      }
-
-      if (rect.bottom > viewportHeight) {
-        adjustedY = viewportHeight - rect.height - 10;
-      }
-
-      menuRef.current.style.left = `${adjustedX}px`;
-      menuRef.current.style.top = `${adjustedY}px`;
-    }
-  }, [x, y]);
-
   const hasOnlyTables =
     selectedTypes.tables > 0 &&
     selectedTypes.views === 0 &&
@@ -124,6 +143,7 @@ export function DatabaseSidebarContextMenu({
     selectedTypes.tables > 0 ||
     selectedTypes.views > 0 ||
     selectedTypes.materializedViews > 0;
+  const hasCollections = selectedTypes.collections > 0;
   const hasOnlyMaterializedViews =
     selectedTypes.materializedViews > 0 &&
     selectedTypes.tables === 0 &&
@@ -136,6 +156,99 @@ export function DatabaseSidebarContextMenu({
     selectedTypes.views > 0 ||
     selectedTypes.materializedViews > 0 ||
     selectedTypes.functions > 0;
+
+  const updateMenuPosition = useCallback(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+
+    const rect = menu.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const maxHeight = Math.max(
+      MIN_MENU_MAX_HEIGHT,
+      viewportHeight - MENU_EDGE_PADDING * 2,
+    );
+
+    const spaceBelow = viewportHeight - y - MENU_EDGE_PADDING;
+    const spaceAbove = y - MENU_EDGE_PADDING;
+    const spaceRight = viewportWidth - x - MENU_EDGE_PADDING;
+    const spaceLeft = x - MENU_EDGE_PADDING;
+
+    const needsScroll = rect.height > maxHeight;
+    const effectiveHeight = Math.min(rect.height, maxHeight);
+
+    let top = y;
+    if (rect.height <= spaceBelow) {
+      top = y;
+    } else if (rect.height <= spaceAbove) {
+      top = y - rect.height;
+    } else {
+      top = MENU_EDGE_PADDING;
+    }
+
+    if (needsScroll) {
+      top = MENU_EDGE_PADDING;
+    }
+
+    if (top + effectiveHeight > viewportHeight - MENU_EDGE_PADDING) {
+      top = viewportHeight - MENU_EDGE_PADDING - effectiveHeight;
+    }
+    top = Math.max(MENU_EDGE_PADDING, top);
+
+    let left = x;
+    if (rect.width > spaceRight) {
+      if (rect.width <= spaceLeft) {
+        left = x - rect.width;
+      } else {
+        left = viewportWidth - rect.width - MENU_EDGE_PADDING;
+      }
+    }
+
+    if (left + rect.width > viewportWidth - MENU_EDGE_PADDING) {
+      left = viewportWidth - rect.width - MENU_EDGE_PADDING;
+    }
+    left = Math.max(MENU_EDGE_PADDING, left);
+
+    setMenuPosition((prev) => {
+      if (
+        prev.left === left &&
+        prev.top === top &&
+        prev.maxHeight === maxHeight &&
+        prev.overflowY === (needsScroll ? "auto" : "visible")
+      ) {
+        return prev;
+      }
+
+      return {
+        left,
+        top,
+        maxHeight,
+        overflowY: needsScroll ? "auto" : "visible",
+      };
+    });
+  }, [x, y]);
+
+  useLayoutEffect(() => {
+    updateMenuPosition();
+  }, [
+    updateMenuPosition,
+    openSubmenu,
+    selectedCount,
+    selectedTypes,
+    canExportData,
+    canExportDefinition,
+  ]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      updateMenuPosition();
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [updateMenuPosition]);
 
   // Wrap handlers to close menu after action
   const withClose = useCallback(
@@ -151,10 +264,15 @@ export function DatabaseSidebarContextMenu({
     <div
       ref={menuRef}
       className="fixed z-[9999] min-w-[200px] bg-popover text-popover-foreground rounded-lg p-1 shadow-lg border border-border"
-      style={{ left: x, top: y }}
+      style={{
+        left: menuPosition.left,
+        top: menuPosition.top,
+        maxHeight: menuPosition.maxHeight,
+        overflowY: menuPosition.overflowY,
+      }}
     >
       {/* View options group - all viewing/browsing options together */}
-      {hasTablesOrViews && (
+      {(hasTablesOrViews || hasCollections) && (
         <>
           <MenuItem
             icon={<IconEye />}
@@ -221,11 +339,57 @@ export function DatabaseSidebarContextMenu({
         hasAnyDatabaseObject) && <ContextMenuSeparator className="mx-0" />}
 
       {/* Export */}
-      <MenuItem
+      <MenuSub
         icon={<IconDownload />}
-        label="Export To File"
-        onClick={withClose(onExport)}
-      />
+        label="Export Data"
+        disabled={!canExportData}
+        isOpen={openSubmenu === "data"}
+        onOpen={() => {
+          setOpenSubmenu("data");
+        }}
+        onClose={() => {
+          setOpenSubmenu((prev) => (prev === "data" ? null : prev));
+        }}
+      >
+        <MenuItem
+          icon={<IconDownload />}
+          label="CSV"
+          onClick={withClose(onExportDataCSV ?? (() => {}))}
+        />
+        <MenuItem
+          icon={<IconDownload />}
+          label="JSON"
+          onClick={withClose(onExportDataJSON ?? (() => {}))}
+        />
+        <MenuItem
+          icon={<IconDownload />}
+          label="SQL INSERT"
+          onClick={withClose(onExportDataInsert ?? (() => {}))}
+        />
+        <MenuItem
+          icon={<IconDownload />}
+          label="Markdown"
+          onClick={withClose(onExportDataMarkdown ?? (() => {}))}
+        />
+      </MenuSub>
+      <MenuSub
+        icon={<IconFileText />}
+        label="Export Definition"
+        disabled={!canExportDefinition}
+        isOpen={openSubmenu === "definition"}
+        onOpen={() => {
+          setOpenSubmenu("definition");
+        }}
+        onClose={() => {
+          setOpenSubmenu((prev) => (prev === "definition" ? null : prev));
+        }}
+      >
+        <MenuItem
+          icon={<IconFileText />}
+          label="SQL"
+          onClick={withClose(onExportDefinition ?? (() => {}))}
+        />
+      </MenuSub>
 
       <ContextMenuSeparator className="mx-0" />
 
@@ -343,5 +507,57 @@ function MenuItem({
       {icon}
       <span className="flex-1 text-left">{label}</span>
     </button>
+  );
+}
+
+interface MenuSubProps {
+  icon: React.ReactNode;
+  label: string;
+  disabled?: boolean;
+  isOpen: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+  children: React.ReactNode;
+}
+
+function MenuSub({
+  icon,
+  label,
+  disabled,
+  isOpen,
+  onOpen,
+  onClose,
+  children,
+}: MenuSubProps) {
+  return (
+    <div
+      className="relative"
+      onMouseEnter={() => {
+        if (!disabled) onOpen();
+      }}
+      onMouseLeave={() => {
+        if (!disabled) onClose();
+      }}
+    >
+      <button
+        className={cn(
+          "w-full flex items-center gap-2 min-h-7 rounded-md px-2 py-1 text-xs cursor-default transition-colors",
+          "hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground",
+          "outline-none select-none",
+          "[&_svg]:size-3.5 [&_svg]:shrink-0",
+          disabled && "pointer-events-none opacity-50",
+        )}
+        disabled={disabled}
+      >
+        {icon}
+        <span className="flex-1 text-left">{label}</span>
+        <IconChevronRight />
+      </button>
+      {isOpen && !disabled && (
+        <div className="absolute left-full top-0 ml-1 z-[10000] min-w-[180px] rounded-lg border border-border bg-popover p-1 shadow-lg">
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
