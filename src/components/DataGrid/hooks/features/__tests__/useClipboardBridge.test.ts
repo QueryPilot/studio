@@ -54,7 +54,7 @@ describe("useClipboardBridge", () => {
     expect(toJson).toHaveBeenCalledWith(selection);
     expect(toText).not.toHaveBeenCalled();
     expect(navigator.clipboard.writeText).toHaveBeenCalled();
-    const written = vi.mocked(navigator.clipboard.writeText).mock.calls[0][0];
+    const written = vi.mocked(navigator.clipboard.writeText).mock.calls[0]![0];
     expect(JSON.parse(written)).toEqual([{ col1: "val1", col2: "val2" }]);
     expect(onCopySuccess).toHaveBeenCalledWith("json");
     expect(result.current.lastCopyMode).toBe("json");

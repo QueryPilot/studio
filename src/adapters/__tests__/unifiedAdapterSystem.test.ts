@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { DbType, getParadigm } from '@/types/connection';
-import type { BaseAdapter, DatabaseAdapter } from '../types';
+import type { BaseAdapter } from '../types';
 import { isSqlAdapter, isDocumentAdapter, isKeyValueAdapter } from '../types';
 
 // Mock the invoke module

@@ -4,7 +4,6 @@
  */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
-import type { GridColumnV2, GridRowModel } from '../types';
 import type { PathSegment, KeyMetadata } from '../sources/types';
 
 describe('Unified DataGrid Architecture - Integration Tests', () => {

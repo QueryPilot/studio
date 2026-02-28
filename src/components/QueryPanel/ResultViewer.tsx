@@ -474,7 +474,7 @@ export const ResultViewer = memo(function ResultViewer({
   fetchCount,
   networkMs,
   conversionMs,
-  ipcSendMs,
+  ipcSendMs: _ipcSendMs,
 }: ResultViewerProps) {
   // Determine paradigm from database type
   const paradigm: DatabaseParadigm = useMemo(() => {

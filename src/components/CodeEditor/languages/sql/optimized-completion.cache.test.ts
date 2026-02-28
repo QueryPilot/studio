@@ -13,8 +13,8 @@ vi.mock("./shared", async () => {
   const actual = await vi.importActual("./shared");
   return {
     ...actual,
-    extractTableRefs: (...args: unknown[]) => extractTableRefsMock(...args),
-    resolveTableAlias: (...args: unknown[]) => resolveTableAliasMock(...args),
+    extractTableRefs: (...args: Parameters<typeof extractTableRefsMock>) => extractTableRefsMock(...args),
+    resolveTableAlias: (...args: Parameters<typeof resolveTableAliasMock>) => resolveTableAliasMock(...args),
   };
 });
 

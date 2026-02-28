@@ -13,9 +13,9 @@ describe("useColumnSizing", () => {
   });
 
   const createTestColumns = (): GridColumnV2[] => [
-    { id: "col1", title: "Column 1", width: 100 },
-    { id: "col2", title: "Column 2", width: 150 },
-    { id: "col3", title: "Column 3", width: 200 },
+    { id: "col1", field: "col1", name: "Column 1", title: "Column 1", width: 100 },
+    { id: "col2", field: "col2", name: "Column 2", title: "Column 2", width: 150 },
+    { id: "col3", field: "col3", name: "Column 3", title: "Column 3", width: 200 },
   ];
 
   it("should initialize with column widths", () => {
@@ -33,9 +33,9 @@ describe("useColumnSizing", () => {
     });
 
     expect(result.current.columnWidths).toEqual({ col1: 120, col2: 180 });
-    expect(result.current.sizedColumns[0].width).toBe(120);
-    expect(result.current.sizedColumns[1].width).toBe(180);
-    expect(result.current.sizedColumns[2].width).toBe(200); // default
+    expect(result.current.sizedColumns[0]!.width).toBe(120);
+    expect(result.current.sizedColumns[1]!.width).toBe(180);
+    expect(result.current.sizedColumns[2]!.width).toBe(200); // default
   });
 
   it("should handle column resize with batched updates", () => {

@@ -100,12 +100,12 @@ export function useDataGridFeatures(
     columns,
     // paradigm is not used yet but reserved for future features
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    paradigm,
+    paradigm: _paradigm,
     enableSorting = false,
     enablePinning = false,
     // enableVisibility is not used yet but reserved for future features
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    enableVisibility = false,
+    enableVisibility: _enableVisibility = false,
     enableResizing = false,
     enableRowPinning = false,
     enableOptimisticUpdates = false,

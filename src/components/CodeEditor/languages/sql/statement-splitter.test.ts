@@ -6,15 +6,15 @@ describe('splitStatements', () => {
     const sql = 'SELECT 1; SELECT 2;';
     const statements = splitStatements(sql);
     expect(statements).toHaveLength(2);
-    expect(statements[0].text).toBe('SELECT 1');
-    expect(statements[1].text).toBe('SELECT 2');
+    expect(statements[0]!.text).toBe('SELECT 1');
+    expect(statements[1]!.text).toBe('SELECT 2');
   });
 
   it('should handle strings with semicolons', () => {
     const sql = "SELECT 'a;b'; SELECT 2;";
     const statements = splitStatements(sql);
     expect(statements).toHaveLength(2);
-    expect(statements[0].text).toBe("SELECT 'a;b'");
+    expect(statements[0]!.text).toBe("SELECT 'a;b'");
   });
 
   it('should handle dollar quotes (PostgreSQL)', () => {
@@ -33,14 +33,14 @@ describe('splitStatements', () => {
     const sql = "SELECT 'it''s a test'; SELECT 2;";
     const statements = splitStatements(sql);
     expect(statements).toHaveLength(2);
-    expect(statements[0].text).toBe("SELECT 'it''s a test'");
+    expect(statements[0]!.text).toBe("SELECT 'it''s a test'");
   });
 
   it('should handle double-quoted identifiers', () => {
     const sql = 'SELECT "col;name"; SELECT 2;';
     const statements = splitStatements(sql);
     expect(statements).toHaveLength(2);
-    expect(statements[0].text).toBe('SELECT "col;name"');
+    expect(statements[0]!.text).toBe('SELECT "col;name"');
   });
 
   it('should handle block comments with semicolons', () => {
@@ -59,7 +59,7 @@ describe('splitStatements', () => {
     const sql = 'SELECT 1; SELECT 2';
     const statements = splitStatements(sql);
     expect(statements).toHaveLength(2);
-    expect(statements[1].text).toBe('SELECT 2');
+    expect(statements[1]!.text).toBe('SELECT 2');
   });
 
   it('should handle empty input', () => {
@@ -81,10 +81,10 @@ describe('splitStatements', () => {
   it('should preserve correct positions', () => {
     const sql = 'SELECT 1;\nSELECT 2;';
     const statements = splitStatements(sql);
-    expect(statements[0].from).toBe(0);
-    expect(statements[0].to).toBe(8);
-    expect(statements[1].from).toBe(10);
-    expect(statements[1].to).toBe(18);
+    expect(statements[0]!.from).toBe(0);
+    expect(statements[0]!.to).toBe(8);
+    expect(statements[1]!.from).toBe(10);
+    expect(statements[1]!.to).toBe(18);
   });
 });
 

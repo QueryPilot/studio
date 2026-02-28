@@ -7,7 +7,6 @@ import {
   createDrillableArrayCell,
   isDrillableCell,
 } from '../types';
-import type { DrillableCell } from '../types';
 
 describe('DrillableCellRenderer', () => {
   describe('isMatch', () => {
@@ -115,7 +114,6 @@ describe('DrillableCellRenderer', () => {
 
     it('should not draw hover effect when not drillable', () => {
       const cell = createDrillableObjectCell({ foo: 'bar' }, false);
-      let fillRectCalled = false;
 
       const mockCanvas = {
         fillStyle: '',
@@ -126,7 +124,7 @@ describe('DrillableCellRenderer', () => {
         lineWidth: 0,
         lineCap: 'round' as CanvasLineCap,
         lineJoin: 'round' as CanvasLineJoin,
-        fillRect: () => { fillRectCalled = true; },
+        fillRect: () => {},
         fillText: () => {},
         stroke: () => {},
         save: () => {},

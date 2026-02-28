@@ -91,7 +91,7 @@ export function useTableFullStructure({
   const queryKey = tableStructureQueryKey({
     connectionId,
     database,
-    schema,
+    schema: schema ?? "",
     table,
     options: normalizedOptions as any,
   });
@@ -105,7 +105,7 @@ export function useTableFullStructure({
       fetchTableStructure({
         connectionId,
         database,
-        schema,
+        schema: schema ?? "",
         table,
         options: normalizedOptions,
       }),

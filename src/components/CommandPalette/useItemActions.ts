@@ -10,6 +10,7 @@ import {
 } from "./actions";
 import { logger } from "@/lib/logger";
 import { getAdapterForConnection } from "@/adapters";
+import type { DatabaseAdapter } from "@/adapters/types";
 import { queryStreamClient } from "@/services/queryStreamClient";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 
@@ -372,7 +373,7 @@ async function executeActionHandler(
       if (!connectionId || !database || !item.table || item.table.kind !== "MaterializedView") return;
       const { schema, name } = item.table;
       try {
-        const adapter = await getAdapterForConnection(connectionId);
+        const adapter = (await getAdapterForConnection(connectionId)) as DatabaseAdapter;
         const sql = adapter.refreshMaterializedView(schema, name) as string;
         if (typeof sql !== "string") {
           throw new Error("Refresh materialized view is not supported by this database");

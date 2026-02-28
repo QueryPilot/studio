@@ -213,9 +213,9 @@ export const ConnectionSection = forwardRef<
         const match = line.match(/^db(\d+):keys=(\d+),expires=(\d+)/);
         if (match) {
           databases.push({
-            db: parseInt(match[1], 10),
-            keys: parseInt(match[2], 10),
-            expires: parseInt(match[3], 10),
+            db: parseInt(match[1]!, 10),
+            keys: parseInt(match[2]!, 10),
+            expires: parseInt(match[3]!, 10),
           });
         }
       }

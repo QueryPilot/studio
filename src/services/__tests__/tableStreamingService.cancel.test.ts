@@ -33,8 +33,8 @@ vi.mock("@/lib/logger", () => ({
 // Mock mapBackendColumnsToColumnMeta
 vi.mock("../tableDataTransform", () => ({
   mapBackendColumnsToColumnMeta: (cols: unknown[]) =>
-    cols.map((c: { name?: string }) => ({
-      name: c?.name ?? "col",
+    cols.map((c: unknown) => ({
+      name: (c as { name?: string })?.name ?? "col",
       db_type: "text",
     })),
   normalizeBackendValue: (v: unknown) => v,
