@@ -8,6 +8,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import type { ReactNode } from "react";
 
 interface ConfirmDeleteDialogProps {
   open: boolean;
@@ -16,6 +17,9 @@ interface ConfirmDeleteDialogProps {
   description: string;
   entityName?: string;
   onConfirm: () => void;
+  confirmLabel?: string;
+  confirmVariant?: "destructive" | "default";
+  extraContent?: ReactNode;
 }
 
 export function ConfirmDeleteDialog({
@@ -25,6 +29,9 @@ export function ConfirmDeleteDialog({
   description,
   entityName,
   onConfirm,
+  confirmLabel = "Delete",
+  confirmVariant = "destructive",
+  extraContent,
 }: ConfirmDeleteDialogProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -39,14 +46,19 @@ export function ConfirmDeleteDialog({
               </span>
             )}
           </AlertDialogDescription>
+          {extraContent && <div className="mt-3 w-full">{extraContent}</div>}
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            className={
+              confirmVariant === "destructive"
+                ? "bg-destructive text-white hover:bg-destructive/90"
+                : undefined
+            }
           >
-            Delete
+            {confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

@@ -205,11 +205,11 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
         return;
       }
       if (metadata.viewType !== activeView) {
-        updateTabMetadata(panelId, tabId, { viewType: activeView as string });
+        updateTabMetadata(panelId, tabId, { viewType: activeView });
       }
       // Persist to tabStateStore for table tabs
       if (type === "table") {
-        setQueryState(tabId, { tableViewType: activeView as string });
+        setQueryState(tabId, { tableViewType: activeView });
       }
     }, [activeView, metadata, panelId, tabId, updateTabMetadata, type, setQueryState]);
 
@@ -247,6 +247,11 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
             tabId={tabId}
             connectionId={metadata?.connectionId || activeConnectionId || ""}
             database={metadata?.database || ""}
+            initialQuery={
+              typeof metadata?.initialQuery === "string"
+                ? metadata.initialQuery
+                : undefined
+            }
             className="h-full"
           />
         </FeatureErrorBoundary>

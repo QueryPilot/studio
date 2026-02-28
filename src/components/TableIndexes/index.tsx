@@ -1,10 +1,11 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   GridCellKind,
   type Item,
   type CustomCell,
   type CustomRenderer,
   type EditableGridCell,
+  type GridMouseEventArgs,
 } from "@glideapps/glide-data-grid";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconAlertCircle, IconSearch } from "@tabler/icons-react";
@@ -27,6 +28,7 @@ import { IndexTypeCellRenderer } from "./IndexTypeCellRenderer";
 import { IndexUniqueCellRenderer } from "./IndexUniqueCellRenderer";
 import { ConditionCellRenderer } from "./ConditionCellRenderer";
 import { ActionsCellRenderer } from "@/components/TableStructure/ActionsCellRenderer";
+import { IndexTableContextMenu } from "./IndexTableContextMenu";
 import type { IndexGridRow } from "./types";
 import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
@@ -81,6 +83,7 @@ export const TableIndexes = memo(function TableIndexes({
   const [deleteTarget, setDeleteTarget] = useState<IndexGridRow | null>(null);
   const [globalChangesDialogOpen, setGlobalChangesDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const contextMenuRowRef = useRef<IndexGridRow | null>(null);
 
   // crudStore integration
   const { stagedCommands, stageCommand, unstageCommand, discardChanges } =
@@ -155,6 +158,29 @@ export const TableIndexes = memo(function TableIndexes({
     void loadIndexes();
   }, [loadIndexes]);
 
+  // Auto-generate index names for pending create commands that have columns but no name
+  useEffect(() => {
+    for (const cmd of pendingCommands) {
+      if (cmd.type !== "index.create") continue;
+      const payload = cmd.payload as IndexCreatePayload;
+      const def = payload.definition;
+      if (def.name || def.columns.length === 0) continue;
+
+      const autoName = `idx_${table}_${def.columns.join("_")}`;
+      stageCommand({
+        ...cmd,
+        payload: {
+          ...payload,
+          definition: { ...def, name: autoName },
+        },
+        metadata: {
+          ...cmd.metadata,
+          description: `Create index ${autoName}`,
+        },
+      });
+    }
+  }, [pendingCommands, table, stageCommand]);
+
   // Transform indexes to grid rows with stats and pending commands
   const allGridRows = useMemo(
     () => transformIndexesToRows(indexes, pendingCommands, statsMap),
@@ -226,6 +252,255 @@ export const TableIndexes = memo(function TableIndexes({
       pendingCommands,
       unstageCommand,
     ],
+  );
+
+  // Handler: Change index type via context menu
+  const handleChangeType = useCallback(
+    (row: IndexGridRow, newType: string) => {
+      if (row.index_type === newType) return;
+      const target: CrudCommandTarget = { connectionId, database, schema, table };
+
+      if (row._isPending) {
+        const command = pendingCommands.find(
+          (cmd) =>
+            cmd.type === "index.create" &&
+            (cmd.payload as IndexCreatePayload).tempId === row._tempId,
+        );
+        if (command) {
+          const payload = command.payload as IndexCreatePayload;
+          const updatedCmd = {
+            ...command,
+            payload: {
+              ...payload,
+              definition: { ...payload.definition, using: newType },
+            },
+          };
+          stageCommand(updatedCmd);
+        }
+      } else {
+        const originalName = row._original?.name ?? row.name;
+        const recreateTag = `recreate:${originalName}`;
+        const existingDropCmd = pendingCommands.find(
+          (cmd) =>
+            cmd.type === "index.drop" &&
+            cmd.metadata.tags?.includes(recreateTag),
+        );
+        const existingCreateCmd = pendingCommands.find(
+          (cmd) =>
+            cmd.type === "index.create" &&
+            cmd.metadata.tags?.includes(recreateTag),
+        );
+
+        const currentDef = existingCreateCmd
+          ? (existingCreateCmd.payload as IndexCreatePayload).definition
+          : {
+              name: row._original?.name ?? row.name,
+              columns: row._original?.columns ?? row.columns_array,
+              unique: row._original?.unique ?? row.name_meta.unique,
+              using: row._original?.index_type ?? row.index_type,
+              where: row._original?.condition ?? row.condition,
+            };
+
+        const updatedDef = { ...currentDef, using: newType };
+
+        // Check if reverting to original
+        const original = row._original;
+        const isRevertingToOriginal =
+          original &&
+          updatedDef.name === original.name &&
+          JSON.stringify(updatedDef.columns) ===
+            JSON.stringify(original.columns) &&
+          updatedDef.unique === original.unique &&
+          updatedDef.using === original.index_type &&
+          (updatedDef.where ?? "") === (original.condition ?? "");
+
+        if (isRevertingToOriginal) {
+          if (existingDropCmd) unstageCommand(existingDropCmd.id);
+          if (existingCreateCmd) unstageCommand(existingCreateCmd.id);
+          toast.success("Index reverted to original");
+          return;
+        }
+
+        if (!existingDropCmd) {
+          const baseDropCmd = createIndexDropCommand(target, originalName);
+          const dropCmd = {
+            ...baseDropCmd,
+            metadata: {
+              ...baseDropCmd.metadata,
+              tags: [recreateTag],
+            },
+          };
+          stageCommand(dropCmd);
+        }
+
+        if (existingCreateCmd) {
+          const updatedCreateCmd = {
+            ...existingCreateCmd,
+            payload: {
+              ...(existingCreateCmd.payload as IndexCreatePayload),
+              definition: updatedDef,
+            },
+            metadata: {
+              ...existingCreateCmd.metadata,
+              description: `Recreate index ${updatedDef.name}`,
+            },
+          };
+          stageCommand(updatedCreateCmd);
+        } else {
+          const baseCreateCmd = createIndexCreateCommand(target, updatedDef);
+          const createCmd = {
+            ...baseCreateCmd,
+            metadata: {
+              ...baseCreateCmd.metadata,
+              tags: [recreateTag],
+              description: `Recreate index ${updatedDef.name}`,
+            },
+          };
+          stageCommand(createCmd);
+        }
+      }
+      toast.success("Index type changed", { description: `${row.name} → ${newType}` });
+    },
+    [connectionId, database, schema, table, pendingCommands, stageCommand, unstageCommand],
+  );
+
+  // Handler: Toggle unique flag via context menu
+  const handleToggleUnique = useCallback(
+    (row: IndexGridRow) => {
+      const newUnique = row.unique !== "YES";
+      const target: CrudCommandTarget = { connectionId, database, schema, table };
+
+      if (row._isPending) {
+        const command = pendingCommands.find(
+          (cmd) =>
+            cmd.type === "index.create" &&
+            (cmd.payload as IndexCreatePayload).tempId === row._tempId,
+        );
+        if (command) {
+          const payload = command.payload as IndexCreatePayload;
+          const updatedCmd = {
+            ...command,
+            payload: {
+              ...payload,
+              definition: { ...payload.definition, unique: newUnique },
+            },
+          };
+          stageCommand(updatedCmd);
+        }
+      } else {
+        const originalName = row._original?.name ?? row.name;
+        const recreateTag = `recreate:${originalName}`;
+        const existingDropCmd = pendingCommands.find(
+          (cmd) =>
+            cmd.type === "index.drop" &&
+            cmd.metadata.tags?.includes(recreateTag),
+        );
+        const existingCreateCmd = pendingCommands.find(
+          (cmd) =>
+            cmd.type === "index.create" &&
+            cmd.metadata.tags?.includes(recreateTag),
+        );
+
+        const currentDef = existingCreateCmd
+          ? (existingCreateCmd.payload as IndexCreatePayload).definition
+          : {
+              name: row._original?.name ?? row.name,
+              columns: row._original?.columns ?? row.columns_array,
+              unique: row._original?.unique ?? row.name_meta.unique,
+              using: row._original?.index_type ?? row.index_type,
+              where: row._original?.condition ?? row.condition,
+            };
+
+        const updatedDef = { ...currentDef, unique: newUnique };
+
+        // Check if reverting to original
+        const original = row._original;
+        const isRevertingToOriginal =
+          original &&
+          updatedDef.name === original.name &&
+          JSON.stringify(updatedDef.columns) ===
+            JSON.stringify(original.columns) &&
+          updatedDef.unique === original.unique &&
+          updatedDef.using === original.index_type &&
+          (updatedDef.where ?? "") === (original.condition ?? "");
+
+        if (isRevertingToOriginal) {
+          if (existingDropCmd) unstageCommand(existingDropCmd.id);
+          if (existingCreateCmd) unstageCommand(existingCreateCmd.id);
+          toast.success("Index reverted to original");
+          return;
+        }
+
+        if (!existingDropCmd) {
+          const baseDropCmd = createIndexDropCommand(target, originalName);
+          const dropCmd = {
+            ...baseDropCmd,
+            metadata: {
+              ...baseDropCmd.metadata,
+              tags: [recreateTag],
+            },
+          };
+          stageCommand(dropCmd);
+        }
+
+        if (existingCreateCmd) {
+          const updatedCreateCmd = {
+            ...existingCreateCmd,
+            payload: {
+              ...(existingCreateCmd.payload as IndexCreatePayload),
+              definition: updatedDef,
+            },
+            metadata: {
+              ...existingCreateCmd.metadata,
+              description: `Recreate index ${updatedDef.name}`,
+            },
+          };
+          stageCommand(updatedCreateCmd);
+        } else {
+          const baseCreateCmd = createIndexCreateCommand(target, updatedDef);
+          const createCmd = {
+            ...baseCreateCmd,
+            metadata: {
+              ...baseCreateCmd.metadata,
+              tags: [recreateTag],
+              description: `Recreate index ${updatedDef.name}`,
+            },
+          };
+          stageCommand(createCmd);
+        }
+      }
+      toast.success(newUnique ? "Index set to unique" : "Unique removed", {
+        description: row.name,
+      });
+    },
+    [connectionId, database, schema, table, pendingCommands, stageCommand, unstageCommand],
+  );
+
+  // Handler: Undo a staged delete via context menu
+  const handleUndoDelete = useCallback(
+    (row: IndexGridRow) => {
+      const dropCommand = pendingCommands.find(
+        (cmd) =>
+          cmd.type === "index.drop" &&
+          (cmd.payload as IndexDropPayload).indexName === row._original?.name,
+      );
+      if (dropCommand) {
+        unstageCommand(dropCommand.id);
+        toast.success("Delete undone", {
+          description: `${row._original?.name} will no longer be dropped`,
+        });
+      }
+    },
+    [pendingCommands, unstageCommand],
+  );
+
+  // Handler: Show delete confirmation dialog via context menu
+  const handleShowDeleteConfirm = useCallback(
+    (row: IndexGridRow) => {
+      setDeleteTarget(row);
+      setDeleteDialogOpen(true);
+    },
+    [],
   );
 
   // Enable column resizing
@@ -914,6 +1189,17 @@ export const TableIndexes = memo(function TableIndexes({
     [sizedColumns, gridRows, pendingCommands, unstageCommand, handleDeleteIndex],
   );
 
+  const handleItemHovered = useCallback(
+    (args: GridMouseEventArgs) => {
+      if (args.kind === "cell") {
+        contextMenuRowRef.current = gridRows[args.location[1]] ?? null;
+      } else {
+        contextMenuRowRef.current = null;
+      }
+    },
+    [gridRows],
+  );
+
   if (isLoading) {
     return <TableIndexesSkeleton />;
   }
@@ -1009,23 +1295,37 @@ export const TableIndexes = memo(function TableIndexes({
           </div>
         </div>
         <div className="flex-1">
-          <DataGridBase
-            columns={sizedColumns}
-            rowCount={gridRows.length}
-            getCellContent={getCellContent}
-            customRenderers={customRenderers}
-            rowSelect="none"
-            columnSelect="none"
-            onColumnResize={handleColumnResize}
-            onColumnResizeEnd={handleColumnResizeEnd}
-            onCellClicked={handleCellClick}
-            onCellEdited={handleCellEdited}
-            trailingRowOptions={{
-              sticky: false,
-              tint: false,
-            }}
-            onRowAppended={handleAddIndex}
-          />
+          <IndexTableContextMenu
+            hoveredRowRef={contextMenuRowRef}
+            tableName={table}
+            schemaName={schema}
+            availableIndexTypes={indexTypes}
+            onAddIndex={handleAddIndex}
+            onDeleteIndex={handleDeleteIndex}
+            onUndoDelete={handleUndoDelete}
+            onChangeType={handleChangeType}
+            onToggleUnique={handleToggleUnique}
+            onShowDeleteConfirm={handleShowDeleteConfirm}
+          >
+            <DataGridBase
+              columns={sizedColumns}
+              rowCount={gridRows.length}
+              getCellContent={getCellContent}
+              customRenderers={customRenderers}
+              rowSelect="none"
+              columnSelect="none"
+              onColumnResize={handleColumnResize}
+              onColumnResizeEnd={handleColumnResizeEnd}
+              onCellClicked={handleCellClick}
+              onCellEdited={handleCellEdited}
+              onItemHovered={handleItemHovered}
+              trailingRowOptions={{
+                sticky: false,
+                tint: false,
+              }}
+              onRowAppended={handleAddIndex}
+            />
+          </IndexTableContextMenu>
         </div>
         <div className="px-4 py-2 text-xs text-muted-foreground border-t">
           Total indexes: {indexes.length}

@@ -7,7 +7,7 @@
  * - Tables/Views/Functions sections
  */
 
-import { useState, useEffect, useMemo, useCallback, forwardRef } from "react";
+import { useState, useEffect, useMemo, useCallback, forwardRef, useId } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { cn } from "@/lib/utils";
 import {
@@ -49,7 +49,11 @@ import {
   type SidebarItemDragData,
 } from "./DatabaseSidebarItem";
 import { PartitionSubTree } from "./PartitionSubTree";
-import { type TableMeta, type FunctionMeta } from "@/services/databaseService";
+import {
+  databaseService,
+  type TableMeta,
+  type FunctionMeta,
+} from "@/services/databaseService";
 import {
   openFunctionObject,
   openTableObject,
@@ -64,10 +68,12 @@ import {
   type StarredItemType,
 } from "@/stores/starredItemsStore";
 import { useCrudStore } from "@/stores/crudStore";
+import { CrudCommandFactory } from "@/services/crudCommandFactory";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import type { TableCreatePayload } from "@/types/crud";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ContextMenu,
@@ -78,6 +84,8 @@ import {
 } from "@/components/ui/context-menu";
 import { SchemaDropdown } from "./SchemaDropdown";
 import { DatabaseSidebarContextMenu } from "./DatabaseSidebarContextMenu";
+import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
+import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
 import {
   exportSidebarObjectDataToFile,
   exportSidebarObjectsToFile,
@@ -85,9 +93,27 @@ import {
   type SidebarDataExportItem,
   type SidebarExportItem,
 } from "./databaseSidebarExport";
+import {
+  buildMongoCollectionDefinition,
+  buildMongoCollectionMetadataCommand,
+  buildMongoCollectionMetadataQuery,
+  buildRedisDatabaseDefinition,
+  buildRedisSelectCommand,
+  canCopyDefinition,
+  canDelete,
+  canTruncate,
+  getSqlTruncateOptionSupport,
+  isImmediateExecution,
+  type SidebarSelectedTypes,
+} from "./sidebarContextMenuHelpers";
 import { windowManager } from "@/services/windowManager";
 import { toast } from "sonner";
 import { writeClipboardText } from "@/lib/clipboard";
+import type {
+  DocumentResult,
+  KeyValueOperation,
+  KeyValueResult,
+} from "@/adapters/types/ipc";
 
 interface ConnectionSectionProps {
   connection: OpenConnection;
@@ -116,6 +142,25 @@ interface DraftTableItem {
   panelId?: string;
   tabId?: string;
   timestamp: number;
+}
+
+interface SidebarSelectionItem {
+  type: "table" | "view" | "function" | "collection";
+  schema: string;
+  name: string;
+  kind?: TableMeta["kind"];
+  routineType?: FunctionMeta["routine_type"];
+  returnType?: FunctionMeta["return_type"];
+}
+
+interface PendingConfirmAction {
+  kind?: "sql-truncate" | "sql-delete" | "nosql-truncate" | "nosql-delete" | "redis-truncate";
+  title: string;
+  description: string;
+  entityName?: string;
+  confirmLabel?: string;
+  confirmVariant?: "destructive" | "default";
+  onConfirm: () => Promise<void>;
 }
 
 const parseDesignerTag = (
@@ -178,6 +223,15 @@ export const ConnectionSection = forwardRef<
     y: number;
     visible: boolean;
   } | null>(null);
+  const [globalChangesDialogOpen, setGlobalChangesDialogOpen] = useState(false);
+  const [pendingConfirmAction, setPendingConfirmAction] =
+    useState<PendingConfirmAction | null>(null);
+  const [sqlTruncateOptions, setSqlTruncateOptions] = useState({
+    restartIdentity: false,
+    cascade: false,
+  });
+  const restartIdentityOptionId = useId();
+  const cascadeOptionId = useId();
 
   // Get schema data for SQL databases
   const {
@@ -193,6 +247,7 @@ export const ConnectionSection = forwardRef<
     data: mongoCollections = [],
     isLoading: isLoadingCollections,
     error: collectionsError,
+    refetch: collectionsRefetch,
   } = useQuery({
     queryKey: ["mongo-collections", connectionId, database],
     queryFn: async () => {
@@ -207,7 +262,11 @@ export const ConnectionSection = forwardRef<
 
   // Get Redis databases info from keyspace
   type RedisDatabaseInfo = { db: number; keys: number; expires: number };
-  const { data: redisDatabases = [], isLoading: isLoadingKeys } = useQuery({
+  const {
+    data: redisDatabases = [],
+    isLoading: isLoadingKeys,
+    refetch: refetchRedisDatabases,
+  } = useQuery({
     queryKey: ["redis-databases", connectionId],
     queryFn: async () => {
       const infoStr = await invoke<string>("redis_info", {
@@ -256,6 +315,9 @@ export const ConnectionSection = forwardRef<
   );
   const { toggleStarred, getStarredItems } = useStarredItemsStore();
   const stagedCommands = useCrudStore((s) => s.stagedCommands);
+  const stageBatchWithSingleHistoryEntry = useCrudStore(
+    (s) => s.stageBatchWithSingleHistoryEntry,
+  );
   const panelContents = useWorkbenchStore((s) => s.panelContents);
   const setActiveTab = useWorkbenchStore((s) => s.setActiveTab);
   const focusWorkbenchPanel = useWorkbenchStore((s) => s.focusPanel);
@@ -300,6 +362,31 @@ export const ConnectionSection = forwardRef<
           const [, , schemaName, table] = parts;
           set.add(`${schemaName}.${table}`);
         }
+      }
+    });
+    return set;
+  }, [stagedCommands, connectionId]);
+
+  const destructivePendingChangesSet = useMemo(() => {
+    const set = new Set<string>();
+    stagedCommands.forEach((commands, tableKey) => {
+      if (commands.length === 0 || !tableKey.startsWith(`${connectionId}:`)) {
+        return;
+      }
+
+      const hasDestructiveObjectCommand = commands.some(
+        (command) =>
+          command.type === "table.drop" ||
+          command.type === "table.truncate" ||
+          command.type === "view.drop",
+      );
+
+      if (!hasDestructiveObjectCommand) return;
+
+      const parts = tableKey.split(":");
+      if (parts.length >= 4) {
+        const [, , schemaName, table] = parts;
+        set.add(`${schemaName}.${table}`);
       }
     });
     return set;
@@ -622,6 +709,62 @@ export const ConnectionSection = forwardRef<
       table: collectionName,
       objectKey,
     });
+    focusPanel(targetPanelId);
+  };
+
+  const openMongoCollectionMetadata = (collectionName: string) => {
+    if (!database) return;
+
+    setFocusedConnection(connectionId);
+    const { addTab, panelContents, focusPanel } = useWorkbenchStore.getState();
+    let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
+    if (!targetPanelId && panelContents.size > 0) {
+      const firstPanelId = Array.from(panelContents.keys())[0];
+      if (firstPanelId) {
+        targetPanelId = firstPanelId;
+        focusPanel(firstPanelId);
+      }
+    }
+
+    if (!targetPanelId) return;
+
+    const objectKey = `mongo-meta-${connectionId}-${database}-${collectionName}`;
+    const tabId = `${objectKey}:::${nanoid(6)}`;
+    addTab(targetPanelId, tabId, {
+      type: "mongo-query",
+      title: `${collectionName} metadata`,
+      connectionId,
+      database,
+      objectKey,
+      initialQuery: buildMongoCollectionMetadataQuery(collectionName),
+    });
+    focusPanel(targetPanelId);
+  };
+
+  const openRedisDatabaseTab = (dbIndex: number) => {
+    setFocusedConnection(connectionId);
+    const { addTab, panelContents, focusPanel } = useWorkbenchStore.getState();
+    let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
+    if (!targetPanelId && panelContents.size > 0) {
+      const firstPanelId = Array.from(panelContents.keys())[0];
+      if (firstPanelId) {
+        targetPanelId = firstPanelId;
+        focusPanel(firstPanelId);
+      }
+    }
+
+    if (!targetPanelId) return;
+
+    const objectKey = `redis-${connectionId}-db${dbIndex}`;
+    const tabId = `${objectKey}:::${nanoid(6)}`;
+    addTab(targetPanelId, tabId, {
+      type: "redis-key",
+      title: `db${dbIndex}`,
+      connectionId,
+      database: String(dbIndex),
+      objectKey,
+    });
+    focusPanel(targetPanelId);
   };
 
   const isRedisDatabaseActive = (dbIndex: number): boolean => {
@@ -786,8 +929,8 @@ export const ConnectionSection = forwardRef<
     });
   };
 
-  const getSelectedTypesBreakdown = () => {
-    const breakdown = {
+  const getSelectedTypesBreakdown = (): SidebarSelectedTypes => {
+    const breakdown: SidebarSelectedTypes = {
       tables: 0,
       views: 0,
       materializedViews: 0,
@@ -810,22 +953,15 @@ export const ConnectionSection = forwardRef<
     return breakdown;
   };
 
-  const getSelectedItems = () => {
-    const items: Array<{
-      type: string;
-      schema: string;
-      name: string;
-      kind?: string;
-      routineType?: FunctionMeta["routine_type"];
-      returnType?: FunctionMeta["return_type"];
-    }> = [];
+  const getSelectedItems = (): SidebarSelectionItem[] => {
+    const items: SidebarSelectionItem[] = [];
     selectedItems.forEach((key) => {
       const colonIndex = key.indexOf(":");
       if (colonIndex === -1) return;
       const type = key.slice(0, colonIndex);
       const rest = key.slice(colonIndex + 1);
       if (type === "collection") {
-        items.push({ type, schema: "", name: rest });
+        items.push({ type: "collection", schema: "", name: rest });
         return;
       }
       const dotIndex = rest.indexOf(".");
@@ -836,20 +972,25 @@ export const ConnectionSection = forwardRef<
         const viewItem = views.find(
           (v) => v.schema === itemSchema && v.name === name,
         );
-        items.push({ type, schema: itemSchema, name, kind: viewItem?.kind });
+        items.push({
+          type: "view",
+          schema: itemSchema,
+          name,
+          kind: viewItem?.kind,
+        });
       } else if (type === "function") {
         const functionItem = functions.find(
           (f) => f.schema === itemSchema && f.name === name,
         );
         items.push({
-          type,
+          type: "function",
           schema: itemSchema,
           name,
           routineType: functionItem?.routine_type,
           returnType: functionItem?.return_type,
         });
-      } else {
-        items.push({ type, schema: itemSchema, name });
+      } else if (type === "table") {
+        items.push({ type: "table", schema: itemSchema, name });
       }
     });
     return items;
@@ -925,6 +1066,112 @@ export const ConnectionSection = forwardRef<
     return null;
   };
 
+  const runMongoCommand = async (
+    command: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> => {
+    const result = await invoke<DocumentResult>("document_execute", {
+      connId: connectionId,
+      operation: {
+        type: "runCommand",
+        command,
+      },
+      database,
+    });
+
+    if (result.type !== "command") {
+      throw new Error("Unexpected MongoDB response");
+    }
+    return result.data as Record<string, unknown>;
+  };
+
+  const runRedisOperation = async (
+    operation: KeyValueOperation,
+  ): Promise<KeyValueResult> => {
+    return invoke<KeyValueResult>("keyvalue_execute", {
+      connId: connectionId,
+      operation,
+    });
+  };
+
+  const getCurrentRedisDatabaseIndex = (): number | null => {
+    if (focusedPanelId) {
+      const focusedPanel = panelContents.get(focusedPanelId);
+      const activeTabId = focusedPanel?.activeTabId;
+      const metadata = activeTabId
+        ? focusedPanel.metadata?.[activeTabId]
+        : undefined;
+      if (
+        metadata?.type === "redis-key" &&
+        metadata.connectionId === connectionId &&
+        typeof metadata.database === "string"
+      ) {
+        const activeDb = Number.parseInt(metadata.database, 10);
+        if (!Number.isNaN(activeDb)) {
+          return activeDb;
+        }
+      }
+    }
+
+    if (!database) return null;
+    const parsed = Number.parseInt(database, 10);
+    return Number.isNaN(parsed) ? null : parsed;
+  };
+
+  const truncateRedisDatabase = async (targetDb: number) => {
+    const previousDb = getCurrentRedisDatabaseIndex();
+    const shouldSelectTarget = previousDb === null || previousDb !== targetDb;
+    const shouldRestore = previousDb !== null && previousDb !== targetDb;
+
+    if (shouldSelectTarget) {
+      await runRedisOperation({ type: "selectDb", index: targetDb });
+    }
+
+    try {
+      await runRedisOperation({
+        type: "executeRaw",
+        command: "FLUSHDB",
+        args: [],
+      });
+    } finally {
+      if (shouldRestore) {
+        try {
+          await runRedisOperation({ type: "selectDb", index: previousDb });
+        } catch {
+          // Best effort restore. Keep original FLUSHDB result as primary outcome.
+        }
+      }
+    }
+
+    await refetchRedisDatabases();
+    toast.success(`Truncated db${targetDb}`);
+  };
+
+  const stageSqlCommandsAndOpenGlobalChanges = useCallback(
+    (
+      commands: ReturnType<typeof stageBatchWithSingleHistoryEntry>,
+      actionLabel: string,
+      openGlobalChanges = true,
+    ) => {
+      if (commands.length === 0) {
+        toast.error(`No ${actionLabel} operations to stage`);
+        return;
+      }
+      if (openGlobalChanges) {
+        setGlobalChangesDialogOpen(true);
+      }
+      toast.success(
+        `${commands.length} ${actionLabel} command${commands.length === 1 ? "" : "s"} staged${
+          openGlobalChanges ? "" : " in Global Changes"
+        }`,
+      );
+    },
+    [],
+  );
+
+  const requestConfirmation = useCallback((action: PendingConfirmAction) => {
+    setPendingConfirmAction(action);
+  }, []);
+
   const handleCopyName = async () => {
     const items = getSelectedItems();
     const names = items.map((i) => i.name).join("\n");
@@ -936,8 +1183,236 @@ export const ConnectionSection = forwardRef<
     }
   };
 
-  const handleCopyDefinition = () => {
-    toast.info("Copy definition - coming soon");
+  const handleCopyDefinition = async () => {
+    const items = getSelectedItems();
+    if (items.length === 0) {
+      toast.error("No objects selected");
+      return;
+    }
+
+    const sqlItems = mapSelectedItemsToExport(items);
+    const collectionItems = items.filter(
+      (item): item is SidebarSelectionItem & { type: "collection" } =>
+        item.type === "collection",
+    );
+
+    const output: string[] = [];
+
+    try {
+      for (const item of sqlItems) {
+        const definition = await databaseService.getObjectDefinition(
+          connectionId,
+          database,
+          item.schema,
+          item.name,
+          item.objectType,
+        );
+        output.push(
+          `-- ${item.objectType.toUpperCase()} ${item.schema}.${item.name}\n${definition.trimEnd()}`,
+        );
+      }
+
+      for (const item of collectionItems) {
+        const metadata = await runMongoCommand(
+          buildMongoCollectionMetadataCommand(item.name),
+        );
+        output.push(buildMongoCollectionDefinition(item.name, metadata));
+      }
+
+      if (output.length === 0) {
+        toast.error("No definitions available for selected objects");
+        return;
+      }
+
+      await writeClipboardText(output.join("\n\n"));
+      toast.success(`Copied ${output.length} definition(s)`);
+    } catch (error) {
+      toast.error("Failed to copy definition", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
+
+  const stageSqlTruncate = (
+    items: SidebarSelectionItem[],
+    options: {
+      restartIdentity: boolean;
+      cascade: boolean;
+    },
+  ) => {
+    const commands = stageBatchWithSingleHistoryEntry(
+      items
+        .filter((item): item is SidebarSelectionItem & { type: "table" } => item.type === "table")
+        .map((item) =>
+          CrudCommandFactory.createTableTruncateCommand({
+            target: {
+              connectionId,
+              database,
+              schema: item.schema,
+              table: item.name,
+            },
+            tableName: item.name,
+            restartIdentity: options.restartIdentity,
+            cascade: options.cascade,
+          }),
+        ),
+    );
+
+    stageSqlCommandsAndOpenGlobalChanges(commands, "truncate", false);
+  };
+
+  const stageSqlDelete = (items: SidebarSelectionItem[]) => {
+    const commands = stageBatchWithSingleHistoryEntry(
+      items
+        .map((item) => {
+          if (item.type === "table") {
+            return CrudCommandFactory.createTableDropCommand({
+              target: {
+                connectionId,
+                database,
+                schema: item.schema,
+                table: item.name,
+              },
+              tableName: item.name,
+              ifExists: true,
+            });
+          }
+
+          if (item.type === "view") {
+            return CrudCommandFactory.createViewDropCommand({
+              target: {
+                connectionId,
+                database,
+                schema: item.schema,
+                table: item.name,
+              },
+              viewName: item.name,
+              ifExists: true,
+              isMaterialized: item.kind === "MaterializedView",
+            });
+          }
+
+          return null;
+        })
+        .filter((command): command is NonNullable<typeof command> => command !== null),
+    );
+
+    stageSqlCommandsAndOpenGlobalChanges(commands, "delete");
+  };
+
+  const truncateMongoCollections = async (items: SidebarSelectionItem[]) => {
+    const collectionItems = items.filter(
+      (item): item is SidebarSelectionItem & { type: "collection" } =>
+        item.type === "collection",
+    );
+
+    for (const item of collectionItems) {
+      await runMongoCommand({
+        delete: item.name,
+        deletes: [{ q: {}, limit: 0 }],
+      });
+    }
+
+    await collectionsRefetch();
+    toast.success(
+      `Truncated ${collectionItems.length} collection${collectionItems.length === 1 ? "" : "s"}`,
+    );
+  };
+
+  const deleteMongoCollections = async (items: SidebarSelectionItem[]) => {
+    const collectionItems = items.filter(
+      (item): item is SidebarSelectionItem & { type: "collection" } =>
+        item.type === "collection",
+    );
+
+    for (const item of collectionItems) {
+      await runMongoCommand({ drop: item.name });
+    }
+
+    await collectionsRefetch();
+    toast.success(
+      `Deleted ${collectionItems.length} collection${collectionItems.length === 1 ? "" : "s"}`,
+    );
+  };
+
+  const handleTruncate = () => {
+    const items = getSelectedItems();
+    const selectedTypes = getSelectedTypesBreakdown();
+    if (!canTruncate(selectedTypes)) return;
+    const truncateOptionSupport = getSqlTruncateOptionSupport(dbType);
+    const showSqlTruncateOptions =
+      !isImmediateExecution(selectedTypes) &&
+      (truncateOptionSupport.restartIdentity || truncateOptionSupport.cascade);
+
+    setSqlTruncateOptions({
+      restartIdentity: false,
+      cascade: false,
+    });
+
+    const entityName =
+      items.length === 1
+        ? items[0]?.name
+        : `${items.length} selected object${items.length === 1 ? "" : "s"}`;
+
+    requestConfirmation({
+      title: "Truncate Objects",
+      description:
+        isImmediateExecution(selectedTypes)
+          ? "This will remove all documents in the selected collection(s). This action cannot be undone."
+          : "This will stage TRUNCATE commands in Global Changes. Data will be permanently removed when committed.",
+      entityName,
+      kind: isImmediateExecution(selectedTypes) ? "nosql-truncate" : "sql-truncate",
+      confirmLabel: isImmediateExecution(selectedTypes)
+        ? items.length === 1
+          ? "Truncate Collection"
+          : "Truncate Collections"
+        : "Stage Truncate",
+      onConfirm: async () => {
+        if (isImmediateExecution(selectedTypes)) {
+          await truncateMongoCollections(items);
+          return;
+        }
+        stageSqlTruncate(
+          items,
+          showSqlTruncateOptions
+            ? sqlTruncateOptions
+            : { restartIdentity: false, cascade: false },
+        );
+      },
+    });
+  };
+
+  const handleDelete = () => {
+    const items = getSelectedItems();
+    const selectedTypes = getSelectedTypesBreakdown();
+    if (!canDelete(selectedTypes)) return;
+
+    const entityName =
+      items.length === 1
+        ? items[0]?.name
+        : `${items.length} selected object${items.length === 1 ? "" : "s"}`;
+
+    requestConfirmation({
+      title: "Delete Objects",
+      description:
+        isImmediateExecution(selectedTypes)
+          ? "This will drop the selected collection(s). This action cannot be undone."
+          : "This will stage DROP commands in Global Changes. Objects will be removed when committed.",
+      entityName,
+      kind: isImmediateExecution(selectedTypes) ? "nosql-delete" : "sql-delete",
+      confirmLabel: isImmediateExecution(selectedTypes)
+        ? items.length === 1
+          ? "Delete Collection"
+          : "Delete Collections"
+        : "Stage Delete",
+      onConfirm: async () => {
+        if (isImmediateExecution(selectedTypes)) {
+          await deleteMongoCollections(items);
+          return;
+        }
+        stageSqlDelete(items);
+      },
+    });
   };
 
   const handleExportDefinition = async () => {
@@ -1030,14 +1505,6 @@ export const ConnectionSection = forwardRef<
     setSelectedItems(new Set());
   };
 
-  const handleTruncate = () => {
-    toast.info("Truncate - coming soon");
-  };
-
-  const handleDelete = () => {
-    toast.info("Delete - coming soon");
-  };
-
   const handleViewData = () => {
     const items = getSelectedItems();
     items.forEach((item) => {
@@ -1071,6 +1538,8 @@ export const ConnectionSection = forwardRef<
                 (v) => v.schema === item.schema && v.name === item.name,
               );
         if (meta) handleTableClick(meta, "structure");
+      } else if (item.type === "collection") {
+        openMongoCollectionMetadata(item.name);
       }
     });
     setSelectedItems(new Set());
@@ -1283,14 +1752,9 @@ export const ConnectionSection = forwardRef<
             <IconPlugConnected className="h-4 w-4 mr-2" />
             Reconnect
           </ContextMenuItem>
-          <ContextMenuItem
-            onClick={() => {
-              // TODO: Open in new window
-              toast.info("Open in new window - coming soon");
-            }}
-          >
+          <ContextMenuItem disabled>
             <IconExternalLink className="h-4 w-4 mr-2" />
-            Open in New Window
+            Open in New Window (coming soon)
           </ContextMenuItem>
           <ContextMenuItem
             onClick={() => {
@@ -1385,13 +1849,14 @@ export const ConnectionSection = forwardRef<
                   stickyClass=""
                 >
                   {starredItemsRaw.map((item) => {
-                    const key = `${item.schema}.${item.name}`;
+                    const objectKey = `${item.schema}.${item.name}`;
+                    const selectionKey = `${item.type}:${objectKey}`;
                     const itemData =
                       item.type === "function"
-                        ? functionsByKey.get(key)
+                        ? functionsByKey.get(objectKey)
                         : item.type === "view"
-                        ? viewsByKey.get(key)
-                        : tablesByKey.get(key);
+                        ? viewsByKey.get(objectKey)
+                        : tablesByKey.get(objectKey);
 
                     if (!itemData) return null;
 
@@ -1479,6 +1944,17 @@ export const ConnectionSection = forwardRef<
                           item.type !== "function" &&
                           pendingChangesSet.has(`${item.schema}.${item.name}`)
                         }
+                        pendingChangeVariant={
+                          destructivePendingChangesSet.has(
+                            `${item.schema}.${item.name}`,
+                          )
+                            ? "destructive"
+                            : "standard"
+                        }
+                        isSelected={selectedItems.has(selectionKey)}
+                        onContextMenu={(e) => {
+                          handleContextMenu(selectionKey, e);
+                        }}
                       />
                       </DraggableSidebarItem>
                     );
@@ -1571,6 +2047,13 @@ export const ConnectionSection = forwardRef<
                           hasPendingChanges={pendingChangesSet.has(
                             `${table.schema}.${table.name}`,
                           )}
+                          pendingChangeVariant={
+                            destructivePendingChangesSet.has(
+                              `${table.schema}.${table.name}`,
+                            )
+                              ? "destructive"
+                              : "standard"
+                          }
                           isExpandable={isPartitioned}
                           isExpanded={isPartitionExpanded}
                           onToggleExpand={() => {
@@ -1715,6 +2198,13 @@ export const ConnectionSection = forwardRef<
                       hasPendingChanges={pendingChangesSet.has(
                         `${view.schema}.${view.name}`,
                       )}
+                      pendingChangeVariant={
+                        destructivePendingChangesSet.has(
+                          `${view.schema}.${view.name}`,
+                        )
+                          ? "destructive"
+                          : "standard"
+                      }
                       isSelected={selectedItems.has(
                         `view:${view.schema}.${view.name}`,
                       )}
@@ -1967,6 +2457,8 @@ export const ConnectionSection = forwardRef<
               ) : (
                 redisDatabases.map((dbInfo) => {
                   const isActive = isRedisDatabaseActive(dbInfo.db);
+                  const dbLabel = `db${dbInfo.db}`;
+                  const selectCommand = buildRedisSelectCommand(dbInfo.db);
 
                   return (
                     <DraggableSidebarItem
@@ -1982,43 +2474,105 @@ export const ConnectionSection = forwardRef<
                         redisDb: dbInfo.db,
                       }}
                     >
-                      <SidebarItem
-                        icon={
-                          <IconDatabase className="h-3.5 w-4 min-w-4 text-orange-500 shrink-0" />
-                        }
-                        name={`db${dbInfo.db}`}
-                        rowCount={dbInfo.keys}
-                        isActive={isActive}
-                        onClick={() => {
-                          setFocusedConnection(connectionId);
-                          const {
-                            addTab,
-                            panelContents,
-                            focusPanel,
-                          } = useWorkbenchStore.getState();
-                          let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
-                          if (!targetPanelId && panelContents.size > 0) {
-                            const firstPanelId = Array.from(
-                              panelContents.keys()
-                            )[0];
-                            if (firstPanelId) {
-                              targetPanelId = firstPanelId;
-                              focusPanel(firstPanelId);
+                      <ContextMenu>
+                        <ContextMenuTrigger className="block">
+                          <SidebarItem
+                            icon={
+                              <IconDatabase className="h-3.5 w-4 min-w-4 text-orange-500 shrink-0" />
                             }
-                          }
-                          if (targetPanelId) {
-                            const objectKey = `redis-${connectionId}-db${dbInfo.db}`;
-                            const tabId = `${objectKey}:::${nanoid(6)}`;
-                            addTab(targetPanelId, tabId, {
-                              type: "redis-key",
-                              title: `db${dbInfo.db}`,
-                              connectionId,
-                              database: String(dbInfo.db),
-                              objectKey,
-                            });
-                          }
-                        }}
-                      />
+                            name={dbLabel}
+                            rowCount={dbInfo.keys}
+                            isActive={isActive}
+                            onClick={() => {
+                              openRedisDatabaseTab(dbInfo.db);
+                            }}
+                          />
+                        </ContextMenuTrigger>
+                        <ContextMenuContent>
+                          <ContextMenuItem
+                            onClick={() => {
+                              openRedisDatabaseTab(dbInfo.db);
+                            }}
+                          >
+                            <IconEye className="h-4 w-4 mr-2" />
+                            View Data
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onClick={() => {
+                              void refetchRedisDatabases();
+                            }}
+                          >
+                            <IconRefresh className="h-4 w-4 mr-2" />
+                            Reload
+                          </ContextMenuItem>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem
+                            onClick={() => {
+                              void writeClipboardText(dbLabel);
+                              toast.success("Copied DB name");
+                            }}
+                          >
+                            <IconCopy className="h-4 w-4 mr-2" />
+                            Copy DB Name
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onClick={() => {
+                              void writeClipboardText(selectCommand);
+                              toast.success("Copied Redis command");
+                            }}
+                          >
+                            <IconCopy className="h-4 w-4 mr-2" />
+                            Copy Command: {selectCommand}
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onClick={() => {
+                              const definition = buildRedisDatabaseDefinition({
+                                dbIndex: dbInfo.db,
+                                keys: dbInfo.keys,
+                                expires: dbInfo.expires,
+                              });
+                              void writeClipboardText(definition)
+                                .then(() => {
+                                  toast.success("Copied DB definition");
+                                })
+                                .catch(() => {
+                                  toast.error("Failed to copy DB definition");
+                                });
+                            }}
+                          >
+                            <IconCopy className="h-4 w-4 mr-2" />
+                            Copy Definition
+                          </ContextMenuItem>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem disabled>
+                            <IconBolt className="h-4 w-4 mr-2" />
+                            Create Key (coming soon)
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            variant="destructive"
+                            onClick={() => {
+                              requestConfirmation({
+                                kind: "redis-truncate",
+                                title: "Truncate Redis Database",
+                                description:
+                                  "This will remove all keys in the selected Redis database immediately. This action cannot be undone.",
+                                entityName: dbLabel,
+                                confirmLabel: "Flush DB",
+                                onConfirm: async () => {
+                                  await truncateRedisDatabase(dbInfo.db);
+                                },
+                              });
+                            }}
+                          >
+                            <IconX className="h-4 w-4 mr-2" />
+                            Truncate...
+                          </ContextMenuItem>
+                          <ContextMenuItem disabled variant="destructive">
+                            <IconX className="h-4 w-4 mr-2" />
+                            Delete DB (coming soon)
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
                     </DraggableSidebarItem>
                   );
                 })
@@ -2034,13 +2588,14 @@ export const ConnectionSection = forwardRef<
           const sidebarItems = getSelectedItems();
           const dataExportItem = mapSelectedItemsToDataExport(sidebarItems);
           const definitionExportItems = mapSelectedItemsToExport(sidebarItems);
+          const selectedTypes = getSelectedTypesBreakdown();
 
           return (
             <DatabaseSidebarContextMenu
               x={contextMenu.x}
               y={contextMenu.y}
               selectedCount={selectedItems.size}
-              selectedTypes={getSelectedTypesBreakdown()}
+              selectedTypes={selectedTypes}
               onClose={() => {
                 setContextMenu(null);
                 setSelectedItems(new Set());
@@ -2063,10 +2618,12 @@ export const ConnectionSection = forwardRef<
                 void handleExportDefinition();
               }}
               onCopyName={handleCopyName}
-              onCopyDefinition={handleCopyDefinition}
+              onCopyDefinition={
+                canCopyDefinition(selectedTypes) ? () => void handleCopyDefinition() : undefined
+              }
               onPin={handlePin}
-              onTruncate={handleTruncate}
-              onDelete={handleDelete}
+              onTruncate={canTruncate(selectedTypes) ? handleTruncate : undefined}
+              onDelete={canDelete(selectedTypes) ? handleDelete : undefined}
               onViewData={handleViewData}
               onViewStructure={handleViewStructure}
               onViewIndexes={handleViewIndexes}
@@ -2076,6 +2633,97 @@ export const ConnectionSection = forwardRef<
           );
         })()
       )}
+
+      <ConfirmDeleteDialog
+        open={pendingConfirmAction !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingConfirmAction(null);
+          }
+        }}
+        title={pendingConfirmAction?.title ?? "Confirm Action"}
+        description={pendingConfirmAction?.description ?? ""}
+        entityName={pendingConfirmAction?.entityName}
+        confirmLabel={pendingConfirmAction?.confirmLabel}
+        confirmVariant={pendingConfirmAction?.confirmVariant}
+        extraContent={
+          pendingConfirmAction?.kind === "sql-truncate" &&
+          (() => {
+            const support = getSqlTruncateOptionSupport(dbType);
+            if (!support.restartIdentity && !support.cascade) return null;
+
+            return (
+              <div className="space-y-3">
+                {support.restartIdentity && (
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      id={restartIdentityOptionId}
+                      checked={sqlTruncateOptions.restartIdentity}
+                      onCheckedChange={(checked) => {
+                        setSqlTruncateOptions((prev) => ({
+                          ...prev,
+                          restartIdentity: checked,
+                        }));
+                      }}
+                    />
+                    <label
+                      htmlFor={restartIdentityOptionId}
+                      className="space-y-1 cursor-pointer select-none"
+                    >
+                      <div className="text-xs/relaxed font-medium">
+                        Restart identity
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Reset sequences/auto-increment counters.
+                      </p>
+                    </label>
+                  </div>
+                )}
+                {support.cascade && (
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      id={cascadeOptionId}
+                      checked={sqlTruncateOptions.cascade}
+                      onCheckedChange={(checked) => {
+                        setSqlTruncateOptions((prev) => ({
+                          ...prev,
+                          cascade: checked,
+                        }));
+                      }}
+                    />
+                    <label
+                      htmlFor={cascadeOptionId}
+                      className="space-y-1 cursor-pointer select-none"
+                    >
+                      <div className="text-xs/relaxed font-medium">Cascade</div>
+                      <p className="text-xs text-muted-foreground">
+                        Include dependent tables.
+                      </p>
+                    </label>
+                  </div>
+                )}
+              </div>
+            );
+          })()
+        }
+        onConfirm={() => {
+          const action = pendingConfirmAction;
+          if (!action) return;
+          setPendingConfirmAction(null);
+          void action.onConfirm().catch((error: unknown) => {
+            toast.error("Action failed", {
+              description:
+                error instanceof Error ? error.message : "Unknown error",
+            });
+          });
+        }}
+      />
+
+      <GlobalChangesDialog
+        open={globalChangesDialogOpen}
+        onOpenChange={setGlobalChangesDialogOpen}
+        connectionId={connectionId}
+      />
     </div>
   );
 });

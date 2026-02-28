@@ -154,6 +154,7 @@ interface SidebarItemProps {
   isStarred?: boolean;
   onToggleStar?: (e: React.MouseEvent) => void;
   hasPendingChanges?: boolean;
+  pendingChangeVariant?: "standard" | "destructive";
   isSelected?: boolean;
   onMouseDown?: (e: React.MouseEvent) => void;
   onMouseEnter?: () => void;
@@ -178,6 +179,7 @@ export function SidebarItem({
   isStarred = false,
   onToggleStar,
   hasPendingChanges = false,
+  pendingChangeVariant = "standard",
   isSelected = false,
   onMouseDown,
   onMouseEnter,
@@ -198,9 +200,13 @@ export function SidebarItem({
     }
   }, [isActive]);
 
+  const isDestructivePending =
+    hasPendingChanges && pendingChangeVariant === "destructive";
+
   return (
     <div
       ref={itemRef}
+      data-testid="sidebar-item-root"
       className={cn(
         "group flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer overflow-hidden border-l-2",
         isActive
@@ -209,6 +215,8 @@ export function SidebarItem({
             ? "bg-primary/20 border-l-primary/70"
             : isBeingDuplicated
               ? "bg-blue-500/10 border-l-blue-500"
+              : isDestructivePending
+                ? "bg-destructive/10 border-l-destructive"
               : "border-l-transparent",
         className,
       )}
@@ -220,8 +228,20 @@ export function SidebarItem({
     >
       {hasPendingChanges ? (
         <span className="relative flex h-2 w-2 shrink-0 ml-1">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
+          <span
+            data-testid="pending-indicator-pulse"
+            className={cn(
+              "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
+              isDestructivePending ? "bg-destructive/70" : "bg-orange-400",
+            )}
+          ></span>
+          <span
+            data-testid="pending-indicator-dot"
+            className={cn(
+              "relative inline-flex rounded-full h-2 w-2",
+              isDestructivePending ? "bg-destructive" : "bg-orange-500",
+            )}
+          ></span>
         </span>
       ) : isBeingDuplicated ? (
         <span className="relative flex h-2 w-2 shrink-0 ml-1">

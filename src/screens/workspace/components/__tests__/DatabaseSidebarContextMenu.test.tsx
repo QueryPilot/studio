@@ -2,35 +2,39 @@ import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { DatabaseSidebarContextMenu } from "../DatabaseSidebarContextMenu";
 
+const baseProps = {
+  x: 10,
+  y: 10,
+  selectedCount: 1,
+  selectedTypes: {
+    tables: 1,
+    views: 0,
+    materializedViews: 0,
+    functions: 0,
+    collections: 0,
+  },
+  onClose: vi.fn(),
+  canExportData: true,
+  canExportDefinition: true,
+  onExportDataCSV: vi.fn(),
+  onExportDataJSON: vi.fn(),
+  onExportDataInsert: vi.fn(),
+  onExportDataMarkdown: vi.fn(),
+  onExportDefinition: vi.fn(),
+  onCopyName: vi.fn(),
+  onPin: vi.fn(),
+  onViewData: vi.fn(),
+  onViewStructure: vi.fn(),
+};
+
 describe("DatabaseSidebarContextMenu export submenus", () => {
   it("renders export options inside submenus", () => {
     render(
       <DatabaseSidebarContextMenu
-        x={10}
-        y={10}
-        selectedCount={1}
-        selectedTypes={{
-          tables: 1,
-          views: 0,
-          materializedViews: 0,
-          functions: 0,
-          collections: 0,
-        }}
-        onClose={vi.fn()}
-        canExportData={true}
-        canExportDefinition={true}
-        onExportDataCSV={vi.fn()}
-        onExportDataJSON={vi.fn()}
-        onExportDataInsert={vi.fn()}
-        onExportDataMarkdown={vi.fn()}
-        onExportDefinition={vi.fn()}
-        onCopyName={vi.fn()}
+        {...baseProps}
         onCopyDefinition={vi.fn()}
-        onPin={vi.fn()}
         onTruncate={vi.fn()}
         onDelete={vi.fn()}
-        onViewData={vi.fn()}
-        onViewStructure={vi.fn()}
       />,
     );
 
@@ -52,9 +56,7 @@ describe("DatabaseSidebarContextMenu export submenus", () => {
   it("shows View Data for collection selections", () => {
     render(
       <DatabaseSidebarContextMenu
-        x={10}
-        y={10}
-        selectedCount={1}
+        {...baseProps}
         selectedTypes={{
           tables: 0,
           views: 0,
@@ -62,25 +64,42 @@ describe("DatabaseSidebarContextMenu export submenus", () => {
           functions: 0,
           collections: 1,
         }}
-        onClose={vi.fn()}
         canExportData={false}
         canExportDefinition={false}
-        onExportDataCSV={vi.fn()}
-        onExportDataJSON={vi.fn()}
-        onExportDataInsert={vi.fn()}
-        onExportDataMarkdown={vi.fn()}
-        onExportDefinition={vi.fn()}
-        onCopyName={vi.fn()}
         onCopyDefinition={vi.fn()}
-        onPin={vi.fn()}
         onTruncate={vi.fn()}
         onDelete={vi.fn()}
-        onViewData={vi.fn()}
-        onViewStructure={vi.fn()}
       />,
     );
 
     expect(screen.getByText("View Data")).toBeInTheDocument();
+  });
+
+  it("shows truncate for collection selections when wired", () => {
+    const onTruncate = vi.fn();
+    render(
+      <DatabaseSidebarContextMenu
+        {...baseProps}
+        selectedTypes={{
+          tables: 0,
+          views: 0,
+          materializedViews: 0,
+          functions: 0,
+          collections: 1,
+        }}
+        canExportData={false}
+        canExportDefinition={false}
+        onCopyDefinition={vi.fn()}
+        onTruncate={onTruncate}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    const truncateButton = screen.getByRole("button", { name: "Truncate..." });
+    expect(truncateButton).toBeEnabled();
+
+    fireEvent.click(truncateButton);
+    expect(onTruncate).toHaveBeenCalledOnce();
   });
 
   it("positions menu above cursor when bottom space is insufficient", async () => {
@@ -98,31 +117,12 @@ describe("DatabaseSidebarContextMenu export submenus", () => {
 
     render(
       <DatabaseSidebarContextMenu
+        {...baseProps}
         x={200}
         y={280}
-        selectedCount={1}
-        selectedTypes={{
-          tables: 1,
-          views: 0,
-          materializedViews: 0,
-          functions: 0,
-          collections: 0,
-        }}
-        onClose={vi.fn()}
-        canExportData={true}
-        canExportDefinition={true}
-        onExportDataCSV={vi.fn()}
-        onExportDataJSON={vi.fn()}
-        onExportDataInsert={vi.fn()}
-        onExportDataMarkdown={vi.fn()}
-        onExportDefinition={vi.fn()}
-        onCopyName={vi.fn()}
         onCopyDefinition={vi.fn()}
-        onPin={vi.fn()}
         onTruncate={vi.fn()}
         onDelete={vi.fn()}
-        onViewData={vi.fn()}
-        onViewStructure={vi.fn()}
       />,
     );
 
@@ -159,5 +159,47 @@ describe("DatabaseSidebarContextMenu export submenus", () => {
       configurable: true,
       value: originalInnerWidth,
     });
+  });
+
+  it("shows unimplemented actions as disabled coming soon items", () => {
+    render(<DatabaseSidebarContextMenu {...baseProps} />);
+
+    const copyDefinition = screen.getByRole("button", {
+      name: "Copy Definition (coming soon)",
+    });
+    const duplicate = screen.getByRole("button", {
+      name: "Duplicate (coming soon)",
+    });
+    const truncate = screen.getByRole("button", {
+      name: "Truncate... (coming soon)",
+    });
+    const deleteAction = screen.getByRole("button", {
+      name: "Delete... (coming soon)",
+    });
+
+    expect(copyDefinition).toBeDisabled();
+    expect(duplicate).toBeDisabled();
+    expect(truncate).toBeDisabled();
+    expect(deleteAction).toBeDisabled();
+  });
+
+  it("shows refresh materialized view as disabled coming soon when not wired", () => {
+    render(
+      <DatabaseSidebarContextMenu
+        {...baseProps}
+        selectedTypes={{
+          tables: 0,
+          views: 0,
+          materializedViews: 1,
+          functions: 0,
+          collections: 0,
+        }}
+      />,
+    );
+
+    const refresh = screen.getByRole("button", {
+      name: "Refresh Materialized View (coming soon)",
+    });
+    expect(refresh).toBeDisabled();
   });
 });
