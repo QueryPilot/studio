@@ -120,7 +120,7 @@ export const InspectorPanel = memo(function InspectorPanel({
           </div>
         ) : (
           <>
-            <TabsContent value="tree" className="flex-1 min-h-0 mt-2 px-3 pb-3">
+            <TabsContent value="tree" className="flex-1 min-h-0 p-2">
               <InspectorTreeView
                 documents={documents}
                 onCellEdit={onCellEdit ? handleTreeCellEdit : undefined}
@@ -129,11 +129,11 @@ export const InspectorPanel = memo(function InspectorPanel({
               />
             </TabsContent>
 
-            <TabsContent value="raw" className="flex-1 min-h-0 mt-2 px-3 pb-3">
+            <TabsContent value="raw" className="flex-1 min-h-0 p-2">
               <InspectorRawView documents={documents} />
             </TabsContent>
 
-            <TabsContent value="diff" className="flex-1 min-h-0 mt-2 px-3 pb-3">
+            <TabsContent value="diff" className="flex-1 min-h-0 p-2">
               <InspectorDiffView documents={documents} />
             </TabsContent>
           </>
