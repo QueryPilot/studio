@@ -5,11 +5,11 @@ import type { GridRowModel } from "../../../types";
 
 describe("useRowPinning", () => {
   const createTestRows = (): GridRowModel[] => [
-    { data: { id: 1, name: "Row 1" } },
-    { data: { id: 2, name: "Row 2" } },
-    { data: { id: 3, name: "Row 3" } },
-    { data: { id: 4, name: "Row 4" } },
-    { data: { id: 5, name: "Row 5" } },
+    { id: { value: 1, db_type: "int4", value_type: "Integer", is_truncated: false }, name: { value: "Row 1", db_type: "text", value_type: "Text", is_truncated: false } },
+    { id: { value: 2, db_type: "int4", value_type: "Integer", is_truncated: false }, name: { value: "Row 2", db_type: "text", value_type: "Text", is_truncated: false } },
+    { id: { value: 3, db_type: "int4", value_type: "Integer", is_truncated: false }, name: { value: "Row 3", db_type: "text", value_type: "Text", is_truncated: false } },
+    { id: { value: 4, db_type: "int4", value_type: "Integer", is_truncated: false }, name: { value: "Row 4", db_type: "text", value_type: "Text", is_truncated: false } },
+    { id: { value: 5, db_type: "int4", value_type: "Integer", is_truncated: false }, name: { value: "Row 5", db_type: "text", value_type: "Text", is_truncated: false } },
   ];
 
   it("should initialize with pinned rows", () => {
@@ -141,14 +141,14 @@ describe("useRowPinning", () => {
 
     // Pinned rows should be in pin order, not row order
     expect(result.current.pinnedRowIds).toEqual(["row-2", "row-0", "row-4"]);
-    expect(result.current.pinnedRows[0].data.id).toBe(3);
-    expect(result.current.pinnedRows[1].data.id).toBe(1);
-    expect(result.current.pinnedRows[2].data.id).toBe(5);
+    expect(result.current.pinnedRows[0]!.id!.value).toBe(3);
+    expect(result.current.pinnedRows[1]!.id!.value).toBe(1);
+    expect(result.current.pinnedRows[2]!.id!.value).toBe(5);
   });
 
   it("should handle custom getRowId function", () => {
     const rows = createTestRows();
-    const getRowId = (row: GridRowModel) => `custom-${row.data.id}`;
+    const getRowId = (row: GridRowModel) => `custom-${row.id!.value}`;
     const { result } = renderHook(() =>
       useRowPinning({ rows, getRowId }),
     );
@@ -158,7 +158,7 @@ describe("useRowPinning", () => {
     });
 
     expect(result.current.isPinned("custom-2")).toBe(true);
-    expect(result.current.pinnedRows[0].data.id).toBe(2);
+    expect(result.current.pinnedRows[0]!.id!.value).toBe(2);
   });
 
   it("should handle rows that no longer exist", () => {

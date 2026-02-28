@@ -189,7 +189,7 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
               element.appendChild(button);
             }
 
-            button.onclick = (e) => {
+            (button as HTMLElement).onclick = (e: MouseEvent) => {
               e.preventDefault();
               e.stopPropagation();
               onExecute(stmt.text);

@@ -217,9 +217,9 @@ function parseRedisDatabases(
     if (!dbMatch || !valueMatch) continue;
 
     databases.push({
-      db: Number.parseInt(dbMatch[1], 10),
-      keys: Number.parseInt(valueMatch[1], 10),
-      expires: Number.parseInt(valueMatch[2], 10),
+      db: Number.parseInt(dbMatch[1]!, 10),
+      keys: Number.parseInt(valueMatch[1]!, 10),
+      expires: Number.parseInt(valueMatch[2]!, 10),
     });
   }
 

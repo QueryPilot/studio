@@ -24,7 +24,6 @@ rmp-serde = "1.3"  # MessagePack for binary serialization (faster & smaller than
 rmp = "0.8"  # Low-level MessagePack encoding for direct Row→MsgPack
 # serde_bytes no longer needed - using Response::new() for raw binary transfer
 reqwest = { version = "0.11", features = ["json", "rustls-tls", "stream"] }
-argon2 = { version = "0.5", default-features = false, features = ["std"] }
 
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }
@@ -93,7 +92,6 @@ regex = "1.10"
 dirs = "5.0"
 rayon = "1.8"  # Parallel processing for row conversion
 moka = { version = "0.12", features = ["sync"] }  # LRU cache for prepared statements
-bumpalo = { version = "3.14", features = ["collections"] }  # Arena allocator for batch encoding
 ryu = "1.0"  # Fast float-to-string conversion
 itoa = "1.0"  # Fast integer-to-string conversion
 

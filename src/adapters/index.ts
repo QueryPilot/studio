@@ -890,7 +890,7 @@ export async function generateSqlPreview(
       trackColumnRename(columnRenames, cmd, adjustedCmd);
       trackTableRename(tableRenames, cmd, tableAdjustedCmd);
 
-      const sql = commandToSql(adapter, adjustedCmd);
+      const sql = commandToSql(adapter as DatabaseAdapter, adjustedCmd);
       if (sql) {
         statements.push(sql);
       }

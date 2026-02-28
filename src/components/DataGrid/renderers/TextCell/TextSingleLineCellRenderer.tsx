@@ -69,7 +69,7 @@ const TextSingleLineCellRenderer: CustomCellRenderer<TextSingleLineCustomCell> =
       return true;
     },
 
-    provideEditor: (cell) => {
+    provideEditor: ((cell: TextSingleLineCustomCell) => {
       if (cell.readonly) {
         return undefined;
       }
@@ -78,7 +78,7 @@ const TextSingleLineCellRenderer: CustomCellRenderer<TextSingleLineCustomCell> =
         disablePadding: true,
         disableStyling: false,
       };
-    },
+    }) as CustomCellRenderer<TextSingleLineCustomCell>["provideEditor"],
   };
 
 export default TextSingleLineCellRenderer;

@@ -103,7 +103,7 @@ export function useTableDataQuery(
   const structureKey = tableStructureQueryKey({
     connectionId,
     database,
-    schema,
+    schema: schema ?? "",
     table: entityName,
     options: undefined,
   });
@@ -122,7 +122,7 @@ export function useTableDataQuery(
       const structureParams: TableStructureQueryParams = {
         connectionId,
         database,
-        schema,
+        schema: schema ?? "",
         table: entityName,
       };
 

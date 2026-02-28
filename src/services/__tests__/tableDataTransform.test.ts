@@ -255,9 +255,9 @@ describe("mapRowsToTableData", () => {
     const rawRows = [[BigInt("9223372036854775807"), "Test"]];
     const result = mapRowsToTableData(mockColumns, rawRows);
 
-    expect(result[0]["col_0"].value).toBe("9223372036854775807");
-    expect(result[0]["col_0"].value_type).toBe("Integer");
-    expect(result[0]["col_0"].metadata?.attributes?.originalBigInt).toBe(
+    expect(result[0]!["col_0"]!.value).toBe("9223372036854775807");
+    expect(result[0]!["col_0"]!.value_type).toBe("Integer");
+    expect(result[0]!["col_0"]!.metadata?.attributes?.originalBigInt).toBe(
       "9223372036854775807",
     );
   });
@@ -266,7 +266,7 @@ describe("mapRowsToTableData", () => {
     const rawRows = [[BigInt(123), "Test"]];
     const result = mapRowsToTableData(mockColumns, rawRows);
 
-    expect(result[0]["col_0"].metadata).toEqual({
+    expect(result[0]!["col_0"]!.metadata).toEqual({
       attributes: { originalBigInt: "123" },
     });
   });
@@ -275,8 +275,8 @@ describe("mapRowsToTableData", () => {
     const rawRows = [[42, "Test"]];
     const result = mapRowsToTableData(mockColumns, rawRows);
 
-    expect(result[0]["col_0"].metadata).toBeUndefined();
-    expect(result[0]["col_1"].metadata).toBeUndefined();
+    expect(result[0]!["col_0"]!.metadata).toBeUndefined();
+    expect(result[0]!["col_1"]!.metadata).toBeUndefined();
   });
 
   it("result can be JSON.stringify-ed", () => {

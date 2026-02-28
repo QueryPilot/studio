@@ -24,7 +24,7 @@ export const CommandPreview: React.FC<CommandPreviewProps> = ({ state }) => {
       {/* Editor body */}
       <CodeEditor
         value={previewText}
-        language="javascript"
+        language="json"
         readOnly
         lineNumbers={false}
         minHeight="100px"

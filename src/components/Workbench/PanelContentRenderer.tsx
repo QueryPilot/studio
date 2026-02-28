@@ -111,7 +111,6 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     const setQueryState = useTabStateStore((state) => state.setQueryState);
     const persistedTableViewType = useTabStateStore(
       (state) => state.queryStates.get(tabId)?.tableViewType,
-      (a, b) => a === b
     );
 
     // Load persisted state on mount (for table tabs)
@@ -206,11 +205,11 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
         return;
       }
       if (metadata.viewType !== activeView) {
-        updateTabMetadata(panelId, tabId, { viewType: activeView });
+        updateTabMetadata(panelId, tabId, { viewType: activeView as string });
       }
       // Persist to tabStateStore for table tabs
       if (type === "table") {
-        setQueryState(tabId, { tableViewType: activeView });
+        setQueryState(tabId, { tableViewType: activeView as string });
       }
     }, [activeView, metadata, panelId, tabId, updateTabMetadata, type, setQueryState]);
 

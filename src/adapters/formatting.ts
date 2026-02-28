@@ -86,7 +86,7 @@ export function escapeString(value: string, dbType?: DbType | string): string {
 
   // MySQL and MariaDB need backslash escaping (unless NO_BACKSLASH_ESCAPES is set)
   // In standard MySQL, backslash is an escape character
-  if (type === DbType.MySQL || type === "mariadb") {
+  if (type === DbType.MySQL || type === DbType.MariaDB) {
     return value
       .replace(/\\/g, "\\\\") // Escape backslashes first
       .replace(/'/g, "''"); // Then escape single quotes

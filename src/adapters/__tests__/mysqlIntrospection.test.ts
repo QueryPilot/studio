@@ -1,8 +1,9 @@
+import { describe, test, expect } from 'vitest';
 import { MySQLAdapter } from "../dialects/MySQLAdapter";
 
 describe("MySQLAdapter introspection", () => {
   test("getConstraintsQuery includes definition for pk/fk parsing", () => {
-    const adapter = new MySQLAdapter();
+    const adapter = new MySQLAdapter('test-connection');
     const sql = adapter.getConstraintsQuery("test_schema", "test_table");
 
     expect(sql).toContain(" as definition");
@@ -12,7 +13,7 @@ describe("MySQLAdapter introspection", () => {
   });
 
   test("getIndexesQuery returns columns in JSON array format", () => {
-    const adapter = new MySQLAdapter();
+    const adapter = new MySQLAdapter('test-connection');
     const sql = adapter.getIndexesQuery("test_schema", "test_table");
 
     // Should format columns as JSON array: ["col1","col2"]
