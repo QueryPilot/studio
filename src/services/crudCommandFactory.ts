@@ -22,6 +22,9 @@ import type {
   IndexRenamePayload,
   JsonValue,
   TableRenamePayload,
+  TableDropPayload,
+  TableTruncatePayload,
+  ViewDropPayload,
   TriggerCreatePayload,
   TriggerDefinitionInput,
   TriggerDropPayload,
@@ -88,6 +91,28 @@ interface ColumnRenameParams extends CommandBuildOptions {
 interface TableRenameParams extends CommandBuildOptions {
   readonly target: CrudCommandTarget;
   readonly newName: string;
+}
+
+interface TableDropParams extends CommandBuildOptions {
+  readonly target: CrudCommandTarget;
+  readonly tableName: string;
+  readonly cascade?: boolean;
+  readonly ifExists?: boolean;
+}
+
+interface TableTruncateParams extends CommandBuildOptions {
+  readonly target: CrudCommandTarget;
+  readonly tableName: string;
+  readonly restartIdentity?: boolean;
+  readonly cascade?: boolean;
+}
+
+interface ViewDropParams extends CommandBuildOptions {
+  readonly target: CrudCommandTarget;
+  readonly viewName: string;
+  readonly ifExists?: boolean;
+  readonly cascade?: boolean;
+  readonly isMaterialized?: boolean;
 }
 
 interface IndexCreateParams extends CommandBuildOptions {
@@ -255,9 +280,6 @@ const normalizePrimaryKeys = (
           );
         }
         return [key, value];
-      }
-      if (typeof value === "bigint") {
-        return [key, (value as any).toString()];
       }
       return [key, String(value)];
     }),
@@ -522,6 +544,95 @@ export const CrudCommandFactory = {
     return buildCommand(
       "table.rename",
       buildTarget(params.target, params.newName),
+      payload,
+      {
+        ...params,
+        description,
+      },
+    );
+  },
+
+  createTableDropCommand(
+    params: TableDropParams,
+  ): CrudCommandFor<"table.drop"> {
+    ensureTargetHasTable(params.target, "table.drop");
+    assertNonEmpty(
+      params.tableName,
+      "CrudCommandFactory: tableName is required for table.drop",
+    );
+
+    const payload: TableDropPayload = {
+      tableName: params.tableName,
+      cascade: params.cascade,
+      ifExists: params.ifExists,
+    };
+
+    const description =
+      params.description ?? `Drop table ${params.tableName}`;
+
+    return buildCommand(
+      "table.drop",
+      buildTarget(params.target, params.tableName),
+      payload,
+      {
+        ...params,
+        description,
+      },
+    );
+  },
+
+  createTableTruncateCommand(
+    params: TableTruncateParams,
+  ): CrudCommandFor<"table.truncate"> {
+    ensureTargetHasTable(params.target, "table.truncate");
+    assertNonEmpty(
+      params.tableName,
+      "CrudCommandFactory: tableName is required for table.truncate",
+    );
+
+    const payload: TableTruncatePayload = {
+      tableName: params.tableName,
+      restartIdentity: params.restartIdentity,
+      cascade: params.cascade,
+    };
+
+    const description =
+      params.description ?? `Truncate table ${params.tableName}`;
+
+    return buildCommand(
+      "table.truncate",
+      buildTarget(params.target, params.tableName),
+      payload,
+      {
+        ...params,
+        description,
+      },
+    );
+  },
+
+  createViewDropCommand(
+    params: ViewDropParams,
+  ): CrudCommandFor<"view.drop"> {
+    ensureTargetHasTable(params.target, "view.drop");
+    assertNonEmpty(
+      params.viewName,
+      "CrudCommandFactory: viewName is required for view.drop",
+    );
+
+    const payload: ViewDropPayload = {
+      viewName: params.viewName,
+      ifExists: params.ifExists,
+      cascade: params.cascade,
+      isMaterialized: params.isMaterialized,
+    };
+
+    const objectLabel = params.isMaterialized ? "materialized view" : "view";
+    const description =
+      params.description ?? `Drop ${objectLabel} ${params.viewName}`;
+
+    return buildCommand(
+      "view.drop",
+      buildTarget(params.target, params.viewName),
       payload,
       {
         ...params,

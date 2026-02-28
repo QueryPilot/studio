@@ -23,6 +23,8 @@ import {
   CommandList,
   CommandEmpty,
 } from "@/components/ui/command";
+import { useCommitOnUnmount } from "@/components/DataGrid/renderers/hooks/useCommitOnUnmount";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 
 interface IndexColumnsCellEditorProps {
   value: IndexColumnsCell;
@@ -49,7 +51,9 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
     useState<string[]>(initialColumns);
   const [showConfirm, setShowConfirm] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeValue, setActiveValue] = useState("");
+  const [activeValue, setActiveValue] = useState(
+    () => availableColumns[0] ?? "",
+  );
 
   // Filter available columns based on search query
   const filteredColumns = useMemo(() => {
@@ -76,11 +80,15 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
     return selectedColumns.some((col, idx) => col !== initialColumns[idx]);
   }, [selectedColumns, initialColumns]);
 
+  // Focus the search input on mount and when returning from confirm dialog
   useEffect(() => {
-    // Focus the command container for keyboard navigation
     if (!showConfirm) {
       const timer = setTimeout(() => {
-        commandRef.current?.focus();
+        const input =
+          commandRef.current?.querySelector<HTMLInputElement>(
+            "[data-slot='command-input']",
+          );
+        input?.focus();
       }, 50);
       return () => {
         clearTimeout(timer);
@@ -89,27 +97,47 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
     return undefined;
   }, [showConfirm]);
 
+  const buildCell = useCallback(
+    (columns: string[]): IndexColumnsCell => ({
+      kind: value.kind,
+      data: {
+        ...value.data,
+        columns,
+      },
+      copyData: columns.join(", "),
+      allowOverlay: value.allowOverlay,
+      readonly: value.readonly,
+    }),
+    [value],
+  );
+
   const applyChange = useCallback(
     async (newColumns: string[]) => {
       if (finishedRef.current) return;
       finishedRef.current = true;
 
-      const newCell: IndexColumnsCell = {
-        kind: value.kind,
-        data: {
-          ...value.data,
-          columns: newColumns,
-        },
-        copyData: newColumns.join(", "),
-        allowOverlay: value.allowOverlay,
-        readonly: value.readonly,
-      };
-
+      const newCell = buildCell(newColumns);
       await new Promise((r) => window.requestAnimationFrame(r));
       onFinishedEditing(newCell);
     },
-    [onFinishedEditing, value],
+    [onFinishedEditing, buildCell],
   );
+
+  // Save on unmount (click outside = save, only Cancel button reverts)
+  useCommitOnUnmount(finishedRef, () => {
+    if (selectedColumns.length === 0 || !hasChanges()) {
+      onFinishedEditing(undefined);
+      return;
+    }
+
+    // Don't auto-save if recreate is required — user must explicitly confirm
+    if (requiresRecreate) {
+      onFinishedEditing(undefined);
+      return;
+    }
+
+    onFinishedEditing(buildCell(selectedColumns));
+  });
 
   const handleToggleColumn = useCallback((columnName: string) => {
     setSelectedColumns((prev) => {
@@ -213,12 +241,14 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
           handleCancel();
         }
       } else if (e.key === "Enter" && !showConfirm) {
-        // Enter to toggle the highlighted column
         e.preventDefault();
         e.stopPropagation();
-        if (activeValue) {
-          handleToggleColumn(activeValue);
+        if (e.metaKey || e.ctrlKey) {
+          // Cmd+Enter / Ctrl+Enter to save
+          handleSave();
         }
+        // Plain Enter: cmdk already toggled via onSelect before this
+        // handler fires — we just prevent the grid from closing the editor.
       } else if (e.key === "Tab" && !showConfirm) {
         e.preventDefault();
         e.stopPropagation();
@@ -238,12 +268,11 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
       showConfirm,
       handleConfirmCancel,
       handleCancel,
+      handleSave,
       hasChanges,
       selectedColumns,
       requiresRecreate,
       applyChange,
-      activeValue,
-      handleToggleColumn,
     ],
   );
 
@@ -301,10 +330,10 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
   // Render column selection editor
   return (
     <div
-      className="w-full h-full flex flex-col relative click-outside-ignore z-50 bg-popover border shadow-lg min-w-[320px]"
+      className="w-full h-full flex flex-col relative click-outside-ignore z-50 bg-popover border shadow-lg min-w-[320px] max-h-[400px]"
       onKeyDown={handleKeyDown}
     >
-      {/* Header */}
+      {/* Sticky Header */}
       <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50 shrink-0">
         <span className="text-[11px] font-medium text-foreground/80">
           Index Columns
@@ -314,141 +343,152 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
         </span>
       </div>
 
-      {/* Scrollable content area */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        {/* Selected columns section */}
-        {selectedColumns.length > 0 && (
-          <div className="flex flex-col border-b border-border/50">
-            <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide bg-muted/30 sticky top-0 z-10">
-              Selected
-            </div>
-            <div>
-              {selectedColumns.map((col, index) => (
-                <div
-                  key={col}
-                  className="flex items-center gap-1 px-2 py-1 hover:bg-muted/50 group"
-                >
-                  <span className="text-[10px] text-muted-foreground w-4 text-center">
-                    {index + 1}
-                  </span>
-                  <span className="font-mono text-xs flex-1 truncate">
-                    {col}
-                  </span>
-                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-5 w-5 p-0"
-                      onClick={() => {
-                        handleMoveUp(index);
-                      }}
-                      disabled={index === 0}
-                    >
-                      <IconChevronUp className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-5 w-5 p-0"
-                      onClick={() => {
-                        handleMoveDown(index);
-                      }}
-                      disabled={index === selectedColumns.length - 1}
-                    >
-                      <IconChevronDown className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-5 w-5 p-0 text-destructive hover:text-destructive"
-                      onClick={() => {
-                        handleRemoveColumn(index);
-                      }}
-                      disabled={selectedColumns.length <= 1}
-                    >
-                      <IconX className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+      <Command
+        ref={commandRef}
+        className="flex flex-col flex-1 min-h-0 w-full border-0 shadow-none rounded-none"
+        value={activeValue}
+        onValueChange={setActiveValue}
+        shouldFilter={false}
+      >
+        {/* Sticky Search */}
+        <div className="shrink-0">
+          <CommandInput
+            placeholder="Search columns..."
+            className="h-8 border-b border-border/50"
+            value={searchQuery}
+            onValueChange={setSearchQuery}
+          />
+        </div>
 
-        {/* Column selector */}
-        <div className="flex flex-col">
-          <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide bg-muted/30 sticky top-0 z-10 border-b border-border/50">
+        {/* Scrollable content area — only this section scrolls */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {/* Selected columns section */}
+          {selectedColumns.length > 0 && (
+            <div className="flex flex-col border-b border-border/50">
+              <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide bg-muted/30">
+                Selected
+              </div>
+              <div>
+                {selectedColumns.map((col, index) => (
+                  <div
+                    key={col}
+                    className="flex items-center gap-1 px-2 py-1 hover:bg-muted/50 group"
+                  >
+                    <span className="text-[10px] text-muted-foreground w-4 text-center">
+                      {index + 1}
+                    </span>
+                    <span className="font-mono text-xs flex-1 truncate">
+                      {col}
+                    </span>
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 w-5 p-0"
+                        onClick={() => {
+                          handleMoveUp(index);
+                        }}
+                        disabled={index === 0}
+                      >
+                        <IconChevronUp className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 w-5 p-0"
+                        onClick={() => {
+                          handleMoveDown(index);
+                        }}
+                        disabled={index === selectedColumns.length - 1}
+                      >
+                        <IconChevronDown className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 w-5 p-0 text-destructive hover:text-destructive"
+                        onClick={() => {
+                          handleRemoveColumn(index);
+                        }}
+                        disabled={selectedColumns.length <= 1}
+                      >
+                        <IconX className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Available columns */}
+          <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide bg-muted/30 border-b border-border/50">
             Available Columns
           </div>
-          <Command
-            ref={commandRef}
-            className="w-full border-0 shadow-none rounded-none"
-            value={activeValue}
-            onValueChange={setActiveValue}
-            shouldFilter={false}
-          >
-            <CommandInput
-              placeholder="Search columns..."
-              className="h-8 border-b border-border/50"
-              value={searchQuery}
-              onValueChange={setSearchQuery}
-            />
-            <CommandList className="max-h-none">
-              <CommandEmpty className="py-3 text-xs text-muted-foreground">
-                No columns found
-              </CommandEmpty>
-              <CommandGroup>
-                {filteredColumns.map((col) => {
-                  const isSelected = selectedColumns.includes(col);
-                  return (
-                    <CommandItem
-                      key={col}
-                      value={col}
-                      onSelect={() => {
-                        handleToggleColumn(col);
-                      }}
-                      className="text-xs font-medium flex items-center justify-between"
-                    >
-                      <span className="font-mono">{col}</span>
-                      <IconCheck
-                        className={cn(
-                          "h-3 w-3",
-                          isSelected ? "opacity-100 text-primary" : "opacity-0",
-                        )}
-                      />
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            </CommandList>
-          </Command>
+          <CommandList className="max-h-none overflow-visible">
+            <CommandEmpty className="py-3 text-xs text-muted-foreground">
+              No columns found
+            </CommandEmpty>
+            <CommandGroup>
+              {filteredColumns.map((col) => {
+                const isSelected = selectedColumns.includes(col);
+                return (
+                  <CommandItem
+                    key={col}
+                    value={col}
+                    onSelect={() => {
+                      handleToggleColumn(col);
+                    }}
+                    className="text-xs font-medium flex items-center justify-between"
+                  >
+                    <span className="font-mono">{col}</span>
+                    <IconCheck
+                      className={cn(
+                        "h-3 w-3",
+                        isSelected ? "opacity-100 text-primary" : "opacity-0",
+                      )}
+                    />
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
         </div>
-      </div>
+      </Command>
 
-      {/* Sticky footer with actions */}
-      <div className="flex items-center justify-end gap-2 px-2 py-1.5 border-t border-border/50 bg-background shrink-0">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={handleCancel}
-          className="h-7 text-xs"
-        >
-          Cancel
-        </Button>
-        <Button
-          type="button"
-          variant="default"
-          size="sm"
-          onClick={handleSave}
-          disabled={selectedColumns.length === 0}
-          className="h-7 text-xs"
-        >
-          Save
-        </Button>
+      {/* Sticky Footer */}
+      <div className="flex items-center justify-between px-2 py-1.5 border-t border-border/50 bg-background shrink-0">
+        <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+          <KbdGroup>
+            <Kbd>{navigator.platform.includes("Mac") ? "\u2318" : "Ctrl"}</Kbd>
+            <Kbd>{"\u21B5"}</Kbd>
+          </KbdGroup>
+          <span>save</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleCancel}
+            className="h-7 text-xs"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            onClick={handleSave}
+            disabled={selectedColumns.length === 0}
+            className="h-7 text-xs"
+          >
+            Save
+          </Button>
+        </div>
       </div>
     </div>
   );

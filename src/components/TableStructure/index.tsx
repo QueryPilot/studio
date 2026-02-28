@@ -5,6 +5,7 @@ import {
   useCallback,
   useState,
   useEffect,
+  useRef,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { useGridPreferencesStore } from "@/components/DataGrid/stores/gridPreferencesStore";
@@ -15,6 +16,7 @@ import {
   type CustomCell,
   type CustomRenderer,
   type EditableGridCell,
+  type GridMouseEventArgs,
 } from "@glideapps/glide-data-grid";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { useForeignKeyTargets } from "@/hooks/useForeignKeyTargets";
@@ -36,6 +38,7 @@ import DefaultValueCellRenderer from "./DefaultValueCellRenderer";
 import ForeignKeyCellRenderer from "./ForeignKeyCellRenderer";
 import CheckConstraintCellRenderer from "./CheckConstraintCellRenderer";
 import CommentCellRenderer from "./CommentCellRenderer";
+import { StructureTableContextMenu } from "./StructureTableContextMenu";
 import type { StructureGridRow } from "./types";
 import { validateColumnName } from "./types";
 import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";

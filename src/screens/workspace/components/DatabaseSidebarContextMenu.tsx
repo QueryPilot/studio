@@ -46,10 +46,10 @@ interface ContextMenuProps {
   onExportDataMarkdown?: () => void;
   onExportDefinition?: () => void;
   onCopyName: () => void;
-  onCopyDefinition: () => void;
+  onCopyDefinition?: () => void;
   onPin: () => void;
-  onTruncate: () => void;
-  onDelete: () => void;
+  onTruncate?: () => void;
+  onDelete?: () => void;
   onViewData: () => void;
   onViewStructure: () => void;
   onViewIndexes?: () => void;
@@ -138,7 +138,8 @@ export function DatabaseSidebarContextMenu({
     selectedTypes.tables > 0 &&
     selectedTypes.views === 0 &&
     selectedTypes.materializedViews === 0 &&
-    selectedTypes.functions === 0;
+    selectedTypes.functions === 0 &&
+    selectedTypes.collections === 0;
   const hasTablesOrViews =
     selectedTypes.tables > 0 ||
     selectedTypes.views > 0 ||
@@ -148,7 +149,10 @@ export function DatabaseSidebarContextMenu({
     selectedTypes.materializedViews > 0 &&
     selectedTypes.tables === 0 &&
     selectedTypes.views === 0 &&
-    selectedTypes.functions === 0;
+    selectedTypes.functions === 0 &&
+    selectedTypes.collections === 0;
+  const hasTablesOrCollections =
+    selectedTypes.tables > 0 || selectedTypes.collections > 0;
   const hasTablesOrMaterializedViews =
     selectedTypes.tables > 0 || selectedTypes.materializedViews > 0;
   const hasAnyDatabaseObject =
@@ -252,8 +256,8 @@ export function DatabaseSidebarContextMenu({
 
   // Wrap handlers to close menu after action
   const withClose = useCallback(
-    (handler: () => void) => () => {
-      handler();
+    (handler: () => void | Promise<void>) => () => {
+      void handler();
       onClose();
     },
     [onClose]
@@ -334,6 +338,7 @@ export function DatabaseSidebarContextMenu({
 
       {/* Separator after all view options */}
       {(hasTablesOrViews ||
+        hasCollections ||
         hasTablesOrMaterializedViews ||
         hasOnlyTables ||
         hasAnyDatabaseObject) && <ContextMenuSeparator className="mx-0" />}
@@ -403,12 +408,15 @@ export function DatabaseSidebarContextMenu({
       />
       <MenuItem
         icon={<IconFileText />}
-        label={
-          selectedCount === 1
-            ? "Copy Definition"
-            : `Copy Definitions (${selectedCount})`
-        }
-        onClick={withClose(onCopyDefinition)}
+        label={(() => {
+          const baseLabel =
+            selectedCount === 1
+              ? "Copy Definition"
+              : `Copy Definitions (${selectedCount})`;
+          return onCopyDefinition ? baseLabel : `${baseLabel} (coming soon)`;
+        })()}
+        onClick={onCopyDefinition ? withClose(onCopyDefinition) : undefined}
+        disabled={!onCopyDefinition}
       />
 
       {/* Pin/Star */}
@@ -421,16 +429,25 @@ export function DatabaseSidebarContextMenu({
       <ContextMenuSeparator className="mx-0" />
 
       {/* Refresh Materialized Views */}
-      {hasOnlyMaterializedViews && onRefreshMaterializedView && (
+      {hasOnlyMaterializedViews && (
         <>
           <MenuItem
             icon={<IconRefresh />}
-            label={
-              selectedCount === 1
-                ? "Refresh Materialized View"
-                : `Refresh (${selectedCount})`
+            label={(() => {
+              const baseLabel =
+                selectedCount === 1
+                  ? "Refresh Materialized View"
+                  : `Refresh (${selectedCount})`;
+              return onRefreshMaterializedView
+                ? baseLabel
+                : `${baseLabel} (coming soon)`;
+            })()}
+            onClick={
+              onRefreshMaterializedView
+                ? withClose(onRefreshMaterializedView)
+                : undefined
             }
-            onClick={withClose(onRefreshMaterializedView)}
+            disabled={!onRefreshMaterializedView}
           />
           <ContextMenuSeparator className="mx-0" />
         </>
@@ -441,33 +458,42 @@ export function DatabaseSidebarContextMenu({
         <>
           <MenuItem
             icon={<IconCopy />}
-            label="Duplicate"
-            onClick={withClose(onDuplicate ?? (() => {}))}
+            label={
+              onDuplicate ? "Duplicate" : "Duplicate (coming soon)"
+            }
+            onClick={onDuplicate ? withClose(onDuplicate) : undefined}
+            disabled={!onDuplicate}
           />
           <ContextMenuSeparator className="mx-0" />
         </>
       )}
 
       {/* Dangerous operations */}
-      {hasOnlyTables && (
+      {hasTablesOrCollections && (
         <MenuItem
           icon={<IconEraser />}
-          label={
-            selectedCount === 1
-              ? "Truncate..."
-              : `Truncate (${selectedCount})...`
-          }
-          onClick={withClose(onTruncate)}
+          label={(() => {
+            const baseLabel =
+              selectedCount === 1
+                ? "Truncate..."
+                : `Truncate (${selectedCount})...`;
+            return onTruncate ? baseLabel : `${baseLabel} (coming soon)`;
+          })()}
+          onClick={onTruncate ? withClose(onTruncate) : undefined}
+          disabled={!onTruncate}
           destructive
         />
       )}
 
       <MenuItem
         icon={<IconTrash />}
-        label={
-          selectedCount === 1 ? "Delete..." : `Delete (${selectedCount})...`
-        }
-        onClick={withClose(onDelete)}
+        label={(() => {
+          const baseLabel =
+            selectedCount === 1 ? "Delete..." : `Delete (${selectedCount})...`;
+          return onDelete ? baseLabel : `${baseLabel} (coming soon)`;
+        })()}
+        onClick={onDelete ? withClose(onDelete) : undefined}
+        disabled={!onDelete}
         destructive
       />
     </div>,

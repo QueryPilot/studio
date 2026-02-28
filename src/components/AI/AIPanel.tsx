@@ -73,9 +73,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
 import type { ToolCall as ToolCallType } from "@/types/acp";
-import {
-  parseCommandsProgressive,
-} from "@/utils/aiCommandParser";
+import { parseCommandsProgressive } from "@/utils/aiCommandParser";
 import { CommandList } from "./CommandCard";
 import { QueryBlock } from "./QueryBlock";
 import { useAiCommandPermissionStore } from "@/stores/aiCommandPermissionStore";
@@ -304,7 +302,12 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     return () => {
       viewport.removeEventListener("scroll", handleScroll);
     };
-  }, [getScrollViewport, messages.length, byokMessages.length, effectiveIsStreaming]);
+  }, [
+    getScrollViewport,
+    messages.length,
+    byokMessages.length,
+    effectiveIsStreaming,
+  ]);
 
   useEffect(() => {
     if (!stickToBottom) return;
@@ -340,7 +343,9 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         "- Goal:",
       ].filter((line): line is string => Boolean(line));
 
-      setInputValue((current) => (current.trim() ? current : seedLines.join("\n")));
+      setInputValue((current) =>
+        current.trim() ? current : seedLines.join("\n"),
+      );
       focusInput();
     };
 
@@ -384,7 +389,9 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
           return;
         }
 
-        const focusedConn = useWorkspaceBundleStore.getState().getFocusedConnection();
+        const focusedConn = useWorkspaceBundleStore
+          .getState()
+          .getFocusedConnection();
         const toolContext = {
           connectionId: focusedConn?.id ?? "",
           getEditorContext: () => ({
@@ -485,7 +492,14 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         setCorrectingQuery(null);
       }
     },
-    [activeSession, isWarmingUp, connectionId, aiContext, sendMessage, startSession],
+    [
+      activeSession,
+      isWarmingUp,
+      connectionId,
+      aiContext,
+      sendMessage,
+      startSession,
+    ],
   );
 
   const handleKeyDown = useCallback(
@@ -519,7 +533,14 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     }
     focusInput();
     scrollToBottom("auto");
-  }, [isByok, byokClearHistory, newConversation, resetPermissions, focusInput, scrollToBottom]);
+  }, [
+    isByok,
+    byokClearHistory,
+    newConversation,
+    resetPermissions,
+    focusInput,
+    scrollToBottom,
+  ]);
 
   const handleLoadSession = useCallback(
     (sessionId: string) => {
@@ -546,13 +567,16 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   const hasMessages = isByok
     ? byokMessages.length > 0 || byokIsStreaming
     : messages.length > 0 || isStreaming;
-  const canSend = (inputValue.trim().length > 0 || pendingImages.length > 0) && !effectiveIsStreaming && (hasInstalledAgents || (isByok && byokSession !== null));
+  const canSend =
+    (inputValue.trim().length > 0 || pendingImages.length > 0) &&
+    !effectiveIsStreaming &&
+    (hasInstalledAgents || (isByok && byokSession !== null));
 
   return (
     <div
       data-slot="ai-panel"
       className={cn(
-        "relative flex flex-col h-full min-h-0 bg-background overflow-hidden",
+        "relative flex flex-col h-full min-h-0 bg-background overflow-hidden rounded-xl",
         className,
       )}
     >
@@ -781,16 +805,16 @@ function PanelHeader({
       <div className="flex-1" />
 
       {/* New conversation shortcut */}
-        <Tooltip>
+      <Tooltip>
         <TooltipTrigger
           render={
             <Button
               variant="ghost"
-              size="icon-xs"
+              size="icon-sm"
               onClick={onNewConversation}
               className="text-muted-foreground hover:text-foreground"
             >
-              <IconPlus className="h-3.5 w-3.5" />
+              <IconPlus className="h-4! w-4!" />
             </Button>
           }
         />
@@ -812,11 +836,11 @@ function PanelHeader({
       {onClose && (
         <Button
           variant="ghost"
-          size="icon-xs"
           onClick={onClose}
+          size="icon-sm"
           className="text-muted-foreground hover:text-foreground"
         >
-          <IconX className="h-3.5 w-3.5" />
+          <IconX className="h-4! w-4!" />
         </Button>
       )}
     </div>
@@ -1266,8 +1290,7 @@ function MessageBubble({
       } catch (err) {
         // Trigger self-correction for read-only query failures
         if (onQueryError) {
-          const errorMessage =
-            err instanceof Error ? err.message : String(err);
+          const errorMessage = err instanceof Error ? err.message : String(err);
           onQueryError(query, errorMessage);
         }
       }
@@ -1287,7 +1310,9 @@ function MessageBubble({
       }) => {
         const codeNode = findCodeNode(children);
         if (codeNode) {
-          const langMatch = codeNode.className.match(/language-([a-zA-Z0-9_-]+)/);
+          const langMatch = codeNode.className.match(
+            /language-([a-zA-Z0-9_-]+)/,
+          );
           const language = langMatch?.[1]?.toLowerCase() ?? "";
           if (QUERY_LANGUAGES.has(language)) {
             return (
@@ -1351,9 +1376,7 @@ function MessageBubble({
           )}
 
           {/* ACP Plan */}
-          {planSteps && planSteps.length > 0 && (
-            <PlanBlock steps={planSteps} />
-          )}
+          {planSteps && planSteps.length > 0 && <PlanBlock steps={planSteps} />}
 
           {/* Message Content Flow (text + command blocks in original order) */}
           {messageSegments.length > 0 ? (
@@ -1401,7 +1424,10 @@ function MessageBubble({
 
                 if (segment.kind === "tool-call") {
                   return (
-                    <InlineToolCallEvent key={segment.key} call={segment.call} />
+                    <InlineToolCallEvent
+                      key={segment.key}
+                      call={segment.call}
+                    />
                   );
                 }
 
@@ -1498,7 +1524,8 @@ function PlanBlock({ steps }: PlanBlockProps) {
             <span
               className={cn(
                 "truncate",
-                step.status === "completed" && "text-muted-foreground line-through",
+                step.status === "completed" &&
+                  "text-muted-foreground line-through",
               )}
             >
               {step.description}
@@ -1509,7 +1536,6 @@ function PlanBlock({ steps }: PlanBlockProps) {
     </div>
   );
 }
-
 
 function getToolCallStatusText(status: ToolCallType["status"]): string {
   switch (status) {
@@ -1937,13 +1963,14 @@ const InputArea = ({
     [showMentions, suggestions, selectedIndex, insertMention, parentOnKeyDown],
   );
 
-  const placeholder = isByok && !byokSession
-    ? "Configure a provider in Settings \u2192 AI"
-    : disabled
-      ? "No AI agent available"
-      : isWarmingUp
-        ? "Starting agent... you can type now"
-        : "Ask anything... use @ to mention tables";
+  const placeholder =
+    isByok && !byokSession
+      ? "Configure a provider in Settings \u2192 AI"
+      : disabled
+        ? "No AI agent available"
+        : isWarmingUp
+          ? "Starting agent... you can type now"
+          : "Ask anything... use @ to mention tables";
 
   const getMentionIcon = (type: MentionSuggestion["type"]) => {
     switch (type) {
@@ -1993,10 +2020,7 @@ const InputArea = ({
           <div className="flex flex-wrap gap-1.5 px-3 pt-2">
             {pendingImages.map((img) => (
               <div key={img.id} className="relative group/thumb">
-                <ImagePreviewPopover
-                  src={img.previewUrl}
-                  alt="Pending image"
-                >
+                <ImagePreviewPopover src={img.previewUrl} alt="Pending image">
                   <img
                     src={img.previewUrl}
                     alt="Pending"
@@ -2136,14 +2160,16 @@ const InputArea = ({
 interface ByokMessageListProps {
   messages: Array<{
     role: string;
-    content: string | Array<{
-      type: string;
-      text?: string;
-      toolName?: string;
-      toolCallId?: string;
-      input?: unknown;
-      output?: unknown;
-    }>;
+    content:
+      | string
+      | Array<{
+          type: string;
+          text?: string;
+          toolName?: string;
+          toolCallId?: string;
+          input?: unknown;
+          output?: unknown;
+        }>;
   }>;
   isStreaming: boolean;
   streamingContent: string;
@@ -2185,7 +2211,13 @@ function extractToolResultValue(output: unknown): string | null {
   return JSON.stringify(output, null, 2);
 }
 
-function ByokToolCallInline({ name, output }: { name: string; output?: unknown }) {
+function ByokToolCallInline({
+  name,
+  output,
+}: {
+  name: string;
+  output?: unknown;
+}) {
   const [expanded, setExpanded] = useState(false);
   const resultStr = extractToolResultValue(output);
   const hasResult = resultStr !== null;
@@ -2199,10 +2231,14 @@ function ByokToolCallInline({ name, output }: { name: string; output?: unknown }
           <IconWand className="h-2.5 w-2.5" />
           <span>Tool</span>
         </div>
-        <span className="text-[11px] font-mono font-medium text-foreground/90">{name}</span>
+        <span className="text-[11px] font-mono font-medium text-foreground/90">
+          {name}
+        </span>
         {hasResult && isLong && (
           <button
-            onClick={() => { setExpanded((v) => !v); }}
+            onClick={() => {
+              setExpanded((v) => !v);
+            }}
             className="ml-auto flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
           >
             <IconEye className="h-2.5 w-2.5" />
@@ -2212,14 +2248,21 @@ function ByokToolCallInline({ name, output }: { name: string; output?: unknown }
       </div>
       {hasResult && (!isLong || expanded) && (
         <pre className="mt-1.5 max-h-40 overflow-auto rounded bg-muted/40 px-2 py-1.5 text-[10px] leading-tight text-muted-foreground whitespace-pre-wrap break-all">
-          {resultStr.length > 2000 ? resultStr.slice(0, 2000) + "\n… (truncated)" : resultStr}
+          {resultStr.length > 2000
+            ? resultStr.slice(0, 2000) + "\n… (truncated)"
+            : resultStr}
         </pre>
       )}
     </div>
   );
 }
 
-function ByokMessageList({ messages, isStreaming, streamingContent, activeToolCalls }: ByokMessageListProps) {
+function ByokMessageList({
+  messages,
+  isStreaming,
+  streamingContent,
+  activeToolCalls,
+}: ByokMessageListProps) {
   // Build a map of toolCallId → output from tool-role messages
   const toolResultMap = useMemo(() => {
     const map = new Map<string, unknown>();
@@ -2242,9 +2285,13 @@ function ByokMessageList({ messages, isStreaming, streamingContent, activeToolCa
         if (msg.role === "tool") return null;
 
         if (msg.role === "user") {
-          const text = typeof msg.content === "string"
-            ? msg.content
-            : msg.content.filter((p) => p.type === "text").map((p) => p.text).join("");
+          const text =
+            typeof msg.content === "string"
+              ? msg.content
+              : msg.content
+                  .filter((p) => p.type === "text")
+                  .map((p) => p.text)
+                  .join("");
           return (
             <div
               key={`user-${idx}`}
@@ -2259,9 +2306,10 @@ function ByokMessageList({ messages, isStreaming, streamingContent, activeToolCa
 
         // Assistant message — render text and tool-call parts in order
         if (msg.role === "assistant") {
-          const parts = typeof msg.content === "string"
-            ? [{ type: "text" as const, text: msg.content }]
-            : msg.content;
+          const parts =
+            typeof msg.content === "string"
+              ? [{ type: "text" as const, text: msg.content }]
+              : msg.content;
 
           const textParts = parts.filter((p) => p.type === "text");
           const toolCallParts = parts.filter((p) => p.type === "tool-call");
@@ -2292,9 +2340,13 @@ function ByokMessageList({ messages, isStreaming, streamingContent, activeToolCa
         }
 
         // Other roles (system, etc.) — render as text
-        const text = typeof msg.content === "string"
-          ? msg.content
-          : msg.content.filter((p) => p.type === "text").map((p) => p.text).join("");
+        const text =
+          typeof msg.content === "string"
+            ? msg.content
+            : msg.content
+                .filter((p) => p.type === "text")
+                .map((p) => p.text)
+                .join("");
         return text ? (
           <div key={`${msg.role}-${idx}`} className="group px-3 py-3">
             <div className={byokProseClasses}>
@@ -2308,7 +2360,10 @@ function ByokMessageList({ messages, isStreaming, streamingContent, activeToolCa
       {activeToolCalls.length > 0 && (
         <div className="px-3 py-1.5 space-y-1">
           {activeToolCalls.map((tc) => (
-            <div key={tc.id} className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
+            <div
+              key={tc.id}
+              className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2"
+            >
               <div className="flex items-center gap-2">
                 {tc.status === "calling" ? (
                   <IconLoader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
@@ -2321,7 +2376,9 @@ function ByokMessageList({ messages, isStreaming, streamingContent, activeToolCa
                   <IconWand className="h-2.5 w-2.5" />
                   <span>Tool</span>
                 </div>
-                <span className="text-[11px] font-mono font-medium text-foreground/90">{tc.name}</span>
+                <span className="text-[11px] font-mono font-medium text-foreground/90">
+                  {tc.name}
+                </span>
                 <span className="ml-auto text-[10px] text-muted-foreground">
                   {tc.status === "calling" ? "Running..." : tc.status}
                 </span>
