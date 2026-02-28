@@ -284,6 +284,110 @@ describe('SqlDataGrid', () => {
     expect(container.firstChild).toBeTruthy();
   });
 
+  it('uses BaseDataGrid row context for getCellContent to keep row indices aligned', () => {
+    mockUseTableDataQuery.mockReturnValue(
+      makeTableDataQueryResult({
+        rows: [
+          {
+            col_0: {
+              value: 'query-row-value',
+              db_type: 'text',
+              value_type: 'Text',
+              is_truncated: false,
+            },
+          },
+        ],
+        columns: [
+          {
+            name: 'name',
+            db_type: 'text',
+            nullable: true,
+            default: null,
+            is_pk: false,
+            is_fk: false,
+            ordinal: 0,
+          },
+        ],
+        estimatedTotal: 1,
+      }),
+    );
+
+    render(
+      <SqlDataGrid
+        connectionId="test-conn"
+        database="test-db"
+        schema="public"
+        table="users"
+        dbType={DbType.PostgreSQL}
+      />,
+      { wrapper: Wrapper },
+    );
+
+    const latestProps = capturedBaseGridProps.at(-1);
+    const getCellContent = latestProps?.getCellContent as
+      | ((
+          cell: [number, number],
+          context?: {
+            rowIndex: number;
+            columnIndex: number;
+            row: Record<string, unknown>;
+            column: Record<string, unknown>;
+          },
+        ) => GridCell)
+      | undefined;
+    const gridColumns = latestProps?.columns as
+      | Array<Record<string, unknown>>
+      | undefined;
+    const firstColumn = gridColumns?.[0];
+
+    expect(getCellContent).toBeDefined();
+    expect(firstColumn).toBeDefined();
+    if (!getCellContent || !firstColumn) {
+      throw new Error('Missing getCellContent or first column');
+    }
+
+    const field = String(firstColumn.field);
+    const contextRow = {
+      [field]: {
+        value: 'context-row-value',
+        db_type: 'text',
+        value_type: 'Text',
+        is_truncated: false,
+      },
+    };
+
+    const cell = getCellContent([0, 0], {
+      rowIndex: 0,
+      columnIndex: 0,
+      row: contextRow,
+      column: firstColumn,
+    });
+
+    const resolvedValue = (() => {
+      if (cell.kind === GridCellKind.Text) {
+        return cell.displayData;
+      }
+      if (cell.kind !== GridCellKind.Custom) {
+        return '';
+      }
+
+      const customValue = (cell.data as { value?: unknown }).value;
+      if (
+        typeof customValue === 'string' ||
+        typeof customValue === 'number' ||
+        typeof customValue === 'boolean'
+      ) {
+        return String(customValue);
+      }
+      if (customValue == null) {
+        return '';
+      }
+      return JSON.stringify(customValue);
+    })();
+
+    expect(resolvedValue).toBe('context-row-value');
+  });
+
   it('should derive deterministic identity from unique constraints when PK is missing', () => {
     mockUseTableFullStructure.mockReturnValue({
       structure: {
