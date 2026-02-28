@@ -75,7 +75,7 @@ impl AiContextStore {
         let history = self.history.read().await;
         history
             .iter()
-            .filter(|e| connection_id.map_or(true, |id| e.connection_id == id))
+            .filter(|e| connection_id.is_none_or(|id| e.connection_id == id))
             .take(limit)
             .cloned()
             .collect()

@@ -103,47 +103,78 @@ export class KeyboardHandler {
     const activeScopes = this.contextService.getActiveScopes();
     const resolveStart = nowMs();
 
-    // Temporarily set editorTextFocus for native inputs during keybinding resolution
-    // This ensures keybindings with "!editorTextFocus" don't fire when typing in inputs
-    const prevEditorTextFocus = this.contextService.getValue('editorTextFocus');
-    if (isNativeTextInput && !prevEditorTextFocus) {
-      this.contextService.setValue('editorTextFocus', true);
+    // Temporarily override context keys for native text inputs during keybinding
+    // resolution. This ensures keybindings with negated conditions like
+    // "!editorTextFocus", "!editingCell", or "!selectionEmpty" don't fire when
+    // the user is typing in a real input/textarea. We must set values in ALL
+    // active scopes (not just globally) because scoped values override global
+    // values in the context snapshot. Without this, a stale scoped value of
+    // false (e.g. from a previously-focused QuickFilter or DataGrid) would
+    // override the global true and let keybindings fire incorrectly.
+    const scopeOverrides: { key: string; scope: string | null; prev: unknown }[] = [];
+    if (isNativeTextInput) {
+      // Keys that use negated conditions in keybindings and are set in scopes.
+      // When focus is in a native text input, these must all be true so their
+      // negated conditions evaluate to false, preventing the keybinding from firing.
+      const keysToOverride = ['editorTextFocus', 'editingCell'] as const;
+
+      for (const key of keysToOverride) {
+        const globalPrev = this.contextService.getValue(key);
+        if (!globalPrev) {
+          scopeOverrides.push({ key, scope: null, prev: globalPrev });
+          this.contextService.setValue(key, true);
+        }
+        for (const scope of activeScopes) {
+          const prev = this.contextService.getValue(key, [scope]);
+          if (prev !== undefined && prev !== true) {
+            scopeOverrides.push({ key, scope, prev });
+            this.contextService.setValue(key, true, scope);
+          }
+        }
+      }
     }
 
-    const { match, isChordPending } = this.keybindingService.resolve(nextSequence, activeScopes);
-    keyboardTelemetry.recordResolve(nowMs() - resolveStart, Boolean(match));
+    try {
+      const { match, isChordPending } = this.keybindingService.resolve(nextSequence, activeScopes);
+      keyboardTelemetry.recordResolve(nowMs() - resolveStart, Boolean(match));
 
-    // Restore previous value
-    if (isNativeTextInput && !prevEditorTextFocus) {
-      this.contextService.setValue('editorTextFocus', prevEditorTextFocus ?? false);
-    }
+      if (match) {
+        this.execute(match.command, match.resolved.args);
+        this.resetChord();
+        if (hadChordInProgress) {
+          keyboardTelemetry.recordChordComplete();
+        }
+        if (this.preventDefault) {
+          event.preventDefault();
+          keyboardTelemetry.recordPreventDefault();
+        }
+        return;
+      }
 
-    if (match) {
-      this.execute(match.command, match.resolved.args);
+      if (isChordPending) {
+        this.startChord(nextSequence);
+        if (this.preventDefault) {
+          event.preventDefault();
+          keyboardTelemetry.recordPreventDefault();
+        }
+        return;
+      }
+
+      if (this.chordSequence.length > 0) {
+        keyboardTelemetry.recordChordCancel();
+      }
       this.resetChord();
-      if (hadChordInProgress) {
-        keyboardTelemetry.recordChordComplete();
+    } finally {
+      // Restore all overridden values even if resolve() throws
+      for (const { key, scope, prev } of scopeOverrides) {
+        const value = (prev ?? false) as boolean;
+        if (scope === null) {
+          this.contextService.setValue(key, value);
+        } else {
+          this.contextService.setValue(key, value, scope);
+        }
       }
-      if (this.preventDefault) {
-        event.preventDefault();
-        keyboardTelemetry.recordPreventDefault();
-      }
-      return;
     }
-
-    if (isChordPending) {
-      this.startChord(nextSequence);
-      if (this.preventDefault) {
-        event.preventDefault();
-        keyboardTelemetry.recordPreventDefault();
-      }
-      return;
-    }
-
-    if (this.chordSequence.length > 0) {
-      keyboardTelemetry.recordChordCancel();
-    }
-    this.resetChord();
   }
 
   private handleKeyup(_event: KeyboardEvent): void {

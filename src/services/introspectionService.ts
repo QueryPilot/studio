@@ -24,7 +24,7 @@ import {
   ConstraintType,
   type RawCellValue,
 } from "./backend";
-import { getAdapterForConnection, getSqlAdapterForConnection } from "@/adapters";
+import { getSqlAdapterForConnection } from "@/adapters";
 
 /**
  * Helper to safely get a string value from a cell
@@ -150,7 +150,7 @@ function parseMySqlEnumOrSet(
   };
 
   while (i < body.length) {
-    while (i < body.length && (body[i] === "," || /\s/.test(body[i]))) {
+    while (i < body.length && (body[i] === "," || /\s/.test(body[i]!))) {
       i++;
     }
     if (i >= body.length) break;
@@ -616,7 +616,8 @@ export const IntrospectionService = {
     schema: string,
     name: string,
   ): Promise<string> {
-    const adapter = await getAdapterForConnection(connectionId);
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    if (!adapter) return "";
     const sql = adapter.getObjectDefinitionQuery(objectType, schema, name);
     const result = await BackendAPI.query(connectionId, sql);
 
@@ -655,10 +656,10 @@ export const IntrospectionService = {
    * Returns empty array for databases that don't support events
    */
   async getEvents(connectionId: string, schema: string): Promise<Event[]> {
-    const adapter = await getAdapterForConnection(connectionId);
+    const adapter = await getSqlAdapterForConnection(connectionId);
 
     // Check if adapter supports events query
-    if (!adapter.getEventsQuery) {
+    if (!adapter?.getEventsQuery) {
       return [];
     }
 
@@ -694,10 +695,10 @@ export const IntrospectionService = {
     schema: string,
     table: string,
   ): Promise<Partition[]> {
-    const adapter = await getAdapterForConnection(connectionId);
+    const adapter = await getSqlAdapterForConnection(connectionId);
 
     // Check if adapter supports partitions query
-    if (!adapter.getPartitionsQuery) {
+    if (!adapter?.getPartitionsQuery) {
       return [];
     }
 

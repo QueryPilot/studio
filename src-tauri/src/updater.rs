@@ -141,7 +141,7 @@ pub async fn download_update(url: String) -> Result<PathBuf, String> {
     }
 
     // Get filename from URL
-    let filename = url.split('/').last().unwrap_or("update.dmg").to_string();
+    let filename = url.split('/').next_back().unwrap_or("update.dmg").to_string();
 
     // Save to temp directory
     let temp_dir = std::env::temp_dir().join("query-pilot-updates");

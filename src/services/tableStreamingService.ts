@@ -4,7 +4,7 @@ import { isTauri } from "@/utils/tauri";
 import type { TableDataRow } from "./tableDataTypes";
 import type { ColumnMeta } from "@/types/database";
 import type { FilterConfig, SortConfig } from "@/types/filter";
-import type { EmbeddedFKConfig } from "@/adapters/types";
+import type { DatabaseAdapter, EmbeddedFKConfig } from "@/adapters/types";
 import { mapBackendColumnsToColumnMeta } from "./tableDataTransform";
 import { type RawCellValue } from "./backend";
 import { getStreamDecodeWorker } from "./streamDecodeWorkerClient";
@@ -105,7 +105,7 @@ export async function streamEntityPage(
   }
 
   // Use dialect-aware SQL generation for proper quoting per database type
-  const adapter = await getAdapterForConnection(connectionId);
+  const adapter = (await getAdapterForConnection(connectionId)) as DatabaseAdapter;
   const columnPrefix = embeddedFKs?.length
     ? formatTableName(schema, entityName, adapter.dbType)
     : undefined;
@@ -456,7 +456,7 @@ class TableStreamingService {
     sql: string,
     pageSize?: number,
     onProgress?: (progress: StreamingProgress) => void,
-    onError?: (error: StreamingError) => void,
+    _onError?: (error: StreamingError) => void,
     timeoutSecs?: number,
   ): Promise<StreamingTableResult> {
     this.cancel(); // Abort any previous query

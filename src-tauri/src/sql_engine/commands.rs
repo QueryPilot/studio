@@ -4,7 +4,6 @@
 //! Schema data is pushed FROM frontend via sql_set_schema (TypeScript adapters are source of truth).
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
 
 use super::{
     complete,
@@ -16,7 +15,6 @@ use super::{
     },
     validate_document, CompletionRequest, SqlDialect, SCHEMA_STORE,
 };
-use crate::core::ConnectionManager;
 
 /// Parse request from frontend
 #[derive(Debug, Deserialize)]

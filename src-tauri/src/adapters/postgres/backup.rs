@@ -1095,15 +1095,14 @@ fn extract_identifier(s: &str) -> Option<String> {
     }
 
     // Handle quoted identifiers
-    if s.starts_with('"') {
+    if let Some(rest) = s.strip_prefix('"') {
         // Find closing quote
-        let rest = &s[1..];
         if let Some(end) = rest.find('"') {
             let first = &rest[..end];
             // Check for schema.table pattern
             let after = &rest[end + 1..];
-            if after.starts_with('.') {
-                let schema_table = extract_second_identifier(&after[1..])
+            if let Some(after_dot) = after.strip_prefix('.') {
+                let schema_table = extract_second_identifier(after_dot)
                     .map(|t| format!("{}.{}", first, t))
                     .unwrap_or_else(|| first.to_string());
                 return Some(schema_table);
@@ -1137,8 +1136,7 @@ fn extract_second_identifier(s: &str) -> Option<String> {
         return None;
     }
 
-    if s.starts_with('"') {
-        let rest = &s[1..];
+    if let Some(rest) = s.strip_prefix('"') {
         if let Some(end) = rest.find('"') {
             return Some(rest[..end].to_string());
         }

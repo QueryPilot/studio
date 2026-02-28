@@ -80,7 +80,7 @@ fn main() {
         .manage(ai_context::AiContextState(Arc::clone(&ai_context)))
         .setup(|app| {
             // Build and set the application menu
-            let menu = query_pilot::menu::build_menu(&app.handle()).expect("Failed to build menu");
+            let menu = query_pilot::menu::build_menu(app.handle()).expect("Failed to build menu");
             app.set_menu(menu).expect("Failed to set menu");
 
             // Register menu event handler

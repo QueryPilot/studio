@@ -340,11 +340,10 @@ fn find_main_statement_keyword_for_classify(sql: &str) -> Option<String> {
                     ')' => d - 1,
                     _ => d,
                 });
-                if depth == 0 {
-                    if first_keyword_pos.map_or(true, |(p, _)| abs_pos < p) {
+                if depth == 0
+                    && first_keyword_pos.is_none_or(|(p, _)| abs_pos < p) {
                         first_keyword_pos = Some((abs_pos, keyword));
                     }
-                }
             }
             search_start = abs_pos + 1;
         }

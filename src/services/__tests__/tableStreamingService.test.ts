@@ -27,12 +27,12 @@ describe("normalizeRawRows (streaming BigInt fix)", () => {
 
       const result = normalizeRawRows(rawRows);
 
-      expect(result[0][0]).toBe("9223372036854775807");
-      expect(result[0][1]).toBe("text");
-      expect(result[0][2]).toBe(42);
-      expect(result[1][0]).toBe("123");
-      expect(result[1][1]).toBe(null);
-      expect(result[1][2]).toBe(true);
+      expect(result[0]![0]).toBe("9223372036854775807");
+      expect(result[0]![1]).toBe("text");
+      expect(result[0]![2]).toBe(42);
+      expect(result[1]![0]).toBe("123");
+      expect(result[1]![1]).toBe(null);
+      expect(result[1]![2]).toBe(true);
     });
 
     it("handles empty rows array", () => {
@@ -67,7 +67,7 @@ describe("normalizeRawRows (streaming BigInt fix)", () => {
 
       const result = normalizeRawRows(rawRows);
 
-      expect(result[0][0]).toEqual(["1", "2"]);
+      expect(result[0]![0]).toEqual(["1", "2"]);
     });
 
     it("handles nested objects with BigInt (JSON columns)", () => {
@@ -77,7 +77,7 @@ describe("normalizeRawRows (streaming BigInt fix)", () => {
 
       const result = normalizeRawRows(rawRows);
 
-      expect(result[0][0]).toEqual({
+      expect(result[0]![0]).toEqual({
         id: "123",
         nested: { count: "456" },
       });
@@ -147,9 +147,9 @@ describe("normalizeRawRows (streaming BigInt fix)", () => {
 
       const result = normalizeRawRows(rawRows);
 
-      expect(result[0][0]).toBe("9007199254740992");
-      expect(result[1][0]).toBe("9007199254740993");
-      expect(result[2][0]).toBe("9223372036854775807");
+      expect(result[0]![0]).toBe("9007199254740992");
+      expect(result[1]![0]).toBe("9007199254740993");
+      expect(result[2]![0]).toBe("9223372036854775807");
 
       // All can be safely serialized
       expect(() => JSON.stringify(result)).not.toThrow();
@@ -171,7 +171,7 @@ describe("normalizeRawRows (streaming BigInt fix)", () => {
 
       const result = normalizeRawRows(rawRows);
 
-      expect(result[0][1]).toEqual({
+      expect(result[0]![1]).toEqual({
         user_id: "9007199254740993",
         metrics: {
           total_count: "100000000000",
@@ -189,8 +189,8 @@ describe("normalizeRawRows (streaming BigInt fix)", () => {
 
       const result = normalizeRawRows(rawRows);
 
-      expect(result[0][0]).toEqual(["1", "2", "3"]);
-      expect(result[1][0]).toEqual(["9223372036854775807"]);
+      expect(result[0]![0]).toEqual(["1", "2", "3"]);
+      expect(result[1]![0]).toEqual(["9223372036854775807"]);
     });
   });
 });

@@ -27,11 +27,11 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
 
     let mut matrix = vec![vec![0; b_len + 1]; a_len + 1];
 
-    for i in 0..=a_len {
-        matrix[i][0] = i;
+    for (i, row) in matrix.iter_mut().enumerate().take(a_len + 1) {
+        row[0] = i;
     }
-    for j in 0..=b_len {
-        matrix[0][j] = j;
+    for (j, val) in matrix[0].iter_mut().enumerate().take(b_len + 1) {
+        *val = j;
     }
 
     for i in 1..=a_len {
@@ -48,17 +48,6 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
     }
 
     matrix[a_len][b_len]
-}
-
-/// Check if two strings are similar enough (potential typo).
-/// Returns true if the strings are close but not identical.
-fn is_similar(a: &str, b: &str, threshold: usize) -> bool {
-    if a == b {
-        return false; // Identical, not a typo
-    }
-
-    let distance = levenshtein_distance(&a.to_lowercase(), &b.to_lowercase());
-    distance <= threshold && distance > 0
 }
 
 /// Find the closest match to a target string from a list of candidates.
