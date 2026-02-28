@@ -32,6 +32,7 @@ import type {
   GridColumnV2,
   GridRowModel,
   GridEditCommitEvent,
+  GridCellContentContext,
   CrudCommandFactory,
 } from "../types";
 import { useTableDataQuery } from "@/hooks/useTableDataQuery";
@@ -56,8 +57,6 @@ import {
 } from "../utils/crudHelpers";
 import { canProceedBestEffort } from "../utils/bestEffortMatcher";
 import { chooseDeterministicIdentityColumns } from "../utils/rowIdentity";
-import { useOptimisticRows } from "../hooks/useOptimisticRows";
-import { useCrudStore } from "@/stores/crudStore";
 import { useGridPreferencesStore } from "../stores/gridPreferencesStore";
 import { useAcpStore, DEFAULT_QUICK_FILTER_MODEL } from "@/stores/acpStore";
 import { AcpService } from "@/services/acpService";
@@ -871,32 +870,6 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     getRowKey,
   ]);
 
-  // --- Optimistic Updates for getCellContent ---
-  // SqlDataGrid provides its own getCellContent (for FK embedded values), so it needs
-  // to apply useOptimisticRows itself to display staged values correctly.
-  // BaseDataGrid also applies useOptimisticRows, but its result is only used when
-  // no getCellContent prop is provided.
-  const { getTableKey, stagedCommands: allStagedCommands } = useCrudStore();
-  const tableKey = commandFactory
-    ? getTableKey({
-        connectionId: commandFactory.connectionId,
-        database: commandFactory.database ?? "",
-        schema: commandFactory.schema,
-        table: commandFactory.table,
-      })
-    : "";
-  const pendingChanges = allStagedCommands.get(tableKey) ?? [];
-
-  const optimisticRows = useOptimisticRows({
-    displayRows: rows,
-    stagedCommands: pendingChanges,
-    primaryKeyColumns: configuredIdentityColumns,
-    columnNameToFieldMap,
-    columnByFieldMap,
-    columns,
-    getRowKey,
-  });
-
   // Build embedded FK field map from columnMeta
   // The backend returns embedded FK values as columns named __qp_fk__{fkColumn}__{refColumn}
   // Map: fkColumn -> col_N[] (fields to access embedded values, supports multiple)
@@ -935,18 +908,18 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
   // --- Stable refs for getCellContent ---
   const columnsRef = useRef(columns);
   columnsRef.current = columns;
-  // Use optimisticRows (not raw rows) so getCellContent shows staged values
-  const rowsRef = useRef(optimisticRows);
-  rowsRef.current = optimisticRows;
 
   // --- getCellContent (follows TableDataGrid pattern exactly) ---
   // This is used instead of customGetCellContent because embedded FK values
-  // need to be passed TO buildGridCellV2, not patched after the fact
+  // need to be passed TO buildGridCellV2, not patched after the fact.
+  // IMPORTANT: Prefer BaseDataGrid's context row/column so rendering and
+  // operations share the same row-index mapping (single source of truth).
   const getCellContent = useCallback(
-    (cell: Item): GridCell => {
+    (cell: Item, context?: GridCellContentContext): GridCell => {
       const [colIndex, rowIndex] = cell;
-      const column = columnsRef.current[colIndex];
-      const row = rowsRef.current[rowIndex];
+      const resolvedRowIndex = context?.rowIndex ?? rowIndex;
+      const column = context?.column ?? columnsRef.current[colIndex];
+      const row = context?.row ?? rows[resolvedRowIndex];
 
       if (!column || !row) {
         return {
@@ -965,7 +938,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
       let embeddedValue: string | null | undefined;
       if (column.meta?.is_fk && column.name) {
         const columnName = column.name;
-        const stagedKey = `${rowIndex}:${columnName}`;
+        const stagedKey = `${resolvedRowIndex}:${columnName}`;
         const stagedEmbedded = stagedFKEmbeddedValuesRef.current.get(stagedKey);
 
         // Check if there's a staged embedded value for this FK cell
@@ -1009,8 +982,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
 
       return gridCell;
     },
-    // Include optimisticRows in deps to invalidate Glide's cell cache when data or staged changes update
-    [isReadOnly, connectionId, database, schema, table, optimisticRows],
+    [isReadOnly, connectionId, database, schema, table, rows],
   );
 
   // --- Cell Edit Callback (for FK embedded value extraction) ---
