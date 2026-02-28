@@ -372,6 +372,7 @@ fn authenticate_session(sess: &mut Session, user: &str, auth: &SshAuthMethod) ->
 const MAX_CONCURRENT_CLIENTS: usize = 50;
 
 /// Run the port forwarding proxy with tracked client handlers
+#[allow(clippy::too_many_arguments)]
 async fn run_port_forward(
     local_port: u16,
     ssh_host: &str,

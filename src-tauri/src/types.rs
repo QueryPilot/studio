@@ -221,6 +221,41 @@ pub enum CellValue {
     Json(serde_json::Value),
 }
 
+impl std::fmt::Display for CellValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CellValue::Null => Ok(()),
+            CellValue::Bool(b) => write!(f, "{}", b),
+            CellValue::I16(i) => write!(f, "{}", i),
+            CellValue::I32(i) => write!(f, "{}", i),
+            CellValue::I64(i) => write!(f, "{}", i),
+            CellValue::F32(v) => write!(f, "{}", v),
+            CellValue::F64(v) => write!(f, "{}", v),
+            CellValue::Text(s) => f.write_str(s),
+            CellValue::Bytes(b) => write!(f, "<Binary {} bytes>", b.len()),
+            CellValue::Timestamp(micros) => {
+                use chrono::DateTime;
+                if let Some(dt) = DateTime::from_timestamp_micros(*micros) {
+                    write!(f, "{}", dt.format("%Y-%m-%d %H:%M:%S"))
+                } else {
+                    write!(f, "{}", micros)
+                }
+            }
+            CellValue::Date(days) => {
+                use chrono::NaiveDate;
+                if let Some(date) = NaiveDate::from_ymd_opt(1970, 1, 1)
+                    .and_then(|epoch| epoch.checked_add_days(chrono::Days::new(*days as u64)))
+                {
+                    write!(f, "{}", date.format("%Y-%m-%d"))
+                } else {
+                    write!(f, "{}", days)
+                }
+            }
+            CellValue::Json(v) => write!(f, "{}", v),
+        }
+    }
+}
+
 impl CellValue {
     pub fn null() -> Self {
         CellValue::Null
@@ -254,41 +289,6 @@ impl CellValue {
         CellValue::Json(value)
     }
 
-    /// Extract string representation for backward compatibility
-    pub fn to_string(&self) -> String {
-        match self {
-            CellValue::Null => String::new(),
-            CellValue::Bool(b) => b.to_string(),
-            CellValue::I16(i) => i.to_string(),
-            CellValue::I32(i) => i.to_string(),
-            CellValue::I64(i) => i.to_string(),
-            CellValue::F32(f) => f.to_string(),
-            CellValue::F64(f) => f.to_string(),
-            CellValue::Text(s) => s.clone(),
-            CellValue::Bytes(b) => format!("<Binary {} bytes>", b.len()),
-            CellValue::Timestamp(micros) => {
-                // Format timestamp
-                use chrono::DateTime;
-                if let Some(dt) = DateTime::from_timestamp_micros(*micros) {
-                    dt.format("%Y-%m-%d %H:%M:%S").to_string()
-                } else {
-                    micros.to_string()
-                }
-            }
-            CellValue::Date(days) => {
-                // Format date
-                use chrono::NaiveDate;
-                if let Some(date) = NaiveDate::from_ymd_opt(1970, 1, 1)
-                    .and_then(|epoch| epoch.checked_add_days(chrono::Days::new(*days as u64)))
-                {
-                    date.format("%Y-%m-%d").to_string()
-                } else {
-                    days.to_string()
-                }
-            }
-            CellValue::Json(v) => v.to_string(),
-        }
-    }
 
     /// Check if value is empty (null or empty string)
     pub fn is_empty(&self) -> bool {
@@ -626,16 +626,13 @@ pub enum SortDirection {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum NullsPosition {
     First,
+    #[default]
     Last,
 }
 
-impl Default for NullsPosition {
-    fn default() -> Self {
-        NullsPosition::Last
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]

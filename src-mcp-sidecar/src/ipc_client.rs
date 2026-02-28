@@ -85,10 +85,8 @@ impl IpcClient {
         let writer = Arc::new(Mutex::new(write_half));
 
         // Channel for sending requests
-        let (request_tx, mut request_rx): (
-            mpsc::Sender<(BridgeRequest, oneshot::Sender<Result<serde_json::Value>>)>,
-            _,
-        ) = mpsc::channel(100);
+        type RequestMessage = (BridgeRequest, oneshot::Sender<Result<serde_json::Value>>);
+        let (request_tx, mut request_rx): (mpsc::Sender<RequestMessage>, _) = mpsc::channel(100);
 
         // Pending responses map
         let pending: Arc<Mutex<std::collections::HashMap<String, oneshot::Sender<Result<serde_json::Value>>>>> =

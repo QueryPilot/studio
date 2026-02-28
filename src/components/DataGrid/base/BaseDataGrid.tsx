@@ -1175,13 +1175,13 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const activeRows = enableStagedChanges && commandFactory
     ? displayRowsWithOptimistic
     : displayRows;
-  // useDeferredValue helps keep the UI responsive when optimistic rows change
-  // during CRUD editing. For read-only grids (query results), skip the deferral
-  // — streaming throttle already handles frame pacing, and deferral adds latency.
-  const deferredActiveRows = useDeferredValue(activeRows);
-  const effectiveDisplayRows = (enableStagedChanges && commandFactory)
-    ? deferredActiveRows
-    : activeRows;
+  // Use activeRows directly (no useDeferredValue). The previous deferral caused
+  // sort changes to apply in two phases — headers updated immediately but row data
+  // lagged behind. During that gap, user clicks targeted stale visual positions,
+  // leading to fill-down/delete affecting the wrong row after the deferred render
+  // resolved. Synchronous updates keep rowsRef, getCellContent, and the grid
+  // display in lockstep, preventing index mismatches.
+  const effectiveDisplayRows = activeRows;
   const rowsRef = useRef(effectiveDisplayRows);
   // Update synchronously during render (not in useEffect) to avoid delay
   rowsRef.current = effectiveDisplayRows;
@@ -1243,7 +1243,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     table: tableName ?? "",
     rowIdentityColumns: commandFactory?.primaryKeyColumns,
     rows: effectiveDisplayRows,
-    baseRows: displayRows, // Stable pre-optimistic reference for PK map
+    baseRows: displayRows, // Pre-optimistic reference for PK map (same sort order as effectiveDisplayRows)
     columns: finalColumns,
   });
 
@@ -2203,6 +2203,28 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         return;
       }
 
+      // DEBUG: Log batch edit targets
+      if (edits.length > 0) {
+        const pkCols = factory.primaryKeyColumns;
+        const colMap = factory.columnNameToFieldMap;
+        const getPK = (rowIdx: number) => {
+          const row = rowsRef.current[rowIdx];
+          if (!row) return 'undefined';
+          return pkCols.map(pk => {
+            const field = colMap.get(pk);
+            const val = field ? row[field] : undefined;
+            return val && typeof val === 'object' && 'value' in val ? val.value : val;
+          }).join(',');
+        };
+        console.warn('[BATCH-EDIT DEBUG]', {
+          editCount: edits.length,
+          targets: edits.slice(0, 5).map(e => ({
+            col: e.cell[0], row: e.cell[1], pk: getPK(e.cell[1]), val: e.value
+          })),
+          totalRows: rowsRef.current.length,
+        });
+      }
+
       // Collect all commands for batch staging (single undo)
       const commands: import("@/types/crud").CrudCommand[] = [];
 
@@ -2576,7 +2598,17 @@ export const BaseDataGrid = memo(function BaseDataGrid(
           return;
         }
         const selection = gridSelectionRef.current;
-        if (selection) {
+        if (selection?.current?.cell) {
+          const [col, row] = selection.current.cell;
+          const rowData = rowsRef.current[row];
+          const pkCols = commandFactoryRef.current?.primaryKeyColumns ?? [];
+          const colMap = commandFactoryRef.current?.columnNameToFieldMap;
+          const pk = pkCols.map(pk => {
+            const field = colMap?.get(pk);
+            const val = field && rowData ? rowData[field] : undefined;
+            return val && typeof val === 'object' && 'value' in val ? val.value : val;
+          }).join(',');
+          console.warn('[COPY DEBUG]', { col, row, pk, totalRows: rowsRef.current.length });
           await copySelection(selection, "text");
         }
       },
@@ -2592,6 +2624,34 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       fillDown: () => {
         if (!enableFillOperations || isCellEditorActive() || isEditingCellRef.current) {
           return;
+        }
+        // DEBUG: Log selection and row data at the time of fill-down
+        const sel = gridSelectionRef.current;
+        if (sel?.current) {
+          const cell = sel.current.cell;
+          const range = sel.current.range;
+          const rows = rowsRef.current;
+          const pkCols = commandFactoryRef.current?.primaryKeyColumns ?? [];
+          const colMap = commandFactoryRef.current?.columnNameToFieldMap;
+          const getPK = (rowIdx: number) => {
+            const row = rows[rowIdx];
+            if (!row || !colMap) return 'N/A';
+            return pkCols.map(pk => {
+              const field = colMap.get(pk);
+              const val = field ? row[field] : undefined;
+              return val && typeof val === 'object' && 'value' in val ? val.value : val;
+            }).join(',');
+          };
+          console.warn('[FILL-DOWN DEBUG]', {
+            cell,
+            range: range ? { x: range.x, y: range.y, w: range.width, h: range.height } : null,
+            totalRows: rows.length,
+            cellRowPK: cell ? getPK(cell[1]) : 'N/A',
+            rangeStartPK: range ? getPK(range.y) : 'N/A',
+            rangeStartPlus1PK: range ? getPK(range.y + 1) : 'N/A',
+            rangeEndPK: range ? getPK(range.y + range.height - 1) : 'N/A',
+            first5PKs: Array.from({length: Math.min(5, rows.length)}, (_, i) => `[${i}]=${getPK(i)}`),
+          });
         }
         fillDown(gridSelectionRef.current);
       },
@@ -2734,8 +2794,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       const isFocusedByDom =
         !!activeElement &&
         !!containerRef.current?.contains(activeElement);
-      const isFocused =
-        isFocusedByRegistry || isFocusedByDom || isGridFocusedRef.current;
+      const isFocused = isFocusedByRegistry || isFocusedByDom;
 
       if (!isFocused) {
         return;
@@ -2905,6 +2964,19 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   // --- Selection Management ---
   const handleGridSelectionChange = useCallback(
     (newSelection: GridSelection) => {
+      // DEBUG: Log selection changes to trace index mismatches
+      if (newSelection.current?.cell) {
+        const [col, row] = newSelection.current.cell;
+        const rowData = rowsRef.current[row];
+        const pkCols = commandFactoryRef.current?.primaryKeyColumns ?? [];
+        const colMap = commandFactoryRef.current?.columnNameToFieldMap;
+        const pk = pkCols.map(pk => {
+          const field = colMap?.get(pk);
+          const val = field && rowData ? rowData[field] : undefined;
+          return val && typeof val === 'object' && 'value' in val ? val.value : val;
+        }).join(',');
+        console.warn('[SELECTION DEBUG]', { col, row, pk, totalRows: rowsRef.current.length });
+      }
       setGridSelection(newSelection);
       gridSelectionRef.current = newSelection;
       // Clear stale single-cell fallback when explicit row selection exists.

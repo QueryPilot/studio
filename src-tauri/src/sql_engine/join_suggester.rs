@@ -247,20 +247,18 @@ fn check_naming_convention(
     // Pattern: column ends with _id and table prefix matches
     if left_col_lower.ends_with("_id") {
         let prefix = left_col_lower.trim_end_matches("_id");
-        if right_table_lower == prefix || right_table_lower == format!("{}s", prefix) {
-            if right_col_lower == "id" {
+        if (right_table_lower == prefix || right_table_lower == format!("{}s", prefix))
+            && right_col_lower == "id" {
                 return Some((left_col.to_string(), right_col.to_string(), 75));
             }
-        }
     }
 
     if right_col_lower.ends_with("_id") {
         let prefix = right_col_lower.trim_end_matches("_id");
-        if left_table_lower == prefix || left_table_lower == format!("{}s", prefix) {
-            if left_col_lower == "id" {
+        if (left_table_lower == prefix || left_table_lower == format!("{}s", prefix))
+            && left_col_lower == "id" {
                 return Some((left_col.to_string(), right_col.to_string(), 75));
             }
-        }
     }
 
     None
@@ -268,8 +266,8 @@ fn check_naming_convention(
 
 /// Simple singularization for common patterns
 fn singularize(word: &str) -> String {
-    if word.ends_with("ies") {
-        format!("{}y", &word[..word.len() - 3])
+    if let Some(stem) = word.strip_suffix("ies") {
+        format!("{}y", stem)
     } else if word.ends_with("es")
         && (word.ends_with("ses") || word.ends_with("xes") || word.ends_with("zes"))
     {

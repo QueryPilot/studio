@@ -63,7 +63,7 @@ impl BaseCapability for PostgresAdapter {
         });
 
         // Handle options
-        for (key, _value) in &profile.options {
+        for key in profile.options.keys() {
             match key.to_lowercase().as_str() {
                 "connect_timeout" => {
                     // deadpool config doesn't have connect_timeout directly on Config root usually,

@@ -465,18 +465,18 @@ fn extract_identifier(s: &str) -> Option<String> {
         return None;
     }
 
-    if s.starts_with('"') {
+    if let Some(rest) = s.strip_prefix('"') {
         // Quoted identifier
-        let end = s[1..].find('"')?;
-        Some(s[1..=end].to_string())
-    } else if s.starts_with('[') {
+        let end = rest.find('"')?;
+        Some(rest[..end].to_string())
+    } else if let Some(rest) = s.strip_prefix('[') {
         // Bracket-quoted identifier (SQL Server style, sometimes used in SQLite)
-        let end = s[1..].find(']')?;
-        Some(s[1..=end].to_string())
-    } else if s.starts_with('`') {
+        let end = rest.find(']')?;
+        Some(rest[..end].to_string())
+    } else if let Some(rest) = s.strip_prefix('`') {
         // Backtick-quoted identifier (MySQL style)
-        let end = s[1..].find('`')?;
-        Some(s[1..=end].to_string())
+        let end = rest.find('`')?;
+        Some(rest[..end].to_string())
     } else {
         // Unquoted identifier - ends at whitespace or (
         let end = s

@@ -718,6 +718,7 @@ function parseSqlServerHost(value: string): {
   cleaned = cleaned.replace(/^tcp:/i, "");
 
   const [serverPart, portPart] = cleaned.split(",", 2);
+  if (!serverPart) return {};
   const [hostPart, instancePart] = serverPart.split("\\", 2);
 
   return {
@@ -1139,9 +1140,11 @@ function preprocessUri(uri: string): string {
 
   const [, protocol, username, password, rest] = match;
 
+  if (!password || !protocol || !username || !rest) return uri;
+
   // Check if password is already percent-encoded by looking for %XX patterns
   const isAlreadyEncoded = /%[0-9A-Fa-f]{2}/.test(password);
-  
+
   if (isAlreadyEncoded) {
     // Password is already encoded, don't double-encode
     return uri;

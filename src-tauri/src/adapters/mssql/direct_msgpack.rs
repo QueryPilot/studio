@@ -323,7 +323,7 @@ impl DirectMsgPackEncoder {
     /// reducing allocations from N (one per row) to ~num_threads.
     fn encode_parallel_two_pass(&self, rows: &[Row]) -> Result<Vec<u8>> {
         let num_threads = rayon::current_num_threads().max(1);
-        let chunk_size = (rows.len() + num_threads - 1) / num_threads;
+        let chunk_size = rows.len().div_ceil(num_threads);
         let column_count = self.column_count;
 
         let chunk_buffers: Vec<Vec<u8>> = rows

@@ -93,7 +93,7 @@ impl SimpleConverter {
             }
 
             Some(Value::Time(is_neg, days, hours, mins, secs, micros)) => {
-                let total_hours = (*days as u32) * 24 + (*hours as u32);
+                let total_hours = *days * 24 + (*hours as u32);
                 let sign = if *is_neg { "-" } else { "" };
                 if *micros > 0 {
                     JsonValue::String(format!(

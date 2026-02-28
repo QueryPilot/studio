@@ -103,7 +103,7 @@ impl SimpleConverter {
                         const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
                         const MIN_SAFE_INTEGER: i64 = -9_007_199_254_740_991;
 
-                        if v > MAX_SAFE_INTEGER || v < MIN_SAFE_INTEGER {
+                        if !(MIN_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&v) {
                             // Send as string to preserve precision
                             JsonValue::String(v.to_string())
                         } else {

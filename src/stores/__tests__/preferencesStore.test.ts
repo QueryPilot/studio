@@ -30,11 +30,11 @@ describe('preferencesStore', () => {
     it('should open preferences with specific category', () => {
       const store = usePreferencesStore.getState();
 
-      store.openPreferences('editor');
+      store.openPreferences('shortcuts');
 
       const newState = usePreferencesStore.getState();
       expect(newState.isOpen).toBe(true);
-      expect(newState.activeCategory).toBe('editor');
+      expect(newState.activeCategory).toBe('shortcuts');
     });
 
     it('should close preferences and reset unsaved changes', () => {
@@ -94,7 +94,7 @@ describe('preferencesStore', () => {
       expect(usePreferencesStore.getState().unsavedChanges).toBe(true);
 
       // Changing category should not clear unsaved changes
-      store.setActiveCategory('editor');
+      store.setActiveCategory('shortcuts');
       expect(usePreferencesStore.getState().unsavedChanges).toBe(true);
 
       // Only closePreferences should clear it
@@ -117,8 +117,8 @@ describe('preferencesStore', () => {
       expect(usePreferencesStore.getState().unsavedChanges).toBe(true);
 
       // 3. Navigate to different category
-      store.setActiveCategory('editor');
-      expect(usePreferencesStore.getState().activeCategory).toBe('editor');
+      store.setActiveCategory('shortcuts');
+      expect(usePreferencesStore.getState().activeCategory).toBe('shortcuts');
       expect(usePreferencesStore.getState().unsavedChanges).toBe(true); // Still has changes
 
       // 4. Close preferences

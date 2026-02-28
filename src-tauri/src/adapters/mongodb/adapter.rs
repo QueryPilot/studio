@@ -10,6 +10,9 @@ use mongodb::{options::ClientOptions, Client, Database};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+
+/// Stats for a document field: (count, non_null_count, types, sample_values)
+type FieldStats = (u64, u64, HashSet<String>, Vec<Value>);
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
@@ -666,7 +669,7 @@ impl MongoDbAdapter {
         path: &str,
         depth: u8,
         max_depth: u8,
-        stats: &mut HashMap<String, (u64, u64, HashSet<String>, Vec<Value>)>,
+        stats: &mut HashMap<String, FieldStats>,
     ) {
         if depth > max_depth {
             return;
