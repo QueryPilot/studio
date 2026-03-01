@@ -361,13 +361,17 @@ export const SelectionSummary = memo(function SelectionSummary({
       const cycleIdx = NUMERIC_CYCLE_ORDER.indexOf(currentKey);
       if (cycleIdx === -1) return;
 
-      const nextIdx = (cycleIdx + 1) % NUMERIC_CYCLE_ORDER.length;
-      const nextKey = NUMERIC_CYCLE_ORDER[nextIdx]!;
-
-      // Atomically replace currentKey with nextKey in a single store update
-      cycleNumericStat(currentKey, nextKey);
+      // Find the next stat in cycle that is NOT already visible
+      for (let i = 1; i < NUMERIC_CYCLE_ORDER.length; i++) {
+        const nextKey = NUMERIC_CYCLE_ORDER[(cycleIdx + i) % NUMERIC_CYCLE_ORDER.length]!;
+        if (!enabledNumericStats.includes(nextKey)) {
+          cycleNumericStat(currentKey, nextKey);
+          return;
+        }
+      }
+      // All cycleable stats are already visible — do nothing
     },
-    [cycleNumericStat],
+    [cycleNumericStat, enabledNumericStats],
   );
 
   if (!statistics || visibleStats.length === 0) return null;
@@ -483,14 +487,16 @@ export const SelectionSummary = memo(function SelectionSummary({
       <ContextMenuContent className="w-48 text-xs p-1">
         {isNumeric
           ? NUMERIC_STAT_ORDER.map((key) => {
-              // Skip "null" if no nulls
               if (key === "null" && (!statistics.countNull || statistics.countNull === 0)) {
                 return null;
               }
+              const isChecked = enabledNumericStats.includes(key);
+              const isLastEnabled = isChecked && enabledNumericStats.length === 1;
               return (
                 <ContextMenuCheckboxItem
                   key={key}
-                  checked={enabledNumericStats.includes(key)}
+                  checked={isChecked}
+                  disabled={isLastEnabled}
                   onCheckedChange={() => { toggleNumericStat(key); }}
                 >
                   {NUMERIC_STAT_LABELS[key]}
@@ -498,14 +504,16 @@ export const SelectionSummary = memo(function SelectionSummary({
               );
             })
           : NON_NUMERIC_STAT_ORDER.map((key) => {
-              // Skip "null" if no nulls
               if (key === "null" && (!statistics.countNull || statistics.countNull === 0)) {
                 return null;
               }
+              const isChecked = enabledNonNumericStats.includes(key);
+              const isLastEnabled = isChecked && enabledNonNumericStats.length === 1;
               return (
                 <ContextMenuCheckboxItem
                   key={key}
-                  checked={enabledNonNumericStats.includes(key)}
+                  checked={isChecked}
+                  disabled={isLastEnabled}
                   onCheckedChange={() => { toggleNonNumericStat(key); }}
                 >
                   {NON_NUMERIC_STAT_LABELS[key]}
