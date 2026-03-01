@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-import { memo, useMemo, useCallback } from "react";
+import { memo, useMemo, useCallback, useEffect, useRef, useState } from "react";
 import {
   IconChevronLeft,
   IconChevronRight,
@@ -41,6 +41,7 @@ import {
   type NumericStatKey,
   type NonNumericStatKey,
 } from "@/stores/useSelectionStatsPreferencesStore";
+import type { StatsWorkerResponse } from "@/workers/selectionStats.worker";
 
 interface SelectionSummaryProps {
   selectedRows: GridRowModel[];
@@ -113,7 +114,20 @@ export const SelectionSummary = memo(function SelectionSummary({
     resetToDefaults,
   } = useSelectionStatsPreferencesStore();
 
-  const statistics = useMemo((): Statistics | null => {
+  // ── Worker for expensive stats (median, unique) on large selections ──
+  const workerRef = useRef<Worker | null>(null);
+  const workerRequestIdRef = useRef(0);
+  const [workerStats, setWorkerStats] = useState<{
+    median?: Decimal;
+    countUnique?: number;
+  } | null>(null);
+
+  const cheapStats = useMemo((): (Statistics & {
+    /** String values to send to worker for large selections */
+    _numericStrings?: string[];
+    _allStrings?: string[];
+    _isLargeSelection?: boolean;
+  }) | null => {
     if (selectedRows.length === 0 && selectedRowIndices.size === 0) return null;
 
     // Calculate count first to check minimum threshold
@@ -129,15 +143,16 @@ export const SelectionSummary = memo(function SelectionSummary({
       ? gridSelection.current.range.height
       : selectedRowIndices.size;
 
-    // For large selections, skip expensive O(n log n) stats (median, unique).
-    // Cheap O(n) stats (sum, avg, min, max) are always computed in a single pass.
+    // For large selections, delegate expensive stats (median, unique) to a worker.
+    // Cheap O(n) stats (sum, avg, min, max) are always computed synchronously.
     const EXPENSIVE_STATS_THRESHOLD = 5000;
     const isLargeSelection = count > EXPENSIVE_STATS_THRESHOLD;
 
-    // For small selections, collect values for median/unique.
-    // For large selections, compute sum/min/max incrementally without storing all values.
-    const decimalValues: Decimal[] = isLargeSelection ? [] : [];
-    const uniqueValues = isLargeSelection ? null : new Set<string>();
+    const decimalValues: Decimal[] = [];
+    const uniqueValues = new Set<string>();
+    // String representations for the worker (only allocated for large selections)
+    const numericStrings: string[] = [];
+    const allStrings: string[] = [];
     let nullCount = 0;
     let hasDecimalColumns = false;
 
@@ -148,9 +163,13 @@ export const SelectionSummary = memo(function SelectionSummary({
     let numericCount = 0;
 
     const processCell = (val: unknown, column: GridColumnV2) => {
-      // Track unique values only for small selections
-      if (uniqueValues) {
-        uniqueValues.add(String(val));
+      const strVal = String(val);
+
+      // For large selections, collect strings for the worker
+      if (isLargeSelection) {
+        allStrings.push(strVal);
+      } else {
+        uniqueValues.add(strVal);
       }
 
       // Only process as numeric if column type is numeric
@@ -163,8 +182,11 @@ export const SelectionSummary = memo(function SelectionSummary({
           if (min === undefined || decimal.lessThan(min)) min = decimal;
           if (max === undefined || decimal.greaterThan(max)) max = decimal;
 
-          // Only store individual values for median (small selections)
-          if (!isLargeSelection) {
+          if (isLargeSelection) {
+            // Collect string for the worker (toFixed avoids scientific notation)
+            numericStrings.push(decimal.toFixed());
+          } else {
+            // Collect Decimal for synchronous median
             decimalValues.push(decimal);
           }
 
@@ -248,7 +270,7 @@ export const SelectionSummary = memo(function SelectionSummary({
       return {
         sum,
         avg,
-        // Median and unique are expensive — only available for small selections
+        // Small selections: compute median synchronously
         median: !isLargeSelection && decimalValues.length > 0
           ? calculateMedian(decimalValues)
           : undefined,
@@ -256,32 +278,28 @@ export const SelectionSummary = memo(function SelectionSummary({
         max,
         count,
         countNumbers: numericCount,
-        countUnique: uniqueValues ? uniqueValues.size : undefined,
+        countUnique: !isLargeSelection ? uniqueValues.size : undefined,
         countNull: nullCount,
         selectedRows: selectedRowCount,
         isNumeric: true,
         hasDecimalColumns,
+        // Pass string arrays to worker for large selections
+        _numericStrings: isLargeSelection ? numericStrings : undefined,
+        _allStrings: isLargeSelection ? allStrings : undefined,
+        _isLargeSelection: isLargeSelection,
       };
     }
 
-    // Otherwise, return unique count for non-numeric data
-    if (uniqueValues && uniqueValues.size > 0) {
+    // Otherwise, return count for non-numeric data
+    if (uniqueValues.size > 0 || isLargeSelection) {
       return {
         count,
-        countUnique: uniqueValues.size,
-        countNull: nullCount,
-        selectedRows: selectedRowCount,
-        isNumeric: false,
-      };
-    }
-
-    // Large non-numeric selection — still show count
-    if (isLargeSelection) {
-      return {
-        count,
+        countUnique: !isLargeSelection ? uniqueValues.size : undefined,
         countNull: nullCount > 0 ? nullCount : undefined,
         selectedRows: selectedRowCount,
         isNumeric: false,
+        _allStrings: isLargeSelection ? allStrings : undefined,
+        _isLargeSelection: isLargeSelection,
       };
     }
 
@@ -297,6 +315,89 @@ export const SelectionSummary = memo(function SelectionSummary({
 
     return null;
   }, [selectedRows, selectedRowIndices, allRows, columns, gridSelection]);
+
+  // Track which cheapStats the last effect processed, so the merge can detect
+  // staleness during the render BEFORE the effect fires and clears workerStats.
+  // On the render where cheapStats changes, effectCheapStatsRef still points to
+  // the OLD cheapStats, letting us know workerStats is stale.
+  const effectCheapStatsRef = useRef(cheapStats);
+
+  // ── Dispatch worker for large selections ──
+  useEffect(() => {
+    // Record which cheapStats this effect processed
+    effectCheapStatsRef.current = cheapStats;
+    // Clear worker stats whenever selection changes
+    setWorkerStats(null);
+
+    if (!cheapStats?._isLargeSelection) return;
+
+    const numericValues = cheapStats._numericStrings ?? [];
+    const allValues = cheapStats._allStrings ?? [];
+    if (numericValues.length === 0 && allValues.length === 0) return;
+
+    // Lazily create worker
+    if (!workerRef.current) {
+      workerRef.current = new Worker(
+        new URL("@/workers/selectionStats.worker.ts", import.meta.url),
+        { type: "module" },
+      );
+    }
+
+    const requestId = ++workerRequestIdRef.current;
+    const worker = workerRef.current;
+
+    const handleMessage = (event: MessageEvent<StatsWorkerResponse>) => {
+      // Ignore stale responses
+      if (event.data.id !== requestId) return;
+
+      setWorkerStats({
+        median: event.data.median !== undefined
+          ? new Decimal(event.data.median)
+          : undefined,
+        countUnique: event.data.countUnique,
+      });
+    };
+
+    worker.addEventListener("message", handleMessage);
+    worker.postMessage({ id: requestId, numericValues, allValues });
+
+    return () => {
+      worker.removeEventListener("message", handleMessage);
+    };
+  }, [cheapStats]);
+
+  // Terminate worker on unmount
+  useEffect(() => {
+    return () => {
+      if (workerRef.current) {
+        workerRef.current.terminate();
+        workerRef.current = null;
+      }
+    };
+  }, []);
+
+  // ── Merge cheap stats + worker results ──
+  const statistics = useMemo((): Statistics | null => {
+    if (!cheapStats) return null;
+
+    // Destructure out internal transport fields so they don't leak into statistics
+    const { _numericStrings: _, _allStrings: __, _isLargeSelection, ...stats } = cheapStats;
+
+    // Small selection — stats already has everything
+    if (!_isLargeSelection) return stats;
+
+    // Prevent stale worker results: on the render where cheapStats just changed,
+    // effectCheapStatsRef still points to the old value (effect hasn't run yet),
+    // so we know workerStats belongs to a previous selection.
+    const isWorkerStatsFresh = effectCheapStatsRef.current === cheapStats && workerStats !== null;
+
+    // Large selection — merge in worker results only if fresh
+    return {
+      ...stats,
+      median: isWorkerStatsFresh ? workerStats.median : undefined,
+      countUnique: isWorkerStatsFresh ? workerStats.countUnique : undefined,
+    };
+  }, [cheapStats, workerStats]);
 
   const baseColumnType = statistics?.hasDecimalColumns ? "decimal" : "integer";
 

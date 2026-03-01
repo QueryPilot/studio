@@ -954,44 +954,6 @@ export const QueryPanel = memo(function QueryPanel({
     setQuery(currentQuery);
   }, [persistSql, setQuery]);
 
-  const handleExplain = useCallback(() => {
-    // Clean up the query - remove trailing semicolons before wrapping
-    const sql = queryRef.current.trim().replace(/;\s*$/, "");
-    if (!sql) {
-      toast.error("Please enter a query to explain");
-      return;
-    }
-
-    // Generate dialect-specific EXPLAIN statement
-    const dbTypeLower = dbType.toLowerCase();
-    let explainSql: string;
-
-    if (dbTypeLower === "postgres" || dbTypeLower === "postgresql") {
-      // PostgreSQL: EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
-      explainSql = `EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) ${sql}`;
-    } else if (dbTypeLower === "mysql" || dbTypeLower === "mariadb") {
-      // MySQL: EXPLAIN ANALYZE
-      explainSql = `EXPLAIN ANALYZE ${sql}`;
-    } else if (dbTypeLower === "sqlite") {
-      // SQLite: EXPLAIN QUERY PLAN
-      explainSql = `EXPLAIN QUERY PLAN ${sql}`;
-    } else if (dbTypeLower === "sqlserver" || dbTypeLower === "mssql") {
-      // SQL Server: Use SET STATISTICS PROFILE
-      explainSql = `SET STATISTICS PROFILE ON; ${sql}`;
-    } else {
-      // Default to basic EXPLAIN
-      explainSql = `EXPLAIN ${sql}`;
-    }
-
-    logger.info("[handleExplain] Running:", {
-      explainSql,
-      originalSql: sql,
-      dbType: dbTypeLower,
-    });
-
-    // Execute the explain query (handleExecute auto-switches to explain view mode)
-    void handleExecute(explainSql);
-  }, [dbType, handleExecute]);
 
   const toggleResults = useCallback(() => {
     setShowResults((prev) => !prev);
@@ -1165,7 +1127,6 @@ export const QueryPanel = memo(function QueryPanel({
                       onExecute={() => handleExecute()}
                       onCancel={handleCancel}
                       onBeautify={handleBeautify}
-                      onExplain={handleExplain}
                       onToggleResults={toggleResults}
                       onToggleOutline={toggleOutline}
                       onViewModeChange={setViewMode}
