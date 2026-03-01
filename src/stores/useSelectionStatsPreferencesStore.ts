@@ -4,7 +4,7 @@ import { immer } from "zustand/middleware/immer";
 import { createJSONStorage } from "zustand/middleware";
 import { createIndexedDbStorage } from "@/components/DataGrid/stores/indexedDbStorage";
 
-export type NumericStatKey = "sum" | "avg" | "median" | "min" | "max" | "count" | "null";
+export type NumericStatKey = "sum" | "avg" | "median" | "min" | "max" | "count" | "unique" | "null";
 export type NonNumericStatKey = "count" | "unique" | "null";
 
 const DEFAULT_NUMERIC_STATS: NumericStatKey[] = ["sum", "avg", "count"];
