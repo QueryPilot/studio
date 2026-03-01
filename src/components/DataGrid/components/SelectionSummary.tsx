@@ -94,6 +94,7 @@ export const SelectionSummary = memo(function SelectionSummary({
     isExpanded,
     toggleNumericStat,
     toggleNonNumericStat,
+    cycleNumericStat,
     setExpanded,
     resetToDefaults,
   } = useSelectionStatsPreferencesStore();
@@ -331,8 +332,12 @@ export const SelectionSummary = memo(function SelectionSummary({
   }, [statistics, enabledNumericStats, enabledNonNumericStats, getStatValue]);
 
   const handleCopyValue = useCallback(async (value: string) => {
-    await writeClipboardText(value);
-    toast.success("Copied to clipboard");
+    try {
+      await writeClipboardText(value);
+      toast.success("Copied to clipboard");
+    } catch {
+      toast.error("Failed to copy");
+    }
   }, []);
 
   const handleCycleStat = useCallback(
@@ -344,23 +349,16 @@ export const SelectionSummary = memo(function SelectionSummary({
       const nextIdx = (cycleIdx + 1) % NUMERIC_CYCLE_ORDER.length;
       const nextKey = NUMERIC_CYCLE_ORDER[nextIdx]!;
 
-      // Enable the next stat and disable the current one
-      if (!enabledNumericStats.includes(nextKey)) {
-        toggleNumericStat(nextKey);
-      }
-      if (enabledNumericStats.includes(currentKey)) {
-        // Only disable if we'll still have at least 1 stat after enabling the next
-        toggleNumericStat(currentKey);
-      }
+      // Atomically replace currentKey with nextKey in a single store update
+      cycleNumericStat(currentKey, nextKey);
     },
-    [enabledNumericStats, toggleNumericStat],
+    [cycleNumericStat],
   );
 
   if (!statistics || visibleStats.length === 0) return null;
 
   const isNumeric = statistics.isNumeric;
   const primaryStat = visibleStats[0]!;
-  const colorBase = isNumeric ? "green" : "blue";
 
   return (
     <ContextMenu>
@@ -381,7 +379,7 @@ export const SelectionSummary = memo(function SelectionSummary({
                   <span
                     className={cn(
                       "w-px h-3.5",
-                      colorBase === "green"
+                      isNumeric
                         ? "bg-green-500/20"
                         : "bg-blue-500/20",
                     )}
@@ -410,6 +408,7 @@ export const SelectionSummary = memo(function SelectionSummary({
                 </span>
                 <span
                   className="font-mono font-medium cursor-pointer"
+                  title={`${stat.value} — click to copy`}
                   onClick={(e) => {
                     e.stopPropagation();
                     void handleCopyValue(stat.value);
@@ -419,19 +418,28 @@ export const SelectionSummary = memo(function SelectionSummary({
                 </span>
               </span>
             ))}
-            <IconChevronLeft
-              className="h-3 w-3 ml-0.5 opacity-50 cursor-pointer hover:opacity-100"
+            <button
+              className={cn(
+                "flex items-center justify-center w-5 h-6 transition-colors",
+                isNumeric
+                  ? "text-green-700/60 dark:text-green-400/60 hover:text-green-700 dark:hover:text-green-400"
+                  : "text-blue-700/60 dark:text-blue-400/60 hover:text-blue-700 dark:hover:text-blue-400",
+              )}
               onClick={(e) => {
                 e.stopPropagation();
                 setExpanded(false);
               }}
-            />
+              aria-label="Collapse statistics"
+            >
+              <IconChevronLeft className="h-3 w-3" />
+            </button>
           </>
         ) : (
           <>
             <span className="text-muted-foreground">{primaryStat.label}:</span>
             <span
               className="font-mono font-medium cursor-pointer"
+              title={`${primaryStat.value} — click to copy`}
               onClick={(e) => {
                 e.stopPropagation();
                 void handleCopyValue(primaryStat.value);
@@ -439,13 +447,21 @@ export const SelectionSummary = memo(function SelectionSummary({
             >
               {primaryStat.value}
             </span>
-            <IconChevronRight
-              className="h-3 w-3 ml-0.5 opacity-50 cursor-pointer hover:opacity-100"
+            <button
+              className={cn(
+                "flex items-center justify-center w-5 h-6 transition-colors",
+                isNumeric
+                  ? "text-green-700/60 dark:text-green-400/60 hover:text-green-700 dark:hover:text-green-400"
+                  : "text-blue-700/60 dark:text-blue-400/60 hover:text-blue-700 dark:hover:text-blue-400",
+              )}
               onClick={(e) => {
                 e.stopPropagation();
                 setExpanded(true);
               }}
-            />
+              aria-label="Expand statistics"
+            >
+              <IconChevronRight className="h-3 w-3" />
+            </button>
           </>
         )}
       </ContextMenuTrigger>

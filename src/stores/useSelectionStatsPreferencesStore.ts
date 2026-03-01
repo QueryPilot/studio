@@ -17,6 +17,7 @@ interface SelectionStatsPreferencesState {
 
   toggleNumericStat: (stat: NumericStatKey) => void;
   toggleNonNumericStat: (stat: NonNumericStatKey) => void;
+  cycleNumericStat: (from: NumericStatKey, to: NumericStatKey) => void;
   setExpanded: (expanded: boolean) => void;
   resetToDefaults: () => void;
 }
@@ -57,6 +58,26 @@ export const useSelectionStatsPreferencesStore = create<SelectionStatsPreference
               state.enabledNonNumericStats.push(stat);
             }
           }, false, "selectionStats/toggleNonNumericStat");
+        },
+
+        cycleNumericStat: (from, to) => {
+          set((state) => {
+            const fromIdx = state.enabledNumericStats.indexOf(from);
+            // Add 'to' if not present
+            if (!state.enabledNumericStats.includes(to)) {
+              if (fromIdx >= 0) {
+                // Replace 'from' in-place to keep the same position
+                state.enabledNumericStats[fromIdx] = to;
+              } else {
+                state.enabledNumericStats.push(to);
+              }
+            } else {
+              // 'to' is already enabled, just remove 'from' if safe
+              if (fromIdx >= 0 && state.enabledNumericStats.length > 1) {
+                state.enabledNumericStats.splice(fromIdx, 1);
+              }
+            }
+          }, false, "selectionStats/cycleNumericStat");
         },
 
         setExpanded: (expanded) => {

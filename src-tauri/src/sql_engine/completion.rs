@@ -212,10 +212,10 @@ pub fn complete(request: &CompletionRequest) -> CompletionResult {
     }
 }
 
-fn statement_at_position(
-    doc: &ParsedDocument,
+fn statement_at_position<'a>(
+    doc: &'a ParsedDocument,
     position: usize,
-) -> Option<&ParsedStatement> {
+) -> Option<&'a ParsedStatement> {
     if let Some(stmt) = doc
         .statements
         .iter()
