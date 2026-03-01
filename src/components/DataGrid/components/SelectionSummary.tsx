@@ -61,20 +61,21 @@ interface Statistics {
   countNumbers?: number;
   countUnique?: number;
   countNull?: number;
+  selectedRows: number;
   isNumeric: boolean;
   // Track if we have mixed integer/decimal columns for formatting
   hasDecimalColumns?: boolean;
 }
 
-const NUMERIC_STAT_ORDER: NumericStatKey[] = ["sum", "avg", "median", "min", "max", "count", "unique", "null"];
-const NON_NUMERIC_STAT_ORDER: NonNumericStatKey[] = ["count", "unique", "null"];
+const NUMERIC_STAT_ORDER: NumericStatKey[] = ["sum", "avg", "median", "min", "max", "count", "unique", "selected", "null"];
+const NON_NUMERIC_STAT_ORDER: NonNumericStatKey[] = ["count", "unique", "selected", "null"];
 
 const NUMERIC_STAT_LABELS: Record<NumericStatKey, string> = {
-  sum: "Sum", avg: "Avg", median: "Median", min: "Min", max: "Max", count: "Count", unique: "Unique", null: "Null",
+  sum: "Sum", avg: "Avg", median: "Median", min: "Min", max: "Max", count: "Count", unique: "Unique", selected: "Selected", null: "Null",
 };
 
 const NON_NUMERIC_STAT_LABELS: Record<NonNumericStatKey, string> = {
-  count: "Count", unique: "Unique", null: "Null",
+  count: "Count", unique: "Unique", selected: "Selected", null: "Null",
 };
 
 const NUMERIC_CYCLE_ORDER: NumericStatKey[] = ["sum", "avg", "median", "min", "max"];
@@ -123,11 +124,16 @@ export const SelectionSummary = memo(function SelectionSummary({
     // Only show statistics if more than 1 cell is selected
     if (count <= 1) return null;
 
+    // Number of selected rows (not cells)
+    const selectedRowCount = gridSelection?.current?.range
+      ? gridSelection.current.range.height
+      : selectedRowIndices.size;
+
     // For large selections, skip expensive statistics (sum/avg/median/unique).
     // Computing stats over 5k+ rows × columns creates millions of iterations.
     const STATS_THRESHOLD = 5000;
     if (count > STATS_THRESHOLD) {
-      return { count, isNumeric: false };
+      return { count, selectedRows: selectedRowCount, isNumeric: false };
     }
 
     const decimalValues: Decimal[] = [];
@@ -254,6 +260,7 @@ export const SelectionSummary = memo(function SelectionSummary({
         countNumbers,
         countUnique: uniqueValues.size,
         countNull: nullCount,
+        selectedRows: selectedRowCount,
         isNumeric: true,
         hasDecimalColumns,
       };
@@ -265,6 +272,7 @@ export const SelectionSummary = memo(function SelectionSummary({
         count,
         countUnique: uniqueValues.size,
         countNull: nullCount,
+        selectedRows: selectedRowCount,
         isNumeric: false,
       };
     }
@@ -274,6 +282,7 @@ export const SelectionSummary = memo(function SelectionSummary({
       return {
         count,
         countNull: nullCount,
+        selectedRows: selectedRowCount,
         isNumeric: false,
       };
     }
@@ -328,6 +337,8 @@ export const SelectionSummary = memo(function SelectionSummary({
           return statistics.countUnique !== undefined
             ? { display: statistics.countUnique.toLocaleString(), raw: String(statistics.countUnique) }
             : null;
+        case "selected":
+          return { display: `${statistics.selectedRows.toLocaleString()} rows`, raw: String(statistics.selectedRows) };
         case "null":
           return statistics.countNull !== undefined && statistics.countNull > 0
             ? { display: statistics.countNull.toLocaleString(), raw: String(statistics.countNull) }
