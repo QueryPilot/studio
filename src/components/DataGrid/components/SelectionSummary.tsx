@@ -17,6 +17,7 @@ import type { GridRowModel, GridColumnV2 } from "../types";
 import type { CellValue as FrontCellValue } from "@/types";
 import {
   toDecimal,
+  formatDecimal,
   formatDecimalWithLocale,
   isNumericColumnType,
   getNumericCategory,
@@ -267,44 +268,60 @@ export const SelectionSummary = memo(function SelectionSummary({
     return null;
   }, [selectedRows, selectedRowIndices, allRows, columns, gridSelection]);
 
+  const columnType = statistics?.hasDecimalColumns ? "decimal" : "integer";
+
   const formatNumber = useCallback(
-    (decimal: Decimal) => {
-      const columnType = statistics?.hasDecimalColumns ? "decimal" : "integer";
-      return formatDecimalWithLocale(decimal, columnType);
+    (decimal: Decimal) => formatDecimalWithLocale(decimal, columnType),
+    [columnType],
+  );
+
+  // Raw format without thousand separators — used for clipboard copy
+  const formatRawNumber = useCallback(
+    (decimal: Decimal) => formatDecimal(decimal, columnType),
+    [columnType],
+  );
+
+  // Helper to get a Decimal stat value by key
+  const getDecimalForKey = useCallback(
+    (key: string): Decimal | undefined => {
+      if (!statistics) return undefined;
+      switch (key) {
+        case "sum": return statistics.sum;
+        case "avg": return statistics.avg;
+        case "median": return statistics.median;
+        case "min": return statistics.min;
+        case "max": return statistics.max;
+        default: return undefined;
+      }
     },
-    [statistics?.hasDecimalColumns],
+    [statistics],
   );
 
   const getStatValue = useCallback(
-    (key: NumericStatKey | NonNumericStatKey): string | null => {
+    (key: NumericStatKey | NonNumericStatKey): { display: string; raw: string } | null => {
       if (!statistics) return null;
 
+      const decimal = getDecimalForKey(key);
+      if (decimal !== undefined) {
+        return { display: formatNumber(decimal), raw: formatRawNumber(decimal) };
+      }
+
       switch (key) {
-        case "sum":
-          return statistics.sum ? formatNumber(statistics.sum) : null;
-        case "avg":
-          return statistics.avg ? formatNumber(statistics.avg) : null;
-        case "median":
-          return statistics.median ? formatNumber(statistics.median) : null;
-        case "min":
-          return statistics.min ? formatNumber(statistics.min) : null;
-        case "max":
-          return statistics.max ? formatNumber(statistics.max) : null;
         case "count":
-          return statistics.count.toLocaleString();
+          return { display: statistics.count.toLocaleString(), raw: String(statistics.count) };
         case "unique":
           return statistics.countUnique !== undefined
-            ? statistics.countUnique.toLocaleString()
+            ? { display: statistics.countUnique.toLocaleString(), raw: String(statistics.countUnique) }
             : null;
         case "null":
           return statistics.countNull !== undefined && statistics.countNull > 0
-            ? statistics.countNull.toLocaleString()
+            ? { display: statistics.countNull.toLocaleString(), raw: String(statistics.countNull) }
             : null;
         default:
           return null;
       }
     },
-    [statistics, formatNumber],
+    [statistics, formatNumber, formatRawNumber, getDecimalForKey],
   );
 
   const visibleStats = useMemo(() => {
@@ -314,21 +331,19 @@ export const SelectionSummary = memo(function SelectionSummary({
       return NUMERIC_STAT_ORDER.filter((key) => {
         if (!enabledNumericStats.includes(key)) return false;
         return getStatValue(key) !== null;
-      }).map((key) => ({
-        key,
-        label: NUMERIC_STAT_LABELS[key],
-        value: getStatValue(key)!,
-      }));
+      }).map((key) => {
+        const stat = getStatValue(key)!;
+        return { key, label: NUMERIC_STAT_LABELS[key], value: stat.display, rawValue: stat.raw };
+      });
     }
 
     return NON_NUMERIC_STAT_ORDER.filter((key) => {
       if (!enabledNonNumericStats.includes(key)) return false;
       return getStatValue(key) !== null;
-    }).map((key) => ({
-      key,
-      label: NON_NUMERIC_STAT_LABELS[key],
-      value: getStatValue(key)!,
-    }));
+    }).map((key) => {
+      const stat = getStatValue(key)!;
+      return { key, label: NON_NUMERIC_STAT_LABELS[key], value: stat.display, rawValue: stat.raw };
+    });
   }, [statistics, enabledNumericStats, enabledNonNumericStats, getStatValue]);
 
   const handleCopyValue = useCallback(async (value: string) => {
@@ -408,10 +423,10 @@ export const SelectionSummary = memo(function SelectionSummary({
                 </span>
                 <span
                   className="font-mono font-medium cursor-pointer"
-                  title={`${stat.value} — click to copy`}
+                  title={`${stat.rawValue} — click to copy`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    void handleCopyValue(stat.value);
+                    void handleCopyValue(stat.rawValue);
                   }}
                 >
                   {stat.value}
@@ -439,10 +454,10 @@ export const SelectionSummary = memo(function SelectionSummary({
             <span className="text-muted-foreground">{primaryStat.label}:</span>
             <span
               className="font-mono font-medium cursor-pointer"
-              title={`${primaryStat.value} — click to copy`}
+              title={`${primaryStat.rawValue} — click to copy`}
               onClick={(e) => {
                 e.stopPropagation();
-                void handleCopyValue(primaryStat.value);
+                void handleCopyValue(primaryStat.rawValue);
               }}
             >
               {primaryStat.value}
