@@ -782,5 +782,22 @@ describe('commandToSql - SQL Server', () => {
     expect(sql).toMatchSnapshot();
     expect(sql).toContain('sp_rename');
   });
-});
 
+  it('should generate SELECT INTO for table duplicate', () => {
+    const command: CrudCommand = {
+      id: 'test-mssql-4',
+      type: 'table.duplicate',
+      target: { connectionId: 'test', database: 'testdb', schema: 'dbo', table: 'users' },
+      payload: {
+        sourceTableName: 'users',
+        newTableName: 'users_copy',
+        includeData: true,
+      },
+      metadata: { timestamp: '2024-01-01T00:00:00Z' },
+      state: 'staged',
+    };
+
+    const sql = commandToSql(adapter, command);
+    expect(sql).toContain('SELECT * INTO [dbo].[users_copy] FROM [dbo].[users]');
+  });
+});

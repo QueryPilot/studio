@@ -390,6 +390,43 @@ export class MSSQLAdapter extends SqlAdapter {
     return `EXEC sp_rename '${fullTableName}.${oldName}', '${newName}', 'COLUMN'`;
   }
 
+  /**
+   * Duplicate table via SELECT INTO (SQL Server syntax).
+   * This copies columns and optionally data, but not indexes/constraints/triggers.
+   */
+  duplicateTable(
+    target: TableRef,
+    options: {
+      sourceTableName: string;
+      newTableName: string;
+      includeData?: boolean;
+      includeIndexes?: boolean;
+      includeConstraints?: boolean;
+      includeTriggers?: boolean;
+    }
+  ): string {
+    const schema = target.schema || 'dbo';
+    const sourceTable =
+      `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(options.sourceTableName)}`;
+    const newTable =
+      `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(options.newTableName)}`;
+
+    const statements: string[] = [];
+    if (options.includeData === false) {
+      statements.push(`SELECT TOP 0 * INTO ${newTable} FROM ${sourceTable}`);
+    } else {
+      statements.push(`SELECT * INTO ${newTable} FROM ${sourceTable}`);
+    }
+
+    if (options.includeIndexes || options.includeConstraints || options.includeTriggers) {
+      statements.push(
+        '-- Note: SQL Server SELECT INTO does not copy indexes, constraints, or triggers'
+      );
+    }
+
+    return statements.join(';\n') + ';';
+  }
+
   // ─────────────────────────────────────────────────────────────────
   // Index DDL Operations - T-SQL syntax
   // ─────────────────────────────────────────────────────────────────

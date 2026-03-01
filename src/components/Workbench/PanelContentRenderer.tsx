@@ -31,7 +31,7 @@ import { MongoQueryPanel } from "@/components/MongoQueryPanel";
 import { RedisCliPanel } from "@/components/RedisCliPanel";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
-import { isMySQLCompatible, DbType } from "@/types/connection";
+import { isMySQLCompatible, DbType, getDefaultSchema } from "@/types/connection";
 import { Skeleton } from "../ui/skeleton";
 import { type TabMetadata } from "@/types/workbench";
 import { ERDPanel } from "@/components/Erd";
@@ -358,9 +358,10 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
           connectionId={metadata?.connectionId || activeConnectionId || ""}
           database={metadata?.database || ""}
           schema={metadata?.schema}
+          dbType={dbType}
           className="h-full"
           onSave={(tableName, sql) => {
-            const tableSchema = metadata?.schema || "public";
+            const tableSchema = metadata?.schema || getDefaultSchema(dbType ?? DbType.PostgreSQL, metadata?.database) || "";
             const tableConnectionId =
               metadata?.connectionId || activeConnectionId || "";
 

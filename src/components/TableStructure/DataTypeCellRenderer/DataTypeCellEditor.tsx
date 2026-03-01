@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { type DataTypeCell, POSTGRES_STANDARD_TYPES } from "./types";
+import type { DataTypeCell } from "./types";
 import { Command as CommandPrimitive } from "cmdk";
 import {
   Command,
@@ -23,10 +23,11 @@ const DataTypeCellEditor: React.FC<DataTypeCellEditorProps> = ({
   onFinishedEditing,
 }) => {
   const customTypes = value.data.customTypes;
+  const standardTypes = value.data.standardTypes;
 
   const allTypes = useMemo(
-    () => [...new Set([...POSTGRES_STANDARD_TYPES, ...(customTypes ?? [])])],
-    [customTypes],
+    () => [...new Set([...standardTypes, ...(customTypes ?? [])])],
+    [standardTypes, customTypes],
   );
 
   const [inputValue, setInputValue] = useState("");

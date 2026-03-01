@@ -20,6 +20,7 @@ import {
 } from "@glideapps/glide-data-grid";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { useForeignKeyTargets } from "@/hooks/useForeignKeyTargets";
+import { useSupportedColumnTypes } from "@/hooks/useSupportedColumnTypes";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconAlertCircle, IconSearch } from "@tabler/icons-react";
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
@@ -60,6 +61,7 @@ import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { contextService } from "@/services/contextService";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { DbType } from "@/types/connection";
 import type {
   CrudCommandTarget,
   ColumnAddPayload,
@@ -200,7 +202,12 @@ export const TableStructure = memo(function TableStructure({
     state.connections.find((c) => c.profile.id === connectionId),
   );
   const dbType = connection?.profile.db_type;
-  
+
+  const { columnTypes } = useSupportedColumnTypes({
+    connectionId,
+    dbType: dbType ?? DbType.PostgreSQL,
+  });
+
   // Get structure columns based on database type
   const structureColumns = useMemo(() => getStructureColumns(dbType), [dbType]);
   
@@ -1406,6 +1413,7 @@ export const TableStructure = memo(function TableStructure({
           data: {
             kind: "datatype-cell",
             value: typeValue,
+            standardTypes: columnTypes,
             customTypes: customTypes,
             columnName: row.column_name,
           },
@@ -1543,6 +1551,7 @@ export const TableStructure = memo(function TableStructure({
       gridRows,
       sizedColumns,
       customTypes,
+      columnTypes,
       foreignKeyTargets,
       modifiedFieldsByColumn,
     ],

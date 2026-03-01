@@ -495,8 +495,8 @@ ORDER BY name`;
 SELECT 'INTEGER' as type_name, 'numeric' as category
 UNION SELECT 'TEXT', 'string'
 UNION SELECT 'REAL', 'numeric'
-UNION SELECT 'BLOB', 'binary'
-UNION SELECT 'NULL', 'other'`;
+UNION SELECT 'NUMERIC', 'numeric'
+UNION SELECT 'BLOB', 'binary'`;
   }
 
   getTableCountQuery(_schema: string, table: string, _exact?: boolean): string {

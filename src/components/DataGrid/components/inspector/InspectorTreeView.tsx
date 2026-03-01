@@ -1,4 +1,12 @@
-import { memo, useMemo, useDeferredValue, useState, useCallback, useRef, useEffect } from "react";
+import {
+  memo,
+  useMemo,
+  useDeferredValue,
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+} from "react";
 import { IconPencil, IconArrowBackUp } from "@tabler/icons-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +33,8 @@ const MAX_NESTED_DEPTH = 20;
 
 interface InspectorTreeViewProps {
   documents: InspectorDocument[];
+  /** Map from display label → column data type (e.g. "VARCHAR(255)", "INT"). */
+  dataTypeMap?: Map<string, string>;
   onCellEdit?: (field: string, value: unknown) => void;
   /** Display labels of fields with pending (staged) edits. */
   pendingEditLabels?: Set<string>;
@@ -130,12 +140,13 @@ const NestedTreeNode = memo(function NestedTreeNode({
   if (value === null || value === undefined || typeof value !== "object") {
     if (!matchSelf) return null;
     return (
-      <div
-        className="py-1"
-        style={{ paddingLeft: `${depth * 14}px` }}
-      >
-        <div className="text-[11px] text-muted-foreground font-medium">{label}</div>
-        <div className="text-xs font-mono pl-2 mt-0.5">{formatValueForDisplay(value)}</div>
+      <div className="py-1" style={{ paddingLeft: `${depth * 14}px` }}>
+        <div className="text-[11px] text-muted-foreground font-medium">
+          {label}
+        </div>
+        <div className="text-xs font-mono pl-2 mt-0.5">
+          {formatValueForDisplay(value)}
+        </div>
       </div>
     );
   }
@@ -211,6 +222,7 @@ const NestedTreeNode = memo(function NestedTreeNode({
 
 const MergedFieldRow = memo(function MergedFieldRow({
   field,
+  dataType,
   merged,
   normalizedSearch,
   editState,
@@ -222,6 +234,8 @@ const MergedFieldRow = memo(function MergedFieldRow({
   onUndoEdit,
 }: {
   field: string;
+  /** Original database data type (e.g. "VARCHAR(255)"). */
+  dataType?: string;
   merged: MergedFieldValue;
   /** Pre-normalized search for nested tree nodes. */
   normalizedSearch: string;
@@ -257,12 +271,29 @@ const MergedFieldRow = memo(function MergedFieldRow({
   // "same" — two-line layout: label on top, value below
   if (merged.kind === "same") {
     return (
-      <div className={cn(
-        "py-1.5 border-b border-border/40 last:border-b-0",
-        hasPendingEdit && "bg-amber-50/60 dark:bg-amber-950/20 rounded-sm -mx-1 px-1",
-      )}>
-        <div className="flex items-center gap-1 mb-1">
-          <span className="text-muted-foreground font-medium text-[11px]">{field}</span>
+      <div
+        className={cn(
+          "py-1.5 border-b border-border/40 last:border-b-0",
+          hasPendingEdit &&
+            "bg-amber-50/60 dark:bg-amber-950/20 rounded-sm -mx-1 px-1",
+        )}
+      >
+        <div className="flex items-center gap-1 mb-1 min-w-0">
+          <span className="text-muted-foreground font-medium text-[11px] shrink-0">
+            {field}
+          </span>
+          {dataType && (
+            <Tooltip>
+              <TooltipTrigger>
+                <span className="text-muted-foreground/50 text-[10px] font-mono truncate block">
+                  {dataType}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs font-mono">
+                {dataType}
+              </TooltipContent>
+            </Tooltip>
+          )}
           {hasPendingEdit && onUndoEdit && (
             <Tooltip>
               <TooltipTrigger>
@@ -295,7 +326,8 @@ const MergedFieldRow = memo(function MergedFieldRow({
           <div
             className={cn(
               "group/val text-xs font-mono pl-2 flex items-center gap-1",
-              hasEditHandler && "cursor-pointer hover:bg-muted/50 rounded px-1.5 py-0.5 -mx-0.5",
+              hasEditHandler &&
+                "cursor-pointer hover:bg-muted/50 rounded px-1.5 py-0.5 -mx-0.5",
             )}
             onClick={() => {
               if (hasEditHandler) {
@@ -303,7 +335,9 @@ const MergedFieldRow = memo(function MergedFieldRow({
               }
             }}
           >
-            <span className="truncate">{formatValueForDisplay(merged.value)}</span>
+            <span className="truncate">
+              {formatValueForDisplay(merged.value)}
+            </span>
             {hasEditHandler && (
               <IconPencil className="h-3 w-3 shrink-0 text-muted-foreground/0 group-hover/val:text-muted-foreground transition-colors" />
             )}
@@ -321,13 +355,30 @@ const MergedFieldRow = memo(function MergedFieldRow({
   const remaining = merged.distinctValues.length - maxBadges;
 
   return (
-    <div className={cn(
-      "py-1.5 border-b border-border/40 last:border-b-0",
-      hasPendingEdit && "bg-amber-50/60 dark:bg-amber-950/20 rounded-sm -mx-1 px-1",
-    )}>
-      <div className="flex items-center gap-1.5 mb-1">
-        <span className="text-muted-foreground font-medium text-[11px]">{field}</span>
-        <span className="text-muted-foreground/70 italic text-[11px]">
+    <div
+      className={cn(
+        "py-1.5 border-b border-border/40 last:border-b-0",
+        hasPendingEdit &&
+          "bg-amber-50/60 dark:bg-amber-950/20 rounded-sm -mx-1 px-1",
+      )}
+    >
+      <div className="flex items-center gap-1.5 mb-1 min-w-0">
+        <span className="text-muted-foreground font-medium text-[11px] shrink-0">
+          {field}
+        </span>
+        {dataType && (
+          <Tooltip>
+            <TooltipTrigger>
+              <span className="text-muted-foreground/50 text-[10px] font-mono truncate block">
+                {dataType}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs font-mono">
+              {dataType}
+            </TooltipContent>
+          </Tooltip>
+        )}
+        <span className="text-muted-foreground/70 italic text-[11px] shrink-0">
           &lt;multiple&gt;
         </span>
         {hasEditHandler && (
@@ -378,7 +429,7 @@ const MergedFieldRow = memo(function MergedFieldRow({
                   <Badge
                     variant="secondary"
                     className={cn(
-                      "max-w-[120px] truncate text-xs px-1.5 py-0",
+                      "max-w-[180px] shrink text-xs px-1.5 py-0",
                       hasEditHandler && "cursor-pointer hover:bg-muted",
                     )}
                     onClick={() => {
@@ -387,10 +438,13 @@ const MergedFieldRow = memo(function MergedFieldRow({
                       }
                     }}
                   >
-                    {display}
+                    <span className="truncate">{display}</span>
                   </Badge>
                 </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-[300px] break-all font-mono text-xs">
+                <TooltipContent
+                  side="top"
+                  className="max-w-[300px] break-all font-mono text-xs"
+                >
                   {display}
                 </TooltipContent>
               </Tooltip>
@@ -413,6 +467,7 @@ const MergedFieldRow = memo(function MergedFieldRow({
 
 export const InspectorTreeView = memo(function InspectorTreeView({
   documents,
+  dataTypeMap,
   onCellEdit,
   pendingEditLabels,
   onUndoCellEdit,
@@ -500,9 +555,12 @@ export const InspectorTreeView = memo(function InspectorTreeView({
     setEditState(null);
   }, []);
 
-  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearch(e.target.value);
-  }, []);
+  const handleSearchChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setSearch(e.target.value);
+    },
+    [],
+  );
 
   // Pre-normalize once for all child NestedTreeNode components
   const normalizedSearch = useMemo(
@@ -518,7 +576,7 @@ export const InspectorTreeView = memo(function InspectorTreeView({
         placeholder="Search fields or values..."
         className="h-7 text-xs mb-2 shrink-0"
       />
-      <ScrollArea className="flex-1 rounded px-3 py-2">
+      <ScrollArea className="flex-1 rounded px-1">
         {visibleKeys.map((key) => {
           const merged = mergedFields.get(key);
           if (!merged) return null;
@@ -526,6 +584,7 @@ export const InspectorTreeView = memo(function InspectorTreeView({
             <MergedFieldRow
               key={key}
               field={key}
+              dataType={dataTypeMap?.get(key)}
               merged={merged}
               normalizedSearch={normalizedSearch}
               editState={validEditState}

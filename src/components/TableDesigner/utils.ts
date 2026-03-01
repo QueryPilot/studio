@@ -85,19 +85,20 @@ const normalizeValue = (value: unknown): string =>
 // Index designer utilities
 // ---------------------------------------------------------------------------
 
-const PG_IDENTIFIER_LIMIT = 63;
-
 /**
  * Auto-generate an index name from table and column names.
- * Pattern: `idx_{tableName}_{col1}_{col2}`, truncated to 63 chars.
+ * Pattern: `idx_{tableName}_{col1}_{col2}`, truncated to `identifierLimit` chars.
+ *
+ * Common limits: PostgreSQL = 63, MySQL = 64, SQLite ≈ unlimited, MSSQL = 128.
  */
 export function generateIndexName(
   tableName: string,
   columns: string[],
+  identifierLimit = 63,
 ): string {
   if (columns.length === 0) return "";
   const raw = `idx_${tableName}_${columns.join("_")}`;
-  return raw.slice(0, PG_IDENTIFIER_LIMIT);
+  return raw.slice(0, identifierLimit);
 }
 
 /**
@@ -157,8 +158,9 @@ export function syncIndexCommandsWithColumns(
       .map((col) => renamedColumns.get(col) ?? col)
       .filter((col) => columnSet.has(col));
 
-    // If all columns are gone, exclude this command (mark as changed)
-    if (updatedColumns.length === 0) {
+    // If all columns are gone, exclude this command (mark as changed).
+    // But keep newly created indexes that have no columns yet.
+    if (updatedColumns.length === 0 && originalColumns.length > 0) {
       anyChanged = true;
       continue;
     }

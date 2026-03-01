@@ -87,7 +87,7 @@ describe("generateIndexName", () => {
     );
   });
 
-  it("truncates long names to 63 chars", () => {
+  it("truncates long names to default 63 chars", () => {
     const longTable = "a_very_long_table_name_that_goes_on";
     const longCols = [
       "some_really_long_column_name",
@@ -97,6 +97,19 @@ describe("generateIndexName", () => {
     expect(result.length).toBeLessThanOrEqual(63);
     expect(result).toBe(
       `idx_${longTable}_${longCols.join("_")}`.slice(0, 63),
+    );
+  });
+
+  it("truncates to custom identifier limit", () => {
+    const longTable = "a_very_long_table_name_that_goes_on";
+    const longCols = [
+      "some_really_long_column_name",
+      "another_really_long_column_name",
+    ];
+    const result = generateIndexName(longTable, longCols, 128);
+    expect(result.length).toBeLessThanOrEqual(128);
+    expect(result).toBe(
+      `idx_${longTable}_${longCols.join("_")}`.slice(0, 128),
     );
   });
 
@@ -288,6 +301,17 @@ describe("syncIndexCommandsWithColumns", () => {
     );
     expect(result).not.toBeNull();
     expect(result).toHaveLength(0);
+  });
+
+  it("keeps newly created indexes with empty columns", () => {
+    const cmds = [makeIndexCmd("", [], "new-1")];
+    const result = syncIndexCommandsWithColumns(
+      cmds,
+      ["a", "b"],
+      new Map(),
+    );
+    // Empty-column indexes should NOT be removed (they're newly created)
+    expect(result).toBeNull(); // null means no changes needed
   });
 
   it("handles multiple commands — some changed, some not, some removed", () => {

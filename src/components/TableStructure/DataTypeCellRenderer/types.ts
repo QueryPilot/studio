@@ -3,6 +3,7 @@ import type { CustomCell, GridCellKind } from "@glideapps/glide-data-grid";
 export interface DataTypeCellData {
   kind: "datatype-cell";
   value: string;
+  standardTypes: string[]; // Dialect-specific standard types (from hook)
   customTypes?: string[]; // Custom enum/composite types from database
   columnName?: string; // Column name for display in editor header
 }
@@ -91,4 +92,94 @@ export const POSTGRES_STANDARD_TYPES = [
   "integer[]",
   "text[]",
   "varchar[]",
+];
+
+// Common MySQL/MariaDB data types
+export const MYSQL_STANDARD_TYPES = [
+  // Numeric
+  "tinyint",
+  "smallint",
+  "mediumint",
+  "int",
+  "bigint",
+  "decimal",
+  "float",
+  "double",
+  // String
+  "char",
+  "varchar",
+  "tinytext",
+  "text",
+  "mediumtext",
+  "longtext",
+  // Binary
+  "binary",
+  "varbinary",
+  "tinyblob",
+  "blob",
+  "mediumblob",
+  "longblob",
+  // Date/time
+  "date",
+  "time",
+  "datetime",
+  "timestamp",
+  "year",
+  // Other
+  "boolean",
+  "json",
+  "enum",
+  "set",
+];
+
+// SQLite data types (SQLite uses type affinity)
+export const SQLITE_STANDARD_TYPES = [
+  "integer",
+  "text",
+  "real",
+  "blob",
+  "numeric",
+];
+
+// Common MSSQL data types
+export const MSSQL_STANDARD_TYPES = [
+  // Exact numeric
+  "bit",
+  "tinyint",
+  "smallint",
+  "int",
+  "bigint",
+  "decimal",
+  "numeric",
+  "money",
+  "smallmoney",
+  // Approximate numeric
+  "float",
+  "real",
+  // String
+  "char",
+  "varchar",
+  "nchar",
+  "nvarchar",
+  "text",
+  "ntext",
+  // Binary
+  "binary",
+  "varbinary",
+  "image",
+  // Date/time
+  "date",
+  "time",
+  "datetime",
+  "datetime2",
+  "datetimeoffset",
+  "smalldatetime",
+  // Other
+  "uniqueidentifier",
+  "xml",
+  "sql_variant",
+  // LOB
+  "varchar(max)",
+  "nvarchar(max)",
+  "varbinary(max)",
 ];
