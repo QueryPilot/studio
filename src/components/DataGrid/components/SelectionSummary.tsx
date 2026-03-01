@@ -129,17 +129,52 @@ export const SelectionSummary = memo(function SelectionSummary({
       ? gridSelection.current.range.height
       : selectedRowIndices.size;
 
-    // For large selections, skip expensive statistics (sum/avg/median/unique).
-    // Computing stats over 5k+ rows × columns creates millions of iterations.
-    const STATS_THRESHOLD = 5000;
-    if (count > STATS_THRESHOLD) {
-      return { count, selectedRows: selectedRowCount, isNumeric: false };
-    }
+    // For large selections, skip expensive O(n log n) stats (median, unique).
+    // Cheap O(n) stats (sum, avg, min, max) are always computed in a single pass.
+    const EXPENSIVE_STATS_THRESHOLD = 5000;
+    const isLargeSelection = count > EXPENSIVE_STATS_THRESHOLD;
 
-    const decimalValues: Decimal[] = [];
-    const uniqueValues = new Set<string>();
+    // For small selections, collect values for median/unique.
+    // For large selections, compute sum/min/max incrementally without storing all values.
+    const decimalValues: Decimal[] = isLargeSelection ? [] : [];
+    const uniqueValues = isLargeSelection ? null : new Set<string>();
     let nullCount = 0;
     let hasDecimalColumns = false;
+
+    // Incremental accumulators for O(n) stats (used always)
+    let sum = new Decimal(0);
+    let min: Decimal | undefined;
+    let max: Decimal | undefined;
+    let numericCount = 0;
+
+    const processCell = (val: unknown, column: GridColumnV2) => {
+      // Track unique values only for small selections
+      if (uniqueValues) {
+        uniqueValues.add(String(val));
+      }
+
+      // Only process as numeric if column type is numeric
+      if (isNumericColumnType(column.type)) {
+        const decimal = toDecimal(val);
+        if (decimal !== null) {
+          // Always accumulate sum/min/max
+          sum = sum.plus(decimal);
+          numericCount++;
+          if (min === undefined || decimal.lessThan(min)) min = decimal;
+          if (max === undefined || decimal.greaterThan(max)) max = decimal;
+
+          // Only store individual values for median (small selections)
+          if (!isLargeSelection) {
+            decimalValues.push(decimal);
+          }
+
+          // Track if we have decimal columns for formatting
+          if (getNumericCategory(column.type) === NumericCategory.DECIMAL) {
+            hasDecimalColumns = true;
+          }
+        }
+      }
+    };
 
     // If we have a specific cell range selection, use that
     if (gridSelection?.current?.range) {
@@ -176,23 +211,7 @@ export const SelectionSummary = memo(function SelectionSummary({
             return;
           }
 
-          const val = cellValue.value;
-
-          // Track unique values for non-numeric columns
-          uniqueValues.add(String(val));
-
-          // Only process as numeric if column type is numeric
-          if (isNumericColumnType(column.type)) {
-            const decimal = toDecimal(val);
-            if (decimal !== null) {
-              decimalValues.push(decimal);
-
-              // Track if we have decimal columns for formatting
-              if (getNumericCategory(column.type) === NumericCategory.DECIMAL) {
-                hasDecimalColumns = true;
-              }
-            }
-          }
+          processCell(cellValue.value, column);
         });
       });
     } else {
@@ -217,48 +236,27 @@ export const SelectionSummary = memo(function SelectionSummary({
             return;
           }
 
-          const val = cellValue.value;
-
-          // Track unique values for non-numeric columns
-          uniqueValues.add(String(val));
-
-          // Only process as numeric if column type is numeric
-          if (isNumericColumnType(column.type)) {
-            const decimal = toDecimal(val);
-            if (decimal !== null) {
-              decimalValues.push(decimal);
-
-              // Track if we have decimal columns for formatting
-              if (getNumericCategory(column.type) === NumericCategory.DECIMAL) {
-                hasDecimalColumns = true;
-              }
-            }
-          }
+          processCell(cellValue.value, column);
         });
       });
     }
 
     // If we have numeric values, return numeric statistics
-    if (decimalValues.length > 0) {
-      const sum = decimalValues.reduce(
-        (acc, val) => acc.plus(val),
-        new Decimal(0),
-      );
-      const avg = sum.dividedBy(decimalValues.length);
-      const median = calculateMedian(decimalValues);
-      const min = Decimal.min(...decimalValues);
-      const max = Decimal.max(...decimalValues);
-      const countNumbers = decimalValues.length;
+    if (numericCount > 0) {
+      const avg = sum.dividedBy(numericCount);
 
       return {
         sum,
         avg,
-        median,
+        // Median and unique are expensive — only available for small selections
+        median: !isLargeSelection && decimalValues.length > 0
+          ? calculateMedian(decimalValues)
+          : undefined,
         min,
         max,
         count,
-        countNumbers,
-        countUnique: uniqueValues.size,
+        countNumbers: numericCount,
+        countUnique: uniqueValues ? uniqueValues.size : undefined,
         countNull: nullCount,
         selectedRows: selectedRowCount,
         isNumeric: true,
@@ -267,11 +265,21 @@ export const SelectionSummary = memo(function SelectionSummary({
     }
 
     // Otherwise, return unique count for non-numeric data
-    if (uniqueValues.size > 0) {
+    if (uniqueValues && uniqueValues.size > 0) {
       return {
         count,
         countUnique: uniqueValues.size,
         countNull: nullCount,
+        selectedRows: selectedRowCount,
+        isNumeric: false,
+      };
+    }
+
+    // Large non-numeric selection — still show count
+    if (isLargeSelection) {
+      return {
+        count,
+        countNull: nullCount > 0 ? nullCount : undefined,
         selectedRows: selectedRowCount,
         isNumeric: false,
       };
