@@ -1,6 +1,10 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { memo, useMemo, useCallback } from "react";
-import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconSettings,
+} from "@tabler/icons-react";
 import Decimal from "decimal.js";
 import { cn } from "@/lib/utils";
 import {
@@ -11,6 +15,14 @@ import {
   ContextMenuTrigger,
   ContextMenuItem,
 } from "@/components/ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuSeparator,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { writeClipboardText } from "@/lib/clipboard";
 import { toast } from "sonner";
 import type { GridRowModel, GridColumnV2 } from "../types";
@@ -381,11 +393,54 @@ export const SelectionSummary = memo(function SelectionSummary({
   const isNumeric = statistics.isNumeric;
   const primaryStat = visibleStats[0]!;
 
+  // Shared stat toggle menu items — used by both ContextMenu (right-click) and DropdownMenu (gear icon)
+  const statKeys = isNumeric ? NUMERIC_STAT_ORDER : NON_NUMERIC_STAT_ORDER;
+  const statLabels = isNumeric ? NUMERIC_STAT_LABELS : NON_NUMERIC_STAT_LABELS;
+  const enabledStats = isNumeric ? enabledNumericStats : enabledNonNumericStats;
+  const toggleStat = isNumeric
+    ? (key: string) => { toggleNumericStat(key as NumericStatKey); }
+    : (key: string) => { toggleNonNumericStat(key as NonNumericStatKey); };
+
+  const iconColorClass = isNumeric
+    ? "text-green-700/60 dark:text-green-400/60 hover:text-green-700 dark:hover:text-green-400"
+    : "text-blue-700/60 dark:text-blue-400/60 hover:text-blue-700 dark:hover:text-blue-400";
+
+  // Render menu items for both context menu and dropdown menu
+  const renderMenuItems = (
+    CheckboxItem: typeof ContextMenuCheckboxItem | typeof DropdownMenuCheckboxItem,
+    Separator: typeof ContextMenuSeparator | typeof DropdownMenuSeparator,
+    MenuItem: typeof ContextMenuItem | typeof DropdownMenuItem,
+  ) => (
+    <>
+      {statKeys.map((key) => {
+        if (key === "null" && (!statistics.countNull || statistics.countNull === 0)) {
+          return null;
+        }
+        const isChecked = enabledStats.includes(key as never);
+        const isLastEnabled = isChecked && enabledStats.length === 1;
+        return (
+          <CheckboxItem
+            key={key}
+            checked={isChecked}
+            disabled={isLastEnabled}
+            onCheckedChange={() => { toggleStat(key); }}
+          >
+            {statLabels[key as keyof typeof statLabels]}
+          </CheckboxItem>
+        );
+      })}
+      <Separator />
+      <MenuItem onClick={resetToDefaults}>
+        Reset to Defaults
+      </MenuItem>
+    </>
+  );
+
   return (
     <ContextMenu>
       <ContextMenuTrigger
         className={cn(
-          "flex items-center gap-1.5 px-2 h-6 rounded-md border transition-colors text-xs cursor-default",
+          "group/stats flex items-center gap-1.5 px-2 h-6 rounded-md border transition-colors text-xs cursor-default",
           isNumeric
             ? "bg-green-500/10 border-green-500/20 text-green-700 dark:text-green-400"
             : "bg-blue-500/10 border-blue-500/20 text-blue-700 dark:text-blue-400",
@@ -400,9 +455,7 @@ export const SelectionSummary = memo(function SelectionSummary({
                   <span
                     className={cn(
                       "w-px h-3.5",
-                      isNumeric
-                        ? "bg-green-500/20"
-                        : "bg-blue-500/20",
+                      isNumeric ? "bg-green-500/20" : "bg-blue-500/20",
                     )}
                   />
                 )}
@@ -410,9 +463,7 @@ export const SelectionSummary = memo(function SelectionSummary({
                   className={cn(
                     "text-muted-foreground",
                     isNumeric &&
-                      NUMERIC_CYCLE_ORDER.includes(
-                        stat.key as NumericStatKey,
-                      ) &&
+                      NUMERIC_CYCLE_ORDER.includes(stat.key as NumericStatKey) &&
                       "cursor-pointer hover:underline",
                   )}
                   onClick={(e) => {
@@ -439,12 +490,27 @@ export const SelectionSummary = memo(function SelectionSummary({
                 </span>
               </span>
             ))}
+            {/* Settings gear — visible on hover */}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className={cn(
+                  "flex items-center justify-center w-4 h-6 opacity-0 group-hover/stats:opacity-100 transition-opacity",
+                  iconColorClass,
+                )}
+                onClick={(e) => { e.stopPropagation(); }}
+                aria-label="Configure statistics"
+              >
+                <IconSettings className="h-3 w-3" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="end" className="w-48 text-xs p-1">
+                {renderMenuItems(DropdownMenuCheckboxItem, DropdownMenuSeparator, DropdownMenuItem)}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {/* Collapse chevron */}
             <button
               className={cn(
                 "flex items-center justify-center w-5 h-6 transition-colors",
-                isNumeric
-                  ? "text-green-700/60 dark:text-green-400/60 hover:text-green-700 dark:hover:text-green-400"
-                  : "text-blue-700/60 dark:text-blue-400/60 hover:text-blue-700 dark:hover:text-blue-400",
+                iconColorClass,
               )}
               onClick={(e) => {
                 e.stopPropagation();
@@ -468,12 +534,27 @@ export const SelectionSummary = memo(function SelectionSummary({
             >
               {primaryStat.value}
             </span>
+            {/* Settings gear — visible on hover */}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className={cn(
+                  "flex items-center justify-center w-4 h-6 opacity-0 group-hover/stats:opacity-100 transition-opacity",
+                  iconColorClass,
+                )}
+                onClick={(e) => { e.stopPropagation(); }}
+                aria-label="Configure statistics"
+              >
+                <IconSettings className="h-3 w-3" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="end" className="w-48 text-xs p-1">
+                {renderMenuItems(DropdownMenuCheckboxItem, DropdownMenuSeparator, DropdownMenuItem)}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {/* Expand chevron */}
             <button
               className={cn(
                 "flex items-center justify-center w-5 h-6 transition-colors",
-                isNumeric
-                  ? "text-green-700/60 dark:text-green-400/60 hover:text-green-700 dark:hover:text-green-400"
-                  : "text-blue-700/60 dark:text-blue-400/60 hover:text-blue-700 dark:hover:text-blue-400",
+                iconColorClass,
               )}
               onClick={(e) => {
                 e.stopPropagation();
@@ -487,45 +568,7 @@ export const SelectionSummary = memo(function SelectionSummary({
         )}
       </ContextMenuTrigger>
       <ContextMenuContent className="w-48 text-xs p-1">
-        {isNumeric
-          ? NUMERIC_STAT_ORDER.map((key) => {
-              if (key === "null" && (!statistics.countNull || statistics.countNull === 0)) {
-                return null;
-              }
-              const isChecked = enabledNumericStats.includes(key);
-              const isLastEnabled = isChecked && enabledNumericStats.length === 1;
-              return (
-                <ContextMenuCheckboxItem
-                  key={key}
-                  checked={isChecked}
-                  disabled={isLastEnabled}
-                  onCheckedChange={() => { toggleNumericStat(key); }}
-                >
-                  {NUMERIC_STAT_LABELS[key]}
-                </ContextMenuCheckboxItem>
-              );
-            })
-          : NON_NUMERIC_STAT_ORDER.map((key) => {
-              if (key === "null" && (!statistics.countNull || statistics.countNull === 0)) {
-                return null;
-              }
-              const isChecked = enabledNonNumericStats.includes(key);
-              const isLastEnabled = isChecked && enabledNonNumericStats.length === 1;
-              return (
-                <ContextMenuCheckboxItem
-                  key={key}
-                  checked={isChecked}
-                  disabled={isLastEnabled}
-                  onCheckedChange={() => { toggleNonNumericStat(key); }}
-                >
-                  {NON_NUMERIC_STAT_LABELS[key]}
-                </ContextMenuCheckboxItem>
-              );
-            })}
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={resetToDefaults}>
-          Reset to Defaults
-        </ContextMenuItem>
+        {renderMenuItems(ContextMenuCheckboxItem, ContextMenuSeparator, ContextMenuItem)}
       </ContextMenuContent>
     </ContextMenu>
   );
