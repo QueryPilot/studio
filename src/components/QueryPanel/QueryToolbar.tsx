@@ -28,7 +28,6 @@ import {
   IconLayoutRows,
   IconDotsVertical,
   IconWand,
-  IconReportAnalytics,
   IconBinaryTree,
 } from "@tabler/icons-react";
 import type { SqlDialect } from "@/components/CodeEditor";
@@ -66,7 +65,6 @@ interface QueryToolbarProps {
   isExplainResult?: boolean;
   onExecute: () => void;
   onCancel: () => void;
-  onExplain?: () => void;
   onBeautify: () => void;
   onToggleResults: () => void;
   onToggleOutline?: () => void;
@@ -88,7 +86,6 @@ export const QueryToolbar = memo(function QueryToolbar({
   isExplainResult = false,
   onExecute,
   onCancel,
-  onExplain,
   onBeautify,
   onToggleResults,
   onToggleOutline,
@@ -319,19 +316,6 @@ export const QueryToolbar = memo(function QueryToolbar({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-
-          {/* Explain button */}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={onExplain}
-            disabled={isExecuting || !hasQuery}
-            className="!h-6 text-xs gap-1 !px-2 hidden @[500px]/toolbar:flex"
-            title="Run EXPLAIN ANALYZE"
-          >
-            <IconReportAnalytics className="h-3.5 w-3.5" />
-            <span>Explain</span>
-          </Button>
 
           {/* Run/Cancel button - always visible */}
           <Button

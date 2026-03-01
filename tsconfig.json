@@ -24,6 +24,7 @@
     "allowUnusedLabels": false,
     "allowUnreachableCode": false,
     "exactOptionalPropertyTypes": false,
+    "verbatimModuleSyntax": false,
     "forceConsistentCasingInFileNames": true,
 
     /* Paths */
