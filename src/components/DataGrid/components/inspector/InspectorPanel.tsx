@@ -5,7 +5,11 @@ import { cn } from "@/lib/utils";
 import { InspectorTreeView } from "./InspectorTreeView";
 import { InspectorDiffView } from "./InspectorDiffView";
 import { InspectorRawView } from "./InspectorRawView";
-import { rowsToDocuments, buildLabelToFieldMap, buildLabelToDataTypeMap } from "./utils";
+import {
+  rowsToDocuments,
+  buildLabelToFieldMap,
+  buildLabelToDataTypeMap,
+} from "./utils";
 import type { InspectorPanelProps, InspectorTab } from "./types";
 
 export const InspectorPanel = memo(function InspectorPanel({
