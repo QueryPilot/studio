@@ -93,6 +93,33 @@ export function buildLabelToFieldMap(
 }
 
 /**
+ * Builds a mapping from display label → column data type string.
+ *
+ * Prefers the original database type from `meta.db_type` (e.g. "VARCHAR(255)"),
+ * falling back to the generic `column.type` (e.g. "string").
+ */
+export function buildLabelToDataTypeMap(
+  columns: GridColumnV2[],
+): Map<string, string> {
+  const map = new Map<string, string>();
+  const usedLabels = new Map<string, number>();
+
+  for (const column of columns) {
+    const baseLabel = getColumnLabel(column);
+    const duplicateCount = usedLabels.get(baseLabel) ?? 0;
+    usedLabels.set(baseLabel, duplicateCount + 1);
+    const label =
+      duplicateCount === 0 ? baseLabel : `${baseLabel} (${duplicateCount + 1})`;
+    const dataType = column.meta?.db_type || column.type;
+    if (dataType) {
+      map.set(label, dataType);
+    }
+  }
+
+  return map;
+}
+
+/**
  * Converts an array of grid row models to inspector documents.
  */
 export function rowsToDocuments(

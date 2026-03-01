@@ -1437,10 +1437,6 @@ export const ConnectionSection = forwardRef<
     const items = getSelectedItems();
     const selectedTypes = getSelectedTypesBreakdown();
     if (!canDuplicate(selectedTypes)) return;
-    if (dbType === DbType.SQLServer) {
-      toast.info("Duplicate table is coming soon for SQL Server");
-      return;
-    }
 
     const selectedTable = items.find(
       (item): item is SidebarSelectionItem & { type: "table" } =>
@@ -2733,9 +2729,7 @@ export const ConnectionSection = forwardRef<
               }
               onPin={handlePin}
               onDuplicate={
-                canDuplicate(selectedTypes) && dbType !== DbType.SQLServer
-                  ? handleDuplicate
-                  : undefined
+                canDuplicate(selectedTypes) ? handleDuplicate : undefined
               }
               onTruncate={canTruncate(selectedTypes) ? handleTruncate : undefined}
               onDelete={canDelete(selectedTypes) ? handleDelete : undefined}

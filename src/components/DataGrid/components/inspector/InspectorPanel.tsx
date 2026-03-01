@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { InspectorTreeView } from "./InspectorTreeView";
 import { InspectorDiffView } from "./InspectorDiffView";
 import { InspectorRawView } from "./InspectorRawView";
-import { rowsToDocuments, buildLabelToFieldMap } from "./utils";
+import { rowsToDocuments, buildLabelToFieldMap, buildLabelToDataTypeMap } from "./utils";
 import type { InspectorPanelProps, InspectorTab } from "./types";
 
 export const InspectorPanel = memo(function InspectorPanel({
@@ -28,6 +28,11 @@ export const InspectorPanel = memo(function InspectorPanel({
   // Translate display labels (used by tree view) back to column field keys
   const labelToFieldMap = useMemo(
     () => buildLabelToFieldMap(columns),
+    [columns],
+  );
+
+  const labelToDataTypeMap = useMemo(
+    () => buildLabelToDataTypeMap(columns),
     [columns],
   );
 
@@ -95,7 +100,7 @@ export const InspectorPanel = memo(function InspectorPanel({
         className="flex-1 flex flex-col min-h-0"
         onValueChange={handleTabChange}
       >
-        <div className="p-2 border-b flex items-center gap-2">
+        <div className="px-2 flex items-center justify-between gap-2">
           <TabsList className="h-7">
             <TabsTrigger value="tree" className="text-[11px]">
               Tree
@@ -120,9 +125,10 @@ export const InspectorPanel = memo(function InspectorPanel({
           </div>
         ) : (
           <>
-            <TabsContent value="tree" className="flex-1 min-h-0 p-2">
+            <TabsContent value="tree" className="flex-1 min-h-0 px-2">
               <InspectorTreeView
                 documents={documents}
+                dataTypeMap={labelToDataTypeMap}
                 onCellEdit={onCellEdit ? handleTreeCellEdit : undefined}
                 pendingEditLabels={pendingEditLabels}
                 onUndoCellEdit={onUndoCellEdit ? handleTreeCellUndo : undefined}

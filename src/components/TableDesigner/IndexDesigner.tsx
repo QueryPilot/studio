@@ -1,13 +1,13 @@
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import {
   GridCellKind,
   type Item,
   type CustomCell,
   type CustomRenderer,
   type EditableGridCell,
+  type GridMouseEventArgs,
 } from "@glideapps/glide-data-grid";
-import { Button } from "@/components/ui/button";
-import { IconPlus, IconSparkles } from "@tabler/icons-react";
+import { IconSparkles } from "@tabler/icons-react";
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
 import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
 import type { GridColumnV2 } from "@/components/DataGrid/types";
@@ -35,6 +35,7 @@ import type {
   IndexCreatePayload,
 } from "@/types/crud";
 import { DbType } from "@/types/connection";
+import { DesignerIndexContextMenu } from "./DesignerIndexContextMenu";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,6 +54,18 @@ export interface IndexDesignerProps {
 }
 
 type AnyCell = CustomCell<Record<string, unknown>>;
+
+/** Local draft for an index that hasn't been staged yet (incomplete). */
+interface IndexDraft {
+  tempId: string;
+  name: string;
+  columns: string[];
+  unique: boolean;
+  using: string;
+  where?: string;
+  /** Whether the name was auto-generated (safe to overwrite on column changes). */
+  _autoName: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // Grid column definitions (no "Usage Stats" column for new-table context)
@@ -132,7 +145,7 @@ export const IndexDesigner = memo(function IndexDesigner({
   tabId,
   connectionId,
   database,
-  schema = "public",
+  schema,
   availableColumns,
   tableName,
   foreignKeyColumns,
@@ -154,6 +167,9 @@ export const IndexDesigner = memo(function IndexDesigner({
     connectionId,
     dbType,
   });
+
+  const identifierLimit = dbType === DbType.SQLServer ? 128
+    : dbType === DbType.SQLite ? 1024 : 63;
 
   // ---- Tag prefix for index commands -----------------------------------
   const idxTagPrefix = useMemo(
@@ -177,10 +193,44 @@ export const IndexDesigner = memo(function IndexDesigner({
     return commands;
   }, [designerTag, stagedCommands]);
 
+  // ---- Local drafts for incomplete indexes (not yet staged) -----------
+  const [localDrafts, setLocalDrafts] = useState<IndexDraft[]>([]);
+
   // ---- Build grid rows from staged index commands ----------------------
-  const gridRows = useMemo(
+  const stagedGridRows = useMemo(
     () => buildDesignerIndexRows(designerIndexCommands),
     [designerIndexCommands],
+  );
+
+  // Build grid rows from local drafts
+  const draftGridRows = useMemo(
+    (): IndexGridRow[] =>
+      localDrafts.map((draft, i) => ({
+        row_number: stagedGridRows.length + i + 1,
+        name: draft.name,
+        name_meta: { primary: false, unique: draft.unique },
+        columns: draft.columns.join(", "),
+        columns_array: draft.columns,
+        index_type: draft.using,
+        unique: draft.unique ? "YES" : "NO",
+        statistics: "",
+        condition: draft.where ?? "",
+        _tempId: draft.tempId,
+        _isPending: true,
+      })),
+    [localDrafts, stagedGridRows.length],
+  );
+
+  // Combine staged + draft rows for the grid
+  const gridRows = useMemo(
+    () => [...stagedGridRows, ...draftGridRows],
+    [stagedGridRows, draftGridRows],
+  );
+
+  // Quick lookup for draft tempIds
+  const draftTempIds = useMemo(
+    () => new Set(localDrafts.map((d) => d.tempId)),
+    [localDrafts],
   );
 
   // ---- Columns that are valid for index column selection ---------------
@@ -223,44 +273,63 @@ export const IndexDesigner = memo(function IndexDesigner({
   // ---- Handlers --------------------------------------------------------
 
   const handleAddIndex = useCallback(() => {
-    const target: CrudCommandTarget = {
-      connectionId,
-      database,
-      schema,
-      table: tableName || "__new_table",
-    };
-
     const tempId = generateCommandId();
-    const command = createIndexCreateCommand(
-      target,
+    setLocalDrafts((prev) => [
+      ...prev,
       {
+        tempId,
         name: "",
         columns: [],
         unique: false,
         using: defaultIndexType,
+        _autoName: true,
       },
-      tempId,
-    );
+    ]);
+  }, [defaultIndexType]);
 
-    const taggedCommand = {
-      ...command,
-      metadata: {
-        ...command.metadata,
-        tags: [designerTag, `${idxTagPrefix}${tempId}`],
-      },
-    };
+  /** Promote a local draft to a staged CRUD command. */
+  const stageDraft = useCallback(
+    (draft: IndexDraft) => {
+      const target: CrudCommandTarget = {
+        connectionId,
+        database,
+        schema,
+        table: tableName || "__new_table",
+      };
 
-    stageBatchWithSingleHistoryEntry([taggedCommand]);
-  }, [
-    connectionId,
-    database,
-    schema,
-    tableName,
-    defaultIndexType,
-    designerTag,
-    idxTagPrefix,
-    stageBatchWithSingleHistoryEntry,
-  ]);
+      const command = createIndexCreateCommand(
+        target,
+        {
+          name: draft.name,
+          columns: draft.columns,
+          unique: draft.unique,
+          using: draft.using,
+          where: draft.where,
+        },
+        draft.tempId,
+      );
+
+      const taggedCommand = {
+        ...command,
+        metadata: {
+          ...command.metadata,
+          tags: [designerTag, `${idxTagPrefix}${draft.tempId}`],
+        },
+      };
+
+      setLocalDrafts((prev) => prev.filter((d) => d.tempId !== draft.tempId));
+      stageBatchWithSingleHistoryEntry([taggedCommand]);
+    },
+    [
+      connectionId,
+      database,
+      schema,
+      tableName,
+      designerTag,
+      idxTagPrefix,
+      stageBatchWithSingleHistoryEntry,
+    ],
+  );
 
   const handleAddFkIndexes = useCallback(() => {
     if (uncoveredFkColumns.length === 0) return;
@@ -274,7 +343,7 @@ export const IndexDesigner = memo(function IndexDesigner({
 
     const commands: CrudCommand[] = uncoveredFkColumns.map((fkCol) => {
       const tempId = generateCommandId();
-      const name = generateIndexName(tableName, [fkCol]);
+      const name = generateIndexName(tableName, [fkCol], identifierLimit);
       const command = createIndexCreateCommand(
         target,
         {
@@ -304,12 +373,22 @@ export const IndexDesigner = memo(function IndexDesigner({
     defaultIndexType,
     designerTag,
     idxTagPrefix,
+    identifierLimit,
     uncoveredFkColumns,
     stageBatchWithSingleHistoryEntry,
   ]);
 
   const handleDeleteIndex = useCallback(
     (row: IndexGridRow) => {
+      // Check if this is a local draft
+      if (row._tempId && draftTempIds.has(row._tempId)) {
+        setLocalDrafts((prev) =>
+          prev.filter((d) => d.tempId !== row._tempId),
+        );
+        return;
+      }
+
+      // Otherwise, unstage the command
       const command = designerIndexCommands.find(
         (cmd) =>
           (cmd.payload as IndexCreatePayload).tempId === row._tempId,
@@ -318,8 +397,34 @@ export const IndexDesigner = memo(function IndexDesigner({
         unstageCommands([command.id]);
       }
     },
-    [designerIndexCommands, unstageCommands],
+    [designerIndexCommands, draftTempIds, unstageCommands],
   );
+
+  // Extract value from custom cell data
+  const extractCellValue = (newValue: EditableGridCell): unknown => {
+    if ("data" in newValue) {
+      const data = newValue.data;
+      if (typeof data === "object" && data !== null) {
+        if (
+          "name" in data &&
+          (data as { kind?: string }).kind === "editable-index-name-cell"
+        ) {
+          return (data as { name: string }).name;
+        }
+        if (
+          "columns" in data &&
+          (data as { kind?: string }).kind === "index-columns-cell"
+        ) {
+          return (data as { columns: string[] }).columns;
+        }
+        if ("value" in data) {
+          return (data as { value: unknown }).value;
+        }
+      }
+      return data;
+    }
+    return null;
+  };
 
   const handleCellEdited = useCallback(
     (cell: Item, newValue: EditableGridCell) => {
@@ -329,7 +434,73 @@ export const IndexDesigner = memo(function IndexDesigner({
 
       if (!column || !row) return;
 
-      // Find the corresponding staged command
+      const value = extractCellValue(newValue);
+      const isDraft = row._tempId != null && draftTempIds.has(row._tempId);
+
+      // ---- Editing a local draft ----
+      if (isDraft) {
+        setLocalDrafts((prev) =>
+          prev.map((draft) => {
+            if (draft.tempId !== row._tempId) return draft;
+
+            const updated = { ...draft };
+
+            switch (column.field) {
+              case "name":
+                updated.name = typeof value === "string" ? value : "";
+                updated._autoName = false;
+                break;
+              case "columns": {
+                updated.columns = Array.isArray(value) ? value : [];
+                if (!updated.name || updated._autoName) {
+                  updated.name = generateIndexName(
+                    tableName,
+                    updated.columns,
+                    identifierLimit,
+                  );
+                  updated._autoName = true;
+                }
+                break;
+              }
+              case "index_type":
+                updated.using =
+                  typeof value === "string" ? value : defaultIndexType;
+                break;
+              case "unique":
+                updated.unique = value === "YES";
+                break;
+              case "condition": {
+                const condValue = typeof value === "string" ? value : "";
+                updated.where = condValue || undefined;
+                break;
+              }
+              default:
+                return draft;
+            }
+
+            return updated;
+          }),
+        );
+
+        // If columns were just set, promote draft to staged
+        if (column.field === "columns") {
+          const cols = Array.isArray(value) ? value : [];
+          if (cols.length > 0) {
+            const draft = localDrafts.find((d) => d.tempId === row._tempId);
+            if (draft) {
+              const updated = { ...draft, columns: cols };
+              if (!updated.name || updated._autoName) {
+                updated.name = generateIndexName(tableName, cols, identifierLimit);
+                updated._autoName = true;
+              }
+              stageDraft(updated);
+            }
+          }
+        }
+        return;
+      }
+
+      // ---- Editing a staged command ----
       const command = designerIndexCommands.find(
         (cmd) =>
           (cmd.payload as IndexCreatePayload).tempId === row._tempId,
@@ -339,52 +510,30 @@ export const IndexDesigner = memo(function IndexDesigner({
       const payload = command.payload as IndexCreatePayload;
       const updatedDefinition = { ...payload.definition };
 
-      // Extract value from custom cell data
-      const extractValue = (): unknown => {
-        if ("data" in newValue) {
-          const data = newValue.data;
-          if (typeof data === "object" && data !== null) {
-            if (
-              "name" in data &&
-              (data as { kind?: string }).kind === "editable-index-name-cell"
-            ) {
-              return (data as { name: string }).name;
-            }
-            if (
-              "columns" in data &&
-              (data as { kind?: string }).kind === "index-columns-cell"
-            ) {
-              return (data as { columns: string[] }).columns;
-            }
-            if ("value" in data) {
-              return (data as { value: unknown }).value;
-            }
-          }
-          return data;
-        }
-        return null;
-      };
+      const MANUAL_NAME_TAG = "__manual_name__";
+      const isAutoName = !command.metadata.tags?.includes(MANUAL_NAME_TAG);
 
-      const value = extractValue();
+      let markManualName: boolean | undefined;
 
       switch (column.field) {
         case "name":
           updatedDefinition.name =
             typeof value === "string" ? value : "";
+          markManualName = true;
           break;
 
         case "columns": {
           updatedDefinition.columns = Array.isArray(value) ? value : [];
-          // Auto-generate name if current name is empty or starts with "idx_"
-          const currentName = updatedDefinition.name;
           if (
-            !currentName ||
-            currentName.startsWith("idx_")
+            !updatedDefinition.name ||
+            isAutoName
           ) {
             updatedDefinition.name = generateIndexName(
               tableName,
               updatedDefinition.columns,
+              identifierLimit,
             );
+            markManualName = false;
           }
           break;
         }
@@ -417,6 +566,13 @@ export const IndexDesigner = memo(function IndexDesigner({
         metadata: {
           ...command.metadata,
           description: `Create index ${updatedDefinition.name || "(unnamed)"}`,
+          ...(markManualName !== undefined
+            ? {
+                tags: markManualName
+                  ? [...(command.metadata.tags ?? []).filter((t) => t !== MANUAL_NAME_TAG), MANUAL_NAME_TAG]
+                  : (command.metadata.tags ?? []).filter((t) => t !== MANUAL_NAME_TAG),
+              }
+            : {}),
         },
       };
 
@@ -425,10 +581,14 @@ export const IndexDesigner = memo(function IndexDesigner({
     [
       sizedColumns,
       gridRows,
+      draftTempIds,
+      localDrafts,
       designerIndexCommands,
       tableName,
       defaultIndexType,
+      identifierLimit,
       stageCommand,
+      stageDraft,
     ],
   );
 
@@ -445,6 +605,54 @@ export const IndexDesigner = memo(function IndexDesigner({
       }
     },
     [sizedColumns, gridRows, handleDeleteIndex],
+  );
+
+  // ---- Context menu -----------------------------------------------------
+  const contextMenuRowRef = useRef<IndexGridRow | null>(null);
+
+  const handleItemHovered = useCallback(
+    (args: GridMouseEventArgs) => {
+      if (args.kind === "cell") {
+        contextMenuRowRef.current = gridRows[args.location[1]] ?? null;
+      } else {
+        contextMenuRowRef.current = null;
+      }
+    },
+    [gridRows],
+  );
+
+  const handleContextToggleUnique = useCallback(
+    (row: IndexGridRow) => {
+      // Handle local draft
+      if (row._tempId != null && draftTempIds.has(row._tempId)) {
+        setLocalDrafts((prev) =>
+          prev.map((d) =>
+            d.tempId === row._tempId ? { ...d, unique: !d.unique } : d,
+          ),
+        );
+        return;
+      }
+
+      const command = designerIndexCommands.find(
+        (cmd) =>
+          (cmd.payload as IndexCreatePayload).tempId === row._tempId,
+      );
+      if (!command) return;
+
+      const payload = command.payload as IndexCreatePayload;
+      const updatedCmd = {
+        ...command,
+        payload: {
+          ...payload,
+          definition: {
+            ...payload.definition,
+            unique: !payload.definition.unique,
+          },
+        },
+      };
+      stageCommand(updatedCmd);
+    },
+    [designerIndexCommands, draftTempIds, stageCommand],
   );
 
   // ---- getCellContent --------------------------------------------------
@@ -619,13 +827,6 @@ export const IndexDesigner = memo(function IndexDesigner({
   // ---- Render ----------------------------------------------------------
   return (
     <div className="flex flex-col h-full">
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 px-2 py-1.5 border-b">
-        <Button variant="outline" size="sm" onClick={handleAddIndex}>
-          <IconPlus className="h-4 w-4 mr-1" /> Add Index
-        </Button>
-      </div>
-
       {/* FK suggestion banner */}
       {uncoveredFkColumns.length > 0 && (
         <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950/30 border-b text-xs text-blue-700 dark:text-blue-300">
@@ -645,13 +846,14 @@ export const IndexDesigner = memo(function IndexDesigner({
         </div>
       )}
 
-      {/* Grid or empty state */}
+      {/* Grid */}
       <div className="flex-1 min-h-0">
-        {gridRows.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-            <p className="text-xs">No indexes defined. Click "Add Index" to create one.</p>
-          </div>
-        ) : (
+        <DesignerIndexContextMenu
+          hoveredRowRef={contextMenuRowRef}
+          onAddIndex={handleAddIndex}
+          onToggleUnique={handleContextToggleUnique}
+          onDeleteIndex={handleDeleteIndex}
+        >
           <DataGridBase
             columns={sizedColumns}
             rowCount={gridRows.length}
@@ -661,12 +863,18 @@ export const IndexDesigner = memo(function IndexDesigner({
             customRenderers={customRenderers}
             onColumnResize={handleColumnResize}
             onColumnResizeEnd={handleColumnResizeEnd}
+            onItemHovered={handleItemHovered}
+            trailingRowOptions={{
+              sticky: false,
+              tint: false,
+            }}
+            onRowAppended={handleAddIndex}
             smoothScrollX
             smoothScrollY
             rowSelect="none"
             columnSelect="none"
           />
-        )}
+        </DesignerIndexContextMenu>
       </div>
     </div>
   );

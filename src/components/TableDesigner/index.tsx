@@ -13,6 +13,7 @@ import {
   type Item,
   type CustomRenderer,
   type GridCell,
+  type GridMouseEventArgs,
 } from "@glideapps/glide-data-grid";
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
 import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
@@ -39,6 +40,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { IndexDesigner } from "./IndexDesigner";
 import { toast } from "sonner";
 import { useForeignKeyTargets } from "@/hooks/useForeignKeyTargets";
+import { useSupportedColumnTypes } from "@/hooks/useSupportedColumnTypes";
 import { CrudCommandFactory } from "@/services/crudCommandFactory";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import {
@@ -47,6 +49,42 @@ import {
   type DesignerGridRow,
   type DesignerModifiedField,
 } from "./utils";
+import { DesignerColumnContextMenu } from "./DesignerColumnContextMenu";
+import { DbType, getDefaultSchema, isMySQLCompatible } from "@/types/connection";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
+import {
+  quoteIdentifier as quoteId,
+  formatTableName,
+} from "@/adapters/formatting";
+
+// ---------------------------------------------------------------------------
+// Dialect-specific defaults for new tables
+// ---------------------------------------------------------------------------
+
+const DESIGNER_DEFAULTS: Record<string, {
+  pkType: string;
+  pkName: string;
+}> = {
+  [DbType.PostgreSQL]: { pkType: "SERIAL", pkName: "id" },
+  [DbType.MySQL]:      { pkType: "INT AUTO_INCREMENT", pkName: "id" },
+  [DbType.MariaDB]:    { pkType: "INT AUTO_INCREMENT", pkName: "id" },
+  [DbType.SQLite]:     { pkType: "INTEGER", pkName: "id" },
+  [DbType.SQLServer]:  { pkType: "INT IDENTITY(1,1)", pkName: "id" },
+};
+
+/**
+ * Check if a column type implies auto-increment / serial behavior.
+ */
+const isAutoIncrementType = (type: string, db: DbType): boolean => {
+  const upper = type.toUpperCase();
+  switch (db) {
+    case DbType.PostgreSQL: return upper.includes("SERIAL");
+    case DbType.MySQL:
+    case DbType.MariaDB: return upper.includes("AUTO_INCREMENT");
+    case DbType.SQLServer: return upper.includes("IDENTITY");
+    default: return false;
+  }
+};
 
 export interface TableDesignerProps {
   panelId: string;
@@ -54,6 +92,7 @@ export interface TableDesignerProps {
   connectionId: string;
   database: string;
   schema?: string;
+  dbType?: DbType;
   className?: string;
   onSave?: (tableName: string, sql: string) => void;
   onCancel?: () => void;
@@ -137,9 +176,6 @@ const getFkIndexFromTags = (
 
 const resolveTableName = (value: string, fallback: string): string =>
   value.trim() || fallback;
-
-const quoteIdentifier = (value: string): string =>
-  `"${value.replace(/"/g, '""')}"`;
 
 const getCommandTimestamp = (command: CrudCommand): number => {
   const raw = command.metadata.timestamp;
@@ -236,11 +272,21 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
   tabId,
   connectionId,
   database,
-  schema = "public",
+  schema,
+  dbType,
   className,
   onSave,
   onCancel,
 }) => {
+  const connection = useConnectionStore((s) => s.getConnection(connectionId));
+  const resolvedDbType = dbType ?? connection?.profile.db_type ?? DbType.PostgreSQL;
+  const resolvedSchema = schema ?? getDefaultSchema(resolvedDbType, database) ?? undefined;
+
+  const { columnTypes } = useSupportedColumnTypes({
+    connectionId,
+    dbType: resolvedDbType,
+  });
+
   const tableNameInputRef = useRef<HTMLInputElement>(null);
   const [globalChangesDialogOpen, setGlobalChangesDialogOpen] = useState(false);
   const [tableNameDraft, setTableNameDraft] = useState("");
@@ -254,7 +300,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
   const { targets: foreignKeyTargets } = useForeignKeyTargets({
     connectionId,
     database,
-    schema,
+    schema: resolvedSchema,
   });
 
   const designerTag = useMemo(
@@ -358,14 +404,15 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
     const target: CrudCommandTarget = {
       connectionId,
       database,
-      schema,
+      schema: resolvedSchema,
       table: draftTableName,
     };
 
+    const defaults = DESIGNER_DEFAULTS[resolvedDbType] ?? { pkType: "SERIAL", pkName: "id" };
     const defaultColumns = [
       {
-        name: "id",
-        dataType: "SERIAL",
+        name: defaults.pkName,
+        dataType: defaults.pkType,
         nullable: false,
         defaultValue: undefined,
         isPrimaryKey: true,
@@ -384,7 +431,8 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
     connectionId,
     database,
     draftTableName,
-    schema,
+    resolvedDbType,
+    resolvedSchema,
     stageBatchWithSingleHistoryEntry,
     tableCreateCommand,
   ]);
@@ -466,7 +514,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       const isPrimaryKey =
         Boolean(col.isPrimaryKey) ||
         primaryKeySet.has(columnName) ||
-        (col.dataType ?? "").toUpperCase().includes("SERIAL");
+        isAutoIncrementType(col.dataType ?? "", resolvedDbType);
       const fkValue =
         foreignKeyByIndex.get(index) ||
         (columnName ? foreignKeyByColumnName.get(columnName) : "") ||
@@ -488,7 +536,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
         _tempId: `${index}`,
       };
     });
-  }, [columns, foreignKeyByColumnName, foreignKeyByIndex, primaryKeySet]);
+  }, [columns, foreignKeyByColumnName, foreignKeyByIndex, primaryKeySet, resolvedDbType]);
 
   // Column names for IndexDesigner's column picker
   const availableColumnNames = useMemo(
@@ -787,6 +835,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             data: {
               kind: "datatype-cell",
               value: rowData.db_type,
+              standardTypes: columnTypes,
               columnName: rowData.column_name,
             },
             copyData: rowData.db_type,
@@ -874,7 +923,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
           };
       }
     },
-    [gridRows, sizedColumns, foreignKeyTargets],
+    [gridRows, sizedColumns, foreignKeyTargets, columnTypes],
   );
 
   // Handle cell edit
@@ -988,7 +1037,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
         case "db_type": {
           const nextType = getStringValue() || "VARCHAR(255)";
           updated.dataType = nextType;
-          updated.isPrimaryKey = nextType.toUpperCase().includes("SERIAL");
+          updated.isPrimaryKey = isAutoIncrementType(nextType, resolvedDbType);
           break;
         }
 
@@ -1060,6 +1109,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       fkCommandByIndex,
       foreignKeyByColumnName,
       foreignKeyByIndex,
+      resolvedDbType,
       stageBatchWithSingleHistoryEntry,
       tableCreateCommand,
       tableName,
@@ -1084,6 +1134,133 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
     tableName,
   ]);
 
+  // ---- Context menu -------------------------------------------------------
+  const contextMenuRowRef = useRef<DesignerGridRow | null>(null);
+
+  const handleItemHovered = useCallback(
+    (args: GridMouseEventArgs) => {
+      if (args.kind === "cell") {
+        contextMenuRowRef.current = gridRows[args.location[1]] ?? null;
+      } else {
+        contextMenuRowRef.current = null;
+      }
+    },
+    [gridRows],
+  );
+
+  const handleContextDuplicate = useCallback(
+    (row: DesignerGridRow) => {
+      if (!tableCreateCommand) return;
+      const rowIndex = Number.parseInt(row._tempId, 10);
+      const current = columns[rowIndex];
+      if (!current) return;
+
+      const duplicate: ColumnDefinitionInput = {
+        ...current,
+        name: current.name ? `${current.name}_copy` : "",
+        isPrimaryKey: false,
+      };
+
+      const nextColumns = [...columns];
+      nextColumns.splice(rowIndex + 1, 0, duplicate);
+      const updatedCreate = buildTableCreateCommand(nextColumns, tableName);
+      if (updatedCreate) {
+        stageBatchWithSingleHistoryEntry([updatedCreate]);
+      }
+    },
+    [
+      columns,
+      buildTableCreateCommand,
+      tableName,
+      stageBatchWithSingleHistoryEntry,
+      tableCreateCommand,
+    ],
+  );
+
+  const handleContextTogglePK = useCallback(
+    (row: DesignerGridRow) => {
+      if (!tableCreateCommand) return;
+      const rowIndex = Number.parseInt(row._tempId, 10);
+      const current = columns[rowIndex];
+      if (!current) return;
+
+      const nextColumns = [...columns];
+      nextColumns[rowIndex] = {
+        ...current,
+        isPrimaryKey: !row.column_meta.is_pk,
+      };
+      const updatedCreate = buildTableCreateCommand(nextColumns, tableName);
+      if (updatedCreate) {
+        stageBatchWithSingleHistoryEntry([updatedCreate]);
+      }
+    },
+    [
+      columns,
+      buildTableCreateCommand,
+      tableName,
+      stageBatchWithSingleHistoryEntry,
+      tableCreateCommand,
+    ],
+  );
+
+  const handleContextSetNullable = useCallback(
+    (row: DesignerGridRow, value: "YES" | "NO") => {
+      if (!tableCreateCommand) return;
+      if (row.nullable === value) return;
+
+      const rowIndex = Number.parseInt(row._tempId, 10);
+      const current = columns[rowIndex];
+      if (!current) return;
+
+      const nextColumns = [...columns];
+      nextColumns[rowIndex] = { ...current, nullable: value === "YES" };
+      const updatedCreate = buildTableCreateCommand(nextColumns, tableName);
+      if (updatedCreate) {
+        stageBatchWithSingleHistoryEntry([updatedCreate]);
+      }
+    },
+    [
+      columns,
+      buildTableCreateCommand,
+      tableName,
+      stageBatchWithSingleHistoryEntry,
+      tableCreateCommand,
+    ],
+  );
+
+  const handleContextDeleteColumn = useCallback(
+    (row: DesignerGridRow) => {
+      if (!tableCreateCommand) return;
+      const rowIndex = Number.parseInt(row._tempId, 10);
+
+      // Clean up any associated FK command
+      const existingFkCommand =
+        fkCommandByIndex.get(rowIndex) ||
+        (columns[rowIndex]?.name
+          ? fkCommandByColumnName.get(columns[rowIndex].name)
+          : undefined);
+      if (existingFkCommand) {
+        unstageCommands([existingFkCommand.id]);
+      }
+
+      const nextColumns = columns.filter((_, i) => i !== rowIndex);
+      const updatedCreate = buildTableCreateCommand(nextColumns, tableName);
+      if (updatedCreate) {
+        stageBatchWithSingleHistoryEntry([updatedCreate]);
+      }
+    },
+    [
+      columns,
+      buildTableCreateCommand,
+      fkCommandByColumnName,
+      fkCommandByIndex,
+      tableName,
+      stageBatchWithSingleHistoryEntry,
+      tableCreateCommand,
+      unstageCommands,
+    ],
+  );
+
   const handleTableNameChange = useCallback(
     (nextName: string) => {
       if (!tableCreateCommand) {
@@ -1092,14 +1269,15 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
         const target: CrudCommandTarget = {
           connectionId,
           database,
-          schema,
+          schema: resolvedSchema,
           table: resolveTargetTableName(nextName),
         };
 
+        const defaults = DESIGNER_DEFAULTS[resolvedDbType] ?? { pkType: "SERIAL", pkName: "id" };
         const defaultColumns = [
           {
-            name: "id",
-            dataType: "SERIAL",
+            name: defaults.pkName,
+            dataType: defaults.pkType,
             nullable: false,
             defaultValue: undefined,
             isPrimaryKey: true,
@@ -1109,7 +1287,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
         const createCommand = buildDesignerCreateCommand(target, {
           tableName: nextName.trim(),
           columns: defaultColumns,
-          primaryKey: ["id"],
+          primaryKey: [defaults.pkName],
         });
 
         stageBatchWithSingleHistoryEntry([createCommand]);
@@ -1161,9 +1339,10 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       database,
       fkCommands,
       fkTagPrefix,
+      resolvedDbType,
+      resolvedSchema,
       resolveTargetTableName,
       stageBatchWithSingleHistoryEntry,
-      schema,
       tableCreateCommand,
       tableName,
     ],
@@ -1191,10 +1370,11 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
   // Generate SQL
   const generateSQL = useCallback(
     (tableNameOverride?: string) => {
-      const resolvedTableName = (
-        tableNameOverride ?? tableName
-      ).trim();
+      const resolvedTableName = (tableNameOverride ?? tableName).trim();
       if (!resolvedTableName || gridRows.length === 0) return "";
+
+      const qi = (name: string) => quoteId(name, resolvedDbType);
+      const fullTableName = formatTableName(resolvedSchema, resolvedTableName, resolvedDbType);
 
       const pkColumns = gridRows
         .filter((r) => r.column_meta.is_pk)
@@ -1202,11 +1382,16 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
 
       const columnDefs = gridRows
         .map((col) => {
-          let def = `  ${quoteIdentifier(col.column_name)} ${col.db_type}`;
+          let def = `  ${qi(col.column_name)} ${col.db_type}`;
           if (col.nullable === "NO") def += " NOT NULL";
           if (col.default?.trim()) def += ` DEFAULT ${col.default.trim()}`;
           if (col.check_constraint?.trim()) {
             def += ` CHECK (${normalizeCheckConstraint(col.check_constraint)})`;
+          }
+          // MySQL inline comment
+          if (isMySQLCompatible(resolvedDbType) && col.comment?.trim()) {
+            const escaped = col.comment.replace(/'/g, "''");
+            def += ` COMMENT '${escaped}'`;
           }
           return def;
         })
@@ -1214,9 +1399,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
 
       const pkConstraint =
         pkColumns.length > 0
-          ? `,\n  PRIMARY KEY (${pkColumns
-              .map((c) => quoteIdentifier(c))
-              .join(", ")})`
+          ? `,\n  PRIMARY KEY (${pkColumns.map((c) => qi(c)).join(", ")})`
           : "";
 
       const foreignKeyConstraints = gridRows
@@ -1225,11 +1408,9 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
           const parsed = parseForeignKeyValue(col.foreign_key);
           if (!parsed) return null;
           const tableRef = parsed.schema
-            ? `${quoteIdentifier(parsed.schema)}.${quoteIdentifier(parsed.table)}`
-            : quoteIdentifier(parsed.table);
-          return `  FOREIGN KEY (${quoteIdentifier(
-            col.column_name,
-          )}) REFERENCES ${tableRef} (${quoteIdentifier(parsed.column)})`;
+            ? `${qi(parsed.schema)}.${qi(parsed.table)}`
+            : qi(parsed.table);
+          return `  FOREIGN KEY (${qi(col.column_name)}) REFERENCES ${tableRef} (${qi(parsed.column)})`;
         })
         .filter((constraint): constraint is string => Boolean(constraint))
         .join(",\n");
@@ -1241,20 +1422,20 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
         )
         .join("");
 
-      const createTable = `CREATE TABLE ${quoteIdentifier(
-        schema,
-      )}.${quoteIdentifier(resolvedTableName)} (\n${columnDefs}${allConstraints}\n);`;
+      const createTable = `CREATE TABLE ${fullTableName} (\n${columnDefs}${allConstraints}\n);`;
 
-      const commentStatements = gridRows
-        .map((col) => {
-          if (!col.comment || !col.comment.trim()) return null;
-          const columnRef = `${quoteIdentifier(schema)}.${quoteIdentifier(
-            resolvedTableName,
-          )}.${quoteIdentifier(col.column_name)}`;
+      // Only PostgreSQL supports COMMENT ON COLUMN
+      const commentStatements: string[] = [];
+      if (resolvedDbType === DbType.PostgreSQL) {
+        gridRows.forEach((col) => {
+          if (!col.comment || !col.comment.trim()) return;
+          const columnRef = `${formatTableName(resolvedSchema, resolvedTableName, resolvedDbType)}.${qi(col.column_name)}`;
           const escaped = col.comment.replace(/'/g, "''");
-          return `COMMENT ON COLUMN ${columnRef} IS '${escaped}';`;
-        })
-        .filter((statement): statement is string => Boolean(statement));
+          commentStatements.push(`COMMENT ON COLUMN ${columnRef} IS '${escaped}';`);
+        });
+      }
+
+      const supportsPartialIndex = !isMySQLCompatible(resolvedDbType);
 
       // Generate CREATE INDEX statements from staged index commands
       const indexStatements = designerCommands
@@ -1264,19 +1445,30 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
           const def = payload.definition;
           if (!def.name || def.columns.length === 0) return null;
 
-          const uniqueKeyword = def.unique ? "UNIQUE " : "";
-          const cols = def.columns.map((c) => quoteIdentifier(c)).join(", ");
-          const tableRef = `${quoteIdentifier(schema)}.${quoteIdentifier(resolvedTableName)}`;
-          const usingClause = def.using && def.using !== "btree" ? ` USING ${def.using}` : "";
-          const whereClause = def.where ? ` WHERE ${def.where}` : "";
+          const cols = def.columns.map((c) => qi(c)).join(", ");
+          const whereClause = supportsPartialIndex && def.where ? ` WHERE ${def.where}` : "";
 
-          return `CREATE ${uniqueKeyword}INDEX ${quoteIdentifier(def.name)} ON ${tableRef}${usingClause} (${cols})${whereClause};`;
+          // MSSQL: index type is a keyword prefix (CLUSTERED/NONCLUSTERED/COLUMNSTORE), not USING
+          // SQLite: no USING clause, only btree
+          // PostgreSQL/MySQL: standard USING clause
+          if (resolvedDbType === DbType.SQLServer) {
+            const typePrefix = def.using && def.using !== "nonclustered"
+              ? `${def.using.toUpperCase()} ` : "";
+            const uniqueKeyword = def.unique ? "UNIQUE " : "";
+            return `CREATE ${uniqueKeyword}${typePrefix}INDEX ${qi(def.name)} ON ${fullTableName} (${cols})${whereClause};`;
+          }
+
+          const uniqueKeyword = def.unique ? "UNIQUE " : "";
+          const usingClause =
+            def.using && def.using !== "btree" ? ` USING ${def.using}` : "";
+
+          return `CREATE ${uniqueKeyword}INDEX ${qi(def.name)} ON ${fullTableName}${usingClause} (${cols})${whereClause};`;
         })
         .filter((s): s is string => Boolean(s));
 
       return [createTable, ...commentStatements, ...indexStatements].join("\n");
     },
-    [tableName, gridRows, schema, designerCommands],
+    [tableName, gridRows, resolvedSchema, resolvedDbType, designerCommands],
   );
 
   const handleSave = useCallback(() => {
@@ -1294,6 +1486,14 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
     const invalidColumns = columns.filter((col) => !col.name.trim());
     if (invalidColumns.length > 0) {
       toast.error("All columns must have names");
+      return;
+    }
+
+    // Validate no duplicate column names
+    const columnNames = columns.map((col) => col.name.trim().toLowerCase());
+    const duplicates = columnNames.filter((name, i) => name && columnNames.indexOf(name) !== i);
+    if (duplicates.length > 0) {
+      toast.error(`Duplicate column name: "${duplicates[0]}"`);
       return;
     }
 
@@ -1331,7 +1531,9 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
         invalidIndexes.push("An index is missing a name");
       }
       if (def.columns.length === 0) {
-        invalidIndexes.push(`Index "${def.name || "(unnamed)"}" has no columns`);
+        invalidIndexes.push(
+          `Index "${def.name || "(unnamed)"}" has no columns`,
+        );
       }
       const missingCols = def.columns.filter(
         (c) => !availableColumnNames.includes(c),
@@ -1378,13 +1580,15 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
   }, [designerCommands, onCancel, unstageCommands]);
 
   return (
-    <div className={cn("flex flex-col h-full", className)}>
+    <Tabs defaultValue="columns" className={cn("h-full gap-0", className)}>
       {/* Header */}
 
       <div className="flex items-center gap-2 py-1 px-0.5">
         <Input
           ref={tableNameInputRef}
           id="tableName"
+          size="sm"
+          className="w-56"
           value={tableNameDraft}
           onChange={(e) => {
             setTableNameDraft(e.target.value);
@@ -1423,18 +1627,42 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
           }}
           placeholder="Enter table name"
         />
-      </div>
-
-      {/* Tabbed Content */}
-      <Tabs defaultValue="columns" className="flex flex-col flex-1 min-h-0">
-        <TabsList className="mx-0.5 w-fit">
+        <TabsList size="sm" className="w-fit">
           <TabsTrigger value="columns">Columns</TabsTrigger>
           <TabsTrigger value="indexes">
             Indexes{indexCommandCount > 0 ? ` (${indexCommandCount})` : ""}
           </TabsTrigger>
         </TabsList>
+        <div className="ml-auto flex items-center gap-2">
+          {onCancel && (
+            <Button variant="outline" size="sm" onClick={handleCancel}>
+              Cancel
+            </Button>
+          )}
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={!effectiveTableName || columns.length === 0}
+          >
+            Create Table
+          </Button>
+        </div>
+      </div>
 
-        <TabsContent value="columns" className="flex-1 min-h-0 mt-0" keepMounted>
+      <TabsContent
+        value="columns"
+        className="flex-1 min-h-0 mt-0"
+        keepMounted
+      >
+        <DesignerColumnContextMenu
+          hoveredRowRef={contextMenuRowRef}
+          dbType={resolvedDbType}
+          onAddColumn={handleRowAppended}
+          onDuplicate={handleContextDuplicate}
+          onTogglePrimaryKey={handleContextTogglePK}
+          onSetNullable={handleContextSetNullable}
+          onDeleteColumn={handleContextDeleteColumn}
+        >
           <DataGridBase
             columns={sizedColumns}
             rowCount={gridRows.length}
@@ -1443,6 +1671,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             customRenderers={customRenderers}
             onColumnResize={handleColumnResize}
             onColumnResizeEnd={handleColumnResizeEnd}
+            onItemHovered={handleItemHovered}
             trailingRowOptions={{
               sticky: false,
               tint: false,
@@ -1453,45 +1682,29 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             rowSelect="none"
             columnSelect="none"
           />
-        </TabsContent>
+        </DesignerColumnContextMenu>
+      </TabsContent>
 
-        <TabsContent value="indexes" className="flex-1 min-h-0 mt-0">
-          <IndexDesigner
-            panelId={panelId}
-            tabId={tabId}
-            connectionId={connectionId}
-            database={database}
-            schema={schema}
-            availableColumns={availableColumnNames}
-            tableName={effectiveTableName}
-            foreignKeyColumns={foreignKeyColumnNames}
-            designerTag={designerTag}
-          />
-        </TabsContent>
-      </Tabs>
-
-      {/* Footer Actions */}
-      <div className="flex-none p-3 border-t flex justify-end gap-2">
-        {onCancel && (
-          <Button variant="outline" size="sm" onClick={handleCancel}>
-            Cancel
-          </Button>
-        )}
-        <Button
-          size="sm"
-          onClick={handleSave}
-          disabled={!effectiveTableName || columns.length === 0}
-        >
-          Create Table
-        </Button>
-      </div>
+      <TabsContent value="indexes" className="flex-1 min-h-0 mt-0">
+        <IndexDesigner
+          panelId={panelId}
+          tabId={tabId}
+          connectionId={connectionId}
+          database={database}
+          schema={resolvedSchema}
+          availableColumns={availableColumnNames}
+          tableName={effectiveTableName}
+          foreignKeyColumns={foreignKeyColumnNames}
+          designerTag={designerTag}
+        />
+      </TabsContent>
 
       <GlobalChangesDialog
         open={globalChangesDialogOpen}
         onOpenChange={setGlobalChangesDialogOpen}
         connectionId={connectionId}
         database={database}
-        schema={schema}
+        schema={resolvedSchema}
         table={tableTargetName}
         onCommitSuccess={() => {
           const finalTableName = effectiveTableName;
@@ -1500,14 +1713,14 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
           const committedTableKey = buildCrudTableKey({
             connectionId,
             database,
-            schema,
+            schema: resolvedSchema,
             table: resolveTargetTableName(finalTableName),
           });
           discardChanges(committedTableKey);
           setGlobalChangesDialogOpen(false);
         }}
       />
-    </div>
+    </Tabs>
   );
 };
 
