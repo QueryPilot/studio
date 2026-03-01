@@ -268,17 +268,15 @@ export const SelectionSummary = memo(function SelectionSummary({
     return null;
   }, [selectedRows, selectedRowIndices, allRows, columns, gridSelection]);
 
-  const columnType = statistics?.hasDecimalColumns ? "decimal" : "integer";
+  const baseColumnType = statistics?.hasDecimalColumns ? "decimal" : "integer";
 
-  const formatNumber = useCallback(
-    (decimal: Decimal) => formatDecimalWithLocale(decimal, columnType),
-    [columnType],
-  );
-
-  // Raw format without thousand separators — used for clipboard copy
-  const formatRawNumber = useCallback(
-    (decimal: Decimal) => formatDecimal(decimal, columnType),
-    [columnType],
+  // Avg/Median always need decimal places, even for integer columns
+  const getColumnTypeForStat = useCallback(
+    (key: string): string => {
+      if (key === "avg" || key === "median") return "decimal";
+      return baseColumnType;
+    },
+    [baseColumnType],
   );
 
   // Helper to get a Decimal stat value by key
@@ -303,7 +301,11 @@ export const SelectionSummary = memo(function SelectionSummary({
 
       const decimal = getDecimalForKey(key);
       if (decimal !== undefined) {
-        return { display: formatNumber(decimal), raw: formatRawNumber(decimal) };
+        const colType = getColumnTypeForStat(key);
+        return {
+          display: formatDecimalWithLocale(decimal, colType),
+          raw: formatDecimal(decimal, colType),
+        };
       }
 
       switch (key) {
@@ -321,7 +323,7 @@ export const SelectionSummary = memo(function SelectionSummary({
           return null;
       }
     },
-    [statistics, formatNumber, formatRawNumber, getDecimalForKey],
+    [statistics, getColumnTypeForStat, getDecimalForKey],
   );
 
   const visibleStats = useMemo(() => {
