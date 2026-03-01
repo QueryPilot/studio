@@ -66,11 +66,11 @@ interface Statistics {
   hasDecimalColumns?: boolean;
 }
 
-const NUMERIC_STAT_ORDER: NumericStatKey[] = ["sum", "avg", "median", "min", "max", "count", "null"];
+const NUMERIC_STAT_ORDER: NumericStatKey[] = ["sum", "avg", "median", "min", "max", "count", "unique", "null"];
 const NON_NUMERIC_STAT_ORDER: NonNumericStatKey[] = ["count", "unique", "null"];
 
 const NUMERIC_STAT_LABELS: Record<NumericStatKey, string> = {
-  sum: "Sum", avg: "Avg", median: "Median", min: "Min", max: "Max", count: "Count", null: "Null",
+  sum: "Sum", avg: "Avg", median: "Median", min: "Min", max: "Max", count: "Count", unique: "Unique", null: "Null",
 };
 
 const NON_NUMERIC_STAT_LABELS: Record<NonNumericStatKey, string> = {
@@ -252,6 +252,7 @@ export const SelectionSummary = memo(function SelectionSummary({
         max,
         count,
         countNumbers,
+        countUnique: uniqueValues.size,
         countNull: nullCount,
         isNumeric: true,
         hasDecimalColumns,
