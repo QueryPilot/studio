@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useReducer } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useState,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -92,10 +98,8 @@ export const CollectionDesigner: React.FC<CollectionDesignerProps> = ({
     return match ? [Number(match[1]), Number(match[2])] : [0, 0];
   }, [connectionId]);
 
-  const supportsTimeSeries =
-    serverMajor > 5 || (serverMajor === 5 && serverMinor >= 0);
-  const supportsClustered =
-    serverMajor > 5 || (serverMajor === 5 && serverMinor >= 3);
+  const supportsTimeSeries = serverMajor > 5 || (serverMajor === 5 && serverMinor >= 0);
+  const supportsClustered = serverMajor > 5 || (serverMajor === 5 && serverMinor >= 3);
 
   const handleSave = useCallback(async () => {
     // 1. Validate collection name
@@ -282,6 +286,24 @@ export const CollectionDesigner: React.FC<CollectionDesignerProps> = ({
                   field: "collectionName",
                   value: e.target.value,
                 });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === " ") {
+                  e.preventDefault();
+                  const input = e.currentTarget;
+                  const start = input.selectionStart ?? input.value.length;
+                  const end = input.selectionEnd ?? start;
+                  const next =
+                    input.value.slice(0, start) + "_" + input.value.slice(end);
+                  dispatch({
+                    type: "SET_FIELD",
+                    field: "collectionName",
+                    value: next,
+                  });
+                  requestAnimationFrame(() => {
+                    input.setSelectionRange(start + 1, start + 1);
+                  });
+                }
               }}
               placeholder="e.g. users"
               className="h-9 font-mono"
