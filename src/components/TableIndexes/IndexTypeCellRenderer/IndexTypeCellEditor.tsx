@@ -34,16 +34,22 @@ export const IndexTypeCellEditor: React.FC<IndexTypeCellEditorProps> = ({
   const [showConfirm, setShowConfirm] = useState(false);
   const [pendingValue, setPendingValue] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  // Guard against Enter key repeat: when confirm dialog appears via Enter-triggered
+  // onSelect, the held Enter key can immediately fire on the confirm dialog.
+  const confirmReadyRef = useRef(false);
 
   useEffect(() => {
     if (showConfirm) {
+      confirmReadyRef.current = false;
       const timer = setTimeout(() => {
         confirmRef.current?.focus();
-      }, 50);
+        confirmReadyRef.current = true;
+      }, 100);
       return () => {
         clearTimeout(timer);
       };
     } else {
+      confirmReadyRef.current = false;
       const timer = setTimeout(() => {
         commandRef.current?.focus();
       }, 50);
@@ -122,7 +128,7 @@ export const IndexTypeCellEditor: React.FC<IndexTypeCellEditorProps> = ({
           finishedRef.current = true;
           onFinishedEditing(undefined);
         }
-      } else if (e.key === "Enter" && showConfirm) {
+      } else if (e.key === "Enter" && showConfirm && confirmReadyRef.current) {
         e.preventDefault();
         e.stopPropagation();
         handleContinue();

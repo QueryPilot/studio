@@ -125,6 +125,20 @@ function isSchemaChangingCommand(command: CrudCommand): boolean {
   );
 }
 
+/**
+ * Filter out incomplete commands that shouldn't appear in the preview.
+ * E.g. newly added index rows that haven't been named or given columns yet.
+ */
+function filterIncompleteCommands(commands: CrudCommand[]): CrudCommand[] {
+  return commands.filter((cmd) => {
+    if (cmd.type === "index.create") {
+      const def = (cmd.payload as { definition?: { name?: string; columns?: string[] } }).definition;
+      if (!def?.name || !def.columns?.length) return false;
+    }
+    return true;
+  });
+}
+
 // For sidebar context: show schema.table (omit database since connection header already provides context)
 function getSidebarTableName(tableKey: string): string {
   const parts = tableKey.split(":");
@@ -360,17 +374,20 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         table: table,
       });
       const commands = stagedCommands.get(tableKey);
-      return commands ? [[tableKey, commands]] : [];
+      if (!commands) return [];
+      const complete = filterIncompleteCommands(commands);
+      return complete.length > 0 ? [[tableKey, complete]] : [];
     }
 
     const filtered: Array<[string, CrudCommand[]]> = [];
     for (const [tableKey, commands] of stagedCommands.entries()) {
-      if (connectionId) {
-        if (tableKey.startsWith(`${connectionId}:`)) {
-          filtered.push([tableKey, commands]);
-        }
-      } else {
-        filtered.push([tableKey, commands]);
+      const shouldInclude = connectionId
+        ? tableKey.startsWith(`${connectionId}:`)
+        : true;
+      if (!shouldInclude) continue;
+      const complete = filterIncompleteCommands(commands);
+      if (complete.length > 0) {
+        filtered.push([tableKey, complete]);
       }
     }
 

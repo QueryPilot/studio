@@ -7,7 +7,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { IconCheck } from '@tabler/icons-react';
+import { IconCheck } from "@tabler/icons-react";
 
 interface NullableCellEditorProps {
   value: NullableCell;
@@ -29,7 +29,9 @@ export const NullableCellEditor: React.FC<NullableCellEditorProps> = ({
     const timer = setTimeout(() => {
       commandRef.current?.focus();
     }, 50);
-    return () => { clearTimeout(timer); };
+    return () => {
+      clearTimeout(timer);
+    };
   }, []);
 
   const handleSelect = async (newValue: "YES" | "NO") => {
@@ -84,7 +86,7 @@ export const NullableCellEditor: React.FC<NullableCellEditorProps> = ({
       <div className="flex items-center flex-1">
         <Command
           ref={commandRef}
-          className="w-full border-0 shadow-none"
+          className="w-full border-0 shadow-none rounded-none"
           onKeyDown={handleKeyDown}
         >
           <CommandList className="max-h-[200px]">

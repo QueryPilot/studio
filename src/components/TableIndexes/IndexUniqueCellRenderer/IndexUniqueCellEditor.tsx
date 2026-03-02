@@ -31,18 +31,21 @@ export const IndexUniqueCellEditor: React.FC<IndexUniqueCellEditorProps> = ({
   // Show confirmation dialog only for existing indexes that require recreate
   const [showConfirm, setShowConfirm] = useState(requiresRecreate);
   const [confirmed, setConfirmed] = useState(false);
+  // Guard against Enter key repeat from the keypress that opened the editor
+  const confirmReadyRef = useRef(false);
 
   useEffect(() => {
     if (showConfirm && !confirmed) {
-      // Focus the confirm dialog for keyboard handling
+      confirmReadyRef.current = false;
       const timer = setTimeout(() => {
         confirmRef.current?.focus();
-      }, 50);
+        confirmReadyRef.current = true;
+      }, 100);
       return () => {
         clearTimeout(timer);
       };
     } else {
-      // Focus the command container for keyboard navigation
+      confirmReadyRef.current = false;
       const timer = setTimeout(() => {
         commandRef.current?.focus();
       }, 50);
@@ -98,7 +101,7 @@ export const IndexUniqueCellEditor: React.FC<IndexUniqueCellEditorProps> = ({
           finishedRef.current = true;
           onFinishedEditing(undefined);
         }
-      } else if (e.key === "Enter" && showConfirm && !confirmed) {
+      } else if (e.key === "Enter" && showConfirm && !confirmed && confirmReadyRef.current) {
         e.preventDefault();
         e.stopPropagation();
         handleContinue();
@@ -112,7 +115,14 @@ export const IndexUniqueCellEditor: React.FC<IndexUniqueCellEditorProps> = ({
         onFinishedEditing(value, movement);
       }
     },
-    [onFinishedEditing, value, showConfirm, confirmed, handleCancel, handleContinue],
+    [
+      onFinishedEditing,
+      value,
+      showConfirm,
+      confirmed,
+      handleCancel,
+      handleContinue,
+    ],
   );
 
   // Render confirmation dialog for existing indexes
@@ -137,9 +147,13 @@ export const IndexUniqueCellEditor: React.FC<IndexUniqueCellEditorProps> = ({
         </div>
         <div className="flex items-center justify-between px-3 py-2 border-t border-border/50 bg-muted/30">
           <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <KbdGroup><Kbd>Esc</Kbd></KbdGroup>
+            <KbdGroup>
+              <Kbd>Esc</Kbd>
+            </KbdGroup>
             <span>cancel</span>
-            <KbdGroup><Kbd>{"\u21B5"}</Kbd></KbdGroup>
+            <KbdGroup>
+              <Kbd>{"\u21B5"}</Kbd>
+            </KbdGroup>
             <span>confirm</span>
           </div>
           <div className="flex items-center gap-2">
@@ -180,7 +194,7 @@ export const IndexUniqueCellEditor: React.FC<IndexUniqueCellEditorProps> = ({
       <div className="flex items-center flex-1">
         <Command
           ref={commandRef}
-          className="w-full border-0 shadow-none"
+          className="w-full border-0 shadow-none rounded-none"
           onKeyDown={handleKeyDown}
         >
           <CommandList className="max-h-[200px]">

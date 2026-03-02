@@ -509,10 +509,19 @@ export const TableIndexes = memo(function TableIndexes({
     [],
   );
 
+  // Filter columns based on dialect capabilities
+  // MySQL/MariaDB doesn't support partial indexes (WHERE clause)
+  const effectiveColumns = useMemo(() => {
+    if (dbType === DbType.MySQL) {
+      return indexColumns.filter((col) => col.field !== "condition");
+    }
+    return indexColumns;
+  }, [dbType]);
+
   // Enable column resizing
   const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
     useColumnSizing({
-      columns: indexColumns,
+      columns: effectiveColumns,
       initialWidths: {},
       onChange: () => {}, // No persistence needed for now
     });
