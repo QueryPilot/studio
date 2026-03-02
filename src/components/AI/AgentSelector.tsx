@@ -26,7 +26,6 @@ import {
   IconKey,
   IconLoader2,
   IconSparkles,
-  IconRobot,
 } from "@tabler/icons-react";
 import type { AgentInfo } from "@/types/acp";
 import { AgentInstallDialog } from "./AgentInstallDialog";
@@ -76,7 +75,7 @@ function AgentLogo({ agentId, className }: { agentId: string; className?: string
   }
 
   // Fallback icon
-  return <IconRobot className={cn("h-4 w-4 text-muted-foreground", className)} />;
+  return <IconSparkles className={cn("h-4 w-4 text-muted-foreground", className)} />;
 }
 
 export function AgentSelector() {
