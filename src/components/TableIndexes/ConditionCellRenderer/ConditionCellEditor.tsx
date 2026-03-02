@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { IndexConditionCell } from "./types";
 import { Button } from "@/components/ui/button";
 import { IconAlertTriangle } from "@tabler/icons-react";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import CodeMirror, { EditorView } from "@uiw/react-codemirror";
 import { sql, PostgreSQL, MySQL, SQLite, MSSQL } from "@codemirror/lang-sql";
 import { keymap } from "@codemirror/view";
@@ -100,6 +101,7 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
   const [text, setText] = useState(initialValue);
   const finishedRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const confirmRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<EditorView | null>(null);
   const originalValueRef = useRef(initialValue);
   const { requiresRecreate, dialect } = value.data;
@@ -112,15 +114,24 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
   // Validate synchronously - derived from text
   const validationError = useMemo(() => validateSqlCondition(text), [text]);
 
-  // Focus the editor on mount
+  // Focus the editor on mount, or the confirm dialog when it appears
   useEffect(() => {
-    const timer = setTimeout(() => {
-      editorRef.current?.focus();
-    }, 50);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, []);
+    if (showConfirm) {
+      const timer = setTimeout(() => {
+        confirmRef.current?.focus();
+      }, 50);
+      return () => {
+        clearTimeout(timer);
+      };
+    } else {
+      const timer = setTimeout(() => {
+        editorRef.current?.focus();
+      }, 50);
+      return () => {
+        clearTimeout(timer);
+      };
+    }
+  }, [showConfirm]);
 
   const buildCell = useCallback(
     (nextValue: string): IndexConditionCell => ({
@@ -212,6 +223,11 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
         } else {
           handleCancel();
         }
+      } else if (e.key === "Enter" && showConfirm) {
+        // Enter confirms the recreate dialog
+        e.preventDefault();
+        e.stopPropagation();
+        handleConfirmContinue();
       } else if (e.key === "Enter" && !e.shiftKey && !showConfirm) {
         // Enter to save (Shift+Enter for newline)
         e.preventDefault();
@@ -249,6 +265,7 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
     [
       handleCancel,
       handleConfirmCancel,
+      handleConfirmContinue,
       showConfirm,
       text,
       validationError,
@@ -326,7 +343,7 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
   if (showConfirm) {
     return (
       <div
-        ref={containerRef}
+        ref={confirmRef}
         className="w-full h-full flex flex-col relative click-outside-ignore z-50 bg-popover border shadow-lg min-w-[320px]"
         onKeyDown={handleKeyDown}
         tabIndex={0}
@@ -342,23 +359,31 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
             Changing the WHERE condition will drop and recreate this index.
           </p>
         </div>
-        <div className="flex items-center justify-end gap-2 px-3 py-2 border-t border-border/50 bg-muted/30">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={handleConfirmCancel}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="default"
-            size="sm"
-            onClick={handleConfirmContinue}
-          >
-            Continue
-          </Button>
+        <div className="flex items-center justify-between px-3 py-2 border-t border-border/50 bg-muted/30">
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <KbdGroup><Kbd>Esc</Kbd></KbdGroup>
+            <span>cancel</span>
+            <KbdGroup><Kbd>{"\u21B5"}</Kbd></KbdGroup>
+            <span>confirm</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleConfirmCancel}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              onClick={handleConfirmContinue}
+            >
+              Continue
+            </Button>
+          </div>
         </div>
       </div>
     );

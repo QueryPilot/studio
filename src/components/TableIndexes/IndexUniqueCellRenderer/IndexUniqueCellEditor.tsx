@@ -9,6 +9,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 
 interface IndexUniqueCellEditorProps {
   value: IndexUniqueCell;
@@ -24,6 +25,7 @@ export const IndexUniqueCellEditor: React.FC<IndexUniqueCellEditorProps> = ({
 }) => {
   const finishedRef = useRef(false);
   const commandRef = useRef<HTMLDivElement>(null);
+  const confirmRef = useRef<HTMLDivElement>(null);
   const { requiresRecreate } = value.data;
 
   // Show confirmation dialog only for existing indexes that require recreate
@@ -31,8 +33,16 @@ export const IndexUniqueCellEditor: React.FC<IndexUniqueCellEditorProps> = ({
   const [confirmed, setConfirmed] = useState(false);
 
   useEffect(() => {
-    // Focus the command container for keyboard navigation when not showing confirm
-    if (!showConfirm || confirmed) {
+    if (showConfirm && !confirmed) {
+      // Focus the confirm dialog for keyboard handling
+      const timer = setTimeout(() => {
+        confirmRef.current?.focus();
+      }, 50);
+      return () => {
+        clearTimeout(timer);
+      };
+    } else {
+      // Focus the command container for keyboard navigation
       const timer = setTimeout(() => {
         commandRef.current?.focus();
       }, 50);
@@ -40,7 +50,6 @@ export const IndexUniqueCellEditor: React.FC<IndexUniqueCellEditorProps> = ({
         clearTimeout(timer);
       };
     }
-    return undefined;
   }, [showConfirm, confirmed]);
 
   const handleSelect = useCallback(
@@ -83,9 +92,17 @@ export const IndexUniqueCellEditor: React.FC<IndexUniqueCellEditorProps> = ({
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
-        finishedRef.current = true;
-        onFinishedEditing(undefined);
-      } else if (e.key === "Tab") {
+        if (showConfirm && !confirmed) {
+          handleCancel();
+        } else {
+          finishedRef.current = true;
+          onFinishedEditing(undefined);
+        }
+      } else if (e.key === "Enter" && showConfirm && !confirmed) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleContinue();
+      } else if (e.key === "Tab" && (!showConfirm || confirmed)) {
         e.preventDefault();
         e.stopPropagation();
         finishedRef.current = true;
@@ -95,13 +112,14 @@ export const IndexUniqueCellEditor: React.FC<IndexUniqueCellEditorProps> = ({
         onFinishedEditing(value, movement);
       }
     },
-    [onFinishedEditing, value],
+    [onFinishedEditing, value, showConfirm, confirmed, handleCancel, handleContinue],
   );
 
   // Render confirmation dialog for existing indexes
   if (showConfirm && !confirmed) {
     return (
       <div
+        ref={confirmRef}
         className="w-full h-full flex flex-col relative click-outside-ignore z-50 bg-popover border shadow-lg min-w-[280px]"
         onKeyDown={handleKeyDown}
         tabIndex={0}
@@ -117,23 +135,31 @@ export const IndexUniqueCellEditor: React.FC<IndexUniqueCellEditorProps> = ({
             Changing uniqueness will drop and recreate this index.
           </p>
         </div>
-        <div className="flex items-center justify-end gap-2 px-3 py-2 border-t border-border/50 bg-muted/30">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={handleCancel}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="default"
-            size="sm"
-            onClick={handleContinue}
-          >
-            Continue
-          </Button>
+        <div className="flex items-center justify-between px-3 py-2 border-t border-border/50 bg-muted/30">
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <KbdGroup><Kbd>Esc</Kbd></KbdGroup>
+            <span>cancel</span>
+            <KbdGroup><Kbd>{"\u21B5"}</Kbd></KbdGroup>
+            <span>confirm</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleCancel}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              onClick={handleContinue}
+            >
+              Continue
+            </Button>
+          </div>
         </div>
       </div>
     );

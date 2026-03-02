@@ -2,6 +2,7 @@ import { logger } from "@/lib/logger";
 import { queryClient } from "./react-query-client";
 import { useTabStateStore } from "@/stores/tabStateStore";
 import { removePersistedTabState } from "@/lib/db/tabState";
+import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 
 /**
  * Detects if a SQL query is a mutation (INSERT/UPDATE/DELETE/TRUNCATE/DROP/ALTER/CREATE)
@@ -26,7 +27,14 @@ export function isMutationQuery(sql: string): boolean {
  */
 export function isSelectQuery(sql: string): boolean {
   const trimmed = sql.trim().toLowerCase();
-  const rowReturningKeywords = ["select", "with", "explain", "table", "values", "show"];
+  const rowReturningKeywords = [
+    "select",
+    "with",
+    "explain",
+    "table",
+    "values",
+    "show",
+  ];
   return rowReturningKeywords.some((kw) => trimmed.startsWith(kw));
 }
 
@@ -35,7 +43,7 @@ export function isSelectQuery(sql: string): boolean {
  */
 export function clearConnectionCache(connectionId: string): void {
   // Invalidate all React Query caches for this connection
-  queryClient.invalidateQueries({
+  void queryClient.invalidateQueries({
     predicate: (query) => {
       const queryKey = query.queryKey;
       return Array.isArray(queryKey) && queryKey[1] === connectionId;
@@ -50,6 +58,9 @@ export function clearConnectionCache(connectionId: string): void {
 export async function clearAllCaches(): Promise<void> {
   // Reset all React Query queries - this marks them as stale AND triggers refetch for active ones
   await queryClient.resetQueries();
+
+  // Notify all dataInvalidationStore listeners (for non-React-Query components like TableIndexes, TableTriggers)
+  useDataInvalidationStore.getState().invalidateAll();
 
   // Clear all Zustand tab state
   const tabStateStore = useTabStateStore.getState();
@@ -75,7 +86,7 @@ export function clearTabCache(tabId: string, connectionId?: string): void {
     const compositeKey = `${connectionId}:${tabId}`;
     import("@tauri-apps/api/core")
       .then((tauri) => tauri.invoke("disconnect", { connId: compositeKey }))
-      .catch((err) => {
+      .catch((err: unknown) => {
         logger.warn(
           `Failed to disconnect tab connection ${compositeKey}:`,
           err,

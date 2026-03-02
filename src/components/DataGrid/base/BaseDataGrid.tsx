@@ -68,7 +68,7 @@ import {
   upsertGridColumnsState,
 } from "../stores";
 import { useCrudStore } from "@/stores/crudStore";
-import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
+import { useTableInvalidation } from "@/hooks/useTableInvalidation";
 
 // Utils
 import { createDrawHeader } from "../utils/headerUtils";
@@ -405,34 +405,25 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
   // --- Data Invalidation Subscription ---
   // When data is invalidated (e.g., after CRUD commit), refetch data and clear committed changes
-  useEffect(() => {
-    if (!commandFactory) return;
-
-    const unsubscribe = useDataInvalidationStore
-      .getState()
-      .subscribe(
-        commandFactory.connectionId,
-        commandFactory.database ?? "",
-        commandFactory.schema,
-        commandFactory.table,
-        async () => {
-          // Refetch data from the adapter
-          onRefetch?.();
-          // Clear committed changes since data is now fresh
-          const { clearCommittedChanges, getTableKey: getKey } =
-            useCrudStore.getState();
-          const key = getKey({
-            connectionId: commandFactory.connectionId,
-            database: commandFactory.database ?? "",
-            schema: commandFactory.schema,
-            table: commandFactory.table,
-          });
-          clearCommittedChanges(key);
-        },
-      );
-
-    return unsubscribe;
-  }, [commandFactory, onRefetch]);
+  useTableInvalidation(
+    commandFactory?.connectionId,
+    commandFactory?.database ?? "",
+    commandFactory?.schema,
+    commandFactory?.table,
+    () => {
+      if (!commandFactory) return;
+      onRefetch?.();
+      const { clearCommittedChanges, getTableKey: getKey } =
+        useCrudStore.getState();
+      const key = getKey({
+        connectionId: commandFactory.connectionId,
+        database: commandFactory.database ?? "",
+        schema: commandFactory.schema,
+        table: commandFactory.table,
+      });
+      clearCommittedChanges(key);
+    },
+  );
 
   // --- Refs ---
   const wrapperRef = useRef<HTMLDivElement | null>(null);

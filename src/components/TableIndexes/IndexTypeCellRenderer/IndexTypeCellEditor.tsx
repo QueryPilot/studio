@@ -11,6 +11,7 @@ import {
   CommandList,
   CommandEmpty,
 } from "@/components/ui/command";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 
 interface IndexTypeCellEditorProps {
   value: IndexTypeCell;
@@ -26,6 +27,7 @@ export const IndexTypeCellEditor: React.FC<IndexTypeCellEditorProps> = ({
 }) => {
   const finishedRef = useRef(false);
   const commandRef = useRef<HTMLDivElement>(null);
+  const confirmRef = useRef<HTMLDivElement>(null);
   const { requiresRecreate, options } = value.data;
 
   // Show confirmation dialog only for existing indexes that require recreate
@@ -34,8 +36,14 @@ export const IndexTypeCellEditor: React.FC<IndexTypeCellEditorProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
-    // Focus the command container for keyboard navigation
-    if (!showConfirm) {
+    if (showConfirm) {
+      const timer = setTimeout(() => {
+        confirmRef.current?.focus();
+      }, 50);
+      return () => {
+        clearTimeout(timer);
+      };
+    } else {
       const timer = setTimeout(() => {
         commandRef.current?.focus();
       }, 50);
@@ -43,7 +51,6 @@ export const IndexTypeCellEditor: React.FC<IndexTypeCellEditorProps> = ({
         clearTimeout(timer);
       };
     }
-    return undefined;
   }, [showConfirm]);
 
   const applyChange = useCallback(
@@ -115,6 +122,10 @@ export const IndexTypeCellEditor: React.FC<IndexTypeCellEditorProps> = ({
           finishedRef.current = true;
           onFinishedEditing(undefined);
         }
+      } else if (e.key === "Enter" && showConfirm) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleContinue();
       } else if (e.key === "Tab" && !showConfirm) {
         e.preventDefault();
         e.stopPropagation();
@@ -125,13 +136,14 @@ export const IndexTypeCellEditor: React.FC<IndexTypeCellEditorProps> = ({
         onFinishedEditing(value, movement);
       }
     },
-    [onFinishedEditing, value, showConfirm, handleConfirmCancel],
+    [onFinishedEditing, value, showConfirm, handleConfirmCancel, handleContinue],
   );
 
   // Render confirmation dialog for existing indexes
   if (showConfirm) {
     return (
       <div
+        ref={confirmRef}
         className="w-full h-full flex flex-col relative click-outside-ignore z-50 bg-popover border shadow-lg min-w-[280px]"
         onKeyDown={handleKeyDown}
         tabIndex={0}
@@ -155,23 +167,31 @@ export const IndexTypeCellEditor: React.FC<IndexTypeCellEditorProps> = ({
             will drop and recreate this index.
           </p>
         </div>
-        <div className="flex items-center justify-end gap-2 px-3 py-2 border-t border-border/50 bg-muted/30">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={handleConfirmCancel}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="default"
-            size="sm"
-            onClick={handleContinue}
-          >
-            Continue
-          </Button>
+        <div className="flex items-center justify-between px-3 py-2 border-t border-border/50 bg-muted/30">
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <KbdGroup><Kbd>Esc</Kbd></KbdGroup>
+            <span>cancel</span>
+            <KbdGroup><Kbd>{"\u21B5"}</Kbd></KbdGroup>
+            <span>confirm</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleConfirmCancel}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              onClick={handleContinue}
+            >
+              Continue
+            </Button>
+          </div>
         </div>
       </div>
     );

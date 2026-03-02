@@ -40,9 +40,11 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
 }) => {
   const finishedRef = useRef(false);
   const commandRef = useRef<HTMLDivElement>(null);
+  const confirmRef = useRef<HTMLDivElement>(null);
   const {
     requiresRecreate,
     columns: initialColumns,
+    originalColumns,
     availableColumns,
   } = value.data;
 
@@ -81,8 +83,16 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
   }, [selectedColumns, initialColumns]);
 
   // Focus the search input on mount and when returning from confirm dialog
+  // Focus the confirm dialog when it appears (for keyboard handling)
   useEffect(() => {
-    if (!showConfirm) {
+    if (showConfirm) {
+      const timer = setTimeout(() => {
+        confirmRef.current?.focus();
+      }, 50);
+      return () => {
+        clearTimeout(timer);
+      };
+    } else {
       const timer = setTimeout(() => {
         const input =
           commandRef.current?.querySelector<HTMLInputElement>(
@@ -94,7 +104,6 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
         clearTimeout(timer);
       };
     }
-    return undefined;
   }, [showConfirm]);
 
   const buildCell = useCallback(
@@ -240,14 +249,17 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
         } else {
           handleCancel();
         }
-      } else if (e.key === "Enter" && !showConfirm) {
+      } else if (e.key === "Enter") {
         e.preventDefault();
         e.stopPropagation();
-        if (e.metaKey || e.ctrlKey) {
+        if (showConfirm) {
+          // Enter confirms the recreate dialog
+          handleConfirmContinue();
+        } else if (e.metaKey || e.ctrlKey) {
           // Cmd+Enter / Ctrl+Enter to save
           handleSave();
         }
-        // Plain Enter: cmdk already toggled via onSelect before this
+        // Plain Enter without confirm: cmdk already toggled via onSelect before this
         // handler fires — we just prevent the grid from closing the editor.
       } else if (e.key === "Tab" && !showConfirm) {
         e.preventDefault();
@@ -280,6 +292,7 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
   if (showConfirm) {
     return (
       <div
+        ref={confirmRef}
         className="w-full h-full flex flex-col relative click-outside-ignore z-50 bg-popover border shadow-lg min-w-[320px]"
         onKeyDown={handleKeyDown}
         tabIndex={0}
@@ -297,7 +310,7 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
           <div className="mt-2 text-xs">
             <div className="text-muted-foreground">From:</div>
             <div className="font-mono text-foreground mt-0.5">
-              {initialColumns.join(", ")}
+              {(originalColumns ?? initialColumns).join(", ")}
             </div>
             <div className="text-muted-foreground mt-1.5">To:</div>
             <div className="font-mono text-foreground mt-0.5">
@@ -305,23 +318,31 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
             </div>
           </div>
         </div>
-        <div className="flex items-center justify-end gap-2 px-3 py-2 border-t border-border/50 bg-muted/30">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={handleConfirmCancel}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="default"
-            size="sm"
-            onClick={handleConfirmContinue}
-          >
-            Continue
-          </Button>
+        <div className="flex items-center justify-between px-3 py-2 border-t border-border/50 bg-muted/30">
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <KbdGroup><Kbd>Esc</Kbd></KbdGroup>
+            <span>cancel</span>
+            <KbdGroup><Kbd>{"\u21B5"}</Kbd></KbdGroup>
+            <span>confirm</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleConfirmCancel}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              onClick={handleConfirmContinue}
+            >
+              Continue
+            </Button>
+          </div>
         </div>
       </div>
     );

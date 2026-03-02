@@ -21,6 +21,7 @@ import {
 } from "./utils";
 import type { TriggerGridRow } from "./types";
 import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";
+import { useTableInvalidation } from "@/hooks/useTableInvalidation";
 import {
   createTriggerDropCommand,
   createTriggerEnableCommand,
@@ -105,6 +106,11 @@ export const TableTriggers = memo(function TableTriggers({
   useEffect(() => {
     void loadTriggers();
   }, [loadTriggers]);
+
+  // Subscribe to data invalidation events (Cmd+S commit, Cmd+R refresh)
+  useTableInvalidation(connectionId, database, schema, table, () => {
+    void loadTriggers();
+  });
 
   const hasTriggers = useMemo(() => triggers.length > 0, [triggers.length]);
 

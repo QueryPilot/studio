@@ -79,7 +79,7 @@ SELECT * FROM users WHERE active = 1"
 
 exports[`commandToSql - SQL Server > should generate sequence statement for SQL Server 1`] = `"CREATE SEQUENCE [dbo].[user_id_seq] START WITH 1000 INCREMENT BY 1"`;
 
-exports[`commandToSql - SQL Server > should use sp_rename for trigger rename 1`] = `"EXEC sp_rename 'old_trigger', 'new_trigger'"`;
+exports[`commandToSql - SQL Server > should use sp_rename for trigger rename 1`] = `"EXEC sp_rename 'dbo.old_trigger', 'new_trigger', 'OBJECT'"`;
 
 exports[`commandToSql - SQLite > should generate SQLite-compatible INSERT statement 1`] = `"INSERT INTO "users" ("name", "email") VALUES ('John Doe', 'john@example.com')"`;
 
