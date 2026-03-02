@@ -739,7 +739,7 @@ p {
   pointer-events: auto !important;
   box-sizing: border-box !important;
   position: relative !important;
-  width: 340px !important;
+  width: 440px !important;
   margin: 4px 16px 0 auto !important;
   padding: 8px 28px 8px 8px !important;
   background: var(--popover) !important;
@@ -879,13 +879,13 @@ p {
   display: block !important;
   flex: 1 !important;
   min-width: 0 !important;
-  height: 26px !important;
+  height: 28px !important;
   padding: 0 8px !important;
   background: var(--input) !important;
   border: 1px solid var(--border) !important;
   border-radius: 5px !important;
   color: var(--foreground) !important;
-  font-size: 12px !important;
+  font-size: 13px !important;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace !important;
   caret-color: var(--foreground) !important;
 }
@@ -901,20 +901,18 @@ p {
   color: var(--muted-foreground) !important;
 }
 
-/* ---- Checkbox labels — toggle pill style ---- */
+/* ---- Checkbox labels — icon toggle buttons (Tabler icons) ---- */
 .cm-panel.cm-search label {
   all: unset !important;
   box-sizing: border-box !important;
   display: inline-flex !important;
   align-items: center !important;
-  gap: 4px !important;
-  height: 24px !important;
-  padding: 0 6px !important;
+  justify-content: center !important;
+  width: 26px !important;
+  height: 26px !important;
   border-radius: 5px !important;
-  font-family: "Noto Sans", -apple-system, sans-serif !important;
-  font-size: 11px !important;
+  font-size: 0 !important;
   color: var(--muted-foreground) !important;
-  white-space: nowrap !important;
   cursor: pointer !important;
   transition: background-color 0.15s, color 0.15s !important;
   user-select: none !important;
@@ -928,40 +926,50 @@ p {
 
 .cm-panel.cm-search label:has(input:checked) {
   background: var(--accent) !important;
-  color: var(--accent-foreground) !important;
+  color: var(--foreground) !important;
 }
 
-/* ---- Checkbox inputs — hidden native, custom appearance ---- */
+/* Checkbox inputs — completely hidden, label handles click */
 .cm-panel.cm-search input[type=checkbox] {
   all: unset !important;
-  box-sizing: border-box !important;
-  display: inline-block !important;
-  width: 12px !important;
-  height: 12px !important;
-  border: 1.5px solid var(--border) !important;
-  border-radius: 3px !important;
-  background: transparent !important;
-  vertical-align: middle !important;
-  flex-shrink: 0 !important;
-  position: relative !important;
-  cursor: pointer !important;
-}
-
-.cm-panel.cm-search input[type=checkbox]:checked {
-  background: var(--primary) !important;
-  border-color: var(--primary) !important;
-}
-
-.cm-panel.cm-search input[type=checkbox]:checked::after {
-  content: "" !important;
   position: absolute !important;
-  left: 2.5px !important;
-  top: 0.5px !important;
-  width: 4px !important;
-  height: 7px !important;
-  border: solid var(--primary-foreground) !important;
-  border-width: 0 1.5px 1.5px 0 !important;
-  transform: rotate(45deg) !important;
+  width: 0 !important;
+  height: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Icon via ::after on each label */
+.cm-panel.cm-search label::after {
+  content: "" !important;
+  display: block !important;
+  width: 16px !important;
+  height: 16px !important;
+  background-color: currentColor !important;
+  -webkit-mask-size: contain !important;
+  mask-size: contain !important;
+  -webkit-mask-repeat: no-repeat !important;
+  mask-repeat: no-repeat !important;
+  -webkit-mask-position: center !important;
+  mask-position: center !important;
+}
+
+/* Tabler IconLetterCase — match case */
+.cm-panel.cm-search label:nth-of-type(1)::after {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 15.5a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0 -7 0'/%3E%3Cpath d='M3 19v-10.5a3.5 3.5 0 0 1 7 0v10.5'/%3E%3Cpath d='M3 13h7'/%3E%3Cpath d='M21 12v7'/%3E%3C/svg%3E") !important;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 15.5a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0 -7 0'/%3E%3Cpath d='M3 19v-10.5a3.5 3.5 0 0 1 7 0v10.5'/%3E%3Cpath d='M3 13h7'/%3E%3Cpath d='M21 12v7'/%3E%3C/svg%3E") !important;
+}
+
+/* Tabler IconRegex — regexp */
+.cm-panel.cm-search label:nth-of-type(2)::after {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6.5 15a2.5 2.5 0 1 1 0 5a2.5 2.5 0 0 1 0 -5'/%3E%3Cpath d='M17 7.875l3 -1.687'/%3E%3Cpath d='M17 7.875v3.375'/%3E%3Cpath d='M17 7.875l-3 -1.687'/%3E%3Cpath d='M17 7.875l3 1.688'/%3E%3Cpath d='M17 4.5v3.375'/%3E%3Cpath d='M17 7.875l-3 1.688'/%3E%3C/svg%3E") !important;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6.5 15a2.5 2.5 0 1 1 0 5a2.5 2.5 0 0 1 0 -5'/%3E%3Cpath d='M17 7.875l3 -1.687'/%3E%3Cpath d='M17 7.875v3.375'/%3E%3Cpath d='M17 7.875l-3 -1.687'/%3E%3Cpath d='M17 7.875l3 1.688'/%3E%3Cpath d='M17 4.5v3.375'/%3E%3Cpath d='M17 7.875l-3 1.688'/%3E%3C/svg%3E") !important;
+}
+
+/* Tabler IconLetterSpacing — by word */
+.cm-panel.cm-search label:nth-of-type(3)::after {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12v-5.5a2.5 2.5 0 0 1 5 0v5.5m0 -4h-5'/%3E%3Cpath d='M13 4l3 8l3 -8'/%3E%3Cpath d='M5 18h14'/%3E%3Cpath d='M17 20l2 -2l-2 -2'/%3E%3Cpath d='M7 16l-2 2l2 2'/%3E%3C/svg%3E") !important;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12v-5.5a2.5 2.5 0 0 1 5 0v5.5m0 -4h-5'/%3E%3Cpath d='M13 4l3 8l3 -8'/%3E%3Cpath d='M5 18h14'/%3E%3Cpath d='M17 20l2 -2l-2 -2'/%3E%3Cpath d='M7 16l-2 2l2 2'/%3E%3C/svg%3E") !important;
 }
 
 /* ---- Layout: hide <br>, use flexbox wrapping ---- */
@@ -973,6 +981,8 @@ p {
 .cm-panel.cm-search .cm-textfield[name=replace],
 .cm-panel.cm-search input[name=replace].cm-textfield {
   flex-basis: 100% !important;
+  height: 26px !important;
+  font-size: 12px !important;
   margin-top: 4px !important;
 }
 
