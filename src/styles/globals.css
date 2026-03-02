@@ -721,10 +721,10 @@ p {
    CodeMirror Search Panel — floating VS Code-style widget
    ============================================ */
 
-/* Float the panels container so it doesn't push editor content down */
+/* Float the panels container — don't push editor content down */
 .cm-panels.cm-panels-top {
-  background-color: transparent !important;
-  border-bottom: none !important;
+  background: transparent !important;
+  border: none !important;
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -735,16 +735,18 @@ p {
 
 /* Floating search panel */
 .cm-panel.cm-search {
+  all: unset !important;
   pointer-events: auto !important;
+  box-sizing: border-box !important;
   position: relative !important;
   width: 340px !important;
-  margin: 4px 16px 0 0 !important;
-  padding: 8px !important;
-  background-color: var(--popover) !important;
+  margin: 4px 16px 0 auto !important;
+  padding: 8px 28px 8px 8px !important;
+  background: var(--popover) !important;
   border: 1px solid var(--border) !important;
   border-radius: 8px !important;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
-  font-family: inherit !important;
+  font-family: "Noto Sans", -apple-system, sans-serif !important;
   font-size: 12px !important;
   color: var(--foreground) !important;
   display: flex !important;
@@ -757,31 +759,73 @@ p {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
 }
 
-/* Reset margins on all form elements inside the panel */
-.cm-panel.cm-search input,
-.cm-panel.cm-search button,
-.cm-panel.cm-search label {
-  margin: 0 !important;
+/* ---- Nuclear reset for ALL buttons inside search panel ---- */
+.cm-panel.cm-search button {
+  all: unset !important;
+  box-sizing: border-box !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 24px !important;
+  padding: 0 8px !important;
+  border-radius: 5px !important;
+  font-family: "Noto Sans", -apple-system, sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  color: var(--foreground) !important;
+  white-space: nowrap !important;
+  cursor: pointer !important;
+  transition: background-color 0.15s !important;
 }
 
-/* Text inputs (Find / Replace) */
+.cm-panel.cm-search button:hover {
+  background: var(--accent) !important;
+}
+
+.cm-panel.cm-search button:active {
+  background: var(--muted) !important;
+}
+
+/* Close button — icon in top-right */
+.cm-panel.cm-search button[name=close] {
+  position: absolute !important;
+  top: 6px !important;
+  right: 6px !important;
+  width: 20px !important;
+  height: 20px !important;
+  padding: 0 !important;
+  border-radius: 4px !important;
+  font-size: 14px !important;
+  color: var(--muted-foreground) !important;
+}
+
+.cm-panel.cm-search button[name=close]:hover {
+  background: var(--accent) !important;
+  color: var(--foreground) !important;
+}
+
+/* ---- Nuclear reset for ALL text inputs inside search panel ---- */
+.cm-panel.cm-search input[type=text],
+.cm-panel.cm-search input.cm-textfield,
 .cm-panel.cm-search .cm-textfield {
-  appearance: none !important;
-  -webkit-appearance: none !important;
+  all: unset !important;
+  box-sizing: border-box !important;
+  display: block !important;
   flex: 1 !important;
   min-width: 0 !important;
   height: 26px !important;
   padding: 0 8px !important;
-  background-color: var(--input) !important;
+  background: var(--input) !important;
   border: 1px solid var(--border) !important;
-  border-radius: 6px !important;
+  border-radius: 5px !important;
   color: var(--foreground) !important;
   font-size: 12px !important;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace !important;
-  outline: none !important;
-  transition: border-color 0.15s, box-shadow 0.15s !important;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace !important;
+  caret-color: var(--foreground) !important;
 }
 
+.cm-panel.cm-search input[type=text]:focus,
+.cm-panel.cm-search input.cm-textfield:focus,
 .cm-panel.cm-search .cm-textfield:focus {
   border-color: var(--primary) !important;
   box-shadow: 0 0 0 2px oklch(0.75 0.16 70 / 0.25) !important;
@@ -791,111 +835,87 @@ p {
   color: var(--muted-foreground) !important;
 }
 
-/* Action buttons — ghost style */
-.cm-panel.cm-search .cm-button {
-  appearance: none !important;
-  -webkit-appearance: none !important;
-  height: 26px !important;
-  padding: 0 8px !important;
-  background-color: transparent !important;
-  border: 1px solid transparent !important;
-  border-radius: 6px !important;
-  color: var(--foreground) !important;
-  font-size: 11px !important;
-  font-weight: 500 !important;
-  font-family: inherit !important;
-  cursor: pointer !important;
-  transition: background-color 0.15s, color 0.15s !important;
-  white-space: nowrap !important;
-  line-height: 1 !important;
-}
-
-.cm-panel.cm-search .cm-button:hover {
-  background-color: var(--accent) !important;
-}
-
-.cm-panel.cm-search .cm-button:active {
-  background-color: var(--muted) !important;
-}
-
-/* Close button — positioned top-right */
-.cm-panel.cm-search [name=close] {
-  appearance: none !important;
-  -webkit-appearance: none !important;
-  position: absolute !important;
-  top: 6px !important;
-  right: 6px !important;
-  width: 20px !important;
-  height: 20px !important;
-  padding: 0 !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  border-radius: 4px !important;
-  font-size: 14px !important;
-  color: var(--muted-foreground) !important;
-  background-color: transparent !important;
-  border: none !important;
-  cursor: pointer !important;
-  transition: background-color 0.15s, color 0.15s !important;
-}
-
-.cm-panel.cm-search [name=close]:hover {
-  background-color: var(--accent) !important;
-  color: var(--foreground) !important;
-}
-
-/* Checkbox labels — toggle pill style */
+/* ---- Checkbox labels — toggle pill style ---- */
 .cm-panel.cm-search label {
+  all: unset !important;
+  box-sizing: border-box !important;
   display: inline-flex !important;
   align-items: center !important;
-  gap: 3px !important;
+  gap: 4px !important;
   height: 24px !important;
   padding: 0 6px !important;
-  border-radius: 6px !important;
+  border-radius: 5px !important;
+  font-family: "Noto Sans", -apple-system, sans-serif !important;
   font-size: 11px !important;
   color: var(--muted-foreground) !important;
+  white-space: nowrap !important;
   cursor: pointer !important;
   transition: background-color 0.15s, color 0.15s !important;
-  white-space: nowrap !important;
   user-select: none !important;
+  -webkit-user-select: none !important;
 }
 
 .cm-panel.cm-search label:hover {
-  background-color: var(--accent) !important;
+  background: var(--accent) !important;
   color: var(--foreground) !important;
 }
 
 .cm-panel.cm-search label:has(input:checked) {
-  background-color: var(--accent) !important;
+  background: var(--accent) !important;
   color: var(--accent-foreground) !important;
 }
 
-/* Checkbox inputs — smaller, themed */
+/* ---- Checkbox inputs — hidden native, custom appearance ---- */
 .cm-panel.cm-search input[type=checkbox] {
-  width: 13px !important;
-  height: 13px !important;
-  accent-color: oklch(0.75 0.16 70) !important;
-  margin: 0 !important;
+  all: unset !important;
+  box-sizing: border-box !important;
+  display: inline-block !important;
+  width: 12px !important;
+  height: 12px !important;
+  border: 1.5px solid var(--border) !important;
+  border-radius: 3px !important;
+  background: transparent !important;
+  vertical-align: middle !important;
+  flex-shrink: 0 !important;
+  position: relative !important;
+  cursor: pointer !important;
 }
 
-/* Hide <br> between find and replace rows — use flexbox wrapping */
+.cm-panel.cm-search input[type=checkbox]:checked {
+  background: var(--primary) !important;
+  border-color: var(--primary) !important;
+}
+
+.cm-panel.cm-search input[type=checkbox]:checked::after {
+  content: "" !important;
+  position: absolute !important;
+  left: 2.5px !important;
+  top: 0.5px !important;
+  width: 4px !important;
+  height: 7px !important;
+  border: solid var(--primary-foreground) !important;
+  border-width: 0 1.5px 1.5px 0 !important;
+  transform: rotate(45deg) !important;
+}
+
+/* ---- Layout: hide <br>, use flexbox wrapping ---- */
 .cm-panel.cm-search br {
   display: none !important;
 }
 
-/* Replace row — new line via flex-basis */
-.cm-panel.cm-search .cm-textfield[name=replace] {
+/* Replace row — new line */
+.cm-panel.cm-search .cm-textfield[name=replace],
+.cm-panel.cm-search input[name=replace].cm-textfield {
   flex-basis: 100% !important;
   margin-top: 4px !important;
 }
 
-.cm-panel.cm-search .cm-button[name=replace],
-.cm-panel.cm-search .cm-button[name=replaceAll] {
+.cm-panel.cm-search button[name=replace],
+.cm-panel.cm-search button[name=replaceAll] {
   margin-top: 4px !important;
 }
 
-/* Search match highlights — golden */
+/* ---- Search match highlights — golden ---- */
 .cm-searchMatch {
   background-color: oklch(0.75 0.16 70 / 0.2) !important;
   border-radius: 2px !important;
