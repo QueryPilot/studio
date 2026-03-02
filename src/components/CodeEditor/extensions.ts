@@ -497,18 +497,7 @@ export const getEditorExtensions = (
     getLanguageExtension(language, dialect, connectionId, database, schema),
 
     // Search and replace support
-    search({
-      top: true, // Show search panel at the top
-      caseSensitive: false,
-      literal: false,
-      regexp: false,
-      wholeWord: false,
-      createPanel: (_view) => {
-        const dom = document.createElement("div");
-        dom.className = "cm-search-panel";
-        return { dom, top: true };
-      },
-    }),
+    search({ top: true }),
 
     // Code folding support
     codeFolding({
