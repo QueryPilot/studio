@@ -21,7 +21,7 @@ import {
   IconKey,
   IconLoader2,
   IconRefresh,
-  IconRobot,
+  IconSparkles,
   IconTerminal2,
   IconWand,
   IconX,
@@ -98,7 +98,7 @@ function AgentLogo({ agentId, size = 20 }: { agentId: string; size?: number }) {
   if (logo) {
     return <img src={logo} alt="" width={size} height={size} className="object-contain max-h-5" />;
   }
-  return <IconRobot className="text-muted-foreground" style={{ width: size, height: size }} />;
+  return <IconSparkles className="text-muted-foreground" style={{ width: size, height: size }} />;
 }
 
 export default function AIPreferencesPanel() {

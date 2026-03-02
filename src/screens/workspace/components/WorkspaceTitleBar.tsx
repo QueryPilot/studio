@@ -14,7 +14,7 @@ import {
   IconAlertCircle,
   IconLoader2,
   IconRotate,
-  IconRobot,
+  IconSparkles,
   IconArrowBackUp,
   IconArrowForwardUp,
   IconGitCommit,
@@ -986,7 +986,7 @@ export function WorkspaceTitleBar({
           }}
           title="Toggle right sidebar"
         >
-          <IconRobot className="!size-4" />
+          <IconSparkles className="!size-4" />
         </Button>
 
         {/* Update available notice */}
