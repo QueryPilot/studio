@@ -266,7 +266,10 @@ export function createParameterHintsExtension(): Extension[] {
             triggerParameterHints(update.view);
           });
         } else if (text === ")") {
-          update.view.dispatch({ effects: hideHint.of() });
+          // Defer dispatch to avoid "update in progress" error
+          queueMicrotask(() => {
+            update.view.dispatch({ effects: hideHint.of() });
+          });
         }
       });
     }),

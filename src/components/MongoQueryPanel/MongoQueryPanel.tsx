@@ -1,4 +1,4 @@
-import { useState, useCallback, memo } from "react";
+import { useState, useCallback, useEffect, useRef, memo } from "react";
 import { toast } from "sonner";
 import {
   ResizablePanelGroup,
@@ -10,6 +10,7 @@ import { CodeEditor } from "@/components/CodeEditor";
 import { MongoDBAdapter } from "@/adapters/mongodb";
 import { MongoQueryToolbar } from "./MongoQueryToolbar";
 import { logger } from "@/lib/logger";
+import { eventBus } from "@/services/eventBus";
 
 interface MongoQueryPanelProps {
   panelId: string;
@@ -38,6 +39,7 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
   const [isExecuting, setIsExecuting] = useState(false);
   const [result, setResult] = useState<string>("");
   const [executionTime, setExecutionTime] = useState<number | null>(null);
+  const editorContainerRef = useRef<HTMLDivElement>(null);
 
   const handleFocusPanel = useCallback(() => {
     // Focus panel when interacting
@@ -150,6 +152,39 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
     setExecutionTime(null);
   }, []);
 
+  // Subscribe to global keyboard shortcuts via event bus
+  // The global keyboardHandler intercepts shortcuts (Cmd+Enter, Alt+F, etc.)
+  // and emits events, so we listen here (same pattern as QueryPanel/SqlEditor)
+  useEffect(() => {
+    const hasFocus = () =>
+      editorContainerRef.current?.contains(document.activeElement) ?? false;
+
+    const handleExecuteEvent = () => {
+      if (!hasFocus()) return;
+      handleExecute();
+    };
+
+    const handleFormatEvent = () => {
+      if (!hasFocus()) return;
+      handleFormat();
+    };
+
+    const handleClearEvent = () => {
+      if (!hasFocus()) return;
+      handleClearResults();
+    };
+
+    eventBus.on("query-editor:execute", handleExecuteEvent);
+    eventBus.on("query-editor:format", handleFormatEvent);
+    eventBus.on("query-editor:clear", handleClearEvent);
+
+    return () => {
+      eventBus.off("query-editor:execute", handleExecuteEvent);
+      eventBus.off("query-editor:format", handleFormatEvent);
+      eventBus.off("query-editor:clear", handleClearEvent);
+    };
+  }, [handleExecute, handleFormat, handleClearResults]);
+
   return (
     <div
       className={cn("flex flex-col h-full bg-background", className)}
@@ -159,7 +194,7 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
       <ResizablePanelGroup orientation="vertical" className="h-full rounded-xl overflow-hidden">
         {/* Top: Editor */}
         <ResizablePanel defaultSize="40" minSize="20" className="flex flex-col">
-          <div className="flex-1 min-h-0 relative flex flex-col">
+          <div ref={editorContainerRef} className="flex-1 min-h-0 relative flex flex-col">
             <CodeEditor
               value={query}
               onChange={setQuery}
