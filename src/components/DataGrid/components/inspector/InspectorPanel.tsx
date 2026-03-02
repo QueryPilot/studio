@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -74,9 +74,15 @@ export const InspectorPanel = memo(function InspectorPanel({
     [onUndoCellEdit, labelToFieldMap],
   );
 
+  // Internal state for uncontrolled mode (when activeTab is not provided)
+  const [internalTab, setInternalTab] = useState<InspectorTab>(defaultTab);
+  const currentTab = activeTab ?? internalTab;
+
   const handleTabChange = useCallback(
     (value: string) => {
-      onTabChange?.(value as InspectorTab);
+      const tab = value as InspectorTab;
+      setInternalTab(tab);
+      onTabChange?.(tab);
     },
     [onTabChange],
   );
@@ -100,7 +106,7 @@ export const InspectorPanel = memo(function InspectorPanel({
     >
       {/* Tabs + record count — always rendered so subcomponent state is preserved */}
       <Tabs
-        value={activeTab ?? defaultTab}
+        value={currentTab}
         className="flex-1 flex flex-col min-h-0"
         onValueChange={handleTabChange}
       >

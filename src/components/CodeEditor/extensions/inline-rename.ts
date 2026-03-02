@@ -142,9 +142,6 @@ class RenameWidget extends WidgetType {
           insert: result.new_sql,
         },
         effects: showRenameWidget.of(null),
-      });
-
-      view.dispatch({
         selection: { anchor: result.cursor_position },
       });
 
