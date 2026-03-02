@@ -52,6 +52,8 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
   const [selectedColumns, setSelectedColumns] =
     useState<string[]>(initialColumns);
   const [showConfirm, setShowConfirm] = useState(false);
+  // Guard against Enter/Cmd+Enter key repeat from the keypress that triggered confirm
+  const confirmReadyRef = useRef(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeValue, setActiveValue] = useState(
     () => availableColumns[0] ?? "",
@@ -86,13 +88,16 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
   // Focus the confirm dialog when it appears (for keyboard handling)
   useEffect(() => {
     if (showConfirm) {
+      confirmReadyRef.current = false;
       const timer = setTimeout(() => {
         confirmRef.current?.focus();
-      }, 50);
+        confirmReadyRef.current = true;
+      }, 100);
       return () => {
         clearTimeout(timer);
       };
     } else {
+      confirmReadyRef.current = false;
       const timer = setTimeout(() => {
         const input =
           commandRef.current?.querySelector<HTMLInputElement>(
@@ -252,7 +257,7 @@ export const IndexColumnsCellEditor: React.FC<IndexColumnsCellEditorProps> = ({
       } else if (e.key === "Enter") {
         e.preventDefault();
         e.stopPropagation();
-        if (showConfirm) {
+        if (showConfirm && confirmReadyRef.current) {
           // Enter confirms the recreate dialog
           handleConfirmContinue();
         } else if (e.metaKey || e.ctrlKey) {

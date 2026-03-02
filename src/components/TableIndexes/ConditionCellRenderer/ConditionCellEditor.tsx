@@ -110,6 +110,8 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
   // Show confirmation dialog for existing indexes that require recreate
   const [showConfirm, setShowConfirm] = useState(false);
   const [pendingText, setPendingText] = useState<string | null>(null);
+  // Guard against Enter key repeat from the keypress that triggered the confirm
+  const confirmReadyRef = useRef(false);
 
   // Validate synchronously - derived from text
   const validationError = useMemo(() => validateSqlCondition(text), [text]);
@@ -117,13 +119,16 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
   // Focus the editor on mount, or the confirm dialog when it appears
   useEffect(() => {
     if (showConfirm) {
+      confirmReadyRef.current = false;
       const timer = setTimeout(() => {
         confirmRef.current?.focus();
-      }, 50);
+        confirmReadyRef.current = true;
+      }, 100);
       return () => {
         clearTimeout(timer);
       };
     } else {
+      confirmReadyRef.current = false;
       const timer = setTimeout(() => {
         editorRef.current?.focus();
       }, 50);
@@ -223,7 +228,7 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
         } else {
           handleCancel();
         }
-      } else if (e.key === "Enter" && showConfirm) {
+      } else if (e.key === "Enter" && showConfirm && confirmReadyRef.current) {
         // Enter confirms the recreate dialog
         e.preventDefault();
         e.stopPropagation();

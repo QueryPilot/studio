@@ -297,6 +297,8 @@ export class MySQLAdapter extends SqlAdapter {
       sql += ` USING ${definition.using}`;
     }
 
+    // MySQL/MariaDB does not support partial indexes (WHERE clause) — skip it.
+
     return sql;
   }
 

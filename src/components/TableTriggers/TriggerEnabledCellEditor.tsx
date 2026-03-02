@@ -17,10 +17,9 @@ interface TriggerEnabledCellEditorProps {
   ) => void;
 }
 
-export const TriggerEnabledCellEditor: React.FC<TriggerEnabledCellEditorProps> = ({
-  value,
-  onFinishedEditing,
-}) => {
+export const TriggerEnabledCellEditor: React.FC<
+  TriggerEnabledCellEditorProps
+> = ({ value, onFinishedEditing }) => {
   const finishedRef = useRef(false);
   const commandRef = useRef<HTMLDivElement>(null);
 
@@ -91,7 +90,7 @@ export const TriggerEnabledCellEditor: React.FC<TriggerEnabledCellEditorProps> =
       <div className="flex items-center flex-1">
         <Command
           ref={commandRef}
-          className="w-full border-0 shadow-none"
+          className="w-full border-0 shadow-none rounded-none"
           onKeyDown={handleKeyDown}
         >
           <CommandList className="max-h-[200px]">
