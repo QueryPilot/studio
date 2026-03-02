@@ -61,6 +61,7 @@ export interface IndexColumnsCell extends CustomCell {
   data: {
     kind: "index-columns-cell";
     columns: string[];
+    originalColumns?: string[];
     availableColumns: string[];
     requiresRecreate: boolean;
     isLocked: boolean;

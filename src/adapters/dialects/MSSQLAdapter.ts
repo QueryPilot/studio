@@ -11,7 +11,7 @@
  */
 
 import { DbType } from '@/types/connection';
-import type { ColumnDefinitionInput } from '@/types/crud';
+import type { ColumnDefinitionInput, IndexDefinitionInput, TriggerDefinitionInput } from '@/types/crud';
 import { SqlAdapter } from '../base/SqlAdapter';
 import type {
   ColumnInfo,
@@ -384,10 +384,9 @@ export class MSSQLAdapter extends SqlAdapter {
    */
   renameColumn(target: TableRef, oldName: string, newName: string): string {
     const fullTableName = target.schema
-      ? `${target.schema}.${target.table}`
-      : target.table;
-    // sp_rename syntax: sp_rename 'table.old_column', 'new_column', 'COLUMN'
-    return `EXEC sp_rename '${fullTableName}.${oldName}', '${newName}', 'COLUMN'`;
+      ? `${this.escapeString(target.schema)}.${this.escapeString(target.table)}`
+      : this.escapeString(target.table);
+    return `EXEC sp_rename '${fullTableName}.${this.escapeString(oldName)}', '${this.escapeString(newName)}', 'COLUMN'`;
   }
 
   /**
@@ -432,6 +431,35 @@ export class MSSQLAdapter extends SqlAdapter {
   // ─────────────────────────────────────────────────────────────────
 
   /**
+   * MSSQL CREATE INDEX - no USING clause
+   * MSSQL uses CLUSTERED/NONCLUSTERED as keywords, not USING.
+   * Supports INCLUDE (covering indexes) and WHERE (filtered indexes).
+   */
+  createIndex(target: TableRef, definition: IndexDefinitionInput): string {
+    const table = this.formatTableRef(target);
+    const indexName = this.quoteIdentifier(definition.name);
+    const uniqueClause = definition.unique ? "UNIQUE " : "";
+    const columns = definition.columns
+      .map((c) => this.quoteIdentifier(c))
+      .join(", ");
+
+    let sql = `CREATE ${uniqueClause}INDEX ${indexName} ON ${table} (${columns})`;
+
+    if (definition.includeColumns && definition.includeColumns.length > 0) {
+      const includes = definition.includeColumns
+        .map((c) => this.quoteIdentifier(c))
+        .join(", ");
+      sql += ` INCLUDE (${includes})`;
+    }
+
+    if (definition.where) {
+      sql += ` WHERE ${definition.where}`;
+    }
+
+    return sql;
+  }
+
+  /**
    * MSSQL DROP INDEX uses ON table syntax
    */
   dropIndex(target: TableRef, indexName: string, _ifExists?: boolean): string {
@@ -446,10 +474,9 @@ export class MSSQLAdapter extends SqlAdapter {
    */
   renameIndex(target: TableRef, oldName: string, newName: string): string {
     const fullTableName = target.schema
-      ? `${target.schema}.${target.table}`
-      : target.table;
-    // sp_rename syntax: sp_rename 'table.old_index', 'new_index', 'INDEX'
-    return `EXEC sp_rename '${fullTableName}.${oldName}', '${newName}', 'INDEX'`;
+      ? `${this.escapeString(target.schema)}.${this.escapeString(target.table)}`
+      : this.escapeString(target.table);
+    return `EXEC sp_rename '${fullTableName}.${this.escapeString(oldName)}', '${this.escapeString(newName)}', 'INDEX'`;
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -457,22 +484,43 @@ export class MSSQLAdapter extends SqlAdapter {
   // ─────────────────────────────────────────────────────────────────
 
   /**
+   * MSSQL CREATE TRIGGER - T-SQL syntax with AS BEGIN...END
+   *
+   * MSSQL does not support BEFORE triggers (use INSTEAD OF).
+   * MSSQL triggers are always statement-level (no FOR EACH ROW).
+   */
+  createTrigger(target: TableRef, definition: TriggerDefinitionInput): string {
+    const table = this.formatTableRef(target);
+    const schema = target.schema || 'dbo';
+    const triggerName = `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(definition.name)}`;
+    const timing = definition.timing === 'BEFORE' ? 'INSTEAD OF' : definition.timing;
+    const events = definition.events.join(", ");
+
+    let sql = `CREATE TRIGGER ${triggerName} ON ${table}`;
+    sql += `\n${timing} ${events}`;
+    sql += `\nAS`;
+    sql += `\nBEGIN\n  ${definition.functionName};\nEND`;
+
+    return sql;
+  }
+
+  /**
    * MSSQL DROP TRIGGER - different syntax, no ON table
    */
   dropTrigger(target: TableRef, triggerName: string, ifExists?: boolean): string {
     const schema = target.schema || 'dbo';
     const ifExistsClause = ifExists
-      ? `IF EXISTS (SELECT * FROM sys.triggers WHERE name = '${triggerName}') `
+      ? `IF EXISTS (SELECT * FROM sys.triggers WHERE name = '${this.escapeString(triggerName)}') `
       : '';
     return `${ifExistsClause}DROP TRIGGER ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(triggerName)}`;
   }
 
   /**
-   * MSSQL uses ENABLE/DISABLE TRIGGER syntax (different from PostgreSQL)
+   * MSSQL uses sp_rename for trigger renaming
    */
-  renameTrigger(_target: TableRef, triggerName: string, newName: string): string {
-    // SQL Server uses sp_rename for triggers
-    return `EXEC sp_rename '${triggerName}', '${newName}'`;
+  renameTrigger(target: TableRef, triggerName: string, newName: string): string {
+    const schema = target.schema || 'dbo';
+    return `EXEC sp_rename '${this.escapeString(schema)}.${this.escapeString(triggerName)}', '${this.escapeString(newName)}', 'OBJECT'`;
   }
 
   toggleTrigger(target: TableRef, triggerName: string, enable: boolean): string {
@@ -1195,7 +1243,7 @@ WHERE s.name = '${this.escapeString(schema)}'
       throw new Error('SQL Server does not support materialized views. Use indexed views instead.');
     }
     
-    return `EXEC sp_rename '${schema}.${oldName}', '${newName}', 'OBJECT'`;
+    return `EXEC sp_rename '${this.escapeString(schema)}.${this.escapeString(oldName)}', '${this.escapeString(newName)}', 'OBJECT'`;
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -1256,7 +1304,7 @@ WHERE s.name = '${this.escapeString(schema)}'
   ): string {
     const schema = target.schema || 'dbo';
     const table = target.table;
-    return `EXEC sp_rename '${schema}.${table}.${oldName}', '${newName}', 'OBJECT'`;
+    return `EXEC sp_rename '${this.escapeString(schema)}.${this.escapeString(table)}.${this.escapeString(oldName)}', '${this.escapeString(newName)}', 'OBJECT'`;
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -1341,6 +1389,6 @@ WHERE s.name = '${this.escapeString(schema)}'
     oldName: string,
     newName: string
   ): string {
-    return `EXEC sp_rename '${schema}.${oldName}', '${newName}', 'OBJECT'`;
+    return `EXEC sp_rename '${this.escapeString(schema)}.${this.escapeString(oldName)}', '${this.escapeString(newName)}', 'OBJECT'`;
   }
 }

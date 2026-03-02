@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-condition */
 /**
  * Database Adapter Factory
  *
@@ -5,7 +6,7 @@
  * Caches adapters by connection ID for reuse.
  */
 
-import { DbType } from '@/types/connection';
+import { DbType } from "@/types/connection";
 import type {
   CrudCommand,
   DataDeletePayload,
@@ -40,36 +41,38 @@ import type {
   SequenceAlterPayload,
   SequenceDropPayload,
   SequenceRenamePayload,
-} from '@/types/crud';
-import { sqlDiffGenerator } from '@/services/sqlDiffGenerator';
+} from "@/types/crud";
+import { sqlDiffGenerator } from "@/services/sqlDiffGenerator";
 import type {
   DatabaseAdapter,
   TableRef,
   RowData,
   WhereClause,
   BaseAdapter,
-} from './types';
-import { useConnectionStore } from '@/stores/connectionStoreNew';
-import { getParadigm } from '@/types/connection';
-import { MongoDBAdapter } from './mongodb/MongoDBAdapter';
-import { RedisAdapter } from './redis/RedisAdapter';
+} from "./types";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { getParadigm } from "@/types/connection";
+import { MongoDBAdapter } from "./mongodb/MongoDBAdapter";
+import { RedisAdapter } from "./redis/RedisAdapter";
 
 // Lazy imports for SQL adapters to avoid circular dependencies
-const sqlAdapterModules: Partial<Record<DbType, () => Promise<new (connectionId: string) => DatabaseAdapter>>> = {
+const sqlAdapterModules: Partial<
+  Record<DbType, () => Promise<new (connectionId: string) => DatabaseAdapter>>
+> = {
   [DbType.PostgreSQL]: () =>
-    import('./dialects/PostgreSQLAdapter').then((m) => m.PostgreSQLAdapter),
+    import("./dialects/PostgreSQLAdapter").then((m) => m.PostgreSQLAdapter),
   [DbType.MySQL]: () =>
-    import('./dialects/MySQLAdapter').then((m) => m.MySQLAdapter),
+    import("./dialects/MySQLAdapter").then((m) => m.MySQLAdapter),
   [DbType.MariaDB]: () =>
-    import('./dialects/MySQLAdapter').then((m) => m.MySQLAdapter),
+    import("./dialects/MySQLAdapter").then((m) => m.MySQLAdapter),
   [DbType.SQLite]: () =>
-    import('./dialects/SQLiteAdapter').then((m) => m.SQLiteAdapter),
+    import("./dialects/SQLiteAdapter").then((m) => m.SQLiteAdapter),
   [DbType.SQLServer]: () =>
-    import('./dialects/MSSQLAdapter').then((m) => m.MSSQLAdapter),
+    import("./dialects/MSSQLAdapter").then((m) => m.MSSQLAdapter),
 };
 
 export function isSqlParadigm(dbType: DbType): boolean {
-  return getParadigm(dbType) === 'sql';
+  return getParadigm(dbType) === "sql";
 }
 
 const adapterCache = new Map<string, BaseAdapter>();
@@ -81,7 +84,7 @@ const pendingAdapters = new Map<string, Promise<BaseAdapter>>();
  */
 export async function getAdapter(
   connectionId: string,
-  dbType: DbType
+  dbType: DbType,
 ): Promise<BaseAdapter> {
   const cached = adapterCache.get(connectionId);
   if (cached) {
@@ -108,11 +111,11 @@ export async function getAdapter(
 
 async function createAdapter(
   connectionId: string,
-  dbType: DbType
+  dbType: DbType,
 ): Promise<BaseAdapter> {
   const paradigm = getParadigm(dbType);
   switch (paradigm) {
-    case 'sql': {
+    case "sql": {
       const adapterLoader = sqlAdapterModules[dbType];
       if (!adapterLoader) {
         throw new Error(`Unsupported SQL database type: ${dbType}`);
@@ -120,9 +123,9 @@ async function createAdapter(
       const AdapterClass = await adapterLoader();
       return new AdapterClass(connectionId);
     }
-    case 'document':
+    case "document":
       return new MongoDBAdapter(connectionId);
-    case 'keyvalue':
+    case "keyvalue":
       return new RedisAdapter(connectionId);
     default:
       throw new Error(`Unsupported database paradigm for type: ${dbType}`);
@@ -134,7 +137,7 @@ async function createAdapter(
  */
 export async function getSqlAdapter(
   connectionId: string,
-  dbType: DbType
+  dbType: DbType,
 ): Promise<DatabaseAdapter> {
   if (!isSqlParadigm(dbType)) {
     throw new Error(`${dbType} is not a SQL database`);
@@ -160,7 +163,9 @@ export function getConnectionDbType(connectionId: string): DbType {
 /**
  * Get adapter for a connection (looks up db type automatically)
  */
-export async function getAdapterForConnection(connectionId: string): Promise<BaseAdapter> {
+export async function getAdapterForConnection(
+  connectionId: string,
+): Promise<BaseAdapter> {
   const dbType = getConnectionDbType(connectionId);
   return getAdapter(connectionId, dbType);
 }
@@ -168,7 +173,9 @@ export async function getAdapterForConnection(connectionId: string): Promise<Bas
 /**
  * Get SQL adapter for a connection (returns null if not SQL paradigm)
  */
-export async function getSqlAdapterForConnection(connectionId: string): Promise<DatabaseAdapter | null> {
+export async function getSqlAdapterForConnection(
+  connectionId: string,
+): Promise<DatabaseAdapter | null> {
   const dbType = getConnectionDbType(connectionId);
   if (!isSqlParadigm(dbType)) {
     return null;
@@ -184,7 +191,7 @@ export function getAdapterSync(connectionId: string): BaseAdapter {
   const adapter = adapterCache.get(connectionId);
   if (!adapter) {
     throw new Error(
-      `Adapter not found for connection: ${connectionId}. Call getAdapter() first.`
+      `Adapter not found for connection: ${connectionId}. Call getAdapter() first.`,
     );
   }
   return adapter;
@@ -195,7 +202,7 @@ export function getAdapterSync(connectionId: string): BaseAdapter {
  */
 export function getSqlAdapterSync(connectionId: string): DatabaseAdapter {
   const adapter = getAdapterSync(connectionId);
-  if (adapter.paradigm !== 'sql') {
+  if (adapter.paradigm !== "sql") {
     throw new Error(`Adapter for ${connectionId} is not a SQL adapter`);
   }
   return adapter as DatabaseAdapter;
@@ -219,7 +226,12 @@ export function clearAllAdapters(): void {
 }
 
 // Re-export types
-export type { DatabaseAdapter, QueryPayload, QueryResult, BaseAdapter } from './types';
+export type {
+  DatabaseAdapter,
+  QueryPayload,
+  QueryResult,
+  BaseAdapter,
+} from "./types";
 export type {
   TableRef,
   WhereClause,
@@ -228,33 +240,36 @@ export type {
   InsertOptions,
   MongoDBAdapter as MongoDBAdapterType,
   RedisAdapter as RedisAdapterType,
-} from './types';
-export { isSqlAdapter, isDocumentAdapter, isKeyValueAdapter } from './types';
+} from "./types";
+export { isSqlAdapter, isDocumentAdapter, isKeyValueAdapter } from "./types";
 
 /**
  * Convert a single CrudCommand to SQL using an adapter
  * IMPORTANT: This is the single source of truth for SQL generation.
  * Any changes here should be reflected in both preview and commit flows.
  */
-export function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): string | null {
+export function commandToSql(
+  adapter: DatabaseAdapter,
+  command: CrudCommand,
+): string | null {
   const target: TableRef = {
     schema: command.target.schema,
-    table: command.target.table ?? '',
+    table: command.target.table ?? "",
   };
 
   switch (command.type) {
     // DML operations
-    case 'data.insert': {
+    case "data.insert": {
       const payload = command.payload as DataInsertPayload;
       const values = payload.values ?? {};
       if (Object.keys(values).length === 0) {
         return null;
       }
       const result = adapter.insert(target, values as RowData);
-      return typeof result === 'string' ? result : null;
+      return typeof result === "string" ? result : null;
     }
 
-    case 'data.update': {
+    case "data.update": {
       const payload = command.payload as DataUpdatePayload;
       if (!payload.column || !payload.primaryKeys) {
         return null;
@@ -262,127 +277,163 @@ export function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): st
       const data: RowData = { [payload.column]: payload.newValue };
       const where: WhereClause = payload.primaryKeys as WhereClause;
       const result = adapter.update(target, data, where);
-      return typeof result === 'string' ? result : null;
+      return typeof result === "string" ? result : null;
     }
 
-    case 'data.delete': {
+    case "data.delete": {
       const payload = command.payload as DataDeletePayload;
       if (!payload.primaryKeys) {
         return null;
       }
       const where: WhereClause = payload.primaryKeys as WhereClause;
       const result = adapter.delete(target, where);
-      return typeof result === 'string' ? result : null;
+      return typeof result === "string" ? result : null;
     }
 
     // DDL operations - delegate to adapter
-    case 'column.add': {
+    case "column.add": {
       const payload = command.payload as ColumnAddPayload;
       if (!payload.column?.name) return null;
       const result = adapter.addColumn(target, payload.column);
-      return typeof result === 'string' ? result : null;
+      return typeof result === "string" ? result : null;
     }
 
-    case 'column.modify': {
+    case "column.modify": {
       const payload = command.payload as ColumnModifyPayload;
       if (!payload.columnName || !payload.newDefinition) return null;
-      const result = adapter.modifyColumn(target, payload.columnName, payload.newDefinition);
-      if (typeof result === 'string' && result) {
+      const result = adapter.modifyColumn(
+        target,
+        payload.columnName,
+        payload.newDefinition,
+      );
+      if (typeof result === "string" && result) {
         return result;
       }
       // If no SQL was generated, provide a helpful comment about what was requested
       const changes = payload.newDefinition;
       const changesList: string[] = [];
-      if (changes.dataType !== undefined) changesList.push(`type: ${changes.dataType}`);
-      if (changes.nullable !== undefined) changesList.push(`nullable: ${changes.nullable}`);
-      if (changes.defaultValue !== undefined) changesList.push(`default: ${JSON.stringify(changes.defaultValue)}`);
-      if (changes.comment !== undefined) changesList.push(`comment: ${changes.comment}`);
-      if (changes.checkExpression !== undefined) changesList.push(`check: ${changes.checkExpression}`);
-      
+      if (changes.dataType !== undefined)
+        changesList.push(`type: ${changes.dataType}`);
+      if (changes.nullable !== undefined)
+        changesList.push(`nullable: ${changes.nullable}`);
+      if (changes.defaultValue !== undefined)
+        changesList.push(`default: ${JSON.stringify(changes.defaultValue)}`);
+      if (changes.comment !== undefined)
+        changesList.push(`comment: ${changes.comment}`);
+      if (changes.checkExpression !== undefined)
+        changesList.push(`check: ${changes.checkExpression}`);
+
       if (changesList.length > 0) {
-        const schema = target.schema ? `${target.schema}.` : '';
-        return `-- Modify column ${payload.columnName} on ${schema}${target.table}: ${changesList.join(', ')}`;
+        const schema = target.schema ? `${target.schema}.` : "";
+        return `-- Modify column ${payload.columnName} on ${schema}${target.table}: ${changesList.join(", ")}`;
       }
       return null;
     }
 
-    case 'column.drop': {
+    case "column.drop": {
       const payload = command.payload as ColumnDropPayload;
       if (!payload.columnName) return null;
-      const result = adapter.dropColumn(target, payload.columnName, payload.cascade);
-      return typeof result === 'string' ? result : null;
+      const result = adapter.dropColumn(
+        target,
+        payload.columnName,
+        payload.cascade,
+      );
+      return typeof result === "string" ? result : null;
     }
 
-    case 'column.rename': {
+    case "column.rename": {
       const payload = command.payload as ColumnRenamePayload;
       if (!payload.columnName || !payload.newName) return null;
-      const result = adapter.renameColumn(target, payload.columnName, payload.newName);
-      return typeof result === 'string' ? result : null;
+      const result = adapter.renameColumn(
+        target,
+        payload.columnName,
+        payload.newName,
+      );
+      return typeof result === "string" ? result : null;
     }
 
     // Index DDL operations
-    case 'index.create': {
+    case "index.create": {
       const payload = command.payload as IndexCreatePayload;
-      if (!payload.definition?.name || !payload.definition?.columns?.length) return null;
+      if (!payload.definition?.name || !payload.definition?.columns?.length)
+        return null;
       const result = adapter.createIndex(target, payload.definition);
-      return typeof result === 'string' ? result : null;
+      return typeof result === "string" ? result : null;
     }
 
-    case 'index.drop': {
+    case "index.drop": {
       const payload = command.payload as IndexDropPayload;
       if (!payload.indexName) return null;
-      const result = adapter.dropIndex(target, payload.indexName, payload.ifExists);
-      return typeof result === 'string' ? result : null;
+      const result = adapter.dropIndex(
+        target,
+        payload.indexName,
+        payload.ifExists,
+      );
+      return typeof result === "string" ? result : null;
     }
 
-    case 'index.rename': {
+    case "index.rename": {
       const payload = command.payload as IndexRenamePayload;
       if (!payload.indexName || !payload.newName) return null;
-      const result = adapter.renameIndex(target, payload.indexName, payload.newName);
-      return typeof result === 'string' ? result : null;
+      const result = adapter.renameIndex(
+        target,
+        payload.indexName,
+        payload.newName,
+      );
+      return typeof result === "string" ? result : null;
     }
 
     // Trigger DDL operations
-    case 'trigger.create': {
+    case "trigger.create": {
       const payload = command.payload as TriggerCreatePayload;
-      if (!payload.definition?.name || !payload.definition?.functionName) return null;
+      if (!payload.definition?.name || !payload.definition?.functionName)
+        return null;
       const result = adapter.createTrigger(target, payload.definition);
-      return typeof result === 'string' ? result : null;
+      return typeof result === "string" ? result : null;
     }
 
-    case 'trigger.drop': {
+    case "trigger.drop": {
       const payload = command.payload as TriggerDropPayload;
       if (!payload.triggerName) return null;
-      const result = adapter.dropTrigger(target, payload.triggerName, payload.ifExists);
-      return typeof result === 'string' ? result : null;
+      const result = adapter.dropTrigger(
+        target,
+        payload.triggerName,
+        payload.ifExists,
+      );
+      return typeof result === "string" ? result : null;
     }
 
-    case 'trigger.rename': {
+    case "trigger.rename": {
       const payload = command.payload as TriggerRenamePayload;
       if (!payload.triggerName || !payload.newName) return null;
-      const result = adapter.renameTrigger(target, payload.triggerName, payload.newName);
-      return typeof result === 'string' ? result : null;
+      const result = adapter.renameTrigger(
+        target,
+        payload.triggerName,
+        payload.newName,
+      );
+      return typeof result === "string" ? result : null;
     }
 
-    case 'trigger.enable':
-    case 'trigger.disable': {
+    case "trigger.enable":
+    case "trigger.disable": {
       const payload = command.payload as TriggerTogglePayload;
       if (!payload.triggerName) return null;
-      const enable = command.type === 'trigger.enable';
+      const enable = command.type === "trigger.enable";
       const result = adapter.toggleTrigger(target, payload.triggerName, enable);
-      return typeof result === 'string' ? result : null;
+      return typeof result === "string" ? result : null;
     }
 
     // Foreign key DDL operations - use SqlDiffGenerator
-    case 'fk.add': {
+    case "fk.add": {
       const payload = command.payload as ForeignKeyAddPayload;
-      if (!payload.definition?.name || !payload.definition?.columns?.length) return null;
+      if (!payload.definition?.name || !payload.definition?.columns?.length)
+        return null;
       const result = sqlDiffGenerator.generateSql([command], adapter.dbType);
       const stmt = result.statements[0];
       return stmt?.statement ?? null;
     }
 
-    case 'fk.drop': {
+    case "fk.drop": {
       const payload = command.payload as ForeignKeyDropPayload;
       if (!payload.constraintName) return null;
       const result = sqlDiffGenerator.generateSql([command], adapter.dbType);
@@ -391,7 +442,7 @@ export function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): st
     }
 
     // Table DDL operations
-    case 'table.create': {
+    case "table.create": {
       const payload = command.payload as TableCreatePayload;
       if (!payload.tableName || !payload.columns?.length) return null;
       const result = sqlDiffGenerator.generateSql([command], adapter.dbType);
@@ -399,7 +450,7 @@ export function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): st
       return stmt?.statement ?? null;
     }
 
-    case 'table.rename': {
+    case "table.rename": {
       const payload = command.payload as TableRenamePayload;
       if (!payload.newName || !command.target.table) return null;
       const result = sqlDiffGenerator.generateSql([command], adapter.dbType);
@@ -407,28 +458,48 @@ export function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): st
       return stmt?.statement ?? null;
     }
 
-    case 'table.drop': {
+    case "table.drop": {
       const payload = command.payload as TableDropPayload;
       if (!payload.tableName) return null;
-      // Generate DROP TABLE SQL directly since sqlDiffGenerator doesn't support it
-      const schemaPrefix = target.schema ? `${adapter.quoteIdentifier(target.schema)}.` : '';
+      const schemaPrefix = target.schema
+        ? `${adapter.quoteIdentifier(target.schema)}.`
+        : "";
       const tableName = adapter.quoteIdentifier(payload.tableName);
-      const ifExists = payload.ifExists ? 'IF EXISTS ' : '';
-      const cascade = payload.cascade ? ' CASCADE' : '';
+      const ifExists = payload.ifExists ? "IF EXISTS " : "";
+      // CASCADE only supported by PostgreSQL
+      const cascade =
+        payload.cascade && adapter.dbType === DbType.PostgreSQL
+          ? " CASCADE"
+          : "";
       return `DROP TABLE ${ifExists}${schemaPrefix}${tableName}${cascade}`;
     }
 
-    case 'table.truncate': {
+    case "table.truncate": {
       const payload = command.payload as TableTruncatePayload;
       if (!payload.tableName) return null;
-      const schemaPrefix = target.schema ? `${adapter.quoteIdentifier(target.schema)}.` : '';
+      const schemaPrefix = target.schema
+        ? `${adapter.quoteIdentifier(target.schema)}.`
+        : "";
       const tableName = adapter.quoteIdentifier(payload.tableName);
-      const restart = payload.restartIdentity ? ' RESTART IDENTITY' : '';
-      const cascade = payload.cascade ? ' CASCADE' : '';
+
+      // SQLite doesn't support TRUNCATE TABLE
+      if (adapter.dbType === DbType.SQLite) {
+        return `DELETE FROM ${schemaPrefix}${tableName}`;
+      }
+
+      // RESTART IDENTITY and CASCADE only supported by PostgreSQL
+      const restart =
+        payload.restartIdentity && adapter.dbType === DbType.PostgreSQL
+          ? " RESTART IDENTITY"
+          : "";
+      const cascade =
+        payload.cascade && adapter.dbType === DbType.PostgreSQL
+          ? " CASCADE"
+          : "";
       return `TRUNCATE TABLE ${schemaPrefix}${tableName}${restart}${cascade}`;
     }
 
-    case 'table.duplicate': {
+    case "table.duplicate": {
       const payload = command.payload as TableDuplicatePayload;
       if (!payload.sourceTableName || !payload.newTableName) return null;
       const result = adapter.duplicateTable(target, {
@@ -439,126 +510,139 @@ export function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): st
         includeConstraints: payload.includeConstraints,
         includeTriggers: payload.includeTriggers,
       });
-      return typeof result === 'string' ? result : null;
+      return typeof result === "string" ? result : null;
     }
 
     // View DDL operations
-    case 'view.create': {
+    case "view.create": {
       const payload = command.payload as ViewCreatePayload;
-      if (!payload.definition?.name || !payload.definition?.definition) return null;
-      const schema = command.target.schema || 'public';
+      if (!payload.definition?.name || !payload.definition?.definition)
+        return null;
+      const schema = command.target.schema || "public";
       const result = adapter.createView(schema, payload.definition);
-      return typeof result === 'string' ? result : null;
+      return typeof result === "string" ? result : null;
     }
 
-    case 'view.drop': {
+    case "view.drop": {
       const payload = command.payload as ViewDropPayload;
       if (!payload.viewName) return null;
-      const schema = command.target.schema || 'public';
+      const schema = command.target.schema || "public";
       const result = adapter.dropView(
         schema,
         payload.viewName,
         payload.ifExists,
         payload.cascade,
-        payload.isMaterialized
+        payload.isMaterialized,
       );
-      return typeof result === 'string' ? result : null;
+      return typeof result === "string" ? result : null;
     }
 
-    case 'view.replace': {
+    case "view.replace": {
       const payload = command.payload as ViewReplacePayload;
       if (!payload.viewName || !payload.definition) return null;
-      const schema = command.target.schema || 'public';
+      const schema = command.target.schema || "public";
       const result = adapter.replaceView(
         schema,
         payload.viewName,
         payload.definition,
-        payload.isMaterialized
+        payload.isMaterialized,
       );
-      return typeof result === 'string' ? result : null;
+      return typeof result === "string" ? result : null;
     }
 
-    case 'view.rename': {
+    case "view.rename": {
       const payload = command.payload as ViewRenamePayload;
       if (!payload.viewName || !payload.newName) return null;
-      const schema = command.target.schema || 'public';
+      const schema = command.target.schema || "public";
       const result = adapter.renameView(
         schema,
         payload.viewName,
         payload.newName,
-        payload.isMaterialized
+        payload.isMaterialized,
       );
-      return typeof result === 'string' ? result : null;
+      return typeof result === "string" ? result : null;
     }
 
     // Constraint DDL operations
-    case 'constraint.addPrimaryKey':
-    case 'constraint.addUnique':
-    case 'constraint.addCheck': {
+    case "constraint.addPrimaryKey":
+    case "constraint.addUnique":
+    case "constraint.addCheck": {
       const payload = command.payload as ConstraintAddPayload;
       if (!payload.definition?.name) return null;
       const result = adapter.addConstraint(target, payload.definition);
-      return typeof result === 'string' ? result : null;
+      return typeof result === "string" ? result : null;
     }
 
-    case 'constraint.dropPrimaryKey':
-    case 'constraint.dropUnique':
-    case 'constraint.dropCheck':
-    case 'constraint.drop': {
+    case "constraint.dropPrimaryKey":
+    case "constraint.dropUnique":
+    case "constraint.dropCheck":
+    case "constraint.drop": {
       const payload = command.payload as ConstraintDropPayload;
       if (!payload.constraintName) return null;
       const result = adapter.dropConstraint(
         target,
         payload.constraintName,
         payload.cascade,
-        payload.ifExists
+        payload.ifExists,
       );
-      return typeof result === 'string' ? result : null;
+      return typeof result === "string" ? result : null;
     }
 
-    case 'constraint.rename': {
+    case "constraint.rename": {
       const payload = command.payload as ConstraintRenamePayload;
       if (!payload.constraintName || !payload.newName) return null;
-      const result = adapter.renameConstraint(target, payload.constraintName, payload.newName);
-      return typeof result === 'string' ? result : null;
+      const result = adapter.renameConstraint(
+        target,
+        payload.constraintName,
+        payload.newName,
+      );
+      return typeof result === "string" ? result : null;
     }
 
     // Sequence DDL operations
-    case 'sequence.create': {
+    case "sequence.create": {
       const payload = command.payload as SequenceCreatePayload;
       if (!payload.definition?.name) return null;
-      const schema = command.target.schema || 'public';
+      const schema = command.target.schema || "public";
       const result = adapter.createSequence(schema, payload.definition);
-      return typeof result === 'string' ? result : null;
+      return typeof result === "string" ? result : null;
     }
 
-    case 'sequence.alter': {
+    case "sequence.alter": {
       const payload = command.payload as SequenceAlterPayload;
       if (!payload.sequenceName || !payload.changes) return null;
-      const schema = command.target.schema || 'public';
-      const result = adapter.alterSequence(schema, payload.sequenceName, payload.changes);
-      return typeof result === 'string' ? result : null;
+      const schema = command.target.schema || "public";
+      const result = adapter.alterSequence(
+        schema,
+        payload.sequenceName,
+        payload.changes,
+      );
+      return typeof result === "string" ? result : null;
     }
 
-    case 'sequence.drop': {
+    case "sequence.drop": {
       const payload = command.payload as SequenceDropPayload;
       if (!payload.sequenceName) return null;
-      const schema = command.target.schema || 'public';
+      const schema = command.target.schema || "public";
       const result = adapter.dropSequence(
         schema,
         payload.sequenceName,
         payload.ifExists,
-        payload.cascade
+        payload.cascade,
       );
-      return typeof result === 'string' ? result : null;
+      return typeof result === "string" ? result : null;
     }
 
-    case 'sequence.rename': {
+    case "sequence.rename": {
       const payload = command.payload as SequenceRenamePayload;
       if (!payload.sequenceName || !payload.newName) return null;
-      const schema = command.target.schema || 'public';
-      const result = adapter.renameSequence(schema, payload.sequenceName, payload.newName);
-      return typeof result === 'string' ? result : null;
+      const schema = command.target.schema || "public";
+      const result = adapter.renameSequence(
+        schema,
+        payload.sequenceName,
+        payload.newName,
+      );
+      return typeof result === "string" ? result : null;
     }
 
     default:
@@ -567,7 +651,7 @@ export function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): st
 }
 
 const buildTableRenameKey = (command: CrudCommand): string =>
-  `${command.target.schema ?? ''}.${command.target.table ?? ''}`;
+  `${command.target.schema ?? ""}.${command.target.table ?? ""}`;
 
 /**
  * Helper to rename columns in an array of column names
@@ -644,7 +728,7 @@ export function trackTableRename(
   originalCmd: CrudCommand,
   adjustedCmd: CrudCommand,
 ): void {
-  if (originalCmd.type !== 'table.rename') return;
+  if (originalCmd.type !== "table.rename") return;
   if (!adjustedCmd.target.table) return;
 
   const payload = originalCmd.payload as TableRenamePayload;
@@ -677,7 +761,7 @@ export function applyColumnRenames(
   }
 
   // Apply rename to column.modify commands
-  if (command.type === 'column.modify') {
+  if (command.type === "column.modify") {
     const payload = command.payload as ColumnModifyPayload;
     const newName = columnRenames.get(payload.columnName);
     if (newName) {
@@ -689,7 +773,7 @@ export function applyColumnRenames(
   }
 
   // Apply rename to column.drop commands
-  if (command.type === 'column.drop') {
+  if (command.type === "column.drop") {
     const payload = command.payload as ColumnDropPayload;
     const newName = columnRenames.get(payload.columnName);
     if (newName) {
@@ -701,7 +785,7 @@ export function applyColumnRenames(
   }
 
   // Apply rename to chained column.rename commands
-  if (command.type === 'column.rename') {
+  if (command.type === "column.rename") {
     const payload = command.payload as ColumnRenamePayload;
     const newName = columnRenames.get(payload.columnName);
     if (newName) {
@@ -713,7 +797,7 @@ export function applyColumnRenames(
   }
 
   // Apply rename to fk.add commands (columns[] and referenceColumns[])
-  if (command.type === 'fk.add') {
+  if (command.type === "fk.add") {
     const payload = command.payload as ForeignKeyAddPayload;
     if (payload.definition) {
       let changed = false;
@@ -721,7 +805,10 @@ export function applyColumnRenames(
       let newRefColumns = payload.definition.referenceColumns;
 
       if (payload.definition.columns?.length) {
-        const result = renameColumnsInArray(payload.definition.columns, columnRenames);
+        const result = renameColumnsInArray(
+          payload.definition.columns,
+          columnRenames,
+        );
         if (result.changed) {
           changed = true;
           newColumns = result.columns;
@@ -731,7 +818,10 @@ export function applyColumnRenames(
       // Note: referenceColumns usually reference a different table, but if same table FK,
       // we should still rename them
       if (payload.definition.referenceColumns?.length) {
-        const result = renameColumnsInArray(payload.definition.referenceColumns, columnRenames);
+        const result = renameColumnsInArray(
+          payload.definition.referenceColumns,
+          columnRenames,
+        );
         if (result.changed) {
           changed = true;
           newRefColumns = result.columns;
@@ -755,7 +845,7 @@ export function applyColumnRenames(
   }
 
   // Apply rename to index.create commands (columns[] and includeColumns[])
-  if (command.type === 'index.create') {
+  if (command.type === "index.create") {
     const payload = command.payload as IndexCreatePayload;
     if (payload.definition) {
       let changed = false;
@@ -763,7 +853,10 @@ export function applyColumnRenames(
       let newIncludeColumns = payload.definition.includeColumns;
 
       if (payload.definition.columns?.length) {
-        const result = renameColumnsInArray(payload.definition.columns, columnRenames);
+        const result = renameColumnsInArray(
+          payload.definition.columns,
+          columnRenames,
+        );
         if (result.changed) {
           changed = true;
           newColumns = result.columns;
@@ -771,7 +864,10 @@ export function applyColumnRenames(
       }
 
       if (payload.definition.includeColumns?.length) {
-        const result = renameColumnsInArray(payload.definition.includeColumns, columnRenames);
+        const result = renameColumnsInArray(
+          payload.definition.includeColumns,
+          columnRenames,
+        );
         if (result.changed) {
           changed = true;
           newIncludeColumns = result.columns;
@@ -795,7 +891,7 @@ export function applyColumnRenames(
   }
 
   // Apply rename to data.insert commands (values{} keys)
-  if (command.type === 'data.insert') {
+  if (command.type === "data.insert") {
     const payload = command.payload as DataInsertPayload;
     if (payload.values) {
       const result = renameColumnsInRecord(payload.values, columnRenames);
@@ -809,7 +905,7 @@ export function applyColumnRenames(
   }
 
   // Apply rename to data.update commands (column field)
-  if (command.type === 'data.update') {
+  if (command.type === "data.update") {
     const payload = command.payload as DataUpdatePayload;
     const newName = columnRenames.get(payload.column);
     if (newName) {
@@ -836,7 +932,7 @@ export function trackColumnRename(
   originalCmd: CrudCommand,
   adjustedCmd: CrudCommand,
 ): void {
-  if (originalCmd.type !== 'column.rename') return;
+  if (originalCmd.type !== "column.rename") return;
 
   const origPayload = originalCmd.payload as ColumnRenamePayload;
   const adjPayload = adjustedCmd.payload as ColumnRenamePayload;
@@ -860,7 +956,7 @@ export function trackColumnRename(
 export async function generateSqlPreview(
   connectionId: string,
   dbType: DbType,
-  stagedCommands: Map<string, CrudCommand[]>
+  stagedCommands: Map<string, CrudCommand[]>,
 ): Promise<string> {
   const adapter = await getAdapter(connectionId, dbType);
   const sections: string[] = [];
@@ -869,8 +965,8 @@ export async function generateSqlPreview(
     if (commands.length === 0) continue;
 
     // Extract table name from key (format: connectionId:database:schema:table)
-    const parts = tableKey.split(':');
-    const tableName = parts[parts.length - 1] ?? 'unknown';
+    const parts = tableKey.split(":");
+    const tableName = parts[parts.length - 1] ?? "unknown";
     const schemaName = parts.length > 3 ? parts[2] : undefined;
     const displayName = schemaName ? `${schemaName}.${tableName}` : tableName;
 
@@ -897,18 +993,18 @@ export async function generateSqlPreview(
     }
 
     if (statements.length > 0) {
-      sections.push(statements.join(';\n') + ';');
+      sections.push(statements.join(";\n") + ";");
     }
   }
 
-  return sections.join('\n\n') || '-- No changes to commit';
+  return sections.join("\n\n") || "-- No changes to commit";
 }
 
 // Export capability types and interfaces
-export * from './capabilities';
-export * from './types/redis';
-export * from './types/mongodb';
+export * from "./capabilities";
+export * from "./types/redis";
+export * from "./types/mongodb";
 
 // Export MongoDB and Redis adapters
-export { MongoDBAdapter } from './mongodb/MongoDBAdapter';
-export { RedisAdapter } from './redis/RedisAdapter';
+export { MongoDBAdapter } from "./mongodb/MongoDBAdapter";
+export { RedisAdapter } from "./redis/RedisAdapter";

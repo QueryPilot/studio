@@ -647,6 +647,33 @@ describe('commandToSql - MySQL', () => {
     expect(() => commandToSql(adapter, command)).toThrowErrorMatchingSnapshot();
   });
 
+  it('should generate MySQL-compatible CREATE TRIGGER', () => {
+    const command: CrudCommand = {
+      id: 'test-mysql-trigger-1',
+      type: 'trigger.create',
+      target: { connectionId: 'test', database: 'testdb', schema: 'public', table: 'orders' },
+      payload: {
+        definition: {
+          name: 'trg_orders_audit',
+          timing: 'AFTER',
+          events: ['INSERT'],
+          functionName: "INSERT INTO audit_log(action) VALUES ('insert')",
+          level: 'ROW',
+        },
+      },
+      metadata: { timestamp: '2024-01-01T00:00:00Z' },
+      state: 'staged',
+    };
+
+    const sql = commandToSql(adapter, command);
+    expect(sql).toContain('CREATE TRIGGER');
+    expect(sql).toContain('AFTER INSERT');
+    expect(sql).toContain('FOR EACH ROW');
+    expect(sql).toContain('BEGIN');
+    expect(sql).toContain('END');
+    expect(sql).not.toContain('EXECUTE FUNCTION');
+  });
+
   it('should throw error for sequence in MySQL', () => {
     const command: CrudCommand = {
       id: 'test-mysql-3',
@@ -665,6 +692,66 @@ describe('commandToSql - MySQL', () => {
 
     // MySQL doesn't support sequences - should throw error
     expect(() => commandToSql(adapter, command)).toThrowErrorMatchingSnapshot();
+  });
+
+  it('should generate MySQL DROP COLUMN without CASCADE', () => {
+    const command: CrudCommand = {
+      id: 'test-mysql-drop-col',
+      type: 'column.drop',
+      target: { connectionId: 'test', database: 'testdb', schema: 'public', table: 'users' },
+      payload: { columnName: 'email', cascade: true },
+      metadata: { timestamp: '2024-01-01T00:00:00Z' },
+      state: 'staged',
+    };
+
+    const sql = commandToSql(adapter, command);
+    expect(sql).toContain('DROP COLUMN');
+    expect(sql).not.toContain('CASCADE');
+  });
+
+  it('should generate MySQL DROP TABLE without CASCADE', () => {
+    const command: CrudCommand = {
+      id: 'test-mysql-drop-table',
+      type: 'table.drop',
+      target: { connectionId: 'test', database: 'testdb', schema: 'public', table: 'users' },
+      payload: { tableName: 'users', ifExists: true, cascade: true },
+      metadata: { timestamp: '2024-01-01T00:00:00Z' },
+      state: 'staged',
+    };
+
+    const sql = commandToSql(adapter, command);
+    expect(sql).toContain('DROP TABLE');
+    expect(sql).toContain('IF EXISTS');
+    expect(sql).not.toContain('CASCADE');
+  });
+
+  it('should generate MySQL TRUNCATE TABLE without RESTART IDENTITY', () => {
+    const command: CrudCommand = {
+      id: 'test-mysql-truncate',
+      type: 'table.truncate',
+      target: { connectionId: 'test', database: 'testdb', schema: 'public', table: 'users' },
+      payload: { tableName: 'users', restartIdentity: true, cascade: true },
+      metadata: { timestamp: '2024-01-01T00:00:00Z' },
+      state: 'staged',
+    };
+
+    const sql = commandToSql(adapter, command);
+    expect(sql).not.toContain('RESTART IDENTITY');
+    expect(sql).not.toContain('CASCADE');
+    expect(sql).toContain('TRUNCATE TABLE');
+  });
+
+  it('should throw error for constraint rename in MySQL', () => {
+    const command: CrudCommand = {
+      id: 'test-mysql-rename-constraint',
+      type: 'constraint.rename',
+      target: { connectionId: 'test', database: 'testdb', schema: 'public', table: 'users' },
+      payload: { constraintName: 'old_constraint', newName: 'new_constraint' },
+      metadata: { timestamp: '2024-01-01T00:00:00Z' },
+      state: 'staged',
+    };
+
+    expect(() => commandToSql(adapter, command)).toThrow();
   });
 });
 
@@ -694,6 +781,77 @@ describe('commandToSql - SQLite', () => {
     expect(sql).toContain('"users"');
   });
 
+  it('should generate SQLite-compatible CREATE INDEX (no USING clause)', () => {
+    const command: CrudCommand = {
+      id: 'test-sqlite-idx-1',
+      type: 'index.create',
+      target: { connectionId: 'test', database: 'main', table: 'orders' },
+      payload: {
+        definition: {
+          name: 'idx_orders_status',
+          columns: ['status', 'created_at'],
+          unique: false,
+          using: 'btree',
+        },
+      },
+      metadata: { timestamp: '2024-01-01T00:00:00Z' },
+      state: 'staged',
+    };
+
+    const sql = commandToSql(adapter, command);
+    expect(sql).toBe('CREATE INDEX "idx_orders_status" ON "orders" ("status", "created_at")');
+    expect(sql).not.toContain('USING');
+    expect(sql).not.toContain('INCLUDE');
+  });
+
+  it('should generate SQLite partial index with WHERE', () => {
+    const command: CrudCommand = {
+      id: 'test-sqlite-idx-2',
+      type: 'index.create',
+      target: { connectionId: 'test', database: 'main', table: 'orders' },
+      payload: {
+        definition: {
+          name: 'idx_orders_active',
+          columns: ['status'],
+          unique: true,
+          where: 'status = 1',
+        },
+      },
+      metadata: { timestamp: '2024-01-01T00:00:00Z' },
+      state: 'staged',
+    };
+
+    const sql = commandToSql(adapter, command);
+    expect(sql).toBe('CREATE UNIQUE INDEX "idx_orders_active" ON "orders" ("status") WHERE status = 1');
+  });
+
+  it('should generate SQLite-compatible CREATE TRIGGER', () => {
+    const command: CrudCommand = {
+      id: 'test-sqlite-trigger-1',
+      type: 'trigger.create',
+      target: { connectionId: 'test', database: 'main', table: 'orders' },
+      payload: {
+        definition: {
+          name: 'trg_orders_audit',
+          timing: 'AFTER',
+          events: ['INSERT'],
+          functionName: "INSERT INTO audit_log(action) VALUES ('insert')",
+          level: 'ROW',
+        },
+      },
+      metadata: { timestamp: '2024-01-01T00:00:00Z' },
+      state: 'staged',
+    };
+
+    const sql = commandToSql(adapter, command);
+    expect(sql).toContain('CREATE TRIGGER');
+    expect(sql).toContain('AFTER INSERT');
+    expect(sql).toContain('FOR EACH ROW');
+    expect(sql).toContain('BEGIN');
+    expect(sql).toContain('END');
+    expect(sql).not.toContain('EXECUTE FUNCTION');
+  });
+
   it('should throw error for sequence in SQLite', () => {
     const command: CrudCommand = {
       id: 'test-sqlite-2',
@@ -711,6 +869,21 @@ describe('commandToSql - SQLite', () => {
 
     // SQLite doesn't support sequences - should throw error
     expect(() => commandToSql(adapter, command)).toThrowErrorMatchingSnapshot();
+  });
+
+  it('should generate DELETE FROM instead of TRUNCATE for SQLite', () => {
+    const command: CrudCommand = {
+      id: 'test-sqlite-truncate',
+      type: 'table.truncate',
+      target: { connectionId: 'test', database: 'main', table: 'users' },
+      payload: { tableName: 'users' },
+      metadata: { timestamp: '2024-01-01T00:00:00Z' },
+      state: 'staged',
+    };
+
+    const sql = commandToSql(adapter, command);
+    expect(sql).toContain('DELETE FROM');
+    expect(sql).not.toContain('TRUNCATE');
   });
 });
 
@@ -783,6 +956,82 @@ describe('commandToSql - SQL Server', () => {
     expect(sql).toContain('sp_rename');
   });
 
+  it('should generate MSSQL-compatible CREATE INDEX (no USING clause)', () => {
+    const command: CrudCommand = {
+      id: 'test-mssql-idx-1',
+      type: 'index.create',
+      target: { connectionId: 'test', database: 'testdb', schema: 'dbo', table: 'orders' },
+      payload: {
+        definition: {
+          name: 'idx_orders_status',
+          columns: ['status', 'created_at'],
+          unique: false,
+          using: 'btree',
+        },
+      },
+      metadata: { timestamp: '2024-01-01T00:00:00Z' },
+      state: 'staged',
+    };
+
+    const sql = commandToSql(adapter, command);
+    expect(sql).toBe('CREATE INDEX [idx_orders_status] ON [dbo].[orders] ([status], [created_at])');
+    expect(sql).not.toContain('USING');
+  });
+
+  it('should generate MSSQL CREATE INDEX with INCLUDE and WHERE', () => {
+    const command: CrudCommand = {
+      id: 'test-mssql-idx-2',
+      type: 'index.create',
+      target: { connectionId: 'test', database: 'testdb', schema: 'dbo', table: 'orders' },
+      payload: {
+        definition: {
+          name: 'idx_orders_filtered',
+          columns: ['status'],
+          unique: true,
+          includeColumns: ['total', 'created_at'],
+          where: 'status = 1',
+        },
+      },
+      metadata: { timestamp: '2024-01-01T00:00:00Z' },
+      state: 'staged',
+    };
+
+    const sql = commandToSql(adapter, command);
+    expect(sql).toContain('CREATE UNIQUE INDEX');
+    expect(sql).toContain('INCLUDE ([total], [created_at])');
+    expect(sql).toContain('WHERE status = 1');
+    expect(sql).not.toContain('USING');
+  });
+
+  it('should generate MSSQL-compatible CREATE TRIGGER', () => {
+    const command: CrudCommand = {
+      id: 'test-mssql-trigger-1',
+      type: 'trigger.create',
+      target: { connectionId: 'test', database: 'testdb', schema: 'dbo', table: 'orders' },
+      payload: {
+        definition: {
+          name: 'trg_orders_audit',
+          timing: 'AFTER',
+          events: ['INSERT'],
+          functionName: "INSERT INTO audit_log(action) VALUES ('insert')",
+          level: 'ROW',
+        },
+      },
+      metadata: { timestamp: '2024-01-01T00:00:00Z' },
+      state: 'staged',
+    };
+
+    const sql = commandToSql(adapter, command);
+    expect(sql).toContain('CREATE TRIGGER');
+    expect(sql).toContain('AFTER INSERT');
+    expect(sql).toContain('ON [dbo].[orders]');
+    expect(sql).toContain('AS');
+    expect(sql).toContain('BEGIN');
+    expect(sql).toContain('END');
+    expect(sql).not.toContain('EXECUTE FUNCTION');
+    expect(sql).not.toContain('FOR EACH ROW');
+  });
+
   it('should generate SELECT INTO for table duplicate', () => {
     const command: CrudCommand = {
       id: 'test-mssql-4',
@@ -799,5 +1048,21 @@ describe('commandToSql - SQL Server', () => {
 
     const sql = commandToSql(adapter, command);
     expect(sql).toContain('SELECT * INTO [dbo].[users_copy] FROM [dbo].[users]');
+  });
+
+  it('should generate MSSQL TRUNCATE TABLE without CASCADE or RESTART IDENTITY', () => {
+    const command: CrudCommand = {
+      id: 'test-mssql-truncate',
+      type: 'table.truncate',
+      target: { connectionId: 'test', database: 'testdb', schema: 'dbo', table: 'users' },
+      payload: { tableName: 'users', restartIdentity: true, cascade: true },
+      metadata: { timestamp: '2024-01-01T00:00:00Z' },
+      state: 'staged',
+    };
+
+    const sql = commandToSql(adapter, command);
+    expect(sql).not.toContain('RESTART IDENTITY');
+    expect(sql).not.toContain('CASCADE');
+    expect(sql).toContain('TRUNCATE TABLE');
   });
 });

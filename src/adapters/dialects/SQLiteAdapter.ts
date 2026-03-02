@@ -9,13 +9,27 @@
  * - Version-aware syntax (RETURNING, DROP COLUMN, RENAME COLUMN)
  */
 
-import { DbType } from '@/types/connection';
-import type { ColumnDefinitionInput } from '@/types/crud';
-import { SqlAdapter } from '../base/SqlAdapter';
-import type { ColumnInfo, TableRef, InsertOptions, RowData, WhereClause } from '../types';
-import { quoteIdentifier as sharedQuoteIdentifier } from '../formatting';
-import { getSQLiteFeaturesForConnection } from '@/stores/versionStore';
-import type { SQLiteVersionFeatures } from '../utils/versionUtils';
+import { DbType } from "@/types/connection";
+import type {
+  ColumnDefinitionInput,
+  ConstraintDefinitionInput,
+  IndexDefinitionInput,
+  SequenceDefinitionInput,
+  TriggerDefinitionInput,
+  ViewDefinitionInput,
+} from "@/types/crud";
+import { SqlAdapter } from "../base/SqlAdapter";
+import type {
+  ColumnInfo,
+  TableRef,
+  InsertOptions,
+  RowData,
+  WhereClause,
+  ObjectDefinitionType,
+} from "../types";
+import { quoteIdentifier as sharedQuoteIdentifier } from "../formatting";
+import { getSQLiteFeaturesForConnection } from "@/stores/versionStore";
+import type { SQLiteVersionFeatures } from "../utils/versionUtils";
 
 export class SQLiteAdapter extends SqlAdapter {
   readonly dbType = DbType.SQLite;
@@ -55,16 +69,18 @@ export class SQLiteAdapter extends SqlAdapter {
    */
   formatValue(value: unknown, column: ColumnInfo): string {
     if (value === null || value === undefined) {
-      return 'NULL';
+      return "NULL";
     }
 
-    if (typeof value === 'boolean') {
-      return value ? '1' : '0';
+    if (typeof value === "boolean") {
+      return value ? "1" : "0";
     }
 
-    if (typeof value === 'number') {
+    if (typeof value === "number") {
       if (!Number.isFinite(value)) {
-        throw new Error(`Invalid number value for column "${column.name}": ${value}`);
+        throw new Error(
+          `Invalid number value for column "${column.name}": ${value}`,
+        );
       }
       return String(value);
     }
@@ -75,20 +91,23 @@ export class SQLiteAdapter extends SqlAdapter {
     }
 
     // Handle Buffer/Uint8Array as hex blob
-    if (value instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(value))) {
+    if (
+      value instanceof Uint8Array ||
+      (typeof Buffer !== "undefined" && Buffer.isBuffer(value))
+    ) {
       const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
       const hex = Array.from(bytes)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
       return `X'${hex}'`;
     }
 
-    if (typeof value === 'object') {
+    if (typeof value === "object") {
       // JSON values stored as text
       return this.quoteString(JSON.stringify(value));
     }
 
-    return this.quoteString(String(value));
+    return this.quoteString(String(value as any));
   }
 
   /**
@@ -120,20 +139,20 @@ export class SQLiteAdapter extends SqlAdapter {
       // SQLite supports INSERT INTO table DEFAULT VALUES
       let sql = `INSERT INTO ${table} DEFAULT VALUES`;
       if (options?.returning && this.supportsReturning()) {
-        sql += ' RETURNING *';
+        sql += " RETURNING *";
       }
       return sql;
     }
 
-    const columnList = columns.map((c) => this.quoteIdentifier(c)).join(', ');
+    const columnList = columns.map((c) => this.quoteIdentifier(c)).join(", ");
     const valueList = columns
       .map((c) => this.formatValue(data[c], { name: c }))
-      .join(', ');
+      .join(", ");
 
     let sql = `INSERT INTO ${table} (${columnList}) VALUES (${valueList})`;
 
     if (options?.returning && this.supportsReturning()) {
-      sql += ' RETURNING *';
+      sql += " RETURNING *";
     }
 
     return sql;
@@ -148,9 +167,9 @@ export class SQLiteAdapter extends SqlAdapter {
     const setClause = Object.entries(data)
       .map(
         ([col, val]) =>
-          `${this.quoteIdentifier(col)} = ${this.formatValue(val, { name: col })}`
+          `${this.quoteIdentifier(col)} = ${this.formatValue(val, { name: col })}`,
       )
-      .join(', ');
+      .join(", ");
 
     const whereClause = this.buildWhereClause(where);
 
@@ -158,7 +177,7 @@ export class SQLiteAdapter extends SqlAdapter {
 
     // SQLite 3.35+ supports RETURNING
     if (this.supportsReturning()) {
-      sql += ' RETURNING *';
+      sql += " RETURNING *";
     }
 
     return sql;
@@ -175,7 +194,7 @@ export class SQLiteAdapter extends SqlAdapter {
 
     // SQLite 3.35+ supports RETURNING
     if (this.supportsReturning()) {
-      sql += ' RETURNING *';
+      sql += " RETURNING *";
     }
 
     return sql;
@@ -198,29 +217,29 @@ export class SQLiteAdapter extends SqlAdapter {
    */
   transaction(operations: string[]): string {
     if (operations.length === 0) {
-      return '';
+      return "";
     }
 
     // Filter out non-string operations and comment-only statements
-    const statements = operations.filter(
-      (op): op is string => {
-        if (typeof op !== 'string') return false;
-        const trimmed = op.trim();
-        if (trimmed.length === 0) return false;
-        // Skip comment-only statements (lines starting with --)
-        if (trimmed.startsWith('--') && !trimmed.includes('\n')) return false;
-        return true;
-      }
-    );
+    const statements = operations.filter((op): op is string => {
+      if (typeof op !== "string") return false;
+      const trimmed = op.trim();
+      if (trimmed.length === 0) return false;
+      // Skip comment-only statements (lines starting with --)
+      if (trimmed.startsWith("--") && !trimmed.includes("\n")) return false;
+      return true;
+    });
 
     if (statements.length === 0) {
       // Return only the comments without transaction wrapper
       return operations
-        .filter((op): op is string => typeof op === 'string' && op.trim().length > 0)
-        .join(';\n');
+        .filter(
+          (op): op is string => typeof op === "string" && op.trim().length > 0,
+        )
+        .join(";\n");
     }
 
-    return `BEGIN TRANSACTION;\n${statements.join(';\n')};\nCOMMIT;`;
+    return `BEGIN TRANSACTION;\n${statements.join(";\n")};\nCOMMIT;`;
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -234,20 +253,22 @@ export class SQLiteAdapter extends SqlAdapter {
     const table = this.formatTableRef(target);
     const parts: string[] = [
       this.quoteIdentifier(column.name),
-      column.dataType || 'TEXT',
+      column.dataType || "TEXT",
     ];
 
     // SQLite ADD COLUMN has restrictions on what can be specified
     if (column.defaultValue !== undefined && column.defaultValue !== null) {
-      parts.push(`DEFAULT ${this.formatValue(column.defaultValue, { name: column.name })}`);
+      parts.push(
+        `DEFAULT ${this.formatValue(column.defaultValue, { name: column.name })}`,
+      );
     }
 
     // NOT NULL requires a default value in SQLite ADD COLUMN
-    if (column.nullable === false && column.defaultValue !== undefined) {
-      parts.push('NOT NULL');
+    if (!column.nullable && column.defaultValue !== undefined) {
+      parts.push("NOT NULL");
     }
 
-    return `ALTER TABLE ${table} ADD COLUMN ${parts.join(' ')}`;
+    return `ALTER TABLE ${table} ADD COLUMN ${parts.join(" ")}`;
   }
 
   /**
@@ -257,7 +278,7 @@ export class SQLiteAdapter extends SqlAdapter {
   modifyColumn(
     _target: TableRef,
     columnName: string,
-    _changes: Partial<ColumnDefinitionInput>
+    _changes: Partial<ColumnDefinitionInput>,
   ): string {
     // SQLite doesn't support modifying column definitions
     // This would require recreating the table
@@ -309,27 +330,82 @@ export class SQLiteAdapter extends SqlAdapter {
     return `-- SQLite does not support RENAME INDEX. Drop "${oldName}" and recreate with new name.`;
   }
 
+  /**
+   * SQLite CREATE INDEX - no USING clause, no INCLUDE columns
+   * SQLite only supports B-tree indexes. Partial indexes (WHERE) are supported.
+   */
+  createIndex(target: TableRef, definition: IndexDefinitionInput): string {
+    const table = this.formatTableRef(target);
+    const indexName = this.quoteIdentifier(definition.name);
+    const uniqueClause = definition.unique ? "UNIQUE " : "";
+    const columns = definition.columns
+      .map((c) => this.quoteIdentifier(c))
+      .join(", ");
+
+    let sql = `CREATE ${uniqueClause}INDEX ${indexName} ON ${table} (${columns})`;
+
+    // SQLite supports partial indexes (WHERE clause)
+    if (definition.where) {
+      sql += ` WHERE ${definition.where}`;
+    }
+
+    return sql;
+  }
+
   // ─────────────────────────────────────────────────────────────────
   // Trigger DDL Operations - SQLite syntax
   // ─────────────────────────────────────────────────────────────────
 
   /**
+   * SQLite CREATE TRIGGER - uses BEGIN...END body instead of EXECUTE FUNCTION
+   */
+  createTrigger(target: TableRef, definition: TriggerDefinitionInput): string {
+    const table = this.formatTableRef(target);
+    const triggerName = this.quoteIdentifier(definition.name);
+    const timing = definition.timing;
+    const events = definition.events.join(", ");
+
+    let sql = `CREATE TRIGGER ${triggerName} ${timing} ${events} ON ${table}`;
+    sql += ` FOR EACH ROW`;
+
+    if (definition.condition) {
+      sql += ` WHEN (${definition.condition})`;
+    }
+
+    sql += `\nBEGIN\n  ${definition.functionName};\nEND`;
+
+    return sql;
+  }
+
+  /**
    * SQLite DROP TRIGGER doesn't use ON table
    */
-  dropTrigger(_target: TableRef, triggerName: string, ifExists?: boolean): string {
-    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+  dropTrigger(
+    _target: TableRef,
+    triggerName: string,
+    ifExists?: boolean,
+  ): string {
+    const ifExistsClause = ifExists ? "IF EXISTS " : "";
     return `DROP TRIGGER ${ifExistsClause}${this.quoteIdentifier(triggerName)}`;
   }
 
   /**
    * SQLite doesn't support ENABLE/DISABLE TRIGGER
    */
-  renameTrigger(_target: TableRef, _triggerName: string, _newName: string): string {
-    return '-- SQLite does not support RENAME TRIGGER (drop and recreate instead)';
+  renameTrigger(
+    _target: TableRef,
+    _triggerName: string,
+    _newName: string,
+  ): string {
+    return "-- SQLite does not support RENAME TRIGGER (drop and recreate instead)";
   }
 
-  toggleTrigger(_target: TableRef, _triggerName: string, _enable: boolean): string {
-    return '-- SQLite does not support ENABLE/DISABLE TRIGGER';
+  toggleTrigger(
+    _target: TableRef,
+    _triggerName: string,
+    _enable: boolean,
+  ): string {
+    return "-- SQLite does not support ENABLE/DISABLE TRIGGER";
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -529,23 +605,23 @@ ORDER BY table_name, column_name`;
   }
 
   getObjectDefinitionQuery(
-    objectType: import('../types').ObjectDefinitionType,
+    objectType: ObjectDefinitionType,
     _schema: string,
-    name: string
+    name: string,
   ): string {
     switch (objectType) {
-      case 'table':
-      case 'view':
-      case 'index':
+      case "table":
+      case "view":
+      case "index":
         // SQLite stores all DDL in sqlite_master
         return `SELECT sql || ';' as definition FROM sqlite_master WHERE name = '${this.escapeString(name)}'`;
-      case 'sequence':
-      case 'enum':
-      case 'domain':
-      case 'composite':
-      case 'function':
-      case 'procedure':
-      case 'materialized_view':
+      case "sequence":
+      case "enum":
+      case "domain":
+      case "composite":
+      case "function":
+      case "procedure":
+      case "materialized_view":
         // SQLite doesn't support these object types
         return `SELECT '-- ${objectType} is not supported in SQLite' as definition`;
       default:
@@ -557,11 +633,11 @@ ORDER BY table_name, column_name`;
   // View DDL Operations
   // ─────────────────────────────────────────────────────────────────
 
-  createView(_schema: string, definition: import("@/types/crud").ViewDefinitionInput): string {
+  createView(_schema: string, definition: ViewDefinitionInput): string {
     if (definition.isMaterialized) {
-      throw new Error('SQLite does not support materialized views');
+      throw new Error("SQLite does not support materialized views");
     }
-    
+
     const viewName = this.quoteIdentifier(definition.name);
     return `CREATE VIEW ${viewName} AS\n${definition.definition}`;
   }
@@ -571,14 +647,14 @@ ORDER BY table_name, column_name`;
     viewName: string,
     ifExists?: boolean,
     _cascade?: boolean,
-    isMaterialized?: boolean
+    isMaterialized?: boolean,
   ): string {
     if (isMaterialized) {
-      throw new Error('SQLite does not support materialized views');
+      throw new Error("SQLite does not support materialized views");
     }
-    
+
     const quotedName = this.quoteIdentifier(viewName);
-    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    const ifExistsClause = ifExists ? "IF EXISTS " : "";
     return `DROP VIEW ${ifExistsClause}${quotedName}`;
   }
 
@@ -586,12 +662,12 @@ ORDER BY table_name, column_name`;
     _schema: string,
     viewName: string,
     definition: string,
-    isMaterialized?: boolean
+    isMaterialized?: boolean,
   ): string {
     if (isMaterialized) {
-      throw new Error('SQLite does not support materialized views');
+      throw new Error("SQLite does not support materialized views");
     }
-    
+
     // SQLite doesn't support CREATE OR REPLACE VIEW, so we drop and recreate
     const quotedName = this.quoteIdentifier(viewName);
     return `DROP VIEW IF EXISTS ${quotedName};\nCREATE VIEW ${quotedName} AS\n${definition}`;
@@ -601,12 +677,12 @@ ORDER BY table_name, column_name`;
     _schema: string,
     oldName: string,
     newName: string,
-    isMaterialized?: boolean
+    isMaterialized?: boolean,
   ): string {
     if (isMaterialized) {
-      throw new Error('SQLite does not support materialized views');
+      throw new Error("SQLite does not support materialized views");
     }
-    
+
     const quotedOld = this.quoteIdentifier(oldName);
     const quotedNew = this.quoteIdentifier(newName);
     return `ALTER TABLE ${quotedOld} RENAME TO ${quotedNew}`;
@@ -617,27 +693,31 @@ ORDER BY table_name, column_name`;
   // ─────────────────────────────────────────────────────────────────
 
   addConstraint(
-    _target: import('../types').TableRef,
-    _definition: import("@/types/crud").ConstraintDefinitionInput
+    _target: TableRef,
+    _definition: ConstraintDefinitionInput,
   ): string {
-    throw new Error('SQLite does not support ALTER TABLE ADD CONSTRAINT. Constraints must be defined when creating the table.');
+    throw new Error(
+      "SQLite does not support ALTER TABLE ADD CONSTRAINT. Constraints must be defined when creating the table.",
+    );
   }
 
   dropConstraint(
-    _target: import('../types').TableRef,
+    _target: TableRef,
     _constraintName: string,
     _cascade?: boolean,
-    _ifExists?: boolean
+    _ifExists?: boolean,
   ): string {
-    throw new Error('SQLite does not support ALTER TABLE DROP CONSTRAINT. You must recreate the table without the constraint.');
+    throw new Error(
+      "SQLite does not support ALTER TABLE DROP CONSTRAINT. You must recreate the table without the constraint.",
+    );
   }
 
   renameConstraint(
-    _target: import('../types').TableRef,
+    _target: TableRef,
     _oldName: string,
-    _newName: string
+    _newName: string,
   ): string {
-    throw new Error('SQLite does not support renaming constraints.');
+    throw new Error("SQLite does not support renaming constraints.");
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -646,33 +726,37 @@ ORDER BY table_name, column_name`;
 
   createSequence(
     _schema: string,
-    _definition: import("@/types/crud").SequenceDefinitionInput
+    _definition: SequenceDefinitionInput,
   ): string {
-    throw new Error('SQLite does not support sequences. Use AUTOINCREMENT instead.');
+    throw new Error(
+      "SQLite does not support sequences. Use AUTOINCREMENT instead.",
+    );
   }
 
   alterSequence(
     _schema: string,
     _sequenceName: string,
-    _changes: Partial<import("@/types/crud").SequenceDefinitionInput>
+    _changes: Partial<SequenceDefinitionInput>,
   ): string {
-    throw new Error('SQLite does not support sequences. Use AUTOINCREMENT instead.');
+    throw new Error(
+      "SQLite does not support sequences. Use AUTOINCREMENT instead.",
+    );
   }
 
   dropSequence(
     _schema: string,
     _sequenceName: string,
     _ifExists?: boolean,
-    _cascade?: boolean
+    _cascade?: boolean,
   ): string {
-    throw new Error('SQLite does not support sequences. Use AUTOINCREMENT instead.');
+    throw new Error(
+      "SQLite does not support sequences. Use AUTOINCREMENT instead.",
+    );
   }
 
-  renameSequence(
-    _schema: string,
-    _oldName: string,
-    _newName: string
-  ): string {
-    throw new Error('SQLite does not support sequences. Use AUTOINCREMENT instead.');
+  renameSequence(_schema: string, _oldName: string, _newName: string): string {
+    throw new Error(
+      "SQLite does not support sequences. Use AUTOINCREMENT instead.",
+    );
   }
 }

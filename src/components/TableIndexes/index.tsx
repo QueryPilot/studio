@@ -32,6 +32,7 @@ import { IndexTableContextMenu } from "./IndexTableContextMenu";
 import type { IndexGridRow } from "./types";
 import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { useTableInvalidation } from "@/hooks/useTableInvalidation";
 import {
   createIndexDropCommand,
   createIndexCreateCommand,
@@ -157,6 +158,11 @@ export const TableIndexes = memo(function TableIndexes({
   useEffect(() => {
     void loadIndexes();
   }, [loadIndexes]);
+
+  // Subscribe to data invalidation events (Cmd+S commit, Cmd+R refresh)
+  useTableInvalidation(connectionId, database, schema, table, () => {
+    void loadIndexes();
+  });
 
   // Auto-generate index names for pending create commands that have columns but no name
   useEffect(() => {
@@ -683,11 +689,13 @@ export const TableIndexes = memo(function TableIndexes({
       // Columns - editable multi-select
       if (column.field === "columns") {
         const columnsArray = row.columns_array;
+        const originalColumns = row._original?.columns;
         return {
           kind: GridCellKind.Custom,
           data: {
             kind: "index-columns-cell",
             columns: columnsArray,
+            originalColumns,
             availableColumns,
             requiresRecreate,
             isLocked,
@@ -1019,6 +1027,17 @@ export const TableIndexes = memo(function TableIndexes({
         // For structural changes (columns, type, unique, condition), we need to recreate
         // This involves a drop + create with a recreate tag to link them
 
+        // Check for a pending rename command — if the user renamed first,
+        // the recreate should use the new name and absorb the rename.
+        const existingRenameCmd = pendingCommands.find((cmd) => {
+          if (cmd.type !== "index.rename") return false;
+          const p = cmd.payload as { indexName?: string };
+          return p.indexName === originalName;
+        });
+        const renamedName = existingRenameCmd
+          ? (existingRenameCmd.payload as { newName: string }).newName
+          : undefined;
+
         // Find existing drop+create pair for this index
         const recreateTag = `recreate:${originalName}`;
         const existingDropCmd = pendingCommands.find(
@@ -1033,15 +1052,22 @@ export const TableIndexes = memo(function TableIndexes({
         );
 
         // Get current values (from existing recreate create or original)
+        // If a rename was pending, use the renamed name
         const currentDef = existingCreateCmd
           ? (existingCreateCmd.payload as IndexCreatePayload).definition
           : {
-              name: row._original?.name ?? row.name,
+              name: renamedName ?? row._original?.name ?? row.name,
               columns: row._original?.columns ?? row.columns_array,
               unique: row._original?.unique ?? row.name_meta.unique,
               using: row._original?.index_type ?? row.index_type,
               where: row._original?.condition ?? row.condition,
             };
+
+        // If there was a standalone rename command, remove it — the recreate
+        // (drop + create with new name) now handles the rename implicitly.
+        if (existingRenameCmd) {
+          unstageCommand(existingRenameCmd.id);
+        }
 
         // Build updated definition
         const updatedDef = { ...currentDef };

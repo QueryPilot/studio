@@ -118,6 +118,11 @@ interface DataInvalidationState {
   ) => () => void;
 
   /**
+   * Invalidate all registered listeners (used by global refresh / Cmd+R)
+   */
+  invalidateAll: () => void;
+
+  /**
    * Internal: Notify all listeners for a table
    */
   _notifyListeners: (tableKey: string) => void;
@@ -220,6 +225,35 @@ export const useDataInvalidationStore = create<DataInvalidationState>(
           }
         }
       };
+    },
+
+    invalidateAll: () => {
+      const timestamp = Date.now();
+
+      set((state) => {
+        const invalidations = new Map(state.invalidations);
+        const schemaInvalidations = new Map(state.schemaInvalidations);
+
+        // Update timestamps for all tracked tables and schemas
+        for (const key of listenersMap.keys()) {
+          invalidations.set(key, timestamp);
+          schemaInvalidations.set(key, timestamp);
+        }
+        return { invalidations, schemaInvalidations };
+      });
+
+      // Notify every listener
+      queueMicrotask(() => {
+        listenersMap.forEach((listeners) => {
+          listeners.forEach((callback) => {
+            try {
+              callback();
+            } catch {
+              // Silently handle listener errors
+            }
+          });
+        });
+      });
     },
 
     _notifyListeners: (tableKey) => {

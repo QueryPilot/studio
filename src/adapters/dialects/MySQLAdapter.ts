@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-condition */
 /**
  * MySQL Database Adapter
  *
@@ -14,14 +15,14 @@ import { DbType } from "@/types/connection";
 import type {
   ColumnDefinitionInput,
   ConstraintDefinitionInput,
+  IndexDefinitionInput,
   SequenceDefinitionInput,
+  TriggerDefinitionInput,
   ViewDefinitionInput,
 } from "@/types/crud";
 import { SqlAdapter } from "../base/SqlAdapter";
 import type { ColumnInfo, ObjectDefinitionType, TableRef } from "../types";
-import {
-  quoteIdentifier as sharedQuoteIdentifier,
-} from "../formatting";
+import { quoteIdentifier as sharedQuoteIdentifier } from "../formatting";
 import { getMySQLFeaturesForConnection } from "@/stores/versionStore";
 import type { MySQLVersionFeatures } from "../utils/versionUtils";
 
@@ -173,10 +174,12 @@ export class MySQLAdapter extends SqlAdapter {
       }
 
       // Add comment to MODIFY COLUMN if provided
-      if (changes.comment !== undefined) {
-        if (changes.comment !== null && changes.comment !== "") {
-          parts.push(`COMMENT ${this.quoteString(changes.comment)}`);
-        }
+      if (
+        changes.comment !== undefined &&
+        changes.comment !== null &&
+        changes.comment !== ""
+      ) {
+        parts.push(`COMMENT ${this.quoteString(changes.comment)}`);
       }
 
       statements.push(`ALTER TABLE ${table} MODIFY COLUMN ${parts.join(" ")}`);
@@ -261,9 +264,41 @@ export class MySQLAdapter extends SqlAdapter {
     );
   }
 
+  /**
+   * MySQL DROP COLUMN - CASCADE is not supported
+   */
+  dropColumn(target: TableRef, columnName: string, _cascade?: boolean): string {
+    const table = this.formatTableRef(target);
+    return `ALTER TABLE ${table} DROP COLUMN ${this.quoteIdentifier(columnName)}`;
+  }
+
   // ─────────────────────────────────────────────────────────────────
   // Index DDL Operations - MySQL syntax
   // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * MySQL CREATE INDEX - USING clause goes after the column list
+   *
+   * MySQL syntax: CREATE [UNIQUE] INDEX name ON table (columns) [USING {BTREE | HASH}]
+   * PostgreSQL syntax: CREATE INDEX name ON table USING method (columns)
+   */
+  createIndex(target: TableRef, definition: IndexDefinitionInput): string {
+    const table = this.formatTableRef(target);
+    const indexName = this.quoteIdentifier(definition.name);
+    const uniqueClause = definition.unique ? "UNIQUE " : "";
+    const columns = definition.columns
+      .map((c) => this.quoteIdentifier(c))
+      .join(", ");
+
+    let sql = `CREATE ${uniqueClause}INDEX ${indexName} ON ${table} (${columns})`;
+
+    // MySQL: USING clause comes after the column list
+    if (definition.using) {
+      sql += ` USING ${definition.using}`;
+    }
+
+    return sql;
+  }
 
   /**
    * MySQL DROP INDEX - version-aware IF EXISTS support
@@ -296,6 +331,25 @@ export class MySQLAdapter extends SqlAdapter {
   // ─────────────────────────────────────────────────────────────────
   // Trigger DDL Operations - MySQL syntax
   // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * MySQL CREATE TRIGGER - uses BEGIN...END body instead of EXECUTE FUNCTION
+   *
+   * MySQL only supports FOR EACH ROW (no STATEMENT level).
+   * The functionName field contains the trigger body SQL.
+   */
+  createTrigger(target: TableRef, definition: TriggerDefinitionInput): string {
+    const table = this.formatTableRef(target);
+    const triggerName = this.quoteIdentifier(definition.name);
+    const timing = definition.timing;
+    const events = definition.events.join(", ");
+
+    let sql = `CREATE TRIGGER ${triggerName} ${timing} ${events} ON ${table}`;
+    sql += ` FOR EACH ROW`;
+    sql += `\nBEGIN\n  ${definition.functionName};\nEND`;
+
+    return sql;
+  }
 
   /**
    * MySQL DROP TRIGGER doesn't use ON table
@@ -923,11 +977,14 @@ GROUP BY Index_name, Non_unique, Table_name, Index_type`;
     )}`;
   }
 
-  renameConstraint(target: TableRef, oldName: string, newName: string): string {
-    const tableName = this.formatTableRef(target);
-    return `ALTER TABLE ${tableName} RENAME CONSTRAINT ${this.quoteIdentifier(
-      oldName,
-    )} TO ${this.quoteIdentifier(newName)}`;
+  renameConstraint(
+    _target: TableRef,
+    _oldName: string,
+    _newName: string,
+  ): string {
+    throw new Error(
+      "MySQL does not support RENAME CONSTRAINT. Drop and recreate the constraint instead.",
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────

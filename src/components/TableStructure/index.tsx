@@ -57,7 +57,7 @@ import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 import { BatchActionsToolbar } from "./BatchActionsToolbar";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
+import { useTableInvalidation } from "@/hooks/useTableInvalidation";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { contextService } from "@/services/contextService";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
@@ -325,30 +325,17 @@ export const TableStructure = memo(function TableStructure({
     [connectionId, database, schema, table],
   );
 
-  useEffect(() => {
-    const unsubscribe = useDataInvalidationStore
-      .getState()
-      .subscribe(
-        connectionId,
-        database,
-        schema ?? "public",
-        table,
-        async () => {
-          await refresh();
-          const { clearCommittedChanges, getTableKey } =
-            useCrudStore.getState();
-          const commitTableKey = getTableKey({
-            connectionId,
-            database,
-            schema: schema ?? "public",
-            table,
-          });
-          clearCommittedChanges(commitTableKey);
-        },
-      );
-
-    return unsubscribe;
-  }, [connectionId, database, schema, table, refresh]);
+  useTableInvalidation(connectionId, database, schema, table, async () => {
+    await refresh();
+    const { clearCommittedChanges, getTableKey } = useCrudStore.getState();
+    const commitTableKey = getTableKey({
+      connectionId,
+      database,
+      schema: schema ?? "public",
+      table,
+    });
+    clearCommittedChanges(commitTableKey);
+  });
 
   // Collect custom/enum types from existing columns
   const customTypes = useMemo(() => {

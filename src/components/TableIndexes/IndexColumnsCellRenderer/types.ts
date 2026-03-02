@@ -3,6 +3,7 @@ import type { CustomCell, GridCellKind } from "@glideapps/glide-data-grid";
 export interface IndexColumnsCellData {
   kind: "index-columns-cell";
   columns: string[];
+  originalColumns?: string[];
   availableColumns: string[];
   requiresRecreate: boolean;
   isLocked: boolean;
