@@ -23,6 +23,9 @@ import { useAcpStore } from "./stores/acpStore";
 import { useByokStore } from "./stores/byokStore";
 import { AcpService } from "./services/acpService";
 import { useAppStore } from "./stores/appStore";
+import { usePreferencesStore } from "./stores/preferencesStore";
+import { getSessionDatabase } from "./lib/db/sessionDb";
+import { windowManager } from "./services/windowManager";
 import { setInstallHandler } from "./utils/appUpdate";
 
 function VaultLoadingScreen() {
@@ -190,8 +193,40 @@ function App() {
               });
             }
           } finally {
-            // Mark vault as ready to show main UI
-            setVaultReady(true);
+            // Check if we should restore previous session instead of showing home
+            let restored = false;
+            const startupBehavior = usePreferencesStore.getState().startupBehavior;
+            if (startupBehavior === "restore") {
+              try {
+                const db = getSessionDatabase();
+                const appState = await db.appState.get("singleton");
+                if (appState?.lastActiveWorkspaceIds.length) {
+                  // Load saved workspaces first so windowManager can look up names
+                  await useWorkspaceBundleStore.getState().loadSavedWorkspaces();
+
+                  const savedWorkspaces = useWorkspaceBundleStore.getState().savedWorkspaces;
+
+                  // Open each workspace window
+                  for (const workspaceId of appState.lastActiveWorkspaceIds) {
+                    const ws = savedWorkspaces.find((w) => w.id === workspaceId);
+                    if (ws) {
+                      await windowManager.openNamedWorkspace(workspaceId, ws.name, {
+                        icon: ws.icon,
+                      });
+                    }
+                  }
+                  // Don't set vaultReady — main window stays hidden, workspace windows open
+                  restored = true;
+                }
+              } catch (error) {
+                logger.error("[App] Failed to restore session:", error);
+              }
+            }
+
+            if (!restored) {
+              // Fall through to normal home screen
+              setVaultReady(true);
+            }
 
             // Initialize LLM home directory and load ACP agents in background (non-blocking)
             void (async () => {
