@@ -193,8 +193,7 @@ function App() {
               });
             }
           } finally {
-            // Check if we should restore previous session instead of showing home
-            let restored = false;
+            // Restore previous session if configured
             const startupBehavior = usePreferencesStore.getState().startupBehavior;
             if (startupBehavior === "restore") {
               try {
@@ -207,7 +206,6 @@ function App() {
                   const savedWorkspaces = useWorkspaceBundleStore.getState().savedWorkspaces;
 
                   // Open each workspace window, restoring saved bounds
-                  let anyOpened = false;
                   for (const workspaceId of appState.lastActiveWorkspaceIds) {
                     const ws = savedWorkspaces.find((w) => w.id === workspaceId);
                     if (ws) {
@@ -218,12 +216,7 @@ function App() {
                         icon: ws.icon,
                         bounds: windowState?.windowBounds,
                       });
-                      anyOpened = true;
                     }
-                  }
-                  // Don't set vaultReady — main window stays hidden, workspace windows open
-                  if (anyOpened) {
-                    restored = true;
                   }
                 }
               } catch (error) {
@@ -231,10 +224,9 @@ function App() {
               }
             }
 
-            if (!restored) {
-              // Fall through to normal home screen
-              setVaultReady(true);
-            }
+            // Always mark vault as ready so the main window can render
+            // when the user navigates back to home from a workspace window
+            setVaultReady(true);
 
             // Initialize LLM home directory and load ACP agents in background (non-blocking)
             void (async () => {
