@@ -499,9 +499,14 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
       case "1":
       case "enable":
       case "enabled":
-      case "prefer":
-      case "allow":
         config.sslMode = SslMode.Require;
+        break;
+      case "allow":
+        config.sslMode = SslMode.Allow;
+        break;
+      case "prefer":
+      case "preferred":
+        config.sslMode = SslMode.Prefer;
         break;
       case "verify-ca":
       case "verify_ca":
@@ -699,24 +704,40 @@ function parseSslModeValue(value: string): SslMode | undefined {
   const normalized = value.trim().toLowerCase();
   switch (normalized) {
     case "disable":
+    case "disabled":
     case "false":
     case "0":
     case "off":
     case "no":
+    case "none":
       return SslMode.Disable;
+    case "allow":
+      return SslMode.Allow;
+    case "prefer":
+    case "preferred":
+      return SslMode.Prefer;
     case "require":
+    case "required":
     case "true":
     case "1":
     case "on":
     case "yes":
+    case "enable":
+    case "enabled":
       return SslMode.Require;
     case "verify-ca":
     case "verify_ca":
     case "verifyca":
+    case "verify_ca_cert":
+    case "verifyca_cert":
       return SslMode.VerifyCa;
     case "verify-full":
     case "verify_full":
     case "verifyfull":
+    case "verify-identity":
+    case "verify_identity":
+    case "verifyidentity":
+    case "strict":
       return SslMode.VerifyFull;
     default:
       return undefined;

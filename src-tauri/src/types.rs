@@ -110,6 +110,8 @@ impl DbType {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum SslMode {
     Disable,
+    Allow,
+    Prefer,
     Require,
     VerifyCa,
     VerifyFull,

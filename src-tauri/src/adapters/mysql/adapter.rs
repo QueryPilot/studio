@@ -127,7 +127,11 @@ impl MySqlAdapter {
         // SSL configuration
         if let Some(ssl_mode) = &profile.ssl_mode {
             match ssl_mode {
-                SslMode::Require | SslMode::VerifyCa | SslMode::VerifyFull => {
+                SslMode::Allow
+                | SslMode::Prefer
+                | SslMode::Require
+                | SslMode::VerifyCa
+                | SslMode::VerifyFull => {
                     let mut ssl_opts = SslOpts::default();
 
                     // Apply SSL CA certificate if provided
@@ -140,9 +144,32 @@ impl MySqlAdapter {
                         // For PEM cert/key files, users need to convert to PKCS12 first
                     }
 
-                    // For verify modes, enable hostname verification
-                    if matches!(ssl_mode, SslMode::VerifyFull) {
-                        ssl_opts = ssl_opts.with_danger_accept_invalid_certs(false);
+                    // Dialect-aware TLS verification levels:
+                    // - allow/prefer/require: encrypt but skip certificate and hostname validation
+                    // - verify-ca: validate certificate chain, skip hostname validation
+                    // - verify-full: validate both certificate chain and hostname
+                    ssl_opts = match ssl_mode {
+                        SslMode::Allow | SslMode::Prefer | SslMode::Require => ssl_opts
+                            .with_danger_accept_invalid_certs(true)
+                            .with_danger_skip_domain_validation(true),
+                        SslMode::VerifyCa => ssl_opts
+                            .with_danger_accept_invalid_certs(false)
+                            .with_danger_skip_domain_validation(true),
+                        SslMode::VerifyFull => ssl_opts
+                            .with_danger_accept_invalid_certs(false)
+                            .with_danger_skip_domain_validation(false),
+                        SslMode::Disable => unreachable!("disable handled in separate match arm"),
+                    };
+
+                    if matches!(ssl_mode, SslMode::Allow | SslMode::Prefer) {
+                        tracing::warn!(
+                            "MySQL sslmode={} currently maps to encrypted connections without fallback to plaintext if TLS is unavailable",
+                            match ssl_mode {
+                                SslMode::Allow => "allow",
+                                SslMode::Prefer => "prefer",
+                                _ => "unknown",
+                            }
+                        );
                     }
 
                     builder = builder.ssl_opts(ssl_opts);

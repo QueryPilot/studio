@@ -110,6 +110,8 @@ export type SafeMode = "read_only" | "read_write" | "read_write_update" | "full_
 
 export enum SslMode {
   Disable = "Disable",
+  Allow = "Allow",
+  Prefer = "Prefer",
   Require = "Require",
   VerifyCa = "VerifyCa",
   VerifyFull = "VerifyFull",

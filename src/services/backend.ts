@@ -17,6 +17,8 @@ export enum DbType {
 
 export enum SslMode {
   Disable = "Disable",
+  Allow = "Allow",
+  Prefer = "Prefer",
   Require = "Require",
   VerifyCa = "VerifyCa",
   VerifyFull = "VerifyFull",

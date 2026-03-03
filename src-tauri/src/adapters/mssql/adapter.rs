@@ -48,6 +48,7 @@ impl MssqlAdapter {
         config.host(&profile.host);
         config.port(profile.port);
         config.database(&profile.database);
+        let mut trust_server_certificate_override: Option<bool> = None;
 
         // Authentication - check for Windows auth option
         let use_windows_auth = profile
@@ -84,8 +85,11 @@ impl MssqlAdapter {
                     config.instance_name(value);
                 }
                 "trust_cert" | "trustservercertificate" => {
-                    if value.to_lowercase() == "true" || value == "1" {
-                        config.trust_cert();
+                    let normalized = value.to_lowercase();
+                    if normalized == "true" || value == "1" {
+                        trust_server_certificate_override = Some(true);
+                    } else if normalized == "false" || value == "0" {
+                        trust_server_certificate_override = Some(false);
                     }
                 }
                 _ => {
@@ -99,6 +103,10 @@ impl MssqlAdapter {
             Some(SslMode::Disable) => {
                 config.encryption(EncryptionLevel::NotSupported);
             }
+            Some(SslMode::Allow) | Some(SslMode::Prefer) => {
+                // SQL Server uses opportunistic encryption when level is Off.
+                config.encryption(EncryptionLevel::Off);
+            }
             Some(SslMode::Require) | Some(SslMode::VerifyCa) | Some(SslMode::VerifyFull) => {
                 config.encryption(EncryptionLevel::Required);
             }
@@ -108,9 +116,13 @@ impl MssqlAdapter {
             }
         }
 
-        // Trust the server certificate by default (useful for development)
-        // Can be overridden via options above
-        config.trust_cert();
+        let default_trust_server_cert = !matches!(
+            profile.ssl_mode,
+            Some(SslMode::VerifyCa) | Some(SslMode::VerifyFull)
+        );
+        if trust_server_certificate_override.unwrap_or(default_trust_server_cert) {
+            config.trust_cert();
+        }
 
         Ok(config)
     }

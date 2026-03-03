@@ -501,6 +501,8 @@ mod connection_types_tests {
     fn test_ssl_mode_variants() {
         let modes = vec![
             SslMode::Disable,
+            SslMode::Allow,
+            SslMode::Prefer,
             SslMode::Require,
             SslMode::VerifyCa,
             SslMode::VerifyFull,
