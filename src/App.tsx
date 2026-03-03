@@ -206,12 +206,16 @@ function App() {
 
                   const savedWorkspaces = useWorkspaceBundleStore.getState().savedWorkspaces;
 
-                  // Open each workspace window
+                  // Open each workspace window, restoring saved bounds
                   for (const workspaceId of appState.lastActiveWorkspaceIds) {
                     const ws = savedWorkspaces.find((w) => w.id === workspaceId);
                     if (ws) {
+                      const windowState = appState.windowStates.find(
+                        (s) => s.workspaceId === workspaceId,
+                      );
                       await windowManager.openNamedWorkspace(workspaceId, ws.name, {
                         icon: ws.icon,
+                        bounds: windowState?.windowBounds,
                       });
                     }
                   }
