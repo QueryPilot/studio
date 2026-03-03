@@ -124,7 +124,7 @@ export function WorkspaceTitleBar({
 
   const { toggleSidebar: onToggleSidebar } = useWorkspaceScreenStore();
   const { openPreferences } = usePreferencesStore();
-  const saveConnectionLayout = useWorkbenchStore((s) => s.saveConnectionLayout);
+  const flushLayout = useWorkbenchStore((s) => s.flushLayout);
   const {
     stagedCommands,
     commitAll,
@@ -689,7 +689,7 @@ export function WorkspaceTitleBar({
 
       const persistenceScopeId = activeWorkspace?.config.id ?? connectionId;
       if (persistenceScopeId) {
-        saveConnectionLayout(persistenceScopeId);
+        flushLayout(persistenceScopeId);
       }
 
       // Disconnect from the current database (with timeout to prevent freeze on dead connections)

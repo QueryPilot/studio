@@ -146,12 +146,14 @@ export function WorkspacesSection() {
     }
   };
 
-  // Sort by lastOpenedAt
-  const sortedWorkspaces = [...savedWorkspaces].sort((a, b) => {
-    const aTime = a.lastOpenedAt ? new Date(a.lastOpenedAt).getTime() : 0;
-    const bTime = b.lastOpenedAt ? new Date(b.lastOpenedAt).getTime() : 0;
-    return bTime - aTime;
-  });
+  // Filter out auto-created workspaces and sort by lastOpenedAt
+  const sortedWorkspaces = [...savedWorkspaces]
+    .filter((ws) => !ws.autoCreated)
+    .sort((a, b) => {
+      const aTime = a.lastOpenedAt ? new Date(a.lastOpenedAt).getTime() : 0;
+      const bTime = b.lastOpenedAt ? new Date(b.lastOpenedAt).getTime() : 0;
+      return bTime - aTime;
+    });
 
   const handleCreateWorkspace = async () => {
     if (!newWorkspaceName.trim()) {
