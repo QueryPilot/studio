@@ -57,6 +57,23 @@ describe("generateMermaidERD", () => {
     expect(result.trim()).toBe("erDiagram");
   });
 
+  it("sanitizes column types with special characters", () => {
+    const tables: TableStructure[] = [
+      makeTable({
+        name: "orders",
+        columns: [
+          { name: "status", db_type: "enum('pending','confirmed','shipped')", nullable: false, is_pk: false, is_fk: false, ordinal: 1, default: null },
+          { name: "note", db_type: "character varying(255)", nullable: true, is_pk: false, is_fk: false, ordinal: 2, default: null },
+        ],
+      }),
+    ];
+
+    const result = generateMermaidERD(tables);
+    expect(result).toContain("enum(pendingconfirmedshipped) status");
+    expect(result).toContain("charactervarying(255) note");
+    expect(result).not.toContain("'");
+  });
+
   it("only includes relationships where both tables are present", () => {
     const tables: TableStructure[] = [
       makeTable({
