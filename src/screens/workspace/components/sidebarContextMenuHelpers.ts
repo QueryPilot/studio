@@ -86,16 +86,6 @@ export function canTruncate(selectedTypes: SidebarSelectedTypes): boolean {
   return isTablesOnly || isCollectionsOnly(selectedTypes);
 }
 
-export function canDuplicate(selectedTypes: SidebarSelectedTypes): boolean {
-  return (
-    selectedTypes.tables === 1 &&
-    selectedTypes.views === 0 &&
-    selectedTypes.materializedViews === 0 &&
-    selectedTypes.functions === 0 &&
-    selectedTypes.collections === 0
-  );
-}
-
 export function canDelete(selectedTypes: SidebarSelectedTypes): boolean {
   if (totalSelected(selectedTypes) === 0) return false;
 

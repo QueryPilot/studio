@@ -6,7 +6,6 @@ import {
   buildRedisDatabaseDefinition,
   buildRedisSelectCommand,
   canCopyDefinition,
-  canDuplicate,
   canDelete,
   canTruncate,
   getSqlTruncateOptionSupport,
@@ -93,38 +92,6 @@ describe("sidebarContextMenuHelpers", () => {
         materializedViews: 0,
         functions: 0,
         collections: 0,
-      }),
-    ).toBe(false);
-  });
-
-  it("enables duplicate only for exactly one table selection", () => {
-    expect(
-      canDuplicate({
-        tables: 1,
-        views: 0,
-        materializedViews: 0,
-        functions: 0,
-        collections: 0,
-      }),
-    ).toBe(true);
-
-    expect(
-      canDuplicate({
-        tables: 2,
-        views: 0,
-        materializedViews: 0,
-        functions: 0,
-        collections: 0,
-      }),
-    ).toBe(false);
-
-    expect(
-      canDuplicate({
-        tables: 1,
-        views: 0,
-        materializedViews: 0,
-        functions: 0,
-        collections: 1,
       }),
     ).toBe(false);
   });
