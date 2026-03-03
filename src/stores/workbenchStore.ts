@@ -21,6 +21,7 @@ import {
   findNodePath,
 } from "@/utils/workbenchTree";
 import { clearTabCache } from "@/lib/cacheManager";
+import { getSessionDatabase } from "@/lib/db/sessionDb";
 
 interface WorkbenchStore {
   layoutTree: GridNode | null;
@@ -72,6 +73,11 @@ interface WorkbenchStore {
   // Per-connection layout persistence (localStorage)
   saveConnectionLayout: (connectionId: string) => void;
   restoreConnectionLayout: (connectionId: string) => boolean;
+
+  // IndexedDB layout persistence
+  persistLayout: (workspaceId: string) => Promise<void>;
+  loadLayout: (workspaceId: string) => Promise<boolean>;
+  flushLayout: (workspaceId: string) => void;
 }
 
 const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
@@ -830,6 +836,66 @@ const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
         localStorage.removeItem(key);
         return false;
       }
+    },
+
+    // IndexedDB layout persistence
+    persistLayout: async (workspaceId) => {
+      const { layoutTree, panelContents } = get();
+      if (!layoutTree) return;
+      try {
+        const db = getSessionDatabase();
+        await db.workspaceLayouts.put({
+          workspaceId,
+          layoutTree,
+          panelContents: Array.from(panelContents.entries()),
+          savedAt: Date.now(),
+          lastActiveAt: Date.now(),
+        });
+      } catch (error) {
+        console.error("[workbenchStore] Failed to persist layout:", error);
+      }
+    },
+
+    loadLayout: async (workspaceId) => {
+      try {
+        const db = getSessionDatabase();
+        const saved = await db.workspaceLayouts.get(workspaceId);
+        if (!saved?.layoutTree) return false;
+
+        const panelContentsMap = new Map(saved.panelContents);
+
+        // Validate: collect leaf IDs from tree
+        const leafIds = new Set<string>();
+        const collectLeafIds = (node: GridNode) => {
+          if (node.type === "leaf") leafIds.add(node.id);
+          else node.children?.forEach(collectLeafIds);
+        };
+        collectLeafIds(saved.layoutTree);
+        if (leafIds.size === 0) return false;
+
+        set({
+          layoutTree: saved.layoutTree,
+          panelContents: panelContentsMap,
+          layoutHistory: [saved.layoutTree],
+          historyIndex: 0,
+        });
+
+        // Focus first panel
+        const firstPanelId = Array.from(panelContentsMap.keys())[0];
+        if (firstPanelId) {
+          usePanelFocusStore.getState().focusPanel(firstPanelId);
+        }
+
+        return true;
+      } catch (error) {
+        console.error("[workbenchStore] Failed to load layout:", error);
+        return false;
+      }
+    },
+
+    flushLayout: (workspaceId) => {
+      // Fire and forget — best effort on unmount
+      get().persistLayout(workspaceId);
     },
   }),
 );
