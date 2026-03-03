@@ -130,7 +130,7 @@ interface QueryState {
 
   // Pinned result support
   pinnedResult?: QueryResult | null; // Pinned query result
-  pinnedResultQuery?: string; // SQL query that produced the pinned result
+  pinnedResultQuery?: string | null; // SQL query that produced the pinned result
 
   // Saved EXPLAIN plans for comparison
   savedExplainPlans?: SavedExplainPlan[];
@@ -383,7 +383,7 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         newStates.set(tabId, {
           ...existing,
           pinnedResult: null,
-          pinnedResultQuery: undefined,
+          pinnedResultQuery: null,
         });
       }
       return { queryStates: newStates };
@@ -398,7 +398,7 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         newStates.set(tabId, {
           ...existing,
           pinnedResult: null,
-          pinnedResultQuery: undefined,
+          pinnedResultQuery: null,
         });
       }
       return { queryStates: newStates };

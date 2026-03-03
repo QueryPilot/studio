@@ -461,12 +461,24 @@ export function WorkspaceTitleBar({
 
   // Get workspace bundle store for window title and workspace actions
   const getWindowTitle = useWorkspaceBundleStore((s) => s.getWindowTitle);
-  const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
+  // Granular selectors — avoid re-rendering title bar on every connection status change
+  const isAutoCreated = useWorkspaceBundleStore(
+    (s) => s.activeWorkspace?.config.autoCreated ?? true,
+  );
+  const workspaceConfigId = useWorkspaceBundleStore(
+    (s) => s.activeWorkspace?.config.id ?? null,
+  );
+  const workspaceName = useWorkspaceBundleStore(
+    (s) => s.activeWorkspace?.config.name ?? null,
+  );
+  const workspaceConnectionCount = useWorkspaceBundleStore(
+    (s) => s.activeWorkspace?.config.connectionIds.length ?? 0,
+  );
 
   // Update document title with unsaved changes indicator and workspace name
   useEffect(() => {
     // If in a named (non-auto-created) workspace, use workspace title
-    if (activeWorkspace && !activeWorkspace.config.autoCreated) {
+    if (!isAutoCreated) {
       document.title = getWindowTitle();
     } else {
       // Fallback to database name for single connection or auto-created workspace
@@ -483,7 +495,7 @@ export function WorkspaceTitleBar({
     totalChanges,
     selectedDatabase,
     connection?.database,
-    activeWorkspace,
+    isAutoCreated,
     getWindowTitle,
   ]);
 
@@ -688,7 +700,7 @@ export function WorkspaceTitleBar({
     try {
       logger.info("Going home from workspace:", connectionId);
 
-      const persistenceScopeId = activeWorkspace?.config.id ?? connectionId;
+      const persistenceScopeId = workspaceConfigId ?? connectionId;
       if (persistenceScopeId) {
         flushLayout(persistenceScopeId);
       }
@@ -879,31 +891,31 @@ export function WorkspaceTitleBar({
       {/* Center Section - Absolute positioning for true center, shrinks when space is limited */}
       <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-1.5 text-xs max-w-[50%] min-w-0 select-none">
         {/* Workspace Name (if named, multi-connection workspace) */}
-        {activeWorkspace && !activeWorkspace.config.autoCreated && activeWorkspace.config.connectionIds.length > 1 ? (
+        {!isAutoCreated && workspaceConnectionCount > 1 ? (
           <>
             <span
               className="font-medium text-xs truncate"
               data-tauri-drag-region
             >
-              {activeWorkspace.config.name}
+              {workspaceName}
             </span>
             <span
               className="text-muted-foreground whitespace-nowrap text-[10px]"
               data-tauri-drag-region
             >
-              {activeWorkspace.config.connectionIds.length} connections
+              {workspaceConnectionCount} connections
             </span>
           </>
         ) : (
           <>
             {/* Single-connection workspace: show workspace name if named */}
-            {activeWorkspace && !activeWorkspace.config.autoCreated && (
+            {!isAutoCreated && (
               <>
                 <span
                   className="font-medium text-xs truncate"
                   data-tauri-drag-region
                 >
-                  {activeWorkspace.config.name}
+                  {workspaceName}
                 </span>
                 <div
                   className="h-3 w-px bg-border shrink-0"
@@ -920,7 +932,7 @@ export function WorkspaceTitleBar({
               <span
                 className={cn(
                   "text-xs truncate",
-                  activeWorkspace?.config.autoCreated
+                  isAutoCreated
                     ? "font-medium"
                     : "text-muted-foreground",
                 )}

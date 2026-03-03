@@ -46,12 +46,21 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
   const persistLayout = useWorkbenchStore((s) => s.persistLayout);
   const loadLayout = useWorkbenchStore((s) => s.loadLayout);
   const flushLayout = useWorkbenchStore((s) => s.flushLayout);
-  const panelContents = useWorkbenchStore((s) => s.panelContents);
   const activeWorkspaceId = useWorkspaceBundleStore(
     (s) => s.activeWorkspace?.config.id ?? null,
   );
+  // Stable content fingerprint — only changes on structural tab changes (add/remove/reorder/switch),
+  // NOT on every keystroke or metadata update. Prevents IndexedDB write storms.
+  const contentFingerprint = useWorkbenchStore((s) => {
+    let fp = "";
+    s.panelContents.forEach((content, panelId) => {
+      fp += `${panelId}:${content.activeTabId ?? ""}:${content.tabIds.join(",")}|`;
+    });
+    return fp;
+  });
   const initializedScopeRef = useRef<string | null>(null);
   const saveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const justLoadedRef = useRef(false);
   const latestScopeRef = useRef<string | null>(null);
   const hasLayoutRef = useRef(false);
   const layoutScopeId = activeWorkspaceId ?? connectionId ?? null;
@@ -81,7 +90,8 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
     initializedScopeRef.current = layoutScopeId;
 
     // Async load from IndexedDB
-    loadLayout(layoutScopeId).then((restored) => {
+    justLoadedRef.current = true;
+    void loadLayout(layoutScopeId).then((restored) => {
       if (!restored) {
         initializeLayout();
       }
@@ -90,6 +100,12 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
 
   useEffect(() => {
     if (!layoutScopeId || !layoutTree) return;
+
+    // Skip the first save cycle after a load to avoid writing back what we just read
+    if (justLoadedRef.current) {
+      justLoadedRef.current = false;
+      return;
+    }
 
     if (saveDebounceTimerRef.current) {
       clearTimeout(saveDebounceTimerRef.current);
@@ -104,7 +120,7 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
         clearTimeout(saveDebounceTimerRef.current);
       }
     };
-  }, [layoutScopeId, layoutTree, panelContents, persistLayout]);
+  }, [layoutScopeId, layoutTree, contentFingerprint, persistLayout]);
 
   useEffect(() => {
     latestScopeRef.current = layoutScopeId;
