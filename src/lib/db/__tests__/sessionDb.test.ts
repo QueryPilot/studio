@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import "fake-indexeddb/auto";
 import {
   getSessionDatabase,
   type PersistedWorkspaceLayout,
   type PersistedAppState,
+  type PersistedTabState,
 } from "../sessionDb";
 
 describe("sessionDb", () => {
@@ -99,10 +99,11 @@ describe("sessionDb", () => {
     it("should persist and load a tab state by tabId", async () => {
       const db = getSessionDatabase();
 
-      await db.tabStates.put({ tabId: "tab-1", data: "some state" } as never);
+      const tabState: PersistedTabState = { tabId: "tab-1", query: "SELECT 1" };
+      await db.tabStates.put(tabState);
 
       const loaded = await db.tabStates.get("tab-1");
-      expect(loaded).toBeDefined();
+      expect(loaded?.tabId).toBe("tab-1");
     });
   });
 
