@@ -22,6 +22,8 @@ export interface WorkspaceConfig {
   icon?: string;
   /** Optional tags for organization */
   tags?: string[];
+  /** Whether this workspace was auto-created (e.g., from a single connection open) */
+  autoCreated?: boolean;
 
   /** Ordered list of connection profile IDs (supports drag-reorder) */
   connectionIds: string[];
@@ -32,7 +34,7 @@ export interface WorkspaceConfig {
     {
       database: string;
       schema: string;
-      /** Per-connection tab layout - restored when switching between connections */
+      /** @deprecated Per-connection tab layout - will be removed in a future release. Use workbench layout instead. */
       tabLayout?: {
         layoutTree: GridNode;
         panelContents: Array<[string, PanelContent]>;
@@ -40,7 +42,7 @@ export interface WorkspaceConfig {
     }
   >;
 
-  /** Global tab layout state - for workspace-level save (deprecated, use per-connection) */
+  /** @deprecated Global tab layout state - will be removed in a future release. Use workbench layout instead. */
   tabLayout?: {
     layoutTree: GridNode;
     panelContents: Array<[string, PanelContent]>;
@@ -76,7 +78,7 @@ export interface OpenConnection {
 export interface ActiveWorkspace {
   /** The persisted workspace configuration */
   config: WorkspaceConfig;
-  /** True if this is a temporary workspace (single connection, not saved) */
+  /** @deprecated Use `config.autoCreated` instead. Will be removed in a future release. */
   isTemporary: boolean;
   /** Map of connectionId -> OpenConnection runtime state */
   connections: Map<string, OpenConnection>;
