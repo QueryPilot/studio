@@ -41,10 +41,9 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
   const layoutTree = useWorkbenchStore((s) => s.layoutTree);
   const setConnectionId = useWorkbenchStore((s) => s.setConnectionId);
   const initializeLayout = useWorkbenchStore((s) => s.initializeLayout);
-  const saveConnectionLayout = useWorkbenchStore((s) => s.saveConnectionLayout);
-  const restoreConnectionLayout = useWorkbenchStore(
-    (s) => s.restoreConnectionLayout,
-  );
+  const persistLayout = useWorkbenchStore((s) => s.persistLayout);
+  const loadLayout = useWorkbenchStore((s) => s.loadLayout);
+  const flushLayout = useWorkbenchStore((s) => s.flushLayout);
   const panelContents = useWorkbenchStore((s) => s.panelContents);
   const activeWorkspaceId = useWorkspaceBundleStore(
     (s) => s.activeWorkspace?.config.id ?? null,
@@ -75,44 +74,35 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
       return;
     }
 
-    if (initializedScopeRef.current === layoutScopeId) {
-      if (!layoutTree) {
+    if (initializedScopeRef.current === layoutScopeId) return;
+
+    initializedScopeRef.current = layoutScopeId;
+
+    // Async load from IndexedDB
+    loadLayout(layoutScopeId).then((restored) => {
+      if (!restored) {
         initializeLayout();
       }
-      return;
-    }
-
-    const restored = restoreConnectionLayout(layoutScopeId);
-    if (!restored) {
-      initializeLayout();
-    }
-    initializedScopeRef.current = layoutScopeId;
-  }, [
-    initializeLayout,
-    layoutScopeId,
-    layoutTree,
-    restoreConnectionLayout,
-  ]);
+    });
+  }, [layoutScopeId, loadLayout, initializeLayout]);
 
   useEffect(() => {
     if (!layoutScopeId || !layoutTree) return;
 
     if (saveDebounceTimerRef.current) {
       clearTimeout(saveDebounceTimerRef.current);
-      saveDebounceTimerRef.current = null;
     }
 
     saveDebounceTimerRef.current = setTimeout(() => {
-      saveConnectionLayout(layoutScopeId);
-    }, 250);
+      persistLayout(layoutScopeId);
+    }, 500);
 
     return () => {
       if (saveDebounceTimerRef.current) {
         clearTimeout(saveDebounceTimerRef.current);
-        saveDebounceTimerRef.current = null;
       }
     };
-  }, [layoutScopeId, layoutTree, panelContents, saveConnectionLayout]);
+  }, [layoutScopeId, layoutTree, panelContents, persistLayout]);
 
   useEffect(() => {
     latestScopeRef.current = layoutScopeId;
@@ -121,17 +111,12 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
 
   useEffect(() => {
     return () => {
-      if (saveDebounceTimerRef.current) {
-        clearTimeout(saveDebounceTimerRef.current);
-        saveDebounceTimerRef.current = null;
-      }
-
       const scopeId = latestScopeRef.current;
       if (scopeId && hasLayoutRef.current) {
-        saveConnectionLayout(scopeId);
+        flushLayout(scopeId);
       }
     };
-  }, [saveConnectionLayout]);
+  }, [flushLayout]);
 
   if (!layoutTree) {
     return (
