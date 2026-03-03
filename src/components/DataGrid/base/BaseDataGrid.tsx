@@ -113,8 +113,8 @@ const MAX_INSPECTOR_ROWS = 200;
 const GRID_EDITOR_SELECTOR =
   '[data-slot="grid-editor"], .gdg-editor-shell, .click-outside-ignore';
 
-const isTextInputElement = (element: HTMLElement | null): boolean => {
-  if (!element) return false;
+const isTextInputElement = (element: EventTarget | null): boolean => {
+  if (!(element instanceof HTMLElement)) return false;
   return (
     element.tagName === "INPUT" ||
     element.tagName === "TEXTAREA" ||
@@ -122,8 +122,10 @@ const isTextInputElement = (element: HTMLElement | null): boolean => {
   );
 };
 
-const isEditorOverlayElement = (element: HTMLElement | null): boolean =>
-  Boolean(element?.closest(GRID_EDITOR_SELECTOR));
+const isEditorOverlayElement = (element: EventTarget | null): boolean => {
+  if (!(element instanceof Element)) return false;
+  return Boolean(element.closest(GRID_EDITOR_SELECTOR));
+};
 
 // Stable theme objects to avoid allocating new objects per staged cell render
 const STAGED_CELL_THEME = {
@@ -2815,6 +2817,12 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         return;
       }
 
+      // While a cell editor is active, never let grid-level shortcuts
+      // steal focus/ownership from the editor surface.
+      if (isEditingCellRef.current || isCellEditorActive()) {
+        return;
+      }
+
       // Cmd/Ctrl + F -> focus quick filter
       if (isMod && key === "f") {
         event.preventDefault();
@@ -2839,11 +2847,6 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         event.preventDefault();
         event.stopPropagation();
         void copySelection(selection, event.shiftKey ? "json" : "text");
-        return;
-      }
-
-      // Guard remaining shortcuts against cell editing
-      if (isEditingCellRef.current || isCellEditorActive()) {
         return;
       }
 

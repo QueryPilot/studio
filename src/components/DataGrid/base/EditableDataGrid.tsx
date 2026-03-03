@@ -47,6 +47,18 @@ const isRowInsertEvent = (value: unknown): value is GridRowInsertEvent =>
   Array.isArray((value as GridRowInsertEvent).rows) &&
   typeof (value as GridRowInsertEvent).index === "number";
 
+const GRID_EDITOR_SELECTOR =
+  '[data-slot="grid-editor"], .gdg-editor-shell, .click-outside-ignore';
+
+const isTextInputElement = (element: EventTarget | null): boolean => {
+  if (!(element instanceof HTMLElement)) return false;
+  return (
+    element.tagName === "INPUT" ||
+    element.tagName === "TEXTAREA" ||
+    element.isContentEditable
+  );
+};
+
 const createDefaultDraftRow = (columns: GridColumnV2[]): GridRowModel => {
   return columns.reduce<GridRowModel>((acc, column) => {
     const cell: CellValue = {
@@ -312,23 +324,32 @@ export const EditableDataGrid = forwardRef<
       // Never intercept keys while command palette is open
       if (contextService.getValue("inQuickOpen")) return;
 
-      // Don't intercept when focus is on a real text input (e.g. inspector search)
-      const target = e.target as HTMLElement | null;
+      const target = e.target;
+      const activeElement = document.activeElement;
+
+      // Never intercept while a cell editor (or editor portal content) is active.
       if (
-        target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
+        (target instanceof Element && target.closest(GRID_EDITOR_SELECTOR)) ||
+        (activeElement instanceof Element &&
+          activeElement.closest(GRID_EDITOR_SELECTOR)) ||
+        editingCellRef.current
       ) {
         return;
       }
+
+      // Don't intercept when focus is on a real text input (e.g. inspector search)
+      if (isTextInputElement(target)) {
+        return;
+      }
+
+      // Nothing to do if row deletion isn't supported.
+      if (!onRowDelete) return;
 
       // Primary focus signal: focused-grid registry (works even when canvas focus is transient)
       const focusedGridId = dataGridRegistry.getFocused()?.id;
       const isFocusedByRegistry = focusedGridId === tableKey;
 
       // Fallback for cases where registry wasn't updated yet
-      const activeElement = document.activeElement;
       const isFocusedByDom =
         !!wrapperRef.current?.contains(activeElement) ||
         activeElement === wrapperRef.current;
@@ -345,7 +366,6 @@ export const EditableDataGrid = forwardRef<
       e.stopPropagation();
 
       const rowIndex = currentCell[1];
-      if (!onRowDelete) return;
 
       const row = rows[rowIndex];
       if (!row) return;
