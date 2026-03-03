@@ -21,6 +21,8 @@ const baseProps = {
   onExportDataInsert: vi.fn(),
   onExportDataMarkdown: vi.fn(),
   onExportDefinition: vi.fn(),
+  onExportDefinitionDBML: vi.fn(),
+  onExportDefinitionMermaid: vi.fn(),
   onCopyName: vi.fn(),
   onPin: vi.fn(),
   onViewData: vi.fn(),
@@ -51,6 +53,8 @@ describe("DatabaseSidebarContextMenu export submenus", () => {
     expect(screen.queryByText("SQL")).not.toBeInTheDocument();
     fireEvent.mouseEnter(screen.getByText("Export Definition"));
     expect(screen.getByText("SQL")).toBeInTheDocument();
+    expect(screen.getByText("DBML")).toBeInTheDocument();
+    expect(screen.getByText("Mermaid ERD")).toBeInTheDocument();
   });
 
   it("shows View Data for collection selections", () => {
@@ -100,23 +104,6 @@ describe("DatabaseSidebarContextMenu export submenus", () => {
 
     fireEvent.click(truncateButton);
     expect(onTruncate).toHaveBeenCalledOnce();
-  });
-
-  it("enables duplicate for single-table selection when wired", () => {
-    const onDuplicate = vi.fn();
-    render(
-      <DatabaseSidebarContextMenu
-        {...baseProps}
-        onCopyDefinition={vi.fn()}
-        onDuplicate={onDuplicate}
-      />,
-    );
-
-    const duplicateButton = screen.getByRole("button", { name: "Duplicate" });
-    expect(duplicateButton).toBeEnabled();
-
-    fireEvent.click(duplicateButton);
-    expect(onDuplicate).toHaveBeenCalledOnce();
   });
 
   it("positions menu above cursor when bottom space is insufficient", async () => {
@@ -184,9 +171,6 @@ describe("DatabaseSidebarContextMenu export submenus", () => {
     const copyDefinition = screen.getByRole("button", {
       name: "Copy Definition (coming soon)",
     });
-    const duplicate = screen.getByRole("button", {
-      name: "Duplicate (coming soon)",
-    });
     const truncate = screen.getByRole("button", {
       name: "Truncate... (coming soon)",
     });
@@ -195,7 +179,6 @@ describe("DatabaseSidebarContextMenu export submenus", () => {
     });
 
     expect(copyDefinition).toBeDisabled();
-    expect(duplicate).toBeDisabled();
     expect(truncate).toBeDisabled();
     expect(deleteAction).toBeDisabled();
   });

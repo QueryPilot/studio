@@ -45,6 +45,8 @@ interface ContextMenuProps {
   onExportDataInsert?: () => void;
   onExportDataMarkdown?: () => void;
   onExportDefinition?: () => void;
+  onExportDefinitionDBML?: () => void;
+  onExportDefinitionMermaid?: () => void;
   onCopyName: () => void;
   onCopyDefinition?: () => void;
   onPin: () => void;
@@ -55,7 +57,6 @@ interface ContextMenuProps {
   onViewIndexes?: () => void;
   onViewTriggers?: () => void;
   onViewDefinition?: () => void;
-  onDuplicate?: () => void;
   onRefreshMaterializedView?: () => void | Promise<void>;
 }
 
@@ -82,6 +83,8 @@ export function DatabaseSidebarContextMenu({
   onExportDataInsert,
   onExportDataMarkdown,
   onExportDefinition,
+  onExportDefinitionDBML,
+  onExportDefinitionMermaid,
   onCopyName,
   onCopyDefinition,
   onPin,
@@ -92,7 +95,6 @@ export function DatabaseSidebarContextMenu({
   onViewIndexes,
   onViewTriggers,
   onViewDefinition,
-  onDuplicate,
   onRefreshMaterializedView,
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -394,6 +396,18 @@ export function DatabaseSidebarContextMenu({
           label="SQL"
           onClick={withClose(onExportDefinition ?? (() => {}))}
         />
+        <MenuItem
+          icon={<IconFileText />}
+          label="DBML"
+          onClick={withClose(onExportDefinitionDBML ?? (() => {}))}
+          disabled={!onExportDefinitionDBML}
+        />
+        <MenuItem
+          icon={<IconFileText />}
+          label="Mermaid ERD"
+          onClick={withClose(onExportDefinitionMermaid ?? (() => {}))}
+          disabled={!onExportDefinitionMermaid}
+        />
       </MenuSub>
 
       <ContextMenuSeparator className="mx-0" />
@@ -448,21 +462,6 @@ export function DatabaseSidebarContextMenu({
                 : undefined
             }
             disabled={!onRefreshMaterializedView}
-          />
-          <ContextMenuSeparator className="mx-0" />
-        </>
-      )}
-
-      {/* SQL Operations - only for tables */}
-      {hasOnlyTables && selectedCount === 1 && (
-        <>
-          <MenuItem
-            icon={<IconCopy />}
-            label={
-              onDuplicate ? "Duplicate" : "Duplicate (coming soon)"
-            }
-            onClick={onDuplicate ? withClose(onDuplicate) : undefined}
-            disabled={!onDuplicate}
           />
           <ContextMenuSeparator className="mx-0" />
         </>
