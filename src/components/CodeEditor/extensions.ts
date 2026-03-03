@@ -3,7 +3,6 @@ import { Prec } from "@codemirror/state";
 import {
   keymap,
   EditorView,
-  ViewPlugin,
   lineNumbers,
   highlightActiveLineGutter,
   highlightActiveLine,
@@ -56,49 +55,6 @@ import { createSqlHoverExtension } from "./languages/sql/hover";
 import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";
 import { createExpandStarExtension } from "./languages/sql/code-actions";
 import { getQueryAtCursor, isDestructiveQuery } from "./core";
-
-// Adds title attributes (native tooltips) to search panel buttons/labels
-const searchPanelTooltips = ViewPlugin.fromClass(
-  class {
-    applied = false;
-
-    update() {
-      // Re-check every update in case panel was toggled
-      requestAnimationFrame(() => this.inject());
-    }
-
-    inject() {
-      const panel = document.querySelector(".cm-panel.cm-search");
-      if (!panel) {
-        this.applied = false;
-        return;
-      }
-      if (this.applied) return;
-
-      const btnMap: Record<string, string> = {
-        next: "Next Match",
-        prev: "Previous Match",
-        select: "Select All Matches",
-        replace: "Replace",
-        replaceAll: "Replace All",
-        close: "Close (Escape)",
-      };
-
-      for (const [name, title] of Object.entries(btnMap)) {
-        const btn = panel.querySelector(`button[name="${name}"]`);
-        if (btn && !btn.hasAttribute("title")) btn.setAttribute("title", title);
-      }
-
-      const labelTitles = ["Match Case", "Regular Expression", "Match Whole Word"];
-      panel.querySelectorAll("label").forEach((label, i) => {
-        const tip = labelTitles[i];
-        if (tip && !label.hasAttribute("title")) label.setAttribute("title", tip);
-      });
-
-      this.applied = true;
-    }
-  },
-);
 
 // Enhanced SQL folding service using syntax tree for better nested support
 export const sqlFoldService = foldService.of((state, from) => {
@@ -542,7 +498,6 @@ export const getEditorExtensions = (
 
     // Search and replace support
     search({ top: true }),
-    searchPanelTooltips,
 
     // Code folding support
     codeFolding({
