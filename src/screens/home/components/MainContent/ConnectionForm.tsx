@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
@@ -67,6 +68,10 @@ import {
 } from "@/types/connection";
 import { vaultStorage } from "@/services/vaultStorage";
 import { windowManager } from "@/services/windowManager";
+import {
+  extractConnectionErrorMessage,
+  validateSshTunnelInputs,
+} from "./connectionFormHelpers";
 
 const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
 const { open } = await import("@tauri-apps/plugin-dialog");
@@ -214,7 +219,7 @@ export function ConnectionForm() {
     vaultStorage
       .listGroupTags()
       .then(setGroupTags)
-      .catch((err) => {
+      .catch((err: unknown) => {
         logger.error("Failed to load group tags", err);
       });
   }, []);
@@ -234,7 +239,7 @@ export function ConnectionForm() {
 
   const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>(
     () => {
-      if (isEditMode && connection) {
+      if (isEditMode && connection.profile.id) {
         return getWorkspacesForConnection(connection.profile.id).map(
           (ws) => ws.id,
         );
@@ -352,6 +357,19 @@ export function ConnectionForm() {
       }
       if (config.sslMode !== undefined) setSslMode(config.sslMode);
 
+      // SSH tunnel
+      if (config.useSSH) {
+        setUseSSH(true);
+        if (config.sshHost) setSshHost(config.sshHost);
+        if (config.sshPort) setSshPort(config.sshPort);
+        if (config.sshUser) setSshUser(config.sshUser);
+        if (config.sshPassword) setSshPassword(config.sshPassword);
+        if (config.useSSHKey) {
+          setUseSSHKey(true);
+          if (config.sshKeyPath) setSshKeyPath(config.sshKeyPath);
+        }
+      }
+
       setUriParsed(true);
       setTimeout(() => {
         setUriParsed(false);
@@ -448,6 +466,27 @@ export function ConnectionForm() {
             setName(fileName);
           }
         }
+      }
+    } catch (error) {
+      logger.error("Failed to open file dialog:", error);
+      toast.error("Failed to open file picker");
+    }
+  };
+
+  const handleBrowseSshKey = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [
+          {
+            name: "All Files",
+            extensions: ["*"],
+          },
+        ],
+      });
+
+      if (selected && typeof selected === "string") {
+        setSshKeyPath(selected);
       }
     } catch (error) {
       logger.error("Failed to open file dialog:", error);
@@ -581,7 +620,9 @@ export function ConnectionForm() {
                 passphrase: sshKeyPassphrase || undefined,
               },
             }
-          : { Password: sshPassword };
+          : sshPassword
+            ? { Password: sshPassword }
+            : { Agent: true as const };
 
       profile.ssh_tunnel = {
         host: sshHost,
@@ -614,6 +655,22 @@ export function ConnectionForm() {
   };
 
   const handleTest = async () => {
+    const sshValidationError = validateSshTunnelInputs({
+      useSSH,
+      sshHost,
+      sshUser,
+      sshPassword,
+      useSSHAgent,
+      useSSHKey,
+      sshKeyPath,
+    });
+    if (sshValidationError) {
+      toast.error("Connection Failed", {
+        description: sshValidationError,
+      });
+      return;
+    }
+
     setIsTesting(true);
     setTestSuccess(false);
 
@@ -639,8 +696,10 @@ export function ConnectionForm() {
         toast.error("Connection Failed", { description: testResult.message });
       }
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Connection failed";
+      const errorMessage = extractConnectionErrorMessage(
+        error,
+        "Connection failed",
+      );
       toast.error("Connection Failed", { description: errorMessage });
     } finally {
       setIsTesting(false);
@@ -650,6 +709,20 @@ export function ConnectionForm() {
   const handleSave = async () => {
     if (!name.trim()) {
       toast.error("Error", { description: "Please provide a connection name" });
+      return;
+    }
+
+    const sshValidationError = validateSshTunnelInputs({
+      useSSH,
+      sshHost,
+      sshUser,
+      sshPassword,
+      useSSHAgent,
+      useSSHKey,
+      sshKeyPath,
+    });
+    if (sshValidationError) {
+      toast.error("Error", { description: sshValidationError });
       return;
     }
 
@@ -673,8 +746,10 @@ export function ConnectionForm() {
 
       closeForm();
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Failed to save connection";
+      const errorMessage = extractConnectionErrorMessage(
+        error,
+        "Failed to save connection",
+      );
       toast.error("Error", { description: errorMessage });
     } finally {
       setIsSaving(false);
@@ -684,6 +759,20 @@ export function ConnectionForm() {
   const handleConnect = async () => {
     if (!name.trim()) {
       toast.error("Error", { description: "Please provide a connection name" });
+      return;
+    }
+
+    const sshValidationError = validateSshTunnelInputs({
+      useSSH,
+      sshHost,
+      sshUser,
+      sshPassword,
+      useSSHAgent,
+      useSSHKey,
+      sshKeyPath,
+    });
+    if (sshValidationError) {
+      toast.error("Error", { description: sshValidationError });
       return;
     }
 
@@ -705,9 +794,12 @@ export function ConnectionForm() {
         database: profile.database,
       });
     } catch (error) {
+      const errorMessage = extractConnectionErrorMessage(
+        error,
+        "Failed to connect",
+      );
       toast.error("Error", {
-        description:
-          error instanceof Error ? error.message : "Failed to connect",
+        description: errorMessage,
       });
     } finally {
       setIsConnecting(false);
@@ -1285,20 +1377,35 @@ export function ConnectionForm() {
               <IconShield className="h-3 w-3 text-muted-foreground" />
               Safe Mode
             </Label>
-            <Select
+            <RadioGroup
               value={safeMode}
-              onValueChange={(value) => setSafeMode(value as SafeMode)}
+              onValueChange={(value) => {
+                setSafeMode(value as SafeMode);
+              }}
+              className="mt-2 grid-cols-2 gap-2 sm:grid-cols-4"
             >
-              <SelectTrigger className="mt-2 h-8 text-xs">
-                <SelectValue placeholder="Select safe mode" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="full_access">Full Access</SelectItem>
-                <SelectItem value="read_write_update">Read + Write + Update</SelectItem>
-                <SelectItem value="read_write">Read + Write</SelectItem>
-                <SelectItem value="read_only">Read Only</SelectItem>
-              </SelectContent>
-            </Select>
+              {[
+                { value: "full_access", label: "Full Access" },
+                { value: "read_write_update", label: "Read + Write + Update" },
+                { value: "read_write", label: "Read + Write" },
+                { value: "read_only", label: "Read Only" },
+              ].map((option) => {
+                const id = `safe-mode-${option.value}`;
+                return (
+                  <Label
+                    key={option.value}
+                    htmlFor={id}
+                    className={cn(
+                      "flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                      safeMode === option.value && "text-primary",
+                    )}
+                  >
+                    <RadioGroupItem id={id} value={option.value} />
+                    {option.label}
+                  </Label>
+                );
+              })}
+            </RadioGroup>
           </div>
 
           {/* Connection Options */}
@@ -1368,6 +1475,9 @@ export function ConnectionForm() {
                 <Label className="flex items-center gap-1.5 text-xs">
                   <IconServer className="h-3 w-3 text-muted-foreground" />
                   SSH Tunnel
+                  <Badge variant="outline" size="xs">
+                    Beta
+                  </Badge>
                 </Label>
                 <Switch checked={useSSH} onCheckedChange={setUseSSH} />
               </div>
@@ -1377,7 +1487,7 @@ export function ConnectionForm() {
                   <div className="grid grid-cols-12 gap-3">
                     <div className="col-span-8">
                       <Label htmlFor="ssh-host" className="text-xs">
-                        SSH IconServer
+                        SSH Host
                       </Label>
                       <Input
                         id="ssh-host"
@@ -1386,7 +1496,7 @@ export function ConnectionForm() {
                         onChange={(e) => {
                           setSshHost(e.target.value);
                         }}
-                        placeholder="192.168.1.1"
+                        placeholder="bastion.example.com or ssh-config alias"
                       />
                     </div>
                     <div className="col-span-4">
@@ -1417,8 +1527,12 @@ export function ConnectionForm() {
                         onChange={(e) => {
                           setSshUser(e.target.value);
                         }}
-                        placeholder="username"
+                        placeholder="Optional if alias defines User"
                       />
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Leave blank only if your SSH alias has User in
+                        <code className="mx-1">~/.ssh/config</code>.
+                      </p>
                     </div>
                     <div>
                       <Label htmlFor="ssh-password" className="text-xs">
@@ -1471,7 +1585,7 @@ export function ConnectionForm() {
                           useSSHAgent && "text-muted-foreground",
                         )}
                       >
-                        Use SSH IconKey
+                        Use SSH Key
                       </Label>
                     </div>
 
@@ -1479,24 +1593,37 @@ export function ConnectionForm() {
                       <>
                         <div>
                           <Label htmlFor="ssh-key" className="text-xs">
-                            Private IconKey
+                            Private Key
                           </Label>
-                          <Input
-                            id="ssh-key"
-                            className="mt-1 h-8 text-xs"
-                            value={sshKeyPath}
-                            onChange={(e) => {
-                              setSshKeyPath(e.target.value);
-                            }}
-                            placeholder="~/.ssh/id_rsa"
-                          />
+                          <div className="flex gap-1.5 mt-1">
+                            <Input
+                              id="ssh-key"
+                              className="h-8 text-xs flex-1"
+                              value={sshKeyPath}
+                              onChange={(e) => {
+                                setSshKeyPath(e.target.value);
+                              }}
+                              placeholder="~/.ssh/id_rsa"
+                              disabled={isTesting}
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 shrink-0"
+                              onClick={() => void handleBrowseSshKey()}
+                              disabled={isTesting}
+                              title="Browse file"
+                            >
+                              <IconFolderOpen className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
                         <div>
                           <Label
                             htmlFor="ssh-key-passphrase"
                             className="text-xs"
                           >
-                            IconKey Passphrase
+                            Passphrase
                           </Label>
                           <Input
                             id="ssh-key-passphrase"

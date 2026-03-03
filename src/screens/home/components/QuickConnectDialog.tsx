@@ -17,7 +17,11 @@ import {
   type ParsedUriConfig,
   type ParsedEnvConfig,
 } from "@/utils/connectionParser";
-import { DbType } from "@/types/connection";
+import {
+  DbType,
+  type ConnectionProfile,
+  type SshAuthMethod,
+} from "@/types/connection";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
 import { toast } from "sonner";
 
@@ -52,6 +56,7 @@ interface ParsedInfo {
   hasPassword: boolean;
   database?: string;
   format: "uri" | "env";
+  hasSSH: boolean;
 }
 
 function extractParsedInfo(
@@ -66,6 +71,7 @@ function extractParsedInfo(
     hasPassword: Boolean(config.password),
     database: config.database,
     format,
+    hasSSH: Boolean((config as ParsedEnvConfig).useSSH),
   };
 }
 
@@ -97,6 +103,11 @@ function ConnectionSummary({ info }: { info: ParsedInfo }) {
           <span className="text-sm font-medium">{displayName}</span>
           {info.hasPassword && (
             <IconLock className="h-3 w-3 text-muted-foreground" />
+          )}
+          {info.hasSSH && (
+            <span className="text-[10px] text-muted-foreground/60 uppercase">
+              SSH
+            </span>
           )}
           <span className="text-[10px] text-muted-foreground/60 uppercase ml-auto">
             {info.format}
@@ -145,7 +156,7 @@ export function QuickConnectDialog({
         setParsedInfo(extractParsedInfo(parsed, "uri"));
       } else if (format === "env") {
         const parsed = parseConnectionEnv(value);
-        if (parsed.dbType) {
+        if (parsed.dbType || parsed.host || parsed.database) {
           setParsedInfo(extractParsedInfo(parsed, "env"));
         } else {
           setParsedInfo(null);
@@ -175,7 +186,7 @@ export function QuickConnectDialog({
         return;
       }
 
-      const profile = {
+      const profile: ConnectionProfile = {
         id: crypto.randomUUID(),
         name: config.database || config.host || "Quick Connection",
         db_type: mapDatabaseType(config.dbType || "postgresql"),
@@ -186,6 +197,23 @@ export function QuickConnectDialog({
         database: config.database || "",
         options: {},
       };
+
+      // Include SSH tunnel config if parsed from env vars
+      if (format === "env") {
+        const envConfig = config as ParsedEnvConfig;
+        if (envConfig.useSSH && envConfig.sshHost) {
+          const auth: SshAuthMethod =
+            envConfig.useSSHKey && envConfig.sshKeyPath
+              ? { KeyFile: { path: envConfig.sshKeyPath, passphrase: null } }
+              : { Password: envConfig.sshPassword || "" };
+          profile.ssh_tunnel = {
+            host: envConfig.sshHost,
+            port: parseInt(envConfig.sshPort || "22", 10),
+            user: envConfig.sshUser || "",
+            auth,
+          };
+        }
+      }
 
       await saveConnection(profile, []);
       toast.success("Connection created", {

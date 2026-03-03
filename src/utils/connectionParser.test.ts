@@ -330,6 +330,24 @@ DB_USER=admin`;
         expect(config.port).toBe("5432");
         expect(config.username).toBe("admin");
       });
+
+      it("should parse env text wrapped in markdown code fences", () => {
+        const env = `\`\`\` DB_HOST=postgres-private
+  DB_PORT=5432
+  DB_USER=devuser
+  DB_PASSWORD=devpass123
+  DB_NAME=todoapp
+  SSH_HOST=ssh-bastion-key\`\`\``;
+
+        const config = parseConnectionEnv(env);
+
+        expect(config.host).toBe("postgres-private");
+        expect(config.port).toBe("5432");
+        expect(config.username).toBe("devuser");
+        expect(config.password).toBe("devpass123");
+        expect(config.database).toBe("todoapp");
+        expect(config.sshHost).toBe("ssh-bastion-key");
+      });
     });
 
     describe("SSL configuration", () => {
