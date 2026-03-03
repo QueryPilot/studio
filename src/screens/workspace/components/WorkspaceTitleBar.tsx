@@ -464,11 +464,11 @@ export function WorkspaceTitleBar({
 
   // Update document title with unsaved changes indicator and workspace name
   useEffect(() => {
-    // If in a named workspace, use workspace title
-    if (activeWorkspace && !activeWorkspace.isTemporary) {
+    // If in a named (non-auto-created) workspace, use workspace title
+    if (activeWorkspace && !activeWorkspace.config.autoCreated) {
       document.title = getWindowTitle();
     } else {
-      // Fallback to database name for single connection or temp workspace
+      // Fallback to database name for single connection or auto-created workspace
       const dbName = selectedDatabase || connection?.database || "Query Pilot";
       const baseTitle = `${dbName} - Query Pilot`;
       document.title = totalChanges > 0 ? `• ${baseTitle}` : baseTitle;
@@ -860,7 +860,7 @@ export function WorkspaceTitleBar({
       {/* Center Section - Absolute positioning for true center, shrinks when space is limited */}
       <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-1.5 text-xs max-w-[50%] min-w-0 select-none">
         {/* Workspace Name (if named, multi-connection workspace) */}
-        {activeWorkspace && !activeWorkspace.isTemporary && activeWorkspace.config.connectionIds.length > 1 ? (
+        {activeWorkspace && !activeWorkspace.config.autoCreated && activeWorkspace.config.connectionIds.length > 1 ? (
           <>
             <span
               className="font-medium text-xs truncate"
@@ -878,7 +878,7 @@ export function WorkspaceTitleBar({
         ) : (
           <>
             {/* Single-connection workspace: show workspace name if named */}
-            {activeWorkspace && !activeWorkspace.isTemporary && (
+            {activeWorkspace && !activeWorkspace.config.autoCreated && (
               <>
                 <span
                   className="font-medium text-xs truncate"
@@ -901,7 +901,7 @@ export function WorkspaceTitleBar({
               <span
                 className={cn(
                   "text-xs truncate",
-                  activeWorkspace?.isTemporary
+                  activeWorkspace?.config.autoCreated
                     ? "font-medium"
                     : "text-muted-foreground",
                 )}
