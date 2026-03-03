@@ -59,6 +59,7 @@ import {
 } from "@/components/ui/tooltip";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 import { triggerAppUpdate } from "@/utils/appUpdate";
+import { saveWindowBounds } from "@/services/windowManager";
 
 interface WorkspaceTitleBarProps {
   connectionId: string;
@@ -690,6 +691,24 @@ export function WorkspaceTitleBar({
       const persistenceScopeId = activeWorkspace?.config.id ?? connectionId;
       if (persistenceScopeId) {
         flushLayout(persistenceScopeId);
+      }
+
+      // Save window bounds before closing (window is still alive at this point)
+      if (persistenceScopeId) {
+        try {
+          const { getCurrentWindow } = await import("@tauri-apps/api/window");
+          const win = getCurrentWindow();
+          const position = await win.outerPosition();
+          const size = await win.outerSize();
+          await saveWindowBounds(persistenceScopeId, {
+            x: position.x,
+            y: position.y,
+            width: size.width,
+            height: size.height,
+          });
+        } catch (error) {
+          logger.error("Failed to save window bounds:", error);
+        }
       }
 
       // Disconnect from the current database (with timeout to prevent freeze on dead connections)

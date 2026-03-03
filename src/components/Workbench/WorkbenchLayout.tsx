@@ -6,6 +6,8 @@ import useWorkbenchStore from "@/stores/workbenchStore";
 import { useShallow } from "zustand/react/shallow";
 import { PanelPortalProvider, PanelPortal } from "./PanelPortalContext";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
+import { saveWindowBounds } from "@/services/windowManager";
+import { isTauri } from "@/utils/tauri";
 
 /**
  * Memoized panel portals — prevents re-rendering all panels when layoutTree changes during resize.
@@ -117,6 +119,52 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
       }
     };
   }, [flushLayout]);
+
+  // Track window bounds on move/resize for session restore
+  useEffect(() => {
+    if (!layoutScopeId || !isTauri()) return;
+
+    let boundsTimer: ReturnType<typeof setTimeout> | null = null;
+    const unlistenPromises: Promise<() => void>[] = [];
+
+    const persistBounds = () => {
+      if (boundsTimer) clearTimeout(boundsTimer);
+      boundsTimer = setTimeout(async () => {
+        try {
+          const { getCurrentWindow } = await import("@tauri-apps/api/window");
+          const win = getCurrentWindow();
+          const position = await win.outerPosition();
+          const size = await win.outerSize();
+          await saveWindowBounds(layoutScopeId, {
+            x: position.x,
+            y: position.y,
+            width: size.width,
+            height: size.height,
+          });
+        } catch {
+          // Window may already be closing; ignore
+        }
+      }, 500);
+    };
+
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const win = getCurrentWindow();
+        unlistenPromises.push(win.onMoved(persistBounds));
+        unlistenPromises.push(win.onResized(persistBounds));
+      } catch {
+        // Not in a Tauri window context; ignore
+      }
+    })();
+
+    return () => {
+      if (boundsTimer) clearTimeout(boundsTimer);
+      void Promise.all(unlistenPromises).then((cleanups) => {
+        for (const fn of cleanups) fn();
+      });
+    };
+  }, [layoutScopeId]);
 
   if (!layoutTree) {
     return (

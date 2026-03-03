@@ -77,6 +77,50 @@ async function trackWorkspaceWindow(workspaceId: string) {
   }
 }
 
+/**
+ * Save window bounds (position + size) for a workspace into IndexedDB.
+ * Called from the workspace window before it closes (handleGoHome) and
+ * periodically during the debounced layout auto-save.
+ */
+async function saveWindowBounds(
+  workspaceId: string,
+  bounds: { x: number; y: number; width: number; height: number },
+) {
+  try {
+    const db = getSessionDatabase();
+    const current = await db.appState.get("singleton");
+    if (!current) return;
+
+    const windowStates = current.windowStates.map((ws) =>
+      ws.workspaceId === workspaceId
+        ? { ...ws, windowBounds: bounds }
+        : ws,
+    );
+
+    await db.appState.put({ ...current, windowStates });
+  } catch (error) {
+    console.error("[windowManager] Failed to save window bounds:", error);
+  }
+}
+
+/**
+ * Retrieve saved window bounds for a workspace from IndexedDB.
+ */
+async function getWindowBounds(
+  workspaceId: string,
+): Promise<{ x: number; y: number; width: number; height: number } | undefined> {
+  try {
+    const db = getSessionDatabase();
+    const current = await db.appState.get("singleton");
+    if (!current) return undefined;
+
+    const ws = current.windowStates.find((w) => w.workspaceId === workspaceId);
+    return ws?.windowBounds;
+  } catch {
+    return undefined;
+  }
+}
+
 async function untrackWorkspaceWindow(workspaceId: string) {
   try {
     const db = getSessionDatabase();
@@ -549,6 +593,7 @@ class WindowManager {
     workspaceName: string,
     options: {
       icon?: string;
+      bounds?: { x: number; y: number; width: number; height: number };
     } = {},
   ): Promise<string> {
     // Check if workspace window already exists
@@ -601,14 +646,17 @@ class WindowManager {
       ? `${options.icon} ${workspaceName}`
       : workspaceName;
 
+    // Use saved bounds if provided, otherwise fall back to defaults
+    const bounds = options.bounds;
+
     const windowOptions: Record<string, unknown> = {
       url: targetUrl,
       title: windowTitle,
-      width: 1400,
-      height: 900,
+      width: bounds?.width ?? 1400,
+      height: bounds?.height ?? 900,
       minWidth: 1000,
       minHeight: 600,
-      center: true,
+      center: !bounds, // Only auto-center when no saved bounds
       resizable: true,
       maximizable: true,
       minimizable: true,
@@ -619,6 +667,12 @@ class WindowManager {
       hiddenTitle: true,
       skipTaskbar: false,
     };
+
+    // Apply saved position if available
+    if (bounds) {
+      windowOptions.x = bounds.x;
+      windowOptions.y = bounds.y;
+    }
 
     const trafficLightPosition = getMacOSTrafficLightPosition();
     if (trafficLightPosition) {
@@ -912,3 +966,6 @@ class WindowManager {
 }
 
 export const windowManager = WindowManager.getInstance();
+
+// Re-export IndexedDB helpers for use by workspace components
+export { saveWindowBounds, getWindowBounds };
