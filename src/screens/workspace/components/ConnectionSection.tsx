@@ -101,6 +101,8 @@ import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
 import {
   exportSidebarObjectDataToFile,
   exportSidebarObjectsToFile,
+  exportSidebarObjectsAsDBML,
+  exportSidebarObjectsAsMermaid,
   type SidebarDataExportFormat,
   type SidebarDataExportItem,
   type SidebarExportItem,
@@ -112,7 +114,6 @@ import {
   buildRedisDatabaseDefinition,
   buildRedisSelectCommand,
   canCopyDefinition,
-  canDuplicate,
   canDelete,
   canTruncate,
   getSqlTruncateOptionSupport,
@@ -1325,56 +1326,6 @@ export const ConnectionSection = forwardRef<
     stageSqlCommandsAndOpenGlobalChanges(commands, "delete");
   };
 
-  const getSuggestedDuplicateTableName = (
-    sourceTableName: string,
-    schemaName: string,
-  ): string => {
-    const existingNames = new Set(
-      tables
-        .filter((table) => table.schema === schemaName)
-        .map((table) => table.name),
-    );
-    views
-      .filter((view) => view.schema === schemaName)
-      .forEach((view) => existingNames.add(view.name));
-
-    const base = `${sourceTableName}_copy`;
-    let candidate = base;
-    let suffix = 2;
-
-    while (existingNames.has(candidate)) {
-      candidate = `${base}_${suffix}`;
-      suffix += 1;
-    }
-
-    return candidate;
-  };
-
-  const stageSqlDuplicate = (
-    item: SidebarSelectionItem & { type: "table" },
-    newTableName: string,
-  ) => {
-    const supportsExtendedDuplicate = dbType === DbType.PostgreSQL;
-    const commands = stageBatchWithSingleHistoryEntry([
-      CrudCommandFactory.createTableDuplicateCommand({
-        target: {
-          connectionId,
-          database,
-          schema: item.schema,
-          table: item.name,
-        },
-        sourceTableName: item.name,
-        newTableName,
-        includeData: true,
-        includeIndexes: supportsExtendedDuplicate,
-        includeConstraints: supportsExtendedDuplicate,
-        includeTriggers: supportsExtendedDuplicate,
-      }),
-    ]);
-
-    stageSqlCommandsAndOpenGlobalChanges(commands, "duplicate");
-  };
-
   const truncateMongoCollections = async (items: SidebarSelectionItem[]) => {
     const collectionItems = items.filter(
       (item): item is SidebarSelectionItem & { type: "collection" } =>
@@ -1458,61 +1409,6 @@ export const ConnectionSection = forwardRef<
     });
   };
 
-  const handleDuplicate = () => {
-    const items = getSelectedItems();
-    const selectedTypes = getSelectedTypesBreakdown();
-    if (!canDuplicate(selectedTypes)) return;
-
-    const selectedTable = items.find(
-      (item): item is SidebarSelectionItem & { type: "table" } =>
-        item.type === "table",
-    );
-    if (!selectedTable) {
-      toast.error("Select exactly one table to duplicate");
-      return;
-    }
-
-    const suggestedName = getSuggestedDuplicateTableName(
-      selectedTable.name,
-      selectedTable.schema,
-    );
-    const newNameInput = window.prompt(
-      `Duplicate ${selectedTable.schema}.${selectedTable.name} as:`,
-      suggestedName,
-    );
-
-    if (newNameInput === null) return;
-
-    const newTableName = newNameInput.trim();
-    if (!newTableName) {
-      toast.error("New table name is required");
-      return;
-    }
-    if (newTableName === selectedTable.name) {
-      toast.error("Duplicate table name must be different from source");
-      return;
-    }
-
-    const nameExists =
-      tables.some(
-        (table) =>
-          table.schema === selectedTable.schema && table.name === newTableName,
-      ) ||
-      views.some(
-        (view) =>
-          view.schema === selectedTable.schema && view.name === newTableName,
-      );
-    if (nameExists) {
-      toast.error(
-        `Object ${selectedTable.schema}.${newTableName} already exists`,
-      );
-      return;
-    }
-
-    stageSqlDuplicate(selectedTable, newTableName);
-    setSelectedItems(new Set());
-  };
-
   const handleDelete = () => {
     const items = getSelectedItems();
     const selectedTypes = getSelectedTypesBreakdown();
@@ -1568,6 +1464,58 @@ export const ConnectionSection = forwardRef<
       });
     } catch (error) {
       toast.error("Export failed", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
+
+  const handleExportDefinitionDBML = async () => {
+    const items = getSelectedItems();
+    const exportItems = mapSelectedItemsToExport(items);
+
+    if (exportItems.length === 0) {
+      toast.error("No exportable objects selected");
+      return;
+    }
+
+    try {
+      const result = await exportSidebarObjectsAsDBML({
+        connectionId,
+        database,
+        items: exportItems,
+      });
+      if (result.cancelled) return;
+      toast.success("DBML export completed", {
+        description: `${result.itemCount} object(s) exported`,
+      });
+    } catch (error) {
+      toast.error("DBML export failed", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
+
+  const handleExportDefinitionMermaid = async () => {
+    const items = getSelectedItems();
+    const exportItems = mapSelectedItemsToExport(items);
+
+    if (exportItems.length === 0) {
+      toast.error("No exportable objects selected");
+      return;
+    }
+
+    try {
+      const result = await exportSidebarObjectsAsMermaid({
+        connectionId,
+        database,
+        items: exportItems,
+      });
+      if (result.cancelled) return;
+      toast.success("Mermaid ERD export completed", {
+        description: `${result.itemCount} object(s) exported`,
+      });
+    } catch (error) {
+      toast.error("Mermaid ERD export failed", {
         description: error instanceof Error ? error.message : "Unknown error",
       });
     }
@@ -2790,6 +2738,12 @@ export const ConnectionSection = forwardRef<
               onExportDefinition={() => {
                 void handleExportDefinition();
               }}
+              onExportDefinitionDBML={() => {
+                void handleExportDefinitionDBML();
+              }}
+              onExportDefinitionMermaid={() => {
+                void handleExportDefinitionMermaid();
+              }}
               onCopyName={handleCopyName}
               onCopyDefinition={
                 canCopyDefinition(selectedTypes)
@@ -2797,9 +2751,6 @@ export const ConnectionSection = forwardRef<
                   : undefined
               }
               onPin={handlePin}
-              onDuplicate={
-                canDuplicate(selectedTypes) ? handleDuplicate : undefined
-              }
               onTruncate={
                 canTruncate(selectedTypes) ? handleTruncate : undefined
               }
