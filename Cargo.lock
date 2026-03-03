@@ -4826,7 +4826,7 @@ dependencies = [
 
 [[package]]
 name = "query-pilot"
-version = "2026.1.0-beta.1"
+version = "2026.1.0-beta.2"
 dependencies = [
  "agent-client-protocol",
  "anyhow",

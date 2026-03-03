@@ -65,12 +65,12 @@ if [ "$IS_BETA" = true ]; then
   echo ""
 else
   # Stable release: use AI to suggest version
-  # Check if codex or claude is installed
+  # Prefer claude, fall back to codex
   AI_CLI=""
-  if command -v codex &> /dev/null; then
-    AI_CLI="codex"
-  elif command -v claude &> /dev/null; then
+  if command -v claude &> /dev/null; then
     AI_CLI="claude"
+  elif command -v codex &> /dev/null; then
+    AI_CLI="codex"
   fi
 
   # Get last git tag
@@ -108,14 +108,14 @@ Rules:
 
 Respond with ONLY the version number. No explanation."
 
-    if [ "$AI_CLI" = "codex" ]; then
-      NEXT_VERSION=$(codex exec "$CONTEXT
-
-$VERSION_PROMPT" 2>/dev/null | tail -1 | tr -d '[:space:]' | sed 's/^v//')
-    else
+    if [ "$AI_CLI" = "claude" ]; then
       NEXT_VERSION=$(echo "$CONTEXT
 
 $VERSION_PROMPT" | claude -p 2>/dev/null | tail -1 | tr -d '[:space:]' | sed 's/^v//')
+    else
+      NEXT_VERSION=$(codex exec "$CONTEXT
+
+$VERSION_PROMPT" 2>/dev/null | tail -1 | tr -d '[:space:]' | sed 's/^v//')
     fi
 
     # Validate
@@ -223,12 +223,12 @@ if [ "$IS_BETA" = false ] && [ -f "CHANGELOG.md" ]; then
   fi
   COMMITS=$(git log $COMMIT_RANGE --pretty=format:"%h|%s|%b" --no-merges)
 
-  # Check if AI CLI is available for changelog generation
+  # Prefer claude, fall back to codex
   AI_CLI=""
-  if command -v codex &> /dev/null; then
-    AI_CLI="codex"
-  elif command -v claude &> /dev/null; then
+  if command -v claude &> /dev/null; then
     AI_CLI="claude"
+  elif command -v codex &> /dev/null; then
+    AI_CLI="codex"
   fi
 
   if [ -n "$AI_CLI" ]; then
@@ -247,10 +247,10 @@ Format:
 ### Category
 - Description"
 
-    if [ "$AI_CLI" = "codex" ]; then
-      NEW_CHANGELOG=$(codex exec "$CHANGELOG_PROMPT" 2>/dev/null)
-    else
+    if [ "$AI_CLI" = "claude" ]; then
       NEW_CHANGELOG=$(echo "$CHANGELOG_PROMPT" | claude -p 2>/dev/null)
+    else
+      NEW_CHANGELOG=$(codex exec "$CHANGELOG_PROMPT" 2>/dev/null)
     fi
 
     echo ""
