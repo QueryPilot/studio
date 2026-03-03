@@ -127,12 +127,8 @@ export function WorkspaceScreen() {
 
   // Load saved workspaces on mount (needed before we can open a named workspace by ID)
   useEffect(() => {
-    // Only load if we have a workspace ID that's not a temp workspace
-    const isTempWorkspace = workspaceId?.startsWith("temp-");
-
     if (
       workspaceId &&
-      !isTempWorkspace &&
       savedWorkspaces.length === 0 &&
       !workspacesLoaded
     ) {
@@ -140,7 +136,6 @@ export function WorkspaceScreen() {
         setWorkspacesLoaded(true);
       });
     } else {
-      // For temp workspaces or when workspaces are already loaded
       setWorkspacesLoaded(true);
     }
   }, [
@@ -157,11 +152,6 @@ export function WorkspaceScreen() {
     // Skip if workspace is already active and matches the route
     if (activeWorkspace?.config.id === workspaceId) {
       return;
-    }
-
-    // For temp workspaces (temp-*), the LegacyConnectionRedirect already created them
-    if (workspaceId.startsWith("temp-")) {
-      return; // activeWorkspace should already be set
     }
 
     // Wait for both workspaces AND connections to be loaded

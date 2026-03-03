@@ -207,6 +207,7 @@ function App() {
                   const savedWorkspaces = useWorkspaceBundleStore.getState().savedWorkspaces;
 
                   // Open each workspace window, restoring saved bounds
+                  let anyOpened = false;
                   for (const workspaceId of appState.lastActiveWorkspaceIds) {
                     const ws = savedWorkspaces.find((w) => w.id === workspaceId);
                     if (ws) {
@@ -217,10 +218,13 @@ function App() {
                         icon: ws.icon,
                         bounds: windowState?.windowBounds,
                       });
+                      anyOpened = true;
                     }
                   }
                   // Don't set vaultReady — main window stays hidden, workspace windows open
-                  restored = true;
+                  if (anyOpened) {
+                    restored = true;
+                  }
                 }
               } catch (error) {
                 logger.error("[App] Failed to restore session:", error);
