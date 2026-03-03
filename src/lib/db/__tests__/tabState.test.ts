@@ -37,10 +37,10 @@ describe("tabState IndexedDB persistence", () => {
       expect(loaded?.selectedDialect).toBe("postgresql");
     });
 
-    it("should merge with existing state when partially updating", async () => {
+    it("should overwrite entire record on partial update", async () => {
       const tabId = "test-tab-2";
 
-      // First save
+      // First save with all fields
       await persistTabState(tabId, {
         query: "SELECT * FROM users",
         lastExecutedQuery: "SELECT 1",
@@ -48,16 +48,17 @@ describe("tabState IndexedDB persistence", () => {
         selectedDialect: "postgresql",
       });
 
-      // Partial update - only query
+      // Partial update — persistTabState does a full put, not a merge.
+      // The caller (schedulePersistence) is responsible for passing all fields.
       await persistTabState(tabId, {
         query: "SELECT * FROM posts",
       });
 
       const loaded = await loadTabState(tabId);
       expect(loaded?.query).toBe("SELECT * FROM posts");
-      expect(loaded?.lastExecutedQuery).toBe("SELECT 1"); // preserved
-      expect(loaded?.viewMode).toBe("table"); // preserved
-      expect(loaded?.selectedDialect).toBe("postgresql"); // preserved
+      expect(loaded?.lastExecutedQuery).toBe(""); // defaults, not preserved
+      expect(loaded?.viewMode).toBe("table"); // default
+      expect(loaded?.selectedDialect).toBe("auto"); // default
     });
 
     it("should use default values for missing fields", async () => {

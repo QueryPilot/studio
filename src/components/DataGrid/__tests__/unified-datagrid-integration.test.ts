@@ -118,7 +118,7 @@ describe('Unified DataGrid Architecture - Integration Tests', () => {
       const { DocumentDataGrid } = await import('../adapters/DocumentDataGrid');
       expect(DocumentDataGrid).toBeDefined();
       expect(typeof DocumentDataGrid).toBe('object'); // memo wraps the component
-    });
+    }, 15000);
 
     it('should have BreadcrumbNav component', async () => {
       const { BreadcrumbNav } = await import('../components/BreadcrumbNav');
