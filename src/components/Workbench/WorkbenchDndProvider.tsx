@@ -450,7 +450,7 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
 
     let Icon = IconTable;
     let iconClass = "h-3.5 w-3.5 text-primary";
-    let label = "";
+    let label: string;
 
     if (activeDragInfo.source === "sidebar") {
       // --- Sidebar item overlay ---
@@ -532,6 +532,7 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
   return (
     <DndContext
       sensors={sensors}
+      autoScroll={false}
       onDragStart={handleDragStart}
       onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
