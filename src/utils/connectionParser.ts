@@ -108,6 +108,21 @@ export function detectConnectionFormat(text: string): ConnectionFormat {
   return "unknown";
 }
 
+function stripMarkdownFenceArtifacts(line: string): string {
+  let cleaned = line.trim();
+  if (!cleaned) return "";
+
+  // Support users pasting from markdown blocks, including inline fence+content lines.
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```(?:[a-z0-9_-]+)?\s*/i, "");
+  }
+
+  // Handle closing fences that are accidentally attached to a value.
+  cleaned = cleaned.replace(/\s*```$/, "");
+
+  return cleaned.trim();
+}
+
 /**
  * Parses environment variable style configuration
  * @param text - Environment variables text (KEY=VALUE format)
@@ -120,7 +135,7 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
 
   // Parse key=value pairs
   for (const line of lines) {
-    const trimmed = line.trim();
+    const trimmed = stripMarkdownFenceArtifacts(line);
 
     // Skip comments and empty lines
     if (!trimmed || trimmed.startsWith("#")) continue;

@@ -181,23 +181,16 @@ impl client::Handler for SshClientHandler {
 
 /// Verify server key against known_hosts files.
 ///
-/// Returns `Ok(())` on match, or a descriptive `AppError::SshHostKey` on
-/// mismatch / not-found / missing files.
+/// - Returns `Ok(())` on match or if the host is new (TOFU — Trust On First Use).
+/// - Auto-appends new host keys to `~/.ssh/known_hosts`.
+/// - Returns `Err(SshHostKey)` only on key **mismatch** (potential MITM).
 fn verify_known_hosts(host: &str, port: u16, server_key: &ssh_key::PublicKey) -> Result<()> {
     let paths = known_hosts_paths();
-    if paths.is_empty() {
-        return Err(AppError::SshHostKey(
-            "No known_hosts file found (set QUERY_PILOT_SSH_KNOWN_HOSTS or create ~/.ssh/known_hosts)".into(),
-        ));
-    }
-
-    let mut loaded_any = false;
 
     for path in &paths {
         if !path.exists() {
             continue;
         }
-        loaded_any = true;
 
         match russh::keys::check_known_hosts_path(host, port, server_key, path) {
             Ok(true) => return Ok(()),
@@ -207,7 +200,7 @@ fn verify_known_hosts(host: &str, port: u16, server_key: &ssh_key::PublicKey) ->
             Err(russh::keys::Error::KeyChanged { line }) => {
                 let fingerprint = server_key.fingerprint(ssh_key::HashAlg::Sha256);
                 return Err(AppError::SshHostKey(format!(
-                    "Host key mismatch for {}:{} at known_hosts line {} ({})",
+                    "Host key mismatch for {}:{} at known_hosts line {} ({}). Remove the old entry to connect.",
                     host, port, line, fingerprint
                 )));
             }
@@ -221,17 +214,73 @@ fn verify_known_hosts(host: &str, port: u16, server_key: &ssh_key::PublicKey) ->
         }
     }
 
-    if !loaded_any {
-        return Err(AppError::SshHostKey(
-            "No readable known_hosts entries were loaded for host verification".into(),
-        ));
+    // Host not found in any known_hosts — TOFU: accept and persist
+    let fingerprint = server_key.fingerprint(ssh_key::HashAlg::Sha256);
+    tracing::info!(
+        "New SSH host key for {}:{} ({}), adding to known_hosts (TOFU)",
+        host,
+        port,
+        fingerprint
+    );
+
+    if let Err(e) = append_known_hosts(host, port, server_key) {
+        tracing::warn!("Failed to save host key to known_hosts: {}", e);
     }
 
-    let fingerprint = server_key.fingerprint(ssh_key::HashAlg::Sha256);
-    Err(AppError::SshHostKey(format!(
-        "Host key for {}:{} not found in known_hosts ({})",
-        host, port, fingerprint
-    )))
+    Ok(())
+}
+
+/// Append a new host key entry to ~/.ssh/known_hosts
+fn append_known_hosts(host: &str, port: u16, server_key: &ssh_key::PublicKey) -> Result<()> {
+    let home = dirs::home_dir().ok_or_else(|| {
+        AppError::SshHostKey("Cannot determine home directory for known_hosts".into())
+    })?;
+    let ssh_dir = home.join(".ssh");
+    if !ssh_dir.exists() {
+        std::fs::create_dir_all(&ssh_dir).map_err(|e| {
+            AppError::SshHostKey(format!("Failed to create ~/.ssh directory: {}", e))
+        })?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&ssh_dir, std::fs::Permissions::from_mode(0o700))
+                .map_err(|e| {
+                    AppError::SshHostKey(format!("Failed to set ~/.ssh permissions: {}", e))
+                })?;
+        }
+    }
+
+    let known_hosts_path = ssh_dir.join("known_hosts");
+
+    // Format: [host]:port key_type base64_key
+    let host_entry = if port == 22 {
+        host.to_string()
+    } else {
+        format!("[{}]:{}", host, port)
+    };
+
+    // Encode the public key in OpenSSH format (e.g. "ssh-ed25519 AAAA...")
+    let openssh_key = server_key.to_openssh().map_err(|e| {
+        AppError::SshHostKey(format!("Failed to encode host key: {}", e))
+    })?;
+    let encoded = format!("{} {}", host_entry, openssh_key);
+
+    use std::io::Write as IoWrite;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&known_hosts_path)
+        .map_err(|e| {
+            AppError::SshHostKey(format!("Failed to open known_hosts: {}", e))
+        })?;
+
+    // Ensure we start on a new line
+    writeln!(file, "{}", encoded).map_err(|e| {
+        AppError::SshHostKey(format!("Failed to write to known_hosts: {}", e))
+    })?;
+
+    tracing::info!("Added host key to {}", known_hosts_path.display());
+    Ok(())
 }
 
 fn known_hosts_paths() -> Vec<std::path::PathBuf> {

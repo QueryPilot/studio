@@ -131,6 +131,7 @@ pub struct SshTunnelConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "SshAuthMethodRaw")]
 pub enum SshAuthMethod {
     Password(String),
     KeyFile {
@@ -138,6 +139,43 @@ pub enum SshAuthMethod {
         passphrase: Option<String>,
     },
     Agent,
+}
+
+/// Raw deserialization helper that accepts both `"Agent"` and `{"Agent": true}`
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum SshAuthMethodRaw {
+    /// Standard externally-tagged format: `{"Password":"..."}`  or `"Agent"`
+    Standard(SshAuthMethodStandard),
+    /// Frontend sends `{"Agent": true}` which doesn't match unit variant
+    #[allow(non_snake_case, dead_code)]
+    AgentBool { Agent: bool },
+}
+
+#[derive(Deserialize)]
+enum SshAuthMethodStandard {
+    Password(String),
+    KeyFile {
+        path: String,
+        passphrase: Option<String>,
+    },
+    Agent,
+}
+
+impl TryFrom<SshAuthMethodRaw> for SshAuthMethod {
+    type Error = String;
+    fn try_from(raw: SshAuthMethodRaw) -> std::result::Result<Self, String> {
+        match raw {
+            SshAuthMethodRaw::Standard(s) => match s {
+                SshAuthMethodStandard::Password(p) => Ok(SshAuthMethod::Password(p)),
+                SshAuthMethodStandard::KeyFile { path, passphrase } => {
+                    Ok(SshAuthMethod::KeyFile { path, passphrase })
+                }
+                SshAuthMethodStandard::Agent => Ok(SshAuthMethod::Agent),
+            },
+            SshAuthMethodRaw::AgentBool { .. } => Ok(SshAuthMethod::Agent),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
