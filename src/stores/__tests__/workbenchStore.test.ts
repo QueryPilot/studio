@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import Dexie from "dexie";
 import useWorkbenchStore from "../workbenchStore";
 import { usePanelFocusStore } from "../panelFocusStore";
 
@@ -1065,6 +1066,168 @@ describe("workbenchStore", () => {
 
       expect(panel?.metadata?.["tab-1"]?.label).toBe("Original");
       expect(panel?.metadata?.["tab-1"]?.isDirty).toBe(true);
+    });
+  });
+
+  describe("workbenchStore IndexedDB persistence", () => {
+    beforeEach(async () => {
+      // Delete the session database before each test to ensure clean state
+      await Dexie.delete("query-pilot-sessions");
+    });
+
+    it("persistLayout saves layout to IndexedDB", async () => {
+      const store = useWorkbenchStore.getState();
+      store.initializeLayout();
+
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
+      store.addTab(panelId, "tab-1", { title: "Test Tab" });
+
+      await store.persistLayout("workspace-1");
+
+      // Verify by loading directly from IndexedDB
+      const { getSessionDatabase } = await import("@/lib/db/sessionDb");
+      const db = getSessionDatabase();
+      const saved = await db.workspaceLayouts.get("workspace-1");
+
+      expect(saved).toBeDefined();
+      expect(saved?.workspaceId).toBe("workspace-1");
+      expect(saved?.layoutTree).toBeTruthy();
+      expect(saved?.layoutTree.type).toBe("leaf");
+      expect(saved?.panelContents).toBeInstanceOf(Array);
+      expect(saved?.panelContents.length).toBe(1);
+      expect(saved?.savedAt).toBeTypeOf("number");
+      expect(saved?.lastActiveAt).toBeTypeOf("number");
+    });
+
+    it("persistLayout does nothing when layoutTree is null", async () => {
+      const store = useWorkbenchStore.getState();
+      // layoutTree is null by default (from beforeEach reset)
+
+      await store.persistLayout("workspace-1");
+
+      const { getSessionDatabase } = await import("@/lib/db/sessionDb");
+      const db = getSessionDatabase();
+      const saved = await db.workspaceLayouts.get("workspace-1");
+
+      expect(saved).toBeUndefined();
+    });
+
+    it("loadLayout restores layout from IndexedDB", async () => {
+      const store = useWorkbenchStore.getState();
+      store.initializeLayout();
+
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
+      store.addTab(panelId, "tab-1", { title: "Persisted Tab" });
+
+      // Save layout
+      await store.persistLayout("workspace-1");
+
+      // Clear store state
+      useWorkbenchStore.setState({
+        layoutTree: null,
+        panelContents: new Map(),
+        layoutHistory: [],
+        historyIndex: -1,
+      });
+      usePanelFocusStore.setState({ focusedPanelId: null });
+
+      // Load layout
+      const loaded = await store.loadLayout("workspace-1");
+
+      expect(loaded).toBe(true);
+
+      const state = useWorkbenchStore.getState();
+      expect(state.layoutTree).toBeTruthy();
+      expect(state.layoutTree?.type).toBe("leaf");
+      expect(state.panelContents.size).toBe(1);
+      expect(state.layoutHistory.length).toBe(1);
+      expect(state.historyIndex).toBe(0);
+
+      // Verify panel focus was restored
+      expect(usePanelFocusStore.getState().focusedPanelId).toBeTruthy();
+
+      // Verify tab metadata was preserved
+      const restoredPanel = Array.from(state.panelContents.values())[0];
+      expect(restoredPanel?.tabIds).toContain("tab-1");
+      expect(restoredPanel?.metadata?.["tab-1"]?.title).toBe("Persisted Tab");
+    });
+
+    it("loadLayout returns false when no saved layout exists", async () => {
+      const store = useWorkbenchStore.getState();
+
+      const loaded = await store.loadLayout("non-existent-workspace");
+
+      expect(loaded).toBe(false);
+
+      // Store state should be unchanged
+      const state = useWorkbenchStore.getState();
+      expect(state.layoutTree).toBeNull();
+    });
+
+    it("loadLayout returns false for layout with no leaf nodes", async () => {
+      // Manually insert a layout with an empty branch (no leaves)
+      const { getSessionDatabase } = await import("@/lib/db/sessionDb");
+      const db = getSessionDatabase();
+      await db.workspaceLayouts.put({
+        workspaceId: "workspace-empty",
+        layoutTree: {
+          id: "branch-1",
+          type: "branch",
+          orientation: "horizontal",
+          children: [],
+        },
+        panelContents: [],
+        savedAt: Date.now(),
+        lastActiveAt: Date.now(),
+      });
+
+      const store = useWorkbenchStore.getState();
+      const loaded = await store.loadLayout("workspace-empty");
+
+      expect(loaded).toBe(false);
+    });
+
+    it("flushLayout calls persistLayout", async () => {
+      const store = useWorkbenchStore.getState();
+      store.initializeLayout();
+
+      // flushLayout is fire-and-forget, but we can verify it persists
+      store.flushLayout("workspace-flush");
+
+      // Wait for the async persistLayout to complete
+      // Since flushLayout is fire-and-forget, we need a small delay
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const { getSessionDatabase } = await import("@/lib/db/sessionDb");
+      const db = getSessionDatabase();
+      const saved = await db.workspaceLayouts.get("workspace-flush");
+
+      expect(saved).toBeDefined();
+      expect(saved?.workspaceId).toBe("workspace-flush");
+    });
+
+    it("persistLayout overwrites existing layout for same workspace", async () => {
+      const store = useWorkbenchStore.getState();
+      store.initializeLayout();
+
+      // Save initial layout
+      await store.persistLayout("workspace-1");
+
+      // Modify layout by adding a tab
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
+      store.addTab(panelId, "new-tab", { title: "New Tab" });
+
+      // Save again
+      await store.persistLayout("workspace-1");
+
+      const { getSessionDatabase } = await import("@/lib/db/sessionDb");
+      const db = getSessionDatabase();
+      const saved = await db.workspaceLayouts.get("workspace-1");
+
+      // Should have updated panel contents with the new tab
+      const panelContentsMap = new Map(saved!.panelContents);
+      const panel = Array.from(panelContentsMap.values())[0];
+      expect(panel?.tabIds).toContain("new-tab");
     });
   });
 });
