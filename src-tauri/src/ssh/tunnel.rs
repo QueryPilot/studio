@@ -1,18 +1,16 @@
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use base64::Engine;
-use ssh2::{CheckResult, KnownHostFileKind, Session};
-use tokio::sync::Mutex;
+use russh::client;
+use russh::keys::ssh_key;
+use tokio::net::TcpListener;
 use tokio::task;
 
 use crate::error::{AppError, Result};
 use crate::types::{SshAuthMethod, SshTunnelConfig};
 
-/// SSH tunnel implementation using ssh2 crate
+/// SSH tunnel implementation using russh (pure-Rust, async-native)
 /// Supports password, key-based, and SSH agent authentication
 pub struct SshTunnel {
     local_port: u16,
@@ -44,23 +42,8 @@ impl SshTunnel {
         let auth = config.auth.clone();
         let remote_host_str = remote_host.to_string();
 
-        // Verify we can establish SSH connection
-        task::spawn_blocking({
-            let ssh_host = ssh_host.clone();
-            let ssh_user = ssh_user.clone();
-            let auth = auth.clone();
-            move || -> Result<()> {
-                let mut sess = create_ssh_session(&ssh_host, ssh_port)?;
-                authenticate_session(&mut sess, &ssh_user, &auth)?;
-                Ok(())
-            }
-        })
-        .await
-        .map_err(|e| AppError::SshTunnelError(format!("SSH verification task failed: {}", e)))??;
-
-        // Start port forwarding in background
+        // Start port forwarding in background — session is created inside the task
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-        let shutdown_rx = Arc::new(Mutex::new(Some(shutdown_rx)));
         let (startup_tx, startup_rx) = tokio::sync::oneshot::channel();
 
         let task_handle = task::spawn({
@@ -81,7 +64,10 @@ impl SshTunnel {
             }
         });
 
-        match tokio::time::timeout(Duration::from_secs(5), startup_rx).await {
+        // Wait for the tunnel to report ready (session created + listener bound).
+        // Must exceed the 30s connect timeout inside create_ssh_session so that
+        // the inner timeout fires first with a more precise error message.
+        match tokio::time::timeout(Duration::from_secs(35), startup_rx).await {
             Ok(Ok(Ok(()))) => {}
             Ok(Ok(Err(err))) => {
                 let _ = task_handle.await;
@@ -160,108 +146,92 @@ impl Drop for SshTunnel {
     }
 }
 
-/// Create and configure SSH session
-fn create_ssh_session(host: &str, port: u16) -> Result<Session> {
-    let tcp = TcpStream::connect(format!("{}:{}", host, port)).map_err(|e| {
-        AppError::SshTunnelError(format!(
-            "Failed to connect to SSH host {}:{}: {}",
-            host, port, e
-        ))
-    })?;
+// ---------------------------------------------------------------------------
+// SSH client handler — implements host key verification for russh
+// ---------------------------------------------------------------------------
 
-    tcp.set_read_timeout(Some(Duration::from_secs(30)))
-        .map_err(|e| AppError::SshTunnelError(format!("Failed to set read timeout: {}", e)))?;
-    tcp.set_write_timeout(Some(Duration::from_secs(30)))
-        .map_err(|e| AppError::SshTunnelError(format!("Failed to set write timeout: {}", e)))?;
-
-    let mut sess = Session::new()
-        .map_err(|e| AppError::SshTunnelError(format!("Failed to create SSH session: {}", e)))?;
-
-    sess.set_tcp_stream(tcp);
-    sess.set_timeout(30_000); // 30 seconds
-    sess.set_compress(true);
-
-    sess.handshake()
-        .map_err(|e| AppError::SshAuthFailed(format!("SSH handshake failed: {}", e)))?;
-
-    verify_host_key(&sess, host, port)?;
-
-    Ok(sess)
+struct SshClientHandler {
+    host: String,
+    port: u16,
+    /// Shared slot for host key error details (read after connect fails)
+    host_key_error: Arc<std::sync::Mutex<Option<String>>>,
 }
 
-fn verify_host_key(sess: &Session, host: &str, port: u16) -> Result<()> {
-    let (host_key, _) = sess.host_key().ok_or_else(|| {
-        AppError::SshHostKey("Could not read remote SSH host key after handshake".into())
-    })?;
+impl client::Handler for SshClientHandler {
+    type Error = russh::Error;
 
-    let mut known_hosts = sess
-        .known_hosts()
-        .map_err(|e| AppError::SshHostKey(format!("Failed to initialize known_hosts: {}", e)))?;
+    async fn check_server_key(
+        &mut self,
+        server_public_key: &ssh_key::PublicKey,
+    ) -> std::result::Result<bool, Self::Error> {
+        match verify_known_hosts(&self.host, self.port, server_public_key) {
+            Ok(()) => Ok(true),
+            Err(e) => {
+                *self.host_key_error.lock().unwrap_or_else(|p| p.into_inner()) =
+                    Some(e.to_string());
+                Ok(false) // Reject — russh will fail the connection
+            }
+        }
+    }
+}
 
-    let known_host_files = known_hosts_paths();
-    if known_host_files.is_empty() {
+// ---------------------------------------------------------------------------
+// Known-hosts verification
+// ---------------------------------------------------------------------------
+
+/// Verify server key against known_hosts files.
+///
+/// Returns `Ok(())` on match, or a descriptive `AppError::SshHostKey` on
+/// mismatch / not-found / missing files.
+fn verify_known_hosts(host: &str, port: u16, server_key: &ssh_key::PublicKey) -> Result<()> {
+    let paths = known_hosts_paths();
+    if paths.is_empty() {
         return Err(AppError::SshHostKey(
             "No known_hosts file found (set QUERY_PILOT_SSH_KNOWN_HOSTS or create ~/.ssh/known_hosts)".into(),
         ));
     }
 
-    let mut loaded_files = Vec::new();
-    for path in known_host_files {
+    let mut loaded_any = false;
+
+    for path in &paths {
         if !path.exists() {
             continue;
         }
-        known_hosts
-            .read_file(&path, KnownHostFileKind::OpenSSH)
-            .map_err(|e| {
-                AppError::SshHostKey(format!(
-                    "Failed to read known_hosts file {}: {}",
+        loaded_any = true;
+
+        match russh::keys::check_known_hosts_path(host, port, server_key, path) {
+            Ok(true) => return Ok(()),
+            Ok(false) => {
+                // Host not found in this file — try next
+            }
+            Err(russh::keys::Error::KeyChanged { line }) => {
+                let fingerprint = server_key.fingerprint(ssh_key::HashAlg::Sha256);
+                return Err(AppError::SshHostKey(format!(
+                    "Host key mismatch for {}:{} at known_hosts line {} ({})",
+                    host, port, line, fingerprint
+                )));
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Error reading known_hosts {}: {}",
                     path.display(),
                     e
-                ))
-            })?;
-        loaded_files.push(path);
+                );
+            }
+        }
     }
 
-    if loaded_files.is_empty() {
+    if !loaded_any {
         return Err(AppError::SshHostKey(
             "No readable known_hosts entries were loaded for host verification".into(),
         ));
     }
 
-    let check_result = known_hosts.check_port(host, port, host_key);
-    if matches!(check_result, CheckResult::Match) {
-        return Ok(());
-    }
-
-    // OpenSSH often stores default-port entries without an explicit port.
-    let fallback_result = if port == 22 {
-        Some(known_hosts.check(host, host_key))
-    } else {
-        None
-    };
-
-    if matches!(fallback_result, Some(CheckResult::Match)) {
-        return Ok(());
-    }
-
-    let fingerprint = host_key_fingerprint_sha256(sess);
-    let error_message = match check_result {
-        CheckResult::Mismatch => format!(
-            "Host key mismatch for {}:{} (SHA256:{})",
-            host, port, fingerprint
-        ),
-        CheckResult::NotFound => format!(
-            "Host key for {}:{} not found in known_hosts (SHA256:{})",
-            host, port, fingerprint
-        ),
-        CheckResult::Failure => format!(
-            "Failed to verify host key for {}:{} against known_hosts (SHA256:{})",
-            host, port, fingerprint
-        ),
-        CheckResult::Match => unreachable!(),
-    };
-
-    Err(AppError::SshHostKey(error_message))
+    let fingerprint = server_key.fingerprint(ssh_key::HashAlg::Sha256);
+    Err(AppError::SshHostKey(format!(
+        "Host key for {}:{} not found in known_hosts ({})",
+        host, port, fingerprint
+    )))
 }
 
 fn known_hosts_paths() -> Vec<std::path::PathBuf> {
@@ -286,14 +256,6 @@ fn known_hosts_paths() -> Vec<std::path::PathBuf> {
     paths
 }
 
-fn host_key_fingerprint_sha256(sess: &Session) -> String {
-    use ssh2::HashType;
-    if let Some(hash) = sess.host_key_hash(HashType::Sha256) {
-        return base64::engine::general_purpose::STANDARD.encode(hash);
-    }
-    "unknown".to_string()
-}
-
 fn with_ssh_config_overrides(config: &SshTunnelConfig) -> SshTunnelConfig {
     let mut effective = config.clone();
     if let Some(overrides) = super::parse_ssh_config(&effective.host) {
@@ -316,13 +278,79 @@ fn validate_auth_method(auth: &SshAuthMethod) -> Result<()> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Async session creation + authentication
+// ---------------------------------------------------------------------------
+
+/// Create and authenticate an SSH session.
+async fn create_ssh_session(
+    ssh_host: &str,
+    ssh_port: u16,
+    ssh_user: &str,
+    auth: &SshAuthMethod,
+) -> Result<client::Handle<SshClientHandler>> {
+    let config = Arc::new(client::Config {
+        nodelay: true,
+        inactivity_timeout: Some(Duration::from_secs(30)),
+        keepalive_interval: Some(Duration::from_secs(15)),
+        ..Default::default()
+    });
+
+    let host_key_error = Arc::new(std::sync::Mutex::new(None));
+    let handler = SshClientHandler {
+        host: ssh_host.to_string(),
+        port: ssh_port,
+        host_key_error: host_key_error.clone(),
+    };
+
+    let mut session = tokio::time::timeout(
+        Duration::from_secs(30),
+        client::connect(config, (ssh_host, ssh_port), handler),
+    )
+    .await
+    .map_err(|_| {
+        AppError::SshTimeout(format!(
+            "SSH connection to {}:{} timed out",
+            ssh_host, ssh_port
+        ))
+    })?
+    .map_err(|e| {
+        // If the handler stored a host-key error, surface that instead
+        if let Some(msg) = host_key_error
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take()
+        {
+            AppError::SshHostKey(msg)
+        } else {
+            AppError::SshAuthFailed(format!("SSH handshake failed: {}", e))
+        }
+    })?;
+
+    authenticate_session(&mut session, ssh_user, auth).await?;
+
+    Ok(session)
+}
+
 /// Authenticate SSH session based on auth method
-fn authenticate_session(sess: &mut Session, user: &str, auth: &SshAuthMethod) -> Result<()> {
+async fn authenticate_session(
+    session: &mut client::Handle<SshClientHandler>,
+    user: &str,
+    auth: &SshAuthMethod,
+) -> Result<()> {
     match auth {
         SshAuthMethod::Password(password) => {
-            sess.userauth_password(user, password).map_err(|e| {
-                AppError::SshAuthFailed(format!("SSH password authentication failed: {}", e))
-            })?;
+            let result = session
+                .authenticate_password(user, password)
+                .await
+                .map_err(|e| {
+                    AppError::SshAuthFailed(format!("SSH password authentication failed: {}", e))
+                })?;
+            if !result.success() {
+                return Err(AppError::SshAuthFailed(
+                    "SSH password authentication failed".into(),
+                ));
+            }
         }
         SshAuthMethod::KeyFile { path, passphrase } => {
             let key_path = Path::new(path);
@@ -334,11 +362,10 @@ fn authenticate_session(sess: &mut Session, user: &str, auth: &SshAuthMethod) ->
                 )));
             }
 
-            let passphrase_str = passphrase.as_deref().unwrap_or("");
-
-            sess.userauth_pubkey_file(user, None, key_path, Some(passphrase_str))
-                .map_err(|e| {
-                    if passphrase.is_some() && !passphrase_str.is_empty() {
+            let passphrase_opt = passphrase.as_deref().filter(|p| !p.is_empty());
+            let key_pair =
+                russh::keys::load_secret_key(key_path, passphrase_opt).map_err(|e| {
+                    if passphrase_opt.is_some() {
                         AppError::SshKeyError(format!(
                             "SSH key authentication failed (possibly wrong passphrase): {}",
                             e
@@ -350,28 +377,91 @@ fn authenticate_session(sess: &mut Session, user: &str, auth: &SshAuthMethod) ->
                         ))
                     }
                 })?;
+
+            let hash_alg = session
+                .best_supported_rsa_hash()
+                .await
+                .ok()
+                .flatten()
+                .flatten();
+
+            let result = session
+                .authenticate_publickey(
+                    user,
+                    russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key_pair), hash_alg),
+                )
+                .await
+                .map_err(|e| {
+                    AppError::SshKeyError(format!("SSH key authentication failed: {}", e))
+                })?;
+
+            if !result.success() {
+                return Err(AppError::SshKeyError(
+                    "SSH key authentication failed".into(),
+                ));
+            }
         }
         SshAuthMethod::Agent => {
-            sess.userauth_agent(user).map_err(|e| {
+            let mut agent =
+                russh::keys::agent::client::AgentClient::connect_env()
+                    .await
+                    .map_err(|e| {
+                        AppError::SshAuthFailed(format!(
+                            "SSH agent connection failed: {}. Make sure ssh-agent is running and has keys loaded.",
+                            e
+                        ))
+                    })?;
+
+            let identities = agent.request_identities().await.map_err(|e| {
                 AppError::SshAuthFailed(format!(
-                    "SSH agent authentication failed: {}. Make sure ssh-agent is running and has keys loaded.",
+                    "SSH agent failed to list identities: {}",
                     e
                 ))
             })?;
-        }
-    }
 
-    if !sess.authenticated() {
-        return Err(AppError::SshAuthFailed("SSH authentication failed".into()));
+            if identities.is_empty() {
+                return Err(AppError::SshAuthFailed(
+                    "SSH agent has no keys loaded. Add keys with ssh-add.".into(),
+                ));
+            }
+
+            let mut authenticated = false;
+            for identity in &identities {
+                match session
+                    .authenticate_publickey_with(user, identity.clone(), None, &mut agent)
+                    .await
+                {
+                    Ok(result) if result.success() => {
+                        authenticated = true;
+                        break;
+                    }
+                    _ => continue,
+                }
+            }
+
+            if !authenticated {
+                return Err(AppError::SshAuthFailed(format!(
+                    "SSH agent authentication failed: none of the {} agent keys were accepted by the server.",
+                    identities.len()
+                )));
+            }
+        }
     }
 
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Async port forwarding with session multiplexing
+// ---------------------------------------------------------------------------
+
 /// Maximum concurrent client connections per tunnel (prevents resource exhaustion)
 const MAX_CONCURRENT_CLIENTS: usize = 50;
 
-/// Run the port forwarding proxy with tracked client handlers
+/// Run the port forwarding proxy — creates ONE SSH session and multiplexes channels.
+///
+/// Key improvement over ssh2: the `Handle` is shared across all client
+/// connections instead of re-authenticating per connection.
 #[allow(clippy::too_many_arguments)]
 async fn run_port_forward(
     local_port: u16,
@@ -381,10 +471,21 @@ async fn run_port_forward(
     auth: &SshAuthMethod,
     remote_host: &str,
     remote_port: u16,
-    shutdown_rx: Arc<Mutex<Option<tokio::sync::oneshot::Receiver<()>>>>,
+    mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
     mut startup_tx: Option<tokio::sync::oneshot::Sender<Result<()>>>,
 ) -> Result<()> {
-    let listener = match TcpListener::bind(format!("127.0.0.1:{}", local_port)) {
+    // Create a single SSH session for all channels
+    let session = match create_ssh_session(ssh_host, ssh_port, ssh_user, auth).await {
+        Ok(s) => s,
+        Err(e) => {
+            if let Some(tx) = startup_tx.take() {
+                let _ = tx.send(Err(AppError::SshTunnelError(e.to_string())));
+            }
+            return Err(e);
+        }
+    };
+
+    let listener = match TcpListener::bind(format!("127.0.0.1:{}", local_port)).await {
         Ok(listener) => listener,
         Err(err) => {
             let message = format!("Failed to bind local port: {}", err);
@@ -394,14 +495,6 @@ async fn run_port_forward(
             return Err(AppError::SshTunnelError(message));
         }
     };
-
-    if let Err(err) = listener.set_nonblocking(true) {
-        let message = format!("Failed to set non-blocking: {}", err);
-        if let Some(tx) = startup_tx.take() {
-            let _ = tx.send(Err(AppError::SshTunnelError(message.clone())));
-        }
-        return Err(AppError::SshTunnelError(message));
-    }
 
     tracing::info!(
         "SSH tunnel listening on 127.0.0.1:{} -> {}@{}:{} -> {}:{}",
@@ -421,189 +514,104 @@ async fn run_port_forward(
     let mut client_handles: Vec<task::JoinHandle<()>> = Vec::new();
 
     loop {
-        // Check for shutdown signal
-        {
-            let mut rx = shutdown_rx.lock().await;
-            if let Some(ref mut receiver) = *rx {
-                match receiver.try_recv() {
-                    Ok(_) | Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                        tracing::info!(
-                            "SSH tunnel shutting down, aborting {} client handlers",
-                            client_handles.len()
-                        );
-                        // Abort all client handlers on shutdown
-                        for handle in client_handles.drain(..) {
-                            handle.abort();
-                        }
-                        return Ok(());
-                    }
-                    Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
-                }
-            }
-        }
-
-        // Clean up finished client handlers periodically (every iteration)
+        // Clean up finished client handlers
         client_handles.retain(|h| !h.is_finished());
 
-        // Accept new connections
-        match listener.accept() {
-            Ok((client, addr)) => {
-                // Enforce connection limit to prevent DoS
-                if client_handles.len() >= MAX_CONCURRENT_CLIENTS {
-                    tracing::warn!(
-                        "SSH tunnel at max capacity ({}), rejecting connection from {}",
-                        MAX_CONCURRENT_CLIENTS,
-                        addr
-                    );
-                    drop(client); // Close the connection
-                    continue;
-                }
-
-                tracing::debug!(
-                    "Accepted connection from {} ({}/{})",
-                    addr,
-                    client_handles.len() + 1,
-                    MAX_CONCURRENT_CLIENTS
+        tokio::select! {
+            _ = &mut shutdown_rx => {
+                tracing::info!(
+                    "SSH tunnel shutting down, aborting {} client handlers",
+                    client_handles.len()
                 );
+                for handle in client_handles.drain(..) {
+                    handle.abort();
+                }
+                return Ok(());
+            }
+            result = listener.accept() => {
+                match result {
+                    Ok((local_stream, addr)) => {
+                        // Enforce connection limit to prevent DoS
+                        if client_handles.len() >= MAX_CONCURRENT_CLIENTS {
+                            tracing::warn!(
+                                "SSH tunnel at max capacity ({}), rejecting connection from {}",
+                                MAX_CONCURRENT_CLIENTS,
+                                addr
+                            );
+                            drop(local_stream);
+                            continue;
+                        }
 
-                let ssh_host = ssh_host.to_string();
-                let ssh_user = ssh_user.to_string();
-                let auth = auth.clone();
-                let remote_host = remote_host.to_string();
+                        tracing::debug!(
+                            "Accepted connection from {} ({}/{})",
+                            addr,
+                            client_handles.len() + 1,
+                            MAX_CONCURRENT_CLIENTS
+                        );
 
-                // Track the spawned task handle
-                let handle = task::spawn_blocking(move || {
-                    if let Err(e) = handle_client(
-                        client,
-                        &ssh_host,
-                        ssh_port,
-                        &ssh_user,
-                        &auth,
-                        &remote_host,
-                        remote_port,
-                    ) {
-                        tracing::error!("Client connection error: {}", e);
+                        // Open channel through shared session (no re-auth!)
+                        let channel = match session
+                            .channel_open_direct_tcpip(
+                                remote_host,
+                                remote_port as u32,
+                                addr.ip().to_string(),
+                                addr.port() as u32,
+                            )
+                            .await
+                        {
+                            Ok(ch) => ch,
+                            Err(e) => {
+                                tracing::error!(
+                                    "Failed to open SSH channel to {}:{}: {}",
+                                    remote_host, remote_port, e
+                                );
+                                // If the session is dead, stop accepting
+                                if session.is_closed() {
+                                    tracing::error!("SSH session is dead, shutting down tunnel");
+                                    for handle in client_handles.drain(..) {
+                                        handle.abort();
+                                    }
+                                    return Err(AppError::SshTunnelError(
+                                        "SSH session disconnected".into(),
+                                    ));
+                                }
+                                continue;
+                            }
+                        };
+
+                        let handle = tokio::spawn(async move {
+                            if let Err(e) = handle_client_async(local_stream, channel).await {
+                                tracing::debug!("Client connection closed: {}", e);
+                            }
+                        });
+                        client_handles.push(handle);
                     }
-                });
-                client_handles.push(handle);
-            }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                // No connections available, sleep briefly
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
-            Err(e) => {
-                tracing::error!("Failed to accept connection: {}", e);
+                    Err(e) => {
+                        tracing::error!("Failed to accept connection: {}", e);
+                    }
+                }
             }
         }
     }
 }
 
-/// Handle a single client connection through SSH tunnel
-fn handle_client(
-    mut client: TcpStream,
-    ssh_host: &str,
-    ssh_port: u16,
-    ssh_user: &str,
-    auth: &SshAuthMethod,
-    remote_host: &str,
-    remote_port: u16,
+/// Handle a single client connection through the SSH tunnel channel.
+///
+/// Replaces the old 60-line busy-wait copy loop with async bidirectional copy.
+async fn handle_client_async(
+    mut local_stream: tokio::net::TcpStream,
+    channel: russh::Channel<client::Msg>,
 ) -> Result<()> {
-    // Establish SSH session
-    let mut sess = create_ssh_session(ssh_host, ssh_port)?;
-    authenticate_session(&mut sess, ssh_user, auth)?;
-
-    // Request port forwarding channel
-    let mut channel = sess
-        .channel_direct_tcpip(remote_host, remote_port, None)
-        .map_err(|e| {
-            AppError::SshTunnelError(format!(
-                "Failed to open SSH channel to {}:{}: {}",
-                remote_host, remote_port, e
-            ))
-        })?;
-
-    tracing::debug!(
-        "Established SSH tunnel: client -> {}:{} -> {}:{}",
-        ssh_host,
-        ssh_port,
-        remote_host,
-        remote_port
-    );
-
-    // Set client to non-blocking
-    client.set_nonblocking(true).map_err(|e| {
-        AppError::SshTunnelError(format!("Failed to set client non-blocking: {}", e))
-    })?;
-
-    // Bidirectional copy between client and SSH channel
-    let mut client_buf = [0u8; 8192];
-    let mut channel_buf = [0u8; 8192];
-    let mut client_eof = false;
-    let mut channel_eof = false;
-
-    loop {
-        // Read from client, write to channel
-        if !client_eof {
-            match client.read(&mut client_buf) {
-                Ok(0) => {
-                    tracing::debug!("Client closed connection");
-                    client_eof = true;
-                    let _ = channel.send_eof();
-                }
-                Ok(n) => {
-                    channel.write_all(&client_buf[..n]).map_err(|e| {
-                        AppError::SshTunnelError(format!("Failed to write to SSH channel: {}", e))
-                    })?;
-                }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(e) => {
-                    tracing::debug!("Client read error: {}", e);
-                    client_eof = true;
-                }
-            }
-        }
-
-        // Read from channel, write to client
-        if !channel_eof {
-            match channel.read(&mut channel_buf) {
-                Ok(0) => {
-                    tracing::debug!("SSH channel closed");
-                    channel_eof = true;
-                }
-                Ok(n) => {
-                    client.write_all(&channel_buf[..n]).map_err(|e| {
-                        AppError::SshTunnelError(format!("Failed to write to client: {}", e))
-                    })?;
-                }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(e) => {
-                    tracing::debug!("Channel read error: {}", e);
-                    channel_eof = true;
-                }
-            }
-        }
-
-        // Check if channel is EOF
-        if channel.eof() && !channel_eof {
-            tracing::debug!("SSH channel EOF");
-            channel_eof = true;
-        }
-
-        // Exit if both sides are closed
-        if client_eof && channel_eof {
-            break;
-        }
-
-        // Small sleep to prevent busy loop
-        std::thread::sleep(Duration::from_millis(1));
-    }
-
-    let _ = channel.close();
-    let _ = channel.wait_close();
-
-    tracing::debug!("Client connection closed");
+    let mut channel_stream = channel.into_stream();
+    tokio::io::copy_bidirectional(&mut local_stream, &mut channel_stream)
+        .await
+        .map_err(|e| AppError::SshTunnelError(format!("Tunnel I/O error: {}", e)))?;
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Public helpers
+// ---------------------------------------------------------------------------
 
 /// Verify SSH connection (for testing)
 pub async fn verify_connection(config: &SshTunnelConfig) -> Result<()> {
@@ -612,20 +620,14 @@ pub async fn verify_connection(config: &SshTunnelConfig) -> Result<()> {
     // Validate auth method early (fail-fast for missing key files)
     validate_auth_method(&config.auth)?;
 
-    task::spawn_blocking({
-        let ssh_host = config.host.trim().to_string();
-        let ssh_port = if config.port == 0 { 22 } else { config.port };
-        let ssh_user = config.user.trim().to_string();
-        let auth = config.auth.clone();
+    let ssh_host = config.host.trim().to_string();
+    let ssh_port = if config.port == 0 { 22 } else { config.port };
+    let ssh_user = config.user.trim().to_string();
 
-        move || -> Result<()> {
-            let mut sess = create_ssh_session(&ssh_host, ssh_port)?;
-            authenticate_session(&mut sess, &ssh_user, &auth)?;
-            Ok(())
-        }
-    })
-    .await
-    .map_err(|e| AppError::SshTunnelError(format!("SSH verification task failed: {}", e)))??;
+    let session = create_ssh_session(&ssh_host, ssh_port, &ssh_user, &config.auth).await?;
+    let _ = session
+        .disconnect(russh::Disconnect::ByApplication, "", "en")
+        .await;
 
     Ok(())
 }

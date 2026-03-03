@@ -96,7 +96,7 @@ ryu = "1.0"  # Fast float-to-string conversion
 itoa = "1.0"  # Fast integer-to-string conversion
 
 # SSH
-ssh2 = { version = "0.9.5", features = ["vendored-openssl"] }  # Primary SSH library with libssh2 v1.11.1 (supports modern key types)
+russh = "0.57"  # Pure-Rust async SSH library (replaces ssh2 — no vendored C, async-native, Send sessions)
 ssh_config = "0.1.0"  # For parsing ~/.ssh/config
 shellexpand = "3.1"  # For expanding ~ in paths
 

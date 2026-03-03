@@ -566,72 +566,65 @@ generate_manifest() {
     log "Generating update manifest..."
 
     PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    NOTES=$(awk "/^## \[$version\]/,/^## \[[0-9]/" CHANGELOG.md | head -n 10 | sed 's/"/\\"/g' | tr '\n' ' ' || echo "See CHANGELOG.md")
+    RAW_NOTES=$(awk "/^## \[$version\]/,/^## \[[0-9]/" CHANGELOG.md | head -n 10 || true)
+    if [ -z "$RAW_NOTES" ]; then
+        RAW_NOTES="See CHANGELOG.md for details"
+    fi
     DMG_NAME="QueryPilot_v${version}.dmg"
+    DMG_URL="https://github.com/QueryPilot/studio-app/releases/download/v$version/$DMG_NAME"
 
     # Check for Tauri signing key
+    SIGNATURE=""
     if [ -n "$TAURI_PRIVATE_KEY" ]; then
         log "Signing DMG with Tauri key..."
-        echo "$TAURI_PRIVATE_KEY" > /tmp/tauri-key
-        chmod 600 /tmp/tauri-key
+        SIGNATURE=$(pnpm tauri signer sign "$DMG_NAME" --private-key "$TAURI_PRIVATE_KEY" --password "${TAURI_KEY_PASSWORD:-}" 2>/dev/null | tail -n 1 || true)
 
-        SIGNATURE=$(pnpm tauri signer sign "$DMG_NAME" --private-key /tmp/tauri-key --password "${TAURI_KEY_PASSWORD:-}" 2>/dev/null || echo "")
-        rm -f /tmp/tauri-key
-
-        if [ -n "$SIGNATURE" ]; then
-            # Universal DMG works for both architectures
-            cat > latest.json << EOF
-{
-  "version": "$version",
-  "notes": "$NOTES",
-  "pub_date": "$PUB_DATE",
-  "platforms": {
-    "darwin-aarch64": {
-      "signature": "$SIGNATURE",
-      "url": "https://github.com/QueryPilot/studio-app/releases/download/v$version/$DMG_NAME"
-    },
-    "darwin-x86_64": {
-      "signature": "$SIGNATURE",
-      "url": "https://github.com/QueryPilot/studio-app/releases/download/v$version/$DMG_NAME"
-    }
-  }
-}
-EOF
-        else
-            warn "Failed to sign, creating unsigned manifest"
-            create_unsigned_manifest "$version" "$NOTES" "$PUB_DATE"
+        # Validate signature looks like base64
+        if [ -n "$SIGNATURE" ] && ! echo "$SIGNATURE" | grep -qE '^[A-Za-z0-9+/=]{20,}$'; then
+            warn "Captured signature doesn't look like base64, discarding"
+            SIGNATURE=""
         fi
     else
         warn "TAURI_PRIVATE_KEY not set, creating unsigned manifest"
-        create_unsigned_manifest "$version" "$NOTES" "$PUB_DATE"
+    fi
+
+    # Build manifest with jq for safe JSON generation
+    if [ -n "$SIGNATURE" ]; then
+        jq -n \
+            --arg version "$version" \
+            --arg notes "$RAW_NOTES" \
+            --arg pub_date "$PUB_DATE" \
+            --arg sig "$SIGNATURE" \
+            --arg url "$DMG_URL" \
+            '{
+                version: $version,
+                notes: $notes,
+                pub_date: $pub_date,
+                platforms: {
+                    "darwin-aarch64": { signature: $sig, url: $url },
+                    "darwin-x86_64": { signature: $sig, url: $url }
+                }
+            }' > latest.json
+    else
+        warn "Creating unsigned manifest"
+        jq -n \
+            --arg version "$version" \
+            --arg notes "$RAW_NOTES" \
+            --arg pub_date "$PUB_DATE" \
+            --arg url "$DMG_URL" \
+            '{
+                version: $version,
+                notes: $notes,
+                pub_date: $pub_date,
+                platforms: {
+                    "darwin-aarch64": { url: $url },
+                    "darwin-x86_64": { url: $url }
+                }
+            }' > latest.json
     fi
 
     success "Manifest generated: latest.json"
     cat latest.json
-}
-
-create_unsigned_manifest() {
-    local version="$1"
-    local notes="$2"
-    local pub_date="$3"
-    local dmg_name="QueryPilot_v${version}.dmg"
-
-    # Universal DMG works for both architectures
-    cat > latest.json << EOF
-{
-  "version": "$version",
-  "notes": "$notes",
-  "pub_date": "$pub_date",
-  "platforms": {
-    "darwin-aarch64": {
-      "url": "https://github.com/QueryPilot/studio-app/releases/download/v$version/$dmg_name"
-    },
-    "darwin-x86_64": {
-      "url": "https://github.com/QueryPilot/studio-app/releases/download/v$version/$dmg_name"
-    }
-  }
-}
-EOF
 }
 
 # Upload manifest
