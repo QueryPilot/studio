@@ -46,7 +46,6 @@ export function WorkspaceScreen() {
   const openSingleConnection = useWorkspaceBundleStore(
     (s) => s.openSingleConnection,
   );
-  const saveConnectionLayout = useWorkbenchStore((s) => s.saveConnectionLayout);
   // Get focused connection - compute from state to ensure proper subscription
   const focusedConnectionId = activeWorkspace?.focusedConnectionId ?? null;
   const focusedConnection =
@@ -86,9 +85,9 @@ export function WorkspaceScreen() {
       useWorkspaceBundleStore.getState().activeWorkspace?.config.id ??
       connectionId;
     if (persistenceScopeId) {
-      saveConnectionLayout(persistenceScopeId);
+      useWorkbenchStore.getState().flushLayout(persistenceScopeId);
     }
-  }, [connectionId, saveConnectionLayout]);
+  }, [connectionId]);
 
   // Use useShallow for multi-value selector to prevent unnecessary re-renders
   const {
