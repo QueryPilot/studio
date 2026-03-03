@@ -76,7 +76,7 @@ export function NestedDatabaseList({
   );
 
   const isMultiConnectionWorkspace =
-    activeWorkspace && !activeWorkspace.isTemporary;
+    activeWorkspace && !activeWorkspace.config.autoCreated;
 
   // Query for databases list
   const {

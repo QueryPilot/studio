@@ -2,12 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   saveMock,
-  invokeMock,
+  writeTextFileMock,
   queryMock,
   getAdapterForConnectionMock,
 } = vi.hoisted(() => ({
   saveMock: vi.fn(),
-  invokeMock: vi.fn(),
+  writeTextFileMock: vi.fn(),
   queryMock: vi.fn(),
   getAdapterForConnectionMock: vi.fn(),
 }));
@@ -16,8 +16,8 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   save: saveMock,
 }));
 
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: invokeMock,
+vi.mock("@/utils/tauriFs", () => ({
+  writeTextFile: writeTextFileMock,
 }));
 
 vi.mock("@/services/backend", () => ({
@@ -39,7 +39,7 @@ import { exportSidebarObjectDataToFile } from "../databaseSidebarExport";
 describe("databaseSidebarExport data", () => {
   beforeEach(() => {
     saveMock.mockReset();
-    invokeMock.mockReset();
+    writeTextFileMock.mockReset();
     queryMock.mockReset();
     getAdapterForConnectionMock.mockReset();
   });
@@ -57,7 +57,7 @@ describe("databaseSidebarExport data", () => {
       rows: [[1, "Alice"], [2, "Bob"]],
     });
     saveMock.mockResolvedValue("/tmp/users.csv");
-    invokeMock.mockResolvedValue(undefined);
+    writeTextFileMock.mockResolvedValue(undefined);
 
     const result = await exportSidebarObjectDataToFile({
       connectionId: "conn-1",
@@ -76,10 +76,10 @@ describe("databaseSidebarExport data", () => {
         defaultPath: "appdb.public.users-20260228-010203.csv",
       }),
     );
-    expect(invokeMock).toHaveBeenCalledWith("plugin:fs|write_text_file", {
-      path: "/tmp/users.csv",
-      contents: "id,name\n1,Alice\n2,Bob",
-    });
+    expect(writeTextFileMock).toHaveBeenCalledWith(
+      "/tmp/users.csv",
+      "id,name\n1,Alice\n2,Bob",
+    );
     expect(result).toEqual({
       success: true,
       cancelled: false,
@@ -100,7 +100,7 @@ describe("databaseSidebarExport data", () => {
       rows: [[1, "Alice"]],
     });
     saveMock.mockResolvedValue("/tmp/users.sql");
-    invokeMock.mockResolvedValue(undefined);
+    writeTextFileMock.mockResolvedValue(undefined);
 
     await exportSidebarObjectDataToFile({
       connectionId: "conn-1",
@@ -114,8 +114,8 @@ describe("databaseSidebarExport data", () => {
       format: "insert",
     });
 
-    const payload = invokeMock.mock.calls[0]?.[1] as { contents: string };
-    expect(payload.contents).toContain('INSERT INTO "public"."users"');
+    const writtenContent = writeTextFileMock.mock.calls[0]?.[1] as string;
+    expect(writtenContent).toContain('INSERT INTO "public"."users"');
   });
 
   it("returns cancelled when user closes save dialog", async () => {
@@ -134,7 +134,7 @@ describe("databaseSidebarExport data", () => {
     });
 
     expect(queryMock).not.toHaveBeenCalled();
-    expect(invokeMock).not.toHaveBeenCalled();
+    expect(writeTextFileMock).not.toHaveBeenCalled();
     expect(result).toEqual({
       success: false,
       cancelled: true,

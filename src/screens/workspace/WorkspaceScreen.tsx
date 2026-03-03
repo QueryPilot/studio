@@ -36,8 +36,16 @@ export function WorkspaceScreen() {
   // Get workspaceId from route params
   const { workspaceId } = useParams<{ workspaceId?: string }>();
 
-  // Get workspace bundle store state
-  const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
+  // Get workspace bundle store state — use granular selectors to avoid
+  // re-rendering the entire tree on every connection status change
+  const activeWorkspaceConfigId = useWorkspaceBundleStore(
+    (s) => s.activeWorkspace?.config.id ?? null,
+  );
+  const focusedConnection = useWorkspaceBundleStore((s) => {
+    const ws = s.activeWorkspace;
+    if (!ws?.focusedConnectionId) return null;
+    return ws.connections.get(ws.focusedConnectionId) ?? null;
+  });
   const savedWorkspaces = useWorkspaceBundleStore((s) => s.savedWorkspaces);
   const loadSavedWorkspaces = useWorkspaceBundleStore(
     (s) => s.loadSavedWorkspaces,
@@ -46,11 +54,6 @@ export function WorkspaceScreen() {
   const openSingleConnection = useWorkspaceBundleStore(
     (s) => s.openSingleConnection,
   );
-  const saveConnectionLayout = useWorkbenchStore((s) => s.saveConnectionLayout);
-  // Get focused connection - compute from state to ensure proper subscription
-  const focusedConnectionId = activeWorkspace?.focusedConnectionId ?? null;
-  const focusedConnection =
-    activeWorkspace?.connections.get(focusedConnectionId ?? "") ?? null;
 
   // Get connection store state - needed to ensure connections are loaded
   const connections = useConnectionStore((s) => s.connections);
@@ -86,9 +89,9 @@ export function WorkspaceScreen() {
       useWorkspaceBundleStore.getState().activeWorkspace?.config.id ??
       connectionId;
     if (persistenceScopeId) {
-      saveConnectionLayout(persistenceScopeId);
+      useWorkbenchStore.getState().flushLayout(persistenceScopeId);
     }
-  }, [connectionId, saveConnectionLayout]);
+  }, [connectionId]);
 
   // Use useShallow for multi-value selector to prevent unnecessary re-renders
   const {
@@ -128,12 +131,8 @@ export function WorkspaceScreen() {
 
   // Load saved workspaces on mount (needed before we can open a named workspace by ID)
   useEffect(() => {
-    // Only load if we have a workspace ID that's not a temp workspace
-    const isTempWorkspace = workspaceId?.startsWith("temp-");
-
     if (
       workspaceId &&
-      !isTempWorkspace &&
       savedWorkspaces.length === 0 &&
       !workspacesLoaded
     ) {
@@ -141,7 +140,6 @@ export function WorkspaceScreen() {
         setWorkspacesLoaded(true);
       });
     } else {
-      // For temp workspaces or when workspaces are already loaded
       setWorkspacesLoaded(true);
     }
   }, [
@@ -156,13 +154,8 @@ export function WorkspaceScreen() {
     if (!workspaceId) return;
 
     // Skip if workspace is already active and matches the route
-    if (activeWorkspace?.config.id === workspaceId) {
+    if (activeWorkspaceConfigId === workspaceId) {
       return;
-    }
-
-    // For temp workspaces (temp-*), the LegacyConnectionRedirect already created them
-    if (workspaceId.startsWith("temp-")) {
-      return; // activeWorkspace should already be set
     }
 
     // Wait for both workspaces AND connections to be loaded
@@ -187,7 +180,7 @@ export function WorkspaceScreen() {
     }
   }, [
     workspaceId,
-    activeWorkspace?.config.id,
+    activeWorkspaceConfigId,
     workspacesLoaded,
     connectionsLoaded,
     savedWorkspaces,

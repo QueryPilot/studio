@@ -40,6 +40,11 @@ interface WorkspaceBundleStore {
   ) => Promise<void>;
   deleteWorkspace: (id: string) => Promise<void>;
 
+  // ===== Actions - Auto-Workspace Resolution =====
+
+  /** Find or create an auto-workspace for a single connection */
+  getOrCreateWorkspaceForConnection: (connectionId: string) => Promise<WorkspaceConfig>;
+
   // ===== Actions - Open/Close =====
 
   openWorkspace: (workspaceId: string) => Promise<void>;
@@ -147,6 +152,44 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       logger.info(`[WorkspaceBundleStore] Deleted workspace: ${id}`);
     },
 
+    // ===== Actions - Auto-Workspace Resolution =====
+
+    getOrCreateWorkspaceForConnection: async (connectionId) => {
+      const { savedWorkspaces } = get();
+
+      // Check for existing auto-workspace for this connection
+      const existing = savedWorkspaces.find(
+        (ws) =>
+          ws.autoCreated &&
+          ws.connectionIds.length === 1 &&
+          ws.connectionIds[0] === connectionId,
+      );
+      if (existing) return existing;
+
+      // Create new auto-workspace
+      const profile = useConnectionStore.getState().getConnection(connectionId);
+      const now = new Date().toISOString();
+      const config: WorkspaceConfig = {
+        id: crypto.randomUUID(),
+        name: profile?.profile.name ?? "Untitled",
+        autoCreated: true,
+        connectionIds: [connectionId],
+        connectionStates: {},
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      await vaultStorage.storeWorkspace(config);
+      set((state) => ({
+        savedWorkspaces: [...state.savedWorkspaces, config],
+      }));
+
+      logger.info(
+        `[WorkspaceBundleStore] Created auto-workspace for connection: ${connectionId} (${config.id})`,
+      );
+      return config;
+    },
+
     // ===== Actions - Open/Close =====
 
     openWorkspace: async (workspaceId) => {
@@ -165,7 +208,6 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       // Create active workspace with empty connections map
       const activeWorkspace: ActiveWorkspace = {
         config,
-        isTemporary: false,
         connections: new Map(),
         focusedConnectionId: null,
       };
@@ -226,7 +268,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         };
 
         set((s) => {
-          if (!s.activeWorkspace) return s;
+          if (!s.activeWorkspace || s.activeWorkspace.config.id !== workspaceId) return s;
           const newConnections = new Map(s.activeWorkspace.connections);
           newConnections.set(connectionId, openConnection);
           return {
@@ -243,7 +285,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         try {
           await databaseService.connectById(connectionId);
           set((s) => {
-            if (!s.activeWorkspace) return s;
+            if (!s.activeWorkspace || s.activeWorkspace.config.id !== workspaceId) return s;
             const conn = s.activeWorkspace.connections.get(connectionId);
             if (!conn) return s;
             const newConnections = new Map(s.activeWorkspace.connections);
@@ -261,7 +303,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
             error,
           );
           set((s) => {
-            if (!s.activeWorkspace) return s;
+            if (!s.activeWorkspace || s.activeWorkspace.config.id !== workspaceId) return s;
             const conn = s.activeWorkspace.connections.get(connectionId);
             if (!conn) return s;
             const newConnections = new Map(s.activeWorkspace.connections);
@@ -286,37 +328,12 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         lastOpenedAt: new Date().toISOString(),
       });
 
-      const workbenchState = useWorkbenchStore.getState();
-      const restoredScopedLayout = workbenchState.restoreConnectionLayout(
-        config.id,
-      );
-
-      if (restoredScopedLayout) {
-        logger.info(
-          `[WorkspaceBundleStore] Restored tab layout from local session cache: ${config.name}`,
-        );
-      } else if (config.tabLayout) {
-        try {
-          // Fallback: restore workspace-saved layout when no local session cache exists.
-          workbenchState.setLayoutTree(config.tabLayout.layoutTree);
-          const panelContentsMap = new Map(config.tabLayout.panelContents);
-          workbenchState.restorePanelContents(panelContentsMap);
-
-          logger.info(
-            `[WorkspaceBundleStore] Restored tab layout for workspace: ${config.name}`,
-          );
-        } catch (error) {
-          logger.error(
-            `[WorkspaceBundleStore] Failed to restore tab layout:`,
-            error,
-          );
-        }
-      }
+      // Layout loading is handled by WorkbenchLayout component
     },
 
     openSingleConnection: async (connectionId, options) => {
       logger.info(
-        `[WorkspaceBundleStore] Opening single connection as temp workspace: ${connectionId}`,
+        `[WorkspaceBundleStore] Opening single connection: ${connectionId}`,
       );
 
       const connectionStore = useConnectionStore.getState();
@@ -330,26 +347,22 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       }
 
       const profile = stored.profile;
-      const now = new Date().toISOString();
 
       // Use override options if provided, otherwise fall back to profile defaults
       const database = options?.database || profile.database;
       const schema = options?.schema || profile.default_schema || getDefaultSchema(profile.db_type, database) || "";
 
-      // Create temporary workspace config
-      const config: WorkspaceConfig = {
-        id: `temp-${connectionId}`,
-        name: profile.name,
-        connectionIds: [connectionId],
-        connectionStates: {
-          [connectionId]: {
-            database,
-            schema,
-          },
-        },
-        createdAt: now,
-        updatedAt: now,
+      // Get or create an auto-workspace for this connection (clone to avoid mutating store state)
+      const originalConfig = await get().getOrCreateWorkspaceForConnection(connectionId);
+      const config = {
+        ...originalConfig,
+        connectionStates: { ...originalConfig.connectionStates },
       };
+
+      // Update connection state on the cloned config if options override defaults
+      if (options?.database || options?.schema) {
+        config.connectionStates[connectionId] = { database, schema };
+      }
 
       const openConnection: OpenConnection = {
         id: connectionId,
@@ -364,22 +377,13 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
 
       const activeWorkspace: ActiveWorkspace = {
         config,
-        isTemporary: true,
         connections,
         focusedConnectionId: connectionId,
       };
 
       set({ activeWorkspace, isDirty: false });
 
-      const workbenchState = useWorkbenchStore.getState();
-      const restoredScopedLayout = workbenchState.restoreConnectionLayout(
-        config.id,
-      );
-      if (restoredScopedLayout) {
-        logger.info(
-          `[WorkspaceBundleStore] Restored tab layout from local session cache: ${config.id}`,
-        );
-      }
+      // Layout loading is handled by WorkbenchLayout component
 
       // Connect (pass database override if provided)
       try {
@@ -565,9 +569,28 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         });
       }
 
-      // Auto-save the workspace after adding a connection (skip for temporary workspaces)
+      // When adding a second connection to an auto-workspace, promote it
       const updatedWorkspace = get().activeWorkspace;
-      if (updatedWorkspace && !updatedWorkspace.isTemporary) {
+      if (updatedWorkspace) {
+        if (
+          updatedWorkspace.config.autoCreated &&
+          updatedWorkspace.config.connectionIds.length > 1
+        ) {
+          // Promote: no longer auto-created
+          set((s) => {
+            if (!s.activeWorkspace) return s;
+            return {
+              activeWorkspace: {
+                ...s.activeWorkspace,
+                config: {
+                  ...s.activeWorkspace.config,
+                  autoCreated: false,
+                },
+              },
+            };
+          });
+        }
+        // Auto-save the workspace after adding a connection
         await get().saveCurrentWorkspace();
       }
     },
@@ -754,20 +777,10 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
 
     saveCurrentWorkspace: async () => {
       const { activeWorkspace } = get();
-      if (!activeWorkspace || activeWorkspace.isTemporary) return;
-
-      // Capture current tab layout from workbenchStore
-      const workbenchState = useWorkbenchStore.getState();
-      const tabLayout = workbenchState.layoutTree
-        ? {
-            layoutTree: workbenchState.layoutTree,
-            panelContents: Array.from(workbenchState.panelContents.entries()),
-          }
-        : undefined;
+      if (!activeWorkspace) return;
 
       const updatedConfig: WorkspaceConfig = {
         ...activeWorkspace.config,
-        tabLayout,
         updatedAt: new Date().toISOString(),
       };
 
@@ -794,20 +807,11 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       const id = crypto.randomUUID();
       const now = new Date().toISOString();
 
-      // Capture current tab layout
-      const workbenchState = useWorkbenchStore.getState();
-      const tabLayout = workbenchState.layoutTree
-        ? {
-            layoutTree: workbenchState.layoutTree,
-            panelContents: Array.from(workbenchState.panelContents.entries()),
-          }
-        : undefined;
-
       const newConfig: WorkspaceConfig = {
         ...activeWorkspace.config,
         id,
         name,
-        tabLayout,
+        autoCreated: false,
         createdAt: now,
         updatedAt: now,
       };
@@ -817,7 +821,6 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         activeWorkspace: {
           ...activeWorkspace,
           config: newConfig,
-          isTemporary: false,
         },
         isDirty: false,
       }));

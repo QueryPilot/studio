@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { saveMock, invokeMock, getObjectDefinitionMock, getTableStructureMock } = vi.hoisted(() => ({
+const { saveMock, writeTextFileMock, getObjectDefinitionMock, getTableStructureMock } = vi.hoisted(() => ({
   saveMock: vi.fn(),
-  invokeMock: vi.fn(),
+  writeTextFileMock: vi.fn(),
   getObjectDefinitionMock: vi.fn(),
   getTableStructureMock: vi.fn(),
 }));
@@ -11,8 +11,8 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   save: saveMock,
 }));
 
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: invokeMock,
+vi.mock("@/utils/tauriFs", () => ({
+  writeTextFile: writeTextFileMock,
 }));
 
 vi.mock("@/services/databaseService", () => ({
@@ -53,7 +53,7 @@ import {
 describe("databaseSidebarExport", () => {
   beforeEach(() => {
     saveMock.mockReset();
-    invokeMock.mockReset();
+    writeTextFileMock.mockReset();
     getObjectDefinitionMock.mockReset();
     getTableStructureMock.mockReset();
     schemaToDBMLMock.mockReset();
@@ -65,7 +65,7 @@ describe("databaseSidebarExport", () => {
       .mockResolvedValueOnce("CREATE TABLE public.users (id int);")
       .mockResolvedValueOnce("CREATE VIEW public.active_users AS SELECT * FROM public.users;");
     saveMock.mockResolvedValue("/tmp/my-export.sql");
-    invokeMock.mockResolvedValue(undefined);
+    writeTextFileMock.mockResolvedValue(undefined);
 
     const result = await exportSidebarObjectsToFile({
       connectionId: "conn-1",
@@ -94,16 +94,16 @@ describe("databaseSidebarExport", () => {
     );
 
     expect(saveMock).toHaveBeenCalledTimes(1);
-    expect(invokeMock).toHaveBeenCalledTimes(1);
-    expect(invokeMock).toHaveBeenCalledWith("plugin:fs|write_text_file", {
-      path: "/tmp/my-export.sql",
-      contents: expect.stringContaining("CREATE TABLE public.users (id int);"),
-    });
+    expect(writeTextFileMock).toHaveBeenCalledTimes(1);
+    expect(writeTextFileMock).toHaveBeenCalledWith(
+      "/tmp/my-export.sql",
+      expect.stringContaining("CREATE TABLE public.users (id int);"),
+    );
 
-    const writtenPayload = invokeMock.mock.calls[0]?.[1] as { contents: string };
-    expect(writtenPayload.contents).toContain("CREATE VIEW public.active_users AS SELECT * FROM public.users;");
-    expect(writtenPayload.contents).toContain("-- TABLE public.users");
-    expect(writtenPayload.contents).toContain("-- VIEW public.active_users");
+    const writtenContent = writeTextFileMock.mock.calls[0]?.[1] as string;
+    expect(writtenContent).toContain("CREATE VIEW public.active_users AS SELECT * FROM public.users;");
+    expect(writtenContent).toContain("-- TABLE public.users");
+    expect(writtenContent).toContain("-- VIEW public.active_users");
     expect(result).toEqual({
       success: true,
       cancelled: false,
@@ -118,7 +118,7 @@ describe("databaseSidebarExport", () => {
 
     getObjectDefinitionMock.mockResolvedValue("CREATE TABLE public.users (id int);");
     saveMock.mockResolvedValue("/tmp/my-export.sql");
-    invokeMock.mockResolvedValue(undefined);
+    writeTextFileMock.mockResolvedValue(undefined);
 
     await exportSidebarObjectsToFile({
       connectionId: "conn-1",
@@ -145,7 +145,7 @@ describe("databaseSidebarExport", () => {
       items: [{ schema: "public", name: "users", objectType: "table" }],
     });
 
-    expect(invokeMock).not.toHaveBeenCalled();
+    expect(writeTextFileMock).not.toHaveBeenCalled();
     expect(result).toEqual({
       success: false,
       cancelled: true,
@@ -158,7 +158,7 @@ describe("databaseSidebarExport", () => {
     getTableStructureMock.mockResolvedValue(fakeStructure);
     schemaToDBMLMock.mockResolvedValue({ dbml: "Table public.users {\n  id int [pk]\n}" });
     saveMock.mockResolvedValue("/tmp/export.dbml");
-    invokeMock.mockResolvedValue(undefined);
+    writeTextFileMock.mockResolvedValue(undefined);
 
     const result = await exportSidebarObjectsAsDBML({
       connectionId: "conn-1",
@@ -175,10 +175,10 @@ describe("databaseSidebarExport", () => {
         ]),
       }),
     );
-    expect(invokeMock).toHaveBeenCalledWith("plugin:fs|write_text_file", {
-      path: "/tmp/export.dbml",
-      contents: expect.stringContaining("Table public.users"),
-    });
+    expect(writeTextFileMock).toHaveBeenCalledWith(
+      "/tmp/export.dbml",
+      expect.stringContaining("Table public.users"),
+    );
   });
 
   it("exports selected objects as Mermaid ERD markdown", async () => {
@@ -186,7 +186,7 @@ describe("databaseSidebarExport", () => {
     getTableStructureMock.mockResolvedValue(fakeStructure);
     generateMermaidERDMock.mockReturnValue("erDiagram\n    users {\n    }");
     saveMock.mockResolvedValue("/tmp/export.md");
-    invokeMock.mockResolvedValue(undefined);
+    writeTextFileMock.mockResolvedValue(undefined);
 
     const result = await exportSidebarObjectsAsMermaid({
       connectionId: "conn-1",
@@ -195,10 +195,10 @@ describe("databaseSidebarExport", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(invokeMock).toHaveBeenCalledWith("plugin:fs|write_text_file", {
-      path: "/tmp/export.md",
-      contents: expect.stringContaining("```mermaid"),
-    });
+    expect(writeTextFileMock).toHaveBeenCalledWith(
+      "/tmp/export.md",
+      expect.stringContaining("```mermaid"),
+    );
   });
 
   it("returns cancelled when user dismisses DBML save dialog", async () => {

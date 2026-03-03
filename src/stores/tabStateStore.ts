@@ -120,6 +120,9 @@ interface QueryState {
   inTransaction: boolean; // Track if this tab has an active transaction
   selectedDialect?: SqlDialect | "auto"; // Selected SQL dialect (auto = auto-detect)
   tableViewType?: string; // For table tabs: "data" | "structure" | "indexes" | etc.
+  scrollPosition?: { top: number; left: number };
+  editorCursorPosition?: { line: number; ch: number };
+  gridColumnWidths?: Record<string, number>;
 
   // Multi-query execution support
   multiResults?: MultiQueryResult[]; // Results from multi-statement execution
@@ -127,7 +130,7 @@ interface QueryState {
 
   // Pinned result support
   pinnedResult?: QueryResult | null; // Pinned query result
-  pinnedResultQuery?: string; // SQL query that produced the pinned result
+  pinnedResultQuery?: string | null; // SQL query that produced the pinned result
 
   // Saved EXPLAIN plans for comparison
   savedExplainPlans?: SavedExplainPlan[];
@@ -238,6 +241,10 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         inTransaction: false,
         selectedDialect: persisted.selectedDialect,
         tableViewType: persisted.tableViewType,
+        scrollPosition: persisted.scrollPosition,
+        editorCursorPosition: persisted.editorCursorPosition,
+        gridColumnWidths: persisted.gridColumnWidths,
+        pinnedResultQuery: persisted.pinnedResultQuery ?? undefined,
       };
 
       set((s) => {
@@ -277,12 +284,17 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
 
       // Schedule debounced persistence for lightweight fields
       // Only persist if any persistable field changed
+      // TODO: Consider separate 1000ms debounce for scrollPosition and gridColumnWidths
       const persistableFields: (keyof PersistedTabState)[] = [
         "query",
         "lastExecutedQuery",
         "viewMode",
         "selectedDialect",
         "tableViewType",
+        "scrollPosition",
+        "editorCursorPosition",
+        "gridColumnWidths",
+        "pinnedResultQuery",
       ];
       const shouldPersist = persistableFields.some(
         (field) => field in state && state[field as keyof QueryState] !== undefined
@@ -295,6 +307,10 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
           viewMode: newState.viewMode,
           selectedDialect: newState.selectedDialect,
           tableViewType: newState.tableViewType,
+          scrollPosition: newState.scrollPosition,
+          editorCursorPosition: newState.editorCursorPosition,
+          gridColumnWidths: newState.gridColumnWidths,
+          pinnedResultQuery: newState.pinnedResultQuery,
         });
       }
 
@@ -367,7 +383,7 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         newStates.set(tabId, {
           ...existing,
           pinnedResult: null,
-          pinnedResultQuery: undefined,
+          pinnedResultQuery: null,
         });
       }
       return { queryStates: newStates };
@@ -382,7 +398,7 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         newStates.set(tabId, {
           ...existing,
           pinnedResult: null,
-          pinnedResultQuery: undefined,
+          pinnedResultQuery: null,
         });
       }
       return { queryStates: newStates };

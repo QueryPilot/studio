@@ -923,7 +923,7 @@ export const ConnectionSection = forwardRef<
       await windowManager.openBackupRestore(profile.id);
     } catch (error) {
       toast.error("Failed to open backup/restore", {
-        description: error instanceof Error ? error.message : "Unknown error",
+        description: error instanceof Error ? error.message : String(error),
       });
     }
   };
@@ -1249,7 +1249,7 @@ export const ConnectionSection = forwardRef<
       toast.success(`Copied ${output.length} definition(s)`);
     } catch (error) {
       toast.error("Failed to copy definition", {
-        description: error instanceof Error ? error.message : "Unknown error",
+        description: error instanceof Error ? error.message : String(error),
       });
     }
   };
@@ -1464,7 +1464,7 @@ export const ConnectionSection = forwardRef<
       });
     } catch (error) {
       toast.error("Export failed", {
-        description: error instanceof Error ? error.message : "Unknown error",
+        description: error instanceof Error ? error.message : String(error),
       });
     }
   };
@@ -1490,7 +1490,7 @@ export const ConnectionSection = forwardRef<
       });
     } catch (error) {
       toast.error("DBML export failed", {
-        description: error instanceof Error ? error.message : "Unknown error",
+        description: error instanceof Error ? error.message : String(error),
       });
     }
   };
@@ -1516,7 +1516,7 @@ export const ConnectionSection = forwardRef<
       });
     } catch (error) {
       toast.error("Mermaid ERD export failed", {
-        description: error instanceof Error ? error.message : "Unknown error",
+        description: error instanceof Error ? error.message : String(error),
       });
     }
   };
@@ -1553,7 +1553,7 @@ export const ConnectionSection = forwardRef<
       });
     } catch (error) {
       toast.error("Data export failed", {
-        description: error instanceof Error ? error.message : "Unknown error",
+        description: error instanceof Error ? error.message : String(error),
       });
     }
   };
@@ -1616,7 +1616,7 @@ export const ConnectionSection = forwardRef<
       toast.success(`Refreshed ${label}`);
     } catch (error) {
       toast.error("Failed to refresh materialized view", {
-        description: error instanceof Error ? error.message : "Unknown error",
+        description: error instanceof Error ? error.message : String(error),
       });
     }
     setSelectedItems(new Set());
@@ -2848,7 +2848,7 @@ export const ConnectionSection = forwardRef<
           void action.onConfirm().catch((error: unknown) => {
             toast.error("Action failed", {
               description:
-                error instanceof Error ? error.message : "Unknown error",
+                error instanceof Error ? error.message : String(error),
             });
           });
         }}

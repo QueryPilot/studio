@@ -32,6 +32,10 @@ interface PreferencesState {
   /** Query timeout in seconds. Default: 300 (5 minutes). Set to 0 for no timeout. */
   queryTimeoutSecs: number;
   setQueryTimeoutSecs: (timeout: number) => void;
+
+  /** Controls whether the app restores the previous session on startup or shows the home screen. Default: "restore". */
+  startupBehavior: "restore" | "home";
+  setStartupBehavior: (behavior: "restore" | "home") => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -53,6 +57,12 @@ export const usePreferencesStore = create<PreferencesState>()(
       queryTimeoutSecs: 300,
       setQueryTimeoutSecs: (timeout) => {
         set({ queryTimeoutSecs: timeout });
+      },
+
+      // Startup behavior ("restore" = restore previous session, "home" = show home screen)
+      startupBehavior: "restore",
+      setStartupBehavior: (behavior) => {
+        set({ startupBehavior: behavior });
       },
 
       // Dialog state (not persisted)
@@ -79,6 +89,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       partialize: (state) => ({
         telemetry: state.telemetry,
         queryTimeoutSecs: state.queryTimeoutSecs,
+        startupBehavior: state.startupBehavior,
       }),
     },
   ),
