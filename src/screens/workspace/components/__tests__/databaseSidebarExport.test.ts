@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { saveMock, invokeMock, getObjectDefinitionMock } = vi.hoisted(() => ({
+const { saveMock, invokeMock, getObjectDefinitionMock, getTableStructureMock } = vi.hoisted(() => ({
   saveMock: vi.fn(),
   invokeMock: vi.fn(),
   getObjectDefinitionMock: vi.fn(),
+  getTableStructureMock: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -17,6 +18,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("@/services/databaseService", () => ({
   databaseService: {
     getObjectDefinition: getObjectDefinitionMock,
+    getTableStructure: getTableStructureMock,
   },
 }));
 
@@ -24,13 +26,38 @@ vi.mock("@/utils/tauri", () => ({
   isTauri: () => true,
 }));
 
-import { exportSidebarObjectsToFile } from "../databaseSidebarExport";
+const { schemaToDBMLMock } = vi.hoisted(() => ({
+  schemaToDBMLMock: vi.fn(),
+}));
+
+vi.mock("@/services/dbmlService", () => ({
+  dbmlService: {
+    schemaToDBML: schemaToDBMLMock,
+  },
+}));
+
+const { generateMermaidERDMock } = vi.hoisted(() => ({
+  generateMermaidERDMock: vi.fn(),
+}));
+
+vi.mock("@/utils/mermaidExport", () => ({
+  generateMermaidERD: generateMermaidERDMock,
+}));
+
+import {
+  exportSidebarObjectsToFile,
+  exportSidebarObjectsAsDBML,
+  exportSidebarObjectsAsMermaid,
+} from "../databaseSidebarExport";
 
 describe("databaseSidebarExport", () => {
   beforeEach(() => {
     saveMock.mockReset();
     invokeMock.mockReset();
     getObjectDefinitionMock.mockReset();
+    getTableStructureMock.mockReset();
+    schemaToDBMLMock.mockReset();
+    generateMermaidERDMock.mockReset();
   });
 
   it("exports selected object definitions to a SQL file", async () => {
@@ -124,5 +151,79 @@ describe("databaseSidebarExport", () => {
       cancelled: true,
       itemCount: 1,
     });
+  });
+
+  it("exports selected objects as DBML file", async () => {
+    const fakeStructure = { name: "users", schema: "public", columns: [] };
+    getTableStructureMock.mockResolvedValue(fakeStructure);
+    schemaToDBMLMock.mockResolvedValue({ dbml: "Table public.users {\n  id int [pk]\n}" });
+    saveMock.mockResolvedValue("/tmp/export.dbml");
+    invokeMock.mockResolvedValue(undefined);
+
+    const result = await exportSidebarObjectsAsDBML({
+      connectionId: "conn-1",
+      database: "appdb",
+      items: [{ schema: "public", name: "users", objectType: "table" }],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.cancelled).toBe(false);
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: expect.arrayContaining([
+          expect.objectContaining({ extensions: ["dbml"] }),
+        ]),
+      }),
+    );
+    expect(invokeMock).toHaveBeenCalledWith("plugin:fs|write_text_file", {
+      path: "/tmp/export.dbml",
+      contents: expect.stringContaining("Table public.users"),
+    });
+  });
+
+  it("exports selected objects as Mermaid ERD markdown", async () => {
+    const fakeStructure = { name: "users", schema: "public", columns: [] };
+    getTableStructureMock.mockResolvedValue(fakeStructure);
+    generateMermaidERDMock.mockReturnValue("erDiagram\n    users {\n    }");
+    saveMock.mockResolvedValue("/tmp/export.md");
+    invokeMock.mockResolvedValue(undefined);
+
+    const result = await exportSidebarObjectsAsMermaid({
+      connectionId: "conn-1",
+      database: "appdb",
+      items: [{ schema: "public", name: "users", objectType: "table" }],
+    });
+
+    expect(result.success).toBe(true);
+    expect(invokeMock).toHaveBeenCalledWith("plugin:fs|write_text_file", {
+      path: "/tmp/export.md",
+      contents: expect.stringContaining("```mermaid"),
+    });
+  });
+
+  it("returns cancelled when user dismisses DBML save dialog", async () => {
+    saveMock.mockResolvedValue(null);
+
+    const result = await exportSidebarObjectsAsDBML({
+      connectionId: "conn-1",
+      database: "appdb",
+      items: [{ schema: "public", name: "users", objectType: "table" }],
+    });
+
+    expect(result.cancelled).toBe(true);
+    expect(getTableStructureMock).not.toHaveBeenCalled();
+  });
+
+  it("returns cancelled when user dismisses Mermaid save dialog", async () => {
+    saveMock.mockResolvedValue(null);
+
+    const result = await exportSidebarObjectsAsMermaid({
+      connectionId: "conn-1",
+      database: "appdb",
+      items: [{ schema: "public", name: "users", objectType: "table" }],
+    });
+
+    expect(result.cancelled).toBe(true);
+    expect(getTableStructureMock).not.toHaveBeenCalled();
   });
 });

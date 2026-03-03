@@ -5,6 +5,9 @@ import type { DatabaseAdapter } from "@/adapters/types";
 import { getAdapterForConnection } from "@/adapters";
 import { BackendAPI } from "@/services/backend";
 import { databaseService } from "@/services/databaseService";
+import { dbmlService } from "@/services/dbmlService";
+import { generateMermaidERD } from "@/utils/mermaidExport";
+import type { TableStructure } from "@/types/tableStructure";
 import { generateCSV } from "@/utils/csvExport";
 import { generateJSON } from "@/utils/jsonExport";
 import { generateInsertStatements } from "@/utils/sqlInsertExport";
@@ -160,6 +163,25 @@ function queryPayloadToSql(payload: string | object): string {
   throw new Error("Failed to generate SQL for sidebar data export");
 }
 
+async function fetchTableStructures(
+  connectionId: string,
+  database: string | null,
+  items: SidebarExportItem[],
+): Promise<TableStructure[]> {
+  const structures: TableStructure[] = [];
+  for (const item of items) {
+    const structure = await databaseService.getTableStructure(
+      connectionId,
+      database ?? "",
+      item.schema,
+      item.name,
+      { includeIndexes: true, includeForeignKeys: true },
+    );
+    structures.push(structure);
+  }
+  return structures;
+}
+
 function buildDefaultFilename(
   database: string | null,
   items: SidebarExportItem[],
@@ -175,6 +197,32 @@ function buildDefaultFilename(
   const schema = sanitizeFileSegment(primaryItem.schema);
   const objectName = sanitizeFileSegment(primaryItem.name);
   return `${dbName}.${schema}.${objectName}-${timestamp}.sql`;
+}
+
+function buildDBMLDefaultFilename(
+  database: string | null,
+  items: SidebarExportItem[],
+): string {
+  const dbName = sanitizeFileSegment(database || "database");
+  const primaryItem = items[0];
+  const timestamp = buildTimestamp(new Date());
+  if (!primaryItem) return `${dbName}.export-${timestamp}.dbml`;
+  const schema = sanitizeFileSegment(primaryItem.schema);
+  const objectName = sanitizeFileSegment(primaryItem.name);
+  return `${dbName}.${schema}.${objectName}-${timestamp}.dbml`;
+}
+
+function buildMermaidDefaultFilename(
+  database: string | null,
+  items: SidebarExportItem[],
+): string {
+  const dbName = sanitizeFileSegment(database || "database");
+  const primaryItem = items[0];
+  const timestamp = buildTimestamp(new Date());
+  if (!primaryItem) return `${dbName}.export-${timestamp}.md`;
+  const schema = sanitizeFileSegment(primaryItem.schema);
+  const objectName = sanitizeFileSegment(primaryItem.name);
+  return `${dbName}.${schema}.${objectName}-erd-${timestamp}.md`;
 }
 
 function buildExportContent(
@@ -346,4 +394,76 @@ export async function exportSidebarObjectDataToFile({
     cancelled: false,
     rowCount: rows.length,
   };
+}
+
+export async function exportSidebarObjectsAsDBML({
+  connectionId,
+  database,
+  items,
+}: ExportSidebarObjectsParams): Promise<ExportSidebarObjectsResult> {
+  const defaultFilename = buildDBMLDefaultFilename(database, items);
+
+  const resolveContent = async (): Promise<string> => {
+    const structures = await fetchTableStructures(connectionId, database, items);
+    const dbmlResult = await dbmlService.schemaToDBML(structures);
+    return dbmlResult.dbml;
+  };
+
+  if (isTauri()) {
+    const filePath = await save({
+      defaultPath: defaultFilename,
+      filters: [
+        { name: "DBML Files", extensions: ["dbml"] },
+        { name: "All Files", extensions: ["*"] },
+      ],
+    });
+
+    if (!filePath) {
+      return { success: false, cancelled: true, itemCount: items.length };
+    }
+
+    const content = await resolveContent();
+    await invoke("plugin:fs|write_text_file", { path: filePath, contents: content });
+    return { success: true, cancelled: false, itemCount: items.length, filePath };
+  }
+
+  const content = await resolveContent();
+  downloadFile(content, defaultFilename);
+  return { success: true, cancelled: false, itemCount: items.length };
+}
+
+export async function exportSidebarObjectsAsMermaid({
+  connectionId,
+  database,
+  items,
+}: ExportSidebarObjectsParams): Promise<ExportSidebarObjectsResult> {
+  const defaultFilename = buildMermaidDefaultFilename(database, items);
+
+  const resolveContent = async (): Promise<string> => {
+    const structures = await fetchTableStructures(connectionId, database, items);
+    const erd = generateMermaidERD(structures);
+    return `# ERD — ${database ?? "database"}\n\n\`\`\`mermaid\n${erd}\n\`\`\`\n`;
+  };
+
+  if (isTauri()) {
+    const filePath = await save({
+      defaultPath: defaultFilename,
+      filters: [
+        { name: "Markdown Files", extensions: ["md"] },
+        { name: "All Files", extensions: ["*"] },
+      ],
+    });
+
+    if (!filePath) {
+      return { success: false, cancelled: true, itemCount: items.length };
+    }
+
+    const content = await resolveContent();
+    await invoke("plugin:fs|write_text_file", { path: filePath, contents: content });
+    return { success: true, cancelled: false, itemCount: items.length, filePath };
+  }
+
+  const content = await resolveContent();
+  downloadFile(content, defaultFilename);
+  return { success: true, cancelled: false, itemCount: items.length };
 }
