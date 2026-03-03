@@ -1,0 +1,154 @@
+/**
+ * Session Migration
+ *
+ * One-time migration that moves data from old persistence locations
+ * (localStorage layouts + old IndexedDB tab states) into the new
+ * consolidated session database (`query-pilot-sessions`).
+ *
+ * The migration is idempotent — it checks `migrationVersion` in appState
+ * and only runs when the stored version is below `MIGRATION_VERSION`.
+ */
+
+import Dexie from "dexie";
+import {
+  getSessionDatabase,
+  type PersistedWorkspaceLayout,
+} from "./sessionDb";
+import type { GridNode, PanelContent } from "@/types/workbench";
+
+const MIGRATION_VERSION = 1;
+
+/**
+ * Run all pending session data migrations.
+ *
+ * This is fire-and-forget — callers should `.catch()` to avoid
+ * unhandled rejections, but a failure here must never block app startup.
+ */
+export async function runSessionMigration(): Promise<void> {
+  const db = getSessionDatabase();
+
+  // Check if already migrated
+  const appState = await db.appState.get("singleton");
+  if (appState && appState.migrationVersion >= MIGRATION_VERSION) return;
+
+  console.log(
+    "[migration] Starting session data migration v" + MIGRATION_VERSION
+  );
+
+  // 1. Migrate layout data from localStorage
+  await migrateLayoutsFromLocalStorage(db);
+
+  // 2. Migrate tab state from old IndexedDB
+  await migrateTabStatesFromOldDb(db);
+
+  // 3. Mark migration complete
+  await db.appState.put({
+    key: "singleton",
+    lastActiveWorkspaceIds: appState?.lastActiveWorkspaceIds ?? [],
+    windowStates: appState?.windowStates ?? [],
+    migrationVersion: MIGRATION_VERSION,
+  });
+
+  console.log("[migration] Session data migration complete");
+}
+
+// ---------------------------------------------------------------------------
+// Layout migration (localStorage → session DB)
+// ---------------------------------------------------------------------------
+
+interface OldLayoutData {
+  layoutTree: GridNode;
+  panelContents: Array<[string, PanelContent]>;
+  savedAt: number;
+}
+
+async function migrateLayoutsFromLocalStorage(
+  db: ReturnType<typeof getSessionDatabase>
+): Promise<void> {
+  const PREFIX = "workbench-connection-";
+  let migratedCount = 0;
+
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(PREFIX)) continue;
+
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+
+      try {
+        const data = JSON.parse(raw) as OldLayoutData;
+        if (!data.layoutTree || !data.panelContents) continue;
+
+        const workspaceId = key.slice(PREFIX.length);
+
+        const record: PersistedWorkspaceLayout = {
+          workspaceId,
+          layoutTree: data.layoutTree,
+          panelContents: data.panelContents,
+          savedAt: data.savedAt ?? Date.now(),
+          lastActiveAt: data.savedAt ?? Date.now(),
+        };
+
+        await db.workspaceLayouts.put(record);
+        migratedCount++;
+        console.log(
+          `[migration] Migrated layout for workspace: ${workspaceId}`
+        );
+      } catch {
+        // Skip corrupted entries — don't crash the migration
+        console.warn(`[migration] Skipping corrupted layout entry: ${key}`);
+      }
+    }
+
+    if (migratedCount > 0) {
+      console.log(
+        `[migration] Migrated ${migratedCount} layout(s) from localStorage`
+      );
+    }
+  } catch (error) {
+    console.warn("[migration] Layout migration failed:", error);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tab state migration (old IndexedDB → session DB)
+// ---------------------------------------------------------------------------
+
+const OLD_TAB_STATE_DB_NAME = "query-pilot-tab-state";
+
+async function migrateTabStatesFromOldDb(
+  db: ReturnType<typeof getSessionDatabase>
+): Promise<void> {
+  try {
+    // Check if the old database exists
+    const dbNames = await Dexie.getDatabaseNames();
+    if (!dbNames.includes(OLD_TAB_STATE_DB_NAME)) return;
+
+    // Open the old database with a generic Dexie instance so we can read
+    // its data without importing the old schema class.
+    const oldDb = new Dexie(OLD_TAB_STATE_DB_NAME);
+    oldDb.version(1).stores({ tabStates: "&tabId" });
+
+    try {
+      const oldRecords = await oldDb.table("tabStates").toArray();
+      if (oldRecords.length === 0) return;
+
+      // Write to the new session database
+      await db.tabStates.bulkPut(
+        oldRecords.map((r: Record<string, unknown>) => ({
+          ...r,
+          tabId: r.tabId as string,
+        }))
+      );
+
+      console.log(
+        `[migration] Migrated ${oldRecords.length} tab state(s) from old IndexedDB`
+      );
+    } finally {
+      oldDb.close();
+    }
+  } catch (error) {
+    console.warn("[migration] Tab state migration failed:", error);
+  }
+}
