@@ -486,8 +486,12 @@ build_app() {
 prepare_dmg() {
     log "Preparing DMG..."
 
-    # Universal builds output to universal-apple-darwin directory
-    DMG_PATH=$(find "src-tauri/target/$TARGET/release/bundle/dmg" -name "*.dmg" | head -n 1)
+    # Workspace builds output to root target/ directory
+    DMG_PATH=$(find "target/$TARGET/release/bundle/dmg" -name "*.dmg" 2>/dev/null | head -n 1)
+    # Fall back to src-tauri/target for builds run from within src-tauri/
+    if [ -z "$DMG_PATH" ]; then
+      DMG_PATH=$(find "src-tauri/target/$TARGET/release/bundle/dmg" -name "*.dmg" 2>/dev/null | head -n 1)
+    fi
     [ -n "$DMG_PATH" ] || error "No DMG file found!"
 
     # DMG_NAME will be set after version is determined
@@ -658,7 +662,9 @@ publish_to_app_repo() {
     fi
 
     PRERELEASE=""
-    [[ "$version" == *"alpha"* ]] || [[ "$version" == *"beta"* ]] || [[ "$version" == *"rc"* ]] && PRERELEASE="--prerelease"
+    if [[ "$version" == *"alpha"* ]] || [[ "$version" == *"beta"* ]] || [[ "$version" == *"rc"* ]]; then
+      PRERELEASE="--prerelease"
+    fi
 
     gh release create "v$version" \
         --repo QueryPilot/studio-app \

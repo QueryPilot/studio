@@ -31,12 +31,12 @@ NEW_VERSION="$1"
 # Remove 'v' prefix if present
 NEW_VERSION="${NEW_VERSION#v}"
 
-# Validate version format: YYYY.MAJOR.MINOR or YYYY.MAJOR.MINOR-beta.BUILD
-if ! echo "$NEW_VERSION" | grep -qE '^[0-9]{4}\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$'; then
+# Validate version format: YYYY.MAJOR.MINOR or YYYY.MAJOR.MINOR-{alpha,beta,rc}.BUILD
+if ! echo "$NEW_VERSION" | grep -qE '^[0-9]{4}\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$'; then
   echo "Error: Invalid version format '$NEW_VERSION'"
   echo ""
   echo "Expected: YYYY.MAJOR.MINOR (e.g., 2026.1.0)"
-  echo "Or beta:  YYYY.MAJOR.MINOR-beta.BUILD (e.g., 2026.1.0-beta.3)"
+  echo "Or pre:   YYYY.MAJOR.MINOR-{alpha,beta,rc}.BUILD (e.g., 2026.1.0-beta.3)"
   exit 1
 fi
 

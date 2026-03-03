@@ -57,14 +57,17 @@ jobs:
           fi
 
           PRERELEASE=""
-          if [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"beta"* ]]; then
+          if [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"beta"* ]] || [[ "$VERSION" == *"rc"* ]]; then
             PRERELEASE="--prerelease"
           fi
 
           VERSION_NUMBER="${VERSION#v}"
 
           # Extract changelog for this version only (stop at next version header)
-          CHANGELOG_CONTENT=$(awk "/^## \[$VERSION_NUMBER\]/{found=1;next} found && /^## \[/{exit} found" CHANGELOG.md || echo "See CHANGELOG.md for details")
+          CHANGELOG_CONTENT=$(awk "/^## \[$VERSION_NUMBER\]/{found=1;next} found && /^## \[/{exit} found" CHANGELOG.md || true)
+          if [ -z "$CHANGELOG_CONTENT" ]; then
+            CHANGELOG_CONTENT="See CHANGELOG.md for details"
+          fi
 
           # Create release notes
           cat > /tmp/release-notes.md << EOF
@@ -118,15 +121,9 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - name: Install macOS Rust targets for universal build
-        run: |
-          rustup target add aarch64-apple-darwin
-          rustup target add x86_64-apple-darwin
-
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
           cache-targets: true
           cache-on-failure: true
           cache-all-crates: true
@@ -161,8 +158,8 @@ jobs:
           security set-keychain-settings -t 3600 -u build.keychain
 
           # Decode and import certificate
-          echo $APPLE_CERTIFICATE | base64 --decode > certificate.p12
-          security import certificate.p12 -k build.keychain -P $APPLE_CERTIFICATE_PASSWORD -T /usr/bin/codesign
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
 
           # Allow codesigning to access keychain
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
@@ -245,9 +242,9 @@ jobs:
       - name: Find and upload macOS DMG
         run: |
           echo "🔍 Searching for DMG files..."
-          find src-tauri/target/${{ matrix.target }}/release/bundle -type f -name "*.dmg" || echo "No DMG files found"
+          find target/${{ matrix.target }}/release/bundle -type f -name "*.dmg" || echo "No DMG files found"
 
-          DMG_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/dmg -name "*.dmg" | head -n 1)
+          DMG_PATH=$(find target/${{ matrix.target }}/release/bundle/dmg -name "*.dmg" | head -n 1)
           if [ -n "$DMG_PATH" ]; then
             VERSION="${{ needs.create-release.outputs.version }}"
             DMG_NAME="QueryPilot_${VERSION}.dmg"
@@ -273,7 +270,7 @@ jobs:
         with:
           name: app-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
-            src-tauri/target/${{ matrix.target }}/release/bundle/
+            target/${{ matrix.target }}/release/bundle/
           retention-days: 3
 
   generate-updater-manifest:
@@ -293,10 +290,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: "pnpm"
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Install Tauri CLI only
+        run: pnpm add -g @tauri-apps/cli
 
       - name: Download release assets
         env:
@@ -318,71 +314,74 @@ jobs:
           VERSION_NUMBER="${VERSION#v}"
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          # Extract release notes from CHANGELOG.md
-          NOTES=$(awk "/^## \[$VERSION_NUMBER\]/,/^## \[[0-9]/" CHANGELOG.md | head -n 10 | sed 's/"/\\"/g' | tr '\n' ' ' || echo "See CHANGELOG.md for details")
-
-          # Start building manifest
-          cat > latest.json << EOF
-          {
-            "version": "$VERSION_NUMBER",
-            "notes": "$NOTES",
-            "pub_date": "$PUB_DATE",
-            "platforms": {
-          EOF
+          # Extract release notes from CHANGELOG.md (safely via jq for JSON escaping)
+          RAW_NOTES=$(awk "/^## \[$VERSION_NUMBER\]/,/^## \[[0-9]/" CHANGELOG.md | head -n 10 || true)
+          if [ -z "$RAW_NOTES" ]; then
+            RAW_NOTES="See CHANGELOG.md for details"
+          fi
 
           DMG_NAME="QueryPilot_${VERSION}.dmg"
+          DMG_URL="https://github.com/QueryPilot/studio-app/releases/download/$VERSION/$DMG_NAME"
+          SIGNATURE=""
 
           # Sign DMG files if key is available
           if [ -n "$TAURI_PRIVATE_KEY" ]; then
             echo "🔐 Signing release assets..."
 
-            # Save private key to temp file
             echo "$TAURI_PRIVATE_KEY" > /tmp/tauri-key
             chmod 600 /tmp/tauri-key
 
-            # Find and sign DMG
             if [ -f "$DMG_NAME" ]; then
               echo "  Signing $DMG_NAME..."
-              SIGNATURE=$(pnpm tauri signer sign "$DMG_NAME" --private-key /tmp/tauri-key --password "$TAURI_KEY_PASSWORD" 2>/dev/null || echo "")
+              # Capture only the last line (the base64 signature) to avoid CLI noise
+              SIGNATURE=$(tauri signer sign "$DMG_NAME" --private-key /tmp/tauri-key --password "$TAURI_KEY_PASSWORD" 2>/dev/null | tail -n 1 || true)
 
-              if [ -n "$SIGNATURE" ]; then
-                # Universal DMG works for both architectures
-                cat >> latest.json << EOF
-              "darwin-aarch64": {
-                "signature": "$SIGNATURE",
-                "url": "https://github.com/QueryPilot/studio-app/releases/download/$VERSION/$DMG_NAME"
-              },
-              "darwin-x86_64": {
-                "signature": "$SIGNATURE",
-                "url": "https://github.com/QueryPilot/studio-app/releases/download/$VERSION/$DMG_NAME"
-              }
-          EOF
-                echo "    ✓ Signed darwin-aarch64 and darwin-x86_64 (universal)"
+              # Validate signature looks like base64
+              if [ -n "$SIGNATURE" ] && ! echo "$SIGNATURE" | grep -qE '^[A-Za-z0-9+/=]{20,}$'; then
+                echo "⚠️  Captured signature doesn't look like base64, discarding"
+                SIGNATURE=""
               fi
             fi
 
-            # Clean up key
             rm -f /tmp/tauri-key
           else
             echo "⚠️  TAURI_PRIVATE_KEY not set, generating unsigned manifest"
-
-            if [ -f "$DMG_NAME" ]; then
-              cat >> latest.json << EOF
-              "darwin-aarch64": {
-                "url": "https://github.com/QueryPilot/studio-app/releases/download/$VERSION/$DMG_NAME"
-              },
-              "darwin-x86_64": {
-                "url": "https://github.com/QueryPilot/studio-app/releases/download/$VERSION/$DMG_NAME"
-              }
-          EOF
-            fi
           fi
 
-          # Close JSON
-          cat >> latest.json << EOF
-            }
-          }
-          EOF
+          # Build manifest with jq for safe JSON generation
+          if [ -n "$SIGNATURE" ]; then
+            jq -n \
+              --arg version "$VERSION_NUMBER" \
+              --arg notes "$RAW_NOTES" \
+              --arg pub_date "$PUB_DATE" \
+              --arg sig "$SIGNATURE" \
+              --arg url "$DMG_URL" \
+              '{
+                version: $version,
+                notes: $notes,
+                pub_date: $pub_date,
+                platforms: {
+                  "darwin-aarch64": { signature: $sig, url: $url },
+                  "darwin-x86_64": { signature: $sig, url: $url }
+                }
+              }' > latest.json
+            echo "✓ Signed darwin-aarch64 and darwin-x86_64 (universal)"
+          else
+            jq -n \
+              --arg version "$VERSION_NUMBER" \
+              --arg notes "$RAW_NOTES" \
+              --arg pub_date "$PUB_DATE" \
+              --arg url "$DMG_URL" \
+              '{
+                version: $version,
+                notes: $notes,
+                pub_date: $pub_date,
+                platforms: {
+                  "darwin-aarch64": { url: $url },
+                  "darwin-x86_64": { url: $url }
+                }
+              }' > latest.json
+          fi
 
           echo "✓ Update manifest generated"
           cat latest.json
@@ -492,23 +491,28 @@ jobs:
       - name: Verify update manifest
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
+          VERSION: ${{ needs.create-release.outputs.version }}
         run: |
           echo "🔍 Verifying update manifest is accessible..."
           sleep 10  # Wait for GitHub to process
 
-          # Use gh api for private repo
-          if gh api repos/QueryPilot/studio-app/releases/latest --jq '.assets[].name' | grep -q "latest.json"; then
+          # Check the specific release tag (not /latest which skips pre-releases)
+          if gh api "repos/QueryPilot/studio-app/releases/tags/$VERSION" --jq '.assets[].name' | grep -q "latest.json"; then
             echo "✅ Update manifest is live!"
-            echo "🔗 https://github.com/QueryPilot/studio-app/releases/latest"
+            echo "🔗 https://github.com/QueryPilot/studio-app/releases/tag/$VERSION"
           else
             echo "⚠️  Manifest not yet accessible (may take a few moments)"
           fi
 
   finalize-release:
     name: Finalize Release
-    needs: [create-release, build-release, generate-updater-manifest]
+    needs: [create-release, build-release, generate-updater-manifest, publish-to-app-repo]
     runs-on: ubuntu-latest
-    if: success()
+    if: |
+      always() &&
+      needs.build-release.result == 'success' &&
+      needs.generate-updater-manifest.result == 'success' &&
+      needs.publish-to-app-repo.result != 'failure'
 
     steps:
       - name: Publish draft release
