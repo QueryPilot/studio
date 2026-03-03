@@ -71,24 +71,24 @@ jobs:
 
           # Create release notes
           cat > /tmp/release-notes.md << EOF
-          ## 🚀 Query Pilot $VERSION
+## Query Pilot $VERSION
 
-          $CHANGELOG_CONTENT
+$CHANGELOG_CONTENT
 
-          ---
+---
 
-          ### 📦 Installation
+### Installation
 
-          **macOS**
-          - Download \`QueryPilot_$VERSION.dmg\` (works on both Intel and Apple Silicon)
-          - Open DMG and drag Query Pilot to Applications
+**macOS**
+- Download \`QueryPilot_$VERSION.dmg\` (works on both Intel and Apple Silicon)
+- Open DMG and drag Query Pilot to Applications
 
-          ### ⚠️ Code Signing
-          - **macOS**: Signed and notarized with Apple Developer ID
+### Code Signing
+- **macOS**: Signed and notarized with Apple Developer ID
 
-          ### 📝 Full Changelog
-          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md)
-          EOF
+### Full Changelog
+See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md)
+EOF
 
           gh release create "$VERSION" \
             --draft \
@@ -291,9 +291,6 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install Tauri CLI only
-        run: pnpm add -g @tauri-apps/cli
-
       - name: Download release assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -328,13 +325,12 @@ jobs:
           if [ -n "$TAURI_PRIVATE_KEY" ]; then
             echo "🔐 Signing release assets..."
 
-            echo "$TAURI_PRIVATE_KEY" > /tmp/tauri-key
-            chmod 600 /tmp/tauri-key
-
             if [ -f "$DMG_NAME" ]; then
               echo "  Signing $DMG_NAME..."
-              # Capture only the last line (the base64 signature) to avoid CLI noise
-              SIGNATURE=$(tauri signer sign "$DMG_NAME" --private-key /tmp/tauri-key --password "$TAURI_KEY_PASSWORD" 2>/dev/null | tail -n 1 || true)
+              # Use pnpm dlx to run tauri CLI without global install
+              # Pass key directly as string (--private-key expects key content, not file path)
+              # Capture only the last line to avoid CLI noise
+              SIGNATURE=$(pnpm dlx @tauri-apps/cli signer sign "$DMG_NAME" --private-key "$TAURI_PRIVATE_KEY" --password "$TAURI_KEY_PASSWORD" 2>/dev/null | tail -n 1 || true)
 
               # Validate signature looks like base64
               if [ -n "$SIGNATURE" ] && ! echo "$SIGNATURE" | grep -qE '^[A-Za-z0-9+/=]{20,}$'; then
@@ -342,8 +338,6 @@ jobs:
                 SIGNATURE=""
               fi
             fi
-
-            rm -f /tmp/tauri-key
           else
             echo "⚠️  TAURI_PRIVATE_KEY not set, generating unsigned manifest"
           fi
@@ -437,21 +431,21 @@ jobs:
           # Add footer
           cat >> RELEASE_NOTES.md << EOF
 
-          ---
+---
 
-          ## Installation
+## Installation
 
-          **macOS:**
-          - Download \`QueryPilot_${VERSION}.dmg\` (works on both Intel and Apple Silicon Macs)
-          - Open DMG and drag Query Pilot to Applications folder
-          - On first launch, right-click the app and select "Open" if you see a security warning
+**macOS:**
+- Download \`QueryPilot_${VERSION}.dmg\` (works on both Intel and Apple Silicon Macs)
+- Open DMG and drag Query Pilot to Applications folder
+- On first launch, right-click the app and select "Open" if you see a security warning
 
-          **Windows & Linux:** Coming soon
+**Windows & Linux:** Coming soon
 
-          ## Full Changelog
+## Full Changelog
 
-          See [CHANGELOG.md](https://github.com/QueryPilot/studio-app/blob/main/CHANGELOG.md) for complete version history.
-          EOF
+See [CHANGELOG.md](https://github.com/QueryPilot/studio-app/blob/main/CHANGELOG.md) for complete version history.
+EOF
 
           echo "📝 Release notes prepared:"
           cat RELEASE_NOTES.md
@@ -512,7 +506,7 @@ jobs:
       always() &&
       needs.build-release.result == 'success' &&
       needs.generate-updater-manifest.result == 'success' &&
-      needs.publish-to-app-repo.result != 'failure'
+      (needs.publish-to-app-repo.result == 'success' || needs.publish-to-app-repo.result == 'skipped')
 
     steps:
       - name: Publish draft release
