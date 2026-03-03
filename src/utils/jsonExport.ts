@@ -1,6 +1,6 @@
 import { logger } from "@/lib/logger";
 import { save } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
+import { writeTextFile } from "@/utils/tauriFs";
 import { isTauri } from "./tauri";
 
 export type JsonFormat = "pretty" | "compact";
@@ -92,10 +92,7 @@ export async function exportToJSON(
       }
 
       // Write file using Tauri
-      await invoke("plugin:fs|write_text_file", {
-        path: filePath,
-        contents: jsonContent,
-      });
+      await writeTextFile(filePath, jsonContent);
 
       logger.info(`[JSON Export] Exported ${rows.length} rows to ${filePath} as ${options.format ?? "pretty"}`);
     } else {

@@ -1,6 +1,6 @@
 import { logger } from "@/lib/logger";
 import { save } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
+import { writeTextFile } from "@/utils/tauriFs";
 import { isTauri } from "./tauri";
 
 export interface ExportOptions {
@@ -122,10 +122,7 @@ export async function exportToCSV(
       }
 
       // Write file using Tauri
-      await invoke("plugin:fs|write_text_file", {
-        path: filePath,
-        contents: csvContent,
-      });
+      await writeTextFile(filePath, csvContent);
 
       logger.info(`[CSV Export] Exported ${rows.length} rows to ${filePath}`);
     } else {

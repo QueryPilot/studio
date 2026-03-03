@@ -1,7 +1,7 @@
 import type { TableStructure } from "@/types/tableStructure";
 
 function sanitizeMermaidType(dbType: string): string {
-  return dbType.replace(/"/g, "");
+  return dbType.replace(/[^a-zA-Z0-9_()]/g, "");
 }
 
 function sanitizeMermaidName(name: string): string {

@@ -1,7 +1,7 @@
 import type { GridColumnV2, GridRowModel } from "../types";
 import { copyAsCSV, copyAsJSON, copyAsTSV } from "./copyUtils";
 import { save } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
+import { writeTextFile } from "@/utils/tauriFs";
 import { isTauri } from "@/utils/tauri";
 import { generateMarkdownTable } from "@/utils/markdownExport";
 
@@ -45,10 +45,7 @@ export async function exportToCSV(
       });
 
       if (filePath) {
-        await invoke("plugin:fs|write_text_file", {
-          path: filePath,
-          contents: content,
-        });
+        await writeTextFile(filePath, content);
       }
     } else {
       downloadFile(content, filename, "text/csv;charset=utf-8;");
@@ -82,10 +79,7 @@ export async function exportToJSON(
       });
 
       if (filePath) {
-        await invoke("plugin:fs|write_text_file", {
-          path: filePath,
-          contents: content,
-        });
+        await writeTextFile(filePath, content);
       }
     } else {
       downloadFile(content, filename, "application/json;charset=utf-8;");
@@ -119,10 +113,7 @@ export async function exportToTSV(
       });
 
       if (filePath) {
-        await invoke("plugin:fs|write_text_file", {
-          path: filePath,
-          contents: content,
-        });
+        await writeTextFile(filePath, content);
       }
     } else {
       downloadFile(content, filename, "text/tab-separated-values;charset=utf-8;");
@@ -158,10 +149,7 @@ export async function exportToMarkdown(
       });
 
       if (filePath) {
-        await invoke("plugin:fs|write_text_file", {
-          path: filePath,
-          contents: content,
-        });
+        await writeTextFile(filePath, content);
       }
     } else {
       downloadFile(content, filename, "text/markdown;charset=utf-8;");
