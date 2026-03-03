@@ -700,50 +700,7 @@ describe("workbenchStore", () => {
     });
   });
 
-  describe("Save/Restore Layout", () => {
-    it("should save layout to localStorage", () => {
-      const store = useWorkbenchStore.getState();
-      store.setConnectionId("conn-1");
-      store.initializeLayout(); // Must initialize before saving
-
-      store.saveLayout();
-
-      const saved = localStorage.getItem("workbench-layout-backup-conn-1");
-      expect(saved).toBeTruthy();
-    });
-
-    it("should restore layout from localStorage", () => {
-      const store = useWorkbenchStore.getState();
-      store.setConnectionId("conn-1");
-      store.initializeLayout(); // Must initialize before saving
-
-      // Save current layout
-      store.saveLayout();
-      const savedTree = useWorkbenchStore.getState().layoutTree;
-
-      // Clear layout
-      useWorkbenchStore.setState({ layoutTree: null, panelContents: new Map() });
-
-      // Restore layout
-      store.restoreLayout();
-
-      const restoredTree = useWorkbenchStore.getState().layoutTree;
-      expect(restoredTree).toBeTruthy();
-      expect(restoredTree?.id).toBe(savedTree?.id);
-    });
-
-    it("should initialize on restore failure", () => {
-      const store = useWorkbenchStore.getState();
-
-      // Set invalid JSON in localStorage
-      localStorage.setItem("workbench-layout-backup", "invalid json");
-
-      store.restoreLayout();
-
-      const state = useWorkbenchStore.getState();
-      expect(state.layoutTree).toBeTruthy();
-    });
-
+  describe("Reset Layout", () => {
     it("should reset layout", () => {
       const store = useWorkbenchStore.getState();
       store.initializeLayout();
@@ -765,71 +722,6 @@ describe("workbenchStore", () => {
 
       const state = useWorkbenchStore.getState();
       expect(state.panelContents.size).toBe(1);
-    });
-  });
-
-  describe("Scoped Layout Persistence", () => {
-    it("should save and restore scoped layout with tabs and splits", () => {
-      const store = useWorkbenchStore.getState();
-      store.initializeLayout();
-
-      const panelId = usePanelFocusStore.getState().focusedPanelId!;
-      store.addTab(panelId, "tab-1", {
-        title: "Users",
-        connectionId: "conn-1",
-        schema: "public",
-        table: "users",
-      });
-
-      store.splitPanelAction({
-        targetPanelId: panelId,
-        direction: "right",
-        newPanelContent: {
-          id: "panel-2",
-          type: "editor",
-          tabIds: [],
-          activeTabId: "",
-        },
-      });
-
-      store.saveConnectionLayout("workspace-1");
-      const saved = localStorage.getItem("workbench-connection-workspace-1");
-      expect(saved).toBeTruthy();
-
-      useWorkbenchStore.setState({ layoutTree: null, panelContents: new Map() });
-
-      const restored = useWorkbenchStore
-        .getState()
-        .restoreConnectionLayout("workspace-1");
-      expect(restored).toBe(true);
-
-      const state = useWorkbenchStore.getState();
-      expect(state.layoutTree?.type).toBe("branch");
-      expect(state.panelContents.size).toBe(2);
-
-      const restoredPanelWithTab = Array.from(state.panelContents.values()).find((panel) =>
-        panel.tabIds.includes("tab-1"),
-      );
-      expect(restoredPanelWithTab?.activeTabId).toBe("tab-1");
-      expect(restoredPanelWithTab?.metadata?.["tab-1"]?.title).toBe("Users");
-    });
-
-    it("should return false when scoped layout does not exist", () => {
-      const restored = useWorkbenchStore
-        .getState()
-        .restoreConnectionLayout("missing-workspace");
-      expect(restored).toBe(false);
-    });
-
-    it("should return false and clear corrupted scoped layout", () => {
-      localStorage.setItem("workbench-connection-corrupted", "not-json");
-
-      const restored = useWorkbenchStore
-        .getState()
-        .restoreConnectionLayout("corrupted");
-
-      expect(restored).toBe(false);
-      expect(localStorage.getItem("workbench-connection-corrupted")).toBeNull();
     });
   });
 

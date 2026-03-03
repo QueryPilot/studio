@@ -2,7 +2,6 @@
  * TypeScript types for workspace and tab management
  */
 
-import type { GridNode, PanelContent } from "@/types/workbench";
 import type { ConnectionProfile } from "@/types/connection";
 
 // ============================================================================
@@ -28,25 +27,14 @@ export interface WorkspaceConfig {
   /** Ordered list of connection profile IDs (supports drag-reorder) */
   connectionIds: string[];
 
-  /** Per-connection saved state (database/schema selection + tab layout) */
+  /** Per-connection saved state (database/schema selection) */
   connectionStates: Record<
     string,
     {
       database: string;
       schema: string;
-      /** @deprecated Per-connection tab layout - will be removed in a future release. Use workbench layout instead. */
-      tabLayout?: {
-        layoutTree: GridNode;
-        panelContents: Array<[string, PanelContent]>;
-      };
     }
   >;
-
-  /** @deprecated Global tab layout state - will be removed in a future release. Use workbench layout instead. */
-  tabLayout?: {
-    layoutTree: GridNode;
-    panelContents: Array<[string, PanelContent]>;
-  };
 
   /** Metadata */
   createdAt: string;
@@ -78,8 +66,6 @@ export interface OpenConnection {
 export interface ActiveWorkspace {
   /** The persisted workspace configuration */
   config: WorkspaceConfig;
-  /** @deprecated Use `config.autoCreated` instead. Will be removed in a future release. */
-  isTemporary: boolean;
   /** Map of connectionId -> OpenConnection runtime state */
   connections: Map<string, OpenConnection>;
   /** ID of the connection currently focused in sidebar */
