@@ -6,6 +6,8 @@ import useWorkbenchStore from "@/stores/workbenchStore";
 import { useShallow } from "zustand/react/shallow";
 import { PanelPortalProvider, PanelPortal } from "./PanelPortalContext";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
+import { saveWindowBounds } from "@/services/windowManager";
+import { isTauri } from "@/utils/tauri";
 
 /**
  * Memoized panel portals — prevents re-rendering all panels when layoutTree changes during resize.
@@ -41,16 +43,24 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
   const layoutTree = useWorkbenchStore((s) => s.layoutTree);
   const setConnectionId = useWorkbenchStore((s) => s.setConnectionId);
   const initializeLayout = useWorkbenchStore((s) => s.initializeLayout);
-  const saveConnectionLayout = useWorkbenchStore((s) => s.saveConnectionLayout);
-  const restoreConnectionLayout = useWorkbenchStore(
-    (s) => s.restoreConnectionLayout,
-  );
-  const panelContents = useWorkbenchStore((s) => s.panelContents);
+  const persistLayout = useWorkbenchStore((s) => s.persistLayout);
+  const loadLayout = useWorkbenchStore((s) => s.loadLayout);
+  const flushLayout = useWorkbenchStore((s) => s.flushLayout);
   const activeWorkspaceId = useWorkspaceBundleStore(
     (s) => s.activeWorkspace?.config.id ?? null,
   );
+  // Stable content fingerprint — only changes on structural tab changes (add/remove/reorder/switch),
+  // NOT on every keystroke or metadata update. Prevents IndexedDB write storms.
+  const contentFingerprint = useWorkbenchStore((s) => {
+    let fp = "";
+    s.panelContents.forEach((content, panelId) => {
+      fp += `${panelId}:${content.activeTabId ?? ""}:${content.tabIds.join(",")}|`;
+    });
+    return fp;
+  });
   const initializedScopeRef = useRef<string | null>(null);
   const saveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const justLoadedRef = useRef(false);
   const latestScopeRef = useRef<string | null>(null);
   const hasLayoutRef = useRef(false);
   const layoutScopeId = activeWorkspaceId ?? connectionId ?? null;
@@ -75,44 +85,42 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
       return;
     }
 
-    if (initializedScopeRef.current === layoutScopeId) {
-      if (!layoutTree) {
+    if (initializedScopeRef.current === layoutScopeId) return;
+
+    initializedScopeRef.current = layoutScopeId;
+
+    // Async load from IndexedDB
+    justLoadedRef.current = true;
+    void loadLayout(layoutScopeId).then((restored) => {
+      if (!restored) {
         initializeLayout();
       }
-      return;
-    }
-
-    const restored = restoreConnectionLayout(layoutScopeId);
-    if (!restored) {
-      initializeLayout();
-    }
-    initializedScopeRef.current = layoutScopeId;
-  }, [
-    initializeLayout,
-    layoutScopeId,
-    layoutTree,
-    restoreConnectionLayout,
-  ]);
+    });
+  }, [layoutScopeId, loadLayout, initializeLayout]);
 
   useEffect(() => {
     if (!layoutScopeId || !layoutTree) return;
 
+    // Skip the first save cycle after a load to avoid writing back what we just read
+    if (justLoadedRef.current) {
+      justLoadedRef.current = false;
+      return;
+    }
+
     if (saveDebounceTimerRef.current) {
       clearTimeout(saveDebounceTimerRef.current);
-      saveDebounceTimerRef.current = null;
     }
 
     saveDebounceTimerRef.current = setTimeout(() => {
-      saveConnectionLayout(layoutScopeId);
-    }, 250);
+      persistLayout(layoutScopeId);
+    }, 500);
 
     return () => {
       if (saveDebounceTimerRef.current) {
         clearTimeout(saveDebounceTimerRef.current);
-        saveDebounceTimerRef.current = null;
       }
     };
-  }, [layoutScopeId, layoutTree, panelContents, saveConnectionLayout]);
+  }, [layoutScopeId, layoutTree, contentFingerprint, persistLayout]);
 
   useEffect(() => {
     latestScopeRef.current = layoutScopeId;
@@ -121,17 +129,58 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
 
   useEffect(() => {
     return () => {
-      if (saveDebounceTimerRef.current) {
-        clearTimeout(saveDebounceTimerRef.current);
-        saveDebounceTimerRef.current = null;
-      }
-
       const scopeId = latestScopeRef.current;
       if (scopeId && hasLayoutRef.current) {
-        saveConnectionLayout(scopeId);
+        flushLayout(scopeId);
       }
     };
-  }, [saveConnectionLayout]);
+  }, [flushLayout]);
+
+  // Track window bounds on move/resize for session restore
+  useEffect(() => {
+    if (!layoutScopeId || !isTauri()) return;
+
+    let boundsTimer: ReturnType<typeof setTimeout> | null = null;
+    const unlistenPromises: Promise<() => void>[] = [];
+
+    const persistBounds = () => {
+      if (boundsTimer) clearTimeout(boundsTimer);
+      boundsTimer = setTimeout(async () => {
+        try {
+          const { getCurrentWindow } = await import("@tauri-apps/api/window");
+          const win = getCurrentWindow();
+          const position = await win.outerPosition();
+          const size = await win.outerSize();
+          await saveWindowBounds(layoutScopeId, {
+            x: position.x,
+            y: position.y,
+            width: size.width,
+            height: size.height,
+          });
+        } catch {
+          // Window may already be closing; ignore
+        }
+      }, 500);
+    };
+
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const win = getCurrentWindow();
+        unlistenPromises.push(win.onMoved(persistBounds));
+        unlistenPromises.push(win.onResized(persistBounds));
+      } catch {
+        // Not in a Tauri window context; ignore
+      }
+    })();
+
+    return () => {
+      if (boundsTimer) clearTimeout(boundsTimer);
+      void Promise.all(unlistenPromises).then((cleanups) => {
+        for (const fn of cleanups) fn();
+      });
+    };
+  }, [layoutScopeId]);
 
   if (!layoutTree) {
     return (

@@ -14,7 +14,7 @@ import { ReactFlowProvider, getNodesBounds, getViewportForBounds } from "@xyflow
 import { Parser, exporter as dbmlExporter } from "@dbml/core";
 import { toPng, toSvg } from "html-to-image";
 import { save } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
+import { writeTextFile, writeBinaryFile } from "@/utils/tauriFs";
 import { isTauri } from "@/utils/tauri";
 import { toast } from "sonner";
 
@@ -418,10 +418,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
           const response = await fetch(dataUrl);
           const blob = await response.blob();
           const arrayBuffer = await blob.arrayBuffer();
-          await invoke("plugin:fs|write_file", {
-            path: filePath,
-            contents: Array.from(new Uint8Array(arrayBuffer)),
-          });
+          await writeBinaryFile(filePath, new Uint8Array(arrayBuffer));
           toast.success(`ERD exported as ${format.toUpperCase()}`);
         }
       } else {
@@ -465,10 +462,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         });
 
         if (filePath) {
-          await invoke("plugin:fs|write_text_file", {
-            path: filePath,
-            contents: sql,
-          });
+          await writeTextFile(filePath, sql);
           toast.success(`${formatLabels[format]} SQL exported`);
         }
       } else {

@@ -20,6 +20,7 @@ import { KeyboardShortcutsHelp } from "./components/KeyboardShortcutsHelp/Keyboa
 import { initializeSentry } from "./utils/sentry";
 import { usePreferencesStore } from "./stores/preferencesStore";
 import { useTabStateStore } from "./stores/tabStateStore";
+import { runSessionMigration } from "@/lib/db/sessionMigration";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -32,6 +33,12 @@ initializeSentry(telemetryPrefs, "0.4.0");
 
 // Initialize tab state store (migrates from localStorage to IndexedDB if needed)
 void useTabStateStore.getState().initialize();
+
+// Migrate old persistence data (localStorage layouts + old IndexedDB tab states)
+// to the new consolidated session database. Fire-and-forget — never blocks startup.
+runSessionMigration().catch((error) => {
+  console.error("[main] Session migration failed:", error);
+});
 
 // Suppress external script errors in development
 if (process.env.NODE_ENV === "development") {

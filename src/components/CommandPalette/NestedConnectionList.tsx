@@ -70,7 +70,7 @@ export function NestedConnectionList({
 
   // Check if we're in a multi-connection workspace context
   const isMultiConnectionWorkspace =
-    activeWorkspace && !activeWorkspace.isTemporary;
+    activeWorkspace && !activeWorkspace.config.autoCreated;
 
   // Build connection items
   const connectionItems = useMemo<ConnectionItem[]>(() => {

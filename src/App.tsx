@@ -23,6 +23,9 @@ import { useAcpStore } from "./stores/acpStore";
 import { useByokStore } from "./stores/byokStore";
 import { AcpService } from "./services/acpService";
 import { useAppStore } from "./stores/appStore";
+import { usePreferencesStore } from "./stores/preferencesStore";
+import { getSessionDatabase } from "./lib/db/sessionDb";
+import { windowManager } from "./services/windowManager";
 import { setInstallHandler } from "./utils/appUpdate";
 
 function VaultLoadingScreen() {
@@ -190,7 +193,39 @@ function App() {
               });
             }
           } finally {
-            // Mark vault as ready to show main UI
+            // Restore previous session if configured
+            const startupBehavior = usePreferencesStore.getState().startupBehavior;
+            if (startupBehavior === "restore") {
+              try {
+                const db = getSessionDatabase();
+                const appState = await db.appState.get("singleton");
+                if (appState?.lastActiveWorkspaceIds.length) {
+                  // Load saved workspaces first so windowManager can look up names
+                  await useWorkspaceBundleStore.getState().loadSavedWorkspaces();
+
+                  const savedWorkspaces = useWorkspaceBundleStore.getState().savedWorkspaces;
+
+                  // Open each workspace window, restoring saved bounds
+                  for (const workspaceId of appState.lastActiveWorkspaceIds) {
+                    const ws = savedWorkspaces.find((w) => w.id === workspaceId);
+                    if (ws) {
+                      const windowState = appState.windowStates.find(
+                        (s) => s.workspaceId === workspaceId,
+                      );
+                      await windowManager.openNamedWorkspace(workspaceId, ws.name, {
+                        icon: ws.icon,
+                        bounds: windowState?.windowBounds,
+                      });
+                    }
+                  }
+                }
+              } catch (error) {
+                logger.error("[App] Failed to restore session:", error);
+              }
+            }
+
+            // Always mark vault as ready so the main window can render
+            // when the user navigates back to home from a workspace window
             setVaultReady(true);
 
             // Initialize LLM home directory and load ACP agents in background (non-blocking)

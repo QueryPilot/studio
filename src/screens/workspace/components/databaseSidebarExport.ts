@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@/utils/tauriFs";
 import type { ObjectDefinitionType } from "@/adapters/types";
 import type { DatabaseAdapter } from "@/adapters/types";
 import { getAdapterForConnection } from "@/adapters";
@@ -300,10 +300,7 @@ export async function exportSidebarObjectsToFile({
     }
 
     const content = await resolveContent();
-    await invoke("plugin:fs|write_text_file", {
-      path: filePath,
-      contents: content,
-    });
+    await writeTextFile(filePath, content);
 
     return {
       success: true,
@@ -361,10 +358,7 @@ export async function exportSidebarObjectDataToFile({
     const rows = result.rows as unknown[][];
     const content = buildDataExportContent(rows, columns, item, dbType, format);
 
-    await invoke("plugin:fs|write_text_file", {
-      path: filePath,
-      contents: content,
-    });
+    await writeTextFile(filePath, content);
 
     return {
       success: true,
@@ -423,7 +417,7 @@ export async function exportSidebarObjectsAsDBML({
     }
 
     const content = await resolveContent();
-    await invoke("plugin:fs|write_text_file", { path: filePath, contents: content });
+    await writeTextFile(filePath, content);
     return { success: true, cancelled: false, itemCount: items.length, filePath };
   }
 
@@ -459,7 +453,7 @@ export async function exportSidebarObjectsAsMermaid({
     }
 
     const content = await resolveContent();
-    await invoke("plugin:fs|write_text_file", { path: filePath, contents: content });
+    await writeTextFile(filePath, content);
     return { success: true, cancelled: false, itemCount: items.length, filePath };
   }
 
