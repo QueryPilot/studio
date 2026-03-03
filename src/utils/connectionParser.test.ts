@@ -355,6 +355,12 @@ DB_USER=admin`;
         const envDisable = `SSL_MODE=disable`;
         expect(parseConnectionEnv(envDisable).sslMode).toBe(SslMode.Disable);
 
+        const envAllow = `SSL_MODE=allow`;
+        expect(parseConnectionEnv(envAllow).sslMode).toBe(SslMode.Allow);
+
+        const envPrefer = `SSLMODE=prefer`;
+        expect(parseConnectionEnv(envPrefer).sslMode).toBe(SslMode.Prefer);
+
         const envRequire = `SSLMODE=require`;
         expect(parseConnectionEnv(envRequire).sslMode).toBe(SslMode.Require);
 
@@ -749,6 +755,14 @@ DB_PORT=5432`;
         expect(parseConnectionUri(uriFalse).sslMode).toBe(SslMode.Disable);
       });
 
+      it("should parse allow and prefer SSL modes", () => {
+        const uriAllow = "postgresql://user:pass@localhost/db?sslmode=allow";
+        expect(parseConnectionUri(uriAllow).sslMode).toBe(SslMode.Allow);
+
+        const uriPrefer = "postgresql://user:pass@localhost/db?sslmode=prefer";
+        expect(parseConnectionUri(uriPrefer).sslMode).toBe(SslMode.Prefer);
+      });
+
       it("should parse require SSL mode", () => {
         const uriRequire = "postgresql://user:pass@localhost/db?sslmode=require";
         expect(parseConnectionUri(uriRequire).sslMode).toBe(SslMode.Require);
@@ -764,6 +778,11 @@ DB_PORT=5432`;
 
       it("should parse verify-full SSL mode", () => {
         const uri = "postgresql://user:pass@localhost/db?sslmode=verify-full";
+        expect(parseConnectionUri(uri).sslMode).toBe(SslMode.VerifyFull);
+      });
+
+      it("should parse verify identity aliases for MySQL", () => {
+        const uri = "mysql://user:pass@localhost/db?sslmode=verify_identity";
         expect(parseConnectionUri(uri).sslMode).toBe(SslMode.VerifyFull);
       });
     });

@@ -38,6 +38,13 @@ describe('parseConnectionUri', () => {
     expect(result.options).not.toHaveProperty('sslmode');
   });
 
+  it('should parse prefer sslmode value', () => {
+    const uri = 'postgresql://user:pass@host:5432/db?sslmode=prefer';
+    const result = parseConnectionUri(uri);
+
+    expect(result.sslMode).toBe(SslMode.Prefer);
+  });
+
   it('should handle URI with no query parameters', () => {
     const uri = 'mysql://user:pass@host:3306/db';
     const result = parseConnectionUri(uri);
@@ -53,4 +60,3 @@ describe('parseConnectionUri', () => {
     expect(result.options).toEqual({ charset: 'utf8mb4' });
   });
 });
-

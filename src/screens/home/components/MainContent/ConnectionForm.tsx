@@ -42,6 +42,7 @@ import {
   IconInfoCircle,
   IconFolderOpen,
   IconLayout2,
+  IconX,
 } from "@tabler/icons-react";
 import {
   Tooltip,
@@ -70,6 +71,10 @@ import { vaultStorage } from "@/services/vaultStorage";
 import { windowManager } from "@/services/windowManager";
 import {
   extractConnectionErrorMessage,
+  getSslModeOptionsForDb,
+  normalizeSslModeForDb,
+  supportsSslKeyFiles,
+  validateSslInputs,
   validateSshTunnelInputs,
 } from "./connectionFormHelpers";
 
@@ -179,7 +184,7 @@ export function ConnectionForm() {
         mongodb: "mongodb",
         redis: "redis",
       };
-      const key = String(connection.profile.db_type).toLowerCase();
+      const key = connection.profile.db_type.toString().toLowerCase();
       return dbTypeMap[key] || "postgresql";
     }
     return "postgresql";
@@ -201,6 +206,9 @@ export function ConnectionForm() {
   const [safeMode, setSafeMode] = useState<SafeMode>(
     connection?.profile.safe_mode || "full_access",
   );
+  const sslModeOptions = getSslModeOptionsForDb(dbType);
+  const showsSslKeyFiles = supportsSslKeyFiles(dbType);
+  const sslModeGridClassName = "mt-2 flex flex-wrap gap-x-4 gap-y-1";
   const [selectedTags, setSelectedTags] = useState<string[]>(() => {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (isEditMode && connection.metadata.tags) {
@@ -286,13 +294,13 @@ export function ConnectionForm() {
   );
 
   // SSL certificates state
-  const [sslKeyFile, _setSslKeyFile] = useState(
+  const [sslKeyFile, setSslKeyFile] = useState(
     connection?.profile.ssl_config?.key_file || "",
   );
-  const [sslCertFile, _setSslCertFile] = useState(
+  const [sslCertFile, setSslCertFile] = useState(
     connection?.profile.ssl_config?.cert_file || "",
   );
-  const [sslCAFile, _setSslCAFile] = useState(
+  const [sslCAFile, setSslCAFile] = useState(
     connection?.profile.ssl_config?.ca_file || "",
   );
 
@@ -326,6 +334,13 @@ export function ConnectionForm() {
   }, [dbType, connection]);
 
   useEffect(() => {
+    const normalizedMode = normalizeSslModeForDb(dbType, sslMode);
+    if (normalizedMode !== sslMode) {
+      setSslMode(normalizedMode);
+    }
+  }, [dbType, sslMode]);
+
+  useEffect(() => {
     if (useSSHAgent) {
       setUseSSHKey(false);
       setSshPassword("");
@@ -356,6 +371,9 @@ export function ConnectionForm() {
         setName(config.database);
       }
       if (config.sslMode !== undefined) setSslMode(config.sslMode);
+      if (config.sslKeyFile !== undefined) setSslKeyFile(config.sslKeyFile);
+      if (config.sslCertFile !== undefined) setSslCertFile(config.sslCertFile);
+      if (config.sslCAFile !== undefined) setSslCAFile(config.sslCAFile);
 
       // SSH tunnel
       if (config.useSSH) {
@@ -385,7 +403,7 @@ export function ConnectionForm() {
     try {
       const config = parseConnectionUri(uri);
       skipDefaultPortRef.current = Boolean(
-        config.port && config.dbType && config.dbType !== dbType,
+        config.port && config.dbType !== dbType,
       );
       setDbType(config.dbType);
       if (config.host) setHost(config.host);
@@ -398,9 +416,62 @@ export function ConnectionForm() {
       }
       if (config.sslMode !== undefined) setSslMode(config.sslMode);
 
-      // Set connection options from query parameters
+      const remainingOptions: Record<string, string> = {};
       if (config.options && Object.keys(config.options).length > 0) {
-        const optionsStr = Object.entries(config.options)
+        for (const [key, value] of Object.entries(config.options)) {
+          const normalized = key.toLowerCase().replace(/[\s-]+/g, "_");
+
+          if (
+            [
+              "sslkey",
+              "ssl_key",
+              "sslkeyfile",
+              "ssl_key_file",
+              "keyfile",
+              "key_file",
+            ].includes(normalized)
+          ) {
+            setSslKeyFile(value);
+            continue;
+          }
+
+          if (
+            [
+              "sslcert",
+              "ssl_cert",
+              "sslcertfile",
+              "ssl_cert_file",
+              "certfile",
+              "cert_file",
+            ].includes(normalized)
+          ) {
+            setSslCertFile(value);
+            continue;
+          }
+
+          if (
+            [
+              "sslrootcert",
+              "ssl_root_cert",
+              "sslca",
+              "ssl_ca",
+              "sslcafile",
+              "ssl_ca_file",
+              "cafile",
+              "ca_file",
+            ].includes(normalized)
+          ) {
+            setSslCAFile(value);
+            continue;
+          }
+
+          remainingOptions[key] = value;
+        }
+      }
+
+      // Set connection options from query parameters
+      if (Object.keys(remainingOptions).length > 0) {
+        const optionsStr = Object.entries(remainingOptions)
           .map(([k, v]) => `${k}=${v}`)
           .join("\n");
         setConnectionOptions(optionsStr);
@@ -492,6 +563,43 @@ export function ConnectionForm() {
       logger.error("Failed to open file dialog:", error);
       toast.error("Failed to open file picker");
     }
+  };
+
+  const handleBrowseSslFile = async (target: "key" | "cert" | "ca") => {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [
+          {
+            name: "Certificate Files",
+            extensions: ["pem", "crt", "cer", "key", "der", "p12", "pfx"],
+          },
+          {
+            name: "All Files",
+            extensions: ["*"],
+          },
+        ],
+      });
+
+      if (selected && typeof selected === "string") {
+        if (target === "key") {
+          setSslKeyFile(selected);
+        } else if (target === "cert") {
+          setSslCertFile(selected);
+        } else {
+          setSslCAFile(selected);
+        }
+      }
+    } catch (error) {
+      logger.error("Failed to open SSL file dialog:", error);
+      toast.error("Failed to open file picker");
+    }
+  };
+
+  const clearSslFiles = () => {
+    setSslKeyFile("");
+    setSslCertFile("");
+    setSslCAFile("");
   };
 
   const handleTagToggle = (tagName: string) => {
@@ -596,7 +704,9 @@ export function ConnectionForm() {
       database,
       ssl_mode: sslMode,
       ssl_config:
-        sslMode !== SslMode.Disable && (sslKeyFile || sslCertFile || sslCAFile)
+        showsSslKeyFiles &&
+        sslMode !== SslMode.Disable &&
+        (sslKeyFile || sslCertFile || sslCAFile)
           ? {
               key_file: sslKeyFile || undefined,
               cert_file: sslCertFile || undefined,
@@ -655,6 +765,20 @@ export function ConnectionForm() {
   };
 
   const handleTest = async () => {
+    const sslValidationError = validateSslInputs({
+      dbType,
+      sslMode,
+      sslKeyFile,
+      sslCertFile,
+      sslCAFile,
+    });
+    if (sslValidationError) {
+      toast.error("Connection Failed", {
+        description: sslValidationError,
+      });
+      return;
+    }
+
     const sshValidationError = validateSshTunnelInputs({
       useSSH,
       sshHost,
@@ -712,6 +836,18 @@ export function ConnectionForm() {
       return;
     }
 
+    const sslValidationError = validateSslInputs({
+      dbType,
+      sslMode,
+      sslKeyFile,
+      sslCertFile,
+      sslCAFile,
+    });
+    if (sslValidationError) {
+      toast.error("Error", { description: sslValidationError });
+      return;
+    }
+
     const sshValidationError = validateSshTunnelInputs({
       useSSH,
       sshHost,
@@ -759,6 +895,18 @@ export function ConnectionForm() {
   const handleConnect = async () => {
     if (!name.trim()) {
       toast.error("Error", { description: "Please provide a connection name" });
+      return;
+    }
+
+    const sslValidationError = validateSslInputs({
+      dbType,
+      sslMode,
+      sslKeyFile,
+      sslCertFile,
+      sslCAFile,
+    });
+    if (sslValidationError) {
+      toast.error("Error", { description: sslValidationError });
       return;
     }
 
@@ -828,8 +976,14 @@ export function ConnectionForm() {
       value: "mongodb",
       label: "MongoDB",
       logo: getDatabaseLogo(DbType.MongoDB),
+      beta: true,
     },
-    { value: "redis", label: "Redis", logo: getDatabaseLogo(DbType.Redis) },
+    {
+      value: "redis",
+      label: "Redis",
+      logo: getDatabaseLogo(DbType.Redis),
+      beta: true,
+    },
   ];
 
   const currentDbType = dbTypeOptions.find((opt) => opt.value === dbType);
@@ -838,14 +992,9 @@ export function ConnectionForm() {
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 gap-2"
-          onClick={closeForm}
-        >
-          <IconArrowLeft className="h-4 w-4" />
-          <span className="text-xs font-semibold">
+        <Button variant="ghost" className="px-2 gap-2" onClick={closeForm}>
+          <IconArrowLeft className="h-5! w-5!" />
+          <span className="text-sm font-semibold">
             {isEditMode
               ? "Edit Connection"
               : formMode === "import"
@@ -877,6 +1026,11 @@ export function ConnectionForm() {
                 <div className="flex items-center gap-2">
                   <img src={opt.logo} alt={opt.label} className="h-3.5 w-3.5" />
                   {opt.label}
+                  {opt.beta && (
+                    <Badge variant="outline" size="xs">
+                      Beta
+                    </Badge>
+                  )}
                 </div>
               </SelectItem>
             ))}
@@ -1109,7 +1263,7 @@ export function ConnectionForm() {
                               size="sm"
                               variant="outline"
                               onClick={() => {
-                                handleCreateGroup(groupSearchValue);
+                                void handleCreateGroup(groupSearchValue);
                               }}
                               className="gap-1.5 h-6 px-2 text-xs"
                             >
@@ -1181,7 +1335,7 @@ export function ConnectionForm() {
                             <CommandItem
                               value={groupSearchValue}
                               onSelect={() => {
-                                handleCreateGroup(groupSearchValue);
+                                void handleCreateGroup(groupSearchValue);
                               }}
                               className="text-xs"
                             >
@@ -1344,14 +1498,9 @@ export function ConnectionForm() {
                 onValueChange={(value) => {
                   setSslMode(value as SslMode);
                 }}
-                className="mt-2 grid-cols-2 gap-2 sm:grid-cols-4"
+                className={sslModeGridClassName}
               >
-                {[
-                  { value: SslMode.Disable, label: "Disable" },
-                  { value: SslMode.Require, label: "Require" },
-                  { value: SslMode.VerifyCa, label: "Verify CA" },
-                  { value: SslMode.VerifyFull, label: "Verify Full" },
-                ].map((option) => {
+                {sslModeOptions.map((option) => {
                   const id = `ssl-mode-${option.value}`;
                   return (
                     <Label
@@ -1371,6 +1520,104 @@ export function ConnectionForm() {
             </div>
           )}
 
+          {showsSslKeyFiles && (
+            <div>
+              <Label className="text-xs">SSL Key Files</Label>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <div className="flex min-w-[220px] flex-1 items-center gap-1">
+                  <Input
+                    id="ssl-key-file"
+                    className="h-8 text-xs"
+                    value={sslKeyFile}
+                    onChange={(e) => {
+                      setSslKeyFile(e.target.value);
+                    }}
+                    placeholder="Key..."
+                    disabled={isTesting || sslMode === SslMode.Disable}
+                    aria-label="SSL Key File"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => void handleBrowseSslFile("key")}
+                    disabled={isTesting || sslMode === SslMode.Disable}
+                    title="Browse SSL key file"
+                    aria-label="Browse SSL key file"
+                  >
+                    <IconFolderOpen className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="flex min-w-[220px] flex-1 items-center gap-1">
+                  <Input
+                    id="ssl-cert-file"
+                    className="h-8 text-xs"
+                    value={sslCertFile}
+                    onChange={(e) => {
+                      setSslCertFile(e.target.value);
+                    }}
+                    placeholder="Cert..."
+                    disabled={isTesting || sslMode === SslMode.Disable}
+                    aria-label="SSL Cert File"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => void handleBrowseSslFile("cert")}
+                    disabled={isTesting || sslMode === SslMode.Disable}
+                    title="Browse SSL cert file"
+                    aria-label="Browse SSL cert file"
+                  >
+                    <IconFolderOpen className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="flex min-w-[220px] flex-1 items-center gap-1">
+                  <Input
+                    id="ssl-ca-file"
+                    className="h-8 text-xs"
+                    value={sslCAFile}
+                    onChange={(e) => {
+                      setSslCAFile(e.target.value);
+                    }}
+                    placeholder="CA Cert..."
+                    disabled={isTesting || sslMode === SslMode.Disable}
+                    aria-label="SSL CA File"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => void handleBrowseSslFile("ca")}
+                    disabled={isTesting || sslMode === SslMode.Disable}
+                    title="Browse SSL CA cert file"
+                    aria-label="Browse SSL CA cert file"
+                  >
+                    <IconFolderOpen className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 shrink-0"
+                  onClick={clearSslFiles}
+                  disabled={
+                    isTesting ||
+                    sslMode === SslMode.Disable ||
+                    (!sslKeyFile && !sslCertFile && !sslCAFile)
+                  }
+                  title="Clear SSL files"
+                  aria-label="Clear SSL files"
+                >
+                  <IconX className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Safe Mode */}
           <div>
             <Label className="flex items-center gap-1.5 text-xs">
@@ -1382,11 +1629,11 @@ export function ConnectionForm() {
               onValueChange={(value) => {
                 setSafeMode(value as SafeMode);
               }}
-              className="mt-2 grid-cols-2 gap-2 sm:grid-cols-4"
+              className="mt-2 flex flex-wrap gap-x-4 gap-y-1"
             >
               {[
                 { value: "full_access", label: "Full Access" },
-                { value: "read_write_update", label: "Read + Write + Update" },
+                { value: "read_write_update", label: "RW + Update" },
                 { value: "read_write", label: "Read + Write" },
                 { value: "read_only", label: "Read Only" },
               ].map((option) => {
@@ -1558,7 +1805,7 @@ export function ConnectionForm() {
                         id="use-ssh-agent"
                         checked={useSSHAgent}
                         onCheckedChange={(checked) => {
-                          setUseSSHAgent(!!checked);
+                          setUseSSHAgent(checked);
                         }}
                       />
                       <Label
@@ -1575,7 +1822,7 @@ export function ConnectionForm() {
                         checked={useSSHKey}
                         disabled={useSSHAgent}
                         onCheckedChange={(checked) => {
-                          setUseSSHKey(!!checked);
+                          setUseSSHKey(checked);
                         }}
                       />
                       <Label

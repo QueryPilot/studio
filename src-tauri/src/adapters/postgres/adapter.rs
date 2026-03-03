@@ -1,5 +1,9 @@
 use async_trait::async_trait;
-use deadpool_postgres::{Config, ManagerConfig, Pool, RecyclingMethod, Runtime};
+use deadpool_postgres::{
+    Config, ManagerConfig, Pool, RecyclingMethod, Runtime, SslMode as PgSslMode,
+};
+use native_tls::{Certificate, TlsConnector};
+use postgres_native_tls::MakeTlsConnector;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_postgres::NoTls;
@@ -20,6 +24,81 @@ impl PostgresAdapter {
     pub fn new() -> Self {
         Self {
             pool: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    fn create_pool(cfg: &Config, profile: &ConnectionProfile) -> Result<Pool, AppError> {
+        let runtime = Some(Runtime::Tokio1);
+        let ssl_mode = profile.ssl_mode.unwrap_or(SslMode::Disable);
+
+        match ssl_mode {
+            SslMode::Disable => cfg
+                .create_pool(runtime, NoTls)
+                .map_err(|e| AppError::Internal(format!("Failed to create pool: {}", e))),
+            SslMode::Allow
+            | SslMode::Prefer
+            | SslMode::Require
+            | SslMode::VerifyCa
+            | SslMode::VerifyFull => {
+                let mut tls_builder = TlsConnector::builder();
+
+                // Apply CA bundle when provided.
+                if let Some(ca_file) = profile
+                    .ssl_config
+                    .as_ref()
+                    .and_then(|ssl| ssl.ca_file.as_deref())
+                {
+                    let ca_pem = std::fs::read(ca_file).map_err(|e| {
+                        AppError::DatabaseError(format!(
+                            "Failed to read PostgreSQL CA certificate {}: {}",
+                            ca_file, e
+                        ))
+                    })?;
+                    let cert = Certificate::from_pem(&ca_pem).map_err(|e| {
+                        AppError::DatabaseError(format!(
+                            "Invalid PostgreSQL CA certificate {}: {}",
+                            ca_file, e
+                        ))
+                    })?;
+                    tls_builder.add_root_certificate(cert);
+                }
+
+                if let Some(ssl_config) = &profile.ssl_config {
+                    if ssl_config.key_file.is_some() || ssl_config.cert_file.is_some() {
+                        tracing::warn!(
+                            "PostgreSQL client certificate/key files are not currently applied by native-tls unless provided as a PKCS#12 identity"
+                        );
+                    }
+                }
+
+                match ssl_mode {
+                    SslMode::Allow | SslMode::Prefer | SslMode::Require => {
+                        // Require encrypted transport without certificate/hostname verification.
+                        tls_builder.danger_accept_invalid_certs(true);
+                        tls_builder.danger_accept_invalid_hostnames(true);
+                    }
+                    SslMode::VerifyCa => {
+                        tls_builder.danger_accept_invalid_certs(false);
+                        tls_builder.danger_accept_invalid_hostnames(true);
+                    }
+                    SslMode::VerifyFull => {
+                        tls_builder.danger_accept_invalid_certs(false);
+                        tls_builder.danger_accept_invalid_hostnames(false);
+                    }
+                    SslMode::Disable => unreachable!("handled in outer match"),
+                }
+
+                let tls_connector = tls_builder.build().map_err(|e| {
+                    AppError::DatabaseError(format!(
+                        "Failed to build PostgreSQL TLS connector: {}",
+                        e
+                    ))
+                })?;
+                let tls = MakeTlsConnector::new(tls_connector);
+
+                cfg.create_pool(runtime, tls)
+                    .map_err(|e| AppError::Internal(format!("Failed to create pool: {}", e)))
+            }
         }
     }
 
@@ -58,6 +137,15 @@ impl BaseCapability for PostgresAdapter {
         cfg.user = Some(profile.username.clone());
         cfg.password = profile.password.clone();
         cfg.dbname = Some(profile.database.clone());
+        cfg.ssl_mode = Some(match profile.ssl_mode.unwrap_or(SslMode::Disable) {
+            SslMode::Disable => PgSslMode::Disable,
+            SslMode::Allow => {
+                tracing::warn!("PostgreSQL sslmode=allow is mapped to sslmode=prefer");
+                PgSslMode::Prefer
+            }
+            SslMode::Prefer => PgSslMode::Prefer,
+            SslMode::Require | SslMode::VerifyCa | SslMode::VerifyFull => PgSslMode::Require,
+        });
         cfg.manager = Some(ManagerConfig {
             recycling_method: RecyclingMethod::Fast,
         });
@@ -77,9 +165,7 @@ impl BaseCapability for PostgresAdapter {
             }
         }
 
-        let pool = cfg
-            .create_pool(Some(Runtime::Tokio1), NoTls)
-            .map_err(|e| AppError::Internal(format!("Failed to create pool: {}", e)))?;
+        let pool = Self::create_pool(&cfg, profile)?;
 
         // Test connection with timeout to prevent indefinite hangs on unreachable hosts
         let connect_timeout = std::time::Duration::from_secs(15);

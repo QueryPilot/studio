@@ -10,7 +10,7 @@
  * - CRUD operations via the staging pipeline
  */
 
-import { memo, useCallback, useMemo, useState, useRef, useEffect } from 'react';
+import { memo, useCallback, useMemo, useState, useRef, useEffect, useImperativeHandle } from 'react';
 import { BaseDataGrid } from '../base/BaseDataGrid';
 import { KeyHeader } from '../components/KeyHeader';
 import { useKeyValueData } from '../hooks/useKeyValueData';
@@ -20,12 +20,13 @@ import { cn } from '@/lib/utils';
 import { logger } from '@/lib/logger';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { IconSearch, IconX, IconRefresh, IconDatabase } from '@tabler/icons-react';
+import { IconSearch, IconX, IconRefresh, IconDatabase, IconLayoutSidebarRightCollapse, IconLayoutSidebarRightExpand } from '@tabler/icons-react';
 import {
   type KeyValueFilter,
   parseKeyValueFilter,
 } from '@/utils/keyvalueFilterParser';
 import { RedisAdapter } from '@/adapters/redis/RedisAdapter';
+import type { QuickFilterRef } from '../components/QuickFilter';
 
 // ============================================================================
 // Types
@@ -72,6 +73,12 @@ interface KeyBrowserToolbarProps {
   showLoadAll: boolean;
   /** Trigger loading all remaining keys */
   onLoadAll: () => void;
+  /** Whether inspector is open */
+  inspectorOpen: boolean;
+  /** Toggle inspector */
+  onInspectorToggle: () => void;
+  /** Ref to the search input for external focus (Cmd+F) */
+  inputRef?: React.RefObject<HTMLInputElement | null>;
 }
 
 const KeyBrowserToolbar = memo(function KeyBrowserToolbar({
@@ -86,6 +93,9 @@ const KeyBrowserToolbar = memo(function KeyBrowserToolbar({
   allKeysLoaded,
   showLoadAll,
   onLoadAll,
+  inspectorOpen,
+  onInspectorToggle,
+  inputRef,
 }: KeyBrowserToolbarProps) {
   const [inputValue, setInputValue] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -162,11 +172,12 @@ const KeyBrowserToolbar = memo(function KeyBrowserToolbar({
   }, []);
 
   return (
-    <div className="flex items-center gap-2 px-2 py-1.5 border-b bg-background">
+    <div className="flex items-center gap-2 px-2 py-1.5 bg-background">
       {/* Unified search input */}
       <div className="relative flex-1 max-w-md">
         <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
         <Input
+          ref={inputRef}
           value={inputValue}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
@@ -240,6 +251,20 @@ const KeyBrowserToolbar = memo(function KeyBrowserToolbar({
       >
         <IconRefresh className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
       </Button>
+
+      {/* Inspector toggle */}
+      <Button
+        size="icon"
+        variant="outline"
+        className="h-7 w-7 ml-auto"
+        onClick={onInspectorToggle}
+      >
+        {inspectorOpen ? (
+          <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
+        ) : (
+          <IconLayoutSidebarRightExpand className="h-3.5 w-3.5" />
+        )}
+      </Button>
     </div>
   );
 });
@@ -259,11 +284,35 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
 }: KeyValueDataGridProps) {
   const stageCommand = useCrudStore((s) => s.stageCommand);
 
+  // Inspector state (controlled from here so we can render toggle in toolbar)
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const handleInspectorToggle = useCallback(() => {
+    setInspectorOpen((prev) => !prev);
+  }, []);
+
+  // Search input refs for Cmd+F focus
+  const browserInputRef = useRef<HTMLInputElement>(null);
+  const filterInputRef = useRef<HTMLInputElement>(null);
+  const quickFilterRef = useRef<QuickFilterRef>(null);
+  // Expose a QuickFilterRef-compatible ref that focuses the active search input
+  useImperativeHandle(quickFilterRef, () => ({
+    focus: () => {
+      if (browserInputRef.current) {
+        browserInputRef.current.focus();
+      } else if (filterInputRef.current) {
+        filterInputRef.current.focus();
+      }
+    },
+    isFocusWithin: () => {
+      const active = document.activeElement;
+      return active === browserInputRef.current || active === filterInputRef.current;
+    },
+  }));
+
   // Filter state for key view mode
   const [kvFilter, setKvFilter] = useState<KeyValueFilter | undefined>(undefined);
   const [filterValue, setFilterValue] = useState('');
   const [filterError, setFilterError] = useState<string | null>(null);
-  const filterInputRef = useRef<HTMLInputElement>(null);
 
   // Get key-value data with filter
   const data = useKeyValueData({
@@ -372,16 +421,36 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
           allKeysLoaded={data.allKeysLoaded}
           showLoadAll={data.showLoadAll}
           onLoadAll={data.loadAllKeys}
+          inspectorOpen={inspectorOpen}
+          onInspectorToggle={handleInspectorToggle}
+          inputRef={browserInputRef}
         />
       );
     }
     // Key view mode: show key metadata header with optional filter
+    const hasFilter = data.currentKey && ['hash', 'list', 'set', 'zset'].includes(data.currentKey.type);
+
+    const inspectorToggle = (
+      <Button
+        size="icon"
+        variant="outline"
+        className="h-7 w-7 ml-auto"
+        onClick={handleInspectorToggle}
+      >
+        {inspectorOpen ? (
+          <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
+        ) : (
+          <IconLayoutSidebarRightExpand className="h-3.5 w-3.5" />
+        )}
+      </Button>
+    );
+
     return (
       <div className="flex flex-col">
         {data.currentKey && <KeyHeader metadata={data.currentKey} onRefresh={handleRefresh} />}
         {/* Show filter for types that have multiple rows */}
-        {data.currentKey && ['hash', 'list', 'set', 'zset'].includes(data.currentKey.type) && (
-          <div className="flex items-center gap-2 px-2 py-1 border-t bg-background">
+        {hasFilter ? (
+          <div className="flex items-center gap-2 px-2 py-1 bg-background">
             <div className="relative flex-1 max-w-md">
               <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <Input
@@ -423,11 +492,16 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
                 {data.rows.length} results
               </span>
             )}
+            {inspectorToggle}
+          </div>
+        ) : (
+          <div className="flex items-center justify-end px-2 py-1 bg-background">
+            {inspectorToggle}
           </div>
         )}
       </div>
     );
-  }, [isBrowserMode, data.currentKey, data.pattern, data.setPattern, data.valueFilter, data.setValueFilter, data.totalKeyCount, data.loadedKeyCount, data.rows.length, data.isLoading, data.allKeysLoaded, data.showLoadAll, data.loadAllKeys, handleRefresh, filterValue, filterPlaceholder, filterError, kvFilter, handleFilterSubmit]);
+  }, [isBrowserMode, data.currentKey, data.pattern, data.setPattern, data.valueFilter, data.setValueFilter, data.totalKeyCount, data.loadedKeyCount, data.rows.length, data.isLoading, data.allKeysLoaded, data.showLoadAll, data.loadAllKeys, handleRefresh, filterValue, filterPlaceholder, filterError, kvFilter, handleFilterSubmit, inspectorOpen, handleInspectorToggle]);
 
   // Determine read-only state and reason
   const readOnly = data.currentKey?.type === 'stream';
@@ -479,6 +553,10 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
       database={String(database)}
       tableName={isBrowserMode ? `db${database}_keys` : (data.currentKey?.key || 'redis')}
       paradigm="keyvalue"
+      showInspectorToggleButton={false}
+      inspectorOpen={inspectorOpen}
+      onInspectorOpenChange={setInspectorOpen}
+      externalQuickFilterRef={quickFilterRef}
       enableFiltering={false} // Keep false - has custom pattern filter
       enableSorting={true} // ✅ ENABLE - Hash fields, zset scores, list indices can all be sorted
       enableExport={true}
