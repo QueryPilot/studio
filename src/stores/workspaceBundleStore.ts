@@ -268,7 +268,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         };
 
         set((s) => {
-          if (!s.activeWorkspace) return s;
+          if (!s.activeWorkspace || s.activeWorkspace.config.id !== workspaceId) return s;
           const newConnections = new Map(s.activeWorkspace.connections);
           newConnections.set(connectionId, openConnection);
           return {
@@ -285,7 +285,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         try {
           await databaseService.connectById(connectionId);
           set((s) => {
-            if (!s.activeWorkspace) return s;
+            if (!s.activeWorkspace || s.activeWorkspace.config.id !== workspaceId) return s;
             const conn = s.activeWorkspace.connections.get(connectionId);
             if (!conn) return s;
             const newConnections = new Map(s.activeWorkspace.connections);
@@ -303,7 +303,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
             error,
           );
           set((s) => {
-            if (!s.activeWorkspace) return s;
+            if (!s.activeWorkspace || s.activeWorkspace.config.id !== workspaceId) return s;
             const conn = s.activeWorkspace.connections.get(connectionId);
             if (!conn) return s;
             const newConnections = new Map(s.activeWorkspace.connections);
@@ -328,18 +328,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         lastOpenedAt: new Date().toISOString(),
       });
 
-      // Restore layout from IndexedDB
-      const restored = await useWorkbenchStore.getState().loadLayout(config.id);
-      if (restored) {
-        logger.info(
-          `[WorkspaceBundleStore] Restored tab layout from IndexedDB: ${config.name}`,
-        );
-      } else {
-        useWorkbenchStore.getState().initializeLayout();
-        logger.info(
-          `[WorkspaceBundleStore] Initialized fresh layout for workspace: ${config.name}`,
-        );
-      }
+      // Layout loading is handled by WorkbenchLayout component
     },
 
     openSingleConnection: async (connectionId, options) => {
@@ -363,10 +352,14 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       const database = options?.database || profile.database;
       const schema = options?.schema || profile.default_schema || getDefaultSchema(profile.db_type, database) || "";
 
-      // Get or create an auto-workspace for this connection
-      const config = await get().getOrCreateWorkspaceForConnection(connectionId);
+      // Get or create an auto-workspace for this connection (clone to avoid mutating store state)
+      const originalConfig = await get().getOrCreateWorkspaceForConnection(connectionId);
+      const config = {
+        ...originalConfig,
+        connectionStates: { ...originalConfig.connectionStates },
+      };
 
-      // Update connection state on config if options override defaults
+      // Update connection state on the cloned config if options override defaults
       if (options?.database || options?.schema) {
         config.connectionStates[connectionId] = { database, schema };
       }
@@ -390,15 +383,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
 
       set({ activeWorkspace, isDirty: false });
 
-      // Restore layout from IndexedDB
-      const restored = await useWorkbenchStore.getState().loadLayout(config.id);
-      if (restored) {
-        logger.info(
-          `[WorkspaceBundleStore] Restored tab layout from IndexedDB: ${config.id}`,
-        );
-      } else {
-        useWorkbenchStore.getState().initializeLayout();
-      }
+      // Layout loading is handled by WorkbenchLayout component
 
       // Connect (pass database override if provided)
       try {

@@ -51,26 +51,28 @@ async function updateWindowMenu(): Promise<void> {
 async function trackWorkspaceWindow(workspaceId: string) {
   try {
     const db = getSessionDatabase();
-    const current = await db.appState.get("singleton");
-    const lastActiveWorkspaceIds = current?.lastActiveWorkspaceIds ?? [];
-    const windowStates = current?.windowStates ?? [];
+    await db.transaction("rw", db.appState, async () => {
+      const current = await db.appState.get("singleton");
+      const lastActiveWorkspaceIds = [...(current?.lastActiveWorkspaceIds ?? [])];
+      const windowStates = [...(current?.windowStates ?? [])];
 
-    if (!lastActiveWorkspaceIds.includes(workspaceId)) {
-      lastActiveWorkspaceIds.push(workspaceId);
-    }
+      if (!lastActiveWorkspaceIds.includes(workspaceId)) {
+        lastActiveWorkspaceIds.push(workspaceId);
+      }
 
-    const existingIdx = windowStates.findIndex((w) => w.workspaceId === workspaceId);
-    if (existingIdx >= 0) {
-      windowStates[existingIdx] = { workspaceId };
-    } else {
-      windowStates.push({ workspaceId });
-    }
+      const existingIdx = windowStates.findIndex((w) => w.workspaceId === workspaceId);
+      if (existingIdx >= 0) {
+        windowStates[existingIdx] = { workspaceId };
+      } else {
+        windowStates.push({ workspaceId });
+      }
 
-    await db.appState.put({
-      key: "singleton",
-      lastActiveWorkspaceIds,
-      windowStates,
-      migrationVersion: current?.migrationVersion ?? 0,
+      await db.appState.put({
+        key: "singleton",
+        lastActiveWorkspaceIds,
+        windowStates,
+        migrationVersion: current?.migrationVersion ?? 0,
+      });
     });
   } catch (error) {
     console.error("[windowManager] Failed to track workspace window:", error);
@@ -88,36 +90,29 @@ async function saveWindowBounds(
 ) {
   try {
     const db = getSessionDatabase();
-    const current = await db.appState.get("singleton");
-    if (!current) return;
+    await db.transaction("rw", db.appState, async () => {
+      const current = await db.appState.get("singleton");
+      if (!current) {
+        // Create singleton if it doesn't exist yet (first-ever launch)
+        await db.appState.put({
+          key: "singleton",
+          lastActiveWorkspaceIds: [workspaceId],
+          windowStates: [{ workspaceId, windowBounds: bounds }],
+          migrationVersion: 0,
+        });
+        return;
+      }
 
-    const windowStates = current.windowStates.map((ws) =>
-      ws.workspaceId === workspaceId
-        ? { ...ws, windowBounds: bounds }
-        : ws,
-    );
+      const windowStates = current.windowStates.map((ws) =>
+        ws.workspaceId === workspaceId
+          ? { ...ws, windowBounds: bounds }
+          : ws,
+      );
 
-    await db.appState.put({ ...current, windowStates });
+      await db.appState.put({ ...current, windowStates });
+    });
   } catch (error) {
     console.error("[windowManager] Failed to save window bounds:", error);
-  }
-}
-
-/**
- * Retrieve saved window bounds for a workspace from IndexedDB.
- */
-async function getWindowBounds(
-  workspaceId: string,
-): Promise<{ x: number; y: number; width: number; height: number } | undefined> {
-  try {
-    const db = getSessionDatabase();
-    const current = await db.appState.get("singleton");
-    if (!current) return undefined;
-
-    const ws = current.windowStates.find((w) => w.workspaceId === workspaceId);
-    return ws?.windowBounds;
-  } catch {
-    return undefined;
   }
 }
 
@@ -968,4 +963,4 @@ class WindowManager {
 export const windowManager = WindowManager.getInstance();
 
 // Re-export IndexedDB helpers for use by workspace components
-export { saveWindowBounds, getWindowBounds };
+export { saveWindowBounds };

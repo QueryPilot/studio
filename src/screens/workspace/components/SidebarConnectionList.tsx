@@ -89,12 +89,12 @@ export function SidebarConnectionList({
     };
   }, []);
 
-  // Only subscribe to connection list references, not focused connection changes.
-  const [connectionIds, workspaceConnections] = useWorkspaceBundleStore(
-    useShallow((s) => [
-      s.activeWorkspace?.config.connectionIds ?? null,
-      s.activeWorkspace?.connections ?? null,
-    ]),
+  // Use separate selectors — connectionIds is structurally stable (only changes on add/remove).
+  const connectionIds = useWorkspaceBundleStore(
+    useShallow((s) => s.activeWorkspace?.config.connectionIds ?? null),
+  );
+  const workspaceConnections = useWorkspaceBundleStore(
+    (s) => s.activeWorkspace?.connections ?? null,
   );
   // Get connections as an array, sorted by the order in config.connectionIds
   const connections = useMemo(() => {

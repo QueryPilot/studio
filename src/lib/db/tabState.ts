@@ -83,37 +83,23 @@ export async function persistTabState(
     return;
   }
 
+  const toSave: PersistedTabState = {
+    tabId,
+    query: state.query ?? "",
+    lastExecutedQuery: state.lastExecutedQuery ?? "",
+    viewMode: state.viewMode ?? "table",
+    selectedDialect: state.selectedDialect ?? "auto",
+    tableViewType: state.tableViewType,
+    scrollPosition: state.scrollPosition,
+    editorCursorPosition: state.editorCursorPosition,
+    gridColumnWidths: state.gridColumnWidths,
+    pinnedResultQuery: state.pinnedResultQuery,
+  };
+
   try {
-    const existing = await database.tabStates.get(tabId);
-    const toSave: PersistedTabState = {
-      tabId,
-      query: state.query ?? existing?.query ?? "",
-      lastExecutedQuery: state.lastExecutedQuery ?? existing?.lastExecutedQuery ?? "",
-      viewMode: state.viewMode ?? existing?.viewMode ?? "table",
-      selectedDialect: state.selectedDialect ?? existing?.selectedDialect ?? "auto",
-      tableViewType: state.tableViewType ?? existing?.tableViewType,
-      scrollPosition: state.scrollPosition ?? existing?.scrollPosition,
-      editorCursorPosition: state.editorCursorPosition ?? existing?.editorCursorPosition,
-      gridColumnWidths: state.gridColumnWidths ?? existing?.gridColumnWidths,
-      pinnedResultQuery: state.pinnedResultQuery ?? existing?.pinnedResultQuery,
-    };
     await database.tabStates.put(toSave);
   } catch (error) {
     logger.warn("Failed to persist tab state to IndexedDB:", error);
-    // Fallback to memory
-    const existing = memoryStore.get(tabId);
-    const toSave: PersistedTabState = {
-      tabId,
-      query: state.query ?? existing?.query ?? "",
-      lastExecutedQuery: state.lastExecutedQuery ?? existing?.lastExecutedQuery ?? "",
-      viewMode: state.viewMode ?? existing?.viewMode ?? "table",
-      selectedDialect: state.selectedDialect ?? existing?.selectedDialect ?? "auto",
-      tableViewType: state.tableViewType ?? existing?.tableViewType,
-      scrollPosition: state.scrollPosition ?? existing?.scrollPosition,
-      editorCursorPosition: state.editorCursorPosition ?? existing?.editorCursorPosition,
-      gridColumnWidths: state.gridColumnWidths ?? existing?.gridColumnWidths,
-      pinnedResultQuery: state.pinnedResultQuery ?? existing?.pinnedResultQuery,
-    };
     memoryStore.set(tabId, toSave);
   }
 }

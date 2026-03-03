@@ -36,8 +36,16 @@ export function WorkspaceScreen() {
   // Get workspaceId from route params
   const { workspaceId } = useParams<{ workspaceId?: string }>();
 
-  // Get workspace bundle store state
-  const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
+  // Get workspace bundle store state — use granular selectors to avoid
+  // re-rendering the entire tree on every connection status change
+  const activeWorkspaceConfigId = useWorkspaceBundleStore(
+    (s) => s.activeWorkspace?.config.id ?? null,
+  );
+  const focusedConnection = useWorkspaceBundleStore((s) => {
+    const ws = s.activeWorkspace;
+    if (!ws?.focusedConnectionId) return null;
+    return ws.connections.get(ws.focusedConnectionId) ?? null;
+  });
   const savedWorkspaces = useWorkspaceBundleStore((s) => s.savedWorkspaces);
   const loadSavedWorkspaces = useWorkspaceBundleStore(
     (s) => s.loadSavedWorkspaces,
@@ -46,10 +54,6 @@ export function WorkspaceScreen() {
   const openSingleConnection = useWorkspaceBundleStore(
     (s) => s.openSingleConnection,
   );
-  // Get focused connection - compute from state to ensure proper subscription
-  const focusedConnectionId = activeWorkspace?.focusedConnectionId ?? null;
-  const focusedConnection =
-    activeWorkspace?.connections.get(focusedConnectionId ?? "") ?? null;
 
   // Get connection store state - needed to ensure connections are loaded
   const connections = useConnectionStore((s) => s.connections);
@@ -150,7 +154,7 @@ export function WorkspaceScreen() {
     if (!workspaceId) return;
 
     // Skip if workspace is already active and matches the route
-    if (activeWorkspace?.config.id === workspaceId) {
+    if (activeWorkspaceConfigId === workspaceId) {
       return;
     }
 
@@ -176,7 +180,7 @@ export function WorkspaceScreen() {
     }
   }, [
     workspaceId,
-    activeWorkspace?.config.id,
+    activeWorkspaceConfigId,
     workspacesLoaded,
     connectionsLoaded,
     savedWorkspaces,
