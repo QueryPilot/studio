@@ -48,8 +48,6 @@ interface WorkbenchStore {
   setDragContext: (context: Partial<DragDropContext>) => void;
   clearDragContext: () => void;
 
-  saveLayout: () => void;
-  restoreLayout: () => void;
   resetLayout: () => void;
 
   undo: () => void;
@@ -69,10 +67,6 @@ interface WorkbenchStore {
   // Workspace layout persistence
   setLayoutTree: (tree: GridNode) => void;
   restorePanelContents: (contents: Map<string, PanelContent>) => void;
-
-  // Per-connection layout persistence (localStorage)
-  saveConnectionLayout: (connectionId: string) => void;
-  restoreConnectionLayout: (connectionId: string) => boolean;
 
   // IndexedDB layout persistence
   persistLayout: (workspaceId: string) => Promise<void>;
@@ -110,18 +104,6 @@ const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
     },
 
     initializeLayout: () => {
-      const { activeConnectionId } = get();
-      const layoutKey = activeConnectionId
-        ? `workbench-layout-${activeConnectionId}`
-        : "workbench-layout";
-      const backupKey = activeConnectionId
-        ? `workbench-layout-backup-${activeConnectionId}`
-        : "workbench-layout-backup";
-
-      // Clear any corrupted state for this connection
-      localStorage.removeItem(layoutKey);
-      localStorage.removeItem(backupKey);
-
       const defaultPanel = createLeafNode({
         type: "editor",
         tabIds: [],
@@ -375,45 +357,6 @@ const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
           dropPosition: null,
         },
       });
-    },
-
-    saveLayout: () => {
-      const { layoutTree, activeConnectionId } = get();
-      if (layoutTree) {
-        const backupKey = activeConnectionId
-          ? `workbench-layout-backup-${activeConnectionId}`
-          : "workbench-layout-backup";
-        localStorage.setItem(backupKey, JSON.stringify(layoutTree));
-      }
-    },
-
-    restoreLayout: () => {
-      const { activeConnectionId } = get();
-      const backupKey = activeConnectionId
-        ? `workbench-layout-backup-${activeConnectionId}`
-        : "workbench-layout-backup";
-      const saved = localStorage.getItem(backupKey);
-      if (saved) {
-        try {
-          const tree = JSON.parse(saved) as GridNode;
-          const panels = getAllPanels(tree);
-          const contents = new Map(panels.map((p) => [p.id, p]));
-
-          set({
-            layoutTree: tree,
-            panelContents: contents,
-          });
-          const firstPanelId = panels[0]?.id;
-          if (firstPanelId) {
-            usePanelFocusStore.getState().focusPanel(firstPanelId);
-          } else {
-            usePanelFocusStore.getState().clearFocus();
-          }
-        } catch (e) {
-          logger.error("Failed to restore layout:", e);
-          get().initializeLayout();
-        }
-      }
     },
 
     resetLayout: () => {
@@ -762,80 +705,6 @@ const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
 
     restorePanelContents: (contents) => {
       set({ panelContents: contents });
-    },
-
-    // Per-connection layout persistence (localStorage)
-    saveConnectionLayout: (connectionId) => {
-      const { layoutTree, panelContents } = get();
-      if (!layoutTree || !connectionId) return;
-
-      const key = `workbench-connection-${connectionId}`;
-      try {
-        const data = {
-          layoutTree,
-          panelContents: Array.from(panelContents.entries()),
-          savedAt: Date.now(),
-        };
-        localStorage.setItem(key, JSON.stringify(data));
-        logger.info(`[Workbench] Saved layout for connection: ${connectionId}`);
-      } catch (error) {
-        logger.error(`[Workbench] Failed to save layout for ${connectionId}:`, error);
-      }
-    },
-
-    restoreConnectionLayout: (connectionId) => {
-      if (!connectionId) return false;
-
-      const key = `workbench-connection-${connectionId}`;
-      try {
-        const saved = localStorage.getItem(key);
-        if (!saved) return false;
-
-        const data = JSON.parse(saved) as {
-          layoutTree: GridNode;
-          panelContents: Array<[string, PanelContent]>;
-          savedAt: number;
-        };
-
-        // Validate the data
-        if (!data.layoutTree || !data.panelContents) {
-          logger.warn(`[Workbench] Invalid saved layout for ${connectionId}`);
-          localStorage.removeItem(key);
-          return false;
-        }
-
-        // Restore the layout
-        const panels = getAllPanels(data.layoutTree);
-        const panelContentsMap = new Map(data.panelContents);
-
-        // Verify panel IDs match
-        const treeIds = panels.map((p) => p.id).sort();
-        const mapIds = Array.from(panelContentsMap.keys()).sort();
-
-        if (JSON.stringify(treeIds) !== JSON.stringify(mapIds)) {
-          logger.warn(`[Workbench] Panel ID mismatch for ${connectionId}, resetting`);
-          localStorage.removeItem(key);
-          return false;
-        }
-
-        set({
-          layoutTree: data.layoutTree,
-          panelContents: panelContentsMap,
-        });
-        const firstPanelId = panels[0]?.id;
-        if (firstPanelId) {
-          usePanelFocusStore.getState().focusPanel(firstPanelId);
-        } else {
-          usePanelFocusStore.getState().clearFocus();
-        }
-
-        logger.info(`[Workbench] Restored layout for connection: ${connectionId}`);
-        return true;
-      } catch (error) {
-        logger.error(`[Workbench] Failed to restore layout for ${connectionId}:`, error);
-        localStorage.removeItem(key);
-        return false;
-      }
     },
 
     // IndexedDB layout persistence

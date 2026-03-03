@@ -208,7 +208,6 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       // Create active workspace with empty connections map
       const activeWorkspace: ActiveWorkspace = {
         config,
-        isTemporary: false,
         connections: new Map(),
         focusedConnectionId: null,
       };
@@ -385,7 +384,6 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
 
       const activeWorkspace: ActiveWorkspace = {
         config,
-        isTemporary: false,
         connections,
         focusedConnectionId: connectionId,
       };
@@ -838,7 +836,6 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         activeWorkspace: {
           ...activeWorkspace,
           config: newConfig,
-          isTemporary: false,
         },
         isDirty: false,
       }));
