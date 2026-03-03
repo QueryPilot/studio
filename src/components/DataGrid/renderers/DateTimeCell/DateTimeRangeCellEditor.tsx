@@ -405,7 +405,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="max-h-64 text-xs">
+                    <SelectContent className="max-h-64 text-xs click-outside-ignore">
                       {Array.from(
                         new Set([
                           tz,

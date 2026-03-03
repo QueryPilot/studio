@@ -119,4 +119,31 @@ describe("BaseDataGrid quick filter focus guard", () => {
 
     expect(gridFocusSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("does not auto-focus grid while an editor overlay element is focused", () => {
+    const editorInput = document.createElement("input");
+    editorInput.className = "gdg-editor-shell";
+    document.body.appendChild(editorInput);
+    editorInput.focus();
+
+    render(
+      <BaseDataGrid
+        gridId="test-editor-focused"
+        rows={mockRows}
+        columns={mockColumns}
+        getCellContent={mockGetCellContent}
+        connectionId="test-connection"
+        paradigm="sql"
+        enableFiltering={false}
+        focused={true}
+      />,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(gridFocusSpy).not.toHaveBeenCalled();
+    editorInput.remove();
+  });
 });

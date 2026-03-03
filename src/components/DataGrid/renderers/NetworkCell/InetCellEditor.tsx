@@ -243,7 +243,7 @@ export const InetCellEditor: React.FC<InetCellEditorProps> = ({
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="max-h-48">
+              <SelectContent className="max-h-48 click-outside-ignore">
                 <SelectItem value="none">-</SelectItem>
                 {prefixOptions.map((p) => (
                   <SelectItem key={p} value={p.toString()}>

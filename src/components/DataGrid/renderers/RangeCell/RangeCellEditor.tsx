@@ -229,7 +229,7 @@ export const RangeCellEditor: React.FC<RangeCellEditorProps> = ({
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="click-outside-ignore">
               <SelectItem value="inclusive">[ inclusive</SelectItem>
               <SelectItem value="exclusive">( exclusive</SelectItem>
             </SelectContent>
@@ -288,7 +288,7 @@ export const RangeCellEditor: React.FC<RangeCellEditorProps> = ({
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="click-outside-ignore">
               <SelectItem value="inclusive">] inclusive</SelectItem>
               <SelectItem value="exclusive">) exclusive</SelectItem>
             </SelectContent>

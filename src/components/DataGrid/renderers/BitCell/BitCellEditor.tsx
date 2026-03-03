@@ -221,7 +221,7 @@ export const BitCellEditor: React.FC<BitCellEditorProps> = ({
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="click-outside-ignore">
               <SelectItem value="binary">Binary</SelectItem>
               <SelectItem value="hex">Hex</SelectItem>
               <SelectItem value="decimal">Decimal</SelectItem>

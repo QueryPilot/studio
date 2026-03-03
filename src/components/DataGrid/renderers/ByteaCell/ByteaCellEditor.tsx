@@ -264,7 +264,7 @@ export const ByteaCellEditor: React.FC<ByteaCellEditorProps> = ({
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="click-outside-ignore">
             <SelectItem value="hex">Hex</SelectItem>
             <SelectItem value="base64">Base64</SelectItem>
             <SelectItem value="ascii">ASCII</SelectItem>
