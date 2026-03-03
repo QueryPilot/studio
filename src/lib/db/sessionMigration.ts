@@ -35,21 +35,38 @@ export async function runSessionMigration(): Promise<void> {
     "[migration] Starting session data migration v" + MIGRATION_VERSION
   );
 
-  // 1. Migrate layout data from localStorage
-  await migrateLayoutsFromLocalStorage(db);
+  // Run both migration steps — track success independently
+  let layoutOk = true;
+  let tabStatesOk = true;
 
-  // 2. Migrate tab state from old IndexedDB
-  await migrateTabStatesFromOldDb(db);
+  try {
+    await migrateLayoutsFromLocalStorage(db);
+  } catch (error) {
+    layoutOk = false;
+    console.warn("[migration] Layout migration failed:", error);
+  }
 
-  // 3. Mark migration complete
-  await db.appState.put({
-    key: "singleton",
-    lastActiveWorkspaceIds: appState?.lastActiveWorkspaceIds ?? [],
-    windowStates: appState?.windowStates ?? [],
-    migrationVersion: MIGRATION_VERSION,
-  });
+  try {
+    await migrateTabStatesFromOldDb(db);
+  } catch (error) {
+    tabStatesOk = false;
+    console.warn("[migration] Tab state migration failed:", error);
+  }
 
-  console.log("[migration] Session data migration complete");
+  // Only mark migration complete if ALL steps succeeded
+  if (layoutOk && tabStatesOk) {
+    await db.appState.put({
+      key: "singleton",
+      lastActiveWorkspaceIds: appState?.lastActiveWorkspaceIds ?? [],
+      windowStates: appState?.windowStates ?? [],
+      migrationVersion: MIGRATION_VERSION,
+    });
+    console.log("[migration] Session data migration complete");
+  } else {
+    console.warn(
+      "[migration] Migration partially failed — will retry on next startup"
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -67,47 +84,50 @@ async function migrateLayoutsFromLocalStorage(
 ): Promise<void> {
   const PREFIX = "workbench-connection-";
   let migratedCount = 0;
+  const keysToRemove: string[] = [];
 
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key?.startsWith(PREFIX)) continue;
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key?.startsWith(PREFIX)) continue;
 
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
+    const raw = localStorage.getItem(key);
+    if (!raw) continue;
 
-      try {
-        const data = JSON.parse(raw) as OldLayoutData;
-        if (!data.layoutTree || !data.panelContents) continue;
+    try {
+      const data = JSON.parse(raw) as OldLayoutData;
+      if (!data.layoutTree || !data.panelContents) continue;
 
-        const workspaceId = key.slice(PREFIX.length);
+      const workspaceId = key.slice(PREFIX.length);
 
-        const record: PersistedWorkspaceLayout = {
-          workspaceId,
-          layoutTree: data.layoutTree,
-          panelContents: data.panelContents,
-          savedAt: data.savedAt ?? Date.now(),
-          lastActiveAt: data.savedAt ?? Date.now(),
-        };
+      const record: PersistedWorkspaceLayout = {
+        workspaceId,
+        layoutTree: data.layoutTree,
+        panelContents: data.panelContents,
+        savedAt: data.savedAt ?? Date.now(),
+        lastActiveAt: data.savedAt ?? Date.now(),
+      };
 
-        await db.workspaceLayouts.put(record);
-        migratedCount++;
-        console.log(
-          `[migration] Migrated layout for workspace: ${workspaceId}`
-        );
-      } catch {
-        // Skip corrupted entries — don't crash the migration
-        console.warn(`[migration] Skipping corrupted layout entry: ${key}`);
-      }
-    }
-
-    if (migratedCount > 0) {
+      await db.workspaceLayouts.put(record);
+      keysToRemove.push(key);
+      migratedCount++;
       console.log(
-        `[migration] Migrated ${migratedCount} layout(s) from localStorage`
+        `[migration] Migrated layout for workspace: ${workspaceId}`
       );
+    } catch {
+      // Skip corrupted entries — don't crash the migration
+      console.warn(`[migration] Skipping corrupted layout entry: ${key}`);
     }
-  } catch (error) {
-    console.warn("[migration] Layout migration failed:", error);
+  }
+
+  // Clean up migrated localStorage keys
+  for (const key of keysToRemove) {
+    localStorage.removeItem(key);
+  }
+
+  if (migratedCount > 0) {
+    console.log(
+      `[migration] Migrated ${migratedCount} layout(s) from localStorage`
+    );
   }
 }
 
@@ -120,35 +140,36 @@ const OLD_TAB_STATE_DB_NAME = "query-pilot-tab-state";
 async function migrateTabStatesFromOldDb(
   db: ReturnType<typeof getSessionDatabase>
 ): Promise<void> {
+  // Check if the old database exists
+  const dbNames = await Dexie.getDatabaseNames();
+  if (!dbNames.includes(OLD_TAB_STATE_DB_NAME)) return;
+
+  // Open the old database with a generic Dexie instance so we can read
+  // its data without importing the old schema class.
+  const oldDb = new Dexie(OLD_TAB_STATE_DB_NAME);
+  oldDb.version(1).stores({ tabStates: "&tabId" });
+
   try {
-    // Check if the old database exists
-    const dbNames = await Dexie.getDatabaseNames();
-    if (!dbNames.includes(OLD_TAB_STATE_DB_NAME)) return;
+    const oldRecords = await oldDb.table("tabStates").toArray();
 
-    // Open the old database with a generic Dexie instance so we can read
-    // its data without importing the old schema class.
-    const oldDb = new Dexie(OLD_TAB_STATE_DB_NAME);
-    oldDb.version(1).stores({ tabStates: "&tabId" });
+    // Filter to valid records with non-empty tabId
+    const validRecords = oldRecords
+      .filter(
+        (r: Record<string, unknown>) =>
+          typeof r.tabId === "string" && r.tabId.length > 0
+      )
+      .map((r: Record<string, unknown>) => ({
+        ...r,
+        tabId: r.tabId as string,
+      }));
 
-    try {
-      const oldRecords = await oldDb.table("tabStates").toArray();
-      if (oldRecords.length === 0) return;
-
-      // Write to the new session database
-      await db.tabStates.bulkPut(
-        oldRecords.map((r: Record<string, unknown>) => ({
-          ...r,
-          tabId: r.tabId as string,
-        }))
-      );
-
+    if (validRecords.length > 0) {
+      await db.tabStates.bulkPut(validRecords);
       console.log(
-        `[migration] Migrated ${oldRecords.length} tab state(s) from old IndexedDB`
+        `[migration] Migrated ${validRecords.length} tab state(s) from old IndexedDB`
       );
-    } finally {
-      oldDb.close();
     }
-  } catch (error) {
-    console.warn("[migration] Tab state migration failed:", error);
+  } finally {
+    oldDb.close();
   }
 }
