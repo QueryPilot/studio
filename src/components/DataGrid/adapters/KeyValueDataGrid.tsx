@@ -21,6 +21,8 @@ import { logger } from '@/lib/logger';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { IconSearch, IconX, IconRefresh, IconDatabase, IconLayoutSidebarRightCollapse, IconLayoutSidebarRightExpand } from '@tabler/icons-react';
+import { useGridPreferencesStore } from '../stores/gridPreferencesStore';
+import type { InspectorTab } from '../components/inspector';
 import {
   type KeyValueFilter,
   parseKeyValueFilter,
@@ -283,9 +285,23 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
   sortGridId,
 }: KeyValueDataGridProps) {
   const stageCommand = useCrudStore((s) => s.stageCommand);
+  const persistedInspector = useGridPreferencesStore(
+    (s) => s.preferences[gridId]?.inspector,
+  );
 
   // Inspector state (controlled from here so we can render toggle in toolbar)
-  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(
+    () => persistedInspector?.open ?? false,
+  );
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>(
+    () => (persistedInspector?.tab as InspectorTab) ?? 'tree',
+  );
+  const setInspectorPref = useGridPreferencesStore((s) => s.setInspector);
+
+  useEffect(() => {
+    setInspectorPref(gridId, { open: inspectorOpen, tab: inspectorTab });
+  }, [gridId, inspectorOpen, inspectorTab, setInspectorPref]);
+
   const handleInspectorToggle = useCallback(() => {
     setInspectorOpen((prev) => !prev);
   }, []);
@@ -556,6 +572,8 @@ export const KeyValueDataGrid = memo(function KeyValueDataGrid({
       showInspectorToggleButton={false}
       inspectorOpen={inspectorOpen}
       onInspectorOpenChange={setInspectorOpen}
+      inspectorDefaultTab={inspectorTab}
+      onInspectorTabChange={setInspectorTab}
       externalQuickFilterRef={quickFilterRef}
       enableFiltering={false} // Keep false - has custom pattern filter
       enableSorting={true} // ✅ ENABLE - Hash fields, zset scores, list indices can all be sorted

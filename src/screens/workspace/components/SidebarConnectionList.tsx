@@ -37,7 +37,10 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { type TableMeta, type FunctionMeta } from "@/services/databaseService";
-import { DraggableSidebarItem, type SidebarItemDragData } from "./DatabaseSidebarItem";
+import {
+  DraggableSidebarItem,
+  type SidebarItemDragData,
+} from "./DatabaseSidebarItem";
 import {
   Tooltip,
   TooltipContent,
@@ -75,7 +78,9 @@ export function SidebarConnectionList({
 
   // Listen for sidebar view switch commands from command palette
   useEffect(() => {
-    const handleSwitchView = (event: { view: "objects" | "queries" | "erd" }) => {
+    const handleSwitchView = (event: {
+      view: "objects" | "queries" | "erd";
+    }) => {
       setSidebarView(event.view);
     };
     eventBus.on("sidebar:switch-view", handleSwitchView);
@@ -290,7 +295,8 @@ export function SidebarConnectionList({
         </div>
       ) : sidebarView === "erd" ? (
         <div className="flex-1 overflow-auto">
-          {connections.filter((c) => getParadigm(c.profile.db_type) === "sql").length === 0 ? (
+          {connections.filter((c) => getParadigm(c.profile.db_type) === "sql")
+            .length === 0 ? (
             <div className="p-4 text-center">
               <p className="text-xs text-muted-foreground">
                 No SQL databases in workspace
@@ -322,7 +328,7 @@ export function SidebarConnectionList({
                         <IconChevronRight
                           className={cn(
                             "h-3 w-3 text-muted-foreground transition-transform shrink-0",
-                            isExpanded && "rotate-90"
+                            isExpanded && "rotate-90",
                           )}
                         />
                         <img
@@ -330,7 +336,9 @@ export function SidebarConnectionList({
                           alt={connection.profile.db_type}
                           className="h-3.5 w-3.5 shrink-0"
                         />
-                        <span className="truncate flex-1">{connection.profile.name}</span>
+                        <span className="truncate flex-1">
+                          {connection.profile.name}
+                        </span>
                         <span
                           className={cn(
                             "h-2 w-2 rounded-full shrink-0",
@@ -338,7 +346,7 @@ export function SidebarConnectionList({
                               ? "bg-green-500"
                               : connection.status === "connecting"
                                 ? "bg-yellow-500"
-                                : "bg-red-500"
+                                : "bg-red-500",
                           )}
                         />
                       </button>
@@ -349,15 +357,17 @@ export function SidebarConnectionList({
                           {/* Main view (default) — draggable + right-click for "Open in Split Right" */}
                           <DraggableSidebarItem
                             dragId={`sidebar-erd-${connection.id}`}
-                            dragData={{
-                              type: "sidebar-item",
-                              objectType: "erd",
-                              name: `${connection.profile.name} ERD`,
-                              connectionId: connection.id,
-                              connectionName: connection.profile.name,
-                              database: connection.database,
-                              schema: connection.schema || "public",
-                            } satisfies SidebarItemDragData}
+                            dragData={
+                              {
+                                type: "sidebar-item",
+                                objectType: "erd",
+                                name: `${connection.profile.name} ERD`,
+                                connectionId: connection.id,
+                                connectionName: connection.profile.name,
+                                database: connection.database,
+                                schema: connection.schema || "public",
+                              } satisfies SidebarItemDragData
+                            }
                           >
                             <ContextMenu>
                               <ContextMenuTrigger
