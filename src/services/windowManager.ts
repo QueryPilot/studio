@@ -1,4 +1,5 @@
 import { logger } from "@/lib/logger";
+import { getSessionDatabase } from "@/lib/db/sessionDb";
 import { isTauri } from "@/utils/tauri";
 import { windowChannelTracker } from "./windowChannelTracker";
 import { platform, version } from "@tauri-apps/plugin-os";
@@ -40,6 +41,55 @@ async function updateWindowMenu(): Promise<void> {
     logger.info("[WindowManager] Window menu updated");
   } catch (error) {
     logger.error("[WindowManager] Failed to update window menu:", error);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// IndexedDB tracking helpers – keep appState in sync with open workspace windows
+// ---------------------------------------------------------------------------
+
+async function trackWorkspaceWindow(workspaceId: string) {
+  try {
+    const db = getSessionDatabase();
+    const current = await db.appState.get("singleton");
+    const lastActiveWorkspaceIds = current?.lastActiveWorkspaceIds ?? [];
+    const windowStates = current?.windowStates ?? [];
+
+    if (!lastActiveWorkspaceIds.includes(workspaceId)) {
+      lastActiveWorkspaceIds.push(workspaceId);
+    }
+
+    const existingIdx = windowStates.findIndex((w) => w.workspaceId === workspaceId);
+    if (existingIdx >= 0) {
+      windowStates[existingIdx] = { workspaceId };
+    } else {
+      windowStates.push({ workspaceId });
+    }
+
+    await db.appState.put({
+      key: "singleton",
+      lastActiveWorkspaceIds,
+      windowStates,
+      migrationVersion: current?.migrationVersion ?? 0,
+    });
+  } catch (error) {
+    console.error("[windowManager] Failed to track workspace window:", error);
+  }
+}
+
+async function untrackWorkspaceWindow(workspaceId: string) {
+  try {
+    const db = getSessionDatabase();
+    const current = await db.appState.get("singleton");
+    if (!current) return;
+
+    await db.appState.put({
+      ...current,
+      lastActiveWorkspaceIds: current.lastActiveWorkspaceIds.filter((id) => id !== workspaceId),
+      windowStates: current.windowStates.filter((w) => w.workspaceId !== workspaceId),
+    });
+  } catch (error) {
+    console.error("[windowManager] Failed to untrack workspace window:", error);
   }
 }
 
@@ -236,6 +286,9 @@ class WindowManager {
     });
     this.windowStates.set(label, "open");
 
+    // Track in IndexedDB for session restore
+    void trackWorkspaceWindow(connectionId);
+
     // Update the native Window menu to show this new window
     void updateWindowMenu();
 
@@ -245,10 +298,13 @@ class WindowManager {
       // Clean up local state
       this.windowMetadata.delete(label);
       this.windowStates.delete(label);
-      
+
+      // Untrack from IndexedDB
+      void untrackWorkspaceWindow(connectionId);
+
       // Update the native Window menu to remove this window
       void updateWindowMenu();
-      
+
       logger.info(
         `[WindowManager] Window ${label} destroyed, ${this.windowMetadata.size} windows remaining`,
       );
@@ -609,12 +665,19 @@ class WindowManager {
     });
     this.windowStates.set(label, "open");
 
+    // Track in IndexedDB for session restore
+    void trackWorkspaceWindow(workspaceId);
+
     void updateWindowMenu();
 
     // Handle window close cleanup
     void webview.once("tauri://destroyed", async () => {
       this.windowMetadata.delete(label);
       this.windowStates.delete(label);
+
+      // Untrack from IndexedDB
+      void untrackWorkspaceWindow(workspaceId);
+
       void updateWindowMenu();
 
       logger.info(`[WindowManager] Workspace window ${label} destroyed`);
