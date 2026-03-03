@@ -1064,6 +1064,74 @@ p {
   background-color: oklch(0.75 0.16 70 / 0.45) !important;
 }
 
+/* ---- CSS tooltips (::before) — shown on hover with 300ms delay ---- */
+.cm-panel.cm-search button[name=next],
+.cm-panel.cm-search button[name=prev],
+.cm-panel.cm-search button[name=select],
+.cm-panel.cm-search button[name=replace],
+.cm-panel.cm-search button[name=replaceAll],
+.cm-panel.cm-search button[name=close],
+.cm-panel.cm-search label {
+  position: relative !important;
+}
+
+.cm-panel.cm-search button[name=next]::before,
+.cm-panel.cm-search button[name=prev]::before,
+.cm-panel.cm-search button[name=select]::before,
+.cm-panel.cm-search button[name=replace]::before,
+.cm-panel.cm-search button[name=replaceAll]::before,
+.cm-panel.cm-search button[name=close]::before,
+.cm-panel.cm-search label:nth-of-type(1)::before,
+.cm-panel.cm-search label:nth-of-type(2)::before,
+.cm-panel.cm-search label:nth-of-type(3)::before {
+  position: absolute !important;
+  top: calc(100% + 4px) !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  padding: 3px 8px !important;
+  background: var(--popover) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 5px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12) !important;
+  font-family: "Noto Sans", -apple-system, sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  color: var(--foreground) !important;
+  white-space: nowrap !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  transition: opacity 0.15s 0.3s !important;
+  z-index: 50 !important;
+}
+
+.cm-panel.cm-search button[name=next]:hover::before,
+.cm-panel.cm-search button[name=prev]:hover::before,
+.cm-panel.cm-search button[name=select]:hover::before,
+.cm-panel.cm-search button[name=replace]:hover::before,
+.cm-panel.cm-search button[name=replaceAll]:hover::before,
+.cm-panel.cm-search button[name=close]:hover::before,
+.cm-panel.cm-search label:nth-of-type(1):hover::before,
+.cm-panel.cm-search label:nth-of-type(2):hover::before,
+.cm-panel.cm-search label:nth-of-type(3):hover::before {
+  opacity: 1 !important;
+}
+
+/* Tooltip text per element */
+.cm-panel.cm-search button[name=next]::before { content: "Next Match" !important; }
+.cm-panel.cm-search button[name=prev]::before { content: "Previous Match" !important; }
+.cm-panel.cm-search button[name=select]::before { content: "Select All Matches" !important; }
+.cm-panel.cm-search button[name=replace]::before { content: "Replace" !important; }
+.cm-panel.cm-search button[name=replaceAll]::before { content: "Replace All" !important; }
+.cm-panel.cm-search button[name=close]::before { content: "Close (Escape)" !important; }
+.cm-panel.cm-search label:nth-of-type(1)::before { content: "Match Case" !important; }
+.cm-panel.cm-search label:nth-of-type(2)::before { content: "Regular Expression" !important; }
+.cm-panel.cm-search label:nth-of-type(3)::before { content: "Match Whole Word" !important; }
+
+:is(.dark) .cm-panel.cm-search button::before,
+:is(.dark) .cm-panel.cm-search label::before {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+}
+
 /* ============================================
    AI Panel - Performance Optimizations
    ============================================ */
