@@ -124,6 +124,7 @@ export function WorkspaceTitleBar({
 
   const { toggleSidebar: onToggleSidebar } = useWorkspaceScreenStore();
   const { openPreferences } = usePreferencesStore();
+  const saveConnectionLayout = useWorkbenchStore((s) => s.saveConnectionLayout);
   const {
     stagedCommands,
     commitAll,
@@ -685,6 +686,11 @@ export function WorkspaceTitleBar({
   const handleGoHome = async () => {
     try {
       logger.info("Going home from workspace:", connectionId);
+
+      const persistenceScopeId = activeWorkspace?.config.id ?? connectionId;
+      if (persistenceScopeId) {
+        saveConnectionLayout(persistenceScopeId);
+      }
 
       // Disconnect from the current database (with timeout to prevent freeze on dead connections)
       if (connectionId && databaseService.isConnectionActive(connectionId)) {

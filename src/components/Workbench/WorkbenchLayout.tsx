@@ -1,10 +1,11 @@
-import React, { useEffect, memo } from "react";
+import React, { useEffect, memo, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { GridRenderer } from "./GridRenderer";
 import { Panel } from "./PanelDnd";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { useShallow } from "zustand/react/shallow";
 import { PanelPortalProvider, PanelPortal } from "./PanelPortalContext";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 
 /**
  * Memoized panel portals — prevents re-rendering all panels when layoutTree changes during resize.
@@ -40,6 +41,19 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
   const layoutTree = useWorkbenchStore((s) => s.layoutTree);
   const setConnectionId = useWorkbenchStore((s) => s.setConnectionId);
   const initializeLayout = useWorkbenchStore((s) => s.initializeLayout);
+  const saveConnectionLayout = useWorkbenchStore((s) => s.saveConnectionLayout);
+  const restoreConnectionLayout = useWorkbenchStore(
+    (s) => s.restoreConnectionLayout,
+  );
+  const panelContents = useWorkbenchStore((s) => s.panelContents);
+  const activeWorkspaceId = useWorkspaceBundleStore(
+    (s) => s.activeWorkspace?.config.id ?? null,
+  );
+  const initializedScopeRef = useRef<string | null>(null);
+  const saveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestScopeRef = useRef<string | null>(null);
+  const hasLayoutRef = useRef(false);
+  const layoutScopeId = activeWorkspaceId ?? connectionId ?? null;
   // Get stable list of panel IDs - useShallow does shallow array comparison
   // so this only re-renders when panels are added/removed, not when tab content changes
   const panelIds = useWorkbenchStore(
@@ -54,10 +68,70 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
   }, [connectionId, setConnectionId]);
 
   useEffect(() => {
-    if (!layoutTree) {
+    if (!layoutScopeId) {
+      if (!layoutTree) {
+        initializeLayout();
+      }
+      return;
+    }
+
+    if (initializedScopeRef.current === layoutScopeId) {
+      if (!layoutTree) {
+        initializeLayout();
+      }
+      return;
+    }
+
+    const restored = restoreConnectionLayout(layoutScopeId);
+    if (!restored) {
       initializeLayout();
     }
-  }, [layoutTree, initializeLayout]);
+    initializedScopeRef.current = layoutScopeId;
+  }, [
+    initializeLayout,
+    layoutScopeId,
+    layoutTree,
+    restoreConnectionLayout,
+  ]);
+
+  useEffect(() => {
+    if (!layoutScopeId || !layoutTree) return;
+
+    if (saveDebounceTimerRef.current) {
+      clearTimeout(saveDebounceTimerRef.current);
+      saveDebounceTimerRef.current = null;
+    }
+
+    saveDebounceTimerRef.current = setTimeout(() => {
+      saveConnectionLayout(layoutScopeId);
+    }, 250);
+
+    return () => {
+      if (saveDebounceTimerRef.current) {
+        clearTimeout(saveDebounceTimerRef.current);
+        saveDebounceTimerRef.current = null;
+      }
+    };
+  }, [layoutScopeId, layoutTree, panelContents, saveConnectionLayout]);
+
+  useEffect(() => {
+    latestScopeRef.current = layoutScopeId;
+    hasLayoutRef.current = !!layoutTree;
+  }, [layoutScopeId, layoutTree]);
+
+  useEffect(() => {
+    return () => {
+      if (saveDebounceTimerRef.current) {
+        clearTimeout(saveDebounceTimerRef.current);
+        saveDebounceTimerRef.current = null;
+      }
+
+      const scopeId = latestScopeRef.current;
+      if (scopeId && hasLayoutRef.current) {
+        saveConnectionLayout(scopeId);
+      }
+    };
+  }, [saveConnectionLayout]);
 
   if (!layoutTree) {
     return (

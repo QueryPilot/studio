@@ -110,6 +110,21 @@ const SELECTION_SUMMARY_THRESHOLD = 10_000;
 // enough data for practical use.
 const MAX_INSPECTOR_ROWS = 200;
 
+const GRID_EDITOR_SELECTOR =
+  '[data-slot="grid-editor"], .gdg-editor-shell, .click-outside-ignore';
+
+const isTextInputElement = (element: HTMLElement | null): boolean => {
+  if (!element) return false;
+  return (
+    element.tagName === "INPUT" ||
+    element.tagName === "TEXTAREA" ||
+    element.isContentEditable
+  );
+};
+
+const isEditorOverlayElement = (element: HTMLElement | null): boolean =>
+  Boolean(element?.closest(GRID_EDITOR_SELECTOR));
+
 // Stable theme objects to avoid allocating new objects per staged cell render
 const STAGED_CELL_THEME = {
   bgCell: "rgba(251, 146, 60, 0.15)",
@@ -511,15 +526,16 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       const activeElement = document.activeElement as HTMLElement | null;
       if (!activeElement) return false;
 
-      const activeElementIsTextInput =
-        activeElement.tagName === "INPUT" ||
-        activeElement.tagName === "TEXTAREA" ||
-        activeElement.isContentEditable;
+      // Editors render in overlays and may live outside wrapperRef.
+      if (isEditorOverlayElement(activeElement)) {
+        return true;
+      }
+
       const activeElementInsideGrid = Boolean(
         wrapperRef.current?.contains(activeElement),
       );
 
-      if (activeElementIsTextInput && activeElementInsideGrid) {
+      if (isTextInputElement(activeElement) && activeElementInsideGrid) {
         return true;
       }
 
@@ -760,15 +776,27 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     gridId: preferenceGridId,
   });
 
+  const isEditorInteractionTarget = useCallback(
+    (target: EventTarget | null): boolean => {
+      if (!(target instanceof HTMLElement)) {
+        return false;
+      }
+      return (
+        isEditorOverlayElement(target) ||
+        (isTextInputElement(target) &&
+          Boolean(wrapperRef.current?.contains(target)))
+      );
+    },
+    [],
+  );
+
   // --- Helper: Check if a cell editor is currently active ---
   // This checks the DOM directly since blur events may not fire correctly with portals
   const isCellEditorActive = useCallback(() => {
     // Check if focus is inside a cell editor overlay
     const activeElement = document.activeElement;
     if (activeElement) {
-      const editorShell = activeElement.closest(
-        ".gdg-editor-shell, .click-outside-ignore",
-      );
+      const editorShell = activeElement.closest(GRID_EDITOR_SELECTOR);
       if (editorShell) return true;
     }
 
@@ -776,12 +804,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     // hidden keyboard-capture input inside `.gdg-style` as an active editor.
     if (
       activeElement &&
-      (activeElement.tagName === "INPUT" ||
-        activeElement.tagName === "TEXTAREA")
+      isTextInputElement(activeElement as HTMLElement)
     ) {
-      const isInGridEditor = activeElement.closest(
-        '[data-slot="grid-editor"], .gdg-editor-shell, .click-outside-ignore',
-      );
+      const isInGridEditor = activeElement.closest(GRID_EDITOR_SELECTOR);
       if (isInGridEditor) return true;
     }
     return false;
@@ -819,14 +844,9 @@ export const BaseDataGrid = memo(function BaseDataGrid(
 
     // Check if focus is moving to a cell editor overlay (renders in a portal outside the grid)
     // Cell editors have the class 'gdg-editor-shell' or 'click-outside-ignore'
-    if (relatedTarget) {
-      const editorShell = relatedTarget.closest(
-        ".gdg-editor-shell, .click-outside-ignore",
-      );
-      if (editorShell) {
-        // Focus is moving to cell editor - keep editing state
-        return;
-      }
+    if (relatedTarget && isEditorOverlayElement(relatedTarget)) {
+      // Focus is moving to cell editor - keep editing state
+      return;
     }
 
     // Focus is leaving the grid - update synchronously
@@ -2761,11 +2781,11 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       if (contextService.getValue("inQuickOpen")) return;
 
       const target = event.target as HTMLElement | null;
+      if (target && isEditorOverlayElement(target)) {
+        return;
+      }
       const isTextInputTarget =
-        !!target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable);
+        !!target && isTextInputElement(target);
 
       // Don't override native text-input behavior for copy/delete —
       // UNLESS the target is GlideDataGrid's internal hidden <input>,
@@ -3397,6 +3417,10 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       onBlurCapture={handleBlurCapture}
       onPaste={handleNativePaste}
       onMouseDown={(e) => {
+        if (isEditorInteractionTarget(e.target)) {
+          return;
+        }
+
         // Canvas interactions don't always emit a focus event on the wrapper.
         // Route commands to this grid immediately on pointer interaction.
         contextService.enterScope(scopeId);
@@ -3470,55 +3494,66 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         connectionId={connectionId}
         referencedTableColumns={referencedTableColumns ?? {}}
       >
-        <EditableDataGrid
-          ref={gridRef}
-          tableKey={gridId}
-          rows={effectiveDisplayRows}
-          columns={finalColumns}
-          getCellContent={getCellContent}
-          drawHeader={drawHeader}
-          drawCell={effectiveDrawCell}
-          getRowThemeOverride={getRowThemeOverride}
-          freezeColumns={enableColumnManagement ? freezeColumns : 0}
-          gridSelection={gridSelection}
-          onSelectionChange={handleGridSelectionChange}
-          onCellActivated={handleInspectorCellActivated}
-          onCellClicked={handleInspectorCellClicked}
-          onCellEditStart={handleCellEditStart}
-          onCellEditCancel={handleCellEditCancel}
-          onCellEditCommit={
-            (commandFactory || onCellEditCommitCallback) && !readOnly
-              ? handleCellEditCommitWrapper
-              : undefined
-          }
-          onRowInsert={
-            commandFactory && !readOnly ? handleRowInsert : undefined
-          }
-          onRowDelete={
-            commandFactory && !readOnly ? handleRowDeleteEvent : undefined
-          }
-          onBatchClear={
-            commandFactory && !readOnly ? handleBatchClear : undefined
-          }
-          onColumnResize={
-            enableColumnManagement ? handleColumnResize : undefined
-          }
-          onColumnResizeEnd={
-            enableColumnManagement
-              ? (column, size) => {
-                  handleColumnResizeEnd(column, size);
-                  flushWidths(columnWidths);
-                }
-              : undefined
-          }
-          onColumnMoved={
-            enableColumnManagement ? handleColumnMoved : undefined
-          }
-          onHeaderClicked={handleHeaderClicked}
-          onItemHovered={handleItemHovered}
-          onVisibleRegionChanged={handleVisibleRegionChanged}
-          maxColumnWidth={1000}
-        />
+        <div
+          className="h-full w-full"
+          onContextMenu={(event) => {
+            const target = event.target as HTMLElement | null;
+            if (target && isEditorOverlayElement(target)) {
+              // Preserve native editor context menus and suppress grid row menu.
+              event.stopPropagation();
+            }
+          }}
+        >
+          <EditableDataGrid
+            ref={gridRef}
+            tableKey={gridId}
+            rows={effectiveDisplayRows}
+            columns={finalColumns}
+            getCellContent={getCellContent}
+            drawHeader={drawHeader}
+            drawCell={effectiveDrawCell}
+            getRowThemeOverride={getRowThemeOverride}
+            freezeColumns={enableColumnManagement ? freezeColumns : 0}
+            gridSelection={gridSelection}
+            onSelectionChange={handleGridSelectionChange}
+            onCellActivated={handleInspectorCellActivated}
+            onCellClicked={handleInspectorCellClicked}
+            onCellEditStart={handleCellEditStart}
+            onCellEditCancel={handleCellEditCancel}
+            onCellEditCommit={
+              (commandFactory || onCellEditCommitCallback) && !readOnly
+                ? handleCellEditCommitWrapper
+                : undefined
+            }
+            onRowInsert={
+              commandFactory && !readOnly ? handleRowInsert : undefined
+            }
+            onRowDelete={
+              commandFactory && !readOnly ? handleRowDeleteEvent : undefined
+            }
+            onBatchClear={
+              commandFactory && !readOnly ? handleBatchClear : undefined
+            }
+            onColumnResize={
+              enableColumnManagement ? handleColumnResize : undefined
+            }
+            onColumnResizeEnd={
+              enableColumnManagement
+                ? (column, size) => {
+                    handleColumnResizeEnd(column, size);
+                    flushWidths(columnWidths);
+                  }
+                : undefined
+            }
+            onColumnMoved={
+              enableColumnManagement ? handleColumnMoved : undefined
+            }
+            onHeaderClicked={handleHeaderClicked}
+            onItemHovered={handleItemHovered}
+            onVisibleRegionChanged={handleVisibleRegionChanged}
+            maxColumnWidth={1000}
+          />
+        </div>
       </UnifiedContextMenu>
     </div>
   );

@@ -9,6 +9,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
+import useWorkbenchStore from "@/stores/workbenchStore";
 import { databaseService } from "@/services/databaseService";
 import {
   ResizablePanelGroup,
@@ -45,6 +46,7 @@ export function WorkspaceScreen() {
   const openSingleConnection = useWorkspaceBundleStore(
     (s) => s.openSingleConnection,
   );
+  const saveConnectionLayout = useWorkbenchStore((s) => s.saveConnectionLayout);
   // Get focused connection - compute from state to ensure proper subscription
   const focusedConnectionId = activeWorkspace?.focusedConnectionId ?? null;
   const focusedConnection =
@@ -78,6 +80,15 @@ export function WorkspaceScreen() {
   });
 
   const [isLoading, setIsLoading] = useState(true);
+
+  const persistWorkbenchLayout = useCallback(() => {
+    const persistenceScopeId =
+      useWorkspaceBundleStore.getState().activeWorkspace?.config.id ??
+      connectionId;
+    if (persistenceScopeId) {
+      saveConnectionLayout(persistenceScopeId);
+    }
+  }, [connectionId, saveConnectionLayout]);
 
   // Use useShallow for multi-value selector to prevent unnecessary re-renders
   const {
@@ -315,6 +326,8 @@ export function WorkspaceScreen() {
 
     // Cleanup on unmount
     return () => {
+      persistWorkbenchLayout();
+
       // Unregister window from connection tracker (BroadcastChannel)
       windowChannelTracker.unregisterWindow();
 
@@ -323,13 +336,15 @@ export function WorkspaceScreen() {
       // React may unmount for other reasons (hot reload, route change) where
       // we don't want to disconnect. Only actual window close should disconnect.
     };
-  }, [connectionId, initWorkspace]);
+  }, [connectionId, initWorkspace, persistWorkbenchLayout]);
 
   // Handle browser beforeunload for pending changes (web dev mode)
   useEffect(() => {
     if (!connectionId) return;
 
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      persistWorkbenchLayout();
+
       // Check if there are pending changes for this connection
       const { stagedCommands } = useCrudStore.getState();
       const hasPendingChanges = Array.from(stagedCommands.entries()).some(
@@ -348,7 +363,7 @@ export function WorkspaceScreen() {
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [connectionId]);
+  }, [connectionId, persistWorkbenchLayout]);
 
   // Handle Tauri window close with pending changes check
   useEffect(() => {
@@ -362,6 +377,8 @@ export function WorkspaceScreen() {
         const currentWindow = getCurrentWindow();
         const unlistenFn = await currentWindow.onCloseRequested(
           async (event) => {
+            persistWorkbenchLayout();
+
             // Check if there are pending changes for this connection
             const { stagedCommands } = useCrudStore.getState();
             const hasPendingChanges = Array.from(stagedCommands.entries()).some(
@@ -449,7 +466,7 @@ export function WorkspaceScreen() {
       isDisposed = true;
       if (unlisten) unlisten();
     };
-  }, [connectionId]);
+  }, [connectionId, persistWorkbenchLayout]);
 
   if (!connectionId) {
     return (

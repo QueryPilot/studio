@@ -110,7 +110,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
     readOnly = false,
     kind = "Table",
     className,
-    focused,
+    focused = true,
   } = props;
 
   const gridId = `${connectionId}:${database}:${schema}:${table}`;

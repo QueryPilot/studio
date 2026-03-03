@@ -233,6 +233,39 @@ describe('SqlDataGrid', () => {
     expect(container.querySelector('[data-testid="base-datagrid"]')).toBeInTheDocument();
   });
 
+  it("defaults focused to true so auto-focus can run when not provided", () => {
+    render(
+      <SqlDataGrid
+        connectionId="test-conn"
+        database="test-db"
+        schema="public"
+        table="users"
+        dbType={DbType.PostgreSQL}
+      />,
+      { wrapper: Wrapper },
+    );
+
+    const latestProps = capturedBaseGridProps.at(-1);
+    expect(latestProps?.focused).toBe(true);
+  });
+
+  it("passes focused=false through when explicitly disabled", () => {
+    render(
+      <SqlDataGrid
+        connectionId="test-conn"
+        database="test-db"
+        schema="public"
+        table="users"
+        dbType={DbType.PostgreSQL}
+        focused={false}
+      />,
+      { wrapper: Wrapper },
+    );
+
+    const latestProps = capturedBaseGridProps.at(-1);
+    expect(latestProps?.focused).toBe(false);
+  });
+
   it('should render as editable for tables (kind=Table)', () => {
     const { container } = render(
       <SqlDataGrid

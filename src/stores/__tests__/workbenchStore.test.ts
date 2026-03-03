@@ -767,6 +767,71 @@ describe("workbenchStore", () => {
     });
   });
 
+  describe("Scoped Layout Persistence", () => {
+    it("should save and restore scoped layout with tabs and splits", () => {
+      const store = useWorkbenchStore.getState();
+      store.initializeLayout();
+
+      const panelId = usePanelFocusStore.getState().focusedPanelId!;
+      store.addTab(panelId, "tab-1", {
+        title: "Users",
+        connectionId: "conn-1",
+        schema: "public",
+        table: "users",
+      });
+
+      store.splitPanelAction({
+        targetPanelId: panelId,
+        direction: "right",
+        newPanelContent: {
+          id: "panel-2",
+          type: "editor",
+          tabIds: [],
+          activeTabId: "",
+        },
+      });
+
+      store.saveConnectionLayout("workspace-1");
+      const saved = localStorage.getItem("workbench-connection-workspace-1");
+      expect(saved).toBeTruthy();
+
+      useWorkbenchStore.setState({ layoutTree: null, panelContents: new Map() });
+
+      const restored = useWorkbenchStore
+        .getState()
+        .restoreConnectionLayout("workspace-1");
+      expect(restored).toBe(true);
+
+      const state = useWorkbenchStore.getState();
+      expect(state.layoutTree?.type).toBe("branch");
+      expect(state.panelContents.size).toBe(2);
+
+      const restoredPanelWithTab = Array.from(state.panelContents.values()).find((panel) =>
+        panel.tabIds.includes("tab-1"),
+      );
+      expect(restoredPanelWithTab?.activeTabId).toBe("tab-1");
+      expect(restoredPanelWithTab?.metadata?.["tab-1"]?.title).toBe("Users");
+    });
+
+    it("should return false when scoped layout does not exist", () => {
+      const restored = useWorkbenchStore
+        .getState()
+        .restoreConnectionLayout("missing-workspace");
+      expect(restored).toBe(false);
+    });
+
+    it("should return false and clear corrupted scoped layout", () => {
+      localStorage.setItem("workbench-connection-corrupted", "not-json");
+
+      const restored = useWorkbenchStore
+        .getState()
+        .restoreConnectionLayout("corrupted");
+
+      expect(restored).toBe(false);
+      expect(localStorage.getItem("workbench-connection-corrupted")).toBeNull();
+    });
+  });
+
   describe("Tab Management", () => {
     it("should add tab to panel", () => {
       const store = useWorkbenchStore.getState();

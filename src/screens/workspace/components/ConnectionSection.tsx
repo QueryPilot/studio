@@ -7,7 +7,14 @@
  * - Tables/Views/Functions sections
  */
 
-import { useState, useEffect, useMemo, useCallback, forwardRef, useId } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  forwardRef,
+  useId,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 import { cn } from "@/lib/utils";
 import {
@@ -37,7 +44,12 @@ import { getDatabaseLogo } from "@/utils/databaseLogos";
 import { buildConnectionUri } from "@/utils/connectionParser";
 import { useSchemaData } from "@/hooks/useSchemaData";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
-import { isMySQLCompatible, getParadigm, DbType, type SafeMode } from "@/types/connection";
+import {
+  isMySQLCompatible,
+  getParadigm,
+  DbType,
+  type SafeMode,
+} from "@/types/connection";
 import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import type { CollectionInfo } from "@/adapters/types/mongodb";
 import type { OpenConnection } from "@/types/workspace";
@@ -110,6 +122,10 @@ import {
 import { windowManager } from "@/services/windowManager";
 import { toast } from "sonner";
 import { writeClipboardText } from "@/lib/clipboard";
+import { getAdapterForConnection } from "@/adapters";
+import type { DatabaseAdapter } from "@/adapters/types";
+import { queryStreamClient } from "@/services/queryStreamClient";
+import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import type {
   DocumentResult,
   KeyValueOperation,
@@ -155,7 +171,12 @@ interface SidebarSelectionItem {
 }
 
 interface PendingConfirmAction {
-  kind?: "sql-truncate" | "sql-delete" | "nosql-truncate" | "nosql-delete" | "redis-truncate";
+  kind?:
+    | "sql-truncate"
+    | "sql-delete"
+    | "nosql-truncate"
+    | "nosql-delete"
+    | "redis-truncate";
   title: string;
   description: string;
   entityName?: string;
@@ -275,7 +296,7 @@ export const ConnectionSection = forwardRef<
       });
       // Parse keyspace section: db0:keys=237,expires=0,avg_ttl=0
       const databases: RedisDatabaseInfo[] = [];
-      const lines = infoStr.split('\n');
+      const lines = infoStr.split("\n");
       for (const line of lines) {
         const match = line.match(/^db(\d+):keys=(\d+),expires=(\d+)/);
         if (match) {
@@ -406,8 +427,7 @@ export const ConnectionSection = forwardRef<
         const payload = command.payload as TableCreatePayload;
         const payloadName = payload.tableName.trim();
         const targetName = (target.table || "").trim();
-        const schemaName =
-          (target.schema || schema || "public").trim();
+        const schemaName = (target.schema || schema || "public").trim();
         const resolvedName = payloadName || targetName;
         if (!resolvedName) return;
 
@@ -515,7 +535,8 @@ export const ConnectionSection = forwardRef<
     let starredKey: string | null = null;
 
     if (metadata.type === "table") {
-      const tableName = typeof metadata.table === "string" ? metadata.table : "";
+      const tableName =
+        typeof metadata.table === "string" ? metadata.table : "";
       const schemaName =
         typeof metadata.schema === "string" ? metadata.schema : "";
       const isView =
@@ -1015,9 +1036,7 @@ export const ConnectionSection = forwardRef<
             schema: item.schema,
             name: item.name,
             objectType:
-              item.kind === "MaterializedView"
-                ? "materialized_view"
-                : "view",
+              item.kind === "MaterializedView" ? "materialized_view" : "view",
           };
         }
 
@@ -1243,7 +1262,10 @@ export const ConnectionSection = forwardRef<
   ) => {
     const commands = stageBatchWithSingleHistoryEntry(
       items
-        .filter((item): item is SidebarSelectionItem & { type: "table" } => item.type === "table")
+        .filter(
+          (item): item is SidebarSelectionItem & { type: "table" } =>
+            item.type === "table",
+        )
         .map((item) =>
           CrudCommandFactory.createTableTruncateCommand({
             target: {
@@ -1295,7 +1317,9 @@ export const ConnectionSection = forwardRef<
 
           return null;
         })
-        .filter((command): command is NonNullable<typeof command> => command !== null),
+        .filter(
+          (command): command is NonNullable<typeof command> => command !== null,
+        ),
     );
 
     stageSqlCommandsAndOpenGlobalChanges(commands, "delete");
@@ -1407,12 +1431,13 @@ export const ConnectionSection = forwardRef<
 
     requestConfirmation({
       title: "Truncate Objects",
-      description:
-        isImmediateExecution(selectedTypes)
-          ? "This will remove all documents in the selected collection(s) immediately. It will not be staged in Global Changes."
-          : "This will stage TRUNCATE commands in Global Changes. Data will be permanently removed when committed.",
+      description: isImmediateExecution(selectedTypes)
+        ? "This will remove all documents in the selected collection(s) immediately. It will not be staged in Global Changes."
+        : "This will stage TRUNCATE commands in Global Changes. Data will be permanently removed when committed.",
       entityName,
-      kind: isImmediateExecution(selectedTypes) ? "nosql-truncate" : "sql-truncate",
+      kind: isImmediateExecution(selectedTypes)
+        ? "nosql-truncate"
+        : "sql-truncate",
       confirmLabel: isImmediateExecution(selectedTypes)
         ? items.length === 1
           ? "Truncate Collection"
@@ -1500,10 +1525,9 @@ export const ConnectionSection = forwardRef<
 
     requestConfirmation({
       title: "Delete Objects",
-      description:
-        isImmediateExecution(selectedTypes)
-          ? "This will drop the selected collection(s) immediately. It will not be staged in Global Changes."
-          : "This will stage DROP commands in Global Changes. Objects will be removed when committed.",
+      description: isImmediateExecution(selectedTypes)
+        ? "This will drop the selected collection(s) immediately. It will not be staged in Global Changes."
+        : "This will stage DROP commands in Global Changes. Objects will be removed when committed.",
       entityName,
       kind: isImmediateExecution(selectedTypes) ? "nosql-delete" : "sql-delete",
       confirmLabel: isImmediateExecution(selectedTypes)
@@ -1544,8 +1568,7 @@ export const ConnectionSection = forwardRef<
       });
     } catch (error) {
       toast.error("Export failed", {
-        description:
-          error instanceof Error ? error.message : "Unknown error",
+        description: error instanceof Error ? error.message : "Unknown error",
       });
     }
   };
@@ -1582,8 +1605,7 @@ export const ConnectionSection = forwardRef<
       });
     } catch (error) {
       toast.error("Data export failed", {
-        description:
-          error instanceof Error ? error.message : "Unknown error",
+        description: error instanceof Error ? error.message : "Unknown error",
       });
     }
   };
@@ -1592,7 +1614,9 @@ export const ConnectionSection = forwardRef<
     const items = getSelectedItems();
     const pinnableItems = items.filter(
       (item): item is typeof item & { type: StarredItemType } =>
-        item.type === "table" || item.type === "view" || item.type === "function",
+        item.type === "table" ||
+        item.type === "view" ||
+        item.type === "function",
     );
 
     pinnableItems.forEach((item) => {
@@ -1611,6 +1635,45 @@ export const ConnectionSection = forwardRef<
     setSelectedItems(new Set());
   };
 
+  const handleRefreshMaterializedView = async () => {
+    const items = getSelectedItems();
+    const matViews = items.filter(
+      (item) => item.type === "view" && item.kind === "MaterializedView",
+    );
+    if (matViews.length === 0) return;
+
+    try {
+      const adapter = (await getAdapterForConnection(
+        connectionId,
+      )) as DatabaseAdapter;
+
+      for (const item of matViews) {
+        const sql = adapter.refreshMaterializedView(
+          item.schema,
+          item.name,
+        ) as string;
+        await queryStreamClient.streamWithCallbacks(
+          { connId: connectionId, tabId: "system", sql, batchSize: 1 },
+          {},
+        );
+        useDataInvalidationStore
+          .getState()
+          .invalidateTable(connectionId, database, item.schema, item.name);
+      }
+
+      const label =
+        matViews.length === 1
+          ? (matViews[0]?.name ?? "materialized view")
+          : `${matViews.length} materialized views`;
+      toast.success(`Refreshed ${label}`);
+    } catch (error) {
+      toast.error("Failed to refresh materialized view", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+    setSelectedItems(new Set());
+  };
+
   const handleViewData = () => {
     const items = getSelectedItems();
     items.forEach((item) => {
@@ -1622,7 +1685,7 @@ export const ConnectionSection = forwardRef<
               )
             : views.find(
                 (v) => v.schema === item.schema && v.name === item.name,
-        );
+              );
         if (meta) handleTableClick(meta, "data");
       } else if (item.type === "collection") {
         openMongoCollection(item.name);
@@ -1750,10 +1813,10 @@ export const ConnectionSection = forwardRef<
     status === "connected"
       ? "bg-green-500"
       : status === "connecting"
-      ? "bg-yellow-500 animate-pulse"
-      : status === "error"
-      ? "bg-red-500"
-      : "bg-gray-400";
+        ? "bg-yellow-500 animate-pulse"
+        : status === "error"
+          ? "bg-red-500"
+          : "bg-gray-400";
 
   // Show loading state when connecting and no data yet
   const showLoadingSkeleton =
@@ -1761,8 +1824,8 @@ export const ConnectionSection = forwardRef<
     (isSqlDb
       ? tables.length === 0
       : isDocumentDb
-      ? mongoCollections.length === 0
-      : true);
+        ? mongoCollections.length === 0
+        : true);
 
   return (
     <div ref={ref}>
@@ -1770,7 +1833,7 @@ export const ConnectionSection = forwardRef<
       <ContextMenu>
         <ContextMenuTrigger
           className={cn(
-            "w-full flex items-center gap-2 p-2 hover:bg-muted/50 transition-colors text-left cursor-pointer",
+            "w-full flex items-center gap-2 p-2 hover:bg-muted/80 backdrop-blur-md transition-colors text-left cursor-pointer",
             "sticky top-0 z-10 bg-background",
           )}
           onClick={toggleAllSections}
@@ -1821,12 +1884,9 @@ export const ConnectionSection = forwardRef<
                   const { openPalette, setNestedMode } =
                     useCommandPaletteStore.getState();
                   openPalette();
-                  setTimeout(
-                    () => {
-                      setNestedMode({ type: "set-safe-mode" });
-                    },
-                    0,
-                  );
+                  setTimeout(() => {
+                    setNestedMode({ type: "set-safe-mode" });
+                  }, 0);
                 }}
               >
                 {safeMode === "full_access" ? (
@@ -1961,8 +2021,8 @@ export const ConnectionSection = forwardRef<
                       item.type === "function"
                         ? functionsByKey.get(objectKey)
                         : item.type === "view"
-                        ? viewsByKey.get(objectKey)
-                        : tablesByKey.get(objectKey);
+                          ? viewsByKey.get(objectKey)
+                          : tablesByKey.get(objectKey);
 
                     if (!itemData) return null;
 
@@ -2003,26 +2063,29 @@ export const ConnectionSection = forwardRef<
                             handleTableClick(itemData as TableMeta, "data");
                           };
 
-                    const starredDragData: SidebarItemDragData = item.type === "function"
-                      ? {
-                          type: "sidebar-item",
-                          objectType: isProcedure(itemData as FunctionMeta) ? "procedure" : "function",
-                          name: item.name,
-                          func: itemData as FunctionMeta,
-                          connectionId,
-                          database,
-                          schema: item.schema,
-                        }
-                      : {
-                          type: "sidebar-item",
-                          objectType: item.type,
-                          name: item.name,
-                          table: itemData as TableMeta,
-                          connectionId,
-                          database,
-                          schema: item.schema,
-                          kind: (itemData as TableMeta).kind,
-                        };
+                    const starredDragData: SidebarItemDragData =
+                      item.type === "function"
+                        ? {
+                            type: "sidebar-item",
+                            objectType: isProcedure(itemData as FunctionMeta)
+                              ? "procedure"
+                              : "function",
+                            name: item.name,
+                            func: itemData as FunctionMeta,
+                            connectionId,
+                            database,
+                            schema: item.schema,
+                          }
+                        : {
+                            type: "sidebar-item",
+                            objectType: item.type,
+                            name: item.name,
+                            table: itemData as TableMeta,
+                            connectionId,
+                            database,
+                            schema: item.schema,
+                            kind: (itemData as TableMeta).kind,
+                          };
 
                     return (
                       <DraggableSidebarItem
@@ -2030,38 +2093,38 @@ export const ConnectionSection = forwardRef<
                         dragId={`sidebar-starred-${connectionId}-${item.type}-${item.schema}.${item.name}`}
                         dragData={starredDragData}
                       >
-                      <SidebarItem
-                        icon={icon}
-                        name={item.name}
-                        isActive={isActive}
-                        onClick={onClick}
-                        rowCount={
-                          "row_estimate" in itemData
-                            ? itemData.row_estimate
-                            : undefined
-                        }
-                        isStarred={true}
-                        onToggleStar={handleToggleStar(
-                          item.type,
-                          item.name,
-                          item.schema,
-                        )}
-                        hasPendingChanges={
-                          item.type !== "function" &&
-                          pendingChangesSet.has(`${item.schema}.${item.name}`)
-                        }
-                        pendingChangeVariant={
-                          destructivePendingChangesSet.has(
-                            `${item.schema}.${item.name}`,
-                          )
-                            ? "destructive"
-                            : "standard"
-                        }
-                        isSelected={selectedItems.has(selectionKey)}
-                        onContextMenu={(e) => {
-                          handleContextMenu(selectionKey, e);
-                        }}
-                      />
+                        <SidebarItem
+                          icon={icon}
+                          name={item.name}
+                          isActive={isActive}
+                          onClick={onClick}
+                          rowCount={
+                            "row_estimate" in itemData
+                              ? itemData.row_estimate
+                              : undefined
+                          }
+                          isStarred={true}
+                          onToggleStar={handleToggleStar(
+                            item.type,
+                            item.name,
+                            item.schema,
+                          )}
+                          hasPendingChanges={
+                            item.type !== "function" &&
+                            pendingChangesSet.has(`${item.schema}.${item.name}`)
+                          }
+                          pendingChangeVariant={
+                            destructivePendingChangesSet.has(
+                              `${item.schema}.${item.name}`,
+                            )
+                              ? "destructive"
+                              : "standard"
+                          }
+                          isSelected={selectedItems.has(selectionKey)}
+                          onContextMenu={(e) => {
+                            handleContextMenu(selectionKey, e);
+                          }}
+                        />
                       </DraggableSidebarItem>
                     );
                   })}
@@ -2086,10 +2149,10 @@ export const ConnectionSection = forwardRef<
                   {sidebarDraftTables.map((draft) => {
                     const isDraftActive = Boolean(
                       draft.panelId &&
-                        draft.tabId &&
-                        focusedPanelId === draft.panelId &&
-                        panelContents.get(draft.panelId)?.activeTabId ===
-                          draft.tabId,
+                      draft.tabId &&
+                      focusedPanelId === draft.panelId &&
+                      panelContents.get(draft.panelId)?.activeTabId ===
+                        draft.tabId,
                     );
                     return (
                       <SidebarItem
@@ -2272,92 +2335,92 @@ export const ConnectionSection = forwardRef<
                       kind: view.kind,
                     };
                     return (
-                    <DraggableSidebarItem
-                      key={`${view.schema}.${view.name}`}
-                      dragId={`sidebar-view-${connectionId}-${view.schema}.${view.name}`}
-                      dragData={viewDragData}
-                    >
-                    <SidebarItem
-                      icon={
-                        <IconEye
-                          className={cn(
-                            "h-4 min-h-4 w-4 min-w-4 shrink-0",
-                            view.kind === "MaterializedView"
-                              ? "text-blue-500"
-                              : "text-green-500",
-                          )}
-                        />
-                      }
-                      name={view.name}
-                      isActive={isTableActive(view.name, view.schema)}
-                      onClick={() => {
-                        handleTableClick(view, "data");
-                      }}
-                      isStarred={starredSet.has(
-                        `view:${view.schema}.${view.name}`,
-                      )}
-                      onToggleStar={handleToggleStar(
-                        "view",
-                        view.name,
-                        view.schema,
-                      )}
-                      hasPendingChanges={pendingChangesSet.has(
-                        `${view.schema}.${view.name}`,
-                      )}
-                      pendingChangeVariant={
-                        destructivePendingChangesSet.has(
-                          `${view.schema}.${view.name}`,
-                        )
-                          ? "destructive"
-                          : "standard"
-                      }
-                      isSelected={selectedItems.has(
-                        `view:${view.schema}.${view.name}`,
-                      )}
-                      onContextMenu={(e) => {
-                        handleContextMenu(
-                          `view:${view.schema}.${view.name}`,
-                          e,
-                        );
-                      }}
-                      actions={
-                        <>
-                          {view.kind === "MaterializedView" && (
-                            <ActionButton
-                              icon={
-                                <IconRefresh className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                              }
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                // TODO: handleRefreshMaterializedView(view, e);
-                              }}
-                              title="Refresh Materialized View"
+                      <DraggableSidebarItem
+                        key={`${view.schema}.${view.name}`}
+                        dragId={`sidebar-view-${connectionId}-${view.schema}.${view.name}`}
+                        dragData={viewDragData}
+                      >
+                        <SidebarItem
+                          icon={
+                            <IconEye
+                              className={cn(
+                                "h-4 min-h-4 w-4 min-w-4 shrink-0",
+                                view.kind === "MaterializedView"
+                                  ? "text-blue-500"
+                                  : "text-green-500",
+                              )}
                             />
+                          }
+                          name={view.name}
+                          isActive={isTableActive(view.name, view.schema)}
+                          onClick={() => {
+                            handleTableClick(view, "data");
+                          }}
+                          isStarred={starredSet.has(
+                            `view:${view.schema}.${view.name}`,
                           )}
-                          <ActionButton
-                            icon={
-                              <IconBolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                            }
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleTableClick(view, "structure");
-                            }}
-                            title="View Structure"
-                          />
-                          <ActionButton
-                            icon={
-                              <IconBookmark className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                            }
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleTableClick(view, "indexes");
-                            }}
-                            title="View Indexes"
-                          />
-                        </>
-                      }
-                    />
-                    </DraggableSidebarItem>
+                          onToggleStar={handleToggleStar(
+                            "view",
+                            view.name,
+                            view.schema,
+                          )}
+                          hasPendingChanges={pendingChangesSet.has(
+                            `${view.schema}.${view.name}`,
+                          )}
+                          pendingChangeVariant={
+                            destructivePendingChangesSet.has(
+                              `${view.schema}.${view.name}`,
+                            )
+                              ? "destructive"
+                              : "standard"
+                          }
+                          isSelected={selectedItems.has(
+                            `view:${view.schema}.${view.name}`,
+                          )}
+                          onContextMenu={(e) => {
+                            handleContextMenu(
+                              `view:${view.schema}.${view.name}`,
+                              e,
+                            );
+                          }}
+                          actions={
+                            <>
+                              {view.kind === "MaterializedView" && (
+                                <ActionButton
+                                  icon={
+                                    <IconRefresh className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                                  }
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    // TODO: handleRefreshMaterializedView(view, e);
+                                  }}
+                                  title="Refresh Materialized View"
+                                />
+                              )}
+                              <ActionButton
+                                icon={
+                                  <IconBolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                                }
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleTableClick(view, "structure");
+                                }}
+                                title="View Structure"
+                              />
+                              <ActionButton
+                                icon={
+                                  <IconBookmark className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                                }
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleTableClick(view, "indexes");
+                                }}
+                                title="View Indexes"
+                              />
+                            </>
+                          }
+                        />
+                      </DraggableSidebarItem>
                     );
                   })}
                 </SidebarSection>
@@ -2389,46 +2452,46 @@ export const ConnectionSection = forwardRef<
                       schema: func.schema,
                     };
                     return (
-                    <DraggableSidebarItem
-                      key={`${func.schema}.${func.name}`}
-                      dragId={`sidebar-func-${connectionId}-${func.schema}.${func.name}`}
-                      dragData={funcDragData}
-                    >
-                    <SidebarItem
-                      icon={
-                        <IconMathFunction
-                          className={cn(
-                            "h-3.5 w-4 min-w-4 shrink-0",
-                            isProcedure(func)
-                              ? "text-orange-500"
-                              : "text-purple-500",
+                      <DraggableSidebarItem
+                        key={`${func.schema}.${func.name}`}
+                        dragId={`sidebar-func-${connectionId}-${func.schema}.${func.name}`}
+                        dragData={funcDragData}
+                      >
+                        <SidebarItem
+                          icon={
+                            <IconMathFunction
+                              className={cn(
+                                "h-3.5 w-4 min-w-4 shrink-0",
+                                isProcedure(func)
+                                  ? "text-orange-500"
+                                  : "text-purple-500",
+                              )}
+                            />
+                          }
+                          name={func.name}
+                          isActive={isFunctionActive(func.name, func.schema)}
+                          onClick={() => {
+                            handleFunctionClick(func);
+                          }}
+                          isStarred={starredSet.has(
+                            `function:${func.schema}.${func.name}`,
                           )}
+                          onToggleStar={handleToggleStar(
+                            "function",
+                            func.name,
+                            func.schema,
+                          )}
+                          isSelected={selectedItems.has(
+                            `function:${func.schema}.${func.name}`,
+                          )}
+                          onContextMenu={(e) => {
+                            handleContextMenu(
+                              `function:${func.schema}.${func.name}`,
+                              e,
+                            );
+                          }}
                         />
-                      }
-                      name={func.name}
-                      isActive={isFunctionActive(func.name, func.schema)}
-                      onClick={() => {
-                        handleFunctionClick(func);
-                      }}
-                      isStarred={starredSet.has(
-                        `function:${func.schema}.${func.name}`,
-                      )}
-                      onToggleStar={handleToggleStar(
-                        "function",
-                        func.name,
-                        func.schema,
-                      )}
-                      isSelected={selectedItems.has(
-                        `function:${func.schema}.${func.name}`,
-                      )}
-                      onContextMenu={(e) => {
-                        handleContextMenu(
-                          `function:${func.schema}.${func.name}`,
-                          e,
-                        );
-                      }}
-                    />
-                    </DraggableSidebarItem>
+                      </DraggableSidebarItem>
                     );
                   })}
                 </SidebarSection>
@@ -2541,7 +2604,10 @@ export const ConnectionSection = forwardRef<
                             `collection:${collection.name}`,
                           )}
                           onContextMenu={(e) => {
-                            handleContextMenu(`collection:${collection.name}`, e);
+                            handleContextMenu(
+                              `collection:${collection.name}`,
+                              e,
+                            );
                           }}
                           rowCount={collection.docCount}
                         />
@@ -2689,7 +2755,8 @@ export const ConnectionSection = forwardRef<
       )}
 
       {/* Context Menu */}
-      {contextMenu?.visible && selectedItems.size > 0 && (
+      {contextMenu?.visible &&
+        selectedItems.size > 0 &&
         (() => {
           const sidebarItems = getSelectedItems();
           const dataExportItem = mapSelectedItemsToDataExport(sidebarItems);
@@ -2725,14 +2792,23 @@ export const ConnectionSection = forwardRef<
               }}
               onCopyName={handleCopyName}
               onCopyDefinition={
-                canCopyDefinition(selectedTypes) ? () => void handleCopyDefinition() : undefined
+                canCopyDefinition(selectedTypes)
+                  ? () => void handleCopyDefinition()
+                  : undefined
               }
               onPin={handlePin}
               onDuplicate={
                 canDuplicate(selectedTypes) ? handleDuplicate : undefined
               }
-              onTruncate={canTruncate(selectedTypes) ? handleTruncate : undefined}
+              onTruncate={
+                canTruncate(selectedTypes) ? handleTruncate : undefined
+              }
               onDelete={canDelete(selectedTypes) ? handleDelete : undefined}
+              onRefreshMaterializedView={
+                selectedTypes.materializedViews > 0
+                  ? () => void handleRefreshMaterializedView()
+                  : undefined
+              }
               onViewData={handleViewData}
               onViewStructure={handleViewStructure}
               onViewIndexes={handleViewIndexes}
@@ -2740,8 +2816,7 @@ export const ConnectionSection = forwardRef<
               onViewDefinition={handleViewDefinition}
             />
           );
-        })()
-      )}
+        })()}
 
       <ConfirmDeleteDialog
         open={pendingConfirmAction !== null}

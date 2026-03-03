@@ -286,12 +286,18 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         lastOpenedAt: new Date().toISOString(),
       });
 
-      // Restore tab layout if saved
-      if (config.tabLayout) {
-        try {
-          const workbenchState = useWorkbenchStore.getState();
+      const workbenchState = useWorkbenchStore.getState();
+      const restoredScopedLayout = workbenchState.restoreConnectionLayout(
+        config.id,
+      );
 
-          // Restore layout tree and panel contents
+      if (restoredScopedLayout) {
+        logger.info(
+          `[WorkspaceBundleStore] Restored tab layout from local session cache: ${config.name}`,
+        );
+      } else if (config.tabLayout) {
+        try {
+          // Fallback: restore workspace-saved layout when no local session cache exists.
           workbenchState.setLayoutTree(config.tabLayout.layoutTree);
           const panelContentsMap = new Map(config.tabLayout.panelContents);
           workbenchState.restorePanelContents(panelContentsMap);
@@ -364,6 +370,16 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       };
 
       set({ activeWorkspace, isDirty: false });
+
+      const workbenchState = useWorkbenchStore.getState();
+      const restoredScopedLayout = workbenchState.restoreConnectionLayout(
+        config.id,
+      );
+      if (restoredScopedLayout) {
+        logger.info(
+          `[WorkspaceBundleStore] Restored tab layout from local session cache: ${config.id}`,
+        );
+      }
 
       // Connect (pass database override if provided)
       try {
