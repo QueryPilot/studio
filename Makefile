@@ -1,4 +1,4 @@
-.PHONY: help d dev dev-profile dp mcp-sidecar build package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-integration ti test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle seed-mongodb seed-redis setup version release release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-all-adapters test-ssh-clean test-ssh-full test-ssh-all-smoke
+.PHONY: help d dev dev-profile dp mcp-sidecar build package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-integration ti test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle seed-mongodb seed-redis setup version release beta release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-all-adapters test-ssh-clean test-ssh-full test-ssh-all-smoke
 
 SSH_KEYGEN ?= ssh-keygen
 SQLSERVER_CONTAINER ?= query-pilot-sqlserver
@@ -48,11 +48,10 @@ help:
 	@echo "  make reseed-all     - Drop and reseed all databases (DELETES existing data)"
 	@echo ""
 	@echo "Release Management:"
-	@echo "  make release                       - Create release with cross-repo publishing"
+	@echo "  make release                       - Stable release (AI-assisted version + changelog)"
+	@echo "  make release beta                  - Beta release (auto-bump beta number)"
 	@echo "  make relc [V=2026.1.0]             - Local build, sign, notarize & upload"
 	@echo "  make release-publish V=2026.1.0    - Publish built release to studio-app repo"
-	@echo "  make release-manual VERSION=2026.1.0         - Stable release"
-	@echo "  make release-manual VERSION=2026.1.0-beta.1  - Beta release"
 	@echo "  make version VERSION=2026.1.0      - Bump version only (no commit)"
 	@echo "  make generate-keys          - Generate Tauri updater signing keys"
 	@echo ""
@@ -347,9 +346,15 @@ setup: docker-up
 generate-keys:
 	@bash scripts/generate-updater-keys.sh
 
-# Create release with cross-repo publishing
+# Create release
+# Usage: make release          - stable release (AI-assisted version + changelog)
+#        make release beta     - beta release (auto-bump beta number, skip changelog)
 release:
-	@bash scripts/smart-release-v2.sh
+	@bash scripts/smart-release-v2.sh $(filter beta,$(MAKECMDGOALS))
+
+# Allow 'beta' as a no-op target so `make release beta` works
+beta:
+	@true
 
 # Publish built release to studio-app (after GitHub Actions completes)
 release-publish:
