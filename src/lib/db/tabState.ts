@@ -21,6 +21,11 @@ export interface PersistedTabState {
   viewMode: ViewMode;
   selectedDialect?: SqlDialect | "auto";
   tableViewType?: string; // "data" | "structure" | "indexes" | "triggers" | "partitions" | "definition"
+  // New fields for full-fidelity restore
+  scrollPosition?: { top: number; left: number };
+  editorCursorPosition?: { line: number; ch: number };
+  gridColumnWidths?: Record<string, number>;
+  pinnedResultQuery?: string | null;
 }
 
 class TabStateDatabase extends Dexie {
@@ -69,6 +74,10 @@ export async function persistTabState(
       viewMode: state.viewMode ?? existing?.viewMode ?? "table",
       selectedDialect: state.selectedDialect ?? existing?.selectedDialect ?? "auto",
       tableViewType: state.tableViewType ?? existing?.tableViewType,
+      scrollPosition: state.scrollPosition ?? existing?.scrollPosition,
+      editorCursorPosition: state.editorCursorPosition ?? existing?.editorCursorPosition,
+      gridColumnWidths: state.gridColumnWidths ?? existing?.gridColumnWidths,
+      pinnedResultQuery: state.pinnedResultQuery ?? existing?.pinnedResultQuery,
     };
     memoryStore.set(tabId, toSave);
     return;
@@ -83,6 +92,10 @@ export async function persistTabState(
       viewMode: state.viewMode ?? existing?.viewMode ?? "table",
       selectedDialect: state.selectedDialect ?? existing?.selectedDialect ?? "auto",
       tableViewType: state.tableViewType ?? existing?.tableViewType,
+      scrollPosition: state.scrollPosition ?? existing?.scrollPosition,
+      editorCursorPosition: state.editorCursorPosition ?? existing?.editorCursorPosition,
+      gridColumnWidths: state.gridColumnWidths ?? existing?.gridColumnWidths,
+      pinnedResultQuery: state.pinnedResultQuery ?? existing?.pinnedResultQuery,
     };
     await database.tabStates.put(toSave);
   } catch (error) {
@@ -96,6 +109,10 @@ export async function persistTabState(
       viewMode: state.viewMode ?? existing?.viewMode ?? "table",
       selectedDialect: state.selectedDialect ?? existing?.selectedDialect ?? "auto",
       tableViewType: state.tableViewType ?? existing?.tableViewType,
+      scrollPosition: state.scrollPosition ?? existing?.scrollPosition,
+      editorCursorPosition: state.editorCursorPosition ?? existing?.editorCursorPosition,
+      gridColumnWidths: state.gridColumnWidths ?? existing?.gridColumnWidths,
+      pinnedResultQuery: state.pinnedResultQuery ?? existing?.pinnedResultQuery,
     };
     memoryStore.set(tabId, toSave);
   }
