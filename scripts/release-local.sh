@@ -21,6 +21,7 @@ if [ -f .env.local ]; then
 fi
 
 VERSION="${1:-}"
+VERSION="${VERSION#v}"  # Strip v prefix if present (e.g., v2026.1.0 → 2026.1.0)
 TARGET="${2:-universal-apple-darwin}"
 ARCH="universal"  # Universal build supports both Intel and Apple Silicon
 
@@ -36,6 +37,7 @@ NC='\033[0m'
 # AI CLI detection
 AI_CLI=""
 AI_EXEC=""
+CONTEXT_FILE=""
 
 log() { echo -e "${BLUE}[relc]${NC} $1" >&2; }
 success() { echo -e "${GREEN}[relc]${NC} $1" >&2; }
@@ -48,6 +50,10 @@ if [ -z "$TAURI_PRIVATE_KEY" ] && [ -f "$UPDATER_KEY_DIR/query-pilot.key" ]; the
     export TAURI_PRIVATE_KEY=$(cat "$UPDATER_KEY_DIR/query-pilot.key")
     log "Loaded TAURI_PRIVATE_KEY from $UPDATER_KEY_DIR/query-pilot.key"
 fi
+
+# Tauri 2 expects these env var names during build
+export TAURI_SIGNING_PRIVATE_KEY="${TAURI_PRIVATE_KEY:-}"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_KEY_PASSWORD:-}"
 
 # Check required tools
 check_requirements() {
@@ -130,7 +136,7 @@ run_tests() {
     fi
 
     echo ""
-    success "All tests passed ✓"
+    success "All tests passed"
     echo ""
 }
 
@@ -225,23 +231,26 @@ suggest_version() {
 
     log "Asking $AI_CLI to analyze commits and suggest version..."
 
-    VERSION_PROMPT="Analyze the git commits above and determine the next semantic version.
+    VERSION_PROMPT="Analyze the git commits above and determine the next version.
 
 Current version: $CURRENT_VERSION
 
-Rules:
-- MAJOR bump (x.0.0): Breaking changes, API changes, major refactors
-- MINOR bump (0.x.0): New features, enhancements (feat:, feature:)
-- PATCH bump (0.0.x): Bug fixes, docs, chores (fix:, chore:, docs:)
+This project uses DataGrip-style versioning: YYYY.MAJOR.MINOR[-PRERELEASE.N]
+- YYYY = current year (e.g., 2026)
+- MAJOR = major feature release number within the year
+- MINOR = minor release or patch within the major
+- Optional pre-release: -alpha.N, -beta.N, or -rc.N
 
-Look for conventional commit prefixes:
-- feat: / feature: → MINOR bump
-- fix: / bugfix: → PATCH bump
-- BREAKING CHANGE: → MAJOR bump
-- refactor:, perf: → evaluate context
-- chore:, docs:, style: → PATCH bump
+Examples: 2026.1.0, 2026.1.1, 2026.2.0, 2026.2.0-beta.1
 
-Based on the commits, respond with ONLY the next version number (e.g., 1.2.0).
+Rules for version bump:
+- If commits contain breaking changes or major new features: bump MAJOR (e.g., 2026.1.0 -> 2026.2.0)
+- If commits contain new features (feat:): bump MINOR (e.g., 2026.1.0 -> 2026.1.1)
+- If commits are fixes/chores only: bump MINOR (e.g., 2026.1.0 -> 2026.1.1)
+- If current version is a pre-release (e.g., -beta.1): bump the pre-release number (e.g., -beta.2)
+- If entering a new year: use the new year (e.g., 2025.3.0 -> 2026.1.0)
+
+Based on the commits, respond with ONLY the next version number (e.g., 2026.1.1).
 No explanation, just the version number."
 
     local context
@@ -257,11 +266,11 @@ $VERSION_PROMPT" 2>/dev/null | tail -1 | tr -d '[:space:]' | sed 's/^v//')
 $VERSION_PROMPT" | claude -p 2>/dev/null | tail -1 | tr -d '[:space:]' | sed 's/^v//')
     fi
 
-    # Validate version format
-    if ! echo "$SUGGESTED_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+    # Validate version format (must match bump-version.sh regex)
+    if ! echo "$SUGGESTED_VERSION" | grep -qE '^[0-9]{4}\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$'; then
         warn "AI returned invalid version: $SUGGESTED_VERSION"
         echo ""
-        read -p "Enter version manually (e.g., 1.2.0): " MANUAL_VERSION
+        read -p "Enter version manually (e.g., 2026.1.0 or 2026.1.0-beta.1): " MANUAL_VERSION
         SUGGESTED_VERSION="$MANUAL_VERSION"
     fi
 
@@ -425,6 +434,10 @@ bump_version() {
     log "Bumping version to $version..."
     bash scripts/bump-version.sh "$version"
 
+    # Regenerate Cargo.lock after version bump
+    log "Regenerating Cargo.lock..."
+    cargo update -w
+
     echo ""
     log "Changes to commit:"
     git diff --stat
@@ -437,7 +450,7 @@ bump_version() {
     fi
 
     log "Committing version bump..."
-    git add .
+    git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json CHANGELOG.md Cargo.lock
 
     # Create commit message with changelog summary
     COMMIT_MSG="chore: release v$version
@@ -456,6 +469,28 @@ $(echo "$changelog" | sed 's/^## \[.*\] - .*//; s/^### /- /; s/^- $//; /^$/d' | 
     success "Version bumped, committed and pushed"
 }
 
+# Build MCP sidecar (mirrors CI: .github/workflows/release.yml)
+build_mcp_sidecar() {
+    log "Building MCP sidecar (universal binary)..."
+
+    cargo build --release --package querypilot-mcp --target aarch64-apple-darwin
+    cargo build --release --package querypilot-mcp --target x86_64-apple-darwin
+
+    mkdir -p target/release
+
+    # Create arch-specific copies for Tauri bundling
+    cp target/aarch64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-aarch64-apple-darwin
+    cp target/x86_64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-x86_64-apple-darwin
+
+    # Create universal binary
+    lipo -create \
+        target/aarch64-apple-darwin/release/querypilot-mcp \
+        target/x86_64-apple-darwin/release/querypilot-mcp \
+        -output target/release/querypilot-mcp-universal-apple-darwin
+
+    success "MCP sidecar built for universal-apple-darwin"
+}
+
 # Build Tauri app with signing
 build_app() {
     log "Building Tauri app for $TARGET..."
@@ -472,6 +507,13 @@ build_app() {
         warn "Notarization env vars not set - app will be signed but NOT notarized"
     else
         log "Notarization credentials found"
+    fi
+
+    # Signing key is required for updater artifacts
+    if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+        error "TAURI_SIGNING_PRIVATE_KEY not set. Run scripts/generate-updater-keys.sh or set TAURI_PRIVATE_KEY in .env"
+    else
+        log "Tauri signing key configured"
     fi
 
     # Build with telemetry if SENTRY_DSN is set
@@ -501,10 +543,39 @@ prepare_dmg() {
     fi
     [ -n "$DMG_PATH" ] || error "No DMG file found!"
 
-    # DMG_NAME will be set after version is determined
     cp "$DMG_PATH" "QueryPilot_v${NEXT_VERSION}.dmg"
 
     success "DMG ready: QueryPilot_v${NEXT_VERSION}.dmg (universal binary)"
+}
+
+# Find updater artifacts (.app.tar.gz and .app.tar.gz.sig) produced by Tauri build
+prepare_updater_artifacts() {
+    log "Preparing updater artifacts..."
+
+    # Find .app.tar.gz (updater archive)
+    UPDATER_ARCHIVE=$(find "target/$TARGET/release/bundle" -name "*.app.tar.gz" 2>/dev/null | head -n 1)
+    if [ -z "$UPDATER_ARCHIVE" ]; then
+        UPDATER_ARCHIVE=$(find "src-tauri/target/$TARGET/release/bundle" -name "*.app.tar.gz" 2>/dev/null | head -n 1)
+    fi
+
+    # Find .app.tar.gz.sig (signature)
+    UPDATER_SIG=$(find "target/$TARGET/release/bundle" -name "*.app.tar.gz.sig" 2>/dev/null | head -n 1)
+    if [ -z "$UPDATER_SIG" ]; then
+        UPDATER_SIG=$(find "src-tauri/target/$TARGET/release/bundle" -name "*.app.tar.gz.sig" 2>/dev/null | head -n 1)
+    fi
+
+    if [ -z "$UPDATER_ARCHIVE" ] || [ -z "$UPDATER_SIG" ]; then
+        error "Missing updater artifacts (.app.tar.gz + .sig). Ensure TAURI_SIGNING_PRIVATE_KEY is set."
+    fi
+
+    UPDATER_ARCHIVE_NAME=$(basename "$UPDATER_ARCHIVE")
+    UPDATER_SIG_NAME=$(basename "$UPDATER_SIG")
+
+    cp "$UPDATER_ARCHIVE" "$UPDATER_ARCHIVE_NAME"
+    cp "$UPDATER_SIG" "$UPDATER_SIG_NAME"
+
+    success "Updater archive: $UPDATER_ARCHIVE_NAME"
+    success "Updater signature: $UPDATER_SIG_NAME"
 }
 
 # Create GitHub release
@@ -556,79 +627,60 @@ EOF
     success "Draft release created"
 }
 
-# Upload DMG to release
-upload_dmg() {
+# Upload artifacts (DMG + updater archive + signature) to release
+upload_artifacts() {
     local version="$1"
     local dmg_file="QueryPilot_v${version}.dmg"
 
-    log "Uploading $dmg_file to release..."
-    gh release upload "v$version" "$dmg_file" --clobber
-    success "DMG uploaded"
+    log "Uploading artifacts to release..."
+    gh release upload "v$version" \
+        "$dmg_file" \
+        "$UPDATER_ARCHIVE_NAME" \
+        "$UPDATER_SIG_NAME" \
+        --clobber
+    success "Artifacts uploaded: $dmg_file, $UPDATER_ARCHIVE_NAME, $UPDATER_SIG_NAME"
 }
 
-# Generate update manifest
+# Generate update manifest (reads signature from .sig file, points at .app.tar.gz)
 generate_manifest() {
     local version="$1"
 
     log "Generating update manifest..."
 
     PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    RAW_NOTES=$(awk "/^## \[$version\]/,/^## \[[0-9]/" CHANGELOG.md | head -n 10 || true)
+
+    # Extract release notes (matches CI awk pattern)
+    VERSION_NUMBER="${version#v}"
+    RAW_NOTES=$(awk "/^## \[$VERSION_NUMBER\]/{found=1;next} found && /^## \[/{exit} found" CHANGELOG.md || true)
     if [ -z "$RAW_NOTES" ]; then
         RAW_NOTES="See CHANGELOG.md for details"
     fi
-    DMG_NAME="QueryPilot_v${version}.dmg"
-    DMG_URL="https://github.com/QueryPilot/studio-app/releases/download/v$version/$DMG_NAME"
 
-    # Check for Tauri signing key
-    SIGNATURE=""
-    if [ -n "$TAURI_PRIVATE_KEY" ]; then
-        log "Signing DMG with Tauri key..."
-        SIGNATURE=$(pnpm tauri signer sign "$DMG_NAME" --private-key "$TAURI_PRIVATE_KEY" --password "${TAURI_KEY_PASSWORD:-}" 2>/dev/null | tail -n 1 || true)
-
-        # Validate signature looks like base64
-        if [ -n "$SIGNATURE" ] && ! echo "$SIGNATURE" | grep -qE '^[A-Za-z0-9+/=]{20,}$'; then
-            warn "Captured signature doesn't look like base64, discarding"
-            SIGNATURE=""
-        fi
-    else
-        warn "TAURI_PRIVATE_KEY not set, creating unsigned manifest"
+    # Read signature from the .sig file (matches CI manifest generation)
+    SIGNATURE=$(tr -d '\r\n' < "$UPDATER_SIG_NAME")
+    if [ -z "$SIGNATURE" ]; then
+        error "Signature file is empty: $UPDATER_SIG_NAME"
     fi
 
-    # Build manifest with jq for safe JSON generation
-    if [ -n "$SIGNATURE" ]; then
-        jq -n \
-            --arg version "$version" \
-            --arg notes "$RAW_NOTES" \
-            --arg pub_date "$PUB_DATE" \
-            --arg sig "$SIGNATURE" \
-            --arg url "$DMG_URL" \
-            '{
-                version: $version,
-                notes: $notes,
-                pub_date: $pub_date,
-                platforms: {
-                    "darwin-aarch64": { signature: $sig, url: $url },
-                    "darwin-x86_64": { signature: $sig, url: $url }
-                }
-            }' > latest.json
-    else
-        warn "Creating unsigned manifest"
-        jq -n \
-            --arg version "$version" \
-            --arg notes "$RAW_NOTES" \
-            --arg pub_date "$PUB_DATE" \
-            --arg url "$DMG_URL" \
-            '{
-                version: $version,
-                notes: $notes,
-                pub_date: $pub_date,
-                platforms: {
-                    "darwin-aarch64": { url: $url },
-                    "darwin-x86_64": { url: $url }
-                }
-            }' > latest.json
-    fi
+    # URL points to .app.tar.gz in studio-app (matches CI)
+    UPDATE_URL="https://github.com/QueryPilot/studio-app/releases/download/v$version/$UPDATER_ARCHIVE_NAME"
+
+    # Build manifest (matches CI: .github/workflows/release.yml)
+    jq -n \
+        --arg version "$version" \
+        --arg notes "$RAW_NOTES" \
+        --arg pub_date "$PUB_DATE" \
+        --arg sig "$SIGNATURE" \
+        --arg url "$UPDATE_URL" \
+        '{
+            version: $version,
+            notes: $notes,
+            pub_date: $pub_date,
+            platforms: {
+                "darwin-aarch64": { signature: $sig, url: $url },
+                "darwin-x86_64": { signature: $sig, url: $url }
+            }
+        }' > latest.json
 
     success "Manifest generated: latest.json"
     cat latest.json
@@ -672,6 +724,8 @@ publish_to_app_repo() {
         --notes-file /tmp/release-notes.md \
         $PRERELEASE \
         "QueryPilot_v${version}.dmg" \
+        "$UPDATER_ARCHIVE_NAME" \
+        "$UPDATER_SIG_NAME" \
         latest.json \
         CHANGELOG.md
 
@@ -730,11 +784,13 @@ main() {
     log "Starting local build..."
     echo ""
 
+    build_mcp_sidecar
     build_app
     prepare_dmg
+    prepare_updater_artifacts
 
     create_release "$NEXT_VERSION" "$NEW_CHANGELOG"
-    upload_dmg "$NEXT_VERSION"
+    upload_artifacts "$NEXT_VERSION"
     generate_manifest "$NEXT_VERSION"
     upload_manifest "$NEXT_VERSION"
     finalize_release "$NEXT_VERSION"
