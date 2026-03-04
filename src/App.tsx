@@ -26,7 +26,11 @@ import { useAppStore } from "./stores/appStore";
 import { usePreferencesStore } from "./stores/preferencesStore";
 import { getSessionDatabase } from "./lib/db/sessionDb";
 import { windowManager } from "./services/windowManager";
-import { setInstallHandler } from "./utils/appUpdate";
+import {
+  setAppUpdateHandlers,
+  type AppUpdateCheckOptions,
+} from "./utils/appUpdate";
+import { AppUpdateDialog } from "./components/AppUpdateDialog";
 
 function VaultLoadingScreen() {
   return (
@@ -90,6 +94,35 @@ function AppContent() {
       </Router>
     </>
   );
+}
+
+function parseSemverCore(version: string): [number, number, number] | null {
+  const normalized = version.trim().replace(/^v/, "");
+  const match = normalized.match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!match) {
+    return null;
+  }
+  const major = Number.parseInt(match[1] ?? "", 10);
+  const minor = Number.parseInt(match[2] ?? "", 10);
+  const patch = Number.parseInt(match[3] ?? "", 10);
+  if (
+    Number.isNaN(major) ||
+    Number.isNaN(minor) ||
+    Number.isNaN(patch)
+  ) {
+    return null;
+  }
+  return [major, minor, patch];
+}
+
+function isPatchVersionUpdate(currentVersion: string, nextVersion: string): boolean {
+  const current = parseSemverCore(currentVersion);
+  const next = parseSemverCore(nextVersion);
+  if (!current || !next) {
+    return false;
+  }
+
+  return current[0] === next[0] && current[1] === next[1] && next[2] > current[2];
 }
 
 function App() {
@@ -343,12 +376,10 @@ function App() {
     }
 
     let disposed = false;
-    let updateClosed = false;
     let updateResource: Update | null = null;
 
     const closeUpdate = async () => {
-      if (updateResource && !updateClosed) {
-        updateClosed = true;
+      if (updateResource) {
         try {
           await updateResource.close();
         } catch (error) {
@@ -358,69 +389,281 @@ function App() {
       }
     };
 
-    const checkForUpdates = async () => {
-      // Only check for updates from the main window
-      if (getCurrentWindow().label !== "main") {
-        return;
+    const checkForUpdates = async (
+      options: AppUpdateCheckOptions = {},
+    ): Promise<boolean> => {
+      const manual = options.manual ?? false;
+      const openDialog = options.openDialog ?? false;
+      const {
+        autoCheckForUpdates,
+      } = usePreferencesStore.getState();
+      const {
+        deferredUpdateVersion,
+        setDeferredUpdateVersion,
+        setIsCheckingForUpdate,
+        setIsInstallingUpdate,
+        setPendingUpdate,
+        setUpdateError,
+        openUpdateDialog,
+      } = useAppStore.getState();
+      const shouldRun = manual || autoCheckForUpdates || Boolean(deferredUpdateVersion);
+
+      if (!shouldRun) {
+        return false;
+      }
+
+      setIsCheckingForUpdate(true);
+      if (manual) {
+        setUpdateError(null);
       }
 
       try {
         const { check } = await import("@tauri-apps/plugin-updater");
         const update = await check();
 
-        if (!update) {
-          return;
+        if (disposed) {
+          if (update) {
+            try {
+              await update.close();
+            } catch (error) {
+              logger.error("Failed to close updater resource", error);
+            }
+          }
+          return false;
         }
 
+        if (!update) {
+          await closeUpdate();
+          setPendingUpdate(null);
+          if (deferredUpdateVersion) {
+            setDeferredUpdateVersion(null);
+          }
+          if (manual) {
+            toast.success("You're already on the latest version");
+          }
+          return false;
+        }
+
+        await closeUpdate();
         updateResource = update;
 
-        if (disposed) {
-          await closeUpdate();
-          return;
-        }
-
-        // Store the update info for title bar / home screen notice
-        useAppStore.getState().setPendingUpdate({
+        setPendingUpdate({
           version: update.version,
           body: update.body ?? undefined,
+          date: update.date,
+          downloaded: false,
         });
 
-        // Store the install handler so UI components can trigger it
-        setInstallHandler(async () => {
-          const pending = updateResource;
-          if (!pending) {
-            return;
-          }
-          const { setIsInstallingUpdate, setPendingUpdate, isInstallingUpdate: alreadyInstalling } = useAppStore.getState();
-          if (alreadyInstalling) {
-            return;
-          }
+        if (deferredUpdateVersion && deferredUpdateVersion === update.version) {
           setIsInstallingUpdate(true);
           try {
-            await pending.downloadAndInstall();
+            await update.downloadAndInstall();
             await closeUpdate();
+            setDeferredUpdateVersion(null);
             setPendingUpdate(null);
             await relaunch();
+            return true;
           } catch (err) {
             logger.error("Failed to install update", err);
+            setDeferredUpdateVersion(null);
+            setUpdateError(
+              err instanceof Error ? err.message : "Failed to install update",
+            );
             toast.error("Update failed", {
               description: err instanceof Error ? err.message : "Failed to install update",
             });
           } finally {
             setIsInstallingUpdate(false);
           }
-        });
+          return false;
+        }
+
+        if (!manual && autoCheckForUpdates) {
+          const shouldAutoDownloadPatch = isPatchVersionUpdate(
+            update.currentVersion,
+            update.version,
+          );
+          if (shouldAutoDownloadPatch) {
+            const { markPendingUpdateDownloaded, setIsDownloadingUpdate } =
+              useAppStore.getState();
+            setIsDownloadingUpdate(true);
+            try {
+              await update.download();
+              markPendingUpdateDownloaded(true);
+            } catch (error) {
+              logger.error("Failed to auto-download patch update", error);
+              setUpdateError(
+                error instanceof Error
+                  ? error.message
+                  : "Failed to auto-download patch update",
+              );
+            } finally {
+              setIsDownloadingUpdate(false);
+            }
+          }
+        }
+
+        if (openDialog || manual) {
+          openUpdateDialog();
+        }
+        return true;
       } catch (error) {
         logger.error("Update check failed", error);
+        const message =
+          error instanceof Error ? error.message : "Failed to check for updates";
+        setUpdateError(message);
+        if (manual) {
+          toast.error("Failed to check for updates", {
+            description: message,
+          });
+        }
+        return false;
+      } finally {
+        setIsCheckingForUpdate(false);
       }
     };
 
+    const downloadPendingUpdate = async (): Promise<boolean> => {
+      const {
+        isDownloadingUpdate,
+        markPendingUpdateDownloaded,
+        setIsDownloadingUpdate,
+        setUpdateError,
+      } = useAppStore.getState();
+
+      if (isDownloadingUpdate) {
+        return false;
+      }
+
+      if (!updateResource) {
+        const found = await checkForUpdates({ manual: true, openDialog: true });
+        if (!found) {
+          return false;
+        }
+      }
+      const activeUpdate = updateResource;
+      if (!activeUpdate) {
+        return false;
+      }
+
+      const pending = useAppStore.getState().pendingUpdate;
+      if (pending?.downloaded) {
+        return true;
+      }
+
+      setIsDownloadingUpdate(true);
+      setUpdateError(null);
+      try {
+        await activeUpdate.download();
+        if (disposed) {
+          return false;
+        }
+        markPendingUpdateDownloaded(true);
+        return true;
+      } catch (error) {
+        logger.error("Failed to download update", error);
+        const message =
+          error instanceof Error ? error.message : "Failed to download update";
+        setUpdateError(message);
+        toast.error("Update download failed", {
+          description: message,
+        });
+        return false;
+      } finally {
+        setIsDownloadingUpdate(false);
+      }
+    };
+
+    const installPendingUpdateAndRelaunch = async (): Promise<boolean> => {
+      const {
+        isInstallingUpdate,
+        pendingUpdate,
+        setDeferredUpdateVersion,
+        setIsInstallingUpdate,
+        setPendingUpdate,
+        setUpdateError,
+      } = useAppStore.getState();
+
+      if (isInstallingUpdate || !pendingUpdate) {
+        return false;
+      }
+
+      if (!updateResource) {
+        const found = await checkForUpdates({ manual: true, openDialog: true });
+        if (!found) {
+          return false;
+        }
+      }
+      const activeUpdate = updateResource;
+      if (!activeUpdate) {
+        return false;
+      }
+
+      setIsInstallingUpdate(true);
+      setUpdateError(null);
+      try {
+        if (pendingUpdate.downloaded) {
+          await activeUpdate.install();
+        } else {
+          await activeUpdate.downloadAndInstall();
+        }
+        await closeUpdate();
+        setDeferredUpdateVersion(null);
+        setPendingUpdate(null);
+        await relaunch();
+        return true;
+      } catch (error) {
+        logger.error("Failed to install update", error);
+        const message =
+          error instanceof Error ? error.message : "Failed to install update";
+        setUpdateError(message);
+        toast.error("Update failed", {
+          description: message,
+        });
+        return false;
+      } finally {
+        setIsInstallingUpdate(false);
+      }
+    };
+
+    const deferPendingUpdate = (): boolean => {
+      const {
+        closeUpdateDialog,
+        pendingUpdate,
+        setDeferredUpdateVersion,
+      } = useAppStore.getState();
+
+      if (!pendingUpdate?.downloaded) {
+        return false;
+      }
+
+      setDeferredUpdateVersion(pendingUpdate.version);
+      closeUpdateDialog();
+      toast.info("Update deferred", {
+        description: "Query Pilot will process this update on your next startup.",
+      });
+      return true;
+    };
+
+    setAppUpdateHandlers({
+      openDialog: () => {
+        useAppStore.getState().openUpdateDialog();
+      },
+      checkForUpdates,
+      downloadPendingUpdate,
+      installPendingUpdateAndRelaunch,
+      deferPendingUpdate,
+    });
+
     void checkForUpdates();
+    const checkInterval = setInterval(() => {
+      void checkForUpdates();
+    }, 1000 * 60 * 60 * 6);
 
     return () => {
       disposed = true;
-      setInstallHandler(null);
-      useAppStore.getState().setPendingUpdate(null);
+      clearInterval(checkInterval);
+      setAppUpdateHandlers(null);
       void closeUpdate();
     };
   }, []);
@@ -429,7 +672,12 @@ function App() {
     return <VaultLoadingScreen />;
   }
 
-  return <AppContent />;
+  return (
+    <>
+      <AppContent />
+      <AppUpdateDialog />
+    </>
+  );
 }
 
 export default App;

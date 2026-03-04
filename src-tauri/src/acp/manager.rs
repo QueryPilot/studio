@@ -195,6 +195,9 @@ impl AcpWorker {
             .ok_or_else(|| format!("Agent '{}' is not installed", agent_info.name))?;
 
         let mut cmd = Command::new(path);
+        // Pass the resolved user PATH so the agent's child processes (node, git, etc.)
+        // can find their dependencies in production macOS builds.
+        cmd.env("PATH", super::discovery::get_user_path());
         for arg in &agent_info.acp_args {
             cmd.arg(arg);
         }

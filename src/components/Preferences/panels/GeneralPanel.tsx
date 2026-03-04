@@ -3,98 +3,53 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { useAppStore } from "@/stores/appStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   IconRefresh,
   IconLoader2,
   IconCheck,
   IconX,
-  IconDownload,
+  IconRotate,
 } from "@tabler/icons-react";
 import { getVersion } from "@tauri-apps/api/app";
-import { invoke } from "@tauri-apps/api/core";
-
-interface ReleaseInfo {
-  version: string;
-  notes: string;
-  pub_date: string;
-  download_url: string;
-  signature: string | null;
-}
+import { checkForAppUpdates, openAppUpdateDialog } from "@/utils/appUpdate";
 
 export default function GeneralPanel() {
   const { theme, setTheme, zoomLevel, setZoomLevel } = useAppStore();
-  const { setUnsavedChanges, queryTimeoutSecs, setQueryTimeoutSecs } =
-    usePreferencesStore();
-
-  const [updateStatus, setUpdateStatus] = useState<
-    | "idle"
-    | "checking"
-    | "available"
-    | "installing"
-    | "uptodate"
-    | "error"
-  >("idle");
-  const [updateMessage, setUpdateMessage] = useState("");
+  const pendingUpdate = useAppStore((state) => state.pendingUpdate);
+  const isCheckingForUpdate = useAppStore((state) => state.isCheckingForUpdate);
+  const isDownloadingUpdate = useAppStore((state) => state.isDownloadingUpdate);
+  const isInstallingUpdate = useAppStore((state) => state.isInstallingUpdate);
+  const updateError = useAppStore((state) => state.updateError);
+  const {
+    autoCheckForUpdates,
+    queryTimeoutSecs,
+    setAutoCheckForUpdates,
+    setQueryTimeoutSecs,
+    setUnsavedChanges,
+  } = usePreferencesStore();
   const [appVersion, setAppVersion] = useState("");
-  const [availableVersion, setAvailableVersion] = useState<string | null>(null);
-  const releaseRef = useRef<ReleaseInfo | null>(null);
 
   useEffect(() => {
     setUnsavedChanges(false);
     void getVersion().then(setAppVersion);
   }, [setUnsavedChanges]);
 
-  const handleCheckUpdate = async () => {
-    try {
-      setUpdateStatus("checking");
-      setUpdateMessage("");
-      setAvailableVersion(null);
-      releaseRef.current = null;
-      const release = await invoke<ReleaseInfo | null>("check_for_updates");
-
-      if (release) {
-        releaseRef.current = release;
-        setAvailableVersion(release.version);
-        setUpdateStatus("available");
-        setUpdateMessage(`Version ${release.version} available`);
-      } else {
-        setUpdateStatus("uptodate");
-        setUpdateMessage("You're on the latest version");
-      }
-    } catch (error) {
-      setUpdateStatus("error");
-      setUpdateMessage(
-        error instanceof Error ? error.message : String(error),
-      );
+  const updateMessage = useMemo(() => {
+    if (updateError) {
+      return updateError;
     }
-  };
-
-  const handleInstallUpdate = async () => {
-    const release = releaseRef.current;
-    if (!release) return;
-
-    try {
-      setUpdateStatus("installing");
-      setUpdateMessage(`Downloading v${release.version}...`);
-      const filePath = await invoke<string>("download_update", {
-        url: release.download_url,
-      });
-      setUpdateMessage("Opening installer...");
-      await invoke("install_update", { filePath });
-      setUpdateStatus("idle");
-      setUpdateMessage(
-        "Installer opened. Follow the prompts to complete the update.",
-      );
-    } catch (error) {
-      setUpdateStatus("error");
-      setUpdateMessage(
-        error instanceof Error ? error.message : String(error),
-      );
+    if (pendingUpdate?.downloaded) {
+      return `v${pendingUpdate.version} is ready to install on restart`;
     }
-  };
+    if (pendingUpdate) {
+      return `Version ${pendingUpdate.version} available`;
+    }
+    return "";
+  }, [pendingUpdate, updateError]);
 
   const handleThemeChange = (value: string) => {
     setTheme(value as "light" | "dark" | "system");
@@ -213,57 +168,92 @@ export default function GeneralPanel() {
           <div className="flex items-center justify-between py-3 border rounded-xl px-4">
             <div className="space-y-0.5">
               <Label className="text-xs font-medium">
+                Auto-check updates on startup
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Turn off to disable automatic update checks.
+              </p>
+            </div>
+            <Switch
+              checked={autoCheckForUpdates}
+              onCheckedChange={(checked) => {
+                setAutoCheckForUpdates(checked);
+                setUnsavedChanges(true);
+              }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between py-3 border rounded-xl px-4">
+            <div className="space-y-0.5">
+              <Label className="text-xs font-medium">
                 Current Version: {appVersion || "..."}
               </Label>
-              {updateMessage && (
+              {updateMessage ? (
                 <p
                   className={`text-xs ${
-                    updateStatus === "error"
+                    updateError
                       ? "text-destructive"
-                      : updateStatus === "uptodate"
-                        ? "text-green-600"
+                      : pendingUpdate?.downloaded
+                        ? "text-primary"
                         : "text-muted-foreground"
                   }`}
                 >
                   {updateMessage}
                 </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Check for updates manually anytime.
+                </p>
               )}
             </div>
             <div className="flex gap-2">
-              {updateStatus === "available" && (
+              {pendingUpdate ? (
                 <Button
                   variant="default"
                   size="sm"
-                  onClick={handleInstallUpdate}
+                  onClick={() => {
+                    openAppUpdateDialog();
+                  }}
+                  disabled={
+                    isCheckingForUpdate ||
+                    isDownloadingUpdate ||
+                    isInstallingUpdate
+                  }
                 >
-                  <IconDownload className="h-4 w-4 mr-2" />
-                  Install{" "}
-                  {availableVersion ? `v${availableVersion}` : "Update"}
+                  <IconRotate className="h-4 w-4 mr-2" />
+                  {pendingUpdate.downloaded ? "Restart to Apply" : "View Update"}
                 </Button>
-              )}
+              ) : null}
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleCheckUpdate}
+                onClick={() => {
+                  void checkForAppUpdates({ manual: true, openDialog: true });
+                }}
                 disabled={
-                  updateStatus === "checking" || updateStatus === "installing"
+                  isCheckingForUpdate ||
+                  isDownloadingUpdate ||
+                  isInstallingUpdate
                 }
               >
-                {updateStatus === "checking" ||
-                updateStatus === "installing" ? (
+                {isCheckingForUpdate ||
+                isDownloadingUpdate ||
+                isInstallingUpdate ? (
                   <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : updateStatus === "uptodate" ? (
-                  <IconCheck className="h-4 w-4 mr-2 text-green-600" />
-                ) : updateStatus === "error" ? (
+                ) : updateError ? (
                   <IconX className="h-4 w-4 mr-2 text-destructive" />
+                ) : pendingUpdate?.downloaded ? (
+                  <IconCheck className="h-4 w-4 mr-2 text-green-600" />
                 ) : (
                   <IconRefresh className="h-4 w-4 mr-2" />
                 )}
-                {updateStatus === "checking"
+                {isCheckingForUpdate
                   ? "Checking..."
-                  : updateStatus === "installing"
-                    ? "Installing..."
-                    : "Check for Updates"}
+                  : isDownloadingUpdate
+                    ? "Downloading..."
+                    : isInstallingUpdate
+                      ? "Installing..."
+                      : "Check for Updates"}
               </Button>
             </div>
           </div>

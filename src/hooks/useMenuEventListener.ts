@@ -3,7 +3,6 @@ import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useHomeScreenStore } from "@/screens/home/store/homeScreenStore";
-import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "@/utils/tauri";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import useWorkbenchStore from "@/stores/workbenchStore";
@@ -17,6 +16,7 @@ import { commandService } from "@/services/commandService";
 import { menuActionCommandMap } from "@/data/menuActionCommandMap";
 import { v4 as uuidv4 } from "uuid";
 import { useQueryClient } from "@tanstack/react-query";
+import { checkForAppUpdates } from "@/utils/appUpdate";
 
 export function useMenuEventListener() {
   const { openPreferences } = usePreferencesStore();
@@ -246,38 +246,6 @@ async function handleNewConnection(
   }
 }
 
-interface ReleaseInfo {
-  version: string;
-  notes: string;
-  pub_date: string;
-  download_url: string;
-  signature: string | null;
-}
-
 async function handleCheckUpdates() {
-  try {
-    const release = await invoke<ReleaseInfo | null>("check_for_updates");
-    if (release) {
-      if (
-        confirm(
-          `Update available: ${release.version}\n\nDownload and install now?`,
-        )
-      ) {
-        const filePath = await invoke<string>("download_update", {
-          url: release.download_url,
-        });
-        await invoke("install_update", { filePath });
-        alert(
-          "Installer opened. Follow the prompts to complete the update, then restart Query Pilot.",
-        );
-      }
-    } else {
-      alert("You're already on the latest version!");
-    }
-  } catch (error) {
-    logger.error("Update check failed:", error);
-    alert(
-      `Failed to check for updates: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
+  await checkForAppUpdates({ manual: true, openDialog: true });
 }

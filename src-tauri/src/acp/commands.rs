@@ -533,33 +533,32 @@ pub async fn acp_get_mcp_sidecar_path(app_handle: tauri::AppHandle) -> Result<St
     ))
 }
 
-/// Install a package using the specified package manager
+/// Install a package using the specified package manager.
+/// Runs through the user's shell to ensure the correct PATH is available,
+/// which is critical for production macOS builds where GUI apps inherit
+/// a minimal PATH from launchd.
 #[tauri::command]
 pub async fn acp_install_package(
     package_name: String,
     manager_type: String,
     package_manager: String, // npm, pnpm, yarn, bun (for npm type) or brew (for brew type)
 ) -> Result<String, String> {
-    use std::process::Command;
-
-    let (cmd, args) = match manager_type.as_str() {
+    let shell_cmd = match manager_type.as_str() {
         "npm" => {
             let pm = match package_manager.as_str() {
                 "pnpm" => "pnpm",
                 "yarn" => "yarn",
                 "bun" => "bun",
-                _ => "npm", // Default to npm
+                _ => "npm",
             };
-            (pm, vec!["install", "-g", &package_name])
+            format!("{} install -g '{}'", pm, package_name)
         }
-        "brew" => ("brew", vec!["install", &package_name]),
+        "brew" => format!("brew install '{}'", package_name),
         _ => return Err(format!("Unknown manager type: {}", manager_type)),
     };
 
-    let output = Command::new(cmd)
-        .args(&args)
-        .output()
-        .map_err(|e| format!("Failed to run {}: {}", cmd, e))?;
+    let output = super::discovery::run_in_user_shell(&shell_cmd)
+        .map_err(|e| format!("Failed to run {}: {}", package_manager, e))?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -585,6 +584,7 @@ pub async fn acp_check_package_updates() -> Result<Vec<super::discovery::AgentIn
 
 /// Upgrade a package to its latest version.
 /// Auto-detects the package manager from the binary path, or uses the provided one.
+/// Runs through the user's shell with the resolved PATH.
 #[tauri::command]
 pub async fn acp_upgrade_package(
     package_name: String,
@@ -592,8 +592,6 @@ pub async fn acp_upgrade_package(
     binary_name: String,
     package_manager: Option<String>,
 ) -> Result<String, String> {
-    use std::process::Command;
-
     // Auto-detect package manager from binary path if not explicitly provided
     let detected_pm = package_manager.unwrap_or_else(|| {
         super::discovery::shell_which_public(&binary_name)
@@ -608,26 +606,22 @@ pub async fn acp_upgrade_package(
         detected_pm
     );
 
-    let pkg_with_latest = format!("{}@latest", package_name);
-
-    let (cmd, args): (&str, Vec<&str>) = match manager_type.as_str() {
+    let shell_cmd = match manager_type.as_str() {
         "npm" => {
-            let pm = detected_pm.as_str();
-            match pm {
-                "bun" => ("bun", vec!["install", "-g", &pkg_with_latest]),
-                "pnpm" => ("pnpm", vec!["install", "-g", &pkg_with_latest]),
-                "yarn" => ("yarn", vec!["global", "add", &pkg_with_latest]),
-                _ => ("npm", vec!["install", "-g", &pkg_with_latest]),
+            let pkg_with_latest = format!("{}@latest", package_name);
+            match detected_pm.as_str() {
+                "bun" => format!("bun install -g '{}'", pkg_with_latest),
+                "pnpm" => format!("pnpm install -g '{}'", pkg_with_latest),
+                "yarn" => format!("yarn global add '{}'", pkg_with_latest),
+                _ => format!("npm install -g '{}'", pkg_with_latest),
             }
         }
-        "brew" => ("brew", vec!["upgrade", &package_name]),
+        "brew" => format!("brew upgrade '{}'", package_name),
         _ => return Err(format!("Unknown manager type: {}", manager_type)),
     };
 
-    let output = Command::new(cmd)
-        .args(&args)
-        .output()
-        .map_err(|e| format!("Failed to run {} {}: {}", cmd, args.join(" "), e))?;
+    let output = super::discovery::run_in_user_shell(&shell_cmd)
+        .map_err(|e| format!("Failed to run {}: {}", detected_pm, e))?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();

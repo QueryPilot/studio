@@ -1,11 +1,46 @@
-// Shared update trigger — set by App.tsx, called by UI components
+// Shared update handlers — registered by App.tsx, consumed by UI/menu.
 
-let installHandler: (() => Promise<void>) | null = null;
-
-export function setInstallHandler(handler: (() => Promise<void>) | null) {
-  installHandler = handler;
+export interface AppUpdateCheckOptions {
+  manual?: boolean;
+  openDialog?: boolean;
 }
 
-export function triggerAppUpdate() {
-  void installHandler?.();
+interface AppUpdateHandlers {
+  openDialog: () => void;
+  checkForUpdates: (options?: AppUpdateCheckOptions) => Promise<boolean>;
+  downloadPendingUpdate: () => Promise<boolean>;
+  installPendingUpdateAndRelaunch: () => Promise<boolean>;
+  deferPendingUpdate: () => boolean;
+}
+
+let handlers: AppUpdateHandlers | null = null;
+
+export function setAppUpdateHandlers(nextHandlers: AppUpdateHandlers | null) {
+  handlers = nextHandlers;
+}
+
+export function openAppUpdateDialog() {
+  handlers?.openDialog();
+}
+
+export async function checkForAppUpdates(
+  options?: AppUpdateCheckOptions,
+): Promise<boolean> {
+  if (!handlers) return false;
+  return handlers.checkForUpdates(options);
+}
+
+export async function downloadPendingAppUpdate(): Promise<boolean> {
+  if (!handlers) return false;
+  return handlers.downloadPendingUpdate();
+}
+
+export async function installPendingAppUpdateAndRelaunch(): Promise<boolean> {
+  if (!handlers) return false;
+  return handlers.installPendingUpdateAndRelaunch();
+}
+
+export function deferPendingAppUpdate(): boolean {
+  if (!handlers) return false;
+  return handlers.deferPendingUpdate();
 }

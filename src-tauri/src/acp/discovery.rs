@@ -3,6 +3,99 @@
 //! Detects installed AI agents by checking common locations in PATH.
 
 use std::process::Command;
+use std::sync::OnceLock;
+
+/// Cached user shell PATH, resolved once at first use.
+///
+/// macOS GUI apps (launched from Finder/Dock/Spotlight) inherit a minimal PATH
+/// from launchd (typically `/usr/bin:/bin:/usr/sbin:/sbin`). Tools like nvm,
+/// bun, homebrew, etc. add PATH entries in `.zshrc`/`.bashrc` which are only
+/// sourced for interactive shells. We resolve the full PATH once at startup
+/// using `-li` (login + interactive) and cache it for the process lifetime.
+static USER_SHELL_PATH: OnceLock<Option<String>> = OnceLock::new();
+
+/// Resolve the user's full shell PATH by running their login + interactive shell.
+/// Uses unique delimiters to isolate the PATH value from any shell startup output
+/// (e.g. motd, greeting messages from .zshrc).
+fn resolve_user_shell_path() -> Option<String> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+
+    // Use -li to source both login configs (.zprofile) and interactive configs (.zshrc).
+    // Wrap PATH output in delimiters so we can extract it even if .zshrc prints other text.
+    let delim = "__QP_PATH__";
+    let cmd = format!("printf '{}%s{}' \"$PATH\"", delim, delim);
+
+    // Spawn with a timeout to protect against interactive shell configs (e.g. p10k
+    // instant prompt, stty) that may hang without a TTY.
+    let mut child = Command::new(&shell)
+        .args(["-li", "-c", &cmd])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+
+    // Give the shell 5 seconds to resolve PATH — more than enough for any profile.
+    let timeout = std::time::Duration::from_secs(5);
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    tracing::warn!(
+                        "Shell PATH resolution timed out after {:?}; killing shell process",
+                        timeout
+                    );
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(_) => return None,
+        }
+    }
+
+    let output = child.wait_with_output().ok()?;
+
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let start = stdout.find(delim)? + delim.len();
+    let end = stdout[start..].find(delim)? + start;
+    let path = stdout[start..end].to_string();
+    if path.is_empty() {
+        tracing::warn!("Resolved user shell PATH is empty; falling back to process PATH");
+        None
+    } else {
+        tracing::info!(
+            "Resolved user shell PATH ({} entries)",
+            path.split(':').count()
+        );
+        Some(path)
+    }
+}
+
+/// Get the user's full PATH, falling back to the process PATH.
+pub fn get_user_path() -> String {
+    USER_SHELL_PATH
+        .get_or_init(resolve_user_shell_path)
+        .clone()
+        .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default())
+}
+
+/// Run a command through the user's shell with the resolved PATH.
+///
+/// Uses the cached user PATH so that binaries installed via nvm, bun,
+/// homebrew, etc. are found even in production macOS builds. Runs with
+/// `-c` only (no `-li`) so stdout is clean of shell startup output.
+pub fn run_in_user_shell(command: &str) -> std::io::Result<std::process::Output> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+    let user_path = get_user_path();
+
+    Command::new(&shell)
+        .args(["-c", command])
+        .env("PATH", &user_path)
+        .output()
+}
 
 /// Information about a discovered AI agent
 #[derive(Debug, Clone, serde::Serialize)]
@@ -249,25 +342,37 @@ pub fn shell_which_public(binary: &str) -> Option<std::path::PathBuf> {
     shell_which(binary)
 }
 
-/// Find a binary using the shell's `which` command
-/// This ensures we use the current shell's PATH, including recent additions
+/// Find a binary by searching the user's full shell PATH.
+///
+/// Instead of spawning a subshell for every lookup (expensive with `-li`),
+/// we search the cached PATH directories directly. Checks both file existence
+/// and executable permission to match `which` behavior.
 fn shell_which(binary: &str) -> Option<std::path::PathBuf> {
-    // Use login shell to get full PATH from user's profile
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+    let user_path = get_user_path();
+    for dir in user_path.split(':') {
+        if dir.is_empty() {
+            continue;
+        }
+        let candidate = std::path::PathBuf::from(dir).join(binary);
+        if candidate.is_file() && is_executable(&candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
 
-    Command::new(&shell)
-        .args(["-l", "-c", &format!("which {}", binary)])
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                String::from_utf8(o.stdout)
-                    .ok()
-                    .map(|s| std::path::PathBuf::from(s.trim()))
-            } else {
-                None
-            }
-        })
+/// Check if a file has any executable permission bit set.
+#[cfg(unix)]
+fn is_executable(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    path.metadata()
+        .map(|m| m.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &std::path::Path) -> bool {
+    path.is_file()
 }
 
 /// Get the installed version of an npm package by resolving the binary's symlink
@@ -302,13 +407,8 @@ fn get_installed_package_version(bin_path: &std::path::Path) -> Option<String> {
 
 /// Get the latest version of a package from the npm registry.
 fn get_latest_npm_version(package_name: &str) -> Option<String> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-    let cmd = format!("npm view {} version 2>/dev/null", package_name);
-
-    let output = Command::new(&shell)
-        .args(["-l", "-c", &cmd])
-        .output()
-        .ok()?;
+    let cmd = format!("npm view '{}' version 2>/dev/null", package_name);
+    let output = run_in_user_shell(&cmd).ok()?;
 
     if !output.status.success() {
         return None;
@@ -325,10 +425,8 @@ fn get_latest_npm_version(package_name: &str) -> Option<String> {
 
 /// Get the latest version of a brew package.
 fn get_latest_brew_version(package_name: &str) -> Option<String> {
-    let output = Command::new("brew")
-        .args(["info", "--json=v1", package_name])
-        .output()
-        .ok()?;
+    let cmd = format!("brew info --json=v1 '{}' 2>/dev/null", package_name);
+    let output = run_in_user_shell(&cmd).ok()?;
 
     if !output.status.success() {
         return None;
@@ -405,12 +503,7 @@ pub fn fetch_agent_models(agent_id: &str) -> Option<Vec<ModelInfo>> {
 
 /// Fetch models from OpenCode CLI using `opencode models` command
 fn fetch_opencode_models() -> Option<Vec<ModelInfo>> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-
-    let output = Command::new(&shell)
-        .args(["-l", "-c", "opencode models 2>/dev/null"])
-        .output()
-        .ok()?;
+    let output = run_in_user_shell("opencode models 2>/dev/null").ok()?;
 
     if !output.status.success() {
         return None;

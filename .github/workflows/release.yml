@@ -287,29 +287,45 @@ jobs:
       # Upload Artifacts to Release
       # ============================================
 
-      - name: Find and upload macOS DMG
+      - name: Find and upload macOS artifacts
         run: |
-          echo "🔍 Searching for DMG files..."
-          find target/${{ matrix.target }}/release/bundle -type f -name "*.dmg" || echo "No DMG files found"
+          echo "🔍 Searching for updater artifacts..."
+          find target/${{ matrix.target }}/release/bundle -type f \( -name "*.dmg" -o -name "*.app.tar.gz" -o -name "*.app.tar.gz.sig" \) || echo "No matching files found"
 
           DMG_PATH=$(find target/${{ matrix.target }}/release/bundle/dmg -name "*.dmg" | head -n 1)
-          if [ -n "$DMG_PATH" ]; then
-            VERSION="${{ needs.create-release.outputs.version }}"
-            DMG_NAME="QueryPilot_${VERSION}.dmg"
-            echo "📦 Found DMG: $DMG_PATH"
-            echo "📤 Renaming to: $DMG_NAME"
-            mv "$DMG_PATH" "$DMG_NAME"
+          UPDATER_ARCHIVE=$(find target/${{ matrix.target }}/release/bundle -name "*.app.tar.gz" | head -n 1)
+          UPDATER_SIG=$(find target/${{ matrix.target }}/release/bundle -name "*.app.tar.gz.sig" | head -n 1)
 
-            echo "🚀 Uploading to release: $VERSION"
-            gh release upload "$VERSION" \
-              "$DMG_NAME" \
-              --clobber
-
-            echo "✅ Uploaded: $DMG_NAME"
-          else
+          if [ -z "$DMG_PATH" ]; then
             echo "❌ ERROR: No DMG file found!"
             exit 1
           fi
+          if [ -z "$UPDATER_ARCHIVE" ] || [ -z "$UPDATER_SIG" ]; then
+            echo "❌ ERROR: Missing updater archive/signature (.app.tar.gz + .sig)"
+            exit 1
+          fi
+
+          VERSION="${{ needs.create-release.outputs.version }}"
+          DMG_NAME="QueryPilot_${VERSION}.dmg"
+          ARCHIVE_NAME=$(basename "$UPDATER_ARCHIVE")
+          SIG_NAME=$(basename "$UPDATER_SIG")
+
+          echo "📦 Found DMG: $DMG_PATH"
+          echo "📦 Found updater archive: $UPDATER_ARCHIVE"
+          echo "📦 Found updater signature: $UPDATER_SIG"
+
+          mv "$DMG_PATH" "$DMG_NAME"
+          cp "$UPDATER_ARCHIVE" "$ARCHIVE_NAME"
+          cp "$UPDATER_SIG" "$SIG_NAME"
+
+          echo "🚀 Uploading to release: $VERSION"
+          gh release upload "$VERSION" \
+            "$DMG_NAME" \
+            "$ARCHIVE_NAME" \
+            "$SIG_NAME" \
+            --clobber
+
+          echo "✅ Uploaded: $DMG_NAME, $ARCHIVE_NAME, $SIG_NAME"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -347,14 +363,13 @@ jobs:
           VERSION: ${{ needs.create-release.outputs.version }}
         run: |
           echo "📥 Downloading release assets..."
-          gh release download "$VERSION" --pattern "*.dmg"
-          ls -lh *.dmg
+          gh release download "$VERSION" --pattern "*.app.tar.gz"
+          gh release download "$VERSION" --pattern "*.app.tar.gz.sig"
+          ls -lh *.app.tar.gz *.app.tar.gz.sig
 
       - name: Generate update manifest
         env:
           VERSION: ${{ needs.create-release.outputs.version }}
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         run: |
           echo "📄 Generating update manifest..."
 
@@ -376,65 +391,38 @@ jobs:
             RAW_NOTES="See CHANGELOG.md for details"
           fi
 
-          DMG_NAME="QueryPilot_${VERSION}.dmg"
-          DMG_URL="https://github.com/QueryPilot/studio-app/releases/download/$VERSION/$DMG_NAME"
-          SIGNATURE=""
+          UPDATE_ARCHIVE=$(ls *.app.tar.gz | head -n 1)
+          UPDATE_SIG_FILE=$(ls *.app.tar.gz.sig | head -n 1)
 
-          # Sign DMG files if key is available
-          if [ -n "$TAURI_PRIVATE_KEY" ]; then
-            echo "🔐 Signing release assets..."
-
-            if [ -f "$DMG_NAME" ]; then
-              echo "  Signing $DMG_NAME..."
-              # Use pnpm dlx to run tauri CLI without global install
-              # Pass key directly as string (--private-key expects key content, not file path)
-              # Capture only the last line to avoid CLI noise
-              SIGNATURE=$(pnpm dlx @tauri-apps/cli signer sign "$DMG_NAME" --private-key "$TAURI_PRIVATE_KEY" --password "$TAURI_KEY_PASSWORD" 2>/dev/null | tail -n 1 || true)
-
-              # Validate signature looks like base64
-              if [ -n "$SIGNATURE" ] && ! echo "$SIGNATURE" | grep -qE '^[A-Za-z0-9+/=]{20,}$'; then
-                echo "⚠️  Captured signature doesn't look like base64, discarding"
-                SIGNATURE=""
-              fi
-            fi
-          else
-            echo "⚠️  TAURI_PRIVATE_KEY not set, generating unsigned manifest"
+          if [ -z "$UPDATE_ARCHIVE" ] || [ -z "$UPDATE_SIG_FILE" ]; then
+            echo "❌ Missing updater assets for manifest generation"
+            exit 1
           fi
 
-          # Build manifest with jq for safe JSON generation
-          if [ -n "$SIGNATURE" ]; then
-            jq -n \
-              --arg version "$VERSION_NUMBER" \
-              --arg notes "$RAW_NOTES" \
-              --arg pub_date "$PUB_DATE" \
-              --arg sig "$SIGNATURE" \
-              --arg url "$DMG_URL" \
-              '{
-                version: $version,
-                notes: $notes,
-                pub_date: $pub_date,
-                platforms: {
-                  "darwin-aarch64": { signature: $sig, url: $url },
-                  "darwin-x86_64": { signature: $sig, url: $url }
-                }
-              }' > latest.json
-            echo "✓ Signed darwin-aarch64 and darwin-x86_64 (universal)"
-          else
-            jq -n \
-              --arg version "$VERSION_NUMBER" \
-              --arg notes "$RAW_NOTES" \
-              --arg pub_date "$PUB_DATE" \
-              --arg url "$DMG_URL" \
-              '{
-                version: $version,
-                notes: $notes,
-                pub_date: $pub_date,
-                platforms: {
-                  "darwin-aarch64": { url: $url },
-                  "darwin-x86_64": { url: $url }
-                }
-              }' > latest.json
+          UPDATE_URL="https://github.com/QueryPilot/studio-app/releases/download/$VERSION/$UPDATE_ARCHIVE"
+          SIGNATURE=$(tr -d '\r\n' < "$UPDATE_SIG_FILE")
+
+          if [ -z "$SIGNATURE" ]; then
+            echo "❌ Signature file is empty: $UPDATE_SIG_FILE"
+            exit 1
           fi
+
+          jq -n \
+            --arg version "$VERSION_NUMBER" \
+            --arg notes "$RAW_NOTES" \
+            --arg pub_date "$PUB_DATE" \
+            --arg sig "$SIGNATURE" \
+            --arg url "$UPDATE_URL" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-aarch64": { signature: $sig, url: $url },
+                "darwin-x86_64": { signature: $sig, url: $url }
+              }
+            }' > latest.json
+          echo "✓ Generated signed darwin updater manifest"
 
           echo "✓ Update manifest generated"
           cat latest.json
@@ -477,6 +465,8 @@ jobs:
         run: |
           echo "📥 Downloading release assets from studio..."
           gh release download "$VERSION" --pattern "*.dmg"
+          gh release download "$VERSION" --pattern "*.app.tar.gz"
+          gh release download "$VERSION" --pattern "*.app.tar.gz.sig"
           gh release download "$VERSION" --pattern "latest.json"
           ls -lh
 
@@ -576,6 +566,8 @@ jobs:
             --notes-file RELEASE_NOTES.md \
             $PRERELEASE \
             *.dmg \
+            *.app.tar.gz \
+            *.app.tar.gz.sig \
             latest.json \
             CHANGELOG.md
 

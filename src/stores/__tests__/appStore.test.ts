@@ -7,6 +7,13 @@ describe('appStore', () => {
     useAppStore.setState({
       theme: 'system',
       zoomLevel: 100,
+      pendingUpdate: null,
+      isCheckingForUpdate: false,
+      isDownloadingUpdate: false,
+      isInstallingUpdate: false,
+      updateError: null,
+      isUpdateDialogOpen: false,
+      deferredUpdateVersion: null,
     });
   });
 
@@ -16,6 +23,9 @@ describe('appStore', () => {
 
       expect(state.theme).toBe('system');
       expect(state.zoomLevel).toBe(100);
+      expect(state.pendingUpdate).toBeNull();
+      expect(state.deferredUpdateVersion).toBeNull();
+      expect(state.isUpdateDialogOpen).toBe(false);
     });
   });
 
@@ -121,6 +131,55 @@ describe('appStore', () => {
       const state = useAppStore.getState();
       expect(state.theme).toBe('light');
       expect(state.zoomLevel).toBe(120);
+    });
+  });
+
+  describe('Update State', () => {
+    it('should store pending update metadata', () => {
+      const store = useAppStore.getState();
+
+      store.setPendingUpdate({
+        version: '2026.1.1',
+        body: 'Bug fixes',
+        date: '2026-03-01T00:00:00Z',
+        downloaded: false,
+      });
+
+      const state = useAppStore.getState();
+      expect(state.pendingUpdate?.version).toBe('2026.1.1');
+      expect(state.pendingUpdate?.downloaded).toBe(false);
+    });
+
+    it('should update downloaded flag for pending update', () => {
+      const store = useAppStore.getState();
+
+      store.setPendingUpdate({
+        version: '2026.1.1',
+        downloaded: false,
+      });
+      store.markPendingUpdateDownloaded(true);
+
+      expect(useAppStore.getState().pendingUpdate?.downloaded).toBe(true);
+    });
+
+    it('should open and close update dialog', () => {
+      const store = useAppStore.getState();
+
+      store.openUpdateDialog();
+      expect(useAppStore.getState().isUpdateDialogOpen).toBe(true);
+
+      store.closeUpdateDialog();
+      expect(useAppStore.getState().isUpdateDialogOpen).toBe(false);
+    });
+
+    it('should set deferred update version', () => {
+      const store = useAppStore.getState();
+
+      store.setDeferredUpdateVersion('2026.1.1');
+      expect(useAppStore.getState().deferredUpdateVersion).toBe('2026.1.1');
+
+      store.setDeferredUpdateVersion(null);
+      expect(useAppStore.getState().deferredUpdateVersion).toBeNull();
     });
   });
 
