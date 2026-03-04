@@ -58,11 +58,6 @@ jobs:
             gh release delete "$VERSION" --yes
           fi
 
-          PRERELEASE=""
-          if [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"beta"* ]] || [[ "$VERSION" == *"rc"* ]]; then
-            PRERELEASE="--prerelease"
-          fi
-
           VERSION_NUMBER="${VERSION#v}"
 
           # Extract changelog for this version only (stop at next version header)
@@ -122,7 +117,6 @@ jobs:
 
           gh release create "$VERSION" \
             --draft \
-            $PRERELEASE \
             --title "Query Pilot $VERSION" \
             --notes-file /tmp/release-notes.md
 
@@ -528,17 +522,11 @@ jobs:
           fi
 
           # Determine if prerelease
-          PRERELEASE=""
-          if [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"beta"* ]] || [[ "$VERSION" == *"rc"* ]]; then
-            PRERELEASE="--prerelease"
-          fi
-
-          # Create release
+          # Create release (always as full release so /releases/latest works for updater)
           gh release create "$VERSION" \
             --repo QueryPilot/QueryPilot \
             --title "Query Pilot $VERSION" \
             --notes-file RELEASE_NOTES.md \
-            $PRERELEASE \
             *.dmg \
             *.app.tar.gz \
             *.app.tar.gz.sig \
