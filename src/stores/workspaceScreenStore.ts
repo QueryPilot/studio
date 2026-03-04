@@ -57,7 +57,10 @@ interface WorkspaceScreenStore {
   unregisterWindow: (connectionId: string) => void;
 
   // Initialize workspace
-  initWorkspace: (connectionId: string) => void;
+  initWorkspace: (
+    connectionId: string,
+    initialSidebars?: { left: boolean; right: boolean },
+  ) => void;
 
   // Getters (connection-aware)
   getPanels: () => Map<string, PanelState>;
@@ -128,13 +131,59 @@ export const useWorkspaceScreenStore = create<WorkspaceScreenStore>(
     // Connection management
     setActiveConnection: (connectionId) => {
       logger.info(`[WorkspaceStore] Switching to connection: ${connectionId}`);
-      set({ activeConnectionId: connectionId });
+      set((state) => {
+        if (state.activeConnectionId === connectionId) {
+          return {};
+        }
 
-      // Initialize workspace if it doesn't exist
-      if (connectionId && !get().workspaces.has(connectionId)) {
-        logger.info(`[WorkspaceStore] Initializing workspace for: ${connectionId}`);
-        get().initWorkspace(connectionId);
-      }
+        if (!connectionId) {
+          return { activeConnectionId: null };
+        }
+
+        const nextWorkspaces = new Map(state.workspaces);
+        const previousWorkspace = state.activeConnectionId
+          ? nextWorkspaces.get(state.activeConnectionId)
+          : undefined;
+        const firstWorkspaceEntry = nextWorkspaces.entries().next().value;
+        const fallbackWorkspace = firstWorkspaceEntry?.[1];
+        const inheritedSidebars =
+          previousWorkspace?.sidebars ?? fallbackWorkspace?.sidebars;
+
+        const targetWorkspace = nextWorkspaces.get(connectionId);
+
+        // Initialize workspace if it doesn't exist and keep sidebar visibility
+        // consistent with the previously active connection (or last known workspace).
+        if (!targetWorkspace) {
+          logger.info(`[WorkspaceStore] Initializing workspace for: ${connectionId}`);
+          const workspace = createDefaultWorkspace(connectionId);
+          if (inheritedSidebars) {
+            workspace.sidebars = { ...inheritedSidebars };
+          }
+          nextWorkspaces.set(connectionId, workspace);
+          return {
+            activeConnectionId: connectionId,
+            workspaces: nextWorkspaces,
+          };
+        }
+
+        // Keep sidebars stable when switching between existing connections.
+        if (
+          inheritedSidebars &&
+          (targetWorkspace.sidebars.left !== inheritedSidebars.left ||
+            targetWorkspace.sidebars.right !== inheritedSidebars.right)
+        ) {
+          nextWorkspaces.set(connectionId, {
+            ...targetWorkspace,
+            sidebars: { ...inheritedSidebars },
+          });
+          return {
+            activeConnectionId: connectionId,
+            workspaces: nextWorkspaces,
+          };
+        }
+
+        return { activeConnectionId: connectionId };
+      });
     },
 
     clearWorkspace: (connectionId) => {
@@ -147,11 +196,18 @@ export const useWorkspaceScreenStore = create<WorkspaceScreenStore>(
     },
 
     // Initialize workspace
-    initWorkspace: (connectionId) => {
-      logger.info(`[WorkspaceStore] Creating new workspace for: ${connectionId}`);
+    initWorkspace: (connectionId, initialSidebars) => {
       set((state) => {
+        if (state.workspaces.has(connectionId)) {
+          return {};
+        }
+        logger.info(`[WorkspaceStore] Creating new workspace for: ${connectionId}`);
         const newWorkspaces = new Map(state.workspaces);
-        newWorkspaces.set(connectionId, createDefaultWorkspace(connectionId));
+        const workspace = createDefaultWorkspace(connectionId);
+        if (initialSidebars) {
+          workspace.sidebars = { ...initialSidebars };
+        }
+        newWorkspaces.set(connectionId, workspace);
         return { workspaces: newWorkspaces };
       });
     },
