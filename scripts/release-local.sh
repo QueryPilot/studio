@@ -456,13 +456,9 @@ $(echo "$changelog" | sed 's/^## \[.*\] - .*//; s/^### /- /; s/^- $//; /^$/d' | 
     git commit -m "$COMMIT_MSG"
 
     log "Creating tag v$version..."
-    git tag -a "v$version" -m "Release v$version"
+    git tag -fa "v$version" -m "Release v$version"
 
-    log "Pushing to remote..."
-    git push origin master
-    git push origin "v$version"
-
-    success "Version bumped, committed and pushed"
+    success "Version bumped and tagged (not pushed — local release only uploads artifacts)"
 }
 
 # Build MCP sidecar (mirrors CI: .github/workflows/release.yml)
