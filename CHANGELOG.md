@@ -13,6 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [2026.1.0-beta.9] - 2026-03-05
+
+### New Features
+- Command Palette search now handles normalized query variants and underscore-style names, so you can find commands and database objects with fewer exact keystrokes.
+
+### Improvements
+- Release packages now include both `aarch64` and `x86_64` artifacts, making installs and updates smoother across different CPU architectures.
+
+### Bug Fixes
+- Fixed an issue where sidebar visibility could reset when switching database connections, so your workspace layout stays the way you left it.
+- Improved workspace initialization to preserve sidebar state more consistently when opening and changing connections.
+
 ## [2026.1.0-beta.8] - 2026-03-04
 
 ### Improvements
