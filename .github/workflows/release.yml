@@ -11,7 +11,7 @@ on:
         required: true
         type: string
       publish_to_app_repo:
-        description: "Publish to QueryPilot/studio-app?"
+        description: "Publish to QueryPilot/QueryPilot?"
         required: false
         type: boolean
         default: false
@@ -256,9 +256,6 @@ jobs:
           # SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG || 'query-pilot' }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT || 'query-pilot' }}
-          # GitHub token for update checker (read-only, compiled into Rust binary)
-          # Use separate token from RELEASE_PAT which needs write access for publishing
-          GITHUB_RELEASE_TOKEN: ${{ secrets.UPDATE_CHECKER_PAT }}
         shell: bash
         run: |
           # Build frontend with Sentry source maps (if SENTRY_AUTH_TOKEN is set)
@@ -399,7 +396,7 @@ jobs:
             exit 1
           fi
 
-          UPDATE_URL="https://github.com/QueryPilot/studio-app/releases/download/$VERSION/$UPDATE_ARCHIVE"
+          UPDATE_URL="https://github.com/QueryPilot/QueryPilot/releases/download/$VERSION/$UPDATE_ARCHIVE"
           SIGNATURE=$(tr -d '\r\n' < "$UPDATE_SIG_FILE")
 
           if [ -z "$SIGNATURE" ]; then
@@ -444,7 +441,7 @@ jobs:
           retention-days: 90
 
   publish-to-app-repo:
-    name: Publish to QueryPilot/studio-app
+    name: Publish to QueryPilot/QueryPilot
     needs: [create-release, build-release, generate-updater-manifest]
     runs-on: ubuntu-latest
     if: |
@@ -534,7 +531,7 @@ jobs:
 
           ## Full Changelog
 
-          See [CHANGELOG.md](https://github.com/QueryPilot/studio-app/blob/main/CHANGELOG.md) for complete version history.
+          See [CHANGELOG.md](https://github.com/QueryPilot/QueryPilot/blob/main/CHANGELOG.md) for complete version history.
           EOF
 
           echo "📝 Release notes prepared:"
@@ -545,12 +542,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
           VERSION: ${{ needs.create-release.outputs.version }}
         run: |
-          echo "🚀 Publishing to QueryPilot/studio-app..."
+          echo "🚀 Publishing to QueryPilot/QueryPilot..."
 
           # Check if release exists
-          if gh release view "$VERSION" --repo QueryPilot/studio-app &> /dev/null; then
+          if gh release view "$VERSION" --repo QueryPilot/QueryPilot &> /dev/null; then
             echo "⚠️  Release already exists, deleting..."
-            gh release delete "$VERSION" --repo QueryPilot/studio-app --yes
+            gh release delete "$VERSION" --repo QueryPilot/QueryPilot --yes
           fi
 
           # Determine if prerelease
@@ -561,7 +558,7 @@ jobs:
 
           # Create release
           gh release create "$VERSION" \
-            --repo QueryPilot/studio-app \
+            --repo QueryPilot/QueryPilot \
             --title "Query Pilot $VERSION" \
             --notes-file RELEASE_NOTES.md \
             $PRERELEASE \
@@ -571,8 +568,8 @@ jobs:
             latest.json \
             CHANGELOG.md
 
-          echo "✅ Published to QueryPilot/studio-app"
-          echo "🔗 https://github.com/QueryPilot/studio-app/releases/tag/$VERSION"
+          echo "✅ Published to QueryPilot/QueryPilot"
+          echo "🔗 https://github.com/QueryPilot/QueryPilot/releases/tag/$VERSION"
 
       - name: Verify update manifest
         env:
@@ -583,9 +580,9 @@ jobs:
           sleep 10  # Wait for GitHub to process
 
           # Check the specific release tag (not /latest which skips pre-releases)
-          if gh api "repos/QueryPilot/studio-app/releases/tags/$VERSION" --jq '.assets[].name' | grep -q "latest.json"; then
+          if gh api "repos/QueryPilot/QueryPilot/releases/tags/$VERSION" --jq '.assets[].name' | grep -q "latest.json"; then
             echo "✅ Update manifest is live!"
-            echo "🔗 https://github.com/QueryPilot/studio-app/releases/tag/$VERSION"
+            echo "🔗 https://github.com/QueryPilot/QueryPilot/releases/tag/$VERSION"
           else
             echo "⚠️  Manifest not yet accessible (may take a few moments)"
           fi
@@ -625,5 +622,5 @@ jobs:
           echo "📦 Source Release (QueryPilot/studio):"
           echo "   https://github.com/${{ github.repository }}/releases"
           echo ""
-          echo "🚀 Public Release (QueryPilot/studio-app):"
-          echo "   https://github.com/QueryPilot/studio-app/releases"
+          echo "🚀 Public Release (QueryPilot/QueryPilot):"
+          echo "   https://github.com/QueryPilot/QueryPilot/releases"

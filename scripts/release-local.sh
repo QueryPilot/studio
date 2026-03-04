@@ -22,8 +22,8 @@ fi
 
 VERSION="${1:-}"
 VERSION="${VERSION#v}"  # Strip v prefix if present (e.g., v2026.1.0 → 2026.1.0)
-TARGET="${2:-universal-apple-darwin}"
-ARCH="universal"  # Universal build supports both Intel and Apple Silicon
+TARGET="${2:-aarch64-apple-darwin}"
+ARCH="aarch64"  # Apple Silicon only for local builds
 
 # Colors
 RED='\033[0;31m'
@@ -72,14 +72,10 @@ check_requirements() {
         error "No Developer ID Application certificate found in keychain"
     fi
 
-    # Check Rust targets for universal build
+    # Check Rust target for Apple Silicon build
     if ! rustup target list --installed | grep -q "aarch64-apple-darwin"; then
         log "Installing aarch64-apple-darwin target..."
         rustup target add aarch64-apple-darwin
-    fi
-    if ! rustup target list --installed | grep -q "x86_64-apple-darwin"; then
-        log "Installing x86_64-apple-darwin target..."
-        rustup target add x86_64-apple-darwin
     fi
 
     # Check for AI CLI (codex or claude)
@@ -176,8 +172,8 @@ analyze_commits() {
                 success "GitHub release deleted"
             fi
             # Delete from studio-app repo if exists
-            if gh release view "v$CURRENT_VERSION" --repo QueryPilot/studio-app &>/dev/null 2>&1; then
-                gh release delete "v$CURRENT_VERSION" --repo QueryPilot/studio-app --yes
+            if gh release view "v$CURRENT_VERSION" --repo QueryPilot/QueryPilot &>/dev/null 2>&1; then
+                gh release delete "v$CURRENT_VERSION" --repo QueryPilot/QueryPilot --yes
                 success "GitHub release deleted from studio-app"
             fi
             # Delete local and remote tag
@@ -471,36 +467,21 @@ $(echo "$changelog" | sed 's/^## \[.*\] - .*//; s/^### /- /; s/^- $//; /^$/d' | 
 
 # Build MCP sidecar (mirrors CI: .github/workflows/release.yml)
 build_mcp_sidecar() {
-    log "Building MCP sidecar (universal binary)..."
+    log "Building MCP sidecar ($TARGET)..."
 
     cargo build --release --package querypilot-mcp --target aarch64-apple-darwin
-    cargo build --release --package querypilot-mcp --target x86_64-apple-darwin
 
     mkdir -p target/release
 
-    # Create arch-specific copies for Tauri bundling
+    # Create arch-specific copy for Tauri bundling
     cp target/aarch64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-aarch64-apple-darwin
-    cp target/x86_64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-x86_64-apple-darwin
 
-    # Create universal binary
-    lipo -create \
-        target/aarch64-apple-darwin/release/querypilot-mcp \
-        target/x86_64-apple-darwin/release/querypilot-mcp \
-        -output target/release/querypilot-mcp-universal-apple-darwin
-
-    success "MCP sidecar built for universal-apple-darwin"
+    success "MCP sidecar built for $TARGET"
 }
 
 # Build Tauri app with signing
 build_app() {
     log "Building Tauri app for $TARGET..."
-
-    # Check for update checker token
-    if [ -z "$GITHUB_RELEASE_TOKEN" ]; then
-        warn "GITHUB_RELEASE_TOKEN not set - update checker will be disabled"
-    else
-        log "Update checker token configured"
-    fi
 
     # Check for notarization credentials
     if [ -z "$APPLE_ID" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
@@ -663,7 +644,7 @@ generate_manifest() {
     fi
 
     # URL points to .app.tar.gz in studio-app (matches CI)
-    UPDATE_URL="https://github.com/QueryPilot/studio-app/releases/download/v$version/$UPDATER_ARCHIVE_NAME"
+    UPDATE_URL="https://github.com/QueryPilot/QueryPilot/releases/download/v$version/$UPDATER_ARCHIVE_NAME"
 
     # Build manifest (matches CI: .github/workflows/release.yml)
     jq -n \
@@ -699,18 +680,18 @@ upload_manifest() {
 publish_to_app_repo() {
     local version="$1"
 
-    log "Publishing to QueryPilot/studio-app..."
+    log "Publishing to QueryPilot/QueryPilot..."
 
     # Check if we have access
-    if ! gh repo view QueryPilot/studio-app &>/dev/null; then
-        warn "No access to QueryPilot/studio-app, skipping cross-repo publish"
+    if ! gh repo view QueryPilot/QueryPilot &>/dev/null; then
+        warn "No access to QueryPilot/QueryPilot, skipping cross-repo publish"
         return
     fi
 
     # Delete existing release in app repo
-    if gh release view "v$version" --repo QueryPilot/studio-app &>/dev/null; then
+    if gh release view "v$version" --repo QueryPilot/QueryPilot &>/dev/null; then
         warn "Release exists in studio-app, deleting..."
-        gh release delete "v$version" --repo QueryPilot/studio-app --yes
+        gh release delete "v$version" --repo QueryPilot/QueryPilot --yes
     fi
 
     PRERELEASE=""
@@ -719,7 +700,7 @@ publish_to_app_repo() {
     fi
 
     gh release create "v$version" \
-        --repo QueryPilot/studio-app \
+        --repo QueryPilot/QueryPilot \
         --title "Query Pilot v$version" \
         --notes-file /tmp/release-notes.md \
         $PRERELEASE \
@@ -729,7 +710,7 @@ publish_to_app_repo() {
         latest.json \
         CHANGELOG.md
 
-    success "Published to QueryPilot/studio-app"
+    success "Published to QueryPilot/QueryPilot"
 }
 
 # Finalize release
@@ -801,7 +782,7 @@ main() {
     echo -e "${GREEN}==========================================${NC}"
     echo ""
     echo "  Source release: https://github.com/QueryPilot/studio/releases/tag/v$NEXT_VERSION"
-    echo "  App release:    https://github.com/QueryPilot/studio-app/releases/tag/v$NEXT_VERSION"
+    echo "  App release:    https://github.com/QueryPilot/QueryPilot/releases/tag/v$NEXT_VERSION"
     echo ""
 }
 
