@@ -3,8 +3,7 @@ import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useHomeScreenStore } from "@/screens/home/store/homeScreenStore";
-import { check } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
+import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "@/utils/tauri";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import useWorkbenchStore from "@/stores/workbenchStore";
@@ -247,29 +246,30 @@ async function handleNewConnection(
   }
 }
 
+interface ReleaseInfo {
+  version: string;
+  notes: string;
+  pub_date: string;
+  download_url: string;
+  signature: string | null;
+}
+
 async function handleCheckUpdates() {
   try {
-    const update = await check();
-    if (update) {
-      try {
-        if (
-          confirm(
-            `Update available: ${update.version}\n\nDownload and install now?`,
-          )
-        ) {
-          await update.downloadAndInstall();
-          if (confirm("Update installed. Restart now?")) {
-            await relaunch();
-          } else {
-            alert("Update installed. Restart Query Pilot to apply it.");
-          }
-        }
-      } finally {
-        try {
-          await update.close();
-        } catch (closeError) {
-          logger.warn("Failed to close update handle", closeError);
-        }
+    const release = await invoke<ReleaseInfo | null>("check_for_updates");
+    if (release) {
+      if (
+        confirm(
+          `Update available: ${release.version}\n\nDownload and install now?`,
+        )
+      ) {
+        const filePath = await invoke<string>("download_update", {
+          url: release.download_url,
+        });
+        await invoke("install_update", { filePath });
+        alert(
+          "Installer opened. Follow the prompts to complete the update, then restart Query Pilot.",
+        );
       }
     } else {
       alert("You're already on the latest version!");
@@ -277,7 +277,7 @@ async function handleCheckUpdates() {
   } catch (error) {
     logger.error("Update check failed:", error);
     alert(
-      `Failed to check for updates: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Failed to check for updates: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }

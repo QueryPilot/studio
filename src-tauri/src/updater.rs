@@ -45,22 +45,28 @@ struct PlatformInfo {
     signature: Option<String>,
 }
 
-/// Check for updates from private GitHub repository
+/// Check for updates from GitHub repository (supports prereleases)
 #[tauri::command]
 pub async fn check_for_updates(app: AppHandle) -> Result<Option<ReleaseInfo>, String> {
-    let token = GITHUB_TOKEN.ok_or("GitHub token not configured")?;
     let current_version = app.package_info().version.to_string();
 
-    // Fetch latest release
     let client = reqwest::Client::new();
-    let response = client
-        .get("https://api.github.com/repos/QueryPilot/studio-app/releases/latest")
-        .header("Authorization", format!("token {}", token))
+
+    // Use /releases (not /releases/latest) so prereleases are included
+    let mut request = client
+        .get("https://api.github.com/repos/QueryPilot/studio-app/releases")
         .header("Accept", "application/vnd.github.v3+json")
         .header("User-Agent", "QueryPilot")
+        .query(&[("per_page", "1")]);
+
+    if let Some(token) = GITHUB_TOKEN {
+        request = request.header("Authorization", format!("token {}", token));
+    }
+
+    let response = request
         .send()
         .await
-        .map_err(|e| format!("Failed to fetch release: {}", e))?;
+        .map_err(|e| format!("Failed to fetch releases: {}", e))?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -68,10 +74,15 @@ pub async fn check_for_updates(app: AppHandle) -> Result<Option<ReleaseInfo>, St
         return Err(format!("GitHub API error {}: {}", status, body));
     }
 
-    let release: GitHubRelease = response
+    let releases: Vec<GitHubRelease> = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse release: {}", e))?;
+        .map_err(|e| format!("Failed to parse releases: {}", e))?;
+
+    let release = match releases.into_iter().next() {
+        Some(r) => r,
+        None => return Ok(None),
+    };
 
     let latest_version = release.tag_name.trim_start_matches('v');
 
@@ -88,7 +99,7 @@ pub async fn check_for_updates(app: AppHandle) -> Result<Option<ReleaseInfo>, St
     // Find latest.json asset
     if let Some(manifest_asset) = release.assets.iter().find(|a| a.name == "latest.json") {
         if let Ok(manifest) =
-            fetch_manifest(&client, token, &manifest_asset.browser_download_url).await
+            fetch_manifest(&client, GITHUB_TOKEN, &manifest_asset.browser_download_url).await
         {
             if let Some(platform_info) = manifest.platforms.get(&platform) {
                 download_url = platform_info.url.clone();
@@ -121,14 +132,17 @@ pub async fn check_for_updates(app: AppHandle) -> Result<Option<ReleaseInfo>, St
 /// Download update to temp directory
 #[tauri::command]
 pub async fn download_update(url: String) -> Result<PathBuf, String> {
-    let token = GITHUB_TOKEN.ok_or("GitHub token not configured")?;
-
     let client = reqwest::Client::new();
-    let response = client
+    let mut request = client
         .get(&url)
-        .header("Authorization", format!("token {}", token))
         .header("Accept", "application/octet-stream")
-        .header("User-Agent", "QueryPilot")
+        .header("User-Agent", "QueryPilot");
+
+    if let Some(token) = GITHUB_TOKEN {
+        request = request.header("Authorization", format!("token {}", token));
+    }
+
+    let response = request
         .send()
         .await
         .map_err(|e| format!("Download failed: {}", e))?;
@@ -212,14 +226,19 @@ pub async fn install_update(file_path: String) -> Result<(), String> {
 
 async fn fetch_manifest(
     client: &reqwest::Client,
-    token: &str,
+    token: Option<&str>,
     url: &str,
 ) -> Result<UpdateManifest, String> {
-    let response = client
+    let mut request = client
         .get(url)
-        .header("Authorization", format!("token {}", token))
         .header("Accept", "application/octet-stream")
-        .header("User-Agent", "QueryPilot")
+        .header("User-Agent", "QueryPilot");
+
+    if let Some(token) = token {
+        request = request.header("Authorization", format!("token {}", token));
+    }
+
+    let response = request
         .send()
         .await
         .map_err(|e| format!("Failed to fetch manifest: {}", e))?;

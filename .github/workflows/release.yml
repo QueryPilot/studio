@@ -105,7 +105,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14 # M1 ARM runner for universal builds
+          - os: macos-latest # ARM runner for universal builds
             platform: macos
             target: universal-apple-darwin
             arch: universal

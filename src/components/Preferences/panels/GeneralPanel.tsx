@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAppStore } from "@/stores/appStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   IconRefresh,
   IconLoader2,
@@ -14,9 +14,15 @@ import {
   IconDownload,
 } from "@tabler/icons-react";
 import { getVersion } from "@tauri-apps/api/app";
-import { check } from "@tauri-apps/plugin-updater";
-import type { Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
+import { invoke } from "@tauri-apps/api/core";
+
+interface ReleaseInfo {
+  version: string;
+  notes: string;
+  pub_date: string;
+  download_url: string;
+  signature: string | null;
+}
 
 export default function GeneralPanel() {
   const { theme, setTheme, zoomLevel, setZoomLevel } = useAppStore();
@@ -34,48 +40,26 @@ export default function GeneralPanel() {
   const [updateMessage, setUpdateMessage] = useState("");
   const [appVersion, setAppVersion] = useState("");
   const [availableVersion, setAvailableVersion] = useState<string | null>(null);
-  const pendingUpdateRef = useRef<Update | null>(null);
-
-  const closePendingUpdate = useCallback(async () => {
-    const pending = pendingUpdateRef.current;
-    pendingUpdateRef.current = null;
-
-    if (!pending) {
-      return;
-    }
-
-    try {
-      await pending.close();
-    } catch {
-      // Ignore close errors; update handles are best-effort cleanup.
-    }
-  }, []);
+  const releaseRef = useRef<ReleaseInfo | null>(null);
 
   useEffect(() => {
     setUnsavedChanges(false);
     void getVersion().then(setAppVersion);
   }, [setUnsavedChanges]);
 
-  useEffect(
-    () => () => {
-      void closePendingUpdate();
-    },
-    [closePendingUpdate],
-  );
-
   const handleCheckUpdate = async () => {
     try {
       setUpdateStatus("checking");
       setUpdateMessage("");
       setAvailableVersion(null);
-      await closePendingUpdate();
-      const update = await check();
+      releaseRef.current = null;
+      const release = await invoke<ReleaseInfo | null>("check_for_updates");
 
-      if (update) {
-        pendingUpdateRef.current = update;
-        setAvailableVersion(update.version);
+      if (release) {
+        releaseRef.current = release;
+        setAvailableVersion(release.version);
         setUpdateStatus("available");
-        setUpdateMessage(`Version ${update.version} available`);
+        setUpdateMessage(`Version ${release.version} available`);
       } else {
         setUpdateStatus("uptodate");
         setUpdateMessage("You're on the latest version");
@@ -83,26 +67,31 @@ export default function GeneralPanel() {
     } catch (error) {
       setUpdateStatus("error");
       setUpdateMessage(
-        error instanceof Error ? error.message : "Failed to check for updates",
+        error instanceof Error ? error.message : String(error),
       );
     }
   };
 
   const handleInstallUpdate = async () => {
-    const pendingUpdate = pendingUpdateRef.current;
-    if (!pendingUpdate) return;
+    const release = releaseRef.current;
+    if (!release) return;
 
     try {
       setUpdateStatus("installing");
-      setUpdateMessage(`Installing v${pendingUpdate.version}...`);
-      await pendingUpdate.downloadAndInstall();
-      await closePendingUpdate();
-      setUpdateMessage("Update installed. Restarting...");
-      await relaunch();
+      setUpdateMessage(`Downloading v${release.version}...`);
+      const filePath = await invoke<string>("download_update", {
+        url: release.download_url,
+      });
+      setUpdateMessage("Opening installer...");
+      await invoke("install_update", { filePath });
+      setUpdateStatus("idle");
+      setUpdateMessage(
+        "Installer opened. Follow the prompts to complete the update.",
+      );
     } catch (error) {
       setUpdateStatus("error");
       setUpdateMessage(
-        error instanceof Error ? error.message : "Failed to install update.",
+        error instanceof Error ? error.message : String(error),
       );
     }
   };
