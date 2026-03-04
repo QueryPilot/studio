@@ -22,8 +22,7 @@ fi
 
 VERSION="${1:-}"
 VERSION="${VERSION#v}"  # Strip v prefix if present (e.g., v2026.1.0 → 2026.1.0)
-TARGET="${2:-aarch64-apple-darwin}"
-ARCH="aarch64"  # Apple Silicon only for local builds
+TARGETS="aarch64-apple-darwin x86_64-apple-darwin universal-apple-darwin"
 
 # Colors
 RED='\033[0;31m'
@@ -72,11 +71,13 @@ check_requirements() {
         error "No Developer ID Application certificate found in keychain"
     fi
 
-    # Check Rust target for Apple Silicon build
-    if ! rustup target list --installed | grep -q "aarch64-apple-darwin"; then
-        log "Installing aarch64-apple-darwin target..."
-        rustup target add aarch64-apple-darwin
-    fi
+    # Check Rust targets for cross-compilation
+    for t in aarch64-apple-darwin x86_64-apple-darwin; do
+        if ! rustup target list --installed | grep -q "$t"; then
+            log "Installing $t target..."
+            rustup target add "$t"
+        fi
+    done
 
     # Check for AI CLI (codex or claude)
     if command -v codex &> /dev/null; then
@@ -463,22 +464,28 @@ $(echo "$changelog" | sed 's/^## \[.*\] - .*//; s/^### /- /; s/^- $//; /^$/d' | 
 
 # Build MCP sidecar (mirrors CI: .github/workflows/release.yml)
 build_mcp_sidecar() {
-    log "Building MCP sidecar ($TARGET)..."
+    log "Building MCP sidecar (all targets)..."
 
     cargo build --release --package querypilot-mcp --target aarch64-apple-darwin
+    cargo build --release --package querypilot-mcp --target x86_64-apple-darwin
 
     mkdir -p target/release
 
-    # Create arch-specific copy for Tauri bundling
+    # Create arch-specific copies for Tauri bundling
     cp target/aarch64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-aarch64-apple-darwin
+    cp target/x86_64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-x86_64-apple-darwin
 
-    success "MCP sidecar built for $TARGET"
+    # Create universal binary
+    lipo -create \
+        target/aarch64-apple-darwin/release/querypilot-mcp \
+        target/x86_64-apple-darwin/release/querypilot-mcp \
+        -output target/release/querypilot-mcp-universal-apple-darwin
+
+    success "MCP sidecar built (arm64 + x64 + universal)"
 }
 
-# Build Tauri app with signing
+# Build Tauri app for all targets
 build_app() {
-    log "Building Tauri app for $TARGET..."
-
     # Check for notarization credentials
     if [ -z "$APPLE_ID" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
         warn "Notarization env vars not set - app will be signed but NOT notarized"
@@ -500,59 +507,72 @@ build_app() {
         BUILD_FEATURES="--features telemetry"
     fi
 
-    # Build
-    NODE_OPTIONS="--max-old-space-size=6144" \
-    VITE_DISABLE_SOURCEMAPS="true" \
-    pnpm tauri build --target "$TARGET" -- $BUILD_FEATURES
+    for target in $TARGETS; do
+        log "Building Tauri app for $target..."
+        NODE_OPTIONS="--max-old-space-size=6144" \
+        VITE_DISABLE_SOURCEMAPS="true" \
+        pnpm tauri build --target "$target" -- $BUILD_FEATURES
+        success "Built: $target"
+    done
 
-    success "Tauri app built"
+    success "All targets built"
 }
 
-# Find and rename DMG
-prepare_dmg() {
-    log "Preparing DMG..."
-
-    # Workspace builds output to root target/ directory
-    DMG_PATH=$(find "target/$TARGET/release/bundle/dmg" -name "*.dmg" 2>/dev/null | head -n 1)
-    # Fall back to src-tauri/target for builds run from within src-tauri/
-    if [ -z "$DMG_PATH" ]; then
-      DMG_PATH=$(find "src-tauri/target/$TARGET/release/bundle/dmg" -name "*.dmg" 2>/dev/null | head -n 1)
-    fi
-    [ -n "$DMG_PATH" ] || error "No DMG file found!"
-
-    cp "$DMG_PATH" "QueryPilot_v${NEXT_VERSION}.dmg"
-
-    success "DMG ready: QueryPilot_v${NEXT_VERSION}.dmg (universal binary)"
+# Map target triple to arch suffix for artifact naming
+arch_suffix() {
+    case "$1" in
+        aarch64-apple-darwin) echo "aarch64" ;;
+        x86_64-apple-darwin)  echo "x86_64" ;;
+        universal-apple-darwin) echo "universal" ;;
+        *) echo "$1" ;;
+    esac
 }
 
-# Find updater artifacts (.app.tar.gz and .app.tar.gz.sig) produced by Tauri build
-prepare_updater_artifacts() {
-    log "Preparing updater artifacts..."
+# Collect DMGs and updater artifacts from all targets
+prepare_artifacts() {
+    log "Collecting artifacts from all targets..."
 
-    # Find .app.tar.gz (updater archive)
-    UPDATER_ARCHIVE=$(find "target/$TARGET/release/bundle" -name "*.app.tar.gz" 2>/dev/null | head -n 1)
-    if [ -z "$UPDATER_ARCHIVE" ]; then
-        UPDATER_ARCHIVE=$(find "src-tauri/target/$TARGET/release/bundle" -name "*.app.tar.gz" 2>/dev/null | head -n 1)
-    fi
+    ARTIFACT_FILES=""
 
-    # Find .app.tar.gz.sig (signature)
-    UPDATER_SIG=$(find "target/$TARGET/release/bundle" -name "*.app.tar.gz.sig" 2>/dev/null | head -n 1)
-    if [ -z "$UPDATER_SIG" ]; then
-        UPDATER_SIG=$(find "src-tauri/target/$TARGET/release/bundle" -name "*.app.tar.gz.sig" 2>/dev/null | head -n 1)
-    fi
+    for target in $TARGETS; do
+        local suffix
+        suffix=$(arch_suffix "$target")
 
-    if [ -z "$UPDATER_ARCHIVE" ] || [ -z "$UPDATER_SIG" ]; then
-        error "Missing updater artifacts (.app.tar.gz + .sig). Ensure TAURI_SIGNING_PRIVATE_KEY is set."
-    fi
+        # Find DMG
+        DMG_PATH=$(find "target/$target/release/bundle/dmg" -name "*.dmg" 2>/dev/null | head -n 1)
+        if [ -z "$DMG_PATH" ]; then
+            DMG_PATH=$(find "src-tauri/target/$target/release/bundle/dmg" -name "*.dmg" 2>/dev/null | head -n 1)
+        fi
+        [ -n "$DMG_PATH" ] || error "No DMG found for $target"
 
-    UPDATER_ARCHIVE_NAME=$(basename "$UPDATER_ARCHIVE")
-    UPDATER_SIG_NAME=$(basename "$UPDATER_SIG")
+        DMG_NAME="QueryPilot_v${NEXT_VERSION}_${suffix}.dmg"
+        cp "$DMG_PATH" "$DMG_NAME"
+        ARTIFACT_FILES="$ARTIFACT_FILES $DMG_NAME"
+        success "DMG: $DMG_NAME"
 
-    cp "$UPDATER_ARCHIVE" "$UPDATER_ARCHIVE_NAME"
-    cp "$UPDATER_SIG" "$UPDATER_SIG_NAME"
+        # Find updater artifacts for each target
+        UPDATER_ARCHIVE=$(find "target/$target/release/bundle" -name "*.app.tar.gz" 2>/dev/null | head -n 1)
+        if [ -z "$UPDATER_ARCHIVE" ]; then
+            UPDATER_ARCHIVE=$(find "src-tauri/target/$target/release/bundle" -name "*.app.tar.gz" 2>/dev/null | head -n 1)
+        fi
+        UPDATER_SIG=$(find "target/$target/release/bundle" -name "*.app.tar.gz.sig" 2>/dev/null | head -n 1)
+        if [ -z "$UPDATER_SIG" ]; then
+            UPDATER_SIG=$(find "src-tauri/target/$target/release/bundle" -name "*.app.tar.gz.sig" 2>/dev/null | head -n 1)
+        fi
 
-    success "Updater archive: $UPDATER_ARCHIVE_NAME"
-    success "Updater signature: $UPDATER_SIG_NAME"
+        if [ -z "$UPDATER_ARCHIVE" ] || [ -z "$UPDATER_SIG" ]; then
+            error "Missing updater artifacts for $target. Ensure TAURI_SIGNING_PRIVATE_KEY is set."
+        fi
+
+        # Rename with arch suffix to avoid collisions
+        ARCHIVE_NAME="QueryPilot_v${NEXT_VERSION}_${suffix}.app.tar.gz"
+        SIG_NAME="QueryPilot_v${NEXT_VERSION}_${suffix}.app.tar.gz.sig"
+        cp "$UPDATER_ARCHIVE" "$ARCHIVE_NAME"
+        cp "$UPDATER_SIG" "$SIG_NAME"
+        ARTIFACT_FILES="$ARTIFACT_FILES $ARCHIVE_NAME $SIG_NAME"
+
+        success "Updater: $ARCHIVE_NAME + $SIG_NAME"
+    done
 }
 
 # Generate update manifest (reads signature from .sig file, points at .app.tar.gz)
@@ -570,29 +590,37 @@ generate_manifest() {
         RAW_NOTES="See CHANGELOG.md for details"
     fi
 
-    # Read signature from the .sig file (matches CI manifest generation)
-    SIGNATURE=$(tr -d '\r\n' < "$UPDATER_SIG_NAME")
-    if [ -z "$SIGNATURE" ]; then
-        error "Signature file is empty: $UPDATER_SIG_NAME"
-    fi
+    BASE_URL="https://github.com/QueryPilot/QueryPilot/releases/download/v$version"
 
-    # URL points to .app.tar.gz in public repo
-    UPDATE_URL="https://github.com/QueryPilot/QueryPilot/releases/download/v$version/$UPDATER_ARCHIVE_NAME"
+    # Arch-specific updater archives
+    AARCH64_ARCHIVE="QueryPilot_v${version}_aarch64.app.tar.gz"
+    AARCH64_SIG="QueryPilot_v${version}_aarch64.app.tar.gz.sig"
+    X86_64_ARCHIVE="QueryPilot_v${version}_x86_64.app.tar.gz"
+    X86_64_SIG="QueryPilot_v${version}_x86_64.app.tar.gz.sig"
 
-    # Build manifest (matches CI: .github/workflows/release.yml)
+    for f in "$AARCH64_SIG" "$X86_64_SIG"; do
+        [ -f "$f" ] || error "Missing signature file: $f"
+    done
+
+    AARCH64_SIGNATURE=$(tr -d '\r\n' < "$AARCH64_SIG")
+    X86_64_SIGNATURE=$(tr -d '\r\n' < "$X86_64_SIG")
+
+    # Build manifest with arch-specific URLs (matches CI)
     jq -n \
         --arg version "$version" \
         --arg notes "$RAW_NOTES" \
         --arg pub_date "$PUB_DATE" \
-        --arg sig "$SIGNATURE" \
-        --arg url "$UPDATE_URL" \
+        --arg aarch64_sig "$AARCH64_SIGNATURE" \
+        --arg aarch64_url "$BASE_URL/$AARCH64_ARCHIVE" \
+        --arg x86_64_sig "$X86_64_SIGNATURE" \
+        --arg x86_64_url "$BASE_URL/$X86_64_ARCHIVE" \
         '{
             version: $version,
             notes: $notes,
             pub_date: $pub_date,
             platforms: {
-                "darwin-aarch64": { signature: $sig, url: $url },
-                "darwin-x86_64": { signature: $sig, url: $url }
+                "darwin-aarch64": { signature: $aarch64_sig, url: $aarch64_url },
+                "darwin-x86_64": { signature: $x86_64_sig, url: $x86_64_url }
             }
         }' > latest.json
 
@@ -625,35 +653,19 @@ publish_release() {
         PRERELEASE="--prerelease"
     fi
 
-    # Create release notes
+    # Create release notes (changelog only)
     cat > /tmp/release-notes.md << EOF
 $changelog
-
----
-
-### Installation
-
-**macOS (Apple Silicon)**
-- Download \`QueryPilot_v$version.dmg\`
-- Open DMG and drag Query Pilot to Applications
-
-### Code Signing
-- Signed with Apple Developer ID
-$([ -n "$APPLE_ID" ] && echo "- Notarized with Apple" || echo "- **Not notarized** (local build)")
-
-### Full Changelog
-See [CHANGELOG.md](https://github.com/QueryPilot/studio/blob/master/CHANGELOG.md)
 EOF
 
     # Create release with all artifacts
+    # shellcheck disable=SC2086
     gh release create "v$version" \
         --repo QueryPilot/QueryPilot \
         --title "Query Pilot v$version" \
         --notes-file /tmp/release-notes.md \
         $PRERELEASE \
-        "QueryPilot_v${version}.dmg" \
-        "$UPDATER_ARCHIVE_NAME" \
-        "$UPDATER_SIG_NAME" \
+        $ARTIFACT_FILES \
         latest.json \
         CHANGELOG.md
 
@@ -702,8 +714,7 @@ main() {
 
     build_mcp_sidecar
     build_app
-    prepare_dmg
-    prepare_updater_artifacts
+    prepare_artifacts
     generate_manifest "$NEXT_VERSION"
     publish_release "$NEXT_VERSION" "$NEW_CHANGELOG"
 

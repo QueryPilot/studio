@@ -115,26 +115,10 @@ jobs:
             CHANGELOG_CONTENT="No notable changes in this release."
           fi
 
-          # Create release notes by building file incrementally
+          # Create release notes (changelog only)
           echo "## What's Changed" > /tmp/release-notes.md
           echo "" >> /tmp/release-notes.md
           echo "$CHANGELOG_CONTENT" >> /tmp/release-notes.md
-          cat >> /tmp/release-notes.md << EOF
-
-          ---
-
-          ### Installation
-
-          **macOS:**
-          - Download \`QueryPilot_${VERSION}.dmg\` (works on both Intel and Apple Silicon Macs)
-          - Open DMG and drag Query Pilot to Applications folder
-          - On first launch, right-click the app and select "Open" if you see a security warning
-
-          **Windows and Linux:** Coming soon
-
-          ### Full Changelog
-          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md) for complete version history.
-          EOF
 
           gh release create "$VERSION" \
             --draft \
@@ -151,7 +135,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-26 # ARM runner for universal builds
+          - os: macos-26
+            platform: macos
+            target: aarch64-apple-darwin
+            arch: aarch64
+          - os: macos-26
+            platform: macos
+            target: x86_64-apple-darwin
+            arch: x86_64
+          - os: macos-26
             platform: macos
             target: universal-apple-darwin
             arch: universal
@@ -220,20 +212,28 @@ jobs:
       # Build MCP Sidecar (required by externalBin)
       # ============================================
 
-      - name: Build MCP sidecar (universal binary)
+      - name: Build MCP sidecar
         run: |
-          cargo build --release --package querypilot-mcp --target aarch64-apple-darwin
-          cargo build --release --package querypilot-mcp --target x86_64-apple-darwin
+          TARGET="${{ matrix.target }}"
           mkdir -p target/release
-          # Create arch-specific copies for Tauri bundling
-          cp target/aarch64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-aarch64-apple-darwin
-          cp target/x86_64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-x86_64-apple-darwin
-          # Create universal binary
-          lipo -create \
-            target/aarch64-apple-darwin/release/querypilot-mcp \
-            target/x86_64-apple-darwin/release/querypilot-mcp \
-            -output target/release/querypilot-mcp-universal-apple-darwin
-          echo "MCP sidecar built for universal-apple-darwin"
+
+          if [ "$TARGET" = "universal-apple-darwin" ]; then
+            # Universal: build both + lipo
+            cargo build --release --package querypilot-mcp --target aarch64-apple-darwin
+            cargo build --release --package querypilot-mcp --target x86_64-apple-darwin
+            cp target/aarch64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-aarch64-apple-darwin
+            cp target/x86_64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-x86_64-apple-darwin
+            lipo -create \
+              target/aarch64-apple-darwin/release/querypilot-mcp \
+              target/x86_64-apple-darwin/release/querypilot-mcp \
+              -output target/release/querypilot-mcp-universal-apple-darwin
+          else
+            # Single arch
+            cargo build --release --package querypilot-mcp --target "$TARGET"
+            cp "target/$TARGET/release/querypilot-mcp" "target/release/querypilot-mcp-$TARGET"
+          fi
+
+          echo "MCP sidecar built for $TARGET"
 
       # ============================================
       # Build Tauri App
@@ -286,8 +286,8 @@ jobs:
 
       - name: Find and upload macOS artifacts
         run: |
-          echo "🔍 Searching for updater artifacts..."
-          find target/${{ matrix.target }}/release/bundle -type f \( -name "*.dmg" -o -name "*.app.tar.gz" -o -name "*.app.tar.gz.sig" \) || echo "No matching files found"
+          VERSION="${{ needs.create-release.outputs.version }}"
+          ARCH="${{ matrix.arch }}"
 
           DMG_PATH=$(find target/${{ matrix.target }}/release/bundle/dmg -name "*.dmg" | head -n 1)
           UPDATER_ARCHIVE=$(find target/${{ matrix.target }}/release/bundle -name "*.app.tar.gz" | head -n 1)
@@ -302,27 +302,17 @@ jobs:
             exit 1
           fi
 
-          VERSION="${{ needs.create-release.outputs.version }}"
-          DMG_NAME="QueryPilot_${VERSION}.dmg"
-          ARCHIVE_NAME=$(basename "$UPDATER_ARCHIVE")
-          SIG_NAME=$(basename "$UPDATER_SIG")
-
-          echo "📦 Found DMG: $DMG_PATH"
-          echo "📦 Found updater archive: $UPDATER_ARCHIVE"
-          echo "📦 Found updater signature: $UPDATER_SIG"
+          # Name artifacts with arch suffix
+          DMG_NAME="QueryPilot_${VERSION}_${ARCH}.dmg"
+          ARCHIVE_NAME="QueryPilot_${VERSION}_${ARCH}.app.tar.gz"
+          SIG_NAME="QueryPilot_${VERSION}_${ARCH}.app.tar.gz.sig"
 
           mv "$DMG_PATH" "$DMG_NAME"
           cp "$UPDATER_ARCHIVE" "$ARCHIVE_NAME"
           cp "$UPDATER_SIG" "$SIG_NAME"
 
-          echo "🚀 Uploading to release: $VERSION"
-          gh release upload "$VERSION" \
-            "$DMG_NAME" \
-            "$ARCHIVE_NAME" \
-            "$SIG_NAME" \
-            --clobber
-
-          echo "✅ Uploaded: $DMG_NAME, $ARCHIVE_NAME, $SIG_NAME"
+          echo "🚀 Uploading: $DMG_NAME, $ARCHIVE_NAME, $SIG_NAME"
+          gh release upload "$VERSION" "$DMG_NAME" "$ARCHIVE_NAME" "$SIG_NAME" --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -388,38 +378,42 @@ jobs:
             RAW_NOTES="See CHANGELOG.md for details"
           fi
 
-          UPDATE_ARCHIVE=$(ls *.app.tar.gz | head -n 1)
-          UPDATE_SIG_FILE=$(ls *.app.tar.gz.sig | head -n 1)
+          BASE_URL="https://github.com/QueryPilot/QueryPilot/releases/download/$VERSION"
 
-          if [ -z "$UPDATE_ARCHIVE" ] || [ -z "$UPDATE_SIG_FILE" ]; then
-            echo "❌ Missing updater assets for manifest generation"
-            exit 1
-          fi
+          # Arch-specific updater archives
+          AARCH64_ARCHIVE="QueryPilot_${VERSION}_aarch64.app.tar.gz"
+          AARCH64_SIG="QueryPilot_${VERSION}_aarch64.app.tar.gz.sig"
+          X86_64_ARCHIVE="QueryPilot_${VERSION}_x86_64.app.tar.gz"
+          X86_64_SIG="QueryPilot_${VERSION}_x86_64.app.tar.gz.sig"
 
-          UPDATE_URL="https://github.com/QueryPilot/QueryPilot/releases/download/$VERSION/$UPDATE_ARCHIVE"
-          SIGNATURE=$(tr -d '\r\n' < "$UPDATE_SIG_FILE")
+          for f in "$AARCH64_ARCHIVE" "$AARCH64_SIG" "$X86_64_ARCHIVE" "$X86_64_SIG"; do
+            if [ ! -f "$f" ]; then
+              echo "❌ Missing updater asset: $f"
+              exit 1
+            fi
+          done
 
-          if [ -z "$SIGNATURE" ]; then
-            echo "❌ Signature file is empty: $UPDATE_SIG_FILE"
-            exit 1
-          fi
+          AARCH64_SIGNATURE=$(tr -d '\r\n' < "$AARCH64_SIG")
+          X86_64_SIGNATURE=$(tr -d '\r\n' < "$X86_64_SIG")
 
           jq -n \
             --arg version "$VERSION_NUMBER" \
             --arg notes "$RAW_NOTES" \
             --arg pub_date "$PUB_DATE" \
-            --arg sig "$SIGNATURE" \
-            --arg url "$UPDATE_URL" \
+            --arg aarch64_sig "$AARCH64_SIGNATURE" \
+            --arg aarch64_url "$BASE_URL/$AARCH64_ARCHIVE" \
+            --arg x86_64_sig "$X86_64_SIGNATURE" \
+            --arg x86_64_url "$BASE_URL/$X86_64_ARCHIVE" \
             '{
               version: $version,
               notes: $notes,
               pub_date: $pub_date,
               platforms: {
-                "darwin-aarch64": { signature: $sig, url: $url },
-                "darwin-x86_64": { signature: $sig, url: $url }
+                "darwin-aarch64": { signature: $aarch64_sig, url: $aarch64_url },
+                "darwin-x86_64": { signature: $x86_64_sig, url: $x86_64_url }
               }
             }' > latest.json
-          echo "✓ Generated signed darwin updater manifest"
+          echo "✓ Generated arch-specific updater manifest"
 
           echo "✓ Update manifest generated"
           cat latest.json
@@ -512,27 +506,10 @@ jobs:
             CHANGELOG_CONTENT="No notable changes in this release."
           fi
 
-          # Build release notes
+          # Build release notes (changelog only)
           echo "## What's Changed" > RELEASE_NOTES.md
           echo "" >> RELEASE_NOTES.md
           echo "$CHANGELOG_CONTENT" >> RELEASE_NOTES.md
-          cat >> RELEASE_NOTES.md << EOF
-
-          ---
-
-          ## Installation
-
-          **macOS:**
-          - Download \`QueryPilot_${VERSION}.dmg\` (works on both Intel and Apple Silicon Macs)
-          - Open DMG and drag Query Pilot to Applications folder
-          - On first launch, right-click the app and select "Open" if you see a security warning
-
-          **Windows and Linux:** Coming soon
-
-          ## Full Changelog
-
-          See [CHANGELOG.md](https://github.com/QueryPilot/QueryPilot/blob/main/CHANGELOG.md) for complete version history.
-          EOF
 
           echo "📝 Release notes prepared:"
           cat RELEASE_NOTES.md
