@@ -474,33 +474,32 @@ fn is_valid_executable(path: &std::path::Path) -> bool {
 /// Get the path to the MCP sidecar binary
 /// Returns the absolute path to the querypilot-mcp sidecar bundled with the app
 #[tauri::command]
-pub async fn acp_get_mcp_sidecar_path(app_handle: tauri::AppHandle) -> Result<String, String> {
-    use tauri::Manager;
-
-    // In development, use the debug build path
-    // In production, use the bundled sidecar from the app resources
+pub async fn acp_get_mcp_sidecar_path(_app_handle: tauri::AppHandle) -> Result<String, String> {
     let sidecar_name = if cfg!(target_os = "windows") {
         "querypilot-mcp.exe"
     } else {
         "querypilot-mcp"
     };
 
-    // Try to resolve from app resources (production)
-    if let Ok(resource_dir) = app_handle.path().resource_dir() {
-        let sidecar_path = resource_dir.join("binaries").join(sidecar_name);
-        if is_valid_executable(&sidecar_path) {
-            tracing::info!("Found MCP sidecar at: {}", sidecar_path.display());
-            return Ok(sidecar_path.to_string_lossy().to_string());
+    // Production: Tauri 2 externalBin bundles sidecars into Contents/MacOS/ (same
+    // directory as the main executable) with the target-triple suffix stripped.
+    // See: tauri-bundler/src/bundle/macos/app.rs copy_binaries_to_bundle()
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let sidecar_path = exe_dir.join(sidecar_name);
+            if is_valid_executable(&sidecar_path) {
+                tracing::info!("Found MCP sidecar at: {}", sidecar_path.display());
+                return Ok(sidecar_path.to_string_lossy().to_string());
+            }
         }
     }
 
-    // Fallback: try the workspace target paths for development
-    // Tauri runs from src-tauri/, but workspace root is parent directory
+    // Development: try workspace target paths
+    // Tauri runs from src-tauri/, workspace root is parent directory
     let current_dir =
         std::env::current_dir().map_err(|e| format!("Failed to get current dir: {}", e))?;
 
     // Check workspace root target (for cargo workspace builds)
-    // Prefer release over debug since debug builds may be incomplete
     if let Some(workspace_root) = current_dir.parent() {
         for profile in ["release", "debug"] {
             let workspace_path = workspace_root
@@ -528,7 +527,7 @@ pub async fn acp_get_mcp_sidecar_path(app_handle: tauri::AppHandle) -> Result<St
     }
 
     Err(format!(
-        "MCP sidecar not found or invalid. Expected a valid executable at bundled resources or target/{{release,debug}}/{}",
+        "MCP sidecar not found. Checked: executable dir, resource dir, target/{{release,debug}}/{}",
         sidecar_name
     ))
 }
