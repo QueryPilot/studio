@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [2026.1.0-beta.10] - 2026-03-05
+
+### Improvements
+- Improved MCP sidecar discovery by checking the installed app location first, so AI features start more reliably across different local setups.
+
+### Bug Fixes
+- Updated the AI panel error message when the MCP sidecar is missing, with clearer guidance to restart Query Pilot or reinstall so you can recover faster.
+
 ## [2026.1.0-beta.9] - 2026-03-05
 
 ### New Features
