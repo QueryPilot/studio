@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2026.1.0-beta.8] - 2026-03-04
 
+This beta release includes no user-facing changes. It focuses on internal release workflow updates to improve reliability for future publishes.
+
+## [2026.1.0-beta.8] - 2026-03-04
+
 ### Improvements
 - Improved release delivery reliability after the repository move, so update metadata and release links now resolve consistently.
 - Streamlined local build targeting for Apple Silicon (`aarch64-apple-darwin`), making native macOS builds more predictable on M-series Macs.
