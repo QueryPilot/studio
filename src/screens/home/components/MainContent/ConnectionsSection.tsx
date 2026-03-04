@@ -423,7 +423,17 @@ export function ConnectionsSection() {
     const workspaceToConnections = getConnectionsByWorkspace();
     const uncategorizedIds = getUncategorizedConnectionIds();
 
+    // Collect connection IDs from auto-created workspaces (treated as uncategorized)
+    const autoCreatedConnectionIds = new Set<string>();
+
     for (const ws of savedWorkspaces) {
+      if (ws.autoCreated) {
+        for (const id of ws.connectionIds) {
+          autoCreatedConnectionIds.add(id);
+        }
+        continue;
+      }
+
       const connIds = workspaceToConnections.get(ws.id) ?? [];
       const wsConnections = connIds
         .map((id) => connectionMap.get(id))
@@ -433,7 +443,9 @@ export function ConnectionsSection() {
       groups.push({ workspace: ws, connections: wsConnections });
     }
 
-    const uncategorizedConnections = uncategorizedIds
+    // Merge truly uncategorized + auto-created workspace connections
+    const allUncategorizedIds = [...uncategorizedIds, ...autoCreatedConnectionIds];
+    const uncategorizedConnections = allUncategorizedIds
       .map((id) => connectionMap.get(id))
       .filter((c): c is StoredConnection => c !== undefined);
 
