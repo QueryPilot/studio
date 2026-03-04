@@ -46,7 +46,9 @@ export function PanelPortalProvider({
   const notifySubscribers = useCallback((panelId: string) => {
     const subs = subscribersRef.current.get(panelId);
     if (subs) {
-      subs.forEach((cb) => { cb(); });
+      subs.forEach((cb) => {
+        cb();
+      });
     }
   }, []);
 
@@ -80,7 +82,7 @@ export function PanelPortalProvider({
         notifySubscribers(panelId);
       }
     },
-    [notifySubscribers]
+    [notifySubscribers],
   );
 
   const registerContainer = useCallback(
@@ -111,7 +113,7 @@ export function PanelPortalProvider({
         observersRef.current.set(panelId, observer);
       }
     },
-    [updateRect]
+    [updateRect],
   );
 
   const getPanelRect = useCallback((panelId: string) => {
@@ -128,7 +130,7 @@ export function PanelPortalProvider({
         subscribersRef.current.get(panelId)?.delete(callback);
       };
     },
-    []
+    [],
   );
 
   const getRootContainer = useCallback(() => {
@@ -165,15 +167,22 @@ export function PanelPortalProvider({
         cancelAnimationFrame(rafRef.current);
       }
       // Clean up all container observers
-      observersRef.current.forEach((observer) => { observer.disconnect(); });
+      observersRef.current.forEach((observer) => {
+        observer.disconnect();
+      });
       observersRef.current.clear();
     };
   }, [updateRect]);
 
   // Memoize context value to prevent unnecessary re-renders of all consumers
   const contextValue = useMemo(
-    () => ({ registerContainer, getPanelRect, subscribeToRect, getRootContainer }),
-    [registerContainer, getPanelRect, subscribeToRect, getRootContainer]
+    () => ({
+      registerContainer,
+      getPanelRect,
+      subscribeToRect,
+      getRootContainer,
+    }),
+    [registerContainer, getPanelRect, subscribeToRect, getRootContainer],
   );
 
   return (
@@ -230,7 +239,9 @@ export function PanelPortal({
   children: React.ReactNode;
 }) {
   const { getPanelRect, subscribeToRect, getRootContainer } = usePanelPortal();
-  const [rect, setRect] = useState<PanelRect | null>(() => getPanelRect(panelId));
+  const [rect, setRect] = useState<PanelRect | null>(() =>
+    getPanelRect(panelId),
+  );
 
   useLayoutEffect(() => {
     // Get initial rect (may have been registered by PanelContainer already)
@@ -264,6 +275,6 @@ export function PanelPortal({
     >
       {children}
     </div>,
-    rootContainer
+    rootContainer,
   );
 }

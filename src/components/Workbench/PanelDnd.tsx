@@ -264,7 +264,9 @@ export const Panel: React.FC<PanelProps> = React.memo(
     );
     const setActiveTab = useWorkbenchStore((state) => state.setActiveTab);
     const removeTab = useWorkbenchStore((state) => state.removeTab);
-    const updateTabMetadata = useWorkbenchStore((state) => state.updateTabMetadata);
+    const updateTabMetadata = useWorkbenchStore(
+      (state) => state.updateTabMetadata,
+    );
 
     const panelRef = useRef<HTMLDivElement>(null);
     const tabsContainerRef = useRef<HTMLDivElement>(null);
@@ -377,7 +379,7 @@ export const Panel: React.FC<PanelProps> = React.memo(
         tabIndex={0}
         data-panel-id={panelId}
         className={cn(
-          "panel flex flex-col bg-background h-full overflow-hidden relative rounded-xl outline-none border-[3px]",
+          "panel flex flex-col bg-background h-full overflow-hidden relative rounded-xl outline-none border-2",
           isFocused && !isOnlyPanel ? "border-primary/30" : "border-background",
           className,
         )}
@@ -405,7 +407,10 @@ export const Panel: React.FC<PanelProps> = React.memo(
                   ? content.activeTabId === nextTabId
                   : false;
 
-                const hasDataGrid = metadata?.type === "table" || metadata?.type === "mongo-collection" || metadata?.type === "redis-key";
+                const hasDataGrid =
+                  metadata?.type === "table" ||
+                  metadata?.type === "mongo-collection" ||
+                  metadata?.type === "redis-key";
 
                 // Use memoized connection info lookup
                 const connInfo = metadata?.connectionId
@@ -484,10 +489,17 @@ export const Panel: React.FC<PanelProps> = React.memo(
                         description: displayName,
                       });
                     }}
-                    syncSort={hasDataGrid ? metadata?.syncSort !== false : undefined}
+                    syncSort={
+                      hasDataGrid ? metadata?.syncSort !== false : undefined
+                    }
                     onToggleSyncSort={
                       hasDataGrid
-                        ? () => { updateTabMetadata(panelId, tabId, { syncSort: metadata?.syncSort === false ? true : false }); }
+                        ? () => {
+                            updateTabMetadata(panelId, tabId, {
+                              syncSort:
+                                metadata?.syncSort === false ? true : false,
+                            });
+                          }
                         : undefined
                     }
                   />

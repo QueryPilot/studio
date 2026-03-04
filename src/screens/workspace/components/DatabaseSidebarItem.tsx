@@ -196,7 +196,37 @@ export function SidebarItem({
 
   useEffect(() => {
     if (isActive && itemRef.current) {
-      itemRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      const item = itemRef.current;
+      const sidebarScrollContainer = item.closest<HTMLElement>(
+        "[data-sidebar-scroll-container]",
+      );
+
+      if (sidebarScrollContainer) {
+        const containerRect = sidebarScrollContainer.getBoundingClientRect();
+        const itemRect = item.getBoundingClientRect();
+        const itemTopInContainer =
+          itemRect.top - containerRect.top + sidebarScrollContainer.scrollTop;
+        const centeredTop =
+          itemTopInContainer -
+          (sidebarScrollContainer.clientHeight - itemRect.height) / 2;
+        const maxTop = Math.max(
+          0,
+          sidebarScrollContainer.scrollHeight - sidebarScrollContainer.clientHeight,
+        );
+        const top = Math.min(Math.max(centeredTop, 0), maxTop);
+
+        sidebarScrollContainer.scrollTo({
+          behavior: "smooth",
+          top,
+        });
+        return;
+      }
+
+      item.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+        inline: "nearest",
+      });
     }
   }, [isActive]);
 

@@ -423,7 +423,7 @@ export function SidebarConnectionList({
           )}
         </div>
       ) : (
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-auto" data-sidebar-scroll-container>
           {connections.length === 0 ? (
             <div className="p-4 text-center">
               <p className="text-xs text-muted-foreground">
