@@ -555,69 +555,6 @@ prepare_updater_artifacts() {
     success "Updater signature: $UPDATER_SIG_NAME"
 }
 
-# Create GitHub release
-create_release() {
-    local version="$1"
-    local changelog="$2"
-
-    log "Creating GitHub release v$version..."
-
-    # Delete existing release if exists
-    if gh release view "v$version" &>/dev/null; then
-        warn "Release v$version exists, deleting..."
-        gh release delete "v$version" --yes
-    fi
-
-    # Determine prerelease flag
-    PRERELEASE=""
-    if [[ "$version" == *"alpha"* ]] || [[ "$version" == *"beta"* ]] || [[ "$version" == *"rc"* ]]; then
-        PRERELEASE="--prerelease"
-    fi
-
-    # Create release notes
-    cat > /tmp/release-notes.md << EOF
-$changelog
-
----
-
-### Installation
-
-**macOS**
-- Download \`QueryPilot_v$version.dmg\` (works on both Intel and Apple Silicon)
-- Open DMG and drag Query Pilot to Applications
-
-### Code Signing
-- Signed with Apple Developer ID
-$([ -n "$APPLE_ID" ] && echo "- Notarized with Apple" || echo "- **Not notarized** (local build)")
-
-### Full Changelog
-See [CHANGELOG.md](https://github.com/QueryPilot/studio/blob/master/CHANGELOG.md)
-EOF
-
-    # Create draft release
-    gh release create "v$version" \
-        --draft \
-        $PRERELEASE \
-        --title "Query Pilot v$version" \
-        --notes-file /tmp/release-notes.md
-
-    success "Draft release created"
-}
-
-# Upload artifacts (DMG + updater archive + signature) to release
-upload_artifacts() {
-    local version="$1"
-    local dmg_file="QueryPilot_v${version}.dmg"
-
-    log "Uploading artifacts to release..."
-    gh release upload "v$version" \
-        "$dmg_file" \
-        "$UPDATER_ARCHIVE_NAME" \
-        "$UPDATER_SIG_NAME" \
-        --clobber
-    success "Artifacts uploaded: $dmg_file, $UPDATER_ARCHIVE_NAME, $UPDATER_SIG_NAME"
-}
-
 # Generate update manifest (reads signature from .sig file, points at .app.tar.gz)
 generate_manifest() {
     local version="$1"
@@ -639,7 +576,7 @@ generate_manifest() {
         error "Signature file is empty: $UPDATER_SIG_NAME"
     fi
 
-    # URL points to .app.tar.gz in studio-app (matches CI)
+    # URL points to .app.tar.gz in public repo
     UPDATE_URL="https://github.com/QueryPilot/QueryPilot/releases/download/v$version/$UPDATER_ARCHIVE_NAME"
 
     # Build manifest (matches CI: .github/workflows/release.yml)
@@ -663,38 +600,52 @@ generate_manifest() {
     cat latest.json
 }
 
-# Upload manifest
-upload_manifest() {
+# Publish release to QueryPilot/QueryPilot (public app repo)
+# Local releases go directly here — no studio repo release (that's what CI does)
+publish_release() {
     local version="$1"
-
-    log "Uploading manifest to release..."
-    gh release upload "v$version" latest.json --clobber
-    success "Manifest uploaded"
-}
-
-# Publish to studio-app repo
-publish_to_app_repo() {
-    local version="$1"
+    local changelog="$2"
 
     log "Publishing to QueryPilot/QueryPilot..."
 
     # Check if we have access
     if ! gh repo view QueryPilot/QueryPilot &>/dev/null; then
-        warn "No access to QueryPilot/QueryPilot, skipping cross-repo publish"
-        return
+        error "No access to QueryPilot/QueryPilot"
     fi
 
-    # Delete existing release in app repo
+    # Delete existing release if exists
     if gh release view "v$version" --repo QueryPilot/QueryPilot &>/dev/null; then
-        warn "Release exists in studio-app, deleting..."
+        warn "Release v$version exists, deleting..."
         gh release delete "v$version" --repo QueryPilot/QueryPilot --yes
     fi
 
+    # Determine prerelease flag
     PRERELEASE=""
     if [[ "$version" == *"alpha"* ]] || [[ "$version" == *"beta"* ]] || [[ "$version" == *"rc"* ]]; then
-      PRERELEASE="--prerelease"
+        PRERELEASE="--prerelease"
     fi
 
+    # Create release notes
+    cat > /tmp/release-notes.md << EOF
+$changelog
+
+---
+
+### Installation
+
+**macOS (Apple Silicon)**
+- Download \`QueryPilot_v$version.dmg\`
+- Open DMG and drag Query Pilot to Applications
+
+### Code Signing
+- Signed with Apple Developer ID
+$([ -n "$APPLE_ID" ] && echo "- Notarized with Apple" || echo "- **Not notarized** (local build)")
+
+### Full Changelog
+See [CHANGELOG.md](https://github.com/QueryPilot/studio/blob/master/CHANGELOG.md)
+EOF
+
+    # Create release with all artifacts
     gh release create "v$version" \
         --repo QueryPilot/QueryPilot \
         --title "Query Pilot v$version" \
@@ -707,18 +658,6 @@ publish_to_app_repo() {
         CHANGELOG.md
 
     success "Published to QueryPilot/QueryPilot"
-}
-
-# Finalize release
-finalize_release() {
-    local version="$1"
-
-    log "Publishing release..."
-    gh release edit "v$version" --draft=false
-    success "Release published!"
-
-    # Auto-publish to studio-app
-    publish_to_app_repo "$version"
 }
 
 # Cleanup
@@ -765,20 +704,15 @@ main() {
     build_app
     prepare_dmg
     prepare_updater_artifacts
-
-    create_release "$NEXT_VERSION" "$NEW_CHANGELOG"
-    upload_artifacts "$NEXT_VERSION"
     generate_manifest "$NEXT_VERSION"
-    upload_manifest "$NEXT_VERSION"
-    finalize_release "$NEXT_VERSION"
+    publish_release "$NEXT_VERSION" "$NEW_CHANGELOG"
 
     echo ""
     echo -e "${GREEN}==========================================${NC}"
     echo -e "${GREEN}  Release v$NEXT_VERSION complete!${NC}"
     echo -e "${GREEN}==========================================${NC}"
     echo ""
-    echo "  Source release: https://github.com/QueryPilot/studio/releases/tag/v$NEXT_VERSION"
-    echo "  App release:    https://github.com/QueryPilot/QueryPilot/releases/tag/v$NEXT_VERSION"
+    echo "  https://github.com/QueryPilot/QueryPilot/releases/tag/v$NEXT_VERSION"
     echo ""
 }
 
