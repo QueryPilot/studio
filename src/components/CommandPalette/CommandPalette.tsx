@@ -97,6 +97,26 @@ const GROUP_ORDER: ItemGroup[] = [
   "Commands",
 ];
 
+function normalizeSearchValue(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[_./\\-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildSearchVariants(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+
+  const normalized = normalizeSearchValue(trimmed);
+  if (normalized && normalized !== trimmed.toLowerCase()) {
+    return [trimmed, normalized];
+  }
+
+  return [trimmed];
+}
+
 function getItemGroup(item: UnifiedItem): ItemGroup {
   switch (item.type) {
     case "table":
@@ -261,11 +281,23 @@ export function CommandPalette(): React.ReactElement {
   // Ranked search results
   const searchResults = useMemo(() => {
     if (!searchQuery) return null;
-    return matchSorter(unifiedItems, searchQuery, {
+    const normalizedQuery = normalizeSearchValue(searchQuery);
+    const queryToMatch = normalizedQuery || searchQuery;
+
+    return matchSorter(unifiedItems, queryToMatch, {
       keys: [
-        { key: "name", maxRanking: rankings.STARTS_WITH },
-        { key: "keywords", maxRanking: rankings.WORD_STARTS_WITH },
-        { key: "subtitle", maxRanking: rankings.CONTAINS },
+        {
+          key: (item) => buildSearchVariants(item.name),
+          maxRanking: rankings.STARTS_WITH,
+        },
+        {
+          key: (item) => item.keywords.flatMap(buildSearchVariants),
+          maxRanking: rankings.WORD_STARTS_WITH,
+        },
+        {
+          key: (item) => buildSearchVariants(item.subtitle),
+          maxRanking: rankings.CONTAINS,
+        },
       ],
       threshold: rankings.MATCHES,
     });
