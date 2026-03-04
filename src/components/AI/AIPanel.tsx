@@ -607,10 +607,8 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
           <IconAlertTriangle className="h-4 w-4 shrink-0" />
           <span>
-            Database tools unavailable. Build MCP sidecar:{" "}
-            <code className="bg-muted px-1 rounded">
-              cargo build -p querypilot-mcp
-            </code>
+            Database tools unavailable. The MCP sidecar could not be found.
+            Try restarting the app or reinstalling.
           </span>
         </div>
       )}
