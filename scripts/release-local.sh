@@ -647,24 +647,17 @@ publish_release() {
         gh release delete "v$version" --repo QueryPilot/QueryPilot --yes
     fi
 
-    # Determine prerelease flag
-    PRERELEASE=""
-    if [[ "$version" == *"alpha"* ]] || [[ "$version" == *"beta"* ]] || [[ "$version" == *"rc"* ]]; then
-        PRERELEASE="--prerelease"
-    fi
-
     # Create release notes (changelog only)
     cat > /tmp/release-notes.md << EOF
 $changelog
 EOF
 
-    # Create release with all artifacts
+    # Create release (always as full release so /releases/latest works for updater)
     # shellcheck disable=SC2086
     gh release create "v$version" \
         --repo QueryPilot/QueryPilot \
         --title "Query Pilot v$version" \
         --notes-file /tmp/release-notes.md \
-        $PRERELEASE \
         $ARTIFACT_FILES \
         latest.json \
         CHANGELOG.md
@@ -672,9 +665,11 @@ EOF
     success "Published to QueryPilot/QueryPilot"
 }
 
-# Cleanup
+# Cleanup build artifacts
 cleanup() {
     rm -f /tmp/release-notes.md /tmp/tauri-key "$CONTEXT_FILE" 2>/dev/null || true
+    # Remove local build artifacts
+    rm -f QueryPilot_v*.dmg QueryPilot_v*.app.tar.gz QueryPilot_v*.app.tar.gz.sig latest.json 2>/dev/null || true
 }
 
 # Main
