@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2026.1.0-beta.8] - 2026-03-04
 
+### Improvements
+- Improved release delivery reliability after the repository move, so update metadata and release links now resolve consistently.
+- Streamlined local build targeting for Apple Silicon (`aarch64-apple-darwin`), making native macOS builds more predictable on M-series Macs.
+
+### Bug Fixes
+- Fixed outdated repository references in release automation that could point to the wrong project path during packaging and publishing.
+
+## [2026.1.0-beta.8] - 2026-03-04
+
 ### New Features
 - Manage app updates in a new in-app Update dialog. You can now check for updates, review release notes, download updates, and install them with a guided `Restart & Install` flow.
 - Choose `Restart Later` after an update is downloaded. Query Pilot will remember the deferred update and apply it on your next launch.
