@@ -42,6 +42,13 @@ success() { echo -e "${GREEN}[relc]${NC} $1" >&2; }
 warn() { echo -e "${YELLOW}[relc]${NC} $1" >&2; }
 error() { echo -e "${RED}[relc]${NC} $1" >&2; exit 1; }
 
+# Auto-load Tauri updater signing key from .tauri/updater/ if not already set
+UPDATER_KEY_DIR=".tauri/updater"
+if [ -z "$TAURI_PRIVATE_KEY" ] && [ -f "$UPDATER_KEY_DIR/query-pilot.key" ]; then
+    export TAURI_PRIVATE_KEY=$(cat "$UPDATER_KEY_DIR/query-pilot.key")
+    log "Loaded TAURI_PRIVATE_KEY from $UPDATER_KEY_DIR/query-pilot.key"
+fi
+
 # Check required tools
 check_requirements() {
     log "Checking requirements..."

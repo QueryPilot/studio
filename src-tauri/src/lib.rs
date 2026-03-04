@@ -12,7 +12,6 @@ pub mod ssh;
 pub mod state;
 pub mod storage;
 pub mod types;
-pub mod updater;
 pub mod vault;
 
 // Commands module - organized by paradigm

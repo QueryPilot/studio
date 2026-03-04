@@ -8,6 +8,7 @@ describe('preferencesStore', () => {
       isOpen: false,
       activeCategory: 'general',
       unsavedChanges: false,
+      autoCheckForUpdates: true,
     });
   });
 
@@ -125,6 +126,23 @@ describe('preferencesStore', () => {
       store.closePreferences();
       expect(usePreferencesStore.getState().isOpen).toBe(false);
       expect(usePreferencesStore.getState().unsavedChanges).toBe(false);
+    });
+  });
+
+  describe('Update Preferences', () => {
+    it('should enable auto update checks by default', () => {
+      const store = usePreferencesStore.getState();
+      expect(store.autoCheckForUpdates).toBe(true);
+    });
+
+    it('should toggle auto update checks', () => {
+      const store = usePreferencesStore.getState();
+
+      store.setAutoCheckForUpdates(false);
+      expect(usePreferencesStore.getState().autoCheckForUpdates).toBe(false);
+
+      store.setAutoCheckForUpdates(true);
+      expect(usePreferencesStore.getState().autoCheckForUpdates).toBe(true);
     });
   });
 });

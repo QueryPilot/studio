@@ -36,6 +36,10 @@ interface PreferencesState {
   /** Controls whether the app restores the previous session on startup or shows the home screen. Default: "restore". */
   startupBehavior: "restore" | "home";
   setStartupBehavior: (behavior: "restore" | "home") => void;
+
+  /** Controls automatic update checks on startup. Default: true. */
+  autoCheckForUpdates: boolean;
+  setAutoCheckForUpdates: (enabled: boolean) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -65,6 +69,12 @@ export const usePreferencesStore = create<PreferencesState>()(
         set({ startupBehavior: behavior });
       },
 
+      // Auto update checks
+      autoCheckForUpdates: true,
+      setAutoCheckForUpdates: (enabled) => {
+        set({ autoCheckForUpdates: enabled });
+      },
+
       // Dialog state (not persisted)
       isOpen: false,
       activeCategory: "general",
@@ -90,6 +100,7 @@ export const usePreferencesStore = create<PreferencesState>()(
         telemetry: state.telemetry,
         queryTimeoutSecs: state.queryTimeoutSecs,
         startupBehavior: state.startupBehavior,
+        autoCheckForUpdates: state.autoCheckForUpdates,
       }),
     },
   ),

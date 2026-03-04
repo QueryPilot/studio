@@ -107,10 +107,6 @@ fn main() {
             commands::execute_query,
             commands::get_connection_health,
             commands::ping,
-            // Updater commands (for private repo releases)
-            updater::check_for_updates,
-            updater::download_update,
-            updater::install_update,
             // SQL Engine commands (parsing, validation, completion)
             sql_engine::commands::sql_parse,
             sql_engine::commands::sql_validate,

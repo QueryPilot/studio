@@ -58,7 +58,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
-import { triggerAppUpdate } from "@/utils/appUpdate";
+import { openAppUpdateDialog } from "@/utils/appUpdate";
 import { saveWindowBounds } from "@/services/windowManager";
 
 interface WorkspaceTitleBarProps {
@@ -120,7 +120,9 @@ export function WorkspaceTitleBar({
   const theme = useAppStore((state) => state.theme);
   const setTheme = useAppStore((state) => state.setTheme);
   const pendingUpdate = useAppStore((state) => state.pendingUpdate);
+  const isDownloadingUpdate = useAppStore((state) => state.isDownloadingUpdate);
   const isInstallingUpdate = useAppStore((state) => state.isInstallingUpdate);
+  const isUpdateBusy = isDownloadingUpdate || isInstallingUpdate;
 
 
   const { toggleSidebar: onToggleSidebar } = useWorkspaceScreenStore();
@@ -1031,18 +1033,24 @@ export function WorkspaceTitleBar({
           <button
             className={cn(
               "h-5 px-2 text-[10px] font-medium gap-1.5 rounded-full running-border running-border--red inline-flex items-center text-red-600 dark:text-red-400 transition-opacity",
-              isInstallingUpdate ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-80"
+              isUpdateBusy ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-80"
             )}
-            onClick={() => { triggerAppUpdate(); }}
-            disabled={isInstallingUpdate}
+            onClick={() => { openAppUpdateDialog(); }}
+            disabled={isUpdateBusy}
             title={`Update to v${pendingUpdate.version}`}
           >
-            {isInstallingUpdate ? (
+            {isUpdateBusy ? (
               <IconLoader2 className="h-2.5 w-2.5 animate-spin" />
             ) : (
               <IconRotate className="h-2.5 w-2.5" />
             )}
-            <span>{isInstallingUpdate ? "Updating…" : `v${pendingUpdate.version}`}</span>
+            <span>
+              {isUpdateBusy
+                ? "Updating…"
+                : pendingUpdate.downloaded
+                  ? `Restart v${pendingUpdate.version}`
+                  : `v${pendingUpdate.version}`}
+            </span>
           </button>
         )}
 
