@@ -71,24 +71,24 @@ jobs:
 
           # Create release notes
           cat > /tmp/release-notes.md << EOF
-## Query Pilot $VERSION
+          ## Query Pilot $VERSION
 
-$CHANGELOG_CONTENT
+          $CHANGELOG_CONTENT
 
----
+          ---
 
-### Installation
+          ### Installation
 
-**macOS**
-- Download \`QueryPilot_$VERSION.dmg\` (works on both Intel and Apple Silicon)
-- Open DMG and drag Query Pilot to Applications
+          **macOS**
+          - Download \`QueryPilot_$VERSION.dmg\` (works on both Intel and Apple Silicon)
+          - Open DMG and drag Query Pilot to Applications
 
-### Code Signing
-- **macOS**: Signed and notarized with Apple Developer ID
+          ### Code Signing
+          - **macOS**: Signed and notarized with Apple Developer ID
 
-### Full Changelog
-See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md)
-EOF
+          ### Full Changelog
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md)
+          EOF
 
           gh release create "$VERSION" \
             --draft \
