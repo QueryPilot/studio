@@ -497,6 +497,36 @@ describe("workspaceScreenStore", () => {
 
       expect(store.getSidebars().left).toBe(initialLeftState);
     });
+
+    it("preserves sidebar visibility when switching connections", () => {
+      const store = useWorkspaceScreenStore.getState();
+
+      store.setActiveConnection("conn-1");
+      store.toggleSidebar("right");
+      expect(store.getSidebars().right).toBe(true);
+
+      store.setActiveConnection("conn-2");
+      expect(store.getSidebars().right).toBe(true);
+
+      store.toggleSidebar("right");
+      expect(store.getSidebars().right).toBe(false);
+
+      store.setActiveConnection("conn-1");
+      expect(store.getSidebars().right).toBe(false);
+    });
+
+    it("keeps right sidebar open when activating a new connection after null focus", () => {
+      const store = useWorkspaceScreenStore.getState();
+
+      store.setActiveConnection("conn-1");
+      store.toggleSidebar("right");
+      expect(store.getSidebars().right).toBe(true);
+
+      store.setActiveConnection(null);
+      store.setActiveConnection("conn-2");
+
+      expect(store.getSidebars().right).toBe(true);
+    });
   });
 
   describe("Window Management", () => {
