@@ -233,7 +233,9 @@ jobs:
 
       - name: Cleanup macOS keychain
         if: always()
-        run: security delete-keychain build.keychain || true
+        run: |
+          security delete-keychain build.keychain || true
+          rm -f certificate.p12 || true
 
       # ============================================
       # Upload Artifacts to Release
@@ -312,7 +314,7 @@ jobs:
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           # Extract release notes from CHANGELOG.md (safely via jq for JSON escaping)
-          RAW_NOTES=$(awk "/^## \[$VERSION_NUMBER\]/,/^## \[[0-9]/" CHANGELOG.md | head -n 10 || true)
+          RAW_NOTES=$(awk "/^## \[$VERSION_NUMBER\]/{found=1;next} found && /^## \[/{exit} found" CHANGELOG.md || true)
           if [ -z "$RAW_NOTES" ]; then
             RAW_NOTES="See CHANGELOG.md for details"
           fi
@@ -431,21 +433,21 @@ jobs:
           # Add footer
           cat >> RELEASE_NOTES.md << EOF
 
----
+          ---
 
-## Installation
+          ## Installation
 
-**macOS:**
-- Download \`QueryPilot_${VERSION}.dmg\` (works on both Intel and Apple Silicon Macs)
-- Open DMG and drag Query Pilot to Applications folder
-- On first launch, right-click the app and select "Open" if you see a security warning
+          **macOS:**
+          - Download \`QueryPilot_${VERSION}.dmg\` (works on both Intel and Apple Silicon Macs)
+          - Open DMG and drag Query Pilot to Applications folder
+          - On first launch, right-click the app and select "Open" if you see a security warning
 
-**Windows & Linux:** Coming soon
+          **Windows and Linux:** Coming soon
 
-## Full Changelog
+          ## Full Changelog
 
-See [CHANGELOG.md](https://github.com/QueryPilot/studio-app/blob/main/CHANGELOG.md) for complete version history.
-EOF
+          See [CHANGELOG.md](https://github.com/QueryPilot/studio-app/blob/main/CHANGELOG.md) for complete version history.
+          EOF
 
           echo "📝 Release notes prepared:"
           cat RELEASE_NOTES.md
