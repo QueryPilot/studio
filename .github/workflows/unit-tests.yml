@@ -219,6 +219,7 @@ jobs:
         run: make test-ssh
 
       - name: Clean up SSH integration environment
+        if: always()
         run: make test-ssh-clean
 
       - name: Summary
