@@ -43,10 +43,13 @@ target/
 # Build artifacts
 *.dmg
 *.app
+*.app.tar.gz
+*.app.tar.gz.sig
 *.deb
 *.AppImage
 *.msi
 *.exe
+latest.json
 *.rpm
 dist/
 build/
