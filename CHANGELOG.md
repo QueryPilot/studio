@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2026.1.0-beta.8] - 2026-03-04
 
+### Improvements
+- Improved the release packaging and publishing flow to make beta updates more reliable and reduce the risk of missing update artifacts.
+- This beta focuses on release stability and distribution quality, with no changes to core app features or database workflows.
+
+## [2026.1.0-beta.8] - 2026-03-04
+
 This beta release includes no user-facing changes. It focuses on internal release workflow updates to improve reliability for future publishes.
 
 ## [2026.1.0-beta.8] - 2026-03-04
