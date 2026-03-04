@@ -33,6 +33,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history needed for changelog generation from commits
 
       - name: Get version from tag
         id: get_version
@@ -65,29 +67,73 @@ jobs:
 
           # Extract changelog for this version only (stop at next version header)
           CHANGELOG_CONTENT=$(awk "/^## \[$VERSION_NUMBER\]/{found=1;next} found && /^## \[/{exit} found" CHANGELOG.md || true)
+
+          # Fallback: generate changelog from git commits between tags
           if [ -z "$CHANGELOG_CONTENT" ]; then
-            CHANGELOG_CONTENT="See CHANGELOG.md for details"
+            echo "⚠️ No changelog entry found for $VERSION_NUMBER in CHANGELOG.md"
+            echo "📝 Generating release notes from git commits..."
+
+            # Find the previous tag
+            PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${VERSION}$" | head -n 1 || true)
+
+            if [ -n "$PREV_TAG" ]; then
+              COMMIT_RANGE="${PREV_TAG}..${VERSION}"
+            else
+              COMMIT_RANGE="${VERSION}"
+            fi
+
+            # Generate categorized changelog from conventional commits
+            FEATURES=$(git log "$COMMIT_RANGE" --pretty=format:"- %s" --no-merges --grep="^feat" 2>/dev/null || true)
+            FIXES=$(git log "$COMMIT_RANGE" --pretty=format:"- %s" --no-merges --grep="^fix" 2>/dev/null || true)
+            OTHER=$(git log "$COMMIT_RANGE" --pretty=format:"- %s" --no-merges --grep="^chore\|^refactor\|^perf\|^docs\|^style\|^ci" 2>/dev/null || true)
+
+            # If conventional commits didn't match, list all commits
+            if [ -z "$FEATURES" ] && [ -z "$FIXES" ] && [ -z "$OTHER" ]; then
+              CHANGELOG_CONTENT=$(git log "$COMMIT_RANGE" --pretty=format:"- %s" --no-merges 2>/dev/null | head -30 || true)
+            else
+              CHANGELOG_CONTENT=""
+              if [ -n "$FEATURES" ]; then
+                CHANGELOG_CONTENT="### New Features
+          ${FEATURES}
+          "
+              fi
+              if [ -n "$FIXES" ]; then
+                CHANGELOG_CONTENT="${CHANGELOG_CONTENT}
+          ### Bug Fixes
+          ${FIXES}
+          "
+              fi
+              if [ -n "$OTHER" ]; then
+                CHANGELOG_CONTENT="${CHANGELOG_CONTENT}
+          ### Other Changes
+          ${OTHER}"
+              fi
+            fi
           fi
 
-          # Create release notes
-          cat > /tmp/release-notes.md << EOF
-          ## Query Pilot $VERSION
+          if [ -z "$CHANGELOG_CONTENT" ]; then
+            CHANGELOG_CONTENT="No notable changes in this release."
+          fi
 
-          $CHANGELOG_CONTENT
+          # Create release notes by building file incrementally
+          echo "## What's Changed" > /tmp/release-notes.md
+          echo "" >> /tmp/release-notes.md
+          echo "$CHANGELOG_CONTENT" >> /tmp/release-notes.md
+          cat >> /tmp/release-notes.md << EOF
 
           ---
 
           ### Installation
 
-          **macOS**
-          - Download \`QueryPilot_$VERSION.dmg\` (works on both Intel and Apple Silicon)
-          - Open DMG and drag Query Pilot to Applications
+          **macOS:**
+          - Download \`QueryPilot_${VERSION}.dmg\` (works on both Intel and Apple Silicon Macs)
+          - Open DMG and drag Query Pilot to Applications folder
+          - On first launch, right-click the app and select "Open" if you see a security warning
 
-          ### Code Signing
-          - **macOS**: Signed and notarized with Apple Developer ID
+          **Windows and Linux:** Coming soon
 
           ### Full Changelog
-          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md)
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md) for complete version history.
           EOF
 
           gh release create "$VERSION" \
@@ -284,6 +330,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -315,6 +363,15 @@ jobs:
 
           # Extract release notes from CHANGELOG.md (safely via jq for JSON escaping)
           RAW_NOTES=$(awk "/^## \[$VERSION_NUMBER\]/{found=1;next} found && /^## \[/{exit} found" CHANGELOG.md || true)
+
+          # Fallback: generate from git commits
+          if [ -z "$RAW_NOTES" ]; then
+            PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${VERSION}$" | head -n 1 || true)
+            if [ -n "$PREV_TAG" ]; then
+              RAW_NOTES=$(git log "${PREV_TAG}..${VERSION}" --pretty=format:"- %s" --no-merges 2>/dev/null | head -20 || true)
+            fi
+          fi
+
           if [ -z "$RAW_NOTES" ]; then
             RAW_NOTES="See CHANGELOG.md for details"
           fi
@@ -410,6 +467,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download release assets
         env:
@@ -428,9 +487,48 @@ jobs:
           VERSION_NUMBER="${VERSION#v}"
 
           # Extract from CHANGELOG.md (only current version, stop at next version header)
-          awk "/^## \[$VERSION_NUMBER\]/{found=1;next} found && /^## \[/{exit} found" CHANGELOG.md > RELEASE_NOTES.md
+          CHANGELOG_CONTENT=$(awk "/^## \[$VERSION_NUMBER\]/{found=1;next} found && /^## \[/{exit} found" CHANGELOG.md || true)
 
-          # Add footer
+          # Fallback: generate changelog from git commits between tags
+          if [ -z "$CHANGELOG_CONTENT" ]; then
+            echo "⚠️ No changelog entry for $VERSION_NUMBER, generating from commits..."
+
+            PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${VERSION}$" | head -n 1 || true)
+            if [ -n "$PREV_TAG" ]; then
+              COMMIT_RANGE="${PREV_TAG}..${VERSION}"
+            else
+              COMMIT_RANGE="${VERSION}"
+            fi
+
+            FEATURES=$(git log "$COMMIT_RANGE" --pretty=format:"- %s" --no-merges --grep="^feat" 2>/dev/null || true)
+            FIXES=$(git log "$COMMIT_RANGE" --pretty=format:"- %s" --no-merges --grep="^fix" 2>/dev/null || true)
+            OTHER=$(git log "$COMMIT_RANGE" --pretty=format:"- %s" --no-merges --grep="^chore\|^refactor\|^perf\|^docs\|^style\|^ci" 2>/dev/null || true)
+
+            if [ -z "$FEATURES" ] && [ -z "$FIXES" ] && [ -z "$OTHER" ]; then
+              CHANGELOG_CONTENT=$(git log "$COMMIT_RANGE" --pretty=format:"- %s" --no-merges 2>/dev/null | head -30 || true)
+            else
+              CHANGELOG_CONTENT=""
+              [ -n "$FEATURES" ] && CHANGELOG_CONTENT="### New Features
+          ${FEATURES}
+          "
+              [ -n "$FIXES" ] && CHANGELOG_CONTENT="${CHANGELOG_CONTENT}
+          ### Bug Fixes
+          ${FIXES}
+          "
+              [ -n "$OTHER" ] && CHANGELOG_CONTENT="${CHANGELOG_CONTENT}
+          ### Other Changes
+          ${OTHER}"
+            fi
+          fi
+
+          if [ -z "$CHANGELOG_CONTENT" ]; then
+            CHANGELOG_CONTENT="No notable changes in this release."
+          fi
+
+          # Build release notes
+          echo "## What's Changed" > RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+          echo "$CHANGELOG_CONTENT" >> RELEASE_NOTES.md
           cat >> RELEASE_NOTES.md << EOF
 
           ---
