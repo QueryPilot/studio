@@ -423,6 +423,8 @@ export function ConnectionsSection() {
     const workspaceToConnections = getConnectionsByWorkspace();
     const uncategorizedIds = getUncategorizedConnectionIds();
 
+    // Collect connection IDs that belong to non-auto workspaces
+    const nonAutoWorkspaceConnectionIds = new Set<string>();
     // Collect connection IDs from auto-created workspaces (treated as uncategorized)
     const autoCreatedConnectionIds = new Set<string>();
 
@@ -435,6 +437,9 @@ export function ConnectionsSection() {
       }
 
       const connIds = workspaceToConnections.get(ws.id) ?? [];
+      for (const id of connIds) {
+        nonAutoWorkspaceConnectionIds.add(id);
+      }
       const wsConnections = connIds
         .map((id) => connectionMap.get(id))
         .filter((c): c is StoredConnection => c !== undefined);
@@ -443,8 +448,14 @@ export function ConnectionsSection() {
       groups.push({ workspace: ws, connections: wsConnections });
     }
 
-    // Merge truly uncategorized + auto-created workspace connections
-    const allUncategorizedIds = [...uncategorizedIds, ...autoCreatedConnectionIds];
+    // Merge truly uncategorized + auto-created workspace connections,
+    // but exclude auto-created ones that already appear in a real workspace
+    const allUncategorizedIds = [
+      ...uncategorizedIds,
+      ...[...autoCreatedConnectionIds].filter(
+        (id) => !nonAutoWorkspaceConnectionIds.has(id),
+      ),
+    ];
     const uncategorizedConnections = allUncategorizedIds
       .map((id) => connectionMap.get(id))
       .filter((c): c is StoredConnection => c !== undefined);
