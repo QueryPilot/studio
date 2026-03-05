@@ -29,6 +29,37 @@ impl MssqlAdapter {
         }
     }
 
+    /// Best-effort reset of per-session plan options that can leak from prior tabs/queries.
+    /// When SHOWPLAN is left ON, SQL Server returns plan rows instead of query rows.
+    pub async fn reset_session_state(conn: &mut bb8::PooledConnection<'_, ConnectionManager>) {
+        const RESET_SQL: [&str; 3] = [
+            "SET SHOWPLAN_TEXT OFF",
+            "SET SHOWPLAN_ALL OFF",
+            "SET SHOWPLAN_XML OFF",
+        ];
+
+        for statement in RESET_SQL {
+            match conn.simple_query(statement).await {
+                Ok(result) => {
+                    if let Err(e) = result.into_first_result().await {
+                        tracing::warn!(
+                            "Failed to drain MSSQL session reset result for '{}': {}",
+                            statement,
+                            e
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to reset MSSQL session option with '{}': {}",
+                        statement,
+                        e
+                    );
+                }
+            }
+        }
+    }
+
     /// Get the pool
     async fn get_pool_ref(&self) -> Result<Pool<ConnectionManager>, AppError> {
         let pool_guard = self.pool.read().await;
@@ -200,8 +231,8 @@ impl MssqlAdapter {
 
         let mut column_exprs = Vec::with_capacity(rows.len());
         for row in rows {
-            let column_name: Option<&str> = row.get(0);
-            let type_name: Option<&str> = row.get(1);
+            let column_name: Option<&str> = row.try_get(0).ok().flatten();
+            let type_name: Option<&str> = row.try_get(1).ok().flatten();
             let column_name = match column_name {
                 Some(name) => name,
                 None => continue,
@@ -304,8 +335,8 @@ impl MssqlAdapter {
         let mut col_types: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
         for row in rows {
-            let column_name: Option<&str> = row.get(0);
-            let type_name: Option<&str> = row.get(1);
+            let column_name: Option<&str> = row.try_get(0).ok().flatten();
+            let type_name: Option<&str> = row.try_get(1).ok().flatten();
             if let (Some(name), Some(typ)) = (column_name, type_name) {
                 col_types.insert(name.to_ascii_lowercase(), typ.to_ascii_lowercase());
             }
@@ -411,22 +442,22 @@ impl MssqlAdapter {
             if let Ok(rows) = describe_result.into_first_result().await {
                 preflight_ok = true;
                 for row in rows {
-                    let error_number: Option<i32> = row.get(3);
+                    let error_number: Option<i32> = row.try_get(3).ok().flatten();
                     if error_number.is_some() {
                         preflight_ok = false;
                         unsupported_columns.clear();
                         break;
                     }
 
-                    let system_type_name: Option<&str> = row.get(2);
+                    let system_type_name: Option<&str> = row.try_get(2).ok().flatten();
                     let type_name = system_type_name.unwrap_or("").to_ascii_lowercase();
                     let is_variant = type_name.starts_with("sql_variant");
                     let is_clr_udt =
                         matches!(type_name.as_str(), "geography" | "geometry" | "hierarchyid");
 
                     if is_variant || is_clr_udt {
-                        let column_name: Option<&str> = row.get(1);
-                        let ordinal: Option<i32> = row.get(0);
+                        let column_name: Option<&str> = row.try_get(1).ok().flatten();
+                        let ordinal: Option<i32> = row.try_get(0).ok().flatten();
                         let label = column_name
                             .map(|name| name.to_string())
                             .or_else(|| ordinal.map(|idx| format!("column_{}", idx)))
@@ -564,9 +595,9 @@ impl BaseCapability for MssqlAdapter {
 
             match row {
                 Some(row) => {
-                    let version: Option<&str> = row.get(0);
-                    let database: Option<&str> = row.get(1);
-                    let user: Option<&str> = row.get(2);
+                    let version: Option<&str> = row.try_get(0).ok().flatten();
+                    let database: Option<&str> = row.try_get(1).ok().flatten();
+                    let user: Option<&str> = row.try_get(2).ok().flatten();
 
                     Ok(CapabilityTestResult {
                         success: true,
@@ -612,6 +643,8 @@ impl SqlQueryable for MssqlAdapter {
             .get()
             .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
+
+        Self::reset_session_state(&mut conn).await;
 
         let sql = Self::rewrite_for_unsupported_types(&mut conn, sql).await?;
 
@@ -671,6 +704,8 @@ impl SqlQueryable for MssqlAdapter {
             .get()
             .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
+
+        Self::reset_session_state(&mut conn).await;
 
         let result = conn
             .execute(sql, &[])

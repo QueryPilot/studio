@@ -10,6 +10,10 @@ interface MySqlRowRecord {
   selectType?: string;
   table?: string;
   accessType?: string;
+  possibleKeys?: string[];
+  key?: string;
+  keyLen?: string;
+  ref?: string;
   estimatedRows?: number;
   filtered?: number;
   extra?: string;
@@ -62,6 +66,14 @@ function parseNumber(value: unknown): number | undefined {
   return undefined;
 }
 
+function toOptionalText(value: unknown): string | undefined {
+  const text = formatCell(value).trim();
+  if (text.length === 0 || text.toUpperCase() === "NULL") {
+    return undefined;
+  }
+  return text;
+}
+
 export function parseMySqlTraditionalExplain(
   input: ParseMySqlInput,
 ): ParsedExplain {
@@ -76,6 +88,10 @@ export function parseMySqlTraditionalExplain(
   const selectTypeIndex = normalizedColumns.indexOf("select_type");
   const idIndex = normalizedColumns.indexOf("id");
   const filteredIndex = normalizedColumns.indexOf("filtered");
+  const possibleKeysIndex = normalizedColumns.indexOf("possible_keys");
+  const keyIndex = normalizedColumns.indexOf("key");
+  const keyLenIndex = normalizedColumns.indexOf("key_len");
+  const refIndex = normalizedColumns.indexOf("ref");
 
   const raw = input.rows
     .map((row) =>
@@ -90,15 +106,28 @@ export function parseMySqlTraditionalExplain(
   }
 
   const records: MySqlRowRecord[] = input.rows.map((row) => {
+    const possibleKeysRaw =
+      possibleKeysIndex >= 0 ? toOptionalText(row[possibleKeysIndex]) : undefined;
+    const possibleKeys = possibleKeysRaw
+      ? possibleKeysRaw
+          .split(",")
+          .map((key) => key.trim())
+          .filter((key) => key.length > 0)
+      : undefined;
+
     return {
-      id: idIndex >= 0 ? formatCell(row[idIndex]) : undefined,
+      id: idIndex >= 0 ? toOptionalText(row[idIndex]) : undefined,
       selectType:
-        selectTypeIndex >= 0 ? formatCell(row[selectTypeIndex]) : undefined,
-      table: formatCell(row[tableIndex]),
-      accessType: formatCell(row[typeIndex]),
+        selectTypeIndex >= 0 ? toOptionalText(row[selectTypeIndex]) : undefined,
+      table: toOptionalText(row[tableIndex]),
+      accessType: toOptionalText(row[typeIndex]),
+      possibleKeys: possibleKeys && possibleKeys.length > 0 ? possibleKeys : undefined,
+      key: keyIndex >= 0 ? toOptionalText(row[keyIndex]) : undefined,
+      keyLen: keyLenIndex >= 0 ? toOptionalText(row[keyLenIndex]) : undefined,
+      ref: refIndex >= 0 ? toOptionalText(row[refIndex]) : undefined,
       estimatedRows: rowsIndex >= 0 ? parseNumber(row[rowsIndex]) : undefined,
       filtered: filteredIndex >= 0 ? parseNumber(row[filteredIndex]) : undefined,
-      extra: extraIndex >= 0 ? formatCell(row[extraIndex]) : undefined,
+      extra: extraIndex >= 0 ? toOptionalText(row[extraIndex]) : undefined,
       raw: input.columns
         .map((column, index) => `${column}=${formatCell(row[index])}`)
         .join(" | "),
@@ -111,6 +140,7 @@ export function parseMySqlTraditionalExplain(
       type: record.accessType || "UNKNOWN",
       relation: record.table,
       rows: record.estimatedRows,
+      indexName: record.key,
       raw: record.raw,
     };
 
@@ -122,6 +152,15 @@ export function parseMySqlTraditionalExplain(
     }
     if (record.filtered !== undefined) {
       node.filtered = record.filtered;
+    }
+    if (record.possibleKeys && record.possibleKeys.length > 0) {
+      node.possibleKeys = record.possibleKeys;
+    }
+    if (record.keyLen) {
+      node.keyLen = record.keyLen;
+    }
+    if (record.ref) {
+      node.ref = record.ref;
     }
     if (record.extra) {
       node.extra = record.extra;
@@ -265,13 +304,33 @@ function parseMySqlTreeLine(
     return null;
   }
 
-  const relationMatch = content.match(/\bon\s+([`"A-Za-z0-9_.]+)/i);
-  const relation = relationMatch?.[1]?.replace(/[`"]/g, "");
-
-  const type = content
+  const descriptor = content
     .replace(/\s*\(cost=.*$/i, "")
     .replace(/\s*\(actual time=.*$/i, "")
     .trim();
+
+  const relationMatch = descriptor.match(/\bon\s+([`"A-Za-z0-9_.]+)/i);
+  const relation = relationMatch?.[1]?.replace(/[`"]/g, "");
+
+  const type = relationMatch
+    ? descriptor.slice(0, relationMatch.index).trim()
+    : descriptor;
+
+  let indexName: string | undefined;
+  let indexCond: string | undefined;
+  if (/index/i.test(descriptor)) {
+    const indexMatch = descriptor.match(
+      /\busing\s+(?:index\s+)?([`"][^`"]+[`"]|[A-Za-z0-9_.]+)(?:\s+\(([^)]*)\))?/i,
+    );
+    const rawIndexName = indexMatch?.[1];
+    if (rawIndexName) {
+      indexName = rawIndexName.replace(/[`"]/g, "").trim() || undefined;
+    }
+    const rawIndexCond = indexMatch?.[2]?.trim();
+    if (rawIndexCond) {
+      indexCond = rawIndexCond;
+    }
+  }
 
   const rowsMatch = content.match(/\brows=(\d+)/i);
   const actualTimeMatch = content.match(/actual time=([\d.]+)\.\.([\d.]+)/i);
@@ -281,6 +340,8 @@ function parseMySqlTreeLine(
     id: `mysql-tree-${nodeIndexRef.current++}`,
     type: type || "Operation",
     relation,
+    indexName,
+    indexCond,
     rows: rowsMatch ? parseInt(rowsMatch[1] || "0", 10) : undefined,
     raw: content,
   };

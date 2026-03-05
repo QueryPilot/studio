@@ -48,6 +48,15 @@ import { editorRegistry } from "@/services/editorRegistry";
 import { clearRustSchema, syncSchemaToRust } from "@/hooks/useRustSchemaSync";
 import { clearCompletionCache } from "@/components/CodeEditor/languages/sql/optimized-completion";
 import { clearProviderCache } from "@/components/CodeEditor/languages/sql/metadataProvider";
+import {
+  buildRunAllPlan,
+  extractStatementsForRunAll,
+} from "./query-execution-plan";
+import {
+  orchestrateRunAllExecution,
+  type BatchStatementResult,
+} from "./query-batch-orchestrator";
+import { resolveDialectFromDbType } from "./query-dialect";
 
 interface QueryPanelProps {
   panelId: string;
@@ -62,6 +71,29 @@ interface QueryPanelProps {
 
 const QUERY_STORE_SYNC_DEBOUNCE_MS = 150;
 const TAB_METADATA_SYNC_DEBOUNCE_MS = 1000;
+
+interface ExecuteSingleStatementOptions {
+  recordAsLastExecuted?: boolean;
+  suppressAutoRefresh?: boolean;
+  internalTxnStep?: boolean;
+  runContext?: "single" | "batch";
+  preserveInputSql?: boolean;
+}
+
+interface ExecuteSingleStatementResult {
+  success: boolean;
+  cancelled?: boolean;
+  sql: string;
+  result: QueryResult;
+  errorMessage?: string;
+}
+
+function getStatementKeyword(statement: string): string {
+  const cleaned = statement.trim().replace(/\s+/g, " ");
+  if (!cleaned) return "Statement";
+  const [first] = cleaned.split(" ");
+  return first ? first.toUpperCase() : "Statement";
+}
 
 export const QueryPanel = memo(function QueryPanel({
   panelId,
@@ -131,12 +163,13 @@ export const QueryPanel = memo(function QueryPanel({
   // Track if the current result is from an EXPLAIN query
   const [isExplainResult, setIsExplainResult] = useState(false);
 
-  // Dialect selection: "auto" means auto-detect, otherwise use selected dialect
+  // Dialect selection defaults to the active tab connection db type.
+  // Users can still manually override from the toolbar.
   const [selectedDialect, setSelectedDialect] = useState<SqlDialect | "auto">(
-    globalState?.selectedDialect || "auto",
+    resolveDialectFromDbType(dbType),
   );
   const [detectedDialect, setDetectedDialect] =
-    useState<SqlDialect>("postgresql");
+    useState<SqlDialect>(resolveDialectFromDbType(dbType));
   const deferredQuery = useDeferredValue(query);
   const hasQuery = query.trim().length > 0;
 
@@ -148,6 +181,12 @@ export const QueryPanel = memo(function QueryPanel({
 
   // Save query dialog state
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+
+  // Multi-statement execution state
+  const [batchResults, setBatchResults] = useState<BatchStatementResult[]>([]);
+  const [activeBatchResultIndex, setActiveBatchResultIndex] = useState(0);
+  const [isBatchExecuting, setIsBatchExecuting] = useState(false);
+  const [selectedStatementCount, setSelectedStatementCount] = useState(0);
 
   // Get transaction state from persisted store
   const inTransaction = globalState?.inTransaction || false;
@@ -174,17 +213,21 @@ export const QueryPanel = memo(function QueryPanel({
   useEffect(() => {
     if (globalState && !hasLoadedFromPersistence.current) {
       hasLoadedFromPersistence.current = true;
-      // Only sync persisted fields (query, viewMode, selectedDialect)
+      // Only sync persisted fields (query, viewMode)
       // Don't override if local state already has content from initialSql
       if (globalState.query && !query) {
         setQueryInternal(globalState.query);
       }
       setViewModeInternal(globalState.viewMode);
-      if (globalState.selectedDialect) {
-        setSelectedDialect(globalState.selectedDialect);
-      }
     }
   }, [globalState, query]);
+
+  // Keep dialect aligned with active tab connection type when tab/connection changes.
+  useEffect(() => {
+    const connectionDialect = resolveDialectFromDbType(dbType);
+    setSelectedDialect(connectionDialect);
+    setDetectedDialect(connectionDialect);
+  }, [connectionId, dbType]);
 
   // Editor ref for focusing
   const editorRef = useRef<SqlEditorRef>(null);
@@ -432,78 +475,101 @@ export const QueryPanel = memo(function QueryPanel({
 
   // Ref to track if execution is in progress (prevents double-execution from duplicate events)
   const isExecutingRef = useRef(false);
+  const cancelRequestedRef = useRef(false);
 
-  const handleExecute = useCallback(
-    async (queryToExecute?: string) => {
-      // Guard against double execution (e.g., from both keymap and eventBus)
-      if (isExecutingRef.current) {
-        logger.info("[handleExecute] Skipped - already executing");
-        return;
+  const executeSingleStatement = useCallback(
+    async (
+      queryToExecute?: string,
+      options: ExecuteSingleStatementOptions = {},
+    ): Promise<ExecuteSingleStatementResult> => {
+      const {
+        recordAsLastExecuted = true,
+        suppressAutoRefresh = false,
+        internalTxnStep = false,
+        runContext = "single",
+        preserveInputSql = false,
+      } = options;
+      const isSingleRun = runContext === "single";
+
+      if (isExecutingRef.current && isSingleRun) {
+        logger.info("[executeSingleStatement] Skipped - already executing");
+        return {
+          success: false,
+          sql: "",
+          result: {
+            columns: [],
+            rows: [],
+            rowCount: 0,
+            error: "Query execution is already in progress",
+          },
+          errorMessage: "Query execution is already in progress",
+        };
       }
-      isExecutingRef.current = true;
 
-      logger.info("[handleExecute] Called with:", {
-        queryToExecute,
-        queryToExecuteLength: queryToExecute?.length || 0,
-        fallbackQuery: queryRef.current,
-        fallbackQueryLength: queryRef.current.length,
-      });
+      if (isSingleRun) {
+        isExecutingRef.current = true;
+        cancelRequestedRef.current = false;
+      }
 
       let sql =
         queryToExecute ?? editorRef.current?.getValue() ?? queryRef.current;
-
-      logger.info("[handleExecute] Before trim:", {
-        sql,
-        sqlLength: sql.length,
-      });
-
-      // Clean up the SQL - remove trailing semicolons as they cause issues
-      sql = sql.trim().replace(/;\s*$/, "");
-
-      logger.info("[handleExecute] After trim and semicolon removal:", {
-        sql,
-        sqlLength: sql.length,
-        isEmpty: !sql,
-      });
+      if (preserveInputSql) {
+        if (!sql.trim()) {
+          const message = "Please enter a query to execute";
+          toast.error(message);
+          return {
+            success: false,
+            sql,
+            result: {
+              columns: [],
+              rows: [],
+              rowCount: 0,
+              error: message,
+            },
+            errorMessage: message,
+          };
+        }
+      } else {
+        sql = sql.trim().replace(/;\s*$/, "");
+      }
 
       if (!sql) {
-        logger.info("[handleExecute] EMPTY QUERY - Showing error toast");
-        toast.error("Please enter a query to execute");
-        isExecutingRef.current = false;
-        return;
+        const message = "Please enter a query to execute";
+        toast.error(message);
+        return {
+          success: false,
+          sql,
+          result: {
+            columns: [],
+            rows: [],
+            rowCount: 0,
+            error: message,
+          },
+          errorMessage: message,
+        };
       }
 
-      // Detect if this is an EXPLAIN query
-      const sqlUpper = sql.trim().toUpperCase();
-      const isExplain = sqlUpper.startsWith("EXPLAIN");
-      setIsExplainResult(isExplain);
-
-      // Auto-switch view mode based on query type
-      if (isExplain) {
-        setViewMode("explain");
-      } else {
-        // Reset to table view for regular queries (in case user was viewing explain results)
-        setViewMode("table");
+      if (!internalTxnStep) {
+        const sqlUpper = sql.trim().toUpperCase();
+        const isExplain = sqlUpper.startsWith("EXPLAIN");
+        setIsExplainResult(isExplain);
+        setViewMode(isExplain ? "explain" : "table");
       }
 
-      setIsExecuting(true);
+      if (isSingleRun) {
+        setIsExecuting(true);
+      }
       setIsStreaming(true);
-      // Keep previous result so the grid stays MOUNTED (avoids expensive remount
-      // of GlideDataGrid canvas + 20 hooks in BaseDataGrid). The first streaming
-      // batch will overwrite it with new data. Only clear if previous was an error
-      // or had no rows (grid wasn't mounted anyway).
       setResult((prev) => {
         if (prev && !prev.error && prev.rows.length > 0) return prev;
         return null;
       });
 
-      let executionTime = 0;
       let errorMessage: string | undefined;
       const t0 = performance.now();
 
       try {
-        // Stream results directly; no wrapping/pagination or SQL rewriting
-        const pageSize = 2500; // Increased from 1000 for better performance
+        const pageSize = 2500;
         let started = false;
         let currentColumns: string[] = [];
         let currentColumnMeta: ColumnMeta[] = [];
@@ -512,12 +578,9 @@ export const QueryPanel = memo(function QueryPanel({
         let rafId: number | undefined;
         let pendingTimeout: number | undefined;
 
-        // Throttle progressive renders. First batch renders SYNCHRONOUSLY
-        // (no setTimeout/RAF delay) so data appears as fast as possible.
-        // Subsequent batches are coalesced into RAF frames with a minimum gap.
         const renderedCountRef = { current: 0 };
         const hasRenderedOnce = { current: false };
-        const MIN_UPDATE_INTERVAL_MS = 32; // ~2 frames — was 120ms, way too sluggish
+        const MIN_UPDATE_INTERVAL_MS = 32;
         let lastUpdateTime = 0;
 
         const commitSnapshot = () => {
@@ -546,8 +609,6 @@ export const QueryPanel = memo(function QueryPanel({
           const total = accumulatedRows.length;
           if (total === 0) return;
 
-          // First render: commit IMMEDIATELY — no setTimeout/RAF indirection.
-          // This shaves ~20ms off time-to-first-pixel.
           if (!hasRenderedOnce.current) {
             hasRenderedOnce.current = true;
             renderedCountRef.current = total;
@@ -556,11 +617,13 @@ export const QueryPanel = memo(function QueryPanel({
             return;
           }
 
-          // Already have a pending update queued — let it coalesce more rows.
           if (pendingTimeout !== undefined) return;
 
           const now = performance.now();
-          const delay = Math.max(MIN_UPDATE_INTERVAL_MS - (now - lastUpdateTime), 0);
+          const delay = Math.max(
+            MIN_UPDATE_INTERVAL_MS - (now - lastUpdateTime),
+            0,
+          );
 
           pendingTimeout = window.setTimeout(() => {
             pendingTimeout = undefined;
@@ -591,14 +654,13 @@ export const QueryPanel = memo(function QueryPanel({
               started = true;
               currentColumns = progress.columns.map((c) => c.name);
               currentColumnMeta = progress.columns as unknown as ColumnMeta[];
-              logger.info("[QueryPanel perf] columns received", { ms: Math.round(performance.now() - t0) });
+              logger.info("[QueryPanel perf] columns received", {
+                ms: Math.round(performance.now() - t0),
+              });
             }
             if (progress.newRows && progress.newRows.length > 0) {
               accumulatedRows.push(...progress.newRows);
               rowCount = accumulatedRows.length;
-              if (!hasRenderedOnce.current) {
-                logger.info("[QueryPanel perf] first batch", { rows: progress.newRows.length, ms: Math.round(performance.now() - t0) });
-              }
               scheduleUpdate();
             }
           },
@@ -608,30 +670,27 @@ export const QueryPanel = memo(function QueryPanel({
             else if (typeof err === "string") msg = err;
             else if (err && typeof err === "object") msg = JSON.stringify(err);
             else msg = "Stream error";
-            toast.error(msg);
+
+            if (runContext === "single") {
+              toast.error(msg);
+            }
           },
-          // Pass query timeout from preferences (0 = no timeout)
           usePreferencesStore.getState().queryTimeoutSecs || undefined,
         );
 
         const final = await streamPromise;
-        logger.info("[QueryPanel perf] stream resolved", { rows: accumulatedRows.length, ms: Math.round(performance.now() - t0) });
 
         if (pendingTimeout !== undefined) {
           clearTimeout(pendingTimeout);
           pendingTimeout = undefined;
         }
 
-        // Cancel any pending animation frame - we'll do immediate final update
         if (rafId !== undefined) {
           cancelAnimationFrame(rafId);
           rafId = undefined;
         }
 
-        // Use backend's actual database execution time, not frontend timer
-        executionTime = final.executionTimeMs ?? 0;
-
-        // Detect query type for proper result display
+        const executionTime = final.executionTimeMs ?? 0;
         const sqlUpper = sql.trim().toUpperCase();
         const hasReturning = sqlUpper.includes(" RETURNING ");
         const wasMutation = isMutationQuery(sql);
@@ -657,32 +716,27 @@ export const QueryPanel = memo(function QueryPanel({
         let affectedRows: number | undefined;
         let message: string | undefined;
 
-        // For mutation queries with RETURNING, show both data and affected rows
         if (wasMutation && hasReturning && accumulatedRows.length > 0) {
           affectedRows = final.totalRows ?? accumulatedRows.length;
           message = `${affectedRows} row(s) affected`;
-        }
-        // For mutation queries without RETURNING, just show affected rows
-        else if (wasMutation && !hasReturning) {
+        } else if (wasMutation && !hasReturning) {
           affectedRows = final.totalRows ?? 0;
-        }
-        // For DDL queries, add success message if no rows returned
-        else if (isDDL && accumulatedRows.length === 0) {
+        } else if (isDDL && accumulatedRows.length === 0) {
           message = "Query executed successfully";
-        }
-        // For transaction control commands
-        else if (isTransaction) {
+        } else if (isTransaction) {
           if (
             sqlUpper.startsWith("BEGIN") ||
             sqlUpper.startsWith("START TRANSACTION")
           ) {
             message = "Transaction started";
             setQueryState(tabId, { inTransaction: true });
-            toast.success("Transaction started", {
-              description:
-                "This tab now has an active transaction. All queries in this tab will be part of this transaction until you COMMIT or ROLLBACK.",
-              duration: 5000,
-            });
+            if (!internalTxnStep) {
+              toast.success("Transaction started", {
+                description:
+                  "This tab now has an active transaction. All queries in this tab will be part of this transaction until you COMMIT or ROLLBACK.",
+                duration: 5000,
+              });
+            }
           } else if (sqlUpper.startsWith("COMMIT")) {
             message = "Transaction committed successfully";
             setQueryState(tabId, { inTransaction: false });
@@ -694,22 +748,15 @@ export const QueryPanel = memo(function QueryPanel({
           } else if (sqlUpper.startsWith("RELEASE SAVEPOINT")) {
             message = "Savepoint released";
           }
-        }
-        // For configuration commands
-        else if (isConfig && accumulatedRows.length === 0) {
+        } else if (isConfig && accumulatedRows.length === 0) {
           message = sqlUpper.startsWith("SET ")
             ? "Configuration parameter set"
             : "Configuration parameter reset";
-        }
-        // For maintenance commands
-        else if (isMaintenance && accumulatedRows.length === 0) {
+        } else if (isMaintenance && accumulatedRows.length === 0) {
           message = "Maintenance command completed successfully";
         }
 
-        // CRITICAL: Direct state update (bypass RAF) to ensure ALL rows are immediately visible
-        // This fixes the issue where RAF throttling could cause the last batch to not render
-        // Create new array reference to force React re-render
-        setResult({
+        const finalResult: QueryResult = {
           columns: currentColumns,
           columnMeta: currentColumnMeta,
           rows: accumulatedRows,
@@ -723,164 +770,149 @@ export const QueryPanel = memo(function QueryPanel({
           networkMs: final.networkMs,
           conversionMs: final.conversionMs,
           ipcSendMs: final.ipcSendMs,
-        });
+        };
 
-        logger.info("[QueryPanel perf] final setResult done", { ms: Math.round(performance.now() - t0) });
-
-        // Streaming complete - stop streaming indicator
+        setResult(finalResult);
         setIsStreaming(false);
 
-        // Handle mutations and auto-refresh
-        if (effectiveConnectionId) {
-          if (wasMutation) {
-            // Clear cache
-            handleMutationCache(sql, effectiveConnectionId);
-            logger.info("[QueryPanel] Mutation detected - cache invalidated");
+        if (effectiveConnectionId && wasMutation) {
+          handleMutationCache(sql, effectiveConnectionId);
+          const affectedTables = parseMutationTables(sql);
+          if (effectiveConnectionId.trim()) {
+            clearCompletionCache(effectiveConnectionId);
+            clearProviderCache(effectiveConnectionId);
+          }
 
-            // NEW: Broadcast invalidation to all components displaying affected tables
-            const affectedTables = parseMutationTables(sql);
-            if (effectiveConnectionId.trim()) {
-              clearCompletionCache(effectiveConnectionId);
-              clearProviderCache(effectiveConnectionId);
-            }
+          if (affectedTables.length > 0) {
+            const { invalidateTable, invalidateSchema } =
+              useDataInvalidationStore.getState();
 
-            if (affectedTables.length > 0) {
-              const { invalidateTable, invalidateSchema } =
-                useDataInvalidationStore.getState();
-
-              if (isDDL) {
-                affectedTables.forEach(({ schema: tableSchema }) => {
-                  const targetSchema = tableSchema ?? schema;
-                  logger.info(
-                    `[QueryPanel] DDL detected - invalidating schema: ${targetSchema}`,
-                  );
-                  schemaCache.invalidateSchema(
-                    effectiveConnectionId,
-                    targetSchema,
-                  );
-                  invalidateSchema(
-                    effectiveConnectionId,
-                    database,
-                    targetSchema,
-                  );
-
-                  // Ensure Rust and editor caches don't serve stale metadata
-                  void clearRustSchema(effectiveConnectionId, targetSchema).then(
-                    () => syncSchemaToRust(effectiveConnectionId, targetSchema),
-                  );
-                });
-              }
-
-              affectedTables.forEach(({ schema, table }) => {
-                logger.info(
-                  `[QueryPanel] Invalidating table: ${schema ?? "public"}.${table}`,
-                );
-                invalidateTable(
-                  effectiveConnectionId,
-                  database,
-                  schema ?? "public",
-                  table,
+            if (isDDL) {
+              affectedTables.forEach(({ schema: tableSchema }) => {
+                const targetSchema = tableSchema ?? schema;
+                schemaCache.invalidateSchema(effectiveConnectionId, targetSchema);
+                invalidateSchema(effectiveConnectionId, database, targetSchema);
+                void clearRustSchema(effectiveConnectionId, targetSchema).then(
+                  () => syncSchemaToRust(effectiveConnectionId, targetSchema),
                 );
               });
-
-            } else {
-              logger.warn(
-                "[QueryPanel] Mutation detected but no tables parsed from SQL:",
-                sql,
-              );
             }
 
-            // Auto-refresh: Re-run last SELECT query to show updated data
+            affectedTables.forEach(({ schema: tableSchema, table }) => {
+              invalidateTable(
+                effectiveConnectionId,
+                database,
+                tableSchema ?? "public",
+                table,
+              );
+            });
+          }
+
+          if (!suppressAutoRefresh) {
             const lastSelectQuery = lastSelectQueryRef.current;
             if (lastSelectQuery) {
               toast.info("Data modified - Refreshing results...");
-              // Schedule refresh after current query completes
               setTimeout(() => {
-                void handleExecute(lastSelectQuery);
+                void executeSingleStatement(lastSelectQuery, {
+                  runContext: "single",
+                  suppressAutoRefresh: true,
+                });
               }, 100);
             }
           }
         }
 
-        // Store SELECT queries for auto-refresh after mutations
         const isSelect = isSelectQuery(sql);
-
-        // Clear unsaved changes flag and update last executed query
-        setQueryState(tabId, {
-          hasUnsavedChanges: false,
-          lastExecutedQuery: sql,
-          ...(isSelect ? { lastSelectQuery: sql } : {}),
-        });
-        lastExecutedQueryRef.current = sql;
-        if (isSelect) {
-          lastSelectQueryRef.current = sql;
+        if (recordAsLastExecuted) {
+          setQueryState(tabId, {
+            hasUnsavedChanges: false,
+            lastExecutedQuery: sql,
+            ...(isSelect ? { lastSelectQuery: sql } : {}),
+          });
+          lastExecutedQueryRef.current = sql;
+          if (isSelect) {
+            lastSelectQueryRef.current = sql;
+          }
         }
 
-        // Track successful query in history
-        void trackQuery({
-          query: sql,
-          connectionId: effectiveConnectionId,
-          database,
-          schema,
-          executionTimeMs: executionTime,
-          rowCount: final.totalRows ?? rowCount,
-          success: true,
-          source: "editor",
-        });
+        if (!internalTxnStep) {
+          void trackQuery({
+            query: sql,
+            connectionId: effectiveConnectionId,
+            database,
+            schema,
+            executionTimeMs: executionTime,
+            rowCount: final.totalRows ?? rowCount,
+            success: true,
+            source: "editor",
+          });
 
-        // Track for AI agent context
-        void trackQueryExecution({
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-          query: sql,
-          connectionId: effectiveConnectionId,
-          database,
-          schema,
-          executedAt: Date.now(),
-          executionTimeMs: executionTime,
-          rowCount: final.totalRows ?? rowCount,
-          success: true,
-        });
+          void trackQueryExecution({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            query: sql,
+            connectionId: effectiveConnectionId,
+            database,
+            schema,
+            executedAt: Date.now(),
+            executionTimeMs: executionTime,
+            rowCount: final.totalRows ?? rowCount,
+            success: true,
+          });
+        }
 
+        return {
+          success: true,
+          sql,
+          result: finalResult,
+        };
       } catch (error) {
-        // IconCheck if this is a user cancellation
         const isCancellation =
           (error instanceof Error && error.name === "AbortError") ||
           (error instanceof Error && error.message.includes("cancelled")) ||
           (error instanceof Error && error.message.includes("interrupted"));
 
         if (isCancellation) {
-          // User cancelled - don't show as error
-          logger.info("Query cancelled by user");
-          return; // Exit early, no toast (already shown in handleCancel)
+          return {
+            success: false,
+            cancelled: true,
+            sql,
+            result: {
+              columns: [],
+              rows: [],
+              rowCount: 0,
+              message: "Query cancelled",
+            },
+            errorMessage: "Query cancelled",
+          };
+        }
+
+        if (error instanceof Error) {
+          errorMessage = error.message;
+        } else if (typeof error === "string") {
+          errorMessage = error;
+        } else if (error && typeof error === "object" && "message" in error) {
+          errorMessage = String(error.message);
         } else {
-          // Extract detailed error message
-          if (error instanceof Error) {
-            errorMessage = error.message;
-          } else if (typeof error === "string") {
-            errorMessage = error;
-          } else if (error && typeof error === "object" && "message" in error) {
-            errorMessage = String(error.message);
-          } else {
-            errorMessage =
-              "An unknown error occurred while executing the query";
-          }
+          errorMessage = "An unknown error occurred while executing the query";
+        }
 
-          setResult({
-            columns: [],
-            rows: [],
-            rowCount: 0,
-            error: errorMessage,
-          });
+        const errorResult: QueryResult = {
+          columns: [],
+          rows: [],
+          rowCount: 0,
+          error: errorMessage,
+        };
 
-          // Show error toast with full details
+        setResult(errorResult);
+        if (runContext === "single") {
           toast.error(errorMessage, {
             duration: 5000,
             description: "Check the console for more details",
           });
+        }
+        logger.error("Query execution failed:", error);
 
-          logger.error("Query execution failed:", error);
-
-          // Track failed query in history
+        if (!internalTxnStep) {
           void trackQuery({
             query: sql,
             connectionId: effectiveConnectionId,
@@ -891,7 +923,6 @@ export const QueryPanel = memo(function QueryPanel({
             source: "editor",
           });
 
-          // Track for AI agent context
           void trackQueryExecution({
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
             query: sql,
@@ -903,38 +934,231 @@ export const QueryPanel = memo(function QueryPanel({
             error: errorMessage,
           });
         }
+
+        return {
+          success: false,
+          sql,
+          result: errorResult,
+          errorMessage,
+        };
       } finally {
-        isExecutingRef.current = false;
-        setIsExecuting(false);
+        if (isSingleRun) {
+          isExecutingRef.current = false;
+          setIsExecuting(false);
+        }
         setIsStreaming(false);
-        // Execution complete
       }
     },
     [
       effectiveConnectionId,
-      database,
-      schema,
+      tabId,
+      setViewMode,
       setIsExecuting,
       setIsStreaming,
       setResult,
-      tabId,
       setQueryState,
-      setViewMode,
+      schema,
+      database,
     ],
   );
 
+  const resetBatchExecutionState = useCallback(() => {
+    setBatchResults([]);
+    setActiveBatchResultIndex(0);
+    setIsBatchExecuting(false);
+  }, []);
+
+  const resolveExecutionTargetSql = useCallback(() => {
+    const selectedSql = editorRef.current?.getSelection();
+    if (selectedSql && selectedSql.trim().length > 0) {
+      return selectedSql;
+    }
+
+    const statementAtCursor = editorRef.current?.getQueryAtCursor();
+    if (statementAtCursor && statementAtCursor.trim().length > 0) {
+      return statementAtCursor;
+    }
+
+    return editorRef.current?.getValue() ?? queryRef.current;
+  }, []);
+
+  const executeBatchScript = useCallback(
+    async (script: string, statements: string[]) => {
+      if (isExecutingRef.current) {
+        logger.info("[executeBatchScript] Skipped - already executing");
+        return;
+      }
+
+      if (statements.length === 0) {
+        toast.error("Please enter statements to execute");
+        return;
+      }
+
+      const runPlan = buildRunAllPlan({
+        statements,
+        dbType,
+        autoTransaction: true,
+      });
+
+      const collectedResults: BatchStatementResult[] = [];
+      const appendResult = (entry: BatchStatementResult) => {
+        collectedResults.push(entry);
+        setBatchResults([...collectedResults]);
+        setActiveBatchResultIndex(collectedResults.length - 1);
+      };
+
+      isExecutingRef.current = true;
+      cancelRequestedRef.current = false;
+      setIsExecuting(true);
+      setIsBatchExecuting(true);
+      setShowResults(true);
+      setViewMode("table");
+      setIsExplainResult(false);
+      setBatchResults([]);
+      setActiveBatchResultIndex(0);
+
+      try {
+        const orchestrationResult = await orchestrateRunAllExecution({
+          runPlan,
+          isCancelRequested: () => cancelRequestedRef.current,
+          onStatementResult: appendResult,
+          executeStatement: async (statement, { internalTxnStep }) => {
+            const statementResult = await executeSingleStatement(statement, {
+              recordAsLastExecuted: false,
+              suppressAutoRefresh: true,
+              internalTxnStep,
+              runContext: "batch",
+            });
+
+            return {
+              success: statementResult.success,
+              cancelled: statementResult.cancelled,
+              result: statementResult.result,
+            };
+          },
+        });
+
+        const lastResult =
+          orchestrationResult.statementResults[
+            orchestrationResult.statementResults.length - 1
+          ];
+        if (lastResult) {
+          setResult(lastResult.result);
+        }
+
+        setQueryState(tabId, {
+          hasUnsavedChanges: false,
+          lastExecutedQuery: script,
+        });
+        lastExecutedQueryRef.current = script;
+
+        toast.info(
+          `Run all completed: ${orchestrationResult.successCount} succeeded, ${orchestrationResult.errorCount} failed, ${orchestrationResult.skippedCount} skipped`,
+        );
+      } finally {
+        isExecutingRef.current = false;
+        setIsExecuting(false);
+        setIsStreaming(false);
+        setIsBatchExecuting(false);
+        cancelRequestedRef.current = false;
+      }
+    },
+    [
+      dbType,
+      executeSingleStatement,
+      setIsExecuting,
+      setIsStreaming,
+      setQueryState,
+      setResult,
+      setViewMode,
+      tabId,
+    ],
+  );
+
+  const handleExecute = useCallback(
+    async (queryToExecute?: string) => {
+      const sqlToExecute = queryToExecute ?? resolveExecutionTargetSql();
+      const statements = extractStatementsForRunAll(sqlToExecute);
+      if (statements.length > 1) {
+        resetBatchExecutionState();
+        await executeBatchScript(sqlToExecute, statements);
+        return;
+      }
+
+      resetBatchExecutionState();
+      await executeSingleStatement(sqlToExecute, {
+        runContext: "single",
+      });
+    },
+    [
+      executeBatchScript,
+      executeSingleStatement,
+      resetBatchExecutionState,
+      resolveExecutionTargetSql,
+    ],
+  );
+
+  const handleExecuteSelection = useCallback(async () => {
+    const selection = editorRef.current?.getSelection() ?? "";
+    if (!selection.trim()) {
+      toast.info("Select SQL text to run selection");
+      return;
+    }
+
+    const statements = extractStatementsForRunAll(selection);
+    if (statements.length > 1) {
+      resetBatchExecutionState();
+      await executeBatchScript(selection, statements);
+      return;
+    }
+
+    resetBatchExecutionState();
+    await executeSingleStatement(selection, {
+      runContext: "single",
+      preserveInputSql: true,
+    });
+  }, [executeBatchScript, executeSingleStatement, resetBatchExecutionState]);
+
+  const handleExecuteAll = useCallback(async () => {
+    const script = editorRef.current?.getValue() ?? queryRef.current;
+    const statements = extractStatementsForRunAll(script);
+    resetBatchExecutionState();
+    await executeBatchScript(script, statements);
+  }, [executeBatchScript, resetBatchExecutionState]);
+
   const handleCancel = useCallback(() => {
     if (isExecutingRef.current) {
-      isExecutingRef.current = false;
-      setIsExecuting(false);
-      setIsStreaming(false);
+      cancelRequestedRef.current = true;
 
       // Cancel backend streaming — rejects the streamQuery promise with AbortError
       tableStreamingService.cancel();
 
-      toast.info("Query cancelled");
+      if (!isBatchExecuting) {
+        isExecutingRef.current = false;
+        setIsExecuting(false);
+        setIsStreaming(false);
+      }
+
+      toast.info(
+        isBatchExecuting
+          ? "Batch cancellation requested"
+          : "Query cancelled",
+      );
     }
-  }, [setIsExecuting, setIsStreaming]);
+  }, [isBatchExecuting, setIsExecuting, setIsStreaming]);
+
+  const handleSelectionChange = useCallback((selection: string) => {
+    if (!selection.trim()) {
+      setSelectedStatementCount((prev) => (prev === 0 ? prev : 0));
+      return;
+    }
+
+    const statements = extractStatementsForRunAll(selection);
+    const nextCount = statements.length;
+    setSelectedStatementCount((prev) =>
+      prev === nextCount ? prev : nextCount,
+    );
+  }, []);
 
   const handleBeautify = useCallback(() => {
     const currentQuery = editorRef.current?.getValue() ?? queryRef.current;
@@ -967,10 +1191,10 @@ export const QueryPanel = memo(function QueryPanel({
 
   // Auto-show results panel when query execution starts or completes
   useEffect(() => {
-    if (isExecuting || result !== null) {
+    if (isExecuting || result !== null || batchResults.length > 0) {
       setShowResults(true);
     }
-  }, [isExecuting, result]);
+  }, [batchResults.length, isExecuting, result]);
 
   // Subscribe to event bus for keyboard shortcuts
   useEffect(() => {
@@ -985,6 +1209,18 @@ export const QueryPanel = memo(function QueryPanel({
       if (usePanelFocusStore.getState().focusedPanelId !== panelId) return;
       logger.info("🟢 QueryPanel handling execute event");
       void handleExecute();
+    };
+
+    const handleExecuteAllEvent = () => {
+      if (usePanelFocusStore.getState().focusedPanelId !== panelId) return;
+      logger.info("🟢 QueryPanel handling execute-all event");
+      void handleExecuteAll();
+    };
+
+    const handleExecuteSelectionEvent = () => {
+      if (usePanelFocusStore.getState().focusedPanelId !== panelId) return;
+      logger.info("🟢 QueryPanel handling execute-selection event");
+      void handleExecuteSelection();
     };
 
     const handleSaveQuery = () => {
@@ -1006,16 +1242,30 @@ export const QueryPanel = memo(function QueryPanel({
     // Subscribe ALWAYS - handlers check focus
     eventBus.on("query-editor:format", handleFormat);
     eventBus.on("query-editor:execute", handleExecuteEvent);
+    eventBus.on("query-editor:execute-all", handleExecuteAllEvent);
+    eventBus.on("query-editor:execute-selection", handleExecuteSelectionEvent);
     eventBus.on("query-editor:save", handleSaveQuery);
     eventBus.on("query-panel:toggle-results", handleToggleResults);
 
     return () => {
       eventBus.off("query-editor:format", handleFormat);
       eventBus.off("query-editor:execute", handleExecuteEvent);
+      eventBus.off("query-editor:execute-all", handleExecuteAllEvent);
+      eventBus.off(
+        "query-editor:execute-selection",
+        handleExecuteSelectionEvent,
+      );
       eventBus.off("query-editor:save", handleSaveQuery);
       eventBus.off("query-panel:toggle-results", handleToggleResults);
     };
-  }, [handleBeautify, handleExecute, toggleResults]);
+  }, [
+    handleBeautify,
+    handleExecute,
+    handleExecuteAll,
+    handleExecuteSelection,
+    panelId,
+    toggleResults,
+  ]);
 
   // Focus panel when QueryPanel is clicked or focused
   const handleFocusPanel = useCallback(() => {
@@ -1044,6 +1294,13 @@ export const QueryPanel = memo(function QueryPanel({
       });
     }
   }, [isPanelFocused]);
+
+  const displayedResult =
+    batchResults[activeBatchResultIndex]?.result ??
+    batchResults[batchResults.length - 1]?.result ??
+    result;
+  const runButtonLabel =
+    selectedStatementCount >= 2 ? "Run Selections" : "Run";
 
   return (
     <div
@@ -1104,6 +1361,7 @@ export const QueryPanel = memo(function QueryPanel({
                       dbType={dbType}
                       value={query}
                       onChange={handleEditorChange}
+                      onSelectionChange={handleSelectionChange}
                       onExecute={handleExecute}
                       isExecuting={isExecuting}
                       height="100%"
@@ -1124,7 +1382,13 @@ export const QueryPanel = memo(function QueryPanel({
                       dialect={selectedDialect}
                       detectedDialect={detectedDialect}
                       isExplainResult={isExplainResult}
-                      onExecute={() => handleExecute()}
+                      runLabel={runButtonLabel}
+                      onExecute={() => {
+                        void handleExecute();
+                      }}
+                      onExecuteAll={() => {
+                        void handleExecuteAll();
+                      }}
                       onCancel={handleCancel}
                       onBeautify={handleBeautify}
                       onToggleResults={toggleResults}
@@ -1197,10 +1461,51 @@ export const QueryPanel = memo(function QueryPanel({
                   {/* Results */}
                   <ResizablePanel defaultSize="50" minSize="20">
                     <div className="flex flex-col h-full">
+                      {batchResults.length > 0 && (
+                        <div className="shrink-0 border-b border-border bg-muted/20 px-2 py-1">
+                          <div className="flex items-center gap-1 overflow-x-auto">
+                            {batchResults.map((entry, index) => (
+                              <button
+                                key={`${entry.statementIndex}-${index}`}
+                                type="button"
+                                onClick={() => {
+                                  setActiveBatchResultIndex(index);
+                                }}
+                                className={cn(
+                                  "flex items-center gap-1 rounded-md border px-2 py-1 text-xs whitespace-nowrap",
+                                  activeBatchResultIndex === index
+                                    ? "border-primary bg-primary/10 text-primary"
+                                    : "border-border bg-background text-muted-foreground hover:text-foreground",
+                                )}
+                              >
+                                <span
+                                  className={cn(
+                                    "h-1.5 w-1.5 rounded-full",
+                                    entry.status === "success" &&
+                                      "bg-emerald-500",
+                                    entry.status === "error" && "bg-red-500",
+                                    entry.status === "skipped" &&
+                                      "bg-amber-500",
+                                  )}
+                                />
+                                <span>
+                                  #{entry.statementIndex}{" "}
+                                  {getStatementKeyword(entry.statement)}
+                                </span>
+                              </button>
+                            ))}
+                            {isBatchExecuting && (
+                              <span className="text-[11px] text-muted-foreground px-2">
+                                Running...
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       {/* Results */}
                       <div className="flex-1 min-h-0">
                         <ResultViewer
-                          result={result}
+                          result={displayedResult}
                           isLoading={isExecuting}
                           isStreaming={isStreaming}
                           connectionId={effectiveConnectionId}
@@ -1209,12 +1514,12 @@ export const QueryPanel = memo(function QueryPanel({
                           height="100%"
                           gridId={queryGridId}
                           viewMode={viewMode}
-                          cursorSetupMs={result?.cursorSetupMs}
-                          totalStreamingMs={result?.totalStreamingMs}
-                          fetchCount={result?.fetchCount}
-                          networkMs={result?.networkMs}
-                          conversionMs={result?.conversionMs}
-                          ipcSendMs={result?.ipcSendMs}
+                          cursorSetupMs={displayedResult?.cursorSetupMs}
+                          totalStreamingMs={displayedResult?.totalStreamingMs}
+                          fetchCount={displayedResult?.fetchCount}
+                          networkMs={displayedResult?.networkMs}
+                          conversionMs={displayedResult?.conversionMs}
+                          ipcSendMs={displayedResult?.ipcSendMs}
                         />
                       </div>
                     </div>

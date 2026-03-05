@@ -7,7 +7,7 @@
 
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { StateEffect, StateField, type Extension } from "@codemirror/state";
-import { diagnosticCount, forEachDiagnostic, lintGutter } from "@codemirror/lint";
+import { lintGutter } from "@codemirror/lint";
 import { getAllStatements, type StatementBoundary } from "../core/query-utils";
 
 /**
@@ -97,10 +97,8 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
   return ViewPlugin.fromClass(
     class {
       private pendingUpdate: number | null = null;
-      private lastDiagCount = 0;
 
       constructor(private view: EditorView) {
-        this.lastDiagCount = diagnosticCount(view.state);
         this.scheduleUpdate();
       }
 
@@ -108,13 +106,7 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
         // Skip DOM work for unfocused editors
         if (!update.view.hasFocus) return;
 
-        const nextDiagCount = diagnosticCount(update.state);
-        const diagnosticsChanged = nextDiagCount !== this.lastDiagCount;
-        if (diagnosticsChanged) {
-          this.lastDiagCount = nextDiagCount;
-        }
-
-        if (update.docChanged || update.viewportChanged || diagnosticsChanged) {
+        if (update.docChanged || update.viewportChanged) {
           this.scheduleUpdate();
         }
       }
@@ -145,15 +137,6 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
         const firstLine = this.view.state.doc.lineAt(from).number;
         const lastLine = this.view.state.doc.lineAt(to).number;
 
-        // Compute error lines from diagnostics directly (do not depend on gutter dots).
-        const errorLines = new Set<number>();
-        forEachDiagnostic(this.view.state, (diagnostic) => {
-          if (diagnostic.severity === "error") {
-            const line = this.view.state.doc.lineAt(diagnostic.from).number;
-            errorLines.add(line);
-          }
-        });
-
         const gutterElements = lintGutter.querySelectorAll(".cm-gutterElement");
 
         gutterElements.forEach((element, index) => {
@@ -164,15 +147,13 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
           if (lineNum > lastLine) return;
 
           const stmt = statements.get(lineNum);
-
-          // Only hide play button on ERROR (not warning/info)
-          const hasErrorMarker = errorLines.has(lineNum);
           const existingPlayButton = element.querySelector(
             ".cm-run-gutter-button",
           );
 
-          // Add play button if this line starts a statement and has no error
-          if (stmt && !hasErrorMarker) {
+          // Add play button when this line starts a statement.
+          // Keep this independent from lint diagnostics to avoid gutter churn.
+          if (stmt) {
             const button =
               existingPlayButton ?? document.createElement("button");
 
@@ -236,12 +217,16 @@ export function createRunGutterExtension(
       ".cm-gutter-lint": {
         width: "20px", // Fixed width to prevent layout shift
         minWidth: "20px",
+        maxWidth: "20px",
+        flex: "0 0 20px",
       },
       ".cm-gutter-lint .cm-gutterElement": {
         display: "flex",
         alignItems: "center",
         justifyContent: "center", // Center content in fixed-width gutter
         width: "20px",
+        minWidth: "20px",
+        maxWidth: "20px",
         padding: "0 !important",
       },
       // Hide default lint markers; diagnostics are surfaced via right-side scrollbar markers.

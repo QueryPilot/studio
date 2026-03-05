@@ -287,13 +287,16 @@ export class QueryStreamClient {
       const dataChannel = createIpcChannel((message: unknown) => {
         // Type guard: ensure message is an ArrayBuffer
         if (!(message instanceof ArrayBuffer)) {
-        logger.warn(
-          "query-stream",
-          "Expected ArrayBuffer batch but received",
-          typeof message,
-        );
-        return;
-      }
+          logger.warn(
+            "query-stream",
+            "Expected ArrayBuffer batch but received",
+            typeof message,
+          );
+          return;
+        }
+        if (settled) {
+          return;
+        }
         const buffer = message;
         // Decode off the main thread to keep UI responsive
         pendingDecode = pendingDecode
@@ -325,13 +328,13 @@ export class QueryStreamClient {
       // Metadata channel: receives JSON StreamMessages
       const metadataChannel = createIpcChannel((message) => {
         if (!message || typeof message !== "object") {
-            logger.warn(
-              "query-stream",
-              "Skipping malformed metadata message",
-              message,
-            );
-            return;
-          }
+          logger.warn(
+            "query-stream",
+            "Skipping malformed metadata message",
+            message,
+          );
+          return;
+        }
 
         const typedMessage = message as StreamMessage;
 
@@ -341,6 +344,9 @@ export class QueryStreamClient {
             "Metadata message missing type",
             typedMessage,
           );
+          return;
+        }
+        if (settled) {
           return;
         }
 
@@ -435,6 +441,9 @@ export class QueryStreamClient {
                 normalized,
               );
               maybeFinalizeSuccess();
+              return;
+            }
+            if (settled) {
               return;
             }
 

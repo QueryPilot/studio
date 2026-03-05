@@ -25,30 +25,107 @@ function toNumber(value: unknown): number | null {
 function parseTypeAndRelation(detail: string): {
   type: string;
   relation?: string;
+  indexName?: string;
+  indexCond?: string;
+  sortKey?: string[];
+  groupKey?: string[];
 } {
   const trimmed = detail.trim();
   const upper = trimmed.toUpperCase();
 
-  const extractRelation = (value: string): string | undefined => {
+  const extractRelationAndRemainder = (
+    value: string,
+  ): { relation?: string; remainder?: string } => {
     const withoutTableKeyword = value.toUpperCase().startsWith("TABLE ")
       ? value.slice(6).trim()
       : value;
     const token = withoutTableKeyword.split(/\s+/)[0];
-    return token || undefined;
+    if (!token) return {};
+    const remainder = withoutTableKeyword.slice(token.length).trim();
+    return {
+      relation: token,
+      remainder: remainder.length > 0 ? remainder : undefined,
+    };
+  };
+
+  const parseSearchDetails = (
+    remainder?: string,
+  ): {
+    indexName?: string;
+    indexCond?: string;
+  } => {
+    if (!remainder) return {};
+    const remainderUpper = remainder.toUpperCase();
+
+    const indexMatch = remainder.match(
+      /USING\s+(?:AUTOMATIC\s+)?(?:COVERING\s+)?INDEX\s+([^\s(]+)(?:\s*\((.+)\))?/i,
+    );
+    if (indexMatch?.[1]) {
+      return {
+        indexName: indexMatch[1].trim() || undefined,
+        indexCond: indexMatch[2]?.trim(),
+      };
+    }
+
+    if (remainderUpper.startsWith("USING INTEGER PRIMARY KEY")) {
+      const condMatch = remainder.match(/\((.+)\)/);
+      return {
+        indexName: "INTEGER PRIMARY KEY",
+        indexCond: condMatch?.[1]?.trim(),
+      };
+    }
+
+    return {};
   };
 
   if (upper.startsWith("SCAN ")) {
-    const relation = extractRelation(trimmed.slice(5).trim());
-    return { type: "SCAN", relation };
+    const { relation, remainder } = extractRelationAndRemainder(
+      trimmed.slice(5).trim(),
+    );
+    const searchDetails = parseSearchDetails(remainder);
+    return { type: "SCAN", relation, ...searchDetails };
   }
 
   if (upper.startsWith("SEARCH ")) {
-    const relation = extractRelation(trimmed.slice(7).trim());
-    return { type: "SEARCH", relation };
+    const { relation, remainder } = extractRelationAndRemainder(
+      trimmed.slice(7).trim(),
+    );
+    const searchDetails = parseSearchDetails(remainder);
+    return { type: "SEARCH", relation, ...searchDetails };
   }
 
   if (upper.startsWith("USE TEMP B-TREE")) {
+    const remainder = trimmed.slice("USE TEMP B-TREE".length).trim();
+    const remainderUpper = remainder.toUpperCase();
+    if (remainderUpper.startsWith("FOR GROUP BY")) {
+      return { type: "USE TEMP B-TREE", groupKey: ["TEMP B-TREE FOR GROUP BY"] };
+    }
+    if (remainderUpper.startsWith("FOR ORDER BY")) {
+      return { type: "USE TEMP B-TREE", sortKey: ["TEMP B-TREE FOR ORDER BY"] };
+    }
+    if (remainderUpper.startsWith("FOR DISTINCT")) {
+      return { type: "USE TEMP B-TREE", groupKey: ["TEMP B-TREE FOR DISTINCT"] };
+    }
+    if (remainderUpper.startsWith("FOR RIGHT PART OF ORDER BY")) {
+      return {
+        type: "USE TEMP B-TREE",
+        sortKey: ["TEMP B-TREE FOR RIGHT PART OF ORDER BY"],
+      };
+    }
     return { type: "USE TEMP B-TREE" };
+  }
+
+  if (upper.startsWith("MULTI-INDEX OR")) {
+    return { type: "MULTI-INDEX OR" };
+  }
+
+  if (upper.startsWith("MATERIALIZE")) {
+    const relation = trimmed.slice("MATERIALIZE".length).trim().split(/\s+/)[0];
+    return { type: "MATERIALIZE", relation: relation || undefined };
+  }
+
+  if (upper.startsWith("COMPOUND QUERY")) {
+    return { type: "COMPOUND QUERY" };
   }
 
   if (upper.startsWith("CO-ROUTINE ")) {
@@ -129,6 +206,10 @@ export function parseSQLiteExplainQueryPlan(
       id: `sqlite-node-${row.id}`,
       type: parsed.type,
       relation: parsed.relation,
+      indexName: parsed.indexName,
+      indexCond: parsed.indexCond,
+      sortKey: parsed.sortKey,
+      groupKey: parsed.groupKey,
       raw: row.detail,
       children: [],
     });

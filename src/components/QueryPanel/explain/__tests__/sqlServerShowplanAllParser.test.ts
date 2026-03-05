@@ -142,4 +142,39 @@ describe("parseSqlServerShowplanAll", () => {
     expect(parsed.nodes[1]?.children?.[0]?.relation).toBe("orders");
     expect(parsed.totalCost).toBeCloseTo(0.03);
   });
+
+  it("extracts index name and argument predicates from SHOWPLAN argument", () => {
+    const parsed = parseSqlServerShowplanAll({
+      columns: [
+        "StmtText",
+        "StmtId",
+        "NodeId",
+        "Parent",
+        "PhysicalOp",
+        "LogicalOp",
+        "EstimateRows",
+        "TotalSubtreeCost",
+        "Argument",
+      ],
+      rows: [
+        [
+          "SELECT * FROM orders",
+          1,
+          0,
+          null,
+          "Index Seek",
+          "Index Seek",
+          42,
+          0.12,
+          "OBJECT:([todoapp].[dbo].[orders].[idx_orders_status]), SEEK:([orders].[status]=N'shipped'), WHERE:([orders].[created_at]>='2024-01-01')",
+        ],
+      ],
+    });
+
+    expect(parsed.nodes).toHaveLength(1);
+    expect(parsed.nodes[0]?.relation).toBe("orders");
+    expect(parsed.nodes[0]?.indexName).toBe("idx_orders_status");
+    expect(parsed.nodes[0]?.indexCond).toContain("[orders].[status]");
+    expect(parsed.nodes[0]?.filter).toContain("[orders].[created_at]");
+  });
 });

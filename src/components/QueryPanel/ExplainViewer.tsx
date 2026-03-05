@@ -125,6 +125,25 @@ const TreeNode = memo(function TreeNode({
         ? ((node.cost?.total || 0) / totalCost) * 100
         : 0;
   const color = getNodeColor(node.type);
+  const mysqlSelectType =
+    typeof node.selectType === "string" ? node.selectType : undefined;
+  const mysqlQueryBlockId =
+    typeof node.queryBlockId === "string" ? node.queryBlockId : undefined;
+  const mysqlFiltered =
+    typeof node.filtered === "number" ? node.filtered : undefined;
+  const mysqlRef = typeof node.ref === "string" ? node.ref : undefined;
+  const mysqlKeyLen = typeof node.keyLen === "string" ? node.keyLen : undefined;
+  const mysqlExtra = typeof node.extra === "string" ? node.extra : undefined;
+  const mysqlPossibleKeys = Array.isArray(node.possibleKeys)
+    ? node.possibleKeys.filter(
+        (value): value is string => typeof value === "string" && value.length > 0,
+      )
+    : typeof node.possibleKeys === "string" && node.possibleKeys.length > 0
+      ? node.possibleKeys
+          .split(",")
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0)
+      : [];
 
   return (
     <div className="select-none">
@@ -167,7 +186,12 @@ const TreeNode = memo(function TreeNode({
                 !node.actualTime &&
                 !node.actualRows &&
                 !node.loops &&
-                !node.indexName,
+                !node.indexName &&
+                !mysqlSelectType &&
+                !mysqlQueryBlockId &&
+                mysqlFiltered === undefined &&
+                !mysqlRef &&
+                !mysqlKeyLen,
             })}
           >
             <span className="font-medium text-xs">
@@ -347,6 +371,32 @@ const TreeNode = memo(function TreeNode({
                 )}
               </span>
             )}
+            {mysqlSelectType && (
+              <span>
+                Select: <span className="font-mono">{mysqlSelectType}</span>
+              </span>
+            )}
+            {mysqlQueryBlockId && (
+              <span>
+                ID: <span className="font-mono">{mysqlQueryBlockId}</span>
+              </span>
+            )}
+            {mysqlFiltered !== undefined && (
+              <span>
+                Filtered:{" "}
+                <span className="font-mono">{mysqlFiltered.toFixed(2)}%</span>
+              </span>
+            )}
+            {mysqlKeyLen && (
+              <span>
+                Key Len: <span className="font-mono">{mysqlKeyLen}</span>
+              </span>
+            )}
+            {mysqlRef && (
+              <span>
+                Ref: <span className="font-mono">{mysqlRef}</span>
+              </span>
+            )}
           </div>
 
           {/* Conditions */}
@@ -450,6 +500,22 @@ const TreeNode = memo(function TreeNode({
               <code className="font-mono text-muted-foreground">
                 {node.groupKey.join(", ")}
               </code>
+            </div>
+          )}
+          {mysqlPossibleKeys.length > 0 && (
+            <div className="text-xs mt-1">
+              <span className="text-emerald-600 dark:text-emerald-400">
+                Possible Keys:{" "}
+              </span>
+              <code className="font-mono text-muted-foreground">
+                {mysqlPossibleKeys.join(", ")}
+              </code>
+            </div>
+          )}
+          {mysqlExtra && (
+            <div className="text-xs mt-1">
+              <span className="text-amber-600 dark:text-amber-400">Extra: </span>
+              <code className="font-mono text-muted-foreground">{mysqlExtra}</code>
             </div>
           )}
           {node.presortedKey && node.presortedKey.length > 0 && (

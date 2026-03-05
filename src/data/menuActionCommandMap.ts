@@ -19,6 +19,7 @@ export const menuActionCommandMap: Record<string, string> = {
 
   execute: "query.execute",
   execute_selection: "query.executeSelection",
+  execute_all: "query.executeAll",
   find: "editor.action.find",
   replace: "editor.action.replace",
 

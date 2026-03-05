@@ -19,6 +19,9 @@ export const createFoldGutterTheme = (isDark: boolean) =>
   EditorView.theme({
     ".cm-foldGutter": {
       width: "20px",
+      minWidth: "20px",
+      maxWidth: "20px",
+      flex: "0 0 20px",
     },
     ".cm-foldGutter .cm-gutterElement": {
       padding: "0",
@@ -29,6 +32,9 @@ export const createFoldGutterTheme = (isDark: boolean) =>
       alignItems: "center",
       justifyContent: "center",
       height: "100%",
+      width: "20px",
+      minWidth: "20px",
+      maxWidth: "20px",
     },
     ".cm-foldGutter .cm-gutterElement:hover": {
       color: "#D4A52B",

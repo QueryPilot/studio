@@ -11,6 +11,7 @@ interface QueryEditorProps {
   dbType?: string;
   value?: string;
   onChange?: (value: string) => void;
+  onSelectionChange?: (selection: string) => void;
   onExecute?: (query: string) => void;
   isExecuting?: boolean;
   height?: string;
@@ -34,6 +35,7 @@ export const QueryEditor = memo(
       dbType = "postgres",
       value = "",
       onChange,
+      onSelectionChange,
       onExecute,
       isExecuting = false,
       height = "100%",
@@ -84,6 +86,7 @@ export const QueryEditor = memo(
           ref={ref}
           value={value}
           onChange={onChange}
+          onSelectionChange={onSelectionChange}
           onChangeDelay={120}
           onExecute={handleExecute}
           dialectOverride={dialectOverride}

@@ -17,7 +17,16 @@ export const queryCommands: Command[] = [
     category: "Query",
     when: "editorTextFocus && queryEditor && hasSelection",
     handler: () => {
-      eventBus.emit("query-editor:execute", { mode: "text" });
+      eventBus.emit("query-editor:execute-selection", { mode: "text" });
+    },
+  },
+  {
+    id: "query.executeAll",
+    label: "Execute All Statements",
+    category: "Query",
+    when: "editorTextFocus && queryEditor",
+    handler: () => {
+      eventBus.emit("query-editor:execute-all", {});
     },
   },
   {

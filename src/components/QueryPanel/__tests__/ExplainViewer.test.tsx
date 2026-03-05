@@ -13,20 +13,67 @@ describe("ExplainViewer rendering", () => {
     render(
       <ExplainViewer
         result={{
-          columns: ["id", "select_type", "table", "type", "rows", "Extra"],
+          columns: [
+            "id",
+            "select_type",
+            "table",
+            "type",
+            "possible_keys",
+            "key",
+            "key_len",
+            "ref",
+            "rows",
+            "filtered",
+            "Extra",
+          ],
           rows: [
-            ["1", "SIMPLE", "reviews", "ALL", "1200", "Using where"],
-            ["1", "SIMPLE", "customers", "eq_ref", "1", "Using index"],
+            [
+              "1",
+              "SIMPLE",
+              "o",
+              "range",
+              "PRIMARY,idx_customer,idx_status,idx_orders_status_payment_method",
+              "idx_status",
+              "2",
+              "NULL",
+              "1",
+              "100.00",
+              "Using index condition; Using temporary; Using filesort",
+            ],
+            [
+              "1",
+              "SIMPLE",
+              "c",
+              "eq_ref",
+              "PRIMARY",
+              "PRIMARY",
+              "4",
+              "todoapp.o.customer_id",
+              "1",
+              "100.00",
+              "",
+            ],
           ],
         }}
       />,
     );
 
     expect(screen.queryByTestId("code-editor")).toBeNull();
-    expect(screen.getByText("ALL")).toBeTruthy();
-    expect(screen.getByText("reviews")).toBeTruthy();
+    expect(screen.getByText("range")).toBeTruthy();
+    expect(screen.getByText("o")).toBeTruthy();
     expect(screen.getByText("eq_ref")).toBeTruthy();
-    expect(screen.getByText("customers")).toBeTruthy();
+    expect(screen.getByText("c")).toBeTruthy();
+    expect(screen.getByText("idx_status")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Using index condition; Using temporary; Using filesort",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "PRIMARY, idx_customer, idx_status, idx_orders_status_payment_method",
+      ),
+    ).toBeTruthy();
   });
 
   it("renders SQLite EXPLAIN QUERY PLAN as a structured tree", () => {
