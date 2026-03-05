@@ -324,8 +324,27 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
     connectionContext?: { connectionId: string; database: string; schema: string }
   ) => {
     set((store) => {
+      const existing = store.queryStates.get(tabId);
+
+      // Short-circuit: if the tab already exists and every value in the
+      // incoming partial is identical to what we already have, skip all
+      // work (no new Map, no persistence, no AI-context sync).
+      if (existing) {
+        const keys = Object.keys(state) as (keyof QueryState)[];
+        const hasChange = keys.some((key) => {
+          const incomingValue = state[key];
+          // Skip undefined values in the partial — they aren't real updates
+          if (incomingValue === undefined) return false;
+          // Primitives use ===; object/array fields use reference ===
+          return incomingValue !== existing[key];
+        });
+        if (!hasChange) {
+          return store; // nothing changed — return existing state as-is
+        }
+      }
+
       const newStates = new Map(store.queryStates);
-      const existing = newStates.get(tabId) || {
+      const base = existing || {
         query: "",
         result: null,
         isExecuting: false,
@@ -339,7 +358,7 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         selectedDialect: "auto" as const,
         tableViewType: undefined,
       };
-      const newState = { ...existing, ...state };
+      const newState = { ...base, ...state };
       newStates.set(tabId, newState);
 
       // Schedule debounced persistence for lightweight fields
