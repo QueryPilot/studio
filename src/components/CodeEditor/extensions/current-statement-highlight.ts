@@ -106,6 +106,25 @@ function resolveHighlightedStatements(
   return activeStatement ? [activeStatement] : [];
 }
 
+function computeVisibleLineRange(
+  view: EditorView,
+  buffer: number = 50,
+): { visibleStart: number; visibleEnd: number } {
+  const ranges = view.visibleRanges;
+  if (ranges.length === 0) {
+    return { visibleStart: 1, visibleEnd: view.state.doc.lines };
+  }
+  const firstRange = ranges[0]!;
+  const lastRange = ranges[ranges.length - 1]!;
+  const firstLine = view.state.doc.lineAt(firstRange.from).number;
+  const lastLine = view.state.doc.lineAt(lastRange.to).number;
+  const maxLine = view.state.doc.lines;
+  return {
+    visibleStart: Math.max(1, firstLine - buffer),
+    visibleEnd: Math.min(maxLine, lastLine + buffer),
+  };
+}
+
 function buildCurrentStatementDecorations(
   view: EditorView,
   statements: StatementBoundary[],
@@ -133,10 +152,12 @@ function buildCurrentStatementDecorations(
   const dimmedMarker = Decoration.line({ class: "cm-dimmed-statement-line" });
   const builder = new RangeSetBuilder<Decoration>();
   const maxLine = view.state.doc.lines;
-  const shouldDimNonHighlighted = statements.length > 1;
+  const shouldDimNonHighlighted = statements.length > 1 && maxLine <= 500;
   const highlightedStatementKeys = new Set(
     highlightedStatements.map(statementKey),
   );
+
+  const { visibleStart, visibleEnd } = computeVisibleLineRange(view);
 
   for (const statement of statements) {
     const key = statementKey(statement);
@@ -147,11 +168,14 @@ function buildCurrentStatementDecorations(
       continue;
     }
 
-    for (
-      let lineNumber = statement.lineStart;
-      lineNumber <= statement.lineEnd && lineNumber <= maxLine;
-      lineNumber++
-    ) {
+    if (statement.lineEnd < visibleStart || statement.lineStart > visibleEnd) {
+      continue;
+    }
+
+    const lineFrom = Math.max(statement.lineStart, visibleStart);
+    const lineTo = Math.min(statement.lineEnd, visibleEnd, maxLine);
+
+    for (let lineNumber = lineFrom; lineNumber <= lineTo; lineNumber++) {
       const line = view.state.doc.line(lineNumber);
       if (isActive) {
         builder.add(line.from, line.from, activeMarker);
@@ -187,6 +211,8 @@ export function createCurrentStatementHighlightExtension() {
       statements: StatementBoundary[];
       activeStatement: StatementBoundary | null;
       highlightedStatements: StatementBoundary[];
+      prevVisibleStart: number;
+      prevVisibleEnd: number;
 
       constructor(view: EditorView) {
         this.statements = getAllStatements(view.state);
@@ -201,6 +227,9 @@ export function createCurrentStatementHighlightExtension() {
           view.state.selection.main.to,
           this.activeStatement,
         );
+        const { visibleStart, visibleEnd } = computeVisibleLineRange(view);
+        this.prevVisibleStart = visibleStart;
+        this.prevVisibleEnd = visibleEnd;
         this.decorations = buildCurrentStatementDecorations(
           view,
           this.statements,
@@ -210,7 +239,38 @@ export function createCurrentStatementHighlightExtension() {
       }
 
       update(update: ViewUpdate) {
-        if (!update.docChanged && !update.selectionSet) {
+        if (
+          !update.docChanged &&
+          !update.selectionSet &&
+          !update.geometryChanged
+        ) {
+          return;
+        }
+
+        // For geometry changes (scroll/resize), only rebuild decorations
+        // if the visible range actually changed.
+        if (
+          !update.docChanged &&
+          !update.selectionSet &&
+          update.geometryChanged
+        ) {
+          const { visibleStart, visibleEnd } = computeVisibleLineRange(
+            update.view,
+          );
+          if (
+            visibleStart === this.prevVisibleStart &&
+            visibleEnd === this.prevVisibleEnd
+          ) {
+            return;
+          }
+          this.prevVisibleStart = visibleStart;
+          this.prevVisibleEnd = visibleEnd;
+          this.decorations = buildCurrentStatementDecorations(
+            update.view,
+            this.statements,
+            this.activeStatement,
+            this.highlightedStatements,
+          );
           return;
         }
 
@@ -240,6 +300,11 @@ export function createCurrentStatementHighlightExtension() {
         ) {
           this.activeStatement = nextStatement;
           this.highlightedStatements = nextHighlightedStatements;
+          const { visibleStart, visibleEnd } = computeVisibleLineRange(
+            update.view,
+          );
+          this.prevVisibleStart = visibleStart;
+          this.prevVisibleEnd = visibleEnd;
           this.decorations = buildCurrentStatementDecorations(
             update.view,
             this.statements,
