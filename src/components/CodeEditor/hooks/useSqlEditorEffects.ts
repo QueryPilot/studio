@@ -145,36 +145,9 @@ export function useSqlEditorEffects({
   }, [onExecute, executeQuery]);
   /* eslint-enable react-hooks/refs */
 
-  // Handle external execute events (e.g. from Command Palette)
+  // Handle external editor events (e.g. from Command Palette)
+  // Note: query-editor:execute is handled solely by QueryPanel to avoid duplicate execution.
   useEffect(() => {
-    const handleExecute = () => {
-      if (!viewRef.current || !onExecuteRef.current) return;
-      const view = viewRef.current;
-
-      // Only execute if THIS editor has focus
-      if (!view.hasFocus) return;
-
-      const selection = view.state.selection.main;
-
-      if (selection.from !== selection.to) {
-        const selectedText = view.state.doc
-          .sliceString(selection.from, selection.to)
-          .trim();
-        if (selectedText) {
-          executeQuery(selectedText);
-          return;
-        }
-      }
-
-      const statementAtCursor = getStatementAtPosition(
-        view.state,
-        selection.head,
-      );
-      if (statementAtCursor) {
-        executeQuery(statementAtCursor.text);
-      }
-    };
-
     const handleFind = () => {
       if (viewRef.current && viewRef.current.hasFocus) {
         openSearchPanel(viewRef.current);
@@ -187,18 +160,14 @@ export function useSqlEditorEffects({
       }
     };
 
-    eventBus.on("query-editor:execute", handleExecute);
-    eventBus.on("query-editor:execute-background", handleExecute);
     eventBus.on("query-editor:find", handleFind);
     eventBus.on("query-editor:replace", handleReplace);
 
     return () => {
-      eventBus.off("query-editor:execute", handleExecute);
-      eventBus.off("query-editor:execute-background", handleExecute);
       eventBus.off("query-editor:find", handleFind);
       eventBus.off("query-editor:replace", handleReplace);
     };
-  }, [executeQuery, viewRef]);
+  }, [viewRef]);
 
   return {
     onChangeRef,
