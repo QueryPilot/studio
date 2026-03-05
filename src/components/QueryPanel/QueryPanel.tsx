@@ -1,6 +1,7 @@
 import { logger } from "@/lib/logger";
 import {
   memo,
+  startTransition,
   useState,
   useCallback,
   useEffect,
@@ -580,28 +581,34 @@ export const QueryPanel = memo(function QueryPanel({
 
         const renderedCountRef = { current: 0 };
         const hasRenderedOnce = { current: false };
-        const MIN_UPDATE_INTERVAL_MS = 32;
+        const getUpdateInterval = (rowCount: number): number => {
+          if (rowCount < 5000) return 32;
+          if (rowCount < 20000) return 100;
+          return 200;
+        };
         let lastUpdateTime = 0;
 
         const commitSnapshot = () => {
           const latestTotal = accumulatedRows.length;
-          setResult((prev) => {
-            if (!prev) {
+          startTransition(() => {
+            setResult((prev) => {
+              if (!prev) {
+                return {
+                  columns: currentColumns,
+                  columnMeta: currentColumnMeta,
+                  rows: accumulatedRows,
+                  rowCount: latestTotal,
+                  executionTime: 0,
+                };
+              }
               return {
+                ...prev,
                 columns: currentColumns,
                 columnMeta: currentColumnMeta,
                 rows: accumulatedRows,
                 rowCount: latestTotal,
-                executionTime: 0,
               };
-            }
-            return {
-              ...prev,
-              columns: currentColumns,
-              columnMeta: currentColumnMeta,
-              rows: accumulatedRows,
-              rowCount: latestTotal,
-            };
+            });
           });
         };
 
@@ -621,7 +628,7 @@ export const QueryPanel = memo(function QueryPanel({
 
           const now = performance.now();
           const delay = Math.max(
-            MIN_UPDATE_INTERVAL_MS - (now - lastUpdateTime),
+            getUpdateInterval(accumulatedRows.length) - (now - lastUpdateTime),
             0,
           );
 
