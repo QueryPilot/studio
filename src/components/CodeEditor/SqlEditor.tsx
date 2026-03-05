@@ -27,6 +27,7 @@ import {
   lineNumbers,
   highlightActiveLineGutter,
   highlightActiveLine,
+  drawSelection,
   placeholder as placeholderExt,
   scrollPastEnd,
   tooltips,
@@ -85,10 +86,10 @@ import {
   formatEditorContent,
 } from "./extensions/formatter";
 import { createGotoDefinitionExtension } from "./extensions/goto-definition";
-import { createRunGutterExtension } from "./extensions/run-gutter";
 import { createRefactoringExtension } from "./extensions/sql-refactoring";
 import { createFormatOnPasteExtension } from "./extensions/format-on-paste";
 import { createQueryHistoryNavExtension } from "./extensions/query-history-navigation";
+import { createCurrentStatementHighlightExtension } from "./extensions/current-statement-highlight";
 import { ExtractCteDialog } from "./components/ExtractCteDialog";
 import { EditorContextMenu } from "./components/EditorContextMenu";
 
@@ -138,6 +139,8 @@ export interface SqlEditorProps {
   value?: string;
   /** Called when content changes (debounced) */
   onChange?: (value: string) => void;
+  /** Called when selection changes */
+  onSelectionChange?: (selection: string) => void;
   /** Debounce delay for onChange (ms) */
   onChangeDelay?: number;
   /** Called when user triggers query execution (Cmd/Ctrl+Enter) */
@@ -230,13 +233,53 @@ const baseTheme = EditorView.theme({
     minHeight: "100%",
     borderRight: "1px solid var(--border)",
   },
+  ".cm-gutters .cm-gutter": {
+    boxSizing: "border-box",
+    flexShrink: 0,
+  },
+  ".cm-gutters .cm-gutter:not(.cm-lineNumbers)": {
+    width: "20px",
+    minWidth: "20px",
+    maxWidth: "20px",
+    flex: "0 0 20px",
+  },
   ".cm-cursor": {
     borderLeftWidth: "2px",
   },
   ".cm-line": {
-    paddingLeft: "4px",
-    borderLeft: "2px solid transparent",
+    paddingLeft: "8px",
+    transition: "background-color 120ms ease, opacity 120ms ease",
   },
+  ".cm-dimmed-statement-line": {
+    opacity: "0.6",
+  },
+  ".cm-current-statement-line": {
+    opacity: "1",
+    backgroundColor: "hsl(var(--accent) / 0.7)",
+  },
+  ".cm-current-statement-start": {
+    boxShadow: "inset 0 1px 0 hsl(var(--foreground) / 0.35)",
+  },
+  ".cm-current-statement-end": {
+    boxShadow: "inset 0 -1px 0 hsl(var(--foreground) / 0.35)",
+  },
+  ".cm-selected-statement-line": {
+    opacity: "1",
+    backgroundColor: "hsl(var(--accent) / 0.45)",
+  },
+  ".cm-selected-statement-start": {
+    boxShadow: "inset 0 1px 0 hsl(var(--foreground) / 0.22)",
+  },
+  ".cm-selected-statement-end": {
+    boxShadow: "inset 0 -1px 0 hsl(var(--foreground) / 0.22)",
+  },
+  ".cm-current-statement-line.cm-activeLine": {
+    backgroundColor: "hsl(var(--accent) / 0.95)",
+  },
+  "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
+    {
+      backgroundColor: "hsl(var(--accent) / 0.5) !important",
+    },
 });
 
 export const SqlEditor = memo(
@@ -245,6 +288,7 @@ export const SqlEditor = memo(
       initialValue = "",
       value,
       onChange,
+      onSelectionChange,
       onChangeDelay = 0,
       onExecute,
       onGotoDefinition,
@@ -295,13 +339,16 @@ export const SqlEditor = memo(
       });
     const docValueRef = useRef(initialDoc);
     const hasLocalEditsSinceFocusRef = useRef(false);
+    const onSelectionChangeRef = useRef(onSelectionChange);
+    useEffect(() => {
+      onSelectionChangeRef.current = onSelectionChange;
+    }, [onSelectionChange]);
 
     // --- Effects hook: onChange, execute, event bus ---
     const {
       onGotoDefinitionRef,
       lastEmittedValueRef,
       debouncedOnChange,
-      executeQuery,
       executeKeymap,
     } = useSqlEditorEffects({
       onChange,
@@ -454,9 +501,6 @@ export const SqlEditor = memo(
     const phase1Extensions = useMemo(
       () => [
         scrollPastEnd(),
-        codeFolding({ placeholderText: "..." }),
-        sqlFoldService,
-        foldGutter(),
         createMultiCursorExtension(),
       ],
       [],
@@ -641,11 +685,35 @@ export const SqlEditor = memo(
         pendingUpdate = null;
       };
 
+      let lastSelectionRange = "";
+      let lastSelectionText = "";
+      const emitSelectionChange = (view: EditorView) => {
+        const { from, to } = view.state.selection.main;
+        const isCollapsed = from === to;
+        const range = isCollapsed ? "collapsed" : `${from}:${to}`;
+        const text = isCollapsed ? "" : view.state.doc.sliceString(from, to);
+        if (range === lastSelectionRange && text === lastSelectionText) {
+          return;
+        }
+        lastSelectionRange = range;
+        lastSelectionText = text;
+        onSelectionChangeRef.current?.(text);
+      };
+
       const updateListener = EditorView.updateListener.of((update) => {
         for (const tr of update.transactions) {
           const picked = tr.annotation(pickedCompletion);
           if (picked) {
             handlePickedCompletion(picked);
+          }
+        }
+
+        if (update.selectionSet) {
+          emitSelectionChange(update.view);
+        } else if (update.docChanged) {
+          const { from, to } = update.state.selection.main;
+          if (from !== to) {
+            emitSelectionChange(update.view);
           }
         }
 
@@ -678,6 +746,11 @@ export const SqlEditor = memo(
           lineNumbers(),
           highlightActiveLineGutter(),
           highlightActiveLine(),
+          drawSelection(),
+          codeFolding({ placeholderText: "..." }),
+          sqlFoldService,
+          foldGutter(),
+          createCurrentStatementHighlightExtension(),
 
           search({ top: true }),
 
@@ -722,14 +795,6 @@ export const SqlEditor = memo(
           phasingCompartments.phase1.of([]),
           phasingCompartments.phase2.of([]),
 
-          ...(onExecute
-            ? [
-                createRunGutterExtension((query) => {
-                  if (query) executeQuery(query);
-                }),
-              ]
-            : []),
-
           updateListener,
         ],
       });
@@ -741,6 +806,7 @@ export const SqlEditor = memo(
 
       viewRef.current = view;
       docValueRef.current = view.state.doc.toString();
+      emitSelectionChange(view);
 
       // Listen for goto-definition events
       const handleGotoDefinition = (event: Event) => {

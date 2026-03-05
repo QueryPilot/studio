@@ -29,6 +29,7 @@ import {
   IconDotsVertical,
   IconWand,
   IconBinaryTree,
+  IconChevronDown,
 } from "@tabler/icons-react";
 import type { SqlDialect } from "@/components/CodeEditor";
 
@@ -56,6 +57,7 @@ interface QueryToolbarProps {
   showResults: boolean;
   showOutline?: boolean;
   viewMode: ViewMode;
+  runLabel?: string;
   executeHint?: string;
   beautifyHint?: string;
   focused?: boolean;
@@ -64,6 +66,7 @@ interface QueryToolbarProps {
   /** Whether the current result is from an EXPLAIN query */
   isExplainResult?: boolean;
   onExecute: () => void;
+  onExecuteAll?: () => void;
   onCancel: () => void;
   onBeautify: () => void;
   onToggleResults: () => void;
@@ -78,6 +81,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   showResults,
   showOutline = false,
   viewMode,
+  runLabel = "Run",
   executeHint,
   beautifyHint: _beautifyHint,
   focused = false,
@@ -85,6 +89,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   detectedDialect,
   isExplainResult = false,
   onExecute,
+  onExecuteAll,
   onCancel,
   onBeautify,
   onToggleResults,
@@ -318,32 +323,62 @@ export const QueryToolbar = memo(function QueryToolbar({
           </DropdownMenu>
 
           {/* Run/Cancel button - always visible */}
-          <Button
-            size="sm"
-            variant={isExecuting ? "destructive" : "default"}
-            onClick={isExecuting ? onCancel : onExecute}
-            disabled={!hasQuery && !isExecuting}
-            className="!h-6 text-xs gap-1 !px-2.5"
-            title={
-              isExecuting
-                ? "Cancel execution"
-                : executeHint
-                  ? `Execute query (${executeHint})`
-                  : "Execute query (⌘↵)"
-            }
-          >
-            {isExecuting ? (
-              <>
-                <IconPlayerStop className="h-3.5 w-3.5" />
-                <span>Stop</span>
-              </>
-            ) : (
-              <>
+          {isExecuting ? (
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={onCancel}
+              className="!h-6 text-xs gap-1 !px-2.5"
+              title="Cancel execution"
+            >
+              <IconPlayerStop className="h-3.5 w-3.5" />
+              <span>Stop</span>
+            </Button>
+          ) : (
+            <div className="flex items-center overflow-hidden rounded-md">
+              <Button
+                size="sm"
+                variant="default"
+                onClick={onExecute}
+                disabled={!hasQuery}
+                className="!h-6 text-xs gap-1 !px-2.5 rounded-none border-0 bg-clip-border"
+                title={
+                  executeHint
+                    ? `Execute query (${executeHint})`
+                    : "Execute query (⌘↵)"
+                }
+              >
                 <IconPlayerPlay className="h-3.5 w-3.5" />
-                <span>Run</span>
-              </>
-            )}
-          </Button>
+                <span>{runLabel}</span>
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={(props) => (
+                    <Button
+                      {...props}
+                      size="sm"
+                      variant="default"
+                      disabled={!hasQuery}
+                      className="!h-6 !w-6 !px-0 rounded-none border-0 border-l border-primary-foreground/20 bg-clip-border"
+                      title="Run options"
+                    >
+                      <IconChevronDown className="h-3 w-3" />
+                    </Button>
+                  )}
+                />
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuItem
+                    onClick={onExecuteAll}
+                    disabled={!onExecuteAll}
+                    className="text-xs"
+                  >
+                    <IconPlayerPlay className="h-3.5 w-3.5 mr-2" />
+                    Run All Statements
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )}
         </div>
       </div>
     </div>

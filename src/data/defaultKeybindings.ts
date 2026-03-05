@@ -80,7 +80,7 @@ export const defaultKeybindings: Keybinding[] = [
     when: 'editorTextFocus && queryEditor',
   },
   {
-    command: 'editor.action.executeQueryInBackground',
+    command: 'editor.action.executeAll',
     key: 'cmd+shift+enter',
     when: 'editorTextFocus && queryEditor',
   },

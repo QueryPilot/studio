@@ -53,22 +53,147 @@ function parseNumber(value: unknown): number | undefined {
   return undefined;
 }
 
-function extractRelationFromArgument(argument: string | undefined): string | undefined {
+function unwrapBalancedParentheses(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("(") || !trimmed.endsWith(")")) {
+    return trimmed;
+  }
+
+  let depth = 0;
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const char = trimmed[index];
+    if (char === "(") {
+      depth += 1;
+    } else if (char === ")") {
+      depth -= 1;
+      if (depth === 0 && index < trimmed.length - 1) {
+        return trimmed;
+      }
+    }
+  }
+
+  if (depth !== 0) {
+    return trimmed;
+  }
+
+  return trimmed.slice(1, -1).trim();
+}
+
+function isLikelyIndexName(identifier: string): boolean {
+  return /^(?:pk|ix|idx|uk|ak|key|index|nc|cl)/i.test(identifier);
+}
+
+function extractArgumentSegment(
+  argument: string | undefined,
+  label: string,
+): string | undefined {
   if (!argument) {
     return undefined;
   }
 
-  const objectMatch = argument.match(/OBJECT:\(([^)]+)\)/i);
-  if (objectMatch?.[1]) {
-    const identifiers = objectMatch[1]
-      .split(".")
-      .map((part) => cleanIdentifier(part))
-      .filter((part) => part.length > 0);
+  const labelRegex = new RegExp(`${label}\\s*:`, "i");
+  const match = labelRegex.exec(argument);
+  if (!match) {
+    return undefined;
+  }
 
-    if (identifiers.length >= 4) {
-      return identifiers[identifiers.length - 2];
+  let start = match.index + match[0].length;
+  while (start < argument.length && /\s/.test(argument[start] || "")) {
+    start += 1;
+  }
+
+  if (start >= argument.length) {
+    return undefined;
+  }
+
+  if (argument[start] === "(") {
+    let depth = 0;
+    for (let index = start; index < argument.length; index += 1) {
+      const char = argument[index];
+      if (char === "(") {
+        depth += 1;
+      } else if (char === ")") {
+        depth -= 1;
+        if (depth === 0) {
+          return argument.slice(start, index + 1).trim();
+        }
+      }
     }
-    return identifiers[identifiers.length - 1];
+    return argument.slice(start).trim();
+  }
+
+  let end = start;
+  while (end < argument.length) {
+    if (argument[end] === ",") {
+      const remainder = argument.slice(end + 1);
+      if (/^\s*[A-Za-z_]+\s*:/.test(remainder)) {
+        break;
+      }
+    }
+    end += 1;
+  }
+
+  return argument.slice(start, end).trim();
+}
+
+function extractObjectInfo(
+  argument: string | undefined,
+): { relation?: string; indexName?: string } {
+  const objectSegment = extractArgumentSegment(argument, "OBJECT");
+  if (!objectSegment) {
+    return {};
+  }
+
+  const objectValue = unwrapBalancedParentheses(objectSegment);
+  const bracketIdentifiers = Array.from(objectValue.matchAll(/\[([^\]]+)\]/g))
+    .map((match) => match[1])
+    .filter((part): part is string => Boolean(part && part.length > 0));
+
+  const identifiers =
+    bracketIdentifiers.length > 0
+      ? bracketIdentifiers
+      : objectValue
+          .split(".")
+          .map((part) => cleanIdentifier(part))
+          .filter((part) => part.length > 0);
+
+  if (identifiers.length === 0) {
+    return {};
+  }
+
+  if (identifiers.length >= 4) {
+    return {
+      relation: identifiers[identifiers.length - 2],
+      indexName: identifiers[identifiers.length - 1],
+    };
+  }
+
+  if (identifiers.length === 3 && isLikelyIndexName(identifiers[2] || "")) {
+    return {
+      relation: identifiers[1],
+      indexName: identifiers[2],
+    };
+  }
+
+  return { relation: identifiers[identifiers.length - 1] };
+}
+
+function normalizeArgumentValue(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const normalized = unwrapBalancedParentheses(value).trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function extractRelationFromArgument(argument: string | undefined): string | undefined {
+  const objectInfo = extractObjectInfo(argument);
+  if (objectInfo.relation) {
+    return objectInfo.relation;
+  }
+
+  if (!argument) {
+    return undefined;
   }
 
   const bracketIdentifiers = Array.from(argument.matchAll(/\[([^\]]+)\]/g))
@@ -138,8 +263,15 @@ export function parseSqlServerShowplanAll(
       physicalOpIndex >= 0 ? formatCell(row[physicalOpIndex]) : undefined;
     const logicalOp = logicalOpIndex >= 0 ? formatCell(row[logicalOpIndex]) : undefined;
     const stmtText = stmtTextIndex >= 0 ? formatCell(row[stmtTextIndex]) : undefined;
-    const argument = argumentIndex >= 0 ? formatCell(row[argumentIndex]) : undefined;
-    const relation = extractRelationFromArgument(argument);
+    const argumentText = argumentIndex >= 0 ? formatCell(row[argumentIndex]) : undefined;
+    const argument = argumentText && argumentText !== "NULL" ? argumentText : undefined;
+    const objectInfo = extractObjectInfo(argument);
+    const relation = objectInfo.relation ?? extractRelationFromArgument(argument);
+    const seekValue = normalizeArgumentValue(extractArgumentSegment(argument, "SEEK"));
+    const whereValue = normalizeArgumentValue(extractArgumentSegment(argument, "WHERE"));
+    const predicateValue = normalizeArgumentValue(
+      extractArgumentSegment(argument, "PREDICATE"),
+    );
 
     const node: ExplainNode = {
       id: `sqlserver-node-${normalizedStmtId}-${nodeId}`,
@@ -155,6 +287,15 @@ export function parseSqlServerShowplanAll(
         .join(" | "),
       children: [],
     };
+    if (objectInfo.indexName) {
+      node.indexName = objectInfo.indexName;
+    }
+    if (seekValue) {
+      node.indexCond = seekValue;
+    }
+    if (whereValue || predicateValue) {
+      node.filter = whereValue ?? predicateValue;
+    }
 
     const totalCost = subtreeCostIndex >= 0 ? parseNumber(row[subtreeCostIndex]) : undefined;
     if (totalCost !== undefined) {
@@ -249,6 +390,40 @@ export function parseSqlServerXmlShowplan(
     });
   };
 
+  const getElementsWithinRelOp = (
+    relOp: Element,
+    localName: string,
+  ): Element[] => {
+    return Array.from(relOp.getElementsByTagNameNS("*", localName)).filter(
+      (candidate) => findNearestRelOpAncestor(candidate) === relOp,
+    );
+  };
+
+  const extractScalarStringsFromContainer = (
+    relOp: Element,
+    containerLocalName: string,
+  ): string[] => {
+    const containers = getElementsWithinRelOp(relOp, containerLocalName);
+    const scalarStrings: string[] = [];
+
+    for (const container of containers) {
+      const scalarOperators = Array.from(
+        container.getElementsByTagNameNS("*", "ScalarOperator"),
+      );
+      for (const scalarOperator of scalarOperators) {
+        if (findNearestRelOpAncestor(scalarOperator) !== relOp) {
+          continue;
+        }
+        const scalarString = scalarOperator.getAttribute("ScalarString");
+        if (scalarString && scalarString.length > 0) {
+          scalarStrings.push(scalarString);
+        }
+      }
+    }
+
+    return scalarStrings;
+  };
+
   let nodeCounter = 0;
   const parseRelOpElement = (relOp: Element): ExplainNode => {
     const physicalOp = relOp.getAttribute("PhysicalOp");
@@ -264,7 +439,10 @@ export function parseSqlServerXmlShowplan(
       return nearest === relOp;
     });
     const tableName = directObject?.getAttribute("Table") || undefined;
+    const indexName = directObject?.getAttribute("Index") || undefined;
     const relation = tableName ? cleanIdentifier(tableName) : undefined;
+    const seekPredicates = extractScalarStringsFromContainer(relOp, "SeekPredicates");
+    const predicates = extractScalarStringsFromContainer(relOp, "Predicate");
 
     const node: ExplainNode = {
       id: `sqlserver-xml-${nodeCounter++}`,
@@ -273,6 +451,15 @@ export function parseSqlServerXmlShowplan(
       rows: estimateRows,
       raw: new XMLSerializer().serializeToString(relOp),
     };
+    if (indexName) {
+      node.indexName = cleanIdentifier(indexName);
+    }
+    if (seekPredicates.length > 0) {
+      node.indexCond = seekPredicates.join(" AND ");
+    }
+    if (predicates.length > 0) {
+      node.filter = predicates.join(" AND ");
+    }
 
     if (subtreeCost !== undefined) {
       node.cost = {

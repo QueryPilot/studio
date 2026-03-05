@@ -1076,6 +1076,15 @@ export const defaultCommands: Command[] = [
     },
   },
   {
+    id: "editor.action.executeAll",
+    label: "Execute All Statements",
+    category: "Editor",
+    when: "editorTextFocus && queryEditor",
+    handler: () => {
+      eventBus.emit("query-editor:execute-all", {});
+    },
+  },
+  {
     id: "editor.action.executeQueryInBackground",
     label: "Execute Query in Background",
     category: "Editor",

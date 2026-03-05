@@ -112,4 +112,53 @@ describe("parseSqlServerXmlShowplan", () => {
     expect(parsed.nodes).toHaveLength(2);
     expect(parsed.totalCost).toBeCloseTo(0.3);
   });
+
+  it("extracts index name, seek predicate, and filter from XML showplan", () => {
+    const xml = `<?xml version="1.0" encoding="utf-16"?>
+<ShowPlanXML xmlns="http://schemas.microsoft.com/sqlserver/2004/07/showplan">
+  <BatchSequence>
+    <Batch>
+      <Statements>
+        <StmtSimple StatementText="SELECT * FROM orders WHERE status = N'shipped'">
+          <QueryPlan>
+            <RelOp NodeId="0" PhysicalOp="Index Seek" LogicalOp="Index Seek" EstimateRows="10" EstimatedTotalSubtreeCost="0.10">
+              <IndexScan>
+                <Object Database="[todoapp]" Schema="[dbo]" Table="[orders]" Index="[idx_orders_status]" />
+                <SeekPredicates>
+                  <SeekPredicateNew>
+                    <SeekKeys>
+                      <Prefix ScanType="EQ">
+                        <RangeColumns>
+                          <ColumnReference Database="[todoapp]" Schema="[dbo]" Table="[orders]" Column="status" />
+                        </RangeColumns>
+                        <RangeExpressions>
+                          <ScalarOperator ScalarString="N'shipped'" />
+                        </RangeExpressions>
+                      </Prefix>
+                    </SeekKeys>
+                  </SeekPredicateNew>
+                </SeekPredicates>
+                <Predicate>
+                  <ScalarOperator ScalarString="[todoapp].[dbo].[orders].[created_at]&gt;='2024-01-01'" />
+                </Predicate>
+              </IndexScan>
+            </RelOp>
+          </QueryPlan>
+        </StmtSimple>
+      </Statements>
+    </Batch>
+  </BatchSequence>
+</ShowPlanXML>`;
+
+    const parsed = parseSqlServerXmlShowplan({
+      columns: ["Microsoft SQL Server 2005 XML Showplan"],
+      rows: [[xml]],
+    });
+
+    expect(parsed.nodes).toHaveLength(1);
+    expect(parsed.nodes[0]?.relation).toBe("orders");
+    expect(parsed.nodes[0]?.indexName).toBe("idx_orders_status");
+    expect(parsed.nodes[0]?.indexCond).toContain("N'shipped'");
+    expect(parsed.nodes[0]?.filter).toContain("[created_at]");
+  });
 });

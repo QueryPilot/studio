@@ -175,4 +175,53 @@ describe("QueryStreamClient", () => {
     expect(result.totalRows).toBe(4);
     expect(result.fetchCount).toBe(2);
   });
+
+  it("reports metadata errors once even if invoke later rejects", async () => {
+    mockInvoke.mockImplementation(
+      (
+        _command: string,
+        args: {
+          metadataChannel: { [key: symbol]: () => string };
+        },
+      ) => {
+        const metadataId = coreMockState.extractChannelId(args.metadataChannel);
+        const emitMetadata = coreMockState.callbackRegistry.get(metadataId);
+
+        if (!emitMetadata) {
+          return Promise.reject(new Error("Missing metadata callback registration"));
+        }
+
+        emitMetadata({
+          id: 0,
+          message: {
+            type: "error",
+            code: "QUERY_EXECUTION_ERROR",
+            message: "Internal panic while executing query",
+          },
+        });
+
+        return Promise.reject(new Error("invoke rejected after metadata error"));
+      },
+    );
+
+    const client = new QueryStreamClient();
+    const onError = vi.fn();
+
+    await expect(
+      client.streamWithCallbacks(
+        {
+          connId: "conn-1",
+          tabId: "query-tab-1",
+          sql: "SELECT 1",
+        },
+        { onError },
+      ),
+    ).rejects.toThrow("[QUERY_EXECUTION_ERROR] Internal panic while executing query");
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+    expect(String(onError.mock.calls[0]?.[0])).toContain(
+      "[QUERY_EXECUTION_ERROR] Internal panic while executing query",
+    );
+  });
 });

@@ -38,6 +38,8 @@ type Events = {
   // Query Editor events
   "query-editor:format": KeyboardEventPayload;
   "query-editor:execute": KeyboardEventPayload;
+  "query-editor:execute-all": KeyboardEventPayload;
+  "query-editor:execute-selection": KeyboardEventPayload;
   "query-editor:execute-background": KeyboardEventPayload;
   "query-editor:find": KeyboardEventPayload;
   "query-editor:replace": KeyboardEventPayload;

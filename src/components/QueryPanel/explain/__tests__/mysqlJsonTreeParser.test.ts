@@ -46,5 +46,7 @@ describe("parseMySqlExplain JSON/TREE", () => {
     expect(parsed.nodes[0]?.children).toHaveLength(2);
     expect(parsed.nodes[0]?.children?.[0]?.relation).toBe("users");
     expect(parsed.nodes[0]?.children?.[1]?.relation).toBe("orders");
+    expect(parsed.nodes[0]?.children?.[1]?.indexName).toBe("PRIMARY");
+    expect(parsed.nodes[0]?.children?.[1]?.indexCond).toBe("user_id=users.id");
   });
 });

@@ -47,7 +47,7 @@ export function useMenuEventListener() {
       const activeConnectionId = workspaceStore.activeConnectionId;
 
       // Debug: Log context for all database-related actions
-      if (["connect", "disconnect", "refresh", "execute", "execute_selection", "export", "import", "new_query"].includes(action)) {
+      if (["connect", "disconnect", "refresh", "execute", "execute_selection", "execute_all", "export", "import", "new_query"].includes(action)) {
         logger.info(`[MenuAction] Context for '${action}': activeConnectionId=${activeConnectionId}, focusedPanel=${usePanelFocusStore.getState().focusedPanelId}`);
       }
 
@@ -111,8 +111,11 @@ export function useMenuEventListener() {
         case "execute":
           eventBus.emit("query-editor:execute", {});
           break;
+        case "execute_all":
+          eventBus.emit("query-editor:execute-all", {});
+          break;
         case "execute_selection":
-          eventBus.emit("query-editor:execute", { selection: true });
+          eventBus.emit("query-editor:execute-selection", { selection: true });
           break;
         case "export":
           eventBus.emit("data-grid:export-csv", {});

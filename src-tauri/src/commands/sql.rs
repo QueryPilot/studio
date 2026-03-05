@@ -682,6 +682,30 @@ async fn execute_mysql_stream(
     Ok(())
 }
 
+fn parse_mssql_spid_text(value: Option<&str>) -> Option<i16> {
+    value.and_then(|raw| raw.trim().parse::<i16>().ok())
+}
+
+fn extract_mssql_spid(row: &tiberius::Row) -> i16 {
+    row.try_get::<i16, _>(0)
+        .ok()
+        .flatten()
+        .or_else(|| {
+            row.try_get::<i32, _>(0)
+                .ok()
+                .flatten()
+                .and_then(|v| i16::try_from(v).ok())
+        })
+        .or_else(|| {
+            row.try_get::<i64, _>(0)
+                .ok()
+                .flatten()
+                .and_then(|v| i16::try_from(v).ok())
+        })
+        .or_else(|| parse_mssql_spid_text(row.try_get::<&str, _>(0).ok().flatten()))
+        .unwrap_or(0)
+}
+
 /// SQL Server streaming implementation with cancellation support.
 /// Uses the same connection for both @@SPID retrieval and query execution,
 /// ensuring the correct query gets killed on cancellation.
@@ -714,6 +738,8 @@ async fn execute_mssql_stream(
         .await
         .map_err(|e| format!("Failed to get MSSQL connection: {}", e))?;
 
+    crate::adapters::mssql::MssqlAdapter::reset_session_state(&mut query_conn).await;
+
     let spid: i16 = {
         let result = query_conn
             .simple_query("SELECT @@SPID")
@@ -724,7 +750,7 @@ async fn execute_mssql_stream(
             .await
             .map_err(|e| format!("Failed to get SPID row: {}", e))?;
         match row {
-            Some(r) => r.get::<i16, _>(0).unwrap_or(0),
+            Some(r) => extract_mssql_spid(&r),
             None => 0,
         }
     };
@@ -1643,25 +1669,16 @@ pub async fn execute_query(
     // Can be overridden per-query via timeout_secs parameter
     let timeout_duration = std::time::Duration::from_secs(timeout_secs.unwrap_or(300));
 
+    use futures::FutureExt;
+    use std::panic::AssertUnwindSafe;
+
     // Route based on database type
     // SQLite uses the adapter's query() method, PostgreSQL uses streaming
-    let result = match adapter.db_type() {
-        crate::types::DbType::SQLite => tokio::time::timeout(
-            timeout_duration,
-            execute_sqlite_query(&sql, &metadata_channel, &data_channel, &adapter),
-        )
-        .await
-        .map_err(|_| {
-            format!(
-                "Query timed out after {} seconds",
-                timeout_duration.as_secs()
-            )
-        })?,
-        _ => {
-            // PostgreSQL and other databases use the streaming path
-            tokio::time::timeout(
+    let stream_result = match AssertUnwindSafe(async {
+        match adapter.db_type() {
+            crate::types::DbType::SQLite => tokio::time::timeout(
                 timeout_duration,
-                execute_single_fetch_stream(&sql, &metadata_channel, &data_channel, &adapter),
+                execute_sqlite_query(&sql, &metadata_channel, &data_channel, &adapter),
             )
             .await
             .map_err(|_| {
@@ -1669,8 +1686,28 @@ pub async fn execute_query(
                     "Query timed out after {} seconds",
                     timeout_duration.as_secs()
                 )
-            })?
+            })?,
+            _ => {
+                // PostgreSQL and other databases use the streaming path
+                tokio::time::timeout(
+                    timeout_duration,
+                    execute_single_fetch_stream(&sql, &metadata_channel, &data_channel, &adapter),
+                )
+                .await
+                .map_err(|_| {
+                    format!(
+                        "Query timed out after {} seconds",
+                        timeout_duration.as_secs()
+                    )
+                })?
+            }
         }
+    })
+    .catch_unwind()
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err("Internal panic while executing query".to_string()),
     };
 
     // Guard against IPC race on channel close: when this command returns,
@@ -1683,7 +1720,27 @@ pub async fn execute_query(
     // decode-queue drain before finalizing success.
     let _ = data_channel.send(tauri::ipc::Response::new(vec![]));
 
-    result
+    match stream_result {
+        Ok(()) => Ok(()),
+        Err(message) => {
+            // Cancellation already emits StreamMessage::Interrupted from the worker path.
+            if message == "Query cancelled by user" {
+                return Err(message);
+            }
+
+            let send_result = metadata_channel.send(StreamMessage::Error {
+                code: "QUERY_EXECUTION_ERROR".to_string(),
+                message: message.clone(),
+            });
+
+            // If metadata channel is closed, fall back to invoke rejection.
+            if send_result.is_err() {
+                Err(message)
+            } else {
+                Ok(())
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -1763,5 +1820,18 @@ mod tests {
             find_main_statement_keyword("WITH cte AS (SELECT 1) INSERT INTO t SELECT * FROM cte"),
             Some("INSERT".to_string())
         );
+    }
+
+    #[test]
+    fn test_parse_mssql_spid_text_accepts_numeric_values() {
+        assert_eq!(parse_mssql_spid_text(Some("52")), Some(52));
+        assert_eq!(parse_mssql_spid_text(Some("  32767  ")), Some(32767));
+    }
+
+    #[test]
+    fn test_parse_mssql_spid_text_rejects_non_numeric_values() {
+        assert_eq!(parse_mssql_spid_text(Some("SELECT @@SPID")), None);
+        assert_eq!(parse_mssql_spid_text(Some("abc")), None);
+        assert_eq!(parse_mssql_spid_text(None), None);
     }
 }

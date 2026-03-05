@@ -317,13 +317,23 @@ fn build_database_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
     )?;
     submenu.append(&execute)?;
 
+    // Execute All Statements
+    let execute_all = MenuItem::with_id(
+        app,
+        "db_execute_all",
+        "Execute All Statements",
+        true,
+        Some("CmdOrCtrl+Shift+Enter"),
+    )?;
+    submenu.append(&execute_all)?;
+
     // Execute Selection
     let execute_sel = MenuItem::with_id(
         app,
         "db_execute_selection",
         "Execute Selection",
         true,
-        Some("CmdOrCtrl+Shift+Enter"),
+        None::<&str>,
     )?;
     submenu.append(&execute_sel)?;
 
@@ -608,6 +618,7 @@ pub fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         | "db_disconnect"
         | "db_refresh"
         | "db_execute"
+        | "db_execute_all"
         | "db_execute_selection"
         | "db_export"
         | "db_import"
