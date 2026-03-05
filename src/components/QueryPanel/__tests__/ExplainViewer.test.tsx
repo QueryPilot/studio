@@ -8,8 +8,8 @@ vi.mock("@/components/CodeEditor", () => ({
   ),
 }));
 
-describe("ExplainViewer fallback rendering", () => {
-  it("shows full MySQL EXPLAIN row details instead of only numeric id", () => {
+describe("ExplainViewer rendering", () => {
+  it("renders MySQL EXPLAIN rows as structured plan nodes", () => {
     render(
       <ExplainViewer
         result={{
@@ -22,15 +22,14 @@ describe("ExplainViewer fallback rendering", () => {
       />,
     );
 
-    const content = screen.getByTestId("code-editor").textContent;
-
-    expect(content).toContain("select_type");
-    expect(content).toContain("SIMPLE");
-    expect(content).toContain("Using where");
-    expect(content).toContain("customers");
+    expect(screen.queryByTestId("code-editor")).toBeNull();
+    expect(screen.getByText("ALL")).toBeTruthy();
+    expect(screen.getByText("reviews")).toBeTruthy();
+    expect(screen.getByText("eq_ref")).toBeTruthy();
+    expect(screen.getByText("customers")).toBeTruthy();
   });
 
-  it("uses SQLite detail column for EXPLAIN QUERY PLAN output", () => {
+  it("renders SQLite EXPLAIN QUERY PLAN as a structured tree", () => {
     render(
       <ExplainViewer
         result={{
@@ -43,11 +42,10 @@ describe("ExplainViewer fallback rendering", () => {
       />,
     );
 
-    const content = screen.getByTestId("code-editor").textContent;
-
-    expect(content).toContain("SCAN reviews");
-    expect(content).toContain("SEARCH customers");
-    expect(content).not.toContain("parent=");
-    expect(content).not.toContain("notused=");
+    expect(screen.queryByTestId("code-editor")).toBeNull();
+    expect(screen.getByText("SCAN")).toBeTruthy();
+    expect(screen.getByText("reviews")).toBeTruthy();
+    expect(screen.getByText("SEARCH")).toBeTruthy();
+    expect(screen.getByText("customers")).toBeTruthy();
   });
 });

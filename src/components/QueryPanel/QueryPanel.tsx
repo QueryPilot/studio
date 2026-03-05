@@ -1205,6 +1205,7 @@ export const QueryPanel = memo(function QueryPanel({
                           isStreaming={isStreaming}
                           connectionId={effectiveConnectionId}
                           database={database}
+                          databaseType={dbType}
                           height="100%"
                           gridId={queryGridId}
                           viewMode={viewMode}

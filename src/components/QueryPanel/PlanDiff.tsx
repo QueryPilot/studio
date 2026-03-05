@@ -118,7 +118,10 @@ interface PlanDiffProps {
   label1?: string;
   label2?: string;
   onBack: () => void;
-  parseExplain: (rows: unknown[][]) => ParsedExplain;
+  parseExplain: (result: {
+    columns: string[];
+    rows: unknown[][];
+  }) => ParsedExplain;
 }
 
 interface DiffSummary {
@@ -392,12 +395,12 @@ export const PlanDiff = memo(function PlanDiff({
   parseExplain,
 }: PlanDiffProps) {
   const parsed1 = useMemo(
-    () => parseExplain(plan1.rows),
-    [plan1.rows, parseExplain],
+    () => parseExplain({ columns: plan1.columns, rows: plan1.rows }),
+    [parseExplain, plan1.columns, plan1.rows],
   );
   const parsed2 = useMemo(
-    () => parseExplain(plan2.rows),
-    [plan2.rows, parseExplain],
+    () => parseExplain({ columns: plan2.columns, rows: plan2.rows }),
+    [parseExplain, plan2.columns, plan2.rows],
   );
   const diff = useMemo(
     () => calculateDiff(parsed1, parsed2),
