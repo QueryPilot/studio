@@ -295,7 +295,7 @@ pub async fn acp_send_prompt(
     tracing::info!(
         "Sending prompt to instance {}: {}",
         instance_id,
-        &prompt[..prompt.len().min(100)]
+        truncate_str(&prompt, 100)
     );
 
     let mut content = vec![];
@@ -448,26 +448,46 @@ pub async fn acp_get_llm_home() -> Result<String, String> {
     Ok(llm_home.to_string_lossy().to_string())
 }
 
-/// Check if a path is a valid executable (exists, non-empty, and executable on Unix)
-fn is_valid_executable(path: &std::path::Path) -> bool {
+/// Truncate a string to at most `max_bytes` bytes on a valid char boundary.
+fn truncate_str(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    // floor_char_boundary is nightly-only, so find it manually
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
+/// Check if a path is a valid sidecar file (exists and non-empty).
+/// Does NOT require the execute bit — use `ensure_executable` after finding a match.
+fn is_valid_sidecar_file(path: &std::path::Path) -> bool {
     match std::fs::metadata(path) {
-        Ok(meta) => {
-            // Must be a file with non-zero size
-            if !meta.is_file() || meta.len() == 0 {
-                return false;
-            }
-            // On Unix, check executable permission
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                meta.permissions().mode() & 0o111 != 0
-            }
-            #[cfg(not(unix))]
-            {
-                true
+        Ok(meta) => meta.is_file() && meta.len() > 0,
+        Err(_) => false,
+    }
+}
+
+/// Ensure a file has the executable permission set on Unix.
+/// This is a best-effort fix for sidecar binaries that lost +x during `cp`.
+fn ensure_executable(path: &std::path::Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(path) {
+            let mode = meta.permissions().mode();
+            if mode & 0o111 == 0 {
+                let new_mode = mode | 0o755;
+                let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(new_mode));
+                tracing::info!("Fixed execute permission on sidecar: {}", path.display());
             }
         }
-        Err(_) => false,
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
     }
 }
 
@@ -487,26 +507,57 @@ pub async fn acp_get_mcp_sidecar_path(_app_handle: tauri::AppHandle) -> Result<S
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             let sidecar_path = exe_dir.join(sidecar_name);
-            if is_valid_executable(&sidecar_path) {
+            if is_valid_sidecar_file(&sidecar_path) {
+                // Production bundles may lack +x due to cp in build scripts.
+                // Auto-fix the permission so the sidecar can be executed.
+                ensure_executable(&sidecar_path);
                 tracing::info!("Found MCP sidecar at: {}", sidecar_path.display());
                 return Ok(sidecar_path.to_string_lossy().to_string());
+            }
+
+            // Development: exe is at target/{debug,release}/app-binary.
+            // Check sibling profile directories (e.g. exe in target/debug/ → also check target/release/).
+            if let Some(target_dir) = exe_dir.parent() {
+                for profile in ["release", "debug"] {
+                    let sibling_path = target_dir.join(profile).join(sidecar_name);
+                    if is_valid_sidecar_file(&sibling_path) {
+                        ensure_executable(&sibling_path);
+                        tracing::info!(
+                            "Found MCP sidecar (exe sibling {}) at: {}",
+                            profile,
+                            sibling_path.display()
+                        );
+                        return Ok(sibling_path.to_string_lossy().to_string());
+                    }
+                }
             }
         }
     }
 
-    // Development: try workspace target paths
-    // Tauri runs from src-tauri/, workspace root is parent directory
+    // Development fallback: try workspace target paths relative to current_dir.
+    // Tauri dev may run from src-tauri/ or project root.
     let current_dir =
         std::env::current_dir().map_err(|e| format!("Failed to get current dir: {}", e))?;
 
-    // Check workspace root target (for cargo workspace builds)
+    // Check current dir target first (most common: cwd is workspace root)
+    for profile in ["release", "debug"] {
+        let dev_path = current_dir.join("target").join(profile).join(sidecar_name);
+        if is_valid_sidecar_file(&dev_path) {
+            ensure_executable(&dev_path);
+            tracing::info!("Found MCP sidecar ({}) at: {}", profile, dev_path.display());
+            return Ok(dev_path.to_string_lossy().to_string());
+        }
+    }
+
+    // Check parent of current dir (cwd is src-tauri/, workspace root is parent)
     if let Some(workspace_root) = current_dir.parent() {
         for profile in ["release", "debug"] {
             let workspace_path = workspace_root
                 .join("target")
                 .join(profile)
                 .join(sidecar_name);
-            if is_valid_executable(&workspace_path) {
+            if is_valid_sidecar_file(&workspace_path) {
+                ensure_executable(&workspace_path);
                 tracing::info!(
                     "Found MCP sidecar (workspace {}) at: {}",
                     profile,
@@ -517,17 +568,8 @@ pub async fn acp_get_mcp_sidecar_path(_app_handle: tauri::AppHandle) -> Result<S
         }
     }
 
-    // Check current dir target (for standalone builds)
-    for profile in ["release", "debug"] {
-        let dev_path = current_dir.join("target").join(profile).join(sidecar_name);
-        if is_valid_executable(&dev_path) {
-            tracing::info!("Found MCP sidecar ({}) at: {}", profile, dev_path.display());
-            return Ok(dev_path.to_string_lossy().to_string());
-        }
-    }
-
     Err(format!(
-        "MCP sidecar not found. Checked: executable dir, resource dir, target/{{release,debug}}/{}",
+        "MCP sidecar not found. Checked: executable dir, sibling profiles, target/{{release,debug}}/{}",
         sidecar_name
     ))
 }

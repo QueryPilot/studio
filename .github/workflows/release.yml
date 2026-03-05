@@ -215,8 +215,8 @@ jobs:
             # Universal: build both + lipo
             cargo build --release --package querypilot-mcp --target aarch64-apple-darwin
             cargo build --release --package querypilot-mcp --target x86_64-apple-darwin
-            cp target/aarch64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-aarch64-apple-darwin
-            cp target/x86_64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-x86_64-apple-darwin
+            install -m 755 target/aarch64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-aarch64-apple-darwin
+            install -m 755 target/x86_64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-x86_64-apple-darwin
             lipo -create \
               target/aarch64-apple-darwin/release/querypilot-mcp \
               target/x86_64-apple-darwin/release/querypilot-mcp \
@@ -224,7 +224,7 @@ jobs:
           else
             # Single arch
             cargo build --release --package querypilot-mcp --target "$TARGET"
-            cp "target/$TARGET/release/querypilot-mcp" "target/release/querypilot-mcp-$TARGET"
+            install -m 755 "target/$TARGET/release/querypilot-mcp" "target/release/querypilot-mcp-$TARGET"
           fi
 
           echo "MCP sidecar built for $TARGET"

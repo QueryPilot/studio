@@ -471,9 +471,9 @@ build_mcp_sidecar() {
 
     mkdir -p target/release
 
-    # Create arch-specific copies for Tauri bundling
-    cp target/aarch64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-aarch64-apple-darwin
-    cp target/x86_64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-x86_64-apple-darwin
+    # Create arch-specific copies for Tauri bundling (preserve execute permission)
+    install -m 755 target/aarch64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-aarch64-apple-darwin
+    install -m 755 target/x86_64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-x86_64-apple-darwin
 
     # Create universal binary
     lipo -create \
