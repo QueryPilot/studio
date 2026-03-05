@@ -673,6 +673,7 @@ export const ResultViewer = memo(function ResultViewer({
         <div className="h-full">
           <ExplainViewer
             result={{ columns: result.columns, rows: result.rows }}
+            databaseType={databaseType}
             viewMode={viewMode}
           />
         </div>
