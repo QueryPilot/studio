@@ -4,7 +4,7 @@
  * Handles compartment creation, initial doc state, and dialect detection.
  */
 
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { Compartment } from "@codemirror/state";
 import { debounce } from "@/utils/debounce";
 import { detectSqlDialect } from "@/utils/dialectDetector";
@@ -60,19 +60,35 @@ export function useSqlEditorSetup({
 
   // Keep a ref-stable callback for dialect detection notifications
   const onDialectDetectedRef = useRef(onDialectDetected);
-  onDialectDetectedRef.current = onDialectDetected;
+  useEffect(() => {
+    onDialectDetectedRef.current = onDialectDetected;
+  }, [onDialectDetected]);
+
+  // Track current dialect in a ref so handleDialectDetection can skip no-op updates
+  const currentDialectRef = useRef(currentDialect);
+  useEffect(() => {
+    currentDialectRef.current = currentDialect;
+  }, [currentDialect]);
+
+  // Track dialectOverride in a ref so the editor's mount-effect closure can read it
+  const dialectOverrideRef = useRef(dialectOverride);
+  useEffect(() => {
+    dialectOverrideRef.current = dialectOverride;
+  }, [dialectOverride]);
 
   // Debounced dialect detection
   const handleDialectDetection = useCallback(
     (val: string) => {
       const detected = detectSqlDialect(dbType, val);
-      setCurrentDialect(detected);
-      onDialectDetectedRef.current?.(detected);
+      if (detected !== currentDialectRef.current) {
+        setCurrentDialect(detected);
+        onDialectDetectedRef.current?.(detected);
+      }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [dbType],
   );
 
+  // eslint-disable-next-line react-compiler/react-compiler -- ref access deferred to debounced invocation, not during render
   const detectDialect = useMemo(
     () => debounce(handleDialectDetection, 500),
     [handleDialectDetection],
@@ -86,5 +102,6 @@ export function useSqlEditorSetup({
     compartments,
     effectiveDialect,
     detectDialect,
+    dialectOverrideRef,
   };
 }

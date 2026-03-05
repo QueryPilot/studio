@@ -329,8 +329,13 @@ export const SqlEditor = memo(
     } | null>(null);
 
     // --- Setup hook: compartments, dialect detection, initial doc ---
-    const { initialDoc, compartments, effectiveDialect, detectDialect } =
-      useSqlEditorSetup({
+    const {
+      initialDoc,
+      compartments,
+      effectiveDialect,
+      detectDialect,
+      dialectOverrideRef,
+    } = useSqlEditorSetup({
         initialValue,
         value,
         dbType,
@@ -681,7 +686,9 @@ export const SqlEditor = memo(
         const val = pending.state.doc.toString();
         docValueRef.current = val;
         debouncedOnChange(val);
-        detectDialect(val);
+        if (!dialectOverrideRef.current) {
+          detectDialect(val);
+        }
         pendingUpdate = null;
       };
 
