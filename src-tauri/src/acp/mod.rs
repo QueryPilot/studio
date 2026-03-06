@@ -8,3 +8,4 @@ pub mod capabilities;
 pub mod commands;
 pub mod discovery;
 pub mod manager;
+pub mod socket_server;
