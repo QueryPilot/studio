@@ -203,31 +203,48 @@ jobs:
           rm certificate.p12
 
       # ============================================
-      # Build MCP Sidecar (required by externalBin)
+      # Build querypilot CLI (required by externalBin)
       # ============================================
 
-      - name: Build MCP sidecar
+      - name: Build querypilot CLI
         run: |
           TARGET="${{ matrix.target }}"
           mkdir -p target/release
 
           if [ "$TARGET" = "universal-apple-darwin" ]; then
             # Universal: build both + lipo
-            cargo build --release --package querypilot-mcp --target aarch64-apple-darwin
-            cargo build --release --package querypilot-mcp --target x86_64-apple-darwin
-            install -m 755 target/aarch64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-aarch64-apple-darwin
-            install -m 755 target/x86_64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-x86_64-apple-darwin
+            cargo build --release --package querypilot --target aarch64-apple-darwin
+            cargo build --release --package querypilot --target x86_64-apple-darwin
+            install -m 755 target/aarch64-apple-darwin/release/querypilot target/release/querypilot-aarch64-apple-darwin
+            install -m 755 target/x86_64-apple-darwin/release/querypilot target/release/querypilot-x86_64-apple-darwin
             lipo -create \
-              target/aarch64-apple-darwin/release/querypilot-mcp \
-              target/x86_64-apple-darwin/release/querypilot-mcp \
-              -output target/release/querypilot-mcp-universal-apple-darwin
+              target/aarch64-apple-darwin/release/querypilot \
+              target/x86_64-apple-darwin/release/querypilot \
+              -output target/release/querypilot-universal-apple-darwin
+            chmod 755 target/release/querypilot-universal-apple-darwin
           else
             # Single arch
-            cargo build --release --package querypilot-mcp --target "$TARGET"
-            install -m 755 "target/$TARGET/release/querypilot-mcp" "target/release/querypilot-mcp-$TARGET"
+            cargo build --release --package querypilot --target "$TARGET"
+            install -m 755 "target/$TARGET/release/querypilot" "target/release/querypilot-$TARGET"
           fi
 
-          echo "MCP sidecar built for $TARGET"
+          EXPECTED_PATH="target/release/querypilot-$TARGET"
+          if [ ! -f "$EXPECTED_PATH" ]; then
+            echo "❌ ERROR: Missing querypilot CLI artifact: $EXPECTED_PATH"
+            exit 1
+          fi
+          if [ ! -x "$EXPECTED_PATH" ]; then
+            echo "❌ ERROR: querypilot CLI is not executable: $EXPECTED_PATH"
+            exit 1
+          fi
+
+          SMOKE_REQUEST='{"version":"1","requestId":"ci-smoke","params":{}}'
+          printf '%s' "$SMOKE_REQUEST" \
+            | "$EXPECTED_PATH" agent workspace.listTabs \
+            | python3 -c 'import json,sys; o=json.load(sys.stdin); assert o.get("ok") is True; assert o.get("requestId")=="ci-smoke"; assert o.get("capability")=="workspace.listTabs"'
+
+          ls -la target/release/querypilot*
+          echo "✅ querypilot CLI built for $TARGET"
 
       # ============================================
       # Build Tauri App

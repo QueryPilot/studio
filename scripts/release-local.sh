@@ -462,26 +462,64 @@ $(echo "$changelog" | sed 's/^## \[.*\] - .*//; s/^### /- /; s/^- $//; /^$/d' | 
     success "Version bumped and tagged (not pushed — local release only uploads artifacts)"
 }
 
-# Build MCP sidecar (mirrors CI: .github/workflows/release.yml)
-build_mcp_sidecar() {
-    log "Building MCP sidecar (all targets)..."
+# Build querypilot CLI (mirrors CI: .github/workflows/release.yml)
+build_querypilot_cli() {
+    log "Building querypilot CLI (all targets)..."
 
-    cargo build --release --package querypilot-mcp --target aarch64-apple-darwin
-    cargo build --release --package querypilot-mcp --target x86_64-apple-darwin
+    local host_target
+    host_target=$(rustc -vV | sed -n 's/^host: //p')
 
-    mkdir -p target/release
+    # Build host binaries for local development/runtime checks (debug + release).
+    cargo build --package querypilot --target "$host_target"
+    cargo build --release --package querypilot --target "$host_target"
+
+    mkdir -p target/debug target/release
+
+    # Host unsuffixed/suffixed binaries for dev/runtime path resolution.
+    install -m 755 "target/$host_target/debug/querypilot" "target/debug/querypilot"
+    install -m 755 "target/$host_target/debug/querypilot" "target/debug/querypilot-$host_target"
+    install -m 755 "target/$host_target/release/querypilot" "target/release/querypilot"
+    install -m 755 "target/$host_target/release/querypilot" "target/release/querypilot-$host_target"
+
+    # Build cross-target release binaries for production packaging.
+    cargo build --release --package querypilot --target aarch64-apple-darwin
+    cargo build --release --package querypilot --target x86_64-apple-darwin
 
     # Create arch-specific copies for Tauri bundling (preserve execute permission)
-    install -m 755 target/aarch64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-aarch64-apple-darwin
-    install -m 755 target/x86_64-apple-darwin/release/querypilot-mcp target/release/querypilot-mcp-x86_64-apple-darwin
+    install -m 755 target/aarch64-apple-darwin/release/querypilot target/release/querypilot-aarch64-apple-darwin
+    install -m 755 target/x86_64-apple-darwin/release/querypilot target/release/querypilot-x86_64-apple-darwin
 
     # Create universal binary
     lipo -create \
-        target/aarch64-apple-darwin/release/querypilot-mcp \
-        target/x86_64-apple-darwin/release/querypilot-mcp \
-        -output target/release/querypilot-mcp-universal-apple-darwin
+        target/aarch64-apple-darwin/release/querypilot \
+        target/x86_64-apple-darwin/release/querypilot \
+        -output target/release/querypilot-universal-apple-darwin
+    chmod 755 target/release/querypilot-universal-apple-darwin
 
-    success "MCP sidecar built (arm64 + x64 + universal)"
+    # Verify required artifacts and executable bits.
+    for artifact in \
+        "target/debug/querypilot" \
+        "target/debug/querypilot-$host_target" \
+        "target/release/querypilot" \
+        "target/release/querypilot-$host_target" \
+        "target/release/querypilot-aarch64-apple-darwin" \
+        "target/release/querypilot-x86_64-apple-darwin" \
+        "target/release/querypilot-universal-apple-darwin"; do
+        [ -f "$artifact" ] || error "Missing querypilot artifact: $artifact"
+        [ -x "$artifact" ] || error "querypilot artifact is not executable: $artifact"
+    done
+
+    # Smoke-test host release/debug CLI protocol path.
+    local smoke_request='{"version":"1","requestId":"release-local-smoke","params":{}}'
+    printf '%s' "$smoke_request" | target/release/querypilot agent workspace.listTabs >/tmp/querypilot-release-smoke.json
+    jq -e '.ok == true and .requestId == "release-local-smoke" and .capability == "workspace.listTabs"' /tmp/querypilot-release-smoke.json >/dev/null \
+        || error "querypilot release smoke test failed"
+
+    printf '%s' "$smoke_request" | target/debug/querypilot agent workspace.listTabs >/tmp/querypilot-debug-smoke.json
+    jq -e '.ok == true and .requestId == "release-local-smoke" and .capability == "workspace.listTabs"' /tmp/querypilot-debug-smoke.json >/dev/null \
+        || error "querypilot debug smoke test failed"
+
+    success "querypilot CLI built and verified (dev + prod artifacts)"
 }
 
 # Build Tauri app for all targets
@@ -667,7 +705,7 @@ EOF
 
 # Cleanup build artifacts
 cleanup() {
-    rm -f /tmp/release-notes.md /tmp/tauri-key "$CONTEXT_FILE" 2>/dev/null || true
+    rm -f /tmp/release-notes.md /tmp/tauri-key /tmp/querypilot-release-smoke.json /tmp/querypilot-debug-smoke.json "$CONTEXT_FILE" 2>/dev/null || true
     # Remove local build artifacts
     rm -f QueryPilot_v*.dmg QueryPilot_v*.app.tar.gz QueryPilot_v*.app.tar.gz.sig latest.json 2>/dev/null || true
 }
@@ -707,7 +745,7 @@ main() {
     log "Starting local build..."
     echo ""
 
-    build_mcp_sidecar
+    build_querypilot_cli
     build_app
     prepare_artifacts
     generate_manifest "$NEXT_VERSION"

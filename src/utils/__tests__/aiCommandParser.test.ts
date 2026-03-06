@@ -1,8 +1,7 @@
 /**
  * AI Command Parser Tests
  *
- * Tests for parsing AI commands from agent responses.
- * Note: Read commands have been removed - AI uses MCP tools for database reads.
+ * Tests for parsing `qp-action` fenced command blocks.
  */
 
 import { describe, it, expect } from "vitest";
@@ -16,175 +15,227 @@ import {
 } from "../aiCommandParser";
 import type { AiCommandName } from "@/types/aiCommands";
 
+function qpAction(payload: string): string {
+  return `\`\`\`qp-action\n${payload}\n\`\`\``;
+}
+
 describe("parseCommands", () => {
   it("returns empty array for text without commands", () => {
     const text = "Here is some SQL:\n```sql\nSELECT * FROM users\n```";
     expect(parseCommands(text)).toEqual([]);
   });
 
-  it("parses crud.stage command", () => {
-    const text = `Let me stage that change.
-
-<command name="crud.stage">
-{
-  "connectionId": "conn-123",
-  "table": "users",
-  "operation": "insert",
-  "document": { "name": "Alice" }
-}
-</command>`;
+  it("parses valid qp-action command", () => {
+    const text = `Let me stage that change.\n\n${qpAction(`{
+  "id": "act-1",
+  "name": "crud.stage",
+  "params": {
+    "connectionId": "conn-123",
+    "table": "users",
+    "operation": "insert",
+    "document": { "name": "Alice" }
+  },
+  "approval": "approve"
+}`)}`;
 
     const commands = parseCommands(text);
     expect(commands).toHaveLength(1);
+
     const first = commands[0];
-    expect(first).toBeDefined();
-    if (!first) throw new Error("Expected command");
-    expect(first.name).toBe("crud.stage");
-    expect((first.params as { connectionId: string }).connectionId).toBe("conn-123");
+    expect(first?.id).toBe("act-1");
+    expect(first?.name).toBe("crud.stage");
+    expect((first?.params as { connectionId: string }).connectionId).toBe("conn-123");
   });
 
-  it("parses tab.update command", () => {
-    const text = `<command name="tab.update">
-{
-  "content": "SELECT * FROM users",
-  "title": "User Query"
-}
-</command>`;
+  it("marks block as invalid when required approval is missing", () => {
+    const text = qpAction(`{
+  "id": "act-no-approval",
+  "name": "tab.updateContent",
+  "params": { "content": "SELECT 1" }
+}`);
 
     const commands = parseCommands(text);
     expect(commands).toHaveLength(1);
-    const first = commands[0];
-    expect(first).toBeDefined();
-    if (!first) throw new Error("Expected command");
-    expect(first.name).toBe("tab.update");
+    expect(commands[0]?.error).toContain("Missing required field: approval");
+  });
+
+  it("marks block as invalid when approval value is not allowed", () => {
+    const text = qpAction(`{
+  "id": "act-bad-approval",
+  "name": "tab.updateContent",
+  "params": { "content": "SELECT 1" },
+  "approval": "always"
+}`);
+
+    const commands = parseCommands(text);
+    expect(commands).toHaveLength(1);
+    expect(commands[0]?.error).toContain("Invalid approval");
+  });
+
+  it("marks block as invalid when approval mismatches command policy", () => {
+    const text = qpAction(`{
+  "id": "act-mismatch",
+  "name": "crud.stage",
+  "params": {
+    "connectionId": "conn-1",
+    "table": "users",
+    "operation": "insert",
+    "document": { "name": "Alice" }
+  },
+  "approval": "dangerous"
+}`);
+
+    const commands = parseCommands(text);
+    expect(commands).toHaveLength(1);
+    expect(commands[0]?.error).toContain("Approval mismatch");
+  });
+
+  it("marks block as invalid when unknown top-level fields are present", () => {
+    const text = qpAction(`{
+  "id": "act-extra",
+  "name": "workspace.listTabs",
+  "params": {},
+  "approval": "auto",
+  "unexpected": true
+}`);
+
+    const commands = parseCommands(text);
+    expect(commands).toHaveLength(1);
+    expect(commands[0]?.error).toContain("Unknown field");
+  });
+
+  it("parses tab.updateContent command", () => {
+    const text = qpAction(`{
+  "id": "act-2",
+  "name": "tab.updateContent",
+  "params": {
+    "content": "SELECT * FROM users",
+    "title": "User Query"
+  },
+  "approval": "auto"
+}`);
+
+    const commands = parseCommands(text);
+    expect(commands).toHaveLength(1);
+    expect(commands[0]?.name).toBe("tab.updateContent");
   });
 
   it("parses editor.insert command", () => {
-    const text = `<command name="editor.insert">
-{"text": "-- Comment", "position": "cursor"}
-</command>`;
+    const text = qpAction(`{
+  "id": "act-3",
+  "name": "editor.insert",
+  "params": { "text": "-- Comment", "position": "cursor" },
+  "approval": "auto"
+}`);
 
     const commands = parseCommands(text);
     expect(commands).toHaveLength(1);
-    const first = commands[0];
-    expect(first).toBeDefined();
-    if (!first) throw new Error("Expected command");
-    expect(first.name).toBe("editor.insert");
+    expect(commands[0]?.name).toBe("editor.insert");
   });
 
   it("parses multiple commands", () => {
-    const text = `First update:
-<command name="tab.update">{"content": "SELECT 1"}</command>
-
-Second update:
-<command name="editor.insert">{"text": "-- test"}</command>`;
+    const text = `First:\n${qpAction(`{
+  "id": "a1",
+  "name": "tab.updateContent",
+  "params": {"content": "SELECT 1"},
+  "approval": "auto"
+}`)}\n\nSecond:\n${qpAction(`{
+  "id": "a2",
+  "name": "editor.insert",
+  "params": {"text": "-- test"},
+  "approval": "auto"
+}`)}`;
 
     const commands = parseCommands(text);
     expect(commands).toHaveLength(2);
+    expect(commands[0]?.name).toBe("tab.updateContent");
+    expect(commands[1]?.name).toBe("editor.insert");
   });
 
   it("handles malformed JSON gracefully", () => {
-    const text = `<command name="crud.stage">{ invalid }</command>`;
+    const text = qpAction(`{"id":"bad-1","name":"crud.stage","params":{ invalid }`);
     const commands = parseCommands(text);
     expect(commands).toHaveLength(1);
-    const first = commands[0];
-    expect(first).toBeDefined();
-    if (!first) throw new Error("Expected command");
-    expect(first.error).toBeDefined();
+    expect(commands[0]?.error).toBeDefined();
   });
 
-  it("extracts position in text", () => {
-    const text = 'Before\n<command name="tab.update">{}</command>\nAfter';
+  it("extracts command position in text", () => {
+    const text = `Before\n${qpAction(`{"id":"a","name":"tab.updateContent","params":{},"approval":"auto"}`)}\nAfter`;
     const commands = parseCommands(text);
-    const first = commands[0];
-    expect(first).toBeDefined();
-    if (!first) throw new Error("Expected command");
-    expect(first.startIndex).toBe(7);
+    expect(commands[0]?.startIndex).toBe(7);
   });
 
   it("marks unknown commands as errors", () => {
-    const text = `<command name="sql.execute">{"connectionId": "c1", "sql": "SELECT 1"}</command>`;
+    const text = qpAction(`{"id":"x","name":"sql.execute","params":{},"approval":"auto"}`);
     const commands = parseCommands(text);
     expect(commands).toHaveLength(1);
-    const first = commands[0];
-    expect(first).toBeDefined();
-    if (!first) throw new Error("Expected command");
-    expect(first.error).toContain("Unknown command");
+    expect(commands[0]?.error).toContain("Unknown command");
   });
 
-  it("ignores command-like tags inside fenced code blocks", () => {
-    const text = `Here is an example only:
-
-\`\`\`xml
-<command name="tab.update">{"content":"SELECT 1"}</command>
-\`\`\``;
+  it("ignores qp-action examples inside non-qp code fences", () => {
+    const text = `Here is an example only:\n\n\`\`\`md\n${qpAction(`{"id":"x","name":"tab.updateContent","params":{"content":"SELECT 1"},"approval":"auto"}`)}\n\`\`\``;
     const commands = parseCommands(text);
     expect(commands).toHaveLength(0);
   });
 
-  it("parses non-canonical command syntax with low confidence", () => {
-    const text = `<command   name='tab.update' >{"content":"SELECT 1"}</command>`;
+  it("parses non-canonical opening line with low confidence", () => {
+    const text = "```qp-action json\n" +
+      "{\"id\":\"a\",\"name\":\"tab.updateContent\",\"params\":{\"content\":\"SELECT 1\"},\"approval\":\"auto\"}\n" +
+      "```";
+
     const commands = parseCommands(text);
     expect(commands).toHaveLength(1);
-    const first = commands[0];
-    expect(first).toBeDefined();
-    if (!first) throw new Error("Expected command");
-    expect(first.name).toBe("tab.update");
-    expect(first.confidence).toBe("low");
+    expect(commands[0]?.confidence).toBe("low");
   });
 });
 
 describe("parseCommandsProgressive", () => {
-  it("returns incomplete for partial command", () => {
-    const text = 'Here is a command: <command name="crud.stage">{"operation":';
+  it("returns incomplete for partial qp-action block", () => {
+    const text = "Here is a command:\n```qp-action\n{\"id\":\"x\",\"name\":\"crud.stage\",\"params\":";
     const result = parseCommandsProgressive(text);
     expect(result.complete).toEqual([]);
     expect(result.incomplete).toBe(true);
   });
 
-  it("returns complete when command is finished", () => {
-    const text = `<command name="tab.update">{"content": "SELECT 1"}</command>`;
+  it("returns complete when qp-action block is finished", () => {
+    const text = qpAction(`{"id":"a","name":"tab.updateContent","params":{"content":"SELECT 1"},"approval":"auto"}`);
     const result = parseCommandsProgressive(text);
     expect(result.complete).toHaveLength(1);
     expect(result.incomplete).toBe(false);
   });
 
   it("handles mix of complete and streaming", () => {
-    const text = `<command name="tab.update">{"content": "test"}</command>
-More text...
-<command name="editor.insert">{"text":`;
+    const text = `${qpAction(`{"id":"a","name":"tab.updateContent","params":{"content":"test"},"approval":"auto"}`)}\nMore text...\n\`\`\`qp-action\n{"id":"b","name":"editor.insert","params":{"text":`;
+
     const result = parseCommandsProgressive(text);
     expect(result.complete).toHaveLength(1);
     expect(result.incomplete).toBe(true);
   });
 
-  it("detects incomplete commands even when payload contains '<' characters", () => {
-    const text =
-      '<command name="query.run">{"connectionId":"c1","query":"SELECT * FROM users WHERE age < 18"';
+  it("detects incomplete blocks when payload contains '<' characters", () => {
+    const text = "```qp-action\n{" +
+      "\"id\":\"q1\",\"name\":\"query.run\",\"params\":{\"connectionId\":\"c1\",\"query\":\"SELECT * FROM users WHERE age < 18\"}";
+
     const result = parseCommandsProgressive(text);
     expect(result.incomplete).toBe(true);
   });
 });
 
 describe("stripCommands", () => {
-  it("removes command blocks from text", () => {
-    const text = `Before <command name="test">{}</command> After`;
+  it("removes qp-action blocks from text", () => {
+    const text = `Before ${qpAction(`{"id":"x","name":"workspace.listTabs","params":{},"approval":"auto"}`)} After`;
     expect(stripCommands(text)).toBe("Before  After");
   });
 
-  it("does not strip fenced command examples", () => {
-    const text = `Before
-\`\`\`xml
-<command name="tab.update">{"content":"SELECT 1"}</command>
-\`\`\`
-After`;
-    expect(stripCommands(text)).toContain("<command name=\"tab.update\">");
+  it("does not strip fenced qp-action examples in other languages", () => {
+    const text = `Before\n\`\`\`md\n${qpAction(`{"id":"x","name":"tab.updateContent","params":{"content":"SELECT 1"},"approval":"auto"}`)}\n\`\`\`\nAfter`;
+    expect(stripCommands(text)).toContain("```qp-action");
   });
 });
 
 describe("hasCommands", () => {
-  it("returns true when commands present", () => {
-    expect(hasCommands(`<command name="test">{}</command>`)).toBe(true);
+  it("returns true when qp-action blocks are present", () => {
+    expect(hasCommands(qpAction(`{"id":"x","name":"workspace.listTabs","params":{},"approval":"auto"}`))).toBe(true);
   });
 
   it("returns false when no commands", () => {
@@ -205,10 +256,10 @@ describe("getCommandDescription", () => {
     expect(getCommandDescription(cmd)).toContain("Stage insert");
   });
 
-  it("returns description for tab.update", () => {
+  it("returns description for tab.updateContent", () => {
     const cmd = {
       id: "1",
-      name: "tab.update" as const,
+      name: "tab.updateContent" as const,
       params: {},
       raw: "",
       startIndex: 0,
@@ -226,7 +277,7 @@ describe("getCommandDescription", () => {
       startIndex: 0,
       endIndex: 0,
     };
-    expect(getCommandDescription(cmd)).toBe("Create new tab");
+    expect(getCommandDescription(cmd)).toBe("Create new query tab");
   });
 
   it("returns description for editor.insert", () => {
@@ -267,10 +318,10 @@ describe("validateCommand", () => {
     expect(validateCommand(cmd)).toContain("text");
   });
 
-  it("validates tab.update and editor.insert don't need connectionId", () => {
+  it("validates tab.updateContent and editor.insert don't need connectionId", () => {
     const tabCmd = {
       id: "1",
-      name: "tab.update" as const,
+      name: "tab.updateContent" as const,
       params: { content: "test" },
       raw: "",
       startIndex: 0,
@@ -303,12 +354,28 @@ describe("validateCommand", () => {
     const tabCreateCmd = {
       id: "2",
       name: "tab.create" as const,
-      params: { type: "query" },
+      params: {},
       raw: "",
       startIndex: 0,
       endIndex: 0,
     };
     expect(validateCommand(tabCreateCmd)).toContain("connectionId");
+  });
+
+  it("validates query.run language when provided", () => {
+    const invalidQueryRun = {
+      id: "3",
+      name: "query.run" as const,
+      params: {
+        connectionId: "c1",
+        query: "SELECT 1",
+        language: "oracle",
+      },
+      raw: "",
+      startIndex: 0,
+      endIndex: 0,
+    };
+    expect(validateCommand(invalidQueryRun)).toContain("Invalid language");
   });
 
   it("returns error for unknown command", () => {

@@ -9,17 +9,19 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot};
 
 use agent_client_protocol::{
     Agent, CancelNotification, Client, ClientCapabilities, ClientSideConnection, ContentBlock,
-    FileSystemCapability, Implementation, InitializeRequest, McpServer, McpServerStdio, ModelId,
-    NewSessionRequest, PermissionOptionKind, PromptRequest, PromptResponse, ProtocolVersion,
-    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-    SelectedPermissionOutcome, SessionId, SessionNotification, SetSessionModelRequest, ToolKind,
+    FileSystemCapability, Implementation, InitializeRequest, ModelId, NewSessionRequest,
+    PermissionOptionKind, PromptRequest, PromptResponse, ProtocolVersion, RequestPermissionOutcome,
+    RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome, SessionId,
+    SessionNotification, SetSessionModelRequest, ToolKind,
 };
+use serde_json::Value;
 
 use super::discovery::AgentInfo;
 
@@ -27,13 +29,11 @@ use super::discovery::AgentInfo;
 pub type NotificationSender = mpsc::UnboundedSender<SessionNotification>;
 pub type NotificationReceiver = mpsc::UnboundedReceiver<SessionNotification>;
 
-/// MCP Server configuration for passing to ACP sessions
-#[derive(Clone, Debug)]
-pub struct McpServerConfig {
-    pub name: String,
-    pub command: PathBuf,
-    pub args: Vec<String>,
-}
+const ALLOWED_SHELL_CAPABILITIES: [&str; 3] = [
+    "workspace.listTabs",
+    "workspace.getFocusedTab",
+    "workspace.getTabContext",
+];
 
 /// Commands that can be sent to the ACP worker thread
 enum AcpCommand {
@@ -44,7 +44,6 @@ enum AcpCommand {
     CreateSession {
         agent_id: String,
         cwd: String,
-        mcp_servers: Vec<McpServerConfig>,
         response_tx: oneshot::Sender<Result<String, String>>,
     },
     SetSessionModel {
@@ -65,6 +64,13 @@ enum AcpCommand {
         agent_id: String,
         response_tx: oneshot::Sender<Result<(), String>>,
     },
+    StopAgent {
+        agent_id: String,
+        response_tx: oneshot::Sender<Result<(), String>>,
+    },
+    Shutdown {
+        response_tx: oneshot::Sender<Result<(), String>>,
+    },
     TakeNotificationReceiver {
         agent_id: String,
         response_tx: oneshot::Sender<Result<NotificationReceiver, String>>,
@@ -82,6 +88,121 @@ impl QueryPilotClient {
     }
 }
 
+fn extract_shell_command_candidate(tool_title: &str, raw_input: Option<&Value>) -> Option<String> {
+    if let Some(raw) = raw_input {
+        if let Some(command) = raw.as_str() {
+            let trimmed = command.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+
+        if let Some(obj) = raw.as_object() {
+            for key in ["command", "cmd", "input", "raw"] {
+                if let Some(command) = obj.get(key).and_then(Value::as_str) {
+                    let trimmed = command.trim();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    if tool_title.contains("querypilot") {
+        Some(tool_title.to_string())
+    } else {
+        None
+    }
+}
+
+fn tokenize_shell_command(command: &str) -> Vec<String> {
+    command
+        .split_whitespace()
+        .map(|token| {
+            token
+                .trim_matches(|ch| matches!(ch, '"' | '\'' | '`' | '(' | ')' | ',' | ':'))
+                .to_string()
+        })
+        .filter(|token| !token.is_empty())
+        .collect()
+}
+
+fn is_querypilot_binary_token(token: &str) -> bool {
+    let lowered = token.to_ascii_lowercase();
+    lowered == "querypilot"
+        || lowered == "querypilot.exe"
+        || lowered == "$querypilot_cli_path"
+        || lowered == "${querypilot_cli_path}"
+        || lowered.ends_with("/querypilot")
+        || lowered.ends_with("\\querypilot")
+        || lowered.ends_with("/querypilot.exe")
+        || lowered.ends_with("\\querypilot.exe")
+}
+
+fn is_allowed_querypilot_agent_shell(tool_title: &str, raw_input: Option<&Value>) -> bool {
+    let Some(candidate) = extract_shell_command_candidate(tool_title, raw_input) else {
+        return false;
+    };
+
+    // Disallow obvious command chaining / injection forms.
+    if candidate.contains("&&")
+        || candidate.contains("||")
+        || candidate.contains(';')
+        || candidate.contains('|')
+        || candidate.contains("`")
+        || candidate.contains("$(")
+        || candidate.contains('\n')
+        || candidate.contains('\r')
+    {
+        return false;
+    }
+
+    let mut tokens = tokenize_shell_command(&candidate);
+    let Some(start_idx) = tokens
+        .iter()
+        .position(|token| is_querypilot_binary_token(token))
+    else {
+        return false;
+    };
+    tokens = tokens.split_off(start_idx);
+
+    if tokens.len() < 3 {
+        return false;
+    }
+    if !is_querypilot_binary_token(&tokens[0]) {
+        return false;
+    }
+    if !tokens[1].eq_ignore_ascii_case("agent") {
+        return false;
+    }
+
+    let capability = tokens[2].as_str();
+    if !ALLOWED_SHELL_CAPABILITIES.contains(&capability) {
+        return false;
+    }
+
+    let mut index = 3;
+    while index < tokens.len() {
+        match tokens[index].as_str() {
+            "--json" => {
+                index += 1;
+            }
+            "--timeout-ms" => {
+                if index + 1 >= tokens.len()
+                    || !tokens[index + 1].chars().all(|ch| ch.is_ascii_digit())
+                {
+                    return false;
+                }
+                index += 2;
+            }
+            _ => return false,
+        }
+    }
+
+    true
+}
+
 #[async_trait::async_trait(?Send)]
 impl Client for QueryPilotClient {
     async fn request_permission(
@@ -93,25 +214,19 @@ impl Client for QueryPilotClient {
         let tool_title = args.tool_call.fields.title.as_deref().unwrap_or("unknown");
 
         tracing::info!(
-            "Permission request for tool: {:?} ({}) - is_mcp: {}",
+            "Permission request for tool: {:?} ({})",
             tool_kind,
             tool_title,
-            tool_title.starts_with("mcp__")
         );
 
-        // Determine if we should allow this tool
-        // Allow safe operations and MCP tools (prefixed with mcp__)
-        let is_mcp_tool = tool_title.starts_with("mcp__");
-        let should_allow = is_mcp_tool
-            || matches!(
-                tool_kind,
-                // Safe operations - auto-approve
-                ToolKind::Read
-                    | ToolKind::Search
-                    | ToolKind::Think
-                    | ToolKind::Fetch
-                    | ToolKind::SwitchMode
+        let is_allowed_shell = matches!(tool_kind, ToolKind::Execute)
+            && is_allowed_querypilot_agent_shell(
+                tool_title,
+                args.tool_call.fields.raw_input.as_ref(),
             );
+
+        let should_allow = is_allowed_shell
+            || matches!(tool_kind, ToolKind::Think | ToolKind::SwitchMode);
 
         if should_allow {
             tracing::info!("Auto-approving {:?} operation: {}", tool_kind, tool_title);
@@ -197,7 +312,23 @@ impl AcpWorker {
         let mut cmd = Command::new(path);
         // Pass the resolved user PATH so the agent's child processes (node, git, etc.)
         // can find their dependencies in production macOS builds.
-        cmd.env("PATH", super::discovery::get_user_path());
+        let runtime_path = super::discovery::get_user_path();
+        let mut path_entries: Vec<PathBuf> =
+            std::env::split_paths(&std::ffi::OsString::from(&runtime_path)).collect();
+        let cli_path = super::commands::resolve_querypilot_cli_path()
+            .map_err(|err| format!("querypilot CLI unavailable: {}", err))?;
+        if let Some(cli_dir) = cli_path.parent() {
+            path_entries.insert(0, cli_dir.to_path_buf());
+        }
+        cmd.env("QUERYPILOT_CLI_PATH", cli_path);
+        match std::env::join_paths(path_entries) {
+            Ok(joined) => {
+                cmd.env("PATH", joined);
+            }
+            Err(_) => {
+                cmd.env("PATH", runtime_path);
+            }
+        }
         for arg in &agent_info.acp_args {
             cmd.arg(arg);
         }
@@ -324,19 +455,9 @@ impl AcpWorker {
         &mut self,
         agent_id: &str,
         cwd: &str,
-        mcp_servers: Vec<McpServerConfig>,
     ) -> Result<String, String> {
         let process = self.agents.get_mut(agent_id).ok_or("Agent not found")?;
-
-        // Convert McpServerConfig to protocol's McpServer type
-        let acp_mcp_servers: Vec<McpServer> = mcp_servers
-            .into_iter()
-            .map(|cfg| {
-                McpServer::Stdio(McpServerStdio::new(&cfg.name, &cfg.command).args(cfg.args))
-            })
-            .collect();
-
-        let request = NewSessionRequest::new(PathBuf::from(cwd)).mcp_servers(acp_mcp_servers);
+        let request = NewSessionRequest::new(PathBuf::from(cwd));
 
         let response = process
             .connection
@@ -421,6 +542,47 @@ impl AcpWorker {
             .map_err(|e| e.to_string())
     }
 
+    async fn stop_agent(&mut self, agent_id: &str) -> Result<(), String> {
+        let mut process = self.agents.remove(agent_id).ok_or("Agent not found")?;
+
+        if let Some(session_id) = process.session_id.clone() {
+            let _ = process.connection.cancel(CancelNotification::new(session_id)).await;
+        }
+
+        if let Err(err) = process.child.start_kill() {
+            tracing::debug!("ACP child start_kill failed for {}: {}", agent_id, err);
+        }
+
+        match tokio::time::timeout(Duration::from_secs(2), process.child.wait()).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(err)) => {
+                tracing::warn!("ACP child wait failed for {}: {}", agent_id, err);
+            }
+            Err(_) => {
+                tracing::warn!("ACP child wait timed out for {}", agent_id);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn shutdown(&mut self) -> Result<(), String> {
+        let agent_ids: Vec<String> = self.agents.keys().cloned().collect();
+        let mut errors: Vec<String> = Vec::new();
+
+        for agent_id in agent_ids {
+            if let Err(err) = self.stop_agent(&agent_id).await {
+                errors.push(format!("{}: {}", agent_id, err));
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("Failed to stop some ACP agents: {}", errors.join("; ")))
+        }
+    }
+
     fn take_notification_receiver(
         &mut self,
         agent_id: &str,
@@ -469,10 +631,9 @@ impl AcpManager {
                         AcpCommand::CreateSession {
                             agent_id,
                             cwd,
-                            mcp_servers,
                             response_tx,
                         } => {
-                            let result = worker.create_session(&agent_id, &cwd, mcp_servers).await;
+                            let result = worker.create_session(&agent_id, &cwd).await;
                             let _ = response_tx.send(result);
                         }
                         AcpCommand::SetSessionModel {
@@ -503,6 +664,17 @@ impl AcpManager {
                             response_tx,
                         } => {
                             let result = worker.cancel(&agent_id).await;
+                            let _ = response_tx.send(result);
+                        }
+                        AcpCommand::StopAgent {
+                            agent_id,
+                            response_tx,
+                        } => {
+                            let result = worker.stop_agent(&agent_id).await;
+                            let _ = response_tx.send(result);
+                        }
+                        AcpCommand::Shutdown { response_tx } => {
+                            let result = worker.shutdown().await;
                             let _ = response_tx.send(result);
                         }
                         AcpCommand::TakeNotificationReceiver {
@@ -537,14 +709,12 @@ impl AcpManager {
         &self,
         agent_id: &str,
         cwd: &str,
-        mcp_servers: Vec<McpServerConfig>,
     ) -> Result<String, String> {
         let (response_tx, response_rx) = oneshot::channel();
         self.command_tx
             .send(AcpCommand::CreateSession {
                 agent_id: agent_id.to_string(),
                 cwd: cwd.to_string(),
-                mcp_servers,
                 response_tx,
             })
             .map_err(|_| "ACP worker shutdown")?;
@@ -605,6 +775,27 @@ impl AcpManager {
         response_rx.await.map_err(|_| "ACP worker shutdown")?
     }
 
+    /// Stop a single ACP agent subprocess and remove it from manager state.
+    pub async fn stop_agent(&self, agent_id: &str) -> Result<(), String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(AcpCommand::StopAgent {
+                agent_id: agent_id.to_string(),
+                response_tx,
+            })
+            .map_err(|_| "ACP worker shutdown")?;
+        response_rx.await.map_err(|_| "ACP worker shutdown")?
+    }
+
+    /// Stop all ACP agents and cleanly shutdown manager-owned processes.
+    pub async fn shutdown(&self) -> Result<(), String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(AcpCommand::Shutdown { response_tx })
+            .map_err(|_| "ACP worker shutdown")?;
+        response_rx.await.map_err(|_| "ACP worker shutdown")?
+    }
+
     /// Take the notification receiver for an agent (can only be done once)
     pub async fn take_notification_receiver(
         &self,
@@ -626,4 +817,3 @@ impl Default for AcpManager {
         Self::new()
     }
 }
-

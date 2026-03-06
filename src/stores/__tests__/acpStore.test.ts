@@ -10,16 +10,21 @@ import { useAcpStore } from "../acpStore";
 import { AcpService } from "@/services/acpService";
 import * as db from "@/lib/db/aiConversations";
 import type { AgentInfo, AcpSession, AcpMessage } from "@/types/acp";
+import { executeCommand } from "@/services/aiCommandExecutor";
 
 // Mock the AcpService
 vi.mock("@/services/acpService", () => ({
   AcpService: {
     listAgents: vi.fn(),
+    fetchAgentModels: vi.fn().mockResolvedValue(null),
     startAgent: vi.fn(),
     createSession: vi.fn(),
+    stopAgent: vi.fn().mockResolvedValue(undefined),
     sendPrompt: vi.fn(),
     cancelSession: vi.fn(),
-    getLlmHome: vi.fn().mockResolvedValue("/home/user/.querypilot/llm"),
+    checkPackageUpdates: vi.fn().mockResolvedValue([]),
+    getQuerypilotCliPath: vi.fn().mockResolvedValue("/tmp/querypilot"),
+    getDefaultSessionCwd: vi.fn().mockReturnValue("."),
     setSessionModel: vi.fn(),
   },
 }));
@@ -31,6 +36,10 @@ vi.mock("@/lib/db/aiConversations", () => ({
   getSessionMessages: vi.fn(),
   saveMessage: vi.fn(),
   listRecentSessions: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock("@/services/aiCommandExecutor", () => ({
+  executeCommand: vi.fn().mockResolvedValue({ success: true, data: {} }),
 }));
 
 describe("acpStore", () => {
@@ -249,11 +258,10 @@ describe("acpStore", () => {
 
       expect(sessionId).toBe("session-456");
       expect(AcpService.startAgent).toHaveBeenCalledWith("claude-code-acp");
-      // createSession uses the LLM home directory from AcpService.getLlmHome()
+      // createSession uses the shared default ACP cwd
       expect(AcpService.createSession).toHaveBeenCalledWith(
         "instance-123",
-        "/home/user/.querypilot/llm",
-        undefined // mcpServers can be undefined if sidecar not available
+        ".",
       );
       expect(db.saveSession).toHaveBeenCalled();
 
@@ -595,6 +603,61 @@ describe("acpStore", () => {
           updatedAt: expect.any(Number),
         })
       );
+    });
+  });
+
+  describe("updateToolCall", () => {
+    it("mirrors completed ACP capability mutation tools into UI executor", async () => {
+      useAcpStore.setState({
+        activeToolCalls: [
+          {
+            id: "tool-1",
+            name: "mcp__querypilot__tab.updateContent",
+            status: "pending",
+            input: {
+              tabId: "tab-1",
+              content: "SELECT * FROM users",
+            },
+          },
+        ],
+      });
+
+      useAcpStore.getState().updateToolCall("tool-1", "completed", { ok: true });
+
+      await vi.waitFor(() => {
+        expect(vi.mocked(executeCommand)).toHaveBeenCalledTimes(1);
+      });
+
+      expect(vi.mocked(executeCommand)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "acp-tool-tool-1",
+          name: "tab.updateContent",
+          params: {
+            tabId: "tab-1",
+            content: "SELECT * FROM users",
+          },
+        }),
+      );
+    });
+
+    it("does not mirror approval-gated capability tools", () => {
+      useAcpStore.setState({
+        activeToolCalls: [
+          {
+            id: "tool-2",
+            name: "mcp__querypilot__query.run",
+            status: "pending",
+            input: {
+              connectionId: "conn-1",
+              query: "SELECT 1",
+            },
+          },
+        ],
+      });
+
+      useAcpStore.getState().updateToolCall("tool-2", "completed", { ok: true });
+
+      expect(vi.mocked(executeCommand)).not.toHaveBeenCalled();
     });
   });
 

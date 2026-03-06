@@ -31,28 +31,12 @@ fn main() {
     // Create connection manager
     let manager = Arc::new(core::manager::ConnectionManager::new());
 
-    // Create shared AI context store for both Tauri state and MCP bridge
+    // Create shared AI context store for ACP/BYOK runtime context sync
     let ai_context = Arc::new(ai_context::AiContextStore::new());
-
-    // Create and start MCP bridge for AI agent communication
-    let mcp_bridge = Arc::new(mcp::McpBridge::new(
-        manager.clone(),
-        Arc::clone(&ai_context),
-    ));
-    let mcp_bridge_for_cleanup = mcp_bridge.clone();
-
-    // Start MCP bridge in background
-    {
-        let bridge = mcp_bridge.clone();
-        tauri::async_runtime::spawn(async move {
-            if let Err(e) = bridge.start().await {
-                tracing::error!("Failed to start MCP bridge: {}", e);
-            }
-        });
-    }
 
     // Create ACP manager for AI agent integration
     let acp_manager = Arc::new(acp::manager::AcpManager::new());
+    let acp_manager_for_cleanup = acp_manager.clone();
 
     // Create app state
     let app_state = AppState {
@@ -175,10 +159,9 @@ fn main() {
             acp::commands::acp_install_package,
             acp::commands::acp_check_package_updates,
             acp::commands::acp_upgrade_package,
-            acp::commands::acp_initialize_llm_home,
-            acp::commands::acp_get_llm_home,
-            acp::commands::acp_get_mcp_sidecar_path,
-            // AI Context commands (for syncing context to MCP bridge)
+            acp::commands::acp_stop_agent,
+            acp::commands::acp_get_querypilot_cli_path,
+            // AI Context commands (for syncing runtime context)
             ai_context::commands::sync_ai_context,
             ai_context::commands::track_query_execution,
             ai_context::commands::get_ai_query_history,
@@ -198,18 +181,22 @@ fn main() {
         if should_cleanup {
             tracing::info!("🛑 Application exit requested, cleaning up resources...");
 
-            // Shutdown MCP bridge
-            mcp_bridge_for_cleanup.shutdown();
-            tracing::info!("✅ MCP bridge shutdown signaled");
-
             // Run cleanup with overall timeout to prevent hanging
             let conn_manager_opt = app_handle
                 .try_state::<Arc<core::manager::ConnectionManager>>()
                 .map(|s| s.inner().clone());
+            let acp_manager = acp_manager_for_cleanup.clone();
 
             tauri::async_runtime::block_on(async move {
                 // Overall 3 second timeout for all cleanup
                 let cleanup_future = async {
+                    // Stop ACP agent subprocesses
+                    if let Err(e) = acp_manager.shutdown().await {
+                        tracing::warn!("Failed to shutdown ACP agents cleanly: {}", e);
+                    } else {
+                        tracing::info!("✅ ACP agents stopped");
+                    }
+
                     // Disconnect all database connections and close tunnels
                     if let Some(manager) = conn_manager_opt {
                         if let Err(e) = manager.disconnect_all().await {

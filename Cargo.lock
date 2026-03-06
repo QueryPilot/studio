@@ -5681,7 +5681,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "querypilot-mcp"
+name = "querypilot"
 version = "0.1.0"
 dependencies = [
  "anyhow",

@@ -7,6 +7,7 @@
 
 import { create } from "zustand";
 import { COMMAND_META, type AiCommandName } from "@/types/aiCommands";
+import { usePreferencesStore } from "@/stores/preferencesStore";
 
 export type CommandState =
   | "pending"
@@ -51,8 +52,12 @@ export const useAiCommandPermissionStore = create<AiCommandPermissionState>()(
       set((state) => {
         const commandStates = new Map(state.commandStates);
         const commandNames = new Map(state.commandNames);
-        commandStates.set(commandId, "pending");
-        commandNames.set(commandId, commandName);
+        if (!commandStates.has(commandId)) {
+          commandStates.set(commandId, "pending");
+        }
+        if (!commandNames.has(commandId)) {
+          commandNames.set(commandId, commandName);
+        }
         return { commandStates, commandNames };
       });
     },
@@ -90,6 +95,7 @@ export const useAiCommandPermissionStore = create<AiCommandPermissionState>()(
         | (typeof COMMAND_META)[AiCommandName]
         | undefined;
       if (!meta) return false;
+      const globalBypass = usePreferencesStore.getState().skipApprovalGate;
 
       switch (meta.approvalLevel) {
         case "auto":
@@ -99,8 +105,8 @@ export const useAiCommandPermissionStore = create<AiCommandPermissionState>()(
           // Dangerous commands never auto-approve
           return false;
         case "approve":
-          // Approve-level commands auto-approve if allowAll is set
-          return get().allowAllThisConversation;
+          // Approve-level commands auto-approve if conversation allow-all or global bypass is enabled
+          return get().allowAllThisConversation || globalBypass;
       }
     },
 

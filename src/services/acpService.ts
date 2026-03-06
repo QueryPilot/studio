@@ -14,18 +14,11 @@ import type {
   ToolCall,
   ContentBlock,
   NpmPackageManager,
+  PlanStep,
 } from "@/types/acp";
 
-/**
- * MCP Server configuration for passing to ACP sessions
- */
-export interface McpServerConfig {
-  name: string;
-  command: string;
-  args: string[];
-}
-
 const activeListeners = new Map<string, UnlistenFn>();
+const DEFAULT_ACP_CWD = ".";
 
 // Cached silent agent instance for fast AI filter requests
 // This avoids starting a new agent process for every quick filter
@@ -91,20 +84,11 @@ export const AcpService = {
   },
 
   /**
-   * Initialize the LLM home directory with template files
-   * Should be called once at app startup
-   * @returns Path to the LLM home directory
+   * Default working directory for ACP sessions.
+   * We intentionally avoid generated LLM home/template directories.
    */
-  async initializeLlmHome(): Promise<string> {
-    return invoke<string>("acp_initialize_llm_home");
-  },
-
-  /**
-   * Get the LLM home directory path
-   * @returns Path to ~/.querypilot/llm/
-   */
-  async getLlmHome(): Promise<string> {
-    return invoke<string>("acp_get_llm_home");
+  getDefaultSessionCwd(): string {
+    return DEFAULT_ACP_CWD;
   },
 
   /**
@@ -120,27 +104,27 @@ export const AcpService = {
    * Create a new ACP session for an agent instance
    * @param instanceId The running agent instance ID
    * @param cwd Working directory for the session
-   * @param mcpServers Optional MCP servers to attach to the session
    * @returns Session ID
    */
   async createSession(
     instanceId: string,
     cwd: string,
-    mcpServers?: McpServerConfig[]
   ): Promise<string> {
-    return invoke<string>("acp_create_session", {
-      instanceId,
-      cwd,
-      mcpServers: mcpServers ?? null,
-    });
+    return invoke<string>("acp_create_session", { instanceId, cwd });
   },
 
   /**
-   * Get the path to the MCP sidecar binary
-   * @returns Absolute path to the querypilot-mcp binary
+   * Stop an ACP agent subprocess.
    */
-  async getMcpSidecarPath(): Promise<string> {
-    return invoke<string>("acp_get_mcp_sidecar_path");
+  async stopAgent(instanceId: string): Promise<void> {
+    await invoke("acp_stop_agent", { instanceId });
+  },
+
+  /**
+   * Get the path to the bundled `querypilot` CLI binary.
+   */
+  async getQuerypilotCliPath(): Promise<string> {
+    return invoke<string>("acp_get_querypilot_cli_path");
   },
 
   /**
@@ -177,8 +161,13 @@ export const AcpService = {
       onChunk?: (text: string) => void;
       onThinking?: (text: string) => void;
       onToolCall?: (toolCall: ToolCall) => void;
-      onToolCallUpdate?: (toolCallId: string, status: string) => void;
-      onPlanUpdate?: (steps: Array<{ id: string; description: string; status: string }>) => void;
+      onToolCallUpdate?: (
+        toolCallId: string,
+        status: string,
+        payload?: { output?: unknown; error?: string }
+      ) => void;
+      onContentBlock?: (block: Exclude<ContentBlock, { type: "text" }>) => void;
+      onPlanUpdate?: (steps: PlanStep[]) => void;
       onModeUpdate?: (mode: string) => void;
       onAvailableCommandsUpdate?: (commands: string[]) => void;
       onComplete?: () => void;
@@ -205,10 +194,15 @@ export const AcpService = {
 
       switch (update.type) {
         case "AgentMessageChunk": {
-          // Handle both { content: ContentBlock } and { content: ContentBlock[] }
           const contentData = update.content.content;
-          const text = extractText(contentData);
-          if (text) callbacks?.onChunk?.(text);
+          const blocks = Array.isArray(contentData) ? contentData : [contentData];
+          for (const block of blocks) {
+            if (block.type === "text") {
+              callbacks?.onChunk?.(block.text);
+            } else {
+              callbacks?.onContentBlock?.(block);
+            }
+          }
           break;
         }
         case "AgentThoughtChunk": {
@@ -246,7 +240,10 @@ export const AcpService = {
           // Status can be in different fields
           const status = update.update.status ?? update.update.state ?? "completed";
           if (toolCallId) {
-            callbacks?.onToolCallUpdate?.(toolCallId, status);
+            callbacks?.onToolCallUpdate?.(toolCallId, status, {
+              output: update.update.output,
+              error: update.update.error,
+            });
           }
           break;
         }
@@ -423,7 +420,7 @@ export const AcpService = {
         instanceId = await this.startAgent(agentId);
 
         // Create a session
-        const workingDir = cwd || "/tmp";
+        const workingDir = cwd || DEFAULT_ACP_CWD;
         await this.createSession(instanceId, workingDir);
 
         // Set model if specified
@@ -533,7 +530,7 @@ export const AcpService = {
       const instanceId = await this.startAgent(agentId);
 
       // Create a session
-      await this.createSession(instanceId, "/tmp");
+      await this.createSession(instanceId, DEFAULT_ACP_CWD);
 
       // Set model if specified
       if (modelId) {

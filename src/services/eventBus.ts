@@ -25,6 +25,10 @@ export type AIGenerateSqlPayload = KeyboardEventPayload & {
   schema?: string;
 };
 
+export type AIOpenWithContextPayload = KeyboardEventPayload & {
+  source?: "shortcut" | "command" | "menu";
+};
+
 type Events = {
   // Data Grid events
   "data-grid:copy": KeyboardEventPayload;
@@ -54,6 +58,7 @@ type Events = {
   // AI events
   "ai:explain-query": KeyboardEventPayload;
   "ai:generate-sql": AIGenerateSqlPayload;
+  "ai:open-with-context": AIOpenWithContextPayload;
 
   // Sidebar events
   "sidebar:switch-view": { view: "objects" | "queries" };

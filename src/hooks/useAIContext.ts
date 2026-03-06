@@ -411,10 +411,9 @@ interface CommandSchema {
  * Used to generate documentation for the AI system prompt.
  *
  * Note: Read commands (sql.execute, mongodb.find, redis.get, etc.) have been removed.
- * The AI agent should use MCP tools for database reads instead.
+ * The AI agent should use `querypilot agent workspace.*` reads instead.
  */
-const COMMAND_SCHEMAS: Record<AiCommandName, CommandSchema> = {
-  // Universal Commands
+const COMMAND_SCHEMAS: Partial<Record<AiCommandName, CommandSchema>> = {
   "crud.stage": {
     params: {
       connectionId: { type: "string", required: true, description: "Connection ID from context" },
@@ -438,11 +437,12 @@ const COMMAND_SCHEMAS: Record<AiCommandName, CommandSchema> = {
     },
     guidelines: "Changes are STAGED, not executed. User must review and commit from Changes panel.",
   },
-  "tab.update": {
+  "tab.updateContent": {
     params: {
       tabId: { type: "string", required: false, description: "Tab ID (defaults to active tab)" },
       content: { type: "string", required: false, description: "New content for the editor" },
       title: { type: "string", required: false, description: "New tab title" },
+      mode: { type: '"replace" | "append" | "prepend"', required: false, description: "How content is applied" },
     },
     example: {
       content: "SELECT * FROM users WHERE created_at > NOW() - INTERVAL '7 days'",
@@ -452,13 +452,13 @@ const COMMAND_SCHEMAS: Record<AiCommandName, CommandSchema> = {
   "tab.create": {
     params: {
       connectionId: { type: "string", required: true, description: "Connection ID from context" },
-      type: { type: '"query"', required: true, description: "Tab type (currently only query)" },
       title: { type: "string", required: false, description: "Tab title" },
       content: { type: "string", required: false, description: "Initial content" },
+      database: { type: "string", required: false, description: "Database name" },
+      schema: { type: "string", required: false, description: "Schema name" },
     },
     example: {
       connectionId: "conn-123",
-      type: "query",
       title: "User Analysis",
       content: "SELECT COUNT(*) FROM users GROUP BY status",
     },
@@ -512,6 +512,57 @@ const COMMAND_SCHEMAS: Record<AiCommandName, CommandSchema> = {
     },
     guidelines: "Executes a query and displays results in a new tab. Use for showing query results directly.",
   },
+  "workspace.listTabs": {
+    params: {},
+    example: {},
+    guidelines: "List all currently open tabs in the workspace.",
+  },
+  "workspace.getFocusedTab": {
+    params: {},
+    example: {},
+    guidelines: "Get context for the focused tab in the active panel.",
+  },
+  "workspace.getTabContext": {
+    params: {
+      tabId: { type: "string", required: true, description: "Target tab ID" },
+    },
+    example: {
+      tabId: "query-custom-123",
+    },
+    guidelines: "Fetch context for a specific tab by ID.",
+  },
+  "grid.setFilter": {
+    params: {
+      tabId: { type: "string", required: false, description: "Target tab ID (defaults to focused tab)" },
+      filter: { type: "string", required: true, description: "Filter expression" },
+    },
+    example: {
+      filter: "status = 'active'",
+    },
+    guidelines: "Applies a grid/table filter for the selected tab.",
+  },
+  "grid.setSort": {
+    params: {
+      tabId: { type: "string", required: false, description: "Target tab ID (defaults to focused tab)" },
+      column: { type: "string", required: true, description: "Column name" },
+      direction: { type: '"asc" | "desc"', required: true, description: "Sort direction" },
+    },
+    example: {
+      column: "created_at",
+      direction: "desc",
+    },
+    guidelines: "Applies table/grid sorting.",
+  },
+  "grid.setView": {
+    params: {
+      tabId: { type: "string", required: false, description: "Target tab ID (defaults to focused tab)" },
+      view: { type: "string", required: true, description: "View mode for table tabs" },
+    },
+    example: {
+      view: "structure",
+    },
+    guidelines: "Switches table tab view (data/structure/indexes/etc).",
+  },
 };
 
 /**
@@ -520,6 +571,25 @@ const COMMAND_SCHEMAS: Record<AiCommandName, CommandSchema> = {
 function generateCommandDoc(name: AiCommandName): string {
   const meta = COMMAND_META[name];
   const schema = COMMAND_SCHEMAS[name];
+
+  if (!schema) {
+    const paramLines = (meta.params ?? []).map((param) => {
+      const reqStr = param.required ? "required" : "optional";
+      return `  - \`${param.name}\` (${param.type}, ${reqStr}): ${param.description}`;
+    });
+
+    return `### ${name}
+
+**${meta.description}** | Approval: ${meta.approvalLevel} (${getApprovalLevelDescription(meta.approvalLevel)})
+
+Parameters:
+${paramLines.length > 0 ? paramLines.join("\n") : "  - none"}
+
+Example:
+\`\`\`qp-action
+${JSON.stringify({ id: "action-1", name, params: {}, approval: meta.approvalLevel }, null, 2)}
+\`\`\``;
+  }
 
   // Build parameters table
   const paramLines = Object.entries(schema.params).map(([paramName, param]) => {
@@ -538,10 +608,8 @@ Parameters:
 ${paramLines.join("\n")}
 
 Example:
-\`\`\`
-<command name="${name}">
-${JSON.stringify(schema.example, null, 2)}
-</command>
+\`\`\`qp-action
+${JSON.stringify({ id: "action-1", name, params: schema.example, approval: meta.approvalLevel }, null, 2)}
 \`\`\`
 
 > ${schema.guidelines}`;
@@ -582,7 +650,7 @@ function generateCommandDocumentation(): string {
   sections.push(`## Command Approval Levels
 
 Commands have different approval levels:
-- **auto**: Executes immediately without user confirmation (read-only operations)
+- **auto**: Executes immediately without user confirmation
 - **approve**: Requires user to click "Run" button before execution
 - **dangerous**: Requires explicit confirmation with warning dialog
 
@@ -654,44 +722,60 @@ You are assisting a user in QueryPilot, a database IDE that supports:
 
 ## Your Capabilities
 
-1. **Read database data** - Use MCP tools (query_database, list_tables, describe_table) to query databases
-2. **Read database schema** - Use the provided context to understand tables, collections, keys
+1. **Read workspace context** - Use capability tools to inspect focused/open tabs
+2. **Read schema context** - Use the provided context payload to understand tables, collections, keys
 3. **Stage mutations** - Output commands to stage INSERT/UPDATE/DELETE (user must review and commit)
 4. **Modify tabs** - Update SQL in editor tabs or create new tabs
 
-## IMPORTANT: Use MCP Tools for Database Reads
+## IMPORTANT: Use Canonical Capability IDs
 
-**DO NOT use structured commands for reading data.** Instead, use MCP tools:
+Use only these capability names for structured actions and capability tools:
 
-- \`query_database\` - Execute SQL queries, MongoDB queries, or Redis commands
-- \`list_tables\` - List tables/collections in a database
-- \`describe_table\` - Get column info for a table
-- \`list_connections\` - Get available database connections
-- \`get_query_history\` - See recent queries the user executed
-- \`get_current_context\` - See what the user is currently working on
-- \`get_execution_plan\` - Get EXPLAIN output for query optimization
+- \`workspace.listTabs\`
+- \`workspace.getFocusedTab\`
+- \`workspace.getTabContext\`
+- \`tab.create\`
+- \`tab.focus\`
+- \`tab.updateContent\`
+- \`editor.insert\`
+- \`query.run\`
+- \`grid.setFilter\`
+- \`grid.setSort\`
+- \`grid.setView\`
+- \`crud.stage\`
+- \`crud.unstage\`
 
 ## Command Format (for mutations and UI actions only)
 
-To stage mutations or modify tabs, output command blocks:
+To stage mutations or modify tabs, output \`qp-action\` blocks:
 
-\`\`\`
-<command name="command.name">
+\`\`\`qp-action
 {
-  "param1": "value1",
-  "param2": "value2"
+  "id": "action-1",
+  "name": "tab.updateContent",
+  "params": {
+    "content": "SELECT * FROM users"
+  },
+  "approval": "auto"
 }
-</command>
 \`\`\`
 
-The JSON must be valid. Commands will be parsed and displayed to the user for approval.
+The JSON must be valid. Emit each action as a separate fenced block.
 
 ## Important Rules
 
-1. **Use MCP tools for reads** - DO NOT output sql.execute, mongodb.find, or redis.get commands
+1. **Use canonical capabilities only** - Never emit deprecated or custom command names
 2. **Use commands for mutations** - Use crud.stage to stage INSERT/UPDATE/DELETE changes
-3. **Use commands for UI** - Use tab.update, tab.create, editor.insert to modify the editor
+3. **Use commands for UI** - Use tab.updateContent, tab.create, editor.insert to modify the editor
 4. **Always use connectionId from context** - Look at the \`connections\` array
+5. **Use query.run for live reads** - query.run is read-only and supports SQL, MongoDB, and Redis
+6. **Prefer tool calls for reads** - If query.run capability tools are available, call them directly to fetch data in the same turn
+7. **No raw executable SQL for execution requests** - Use query.run (tool call or action), not plain SQL text
+8. **No fake execution claims** - Do not claim queued/executed work unless matching tool output or action blocks exist
+9. **query.run approval** - When emitted as \`qp-action\`, query.run should use \`"approval":"auto"\` (read-only)
+10. **Multi-database default** - If multiple relevant connections are present and user did not scope one, run one query.run per connection
+11. **Read first, then answer** - For workspace-state questions, use workspace capability tools before answering
+12. **No filesystem tools for DB analysis** - Do not use Read/Write/Edit/Grep/Glob tools while solving database questions
 
 `.trim();
 

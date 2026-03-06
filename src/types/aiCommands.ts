@@ -1,32 +1,30 @@
 /**
- * AI Command Types
+ * AI Command / Capability Types
  *
- * Defines all structured output commands the AI agent can emit.
- * Supports SQL, MongoDB, and Redis databases.
+ * Defines all structured action blocks that the assistant can emit.
+ * Canonical transport format: fenced `qp-action` JSON blocks.
  */
 
 // ============================================================================
 // Base Types
 // ============================================================================
 
-/**
- * AI Command Names
- *
- * Note: Read commands (sql.execute, sql.explain, mongodb.find, etc.) have been
- * removed. The AI agent now accesses database data through MCP tools instead
- * of structured commands. Only mutation and UI commands remain.
- */
 export type AiCommandName =
-  // Universal mutation commands
-  | "crud.stage"
-  | "crud.unstage"
-  // Query execution
-  | "query.run"
-  // UI/Editor commands
-  | "tab.update"
+  | "workspace.listTabs"
+  | "workspace.getFocusedTab"
+  | "workspace.getTabContext"
   | "tab.create"
   | "tab.focus"
-  | "editor.insert";
+  | "tab.updateContent"
+  | "editor.insert"
+  | "query.run"
+  | "grid.setFilter"
+  | "grid.setSort"
+  | "grid.setView"
+  | "crud.stage"
+  | "crud.unstage";
+
+export type CapabilityId = AiCommandName;
 
 export type CommandApprovalLevel = "auto" | "approve" | "dangerous";
 
@@ -46,97 +44,366 @@ export interface AiCommandMeta {
 }
 
 /**
- * Command metadata for mutation and UI commands only.
- *
- * Read commands have been removed - AI agent now uses MCP tools for database access.
+ * Executable assistant action block payload.
  */
+export interface QpActionBlock {
+  id: string;
+  name: CapabilityId;
+  params: Record<string, unknown>;
+  approval: CommandApprovalLevel;
+}
+
+// ============================================================================
+// Command Metadata
+// ============================================================================
+
 export const COMMAND_META: Record<AiCommandName, AiCommandMeta> = {
-  // Universal mutation command
-  "crud.stage": {
-    name: "crud.stage",
-    paradigm: "universal",
-    approvalLevel: "approve",
-    description: "Stage database change",
-    params: [
-      { name: "connectionId", type: "string", required: true, description: "Database connection ID" },
-      { name: "operation", type: "string", required: true, description: "Operation type: insert, update, or delete" },
-      { name: "database", type: "string", required: false, description: "Database name" },
-      { name: "schema", type: "string", required: false, description: "Schema name (SQL)" },
-      { name: "table", type: "string", required: false, description: "Table name (SQL)" },
-      { name: "collection", type: "string", required: false, description: "Collection name (MongoDB)" },
-      { name: "document", type: "object", required: false, description: "Document to insert" },
-      { name: "filter", type: "object", required: false, description: "Filter for update/delete" },
-      { name: "update", type: "object", required: false, description: "Update data" },
-      { name: "primaryKeys", type: "object", required: false, description: "Primary key values for delete" },
-      { name: "description", type: "string", required: false, description: "Human-readable description" },
-    ],
-  },
-  "tab.update": {
-    name: "tab.update",
+  "workspace.listTabs": {
+    name: "workspace.listTabs",
     paradigm: "universal",
     approvalLevel: "auto",
-    description: "Update tab content",
+    description: "List open tabs in the workspace",
+    params: [],
+  },
+  "workspace.getFocusedTab": {
+    name: "workspace.getFocusedTab",
+    paradigm: "universal",
+    approvalLevel: "auto",
+    description: "Get focused tab context",
+    params: [],
+  },
+  "workspace.getTabContext": {
+    name: "workspace.getTabContext",
+    paradigm: "universal",
+    approvalLevel: "auto",
+    description: "Get context for a specific tab",
     params: [
-      { name: "tabId", type: "string", required: false, description: "Tab ID (defaults to active tab)" },
-      { name: "content", type: "string", required: false, description: "New content" },
-      { name: "title", type: "string", required: false, description: "New title" },
-      { name: "mode", type: "string", required: false, description: "How to apply content: replace, append, or prepend (default: replace)" },
+      {
+        name: "tabId",
+        type: "string",
+        required: true,
+        description: "Target tab ID",
+      },
     ],
   },
   "tab.create": {
     name: "tab.create",
     paradigm: "universal",
     approvalLevel: "auto",
-    description: "Create new tab",
+    description: "Create a new query tab",
     params: [
-      { name: "connectionId", type: "string", required: true, description: "Database connection ID" },
-      { name: "type", type: "string", required: true, description: "Tab type (query)" },
-      { name: "title", type: "string", required: false, description: "Tab title" },
-      { name: "content", type: "string", required: false, description: "Initial content" },
-    ],
-  },
-  "editor.insert": {
-    name: "editor.insert",
-    paradigm: "universal",
-    approvalLevel: "auto",
-    description: "Insert at cursor",
-    params: [
-      { name: "text", type: "string", required: true, description: "Text to insert" },
-      { name: "position", type: "string", required: false, description: "Position: cursor, end, or replace" },
+      {
+        name: "connectionId",
+        type: "string",
+        required: true,
+        description: "Database connection ID",
+      },
+      {
+        name: "title",
+        type: "string",
+        required: false,
+        description: "Tab title",
+      },
+      {
+        name: "content",
+        type: "string",
+        required: false,
+        description: "Initial query text",
+      },
+      {
+        name: "database",
+        type: "string",
+        required: false,
+        description: "Database name",
+      },
+      {
+        name: "schema",
+        type: "string",
+        required: false,
+        description: "Schema name",
+      },
     ],
   },
   "tab.focus": {
     name: "tab.focus",
     paradigm: "universal",
     approvalLevel: "auto",
-    description: "Focus/switch to a specific tab",
+    description: "Focus an existing tab",
     params: [
-      { name: "tabId", type: "string", required: true, description: "Tab ID to focus" },
+      {
+        name: "tabId",
+        type: "string",
+        required: true,
+        description: "Target tab ID",
+      },
+    ],
+  },
+  "tab.updateContent": {
+    name: "tab.updateContent",
+    paradigm: "universal",
+    approvalLevel: "auto",
+    description: "Update tab content/title",
+    params: [
+      {
+        name: "tabId",
+        type: "string",
+        required: false,
+        description: "Target tab ID (defaults to focused tab)",
+      },
+      {
+        name: "content",
+        type: "string",
+        required: false,
+        description: "New editor content",
+      },
+      {
+        name: "title",
+        type: "string",
+        required: false,
+        description: "Tab title",
+      },
+      {
+        name: "mode",
+        type: "string",
+        required: false,
+        description: "replace|append|prepend",
+      },
+    ],
+  },
+  "editor.insert": {
+    name: "editor.insert",
+    paradigm: "universal",
+    approvalLevel: "auto",
+    description: "Insert text into the active editor",
+    params: [
+      {
+        name: "text",
+        type: "string",
+        required: true,
+        description: "Text to insert",
+      },
+      {
+        name: "position",
+        type: "string",
+        required: false,
+        description: "cursor|end|replace",
+      },
+    ],
+  },
+  "query.run": {
+    name: "query.run",
+    paradigm: "universal",
+    approvalLevel: "auto",
+    description: "Execute a read-only query/operation and return data",
+    params: [
+      {
+        name: "connectionId",
+        type: "string",
+        required: true,
+        description: "Database connection ID",
+      },
+      {
+        name: "query",
+        type: "string",
+        required: true,
+        description: "Read query (SQL) or read operation payload (MongoDB/Redis)",
+      },
+      {
+        name: "language",
+        type: "string",
+        required: false,
+        description: "Optional query language hint: sql|mongo|redis",
+      },
+      {
+        name: "title",
+        type: "string",
+        required: false,
+        description: "Tab title",
+      },
+      {
+        name: "database",
+        type: "string",
+        required: false,
+        description: "Database name",
+      },
+      {
+        name: "schema",
+        type: "string",
+        required: false,
+        description: "Schema name",
+      },
+    ],
+  },
+  "grid.setFilter": {
+    name: "grid.setFilter",
+    paradigm: "universal",
+    approvalLevel: "auto",
+    description: "Set table/grid filter",
+    params: [
+      {
+        name: "tabId",
+        type: "string",
+        required: false,
+        description: "Target tab ID (defaults to focused tab)",
+      },
+      {
+        name: "filter",
+        type: "string",
+        required: true,
+        description: "Filter expression",
+      },
+    ],
+  },
+  "grid.setSort": {
+    name: "grid.setSort",
+    paradigm: "universal",
+    approvalLevel: "auto",
+    description: "Set table/grid sort",
+    params: [
+      {
+        name: "tabId",
+        type: "string",
+        required: false,
+        description: "Target tab ID (defaults to focused tab)",
+      },
+      {
+        name: "column",
+        type: "string",
+        required: true,
+        description: "Sort column",
+      },
+      {
+        name: "direction",
+        type: "string",
+        required: true,
+        description: "asc|desc",
+      },
+    ],
+  },
+  "grid.setView": {
+    name: "grid.setView",
+    paradigm: "universal",
+    approvalLevel: "auto",
+    description: "Set table tab view mode",
+    params: [
+      {
+        name: "tabId",
+        type: "string",
+        required: false,
+        description: "Target tab ID (defaults to focused tab)",
+      },
+      {
+        name: "view",
+        type: "string",
+        required: true,
+        description: "data|structure|indexes|triggers|partitions|definition",
+      },
+    ],
+  },
+  "crud.stage": {
+    name: "crud.stage",
+    paradigm: "universal",
+    approvalLevel: "approve",
+    description: "Stage a database mutation",
+    params: [
+      {
+        name: "connectionId",
+        type: "string",
+        required: true,
+        description: "Database connection ID",
+      },
+      {
+        name: "operation",
+        type: "string",
+        required: true,
+        description: "insert|update|delete",
+      },
+      {
+        name: "database",
+        type: "string",
+        required: false,
+        description: "Database name",
+      },
+      {
+        name: "schema",
+        type: "string",
+        required: false,
+        description: "Schema name (SQL)",
+      },
+      {
+        name: "table",
+        type: "string",
+        required: false,
+        description: "Table name (SQL)",
+      },
+      {
+        name: "collection",
+        type: "string",
+        required: false,
+        description: "Collection name (MongoDB)",
+      },
+      {
+        name: "document",
+        type: "object",
+        required: false,
+        description: "Insert document",
+      },
+      {
+        name: "filter",
+        type: "object",
+        required: false,
+        description: "Update/delete filter",
+      },
+      {
+        name: "update",
+        type: "object",
+        required: false,
+        description: "Update payload",
+      },
+      {
+        name: "primaryKeys",
+        type: "object",
+        required: false,
+        description: "Delete/update primary keys",
+      },
+      {
+        name: "description",
+        type: "string",
+        required: false,
+        description: "Human-readable description",
+      },
     ],
   },
   "crud.unstage": {
     name: "crud.unstage",
     paradigm: "universal",
     approvalLevel: "auto",
-    description: "Remove staged CRUD changes",
+    description: "Unstage CRUD commands",
     params: [
-      { name: "scope", type: "string", required: true, description: "Scope of unstaging: id, table, or all" },
-      { name: "commandId", type: "string", required: false, description: "Command ID to unstage (when scope = id)" },
-      { name: "table", type: "string", required: false, description: "Table name to unstage all commands for (when scope = table)" },
-      { name: "connectionId", type: "string", required: false, description: "Filter by connection ID" },
-    ],
-  },
-  "query.run": {
-    name: "query.run",
-    paradigm: "universal",
-    approvalLevel: "approve",
-    description: "Execute a query and display results",
-    params: [
-      { name: "connectionId", type: "string", required: true, description: "Database connection ID" },
-      { name: "query", type: "string", required: true, description: "Query to execute" },
-      { name: "title", type: "string", required: false, description: "Result panel title" },
-      { name: "database", type: "string", required: false, description: "Database name" },
-      { name: "schema", type: "string", required: false, description: "Schema name" },
+      {
+        name: "scope",
+        type: "string",
+        required: true,
+        description: "id|table|all",
+      },
+      {
+        name: "commandId",
+        type: "string",
+        required: false,
+        description: "Command ID when scope=id",
+      },
+      {
+        name: "table",
+        type: "string",
+        required: false,
+        description: "Table name when scope=table",
+      },
+      {
+        name: "connectionId",
+        type: "string",
+        required: false,
+        description: "Optional connection filter",
+      },
     ],
   },
 };
@@ -145,39 +412,41 @@ export const COMMAND_META: Record<AiCommandName, AiCommandMeta> = {
 // Command Parameter Types
 // ============================================================================
 
-// Note: Read command parameter types (SqlExecuteParams, MongodbFindParams, etc.)
-// have been removed. AI agent now uses MCP tools for database reads.
+export type WorkspaceListTabsParams = Record<string, never>;
 
-// Mutation Commands
+export type WorkspaceGetFocusedTabParams = Record<string, never>;
+
+export interface WorkspaceGetTabContextParams {
+  tabId: string;
+}
+
 export interface CrudStageParams {
   connectionId: string;
   database?: string;
   schema?: string;
-  table?: string; // For SQL
-  collection?: string; // For MongoDB
+  table?: string;
+  collection?: string;
   operation: "insert" | "update" | "delete";
-  // For insert
   document?: Record<string, unknown>;
-  // For update
   filter?: Record<string, unknown>;
   update?: Record<string, unknown>;
-  // For delete
   primaryKeys?: Record<string, unknown>;
   description?: string;
 }
 
-export interface TabUpdateParams {
-  tabId?: string; // Optional, defaults to active tab
-  content?: string; // New content (SQL, MongoDB query, etc.)
+export interface TabUpdateContentParams {
+  tabId?: string;
+  content?: string;
   title?: string;
-  mode?: "replace" | "append" | "prepend"; // How to apply content update (default: replace)
+  mode?: "replace" | "append" | "prepend";
 }
 
 export interface TabCreateParams {
   connectionId: string;
-  type: "query";
   title?: string;
   content?: string;
+  database?: string;
+  schema?: string;
 }
 
 export interface EditorInsertParams {
@@ -191,25 +460,74 @@ export interface TabFocusParams {
 
 export interface CrudUnstageParams {
   scope: "id" | "table" | "all";
-  commandId?: string; // When scope = "id"
-  table?: string; // When scope = "table"
-  connectionId?: string; // Filter by connection
+  commandId?: string;
+  table?: string;
+  connectionId?: string;
 }
 
 export interface QueryRunParams {
   connectionId: string;
   query: string;
+  language?: "sql" | "mongo" | "redis";
   title?: string;
+  database?: string;
+  schema?: string;
+  timeoutSecs?: number;
+}
+
+export interface GridSetFilterParams {
+  tabId?: string;
+  filter: string;
+}
+
+export interface GridSetSortParams {
+  tabId?: string;
+  column: string;
+  direction: "asc" | "desc";
+}
+
+export interface GridSetViewParams {
+  tabId?: string;
+  view: string;
+}
+
+export interface CapabilityParamsMap {
+  "workspace.listTabs": WorkspaceListTabsParams;
+  "workspace.getFocusedTab": WorkspaceGetFocusedTabParams;
+  "workspace.getTabContext": WorkspaceGetTabContextParams;
+  "tab.create": TabCreateParams;
+  "tab.focus": TabFocusParams;
+  "tab.updateContent": TabUpdateContentParams;
+  "editor.insert": EditorInsertParams;
+  "query.run": QueryRunParams;
+  "grid.setFilter": GridSetFilterParams;
+  "grid.setSort": GridSetSortParams;
+  "grid.setView": GridSetViewParams;
+  "crud.stage": CrudStageParams;
+  "crud.unstage": CrudUnstageParams;
+}
+
+// ============================================================================
+// Result Types
+// ============================================================================
+
+export interface WorkspaceTabSummary {
+  tabId: string;
+  panelId: string;
+  type: string;
+  title?: string;
+  connectionId?: string;
   database?: string;
   schema?: string;
 }
 
-// ============================================================================
-// Command Result Types
-// ============================================================================
-
-// Note: Read command result types have been removed.
-// AI agent now uses MCP tools for database reads.
+export interface WorkspaceTabContextResult {
+  tab: WorkspaceTabSummary | null;
+  sql?: string;
+  filter?: string;
+  sort?: { column: string; direction: "asc" | "desc" };
+  viewType?: string;
+}
 
 export interface CrudStageResult {
   staged: boolean;
@@ -239,13 +557,41 @@ export interface TabFocusResult {
 
 export interface CrudUnstageResult {
   unstaged: boolean;
-  count: number; // Number of commands unstaged
+  count: number;
 }
 
 export interface QueryRunResult {
   success: boolean;
+  mode: "sql" | "document" | "keyvalue";
+  connectionId: string;
+  query: string;
+  title?: string;
+  rowCount: number;
+  columns?: string[];
+  rows?: unknown[][];
+  records?: Record<string, unknown>[];
+  meta?: Record<string, unknown>;
+}
+
+export interface GridMutationResult {
+  success: boolean;
   tabId: string;
-  rowCount?: number;
+}
+
+export interface CapabilityResultMap {
+  "workspace.listTabs": { tabs: WorkspaceTabSummary[] };
+  "workspace.getFocusedTab": WorkspaceTabContextResult;
+  "workspace.getTabContext": WorkspaceTabContextResult;
+  "tab.create": TabCreateResult;
+  "tab.focus": TabFocusResult;
+  "tab.updateContent": TabUpdateResult;
+  "editor.insert": EditorInsertResult;
+  "query.run": QueryRunResult;
+  "grid.setFilter": GridMutationResult;
+  "grid.setSort": GridMutationResult;
+  "grid.setView": GridMutationResult;
+  "crud.stage": CrudStageResult;
+  "crud.unstage": CrudUnstageResult;
 }
 
 // ============================================================================
@@ -256,19 +602,25 @@ export interface ParsedCommand<T = unknown> {
   id: string;
   name: AiCommandName;
   params: T;
+  approval?: CommandApprovalLevel;
   raw: string;
   startIndex: number;
   endIndex: number;
-  /** Parser confidence. "low" means parsed from non-canonical command syntax. */
   confidence?: "high" | "low";
   error?: string;
 }
 
 export type AnyParsedCommand =
+  | ParsedCommand<WorkspaceListTabsParams>
+  | ParsedCommand<WorkspaceGetFocusedTabParams>
+  | ParsedCommand<WorkspaceGetTabContextParams>
   | ParsedCommand<CrudStageParams>
   | ParsedCommand<CrudUnstageParams>
   | ParsedCommand<QueryRunParams>
-  | ParsedCommand<TabUpdateParams>
+  | ParsedCommand<TabUpdateContentParams>
   | ParsedCommand<TabCreateParams>
   | ParsedCommand<TabFocusParams>
-  | ParsedCommand<EditorInsertParams>;
+  | ParsedCommand<EditorInsertParams>
+  | ParsedCommand<GridSetFilterParams>
+  | ParsedCommand<GridSetSortParams>
+  | ParsedCommand<GridSetViewParams>;

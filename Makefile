@@ -1,4 +1,4 @@
-.PHONY: help d dev dev-profile dp mcp-sidecar build package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-integration ti test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle seed-mongodb seed-redis setup version release beta release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-all-adapters test-ssh-clean test-ssh-full test-ssh-all-smoke
+.PHONY: help d dev dev-profile dp querypilot-cli build package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-integration ti test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle seed-mongodb seed-redis setup version release beta release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-all-adapters test-ssh-clean test-ssh-full test-ssh-all-smoke
 
 SSH_KEYGEN ?= ssh-keygen
 SQLSERVER_CONTAINER ?= query-pilot-sqlserver
@@ -12,9 +12,9 @@ help:
 	@echo "Query Pilot - Available Commands:"
 	@echo ""
 	@echo "Development:"
-	@echo "  make dev, make d       - Run in development mode (auto-builds MCP sidecar)"
+	@echo "  make dev, make d       - Run in development mode (auto-builds querypilot CLI)"
 	@echo "  make dev-profile, dp   - Run in development mode with QP_STREAM_PROFILE=1"
-	@echo "  make mcp-sidecar       - Build MCP sidecar only"
+	@echo "  make querypilot-cli    - Build querypilot CLI only"
 	@echo "  make build             - Build for production"
 	@echo "  make package-dist      - Package build with installation instructions"
 	@echo "  make install           - Install dependencies"
@@ -58,18 +58,20 @@ help:
 	@echo "Quick Start:"
 	@echo "  make setup          - Start containers and seed all databases"
 
-# Build MCP sidecar (required for AI database tools)
-mcp-sidecar:
-	@echo "Building MCP sidecar..."
-	@cargo build -p querypilot-mcp --release 2>/dev/null && \
-		echo "MCP sidecar ready (release)" || \
-		(echo "⚠️  MCP sidecar build failed - AI database tools will be unavailable" && exit 0)
+# Build Query Pilot CLI (used by ACP agent shell calls)
+querypilot-cli:
+	@echo "Building querypilot CLI..."
+	@cargo build -p querypilot --release 2>/dev/null && \
+		HOST_TRIPLE=$$(rustc -vV | sed -n 's/^host: //p'); \
+		install -m 755 target/release/querypilot target/release/querypilot-$$HOST_TRIPLE && \
+		echo "querypilot CLI ready (release, $$HOST_TRIPLE)" || \
+		(echo "⚠️  querypilot CLI build failed - ACP workspace reads will be unavailable" && exit 0)
 
 # Development
-dev d: mcp-sidecar
+dev d: querypilot-cli
 	pnpm tauri:dev
 
-dev-profile dp: mcp-sidecar
+dev-profile dp: querypilot-cli
 	QP_STREAM_PROFILE=1 pnpm tauri:dev
 
 # Build for production

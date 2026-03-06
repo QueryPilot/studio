@@ -10,6 +10,9 @@ import {
   type PersistedTabState,
 } from "@/lib/db/tabState";
 import { debouncedSyncAiContext } from "@/services/aiContextService";
+import useWorkbenchStore from "@/stores/workbenchStore";
+import { useGridPreferencesStore } from "@/components/DataGrid/stores/gridPreferencesStore";
+import type { TabMetadata } from "@/types/workbench";
 
 // Re-export PersistedTabState for consumers
 export type { PersistedTabState };
@@ -20,6 +23,63 @@ const PERSISTENCE_DEBOUNCE_MS = 500;
 
 // Track pending persistence data (accumulated during debounce)
 const pendingPersistence = new Map<string, Partial<PersistedTabState>>();
+
+function findTabMetadata(
+  tabId: string,
+): { panelId: string; metadata: TabMetadata } | null {
+  const panelContents = useWorkbenchStore.getState().panelContents;
+  for (const [panelId, panel] of panelContents) {
+    if (!panel.tabIds.includes(tabId)) continue;
+    return {
+      panelId,
+      metadata: panel.metadata?.[tabId] ?? {},
+    };
+  }
+  return null;
+}
+
+function computeGridId(tabId: string, metadata: TabMetadata): string | null {
+  const connectionId =
+    typeof metadata.connectionId === "string" ? metadata.connectionId : null;
+  if (!connectionId) return null;
+
+  const type = typeof metadata.type === "string" ? metadata.type : "";
+  if (type === "table") {
+    const database =
+      typeof metadata.database === "string" ? metadata.database : "";
+    const schema = typeof metadata.schema === "string" ? metadata.schema : "public";
+    const table = typeof metadata.table === "string" ? metadata.table : "";
+    if (!database || !table) return null;
+    return `${connectionId}:${database}:${schema}:${table}`;
+  }
+
+  if (type === "mongo-collection") {
+    const database =
+      typeof metadata.database === "string" ? metadata.database : "";
+    const collection = typeof metadata.table === "string" ? metadata.table : "";
+    if (!database || !collection) return null;
+    return `document:${connectionId}:${database}:${collection}`;
+  }
+
+  if (type === "redis-key") {
+    const database =
+      typeof metadata.database === "string" ? metadata.database : "0";
+    const keyName =
+      typeof metadata.table === "string" && metadata.table.length > 0
+        ? metadata.table
+        : "browser";
+    return `keyvalue:${connectionId}:${database}:${keyName}`;
+  }
+
+  if (type === "query") {
+    const database =
+      typeof metadata.database === "string" ? metadata.database : "";
+    const schema = typeof metadata.schema === "string" ? metadata.schema : "public";
+    return `query:${connectionId}:${database}:${schema}:${tabId}`;
+  }
+
+  return null;
+}
 
 /**
  * Schedule debounced persistence for a tab
@@ -314,19 +374,43 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         });
       }
 
-      // Sync to AI context (for MCP tools)
+      // Sync to AI context snapshot (consumed by `querypilot agent` CLI)
       // Only sync if we have meaningful state
       if (newState.query || newState.result) {
+        const located = findTabMetadata(tabId);
+        const metadata = located?.metadata ?? {};
+        const gridId = computeGridId(tabId, metadata);
+        const prefs = gridId
+          ? useGridPreferencesStore.getState().preferences[gridId]
+          : undefined;
+        const firstSort = prefs?.sortColumns[0];
+
         debouncedSyncAiContext({
-          connectionId: connectionContext?.connectionId ?? null,
-          database: connectionContext?.database ?? null,
-          schema: connectionContext?.schema ?? null,
+          connectionId:
+            connectionContext?.connectionId ??
+            (typeof metadata.connectionId === "string" ? metadata.connectionId : null),
+          database:
+            connectionContext?.database ??
+            (typeof metadata.database === "string" ? metadata.database : null),
+          schema:
+            connectionContext?.schema ??
+            (typeof metadata.schema === "string" ? metadata.schema : null),
           query: newState.query || null,
           lastExecutedQuery: newState.lastExecutedQuery || null,
           hasResults: newState.result !== null,
           rowCount: newState.result?.rowCount ?? null,
-          columnCount: newState.result?.columns?.length ?? null,
+          columnCount: newState.result ? newState.result.columns.length : null,
           updatedAt: Date.now(),
+          panelId: located?.panelId ?? null,
+          tabId,
+          tabType: typeof metadata.type === "string" ? metadata.type : null,
+          title: typeof metadata.title === "string" ? metadata.title : null,
+          filter: prefs?.quickFilter?.value ?? null,
+          sortColumn: firstSort?.columnId ?? null,
+          sortDirection: firstSort?.direction ?? null,
+          viewType:
+            newState.tableViewType ??
+            (typeof metadata.viewType === "string" ? metadata.viewType : null),
         });
       }
 

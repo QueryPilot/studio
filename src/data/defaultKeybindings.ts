@@ -31,7 +31,7 @@ export const defaultKeybindings: Keybinding[] = [
     key: 'cmd+alt+b',
   },
   {
-    command: 'workbench.action.toggleRightSidebar',
+    command: 'ai.action.openWithContext',
     key: 'cmd+l',
   },
   {

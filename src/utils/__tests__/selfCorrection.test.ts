@@ -15,6 +15,15 @@ describe("selfCorrection", () => {
       expect(isReadOnlyStatement("EXPLAIN SELECT * FROM users")).toBe(true);
     });
 
+    it("returns false for EXPLAIN ANALYZE over mutating statements", () => {
+      expect(
+        isReadOnlyStatement("EXPLAIN ANALYZE DELETE FROM users WHERE id = 1"),
+      ).toBe(false);
+      expect(
+        isReadOnlyStatement("EXPLAIN (ANALYZE, FORMAT TEXT) UPDATE users SET name = 'x'"),
+      ).toBe(false);
+    });
+
     it("returns true for WITH ... SELECT (read-only CTE)", () => {
       expect(
         isReadOnlyStatement("WITH cte AS (SELECT 1) SELECT * FROM cte"),
@@ -55,6 +64,15 @@ describe("selfCorrection", () => {
         isReadOnlyStatement(
           "WITH cte AS (SELECT * FROM deleted_items) SELECT * FROM cte",
         ),
+      ).toBe(true);
+    });
+
+    it("ignores mutating keywords inside string literals", () => {
+      expect(
+        isReadOnlyStatement("SELECT * FROM logs WHERE message LIKE '%UPDATE%'"),
+      ).toBe(true);
+      expect(
+        isReadOnlyStatement("SELECT 'DELETE FROM users' AS example_text"),
       ).toBe(true);
     });
 
@@ -124,6 +142,12 @@ describe("selfCorrection", () => {
 
     it("returns false for whitespace only", () => {
       expect(isReadOnlyStatement("   \n  ")).toBe(false);
+    });
+
+    it("returns false when a SQL batch contains any mutating statement", () => {
+      expect(
+        isReadOnlyStatement("SELECT 1; UPDATE users SET name = 'x' WHERE id = 1;"),
+      ).toBe(false);
     });
   });
 

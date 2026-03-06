@@ -1,47 +1,34 @@
 /**
- * AI Command Parser
+ * AI Action Parser
  *
- * Parses <command> blocks from AI agent responses.
- * Supports progressive parsing during streaming.
+ * Parses fenced `qp-action` JSON blocks from assistant responses.
+ * Supports progressive parsing while streaming.
  */
 
 import {
   COMMAND_META,
   type AiCommandName,
+  type CommandApprovalLevel,
   type ParsedCommand,
 } from "@/types/aiCommands";
 
-/**
- * Generate a deterministic ID for a command based on its content and position.
- * This ensures the same command gets the same ID across re-parses during streaming.
- */
 function generateCommandId(name: string, content: string, startIndex: number): string {
-  // Simple hash based on command name, content, and position
-  const str = `${name}:${startIndex}:${content.slice(0, 100)}`;
+  const str = `${name}:${startIndex}:${content.slice(0, 120)}`;
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32bit integer
+    const ch = str.charCodeAt(i);
+    hash = (hash << 5) - hash + ch;
+    hash |= 0;
   }
-  return `cmd-${Math.abs(hash).toString(36)}`;
+  return `act-${Math.abs(hash).toString(36)}`;
 }
 
-/**
- * Valid command names from the COMMAND_META registry.
- */
 const VALID_COMMAND_NAMES = new Set(Object.keys(COMMAND_META));
 
-// ============================================================================
-// Parser
-// ============================================================================
-
-const COMMAND_REGEX =
-  /<command\b[^>]*\bname\s*=\s*(['"])([^'"]+)\1[^>]*>([\s\S]*?)<\/command>/gi;
-const OPENING_TAG_REGEX =
-  /<command\b[^>]*\bname\s*=\s*(['"])([^'"]+)\1[^>]*>/gi;
-const STRICT_OPENING_TAG_REGEX = /^<command name="[^"]+">$/;
-const FENCED_CODE_BLOCK_REGEX = /(```[\s\S]*?```|~~~[\s\S]*?~~~)/g;
+const ACTION_FENCE_REGEX = /```qp-action([^\n]*)\n([\s\S]*?)```/gi;
+const ACTION_OPENING_REGEX = /```qp-action\b[^\n]*\n?/gi;
+const STRICT_OPENING_REGEX = /^```qp-action\s*$/;
+const GENERIC_FENCE_REGEX = /(```[\s\S]*?```|~~~[\s\S]*?~~~)/g;
 
 interface Range {
   start: number;
@@ -50,20 +37,43 @@ interface Range {
 
 interface CommandMatch {
   raw: string;
-  name: string;
-  content: string;
+  payload: string;
   startIndex: number;
   endIndex: number;
   confidence: "high" | "low";
 }
 
+interface ParsedActionPayload {
+  id?: unknown;
+  name?: unknown;
+  params?: unknown;
+  approval?: unknown;
+  [key: string]: unknown;
+}
+
+const REQUIRED_ACTION_FIELDS = ["id", "name", "params", "approval"] as const;
+const ALLOWED_ACTION_FIELDS = new Set<string>(REQUIRED_ACTION_FIELDS);
+const VALID_APPROVALS = new Set<CommandApprovalLevel>([
+  "auto",
+  "approve",
+  "dangerous",
+]);
+
 function collectProtectedRanges(text: string): Range[] {
   const ranges: Range[] = [];
-  FENCED_CODE_BLOCK_REGEX.lastIndex = 0;
+  GENERIC_FENCE_REGEX.lastIndex = 0;
 
   let match: RegExpExecArray | null;
-  while ((match = FENCED_CODE_BLOCK_REGEX.exec(text)) !== null) {
+  while ((match = GENERIC_FENCE_REGEX.exec(text)) !== null) {
     const raw = match[0];
+    const fence = raw.startsWith("```") ? "```" : "~~~";
+
+    // Do not protect qp-action blocks; those are what we parse.
+    const firstLine = raw.split("\n", 1)[0] ?? "";
+    if (new RegExp(`^${fence}\\s*qp-action\\b`, "i").test(firstLine)) {
+      continue;
+    }
+
     ranges.push({
       start: match.index,
       end: match.index + raw.length,
@@ -77,19 +87,15 @@ function isIndexInRanges(index: number, ranges: Range[]): boolean {
   return ranges.some((range) => index >= range.start && index < range.end);
 }
 
-function parseCommandMatches(text: string): CommandMatch[] {
+function parseActionMatches(text: string): CommandMatch[] {
   const matches: CommandMatch[] = [];
   const protectedRanges = collectProtectedRanges(text);
 
-  COMMAND_REGEX.lastIndex = 0;
+  ACTION_FENCE_REGEX.lastIndex = 0;
   let match: RegExpExecArray | null;
-  while ((match = COMMAND_REGEX.exec(text)) !== null) {
+  while ((match = ACTION_FENCE_REGEX.exec(text)) !== null) {
     const raw = match[0];
-    const name = match[2];
-    const content = match[3];
-    if (name === undefined || content === undefined) {
-      continue;
-    }
+    const payload = match[2] ?? "";
     const startIndex = match.index;
     const endIndex = startIndex + raw.length;
 
@@ -97,16 +103,14 @@ function parseCommandMatches(text: string): CommandMatch[] {
       continue;
     }
 
-    const openingTagEnd = raw.indexOf(">");
-    const openingTag = openingTagEnd >= 0 ? raw.slice(0, openingTagEnd + 1) : "";
-    const confidence: "high" | "low" = STRICT_OPENING_TAG_REGEX.test(openingTag)
+    const openingLine = raw.split("\n", 1)[0] ?? "";
+    const confidence: "high" | "low" = STRICT_OPENING_REGEX.test(openingLine)
       ? "high"
       : "low";
 
     matches.push({
       raw,
-      name,
-      content,
+      payload,
       startIndex,
       endIndex,
       confidence,
@@ -116,36 +120,125 @@ function parseCommandMatches(text: string): CommandMatch[] {
   return matches;
 }
 
-/**
- * Parse complete commands from text.
- */
+function parsePayload(payload: string): unknown {
+  return JSON.parse(payload);
+}
+
+function inferActionName(rawPayload: string): string | undefined {
+  const nameMatch = rawPayload.match(/"name"\s*:\s*"([^"]+)"/);
+  return nameMatch?.[1];
+}
+
 export function parseCommands(text: string): ParsedCommand[] {
   const commands: ParsedCommand[] = [];
-  const matches = parseCommandMatches(text);
+  const matches = parseActionMatches(text);
 
   for (const match of matches) {
-    const commandName = match.name;
+    let parsed: ParsedActionPayload | null = null;
+    let commandName = "workspace.listTabs";
+    let approval: CommandApprovalLevel | undefined;
+    const errors: string[] = [];
+
+    try {
+      const payload = parsePayload(match.payload.trim());
+      if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+        errors.push("Invalid payload: expected JSON object");
+      } else {
+        parsed = payload as ParsedActionPayload;
+      }
+
+      if (parsed && typeof parsed.name === "string" && parsed.name.length > 0) {
+        commandName = parsed.name;
+      }
+
+      if (parsed) {
+        const keys = Object.keys(parsed);
+        const unknownKeys = keys.filter((key) => !ALLOWED_ACTION_FIELDS.has(key));
+        if (unknownKeys.length > 0) {
+          const noun = unknownKeys.length > 1 ? "fields" : "field";
+          errors.push(`Unknown ${noun}: ${unknownKeys.join(", ")}`);
+        }
+
+        for (const field of REQUIRED_ACTION_FIELDS) {
+          if (!(field in parsed)) {
+            errors.push(`Missing required field: ${field}`);
+          }
+        }
+
+        if (parsed.id !== undefined && (typeof parsed.id !== "string" || parsed.id.trim().length === 0)) {
+          errors.push("Invalid id: expected non-empty string");
+        }
+
+        if (parsed.name !== undefined && (typeof parsed.name !== "string" || parsed.name.trim().length === 0)) {
+          errors.push("Invalid name: expected non-empty string");
+        }
+
+        if (
+          parsed.params !== undefined &&
+          (parsed.params === null ||
+            typeof parsed.params !== "object" ||
+            Array.isArray(parsed.params))
+        ) {
+          errors.push("Invalid params: expected object");
+        }
+
+        if (typeof parsed.approval === "string") {
+          if (VALID_APPROVALS.has(parsed.approval as CommandApprovalLevel)) {
+            approval = parsed.approval as CommandApprovalLevel;
+          } else {
+            errors.push(
+              "Invalid approval: expected one of auto, approve, dangerous",
+            );
+          }
+        } else if ("approval" in parsed) {
+          errors.push("Invalid approval: expected string");
+        }
+      }
+    } catch {
+      const inferred = inferActionName(match.payload);
+      if (inferred) {
+        commandName = inferred;
+      }
+      errors.push("Invalid JSON payload in qp-action block");
+    }
+
+    const actionId =
+      parsed && typeof parsed.id === "string" && parsed.id.trim().length > 0
+        ? parsed.id
+        : generateCommandId(commandName, match.payload, match.startIndex);
 
     const command: ParsedCommand = {
-      id: generateCommandId(commandName, match.content, match.startIndex),
+      id: actionId,
       name: commandName as AiCommandName,
-      params: {},
+      params:
+        parsed &&
+        parsed.params !== null &&
+        typeof parsed.params === "object" &&
+        !Array.isArray(parsed.params)
+          ? (parsed.params as Record<string, unknown>)
+          : {},
+      approval,
       raw: match.raw,
       startIndex: match.startIndex,
       endIndex: match.endIndex,
       confidence: match.confidence,
     };
 
-    // Validate command name is in registry
-    if (!commandName || !VALID_COMMAND_NAMES.has(commandName)) {
-      command.error = `Unknown command: ${commandName}`;
-    } else {
-      try {
-        const trimmedContent = match.content.trim();
-        command.params = trimmedContent ? JSON.parse(trimmedContent) : {};
-      } catch (e) {
-        command.error = `Invalid JSON: ${e instanceof Error ? e.message : String(e)}`;
+    if (!VALID_COMMAND_NAMES.has(commandName)) {
+      errors.push(`Unknown command: ${commandName}`);
+    }
+
+    if (VALID_COMMAND_NAMES.has(commandName) && approval) {
+      const expected = COMMAND_META[commandName as AiCommandName].approvalLevel;
+      if (approval !== expected) {
+        errors.push(
+          `Approval mismatch: ${commandName} requires "${expected}" (got "${approval}")`,
+        );
       }
+    }
+
+    if (errors.length > 0) {
+      command.error = errors[0];
     }
 
     commands.push(command);
@@ -154,36 +247,29 @@ export function parseCommands(text: string): ParsedCommand[] {
   return commands;
 }
 
-/**
- * Progressive parsing result
- */
 export interface ProgressiveParseResult {
   complete: ParsedCommand[];
   incomplete: boolean;
   incompleteStart?: number;
 }
 
-/**
- * Parse commands progressively during streaming.
- * Returns complete commands and whether there's an incomplete one being typed.
- */
 export function parseCommandsProgressive(text: string): ProgressiveParseResult {
   const complete = parseCommands(text);
   const protectedRanges = collectProtectedRanges(text);
   const completeRanges = complete.map((c) => ({ start: c.startIndex, end: c.endIndex }));
 
-  OPENING_TAG_REGEX.lastIndex = 0;
+  ACTION_OPENING_REGEX.lastIndex = 0;
   let match: RegExpExecArray | null;
   let incompleteStart: number | undefined;
-  while ((match = OPENING_TAG_REGEX.exec(text)) !== null) {
+
+  while ((match = ACTION_OPENING_REGEX.exec(text)) !== null) {
     const start = match.index;
     if (isIndexInRanges(start, protectedRanges)) {
       continue;
     }
-    const coveredByComplete = completeRanges.some(
-      (range) => start >= range.start && start < range.end
-    );
-    if (!coveredByComplete) {
+
+    const covered = completeRanges.some((range) => start >= range.start && start < range.end);
+    if (!covered) {
       incompleteStart = start;
     }
   }
@@ -195,111 +281,142 @@ export function parseCommandsProgressive(text: string): ProgressiveParseResult {
   };
 }
 
-/**
- * Remove command blocks from text.
- */
 export function stripCommands(text: string): string {
-  const matches = parseCommandMatches(text);
+  const matches = parseActionMatches(text);
   if (matches.length === 0) return text;
 
   let stripped = text;
   for (let i = matches.length - 1; i >= 0; i--) {
     const match = matches[i];
     if (!match) continue;
-    stripped =
-      stripped.slice(0, match.startIndex) + stripped.slice(match.endIndex);
+    stripped = stripped.slice(0, match.startIndex) + stripped.slice(match.endIndex);
   }
 
   return stripped.replace(/\n{3,}/g, "\n\n").trimEnd();
 }
 
-/**
- * Check if text contains any commands.
- */
 export function hasCommands(text: string): boolean {
-  return parseCommandMatches(text).length > 0;
+  return parseActionMatches(text).length > 0;
 }
 
-/**
- * Check if text has an incomplete command being streamed.
- */
 export function hasIncompleteCommand(text: string): boolean {
   return parseCommandsProgressive(text).incomplete;
 }
 
-/**
- * Get human-readable description for a command.
- *
- * Note: Read command cases have been removed - AI uses MCP tools for database reads.
- */
 export function getCommandDescription(command: ParsedCommand): string {
   switch (command.name) {
+    case "workspace.listTabs":
+      return "List open tabs";
+    case "workspace.getFocusedTab":
+      return "Get focused tab context";
+    case "workspace.getTabContext":
+      return "Get tab context";
+    case "tab.create":
+      return "Create new query tab";
+    case "tab.focus":
+      return "Focus tab";
+    case "tab.updateContent":
+      return "Update tab content";
+    case "editor.insert":
+      return "Insert at cursor";
+    case "query.run":
+      return "Run query";
+    case "grid.setFilter":
+      return "Set grid filter";
+    case "grid.setSort":
+      return "Set grid sort";
+    case "grid.setView":
+      return "Set grid view";
     case "crud.stage":
       return `Stage ${(command.params as { operation?: string }).operation ?? "change"}`;
     case "crud.unstage":
-      return "Unstage Changes";
-    case "query.run":
-      return "Run Query";
-    case "tab.update":
-      return "Update tab content";
-    case "tab.create":
-      return "Create new tab";
-    case "tab.focus":
-      return "Focus Tab";
-    case "editor.insert":
-      return "Insert at cursor";
+      return "Unstage changes";
     default:
       return `Unknown command: ${command.name}`;
   }
 }
 
-/**
- * Validate command parameters.
- *
- * Note: Read command validation removed - AI uses MCP tools for database reads.
- */
 export function validateCommand(command: ParsedCommand): string | null {
-  // Check if command name is valid
   if (!VALID_COMMAND_NAMES.has(command.name)) {
     return `Unknown command: ${command.name}`;
   }
 
   const params = command.params as Record<string, unknown>;
 
-  // Commands that don't require connectionId
-  const noConnectionNeeded = ["tab.update", "tab.focus", "editor.insert", "crud.unstage"];
+  const noConnectionNeeded = [
+    "workspace.listTabs",
+    "workspace.getFocusedTab",
+    "workspace.getTabContext",
+    "tab.updateContent",
+    "tab.focus",
+    "editor.insert",
+    "grid.setFilter",
+    "grid.setSort",
+    "grid.setView",
+    "crud.unstage",
+  ];
   if (!noConnectionNeeded.includes(command.name) && !params.connectionId) {
     return "Missing required parameter: connectionId";
   }
 
   switch (command.name) {
+    case "workspace.getTabContext":
+      if (!params.tabId) return "Missing required parameter: tabId";
+      break;
     case "crud.stage":
       if (!params.operation) return "Missing required parameter: operation";
-      if (!params.table && !params.collection) return "Missing required parameter: table or collection";
+      if (!params.table && !params.collection) {
+        return "Missing required parameter: table or collection";
+      }
       break;
     case "crud.unstage":
       if (!params.scope) return "Missing required parameter: scope";
-      // Validate scope value
       if (!["id", "table", "all"].includes(params.scope as string)) {
         return "Invalid scope: must be 'id', 'table', or 'all'";
       }
-      // commandId required when scope is "id"
       if (params.scope === "id" && !params.commandId) {
         return "Missing required parameter: commandId (required when scope is 'id')";
       }
-      // table required when scope is "table"
       if (params.scope === "table" && !params.table) {
         return "Missing required parameter: table (required when scope is 'table')";
       }
       break;
     case "query.run":
       if (!params.query) return "Missing required parameter: query";
+      if (
+        params.language &&
+        (typeof params.language !== "string" ||
+          !["sql", "mongo", "redis"].includes(params.language.toLowerCase()))
+      ) {
+        return "Invalid language: must be 'sql', 'mongo', or 'redis'";
+      }
       break;
     case "tab.focus":
       if (!params.tabId) return "Missing required parameter: tabId";
       break;
+    case "tab.updateContent":
+      if (!params.content && !params.title) {
+        return "Missing required parameter: content or title";
+      }
+      break;
     case "editor.insert":
       if (!params.text) return "Missing required parameter: text";
+      break;
+    case "grid.setFilter":
+      if (!params.filter) return "Missing required parameter: filter";
+      break;
+    case "grid.setSort":
+      if (!params.column) return "Missing required parameter: column";
+      if (!params.direction) return "Missing required parameter: direction";
+      if (
+        typeof params.direction !== "string" ||
+        !["asc", "desc"].includes(params.direction.toLowerCase())
+      ) {
+        return "Invalid direction: must be 'asc' or 'desc'";
+      }
+      break;
+    case "grid.setView":
+      if (!params.view) return "Missing required parameter: view";
       break;
   }
 

@@ -44,7 +44,7 @@ describe("aiCommandPermissionStore", () => {
   it("auto-approves auto-level commands", () => {
     const { shouldAutoApprove } = useAiCommandPermissionStore.getState();
     // These are auto-approve level
-    expect(shouldAutoApprove("tab.update")).toBe(true);
+    expect(shouldAutoApprove("tab.updateContent")).toBe(true);
     expect(shouldAutoApprove("tab.create")).toBe(true);
     expect(shouldAutoApprove("editor.insert")).toBe(true);
   });
@@ -80,7 +80,7 @@ describe("aiCommandPermissionStore", () => {
     it("updates command state to completed", () => {
       const { trackCommand, setCommandState, getCommandState } =
         useAiCommandPermissionStore.getState();
-      trackCommand("cmd-1", "tab.update");
+      trackCommand("cmd-1", "tab.updateContent");
       setCommandState("cmd-1", "completed");
       expect(getCommandState("cmd-1")).toBe("completed");
     });

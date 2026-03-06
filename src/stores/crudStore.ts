@@ -4,9 +4,11 @@ import { create } from "zustand";
 import { logger } from "@/lib/logger";
 import { getOperationExecutor } from "@/services/operationExecutors";
 import type {
+  AiQueryRunIntent,
   CommitResult,
   CrudCommand,
   CrudCommandTarget,
+  StageAiQueryIntentResult,
   StageCommandResult,
 } from "@/types/crud";
 import { useConnectionStore } from "./connectionStoreNew";
@@ -104,6 +106,7 @@ const emptySnapshot = () => cloneStagedCommands(new Map<string, CrudCommand[]>()
 
 export interface CrudStoreState {
   stagedCommands: Map<string, CrudCommand[]>;
+  stagedAiQueryIntents: Map<string, AiQueryRunIntent>;
   commandIndex: Map<string, string>;
   history: CrudHistorySnapshot[];
   historyIndex: number;
@@ -113,6 +116,12 @@ export interface CrudStoreState {
   isCommittingAll: boolean; // Track global commit-all state (for Cmd+S)
 
   stageCommand: (command: CrudCommand) => StageCommandResult;
+  stageAiQueryIntent: (
+    intent: Omit<AiQueryRunIntent, "id" | "kind" | "committable" | "createdAt"> & {
+      id?: string;
+      createdAt?: string;
+    },
+  ) => StageAiQueryIntentResult;
   stageCommands: (commands: CrudCommand[]) => StageCommandResult[];
   stageBatchWithSingleHistoryEntry: (commands: CrudCommand[]) => StageCommandResult[];
   unstageCommand: (commandId: string) => void;
@@ -126,6 +135,8 @@ export interface CrudStoreState {
   redo: () => void;
   getTableKey: (target: CrudCommandTarget) => string;
   getStagedCommands: (tableKey: string) => CrudCommand[];
+  getAiQueryIntent: (intentId: string) => AiQueryRunIntent | undefined;
+  unstageAiQueryIntent: (intentId: string) => void;
   isCommitting: (tableKey: string) => boolean;
   setIsCommittingAll: (value: boolean) => void;
 }
@@ -134,6 +145,7 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
   const initialSnapshot = emptySnapshot();
   return {
     stagedCommands: new Map<string, CrudCommand[]>(),
+    stagedAiQueryIntents: new Map<string, AiQueryRunIntent>(),
     commandIndex: new Map<string, string>(),
     history: [initialSnapshot],
     historyIndex: 0,
@@ -286,6 +298,29 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
         };
       });
       return result ?? { command };
+    },
+
+    stageAiQueryIntent: (intentInput) => {
+      const intent: AiQueryRunIntent = {
+        id: intentInput.id ?? `ai-query-${nanoid()}`,
+        kind: "query.run",
+        committable: false,
+        connectionId: intentInput.connectionId,
+        database: intentInput.database,
+        schema: intentInput.schema,
+        title: intentInput.title,
+        query: intentInput.query,
+        source: intentInput.source ?? "ai",
+        createdAt: intentInput.createdAt ?? new Date().toISOString(),
+      };
+
+      set((state) => {
+        const stagedAiQueryIntents = new Map(state.stagedAiQueryIntents);
+        stagedAiQueryIntents.set(intent.id, intent);
+        return { stagedAiQueryIntents };
+      });
+
+      return { intent };
     },
 
     stageCommands: (commands) => commands.map((command) => get().stageCommand(command)),
@@ -572,7 +607,7 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
 
     discardAll: () => {
       set((state) => {
-        if (state.stagedCommands.size === 0) {
+        if (state.stagedCommands.size === 0 && state.stagedAiQueryIntents.size === 0) {
           return state;
         }
 
@@ -581,6 +616,7 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
 
         return {
           stagedCommands: new Map<string, CrudCommand[]>(),
+          stagedAiQueryIntents: new Map<string, AiQueryRunIntent>(),
           commandIndex: new Map<string, string>(),
           history: [emptyState],
           historyIndex: 0,
@@ -673,7 +709,7 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
         const errorMessage = error instanceof Error ? error.message : String(error);
         logger.error("[CrudStore] Commit failed:", errorMessage);
 
-        throw new Error(errorMessage);
+        throw new Error(errorMessage, { cause: error });
       }
     },
 
@@ -767,6 +803,19 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
 
     getStagedCommands: (tableKey) =>
       get().stagedCommands.get(tableKey) ?? [],
+
+    getAiQueryIntent: (intentId) => get().stagedAiQueryIntents.get(intentId),
+
+    unstageAiQueryIntent: (intentId) => {
+      set((state) => {
+        if (!state.stagedAiQueryIntents.has(intentId)) {
+          return state;
+        }
+        const stagedAiQueryIntents = new Map(state.stagedAiQueryIntents);
+        stagedAiQueryIntents.delete(intentId);
+        return { stagedAiQueryIntents };
+      });
+    },
 
     isCommitting: (tableKey) => get().committingTableKeys.has(tableKey),
   };

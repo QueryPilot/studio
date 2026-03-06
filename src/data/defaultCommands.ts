@@ -173,6 +173,24 @@ export const defaultCommands: Command[] = [
     },
   },
   {
+    id: "ai.action.openWithContext",
+    label: "Open AI With Focused Context",
+    category: "AI",
+    handler: () => {
+      const workspaceStore = useWorkspaceScreenStore.getState();
+      const sidebars = workspaceStore.getSidebars();
+      const emitAttach = () => {
+        eventBus.emit("ai:open-with-context", { source: "command" });
+      };
+      if (!sidebars.right) {
+        workspaceStore.toggleSidebar("right");
+        setTimeout(emitAttach, 0);
+        return;
+      }
+      emitAttach();
+    },
+  },
+  {
     id: "workbench.action.focusNextPanel",
     label: "Focus Next Panel",
     category: "Workbench",

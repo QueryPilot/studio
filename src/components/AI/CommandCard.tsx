@@ -32,6 +32,7 @@ import type { ParsedCommand, ParamSchema, CrudStageResult } from "@/types/aiComm
 import { COMMAND_META } from "@/types/aiCommands";
 import { getCommandDescription, validateCommand } from "@/utils/aiCommandParser";
 import { useAiCommandPermissionStore, type CommandState } from "@/stores/aiCommandPermissionStore";
+import { usePreferencesStore } from "@/stores/preferencesStore";
 import {
   executeCommandWithTimeout,
   formatResultForConversation,
@@ -229,8 +230,11 @@ function CommandPreview({ command, meta }: CommandPreviewProps) {
     );
   }
 
-  // For tab.create / tab.update: show the SQL content
-  if ((command.name === "tab.create" || command.name === "tab.update") && typeof params.content === "string") {
+  // For tab.create / tab.updateContent: show the SQL content
+  if (
+    (command.name === "tab.create" || command.name === "tab.updateContent") &&
+    typeof params.content === "string"
+  ) {
     return (
       <div className="space-y-1">
         <div className="flex items-center justify-between">
@@ -420,6 +424,8 @@ interface CommandCardProps {
   onResult?: (result: string) => void;
   /** Pre-computed result from batch execution - skips individual execution */
   batchResult?: string;
+  /** Disable per-card auto-approve (used when CommandList batch execution controls execution). */
+  disableAutoApprove?: boolean;
 }
 
 export function CommandCard(props: CommandCardProps) {
@@ -430,7 +436,12 @@ export function CommandCard(props: CommandCardProps) {
   );
 }
 
-function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) {
+function CommandCardInner({
+  command,
+  onResult,
+  batchResult,
+  disableAutoApprove = false,
+}: CommandCardProps) {
   // Note: meta can be undefined if an unknown command name is parsed (cast from string)
   // Use Object.hasOwn to safely check if the command name exists in the registry
   const meta = Object.hasOwn(COMMAND_META, command.name)
@@ -446,6 +457,7 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
     getCommandState,
     shouldAutoApprove,
   } = useAiCommandPermissionStore();
+  const skipApprovalGate = usePreferencesStore((s) => s.skipApprovalGate);
 
   // Auto-expand for "approve" level commands (user needs to review)
   const shouldAutoExpand = meta?.approvalLevel === "approve";
@@ -558,6 +570,7 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
     }
 
     const canAutoApprove =
+      !disableAutoApprove &&
       shouldAutoApprove(command.name) &&
       command.confidence !== "low" &&
       !command.error &&
@@ -571,7 +584,7 @@ function CommandCardInner({ command, onResult, batchResult }: CommandCardProps) 
         void handleApproveRef.current();
       });
     }
-  }, [meta, command.name, command.confidence, command.error, validationError, shouldAutoApprove, localState, batchResult]);
+  }, [meta, command.name, command.confidence, command.error, validationError, shouldAutoApprove, localState, batchResult, skipApprovalGate, disableAutoApprove]);
 
   const handleReject = useCallback(() => {
     setLocalState("rejected");
@@ -859,10 +872,18 @@ interface CommandListProps {
   onResult?: (commandId: string, result: string) => void;
   /** Called with batched results when multiple commands complete in parallel */
   onBatchResult?: (batchedResult: string) => void;
+  /** Disable auto-execution (used while assistant is still streaming). */
+  allowAutoExecute?: boolean;
 }
 
-export function CommandList({ commands, onResult, onBatchResult }: CommandListProps) {
+export function CommandList({
+  commands,
+  onResult,
+  onBatchResult,
+  allowAutoExecute = true,
+}: CommandListProps) {
   const { allowAllThisConversation, setAllowAll, shouldAutoApprove } = useAiCommandPermissionStore();
+  const skipApprovalGate = usePreferencesStore((s) => s.skipApprovalGate);
   const getCommandState = useAiCommandPermissionStore((s) => s.getCommandState);
   const setCommandState = useAiCommandPermissionStore((s) => s.setCommandState);
   const trackCommand = useAiCommandPermissionStore((s) => s.trackCommand);
@@ -874,56 +895,70 @@ export function CommandList({ commands, onResult, onBatchResult }: CommandListPr
 
   // Get commands eligible for auto-execution
   const autoExecCommands = useMemo(() => {
+    if (!allowAutoExecute) return [];
+
+    const approvalBypassEnabled = skipApprovalGate;
+
     return commands.filter(
-      (c) =>
-        !c.error &&
-        c.confidence !== "low" &&
-        shouldAutoApprove(c.name) &&
-        getCommandState(c.id) === "pending"
+      (c) => {
+        if (c.error || c.confidence === "low" || getCommandState(c.id) !== "pending") {
+          return false;
+        }
+
+        // Keep `skipApprovalGate` in dependency-driven recomputation so toggling
+        // the preference auto-runs newly eligible pending commands.
+        if (approvalBypassEnabled) {
+          return shouldAutoApprove(c.name);
+        }
+
+        return shouldAutoApprove(c.name);
+      },
     );
-  }, [commands, shouldAutoApprove, getCommandState]);
+  }, [commands, shouldAutoApprove, getCommandState, skipApprovalGate, allowAutoExecute]);
+
+  const autoExecCommandIds = useMemo(
+    () => new Set(autoExecCommands.map((cmd) => cmd.id)),
+    [autoExecCommands],
+  );
 
   // Run parallel batch execution for auto-approved commands
   useEffect(() => {
     if (batchExecuted.current || autoExecCommands.length === 0) return;
 
-    // Only batch if we have multiple commands to execute
-    if (autoExecCommands.length >= 2) {
-      batchExecuted.current = true;
+    batchExecuted.current = true;
 
-      // Track and mark all as executing
-      for (const cmd of autoExecCommands) {
-        trackCommand(cmd.id, cmd.name);
-        setCommandState(cmd.id, "executing");
+    // Track and mark all as executing
+    for (const cmd of autoExecCommands) {
+      trackCommand(cmd.id, cmd.name);
+      setCommandState(cmd.id, "executing");
+    }
+
+    // Execute in parallel with 30s timeout each
+    void executeCommandsInParallel(autoExecCommands, 30_000).then((batchResult) => {
+      const newResults = new Map<string, string>();
+
+      // Update individual command states
+      for (const item of batchResult.results) {
+        const cmd = autoExecCommands.find((c) => c.id === item.commandId);
+        if (cmd) {
+          const formatted = formatResultForConversation(cmd, item.result);
+          newResults.set(cmd.id, formatted);
+
+          const finalState = item.result.success ? "completed" : "failed";
+          setCommandState(cmd.id, finalState);
+          approveCommand(cmd.id);
+          onResult?.(cmd.id, formatted);
+        }
       }
 
-      // Execute in parallel with 30s timeout each
-      void executeCommandsInParallel(autoExecCommands, 30_000).then((batchResult) => {
-        const newResults = new Map<string, string>();
+      setBatchResults(newResults);
 
-        // Update individual command states
-        for (const item of batchResult.results) {
-          const cmd = autoExecCommands.find((c) => c.id === item.commandId);
-          if (cmd) {
-            const formatted = formatResultForConversation(cmd, item.result);
-            newResults.set(cmd.id, formatted);
-
-            const finalState = item.result.success ? "completed" : "failed";
-            setCommandState(cmd.id, finalState);
-            approveCommand(cmd.id);
-            onResult?.(cmd.id, formatted);
-          }
-        }
-
-        setBatchResults(newResults);
-
-        // Send batched summary back to agent
-        if (onBatchResult) {
-          const batchSummary = formatBatchedResultsForAgent(batchResult);
-          onBatchResult(batchSummary);
-        }
-      });
-    }
+      // Send batched summary back to agent
+      if (onBatchResult) {
+        const batchSummary = formatBatchedResultsForAgent(batchResult);
+        onBatchResult(batchSummary);
+      }
+    });
   }, [autoExecCommands, trackCommand, setCommandState, approveCommand, onResult, onBatchResult]);
 
   if (commands.length === 0) return null;
@@ -934,7 +969,7 @@ export function CommandList({ commands, onResult, onBatchResult }: CommandListPr
 
   return (
     <div className="space-y-1">
-      {pendingCount > 1 && !allowAllThisConversation && (
+      {pendingCount > 1 && !allowAllThisConversation && !skipApprovalGate && (
         <div className="flex justify-end mb-2">
           <Button
             size="sm"
@@ -953,6 +988,7 @@ export function CommandList({ commands, onResult, onBatchResult }: CommandListPr
           onResult={(result) => onResult?.(cmd.id, result)}
           // Pass pre-computed result if we batch-executed this command
           batchResult={batchResults.get(cmd.id)}
+          disableAutoApprove={!allowAutoExecute || autoExecCommandIds.has(cmd.id)}
         />
       ))}
     </div>

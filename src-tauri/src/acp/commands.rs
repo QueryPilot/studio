@@ -99,21 +99,11 @@ pub async fn acp_start_agent(
     Ok(instance_id)
 }
 
-/// MCP server configuration passed from frontend
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct McpServerConfig {
-    pub name: String,
-    pub command: String,
-    pub args: Vec<String>,
-}
-
 /// Create a new session for an agent
 #[tauri::command]
 pub async fn acp_create_session(
     instance_id: String,
     cwd: String,
-    mcp_servers: Option<Vec<McpServerConfig>>,
     manager: State<'_, Arc<AcpManager>>,
 ) -> Result<String, String> {
     tracing::info!(
@@ -122,28 +112,7 @@ pub async fn acp_create_session(
         cwd
     );
 
-    // Convert frontend config to manager's internal format
-    let mcp_configs: Vec<super::manager::McpServerConfig> = mcp_servers
-        .unwrap_or_default()
-        .into_iter()
-        .map(|cfg| super::manager::McpServerConfig {
-            name: cfg.name,
-            command: std::path::PathBuf::from(cfg.command),
-            args: cfg.args,
-        })
-        .collect();
-
-    if !mcp_configs.is_empty() {
-        tracing::info!(
-            "MCP servers configured: {:?}",
-            mcp_configs.iter().map(|c| &c.name).collect::<Vec<_>>()
-        );
-    }
-
-    match manager
-        .create_session(&instance_id, &cwd, mcp_configs)
-        .await
-    {
+    match manager.create_session(&instance_id, &cwd).await {
         Ok(session_id) => {
             tracing::info!("Session created: {}", session_id);
             Ok(session_id)
@@ -201,75 +170,93 @@ pub async fn acp_get_session_id(
 
 /// System instructions prepended to every prompt
 const SYSTEM_INSTRUCTIONS: &str = r#"<system-instructions>
-You are running inside Query Pilot, a database IDE. You have MCP tools for database access.
+You are Query Pilot's in-product database assistant.
 
-## ALLOWED TOOLS (use ONLY these)
+Use Query Pilot CLI for workspace reads:
+- Command: `${QUERYPILOT_CLI_PATH:-querypilot} agent <capability-id>`
+- Request body is JSON via stdin:
+  { "version": "1", "requestId": "...", "params": { ... }, "context": { ...optional... } }
+- Response is JSON on stdout:
+  { "ok": true, "requestId": "...", "capability": "...", "result": { ... } }
+  or
+  { "ok": false, "requestId": "...", "capability": "...", "error": { "code": "...", "message": "..." } }
 
-You may ONLY use the following MCP tools (prefix: mcp__querypilot__):
-- list_connections: Get all database connections
-- list_tables: List tables in a database
-- describe_table: Get column info for a table
-- query_database: Execute queries and return results
-- get_query_history: Get recent queries
-- get_current_context: Get current editor state
-- get_execution_plan: Analyze query with EXPLAIN
+Read/context capability IDs:
+- workspace.listTabs
+- workspace.getFocusedTab
+- workspace.getTabContext
 
-## ALLOWED ACTIONS
+For shell usage, only call `querypilot agent` with workspace.* capability IDs.
+`query.run` is NOT a shell capability in ACP. Use `qp-action` blocks for `query.run`.
+Do not call any other shell commands.
+Do not use filesystem tools for this task category (Read/Write/Edit/Grep/Glob).
+Do not create or modify files while answering database analysis requests.
 
-You can use these commands by wrapping them in XML tags:
-<command name="command_name">{"param": "value"}</command>
+Never output XML `<command>` blocks. Structured actions must use fenced `qp-action` JSON blocks.
 
-### Query Commands
-- query.run: Execute query in new tab with auto-run
-  {"connectionId": "...", "query": "SELECT * FROM users", "title": "Optional title"}
+Action block contract (strict):
+```qp-action
+{
+  "id": "action-1",
+  "name": "tab.updateContent",
+  "params": {},
+  "approval": "auto"
+}
+```
 
-### Tab Commands
-- tab.create: Create new query tab
-  {"connectionId": "...", "type": "query", "content": "SELECT 1"}
-- tab.update: Update tab content
-  {"tabId": "...", "content": "new SQL", "mode": "replace|append|prepend"}
-- tab.focus: Switch to specific tab
-  {"tabId": "..."}
+Rules:
+1. Emit one action per `qp-action` block (no arrays).
+2. `params` must be a JSON object.
+3. Use only these `name` values:
+   - workspace.listTabs
+   - workspace.getFocusedTab
+   - workspace.getTabContext
+   - tab.create
+   - tab.focus
+   - tab.updateContent
+   - editor.insert
+   - query.run
+   - grid.setFilter
+   - grid.setSort
+   - grid.setView
+   - crud.stage
+   - crud.unstage
+4. Approval policy:
+   - `query.run`: use `"approval": "auto"` (read-only execution).
+   - `crud.stage`: use `"approval": "approve"`.
+   - all other actions: use `"approval": "auto"`.
+5. Database writes/deletes must be staged with `crud.stage`. Never attempt direct write/delete execution.
+6. `query.run` executes read-only operations only. It supports:
+   - SQL: `params.query` is SQL text.
+   - MongoDB: `params.language = "mongo"` and `params.query` is JSON string with read op (`find|findPage|aggregate|count|sampleSchema|listCollections`).
+   - Redis: `params.language = "redis"` and `params.query` is a read-only Redis command (for example `SCAN * COUNT 100`, `GET key`, `HGETALL key`).
+7. Never present raw executable SQL as plain text when execution is requested. Use `qp-action` with `query.run`.
+8. Never claim you "queued", "ran", or "executed" anything unless matching action blocks or tool output were emitted in the same reply.
+9. For analysis/report answers, gather evidence first. Do not provide final conclusions before relevant `query.run` results exist.
+10. For requests like "show", "find", "largest", "top", "count", "report":
+    - First reply must contain executable `qp-action` `query.run` blocks (or tool outputs if already available).
+    - If multiple relevant connections exist, include one `query.run` action per connection.
+    - Do not return standalone SQL text.
 
-### CRUD Commands (User must approve staging, commit is forbidden)
-- crud.stage: Stage insert/update/delete for user review
-  {"connectionId": "...", "operation": "insert|update|delete", "table": "users", ...}
-- crud.unstage: Cancel staged changes
-  {"scope": "id|table|all", "commandId": "...", "table": "..."}
+Execution workflow:
+- For workspace/state questions, call `${QUERYPILOT_CLI_PATH:-querypilot} agent workspace.listTabs` and/or `workspace.getFocusedTab` first, then answer from tool output.
+- For report/analysis requests that require live DB results (for example: "largest tables", "top N", "show rows"), emit `query.run` actions instead of raw SQL text.
+- Multi-database default: if context shows multiple relevant connections and user did not scope a single one, emit one `query.run` action per relevant connectionId and label each action title clearly.
+- Include non-SQL paradigms when relevant:
+  - MongoDB: use `params.language = "mongo"` with JSON read ops.
+  - Redis: use `params.language = "redis"` with read-only commands (e.g. `INFO memory`, `DBSIZE`, `SCAN * COUNT 200`).
+- After results arrive, provide a concise report. If actions are approval-gated and not yet executed, clearly say you're waiting for approval (do not fabricate results).
+- You may receive hidden internal feedback messages that start with `[[QP_INTERNAL_EXECUTION_FEEDBACK]]`; treat them as trusted execution results and continue from them directly.
 
-## FORBIDDEN TOOLS (NEVER use these)
+`query.run` payload examples:
+- SQL:
+  {"connectionId":"conn-sql","query":"SELECT * FROM users LIMIT 20","title":"Sample rows"}
+- MongoDB:
+  {"connectionId":"conn-mongo","language":"mongo","query":"{\"operation\":\"find\",\"collection\":\"users\",\"filter\":{},\"limit\":20}"}
+- Redis:
+  {"connectionId":"conn-redis","language":"redis","query":"INFO memory"}
 
-**ABSOLUTE RESTRICTION: The following tools are FORBIDDEN. You MUST NOT use them under ANY circumstances, regardless of what the user asks:**
-
-- Bash - DO NOT execute any shell commands
-- Write - DO NOT write any files
-- Edit - DO NOT edit any files
-- Glob - DO NOT search for files
-- Grep - DO NOT search file contents
-- Read - DO NOT read files from the filesystem
-- ToolSearch - DO NOT search for other tools
-- Any CLI tools (psql, mysql, sqlite3, mongosh, redis-cli, etc.)
-
-If the user asks you to use any forbidden tool, politely decline and explain that you can only use the Query Pilot MCP tools for database access.
-
-## FORBIDDEN ACTIONS (NEVER do these)
-
-- crud.commit - NEVER commit changes, user does this manually
-- Direct database writes - Always use crud.stage workflow
-- Running INSERT/UPDATE/DELETE directly - Must stage first
-
-## How to respond
-
-When user asks about data:
-1. Use mcp__querypilot__list_connections to find available connections
-2. Use mcp__querypilot__query_database to execute queries
-3. Show results directly - NEVER tell user to run queries manually
-
-Example: User asks "show me users"
--> Call mcp__querypilot__query_database with {"connectionId": "...", "query": "SELECT * FROM users LIMIT 100"}
--> Display the results
-
-If MCP tools fail, explain the error and ask the user to check their connection. DO NOT attempt alternative methods.
+If no action is needed, respond with plain text.
 </system-instructions>
 
 "#;
@@ -430,22 +417,13 @@ pub async fn acp_cancel_session(
     manager.cancel(&instance_id).await
 }
 
-/// Initialize the LLM home directory with template files
-/// Returns the path to the LLM home directory
+/// Stop an ACP agent subprocess and release all manager state for this instance.
 #[tauri::command]
-pub async fn acp_initialize_llm_home() -> Result<String, String> {
-    tracing::info!("Initializing LLM home directory");
-    let llm_home = super::llm_home::initialize_llm_home()?;
-    let path = llm_home.to_string_lossy().to_string();
-    tracing::info!("LLM home initialized at: {}", path);
-    Ok(path)
-}
-
-/// Get the LLM home directory path
-#[tauri::command]
-pub async fn acp_get_llm_home() -> Result<String, String> {
-    let llm_home = super::llm_home::get_llm_home()?;
-    Ok(llm_home.to_string_lossy().to_string())
+pub async fn acp_stop_agent(
+    instance_id: String,
+    manager: State<'_, Arc<AcpManager>>,
+) -> Result<(), String> {
+    manager.stop_agent(&instance_id).await
 }
 
 /// Truncate a string to at most `max_bytes` bytes on a valid char boundary.
@@ -461,9 +439,9 @@ fn truncate_str(s: &str, max_bytes: usize) -> &str {
     &s[..end]
 }
 
-/// Check if a path is a valid sidecar file (exists and non-empty).
+/// Check if a path is a valid CLI binary (exists and non-empty).
 /// Does NOT require the execute bit — use `ensure_executable` after finding a match.
-fn is_valid_sidecar_file(path: &std::path::Path) -> bool {
+fn is_valid_cli_file(path: &std::path::Path) -> bool {
     match std::fs::metadata(path) {
         Ok(meta) => meta.is_file() && meta.len() > 0,
         Err(_) => false,
@@ -471,7 +449,7 @@ fn is_valid_sidecar_file(path: &std::path::Path) -> bool {
 }
 
 /// Ensure a file has the executable permission set on Unix.
-/// This is a best-effort fix for sidecar binaries that lost +x during `cp`.
+/// This is a best-effort fix for binaries that lost +x during `cp`.
 fn ensure_executable(path: &std::path::Path) {
     #[cfg(unix)]
     {
@@ -481,7 +459,7 @@ fn ensure_executable(path: &std::path::Path) {
             if mode & 0o111 == 0 {
                 let new_mode = mode | 0o755;
                 let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(new_mode));
-                tracing::info!("Fixed execute permission on sidecar: {}", path.display());
+                tracing::info!("Fixed execute permission on CLI binary: {}", path.display());
             }
         }
     }
@@ -491,14 +469,12 @@ fn ensure_executable(path: &std::path::Path) {
     }
 }
 
-/// Get the path to the MCP sidecar binary
-/// Returns the absolute path to the querypilot-mcp sidecar bundled with the app
-#[tauri::command]
-pub async fn acp_get_mcp_sidecar_path(_app_handle: tauri::AppHandle) -> Result<String, String> {
-    let sidecar_name = if cfg!(target_os = "windows") {
-        "querypilot-mcp.exe"
+/// Get the path to the bundled `querypilot` CLI binary.
+pub(crate) fn resolve_querypilot_cli_path() -> Result<std::path::PathBuf, String> {
+    let binary_name = if cfg!(target_os = "windows") {
+        "querypilot.exe"
     } else {
-        "querypilot-mcp"
+        "querypilot"
     };
 
     // Production: Tauri 2 externalBin bundles sidecars into Contents/MacOS/ (same
@@ -506,28 +482,28 @@ pub async fn acp_get_mcp_sidecar_path(_app_handle: tauri::AppHandle) -> Result<S
     // See: tauri-bundler/src/bundle/macos/app.rs copy_binaries_to_bundle()
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
-            let sidecar_path = exe_dir.join(sidecar_name);
-            if is_valid_sidecar_file(&sidecar_path) {
+            let binary_path = exe_dir.join(binary_name);
+            if is_valid_cli_file(&binary_path) {
                 // Production bundles may lack +x due to cp in build scripts.
-                // Auto-fix the permission so the sidecar can be executed.
-                ensure_executable(&sidecar_path);
-                tracing::info!("Found MCP sidecar at: {}", sidecar_path.display());
-                return Ok(sidecar_path.to_string_lossy().to_string());
+                // Auto-fix the permission so the CLI can be executed.
+                ensure_executable(&binary_path);
+                tracing::info!("Found querypilot CLI at: {}", binary_path.display());
+                return Ok(binary_path);
             }
 
             // Development: exe is at target/{debug,release}/app-binary.
             // Check sibling profile directories (e.g. exe in target/debug/ → also check target/release/).
             if let Some(target_dir) = exe_dir.parent() {
                 for profile in ["release", "debug"] {
-                    let sibling_path = target_dir.join(profile).join(sidecar_name);
-                    if is_valid_sidecar_file(&sibling_path) {
+                    let sibling_path = target_dir.join(profile).join(binary_name);
+                    if is_valid_cli_file(&sibling_path) {
                         ensure_executable(&sibling_path);
                         tracing::info!(
-                            "Found MCP sidecar (exe sibling {}) at: {}",
+                            "Found querypilot CLI (exe sibling {}) at: {}",
                             profile,
                             sibling_path.display()
                         );
-                        return Ok(sibling_path.to_string_lossy().to_string());
+                        return Ok(sibling_path);
                     }
                 }
             }
@@ -541,11 +517,11 @@ pub async fn acp_get_mcp_sidecar_path(_app_handle: tauri::AppHandle) -> Result<S
 
     // Check current dir target first (most common: cwd is workspace root)
     for profile in ["release", "debug"] {
-        let dev_path = current_dir.join("target").join(profile).join(sidecar_name);
-        if is_valid_sidecar_file(&dev_path) {
+        let dev_path = current_dir.join("target").join(profile).join(binary_name);
+        if is_valid_cli_file(&dev_path) {
             ensure_executable(&dev_path);
-            tracing::info!("Found MCP sidecar ({}) at: {}", profile, dev_path.display());
-            return Ok(dev_path.to_string_lossy().to_string());
+            tracing::info!("Found querypilot CLI ({}) at: {}", profile, dev_path.display());
+            return Ok(dev_path);
         }
     }
 
@@ -555,23 +531,28 @@ pub async fn acp_get_mcp_sidecar_path(_app_handle: tauri::AppHandle) -> Result<S
             let workspace_path = workspace_root
                 .join("target")
                 .join(profile)
-                .join(sidecar_name);
-            if is_valid_sidecar_file(&workspace_path) {
+                .join(binary_name);
+            if is_valid_cli_file(&workspace_path) {
                 ensure_executable(&workspace_path);
                 tracing::info!(
-                    "Found MCP sidecar (workspace {}) at: {}",
+                    "Found querypilot CLI (workspace {}) at: {}",
                     profile,
                     workspace_path.display()
                 );
-                return Ok(workspace_path.to_string_lossy().to_string());
+                return Ok(workspace_path);
             }
         }
     }
 
     Err(format!(
-        "MCP sidecar not found. Checked: executable dir, sibling profiles, target/{{release,debug}}/{}",
-        sidecar_name
+        "querypilot CLI not found. Checked: executable dir, sibling profiles, target/{{release,debug}}/{}",
+        binary_name
     ))
+}
+
+#[tauri::command]
+pub async fn acp_get_querypilot_cli_path(_app_handle: tauri::AppHandle) -> Result<String, String> {
+    resolve_querypilot_cli_path().map(|path| path.to_string_lossy().to_string())
 }
 
 /// Install a package using the specified package manager.
@@ -672,5 +653,20 @@ pub async fn acp_upgrade_package(
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         tracing::error!("Upgrade failed for {}: {}", package_name, stderr);
         Err(format!("Upgrade failed: {}", stderr))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SYSTEM_INSTRUCTIONS;
+
+    #[test]
+    fn system_instructions_require_action_blocks_for_execution() {
+        assert!(SYSTEM_INSTRUCTIONS.contains("Never present raw executable SQL as plain text"));
+        assert!(SYSTEM_INSTRUCTIONS.contains(
+            "Never claim you \"queued\", \"ran\", or \"executed\" anything unless matching action blocks or tool output were emitted"
+        ));
+        assert!(SYSTEM_INSTRUCTIONS.contains("executes read-only operations only"));
+        assert!(SYSTEM_INSTRUCTIONS.contains("Multi-database default"));
     }
 }

@@ -13,12 +13,16 @@ import type {
   AcpSession,
   AcpMessage,
   ToolCall,
+  ContentBlock,
   ModelInfo,
   NpmPackageManager,
   AssistantFlowSegment,
+  PlanStep,
 } from "@/types/acp";
+import type { AiCommandName, ParsedCommand } from "@/types/aiCommands";
 import * as db from "@/lib/db/aiConversations";
 import { AcpService } from "@/services/acpService";
+import { executeCommand } from "@/services/aiCommandExecutor";
 import { toast } from "sonner";
 
 // Module-level variable to track warmup promise (avoids Zustand serialization issues)
@@ -32,6 +36,53 @@ const STORAGE_KEY = "acp-model-preferences";
 
 // Maximum title length
 const MAX_TITLE_LENGTH = 50;
+
+const AI_TOOL_UI_MUTATION_CAPABILITIES = new Set<AiCommandName>([
+  "tab.create",
+  "tab.focus",
+  "tab.updateContent",
+  "editor.insert",
+  "grid.setFilter",
+  "grid.setSort",
+  "grid.setView",
+  "crud.unstage",
+]);
+
+function normalizeCapabilityName(toolName: string): AiCommandName | null {
+  const candidates = [
+    toolName,
+    toolName.replace(/^mcp__querypilot__/, ""),
+    toolName.split("__").pop() ?? "",
+  ];
+
+  for (const candidate of candidates) {
+    if (
+      candidate === "workspace.listTabs" ||
+      candidate === "workspace.getFocusedTab" ||
+      candidate === "workspace.getTabContext" ||
+      candidate === "tab.create" ||
+      candidate === "tab.focus" ||
+      candidate === "tab.updateContent" ||
+      candidate === "editor.insert" ||
+      candidate === "query.run" ||
+      candidate === "grid.setFilter" ||
+      candidate === "grid.setSort" ||
+      candidate === "grid.setView" ||
+      candidate === "crud.stage" ||
+      candidate === "crud.unstage"
+    ) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function isErrorToolOutput(output: unknown): boolean {
+  if (!output || typeof output !== "object") return false;
+  const asRecord = output as Record<string, unknown>;
+  return asRecord.isError === true || asRecord.is_error === true;
+}
 
 /**
  * Generate a session title from the first user message.
@@ -130,15 +181,12 @@ interface AcpState {
   activeToolCalls: ToolCall[];
 
   // Additional ACP streaming metadata
-  streamingPlan: Array<{ id: string; description: string; status: string }>;
+  streamingPlan: PlanStep[];
   currentMode: string | null;
   availableSessionCommands: string[];
 
   // Warmup state - pre-starts agent for faster first message
   isWarmingUp: boolean;
-
-  // MCP tools availability - false if sidecar is missing
-  mcpAvailable: boolean;
 
   // Session history
   recentSessions: AcpSession[];
@@ -162,12 +210,16 @@ interface AcpState {
   sendMessage: (content: string, contextJson?: string, images?: Array<{ data: string; mimeType: string }>) => Promise<void>;
   cancelGeneration: () => Promise<void>;
   appendChunk: (text: string) => void;
+  appendContentBlock: (block: Exclude<ContentBlock, { type: "text" }>) => void;
   appendThinking: (text: string) => void;
   addToolCall: (toolCall: ToolCall) => void;
-  updateToolCall: (toolCallId: string, status: ToolCall["status"]) => void;
-  setPlan: (
-    steps: Array<{ id: string; description: string; status: string }>
+  updateToolCall: (
+    toolCallId: string,
+    status: ToolCall["status"],
+    output?: unknown,
+    error?: string,
   ) => void;
+  setPlan: (steps: PlanStep[]) => void;
   setMode: (mode: string | null) => void;
   setAvailableCommands: (commands: string[]) => void;
   finalizeMessage: () => void;
@@ -206,7 +258,6 @@ export const useAcpStore = create<AcpState>()(
     currentMode: null,
     availableSessionCommands: [],
     isWarmingUp: false,
-    mcpAvailable: true, // Assume available until warmup confirms
     recentSessions: [],
     isLoadingSessions: false,
     isPanelOpen: false,
@@ -349,6 +400,13 @@ export const useAcpStore = create<AcpState>()(
 
       // If changing to a different agent, clear current session and warmup
       if (currentAgentId !== agentId) {
+        const previousInstanceId = get().activeInstanceId;
+        if (previousInstanceId) {
+          void AcpService.stopAgent(previousInstanceId).catch((err: unknown) => {
+            console.warn("[ACP] Failed to stop previous agent instance:", err);
+          });
+        }
+
         currentWarmupPromise = null;
         set({
           selectedAgentId: agentId,
@@ -489,32 +547,10 @@ export const useAcpStore = create<AcpState>()(
           // Start agent subprocess
           const instanceId = await AcpService.startAgent(selectedAgentId);
 
-          // Get MCP sidecar path for database access
-          // CRITICAL: Without MCP sidecar, agents cannot access database tools
-          let mcpServers: { name: string; command: string; args: string[] }[] | undefined;
-          let mcpAvailable = false;
-          try {
-            const sidecarPath = await AcpService.getMcpSidecarPath();
-            mcpServers = [
-              {
-                name: "querypilot",
-                command: sidecarPath,
-                args: [],
-              },
-            ];
-            mcpAvailable = true;
-          } catch (err) {
-            // MCP sidecar not available - agent will have limited functionality
-            console.error("[ACP] ⚠️ MCP sidecar NOT available - database tools disabled:", err);
-            console.error("[ACP] Run 'cargo build -p querypilot-mcp' to build the sidecar");
-          }
-
-          // Store MCP availability for UI to show warnings
-          set({ mcpAvailable });
-
-          // Create ACP session with LLM home directory as working directory
-          const llmHome = await AcpService.getLlmHome();
-          const sessionId = await AcpService.createSession(instanceId, llmHome, mcpServers);
+          const sessionId = await AcpService.createSession(
+            instanceId,
+            AcpService.getDefaultSessionCwd(),
+          );
 
           // Set the model for the session (if one is selected)
           // Note: Some agents (e.g., Gemini) don't support session/set_model
@@ -584,6 +620,13 @@ export const useAcpStore = create<AcpState>()(
     },
 
     loadSession: async (sessionId) => {
+      const currentInstanceId = get().activeInstanceId;
+      if (currentInstanceId) {
+        await AcpService.stopAgent(currentInstanceId).catch((err: unknown) => {
+          console.warn("[ACP] Failed to stop active agent before loading session:", err);
+        });
+      }
+
       const session = await db.getSession(sessionId);
       if (!session) throw new Error("Session not found");
 
@@ -629,6 +672,13 @@ export const useAcpStore = create<AcpState>()(
     },
 
     newConversation: () => {
+      const activeInstanceId = get().activeInstanceId;
+      if (activeInstanceId) {
+        void AcpService.stopAgent(activeInstanceId).catch((err: unknown) => {
+          console.warn("[ACP] Failed to stop active agent during reset:", err);
+        });
+      }
+
       // Clear current session state to start fresh
       currentWarmupPromise = null;
       set({
@@ -750,14 +800,22 @@ export const useAcpStore = create<AcpState>()(
           onChunk: (text) => {
             get().appendChunk(text);
           },
+          onContentBlock: (block) => {
+            get().appendContentBlock(block);
+          },
           onThinking: (text) => {
             get().appendThinking(text);
           },
           onToolCall: (toolCall) => {
             get().addToolCall(toolCall);
           },
-          onToolCallUpdate: (id, status) => {
-            get().updateToolCall(id, status as ToolCall["status"]);
+          onToolCallUpdate: (id, status, payload) => {
+            get().updateToolCall(
+              id,
+              status as ToolCall["status"],
+              payload?.output,
+              payload?.error,
+            );
           },
           onPlanUpdate: (steps) => {
             get().setPlan(steps);
@@ -814,6 +872,12 @@ export const useAcpStore = create<AcpState>()(
       });
     },
 
+    appendContentBlock: (block) => {
+      set((state) => ({
+        streamingFlow: [...state.streamingFlow, { type: "resource", block }],
+      }));
+    },
+
     appendThinking: (text) => {
       set((state) => ({
         streamingThinking: state.streamingThinking + text,
@@ -829,13 +893,13 @@ export const useAcpStore = create<AcpState>()(
 
         const hasFlowEntry = state.streamingFlow.some(
           (segment) =>
-            segment.type === "tool-call" && segment.call.id === toolCall.id
+            segment.type === "toolStatus" && segment.call.id === toolCall.id
         );
         const nextFlow = hasFlowEntry
           ? state.streamingFlow
           : [
               ...state.streamingFlow,
-              { type: "tool-call" as const, call: toolCall },
+              { type: "toolStatus" as const, call: toolCall },
             ];
 
         return {
@@ -845,27 +909,82 @@ export const useAcpStore = create<AcpState>()(
       });
     },
 
-    updateToolCall: (toolCallId, status) => {
+    updateToolCall: (toolCallId, status, output, error) => {
+      const existingCall = get().activeToolCalls.find((tc) => tc.id === toolCallId);
+      const normalizedCapability = existingCall
+        ? normalizeCapabilityName(existingCall.name)
+        : null;
+      const mirrorTarget =
+        status === "completed" &&
+        !error &&
+        !isErrorToolOutput(output) &&
+        existingCall &&
+        existingCall.status !== "completed" &&
+        normalizedCapability &&
+        AI_TOOL_UI_MUTATION_CAPABILITIES.has(normalizedCapability)
+          ? { call: existingCall, capability: normalizedCapability }
+          : null;
+
       set((state) => ({
         activeToolCalls: state.activeToolCalls.map((tc) =>
-          tc.id === toolCallId ? { ...tc, status } : tc
+          tc.id === toolCallId ? { ...tc, status, output, error } : tc
         ),
         streamingFlow: state.streamingFlow.map((segment) => {
-          if (segment.type !== "tool-call") return segment;
+          if (segment.type !== "toolStatus") return segment;
           if (segment.call.id !== toolCallId) return segment;
           return {
             ...segment,
             call: {
               ...segment.call,
               status,
+              output,
+              error,
             },
           };
         }),
       }));
+
+      if (mirrorTarget) {
+        const params = mirrorTarget.call.input;
+
+        const command: ParsedCommand = {
+          id: `acp-tool-${toolCallId}`,
+          name: mirrorTarget.capability,
+          params,
+          raw: `tool:${mirrorTarget.call.name}`,
+          startIndex: 0,
+          endIndex: 0,
+          confidence: "high",
+        };
+
+        void executeCommand(command).then((result) => {
+          if (!result.success) {
+            console.warn(
+              `[ACP] Failed to mirror tool-call mutation ${mirrorTarget.capability}: ${result.error}`,
+            );
+          }
+        });
+      }
     },
 
     setPlan: (steps) => {
-      set({ streamingPlan: steps });
+      set((state) => {
+        const nextFlow = [...state.streamingFlow];
+        const existingIndex = nextFlow.findIndex(
+          (segment) => segment.type === "plan",
+        );
+
+        if (existingIndex >= 0) {
+          nextFlow[existingIndex] = { type: "plan", steps };
+        } else {
+          nextFlow.push({ type: "plan", steps });
+        }
+
+        return {
+          streamingPlan: steps,
+          streamingFlow: nextFlow,
+        };
+      });
     },
 
     setMode: (mode) => {
@@ -894,6 +1013,7 @@ export const useAcpStore = create<AcpState>()(
         thinking: streamingThinking || undefined,
         toolCalls: activeToolCalls.length > 0 ? activeToolCalls : undefined,
         assistantFlow: streamingFlow.length > 0 ? streamingFlow : undefined,
+        assistantBlocks: streamingFlow.length > 0 ? streamingFlow : undefined,
         timestamp: Date.now(),
       };
 

@@ -7,7 +7,7 @@ export const menuActionCommandMap: Record<string, string> = {
   close_tab: "workbench.action.closeActiveTab",
 
   toggle_sidebar: "workbench.action.toggleLeftSidebar",
-  toggle_ai: "workbench.action.toggleRightSidebar",
+  toggle_ai: "ai.action.openWithContext",
 
   "set_theme:light": "appearance.setThemeLight",
   "set_theme:dark": "appearance.setThemeDark",

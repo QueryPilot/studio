@@ -21,7 +21,6 @@ interface BYOKState {
   providerId: ProviderId | null;
   modelId: string | null;
   runtimeMode: "acp" | "byok";
-  autoExecuteQueries: boolean;
   includeSchemaContext: boolean;
 
   // Runtime
@@ -53,7 +52,6 @@ interface BYOKState {
   cancelGeneration: () => void;
   clearHistory: () => void;
   setRuntimeMode: (mode: "acp" | "byok") => void;
-  setAutoExecuteQueries: (enabled: boolean) => void;
   setIncludeSchemaContext: (enabled: boolean) => void;
 }
 
@@ -64,7 +62,6 @@ export const useByokStore = create<BYOKState>()(
       providerId: null,
       modelId: null,
       runtimeMode: "acp",
-      autoExecuteQueries: true,
       includeSchemaContext: true,
 
       // Runtime state
@@ -169,7 +166,7 @@ export const useByokStore = create<BYOKState>()(
       },
 
       sendMessage: async (content, toolContext, schemaContext, callbacks) => {
-        const { session, messages, isStreaming, autoExecuteQueries, includeSchemaContext } = get();
+        const { session, messages, isStreaming, includeSchemaContext } = get();
         if (!session || isStreaming) return;
 
         const userMessage: ModelMessage = { role: "user", content };
@@ -184,7 +181,7 @@ export const useByokStore = create<BYOKState>()(
           abortController,
         });
 
-        const tools = createTools(toolContext, { autoExecuteQueries });
+        const tools = createTools(toolContext);
         const systemPrompt = buildSystemPrompt(includeSchemaContext ? schemaContext : { databaseType: schemaContext?.databaseType });
 
         let fullText = "";
@@ -252,7 +249,6 @@ export const useByokStore = create<BYOKState>()(
       },
 
       setRuntimeMode: (mode) => set({ runtimeMode: mode }),
-      setAutoExecuteQueries: (enabled) => set({ autoExecuteQueries: enabled }),
       setIncludeSchemaContext: (enabled) => set({ includeSchemaContext: enabled }),
     }),
     {
@@ -261,7 +257,6 @@ export const useByokStore = create<BYOKState>()(
         providerId: state.providerId,
         modelId: state.modelId,
         runtimeMode: state.runtimeMode,
-        autoExecuteQueries: state.autoExecuteQueries,
         includeSchemaContext: state.includeSchemaContext,
       }),
     },
