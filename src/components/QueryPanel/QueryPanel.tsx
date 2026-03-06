@@ -1249,6 +1249,7 @@ export const QueryPanel = memo(function QueryPanel({
     // Subscribe ALWAYS - handlers check focus
     eventBus.on("query-editor:format", handleFormat);
     eventBus.on("query-editor:execute", handleExecuteEvent);
+    eventBus.on("query-editor:execute-background", handleExecuteEvent);
     eventBus.on("query-editor:execute-all", handleExecuteAllEvent);
     eventBus.on("query-editor:execute-selection", handleExecuteSelectionEvent);
     eventBus.on("query-editor:save", handleSaveQuery);
@@ -1257,6 +1258,7 @@ export const QueryPanel = memo(function QueryPanel({
     return () => {
       eventBus.off("query-editor:format", handleFormat);
       eventBus.off("query-editor:execute", handleExecuteEvent);
+      eventBus.off("query-editor:execute-background", handleExecuteEvent);
       eventBus.off("query-editor:execute-all", handleExecuteAllEvent);
       eventBus.off(
         "query-editor:execute-selection",
