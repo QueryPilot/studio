@@ -5,9 +5,9 @@ describe("buildSystemPrompt", () => {
   it("includes strict action execution guardrails", () => {
     const prompt = buildSystemPrompt();
 
-    expect(prompt).toContain("Never claim work is queued/executed");
-    expect(prompt).toContain("Never provide raw executable SQL as plain text");
-    expect(prompt).toContain("Multi-database default");
+    expect(prompt).toContain("Never claim work was executed unless tool output confirms it");
+    expect(prompt).toContain("Never present raw SQL as plain text when execution is requested");
+    expect(prompt).toContain("multiple relevant connections");
   });
 
   it("includes schema context when provided", () => {
