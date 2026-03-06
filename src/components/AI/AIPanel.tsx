@@ -69,6 +69,7 @@ import {
   IconMessage,
   IconArrowDown,
   IconPhoto,
+  IconCopy,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
@@ -1374,6 +1375,7 @@ function MessageBubble({
 }: MessageBubbleProps) {
   const isUser = role === "user";
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Get AI context for resolving @ mentions to connections
   const aiContext = useAIContextWithSchema();
@@ -1602,10 +1604,27 @@ function MessageBubble({
   return (
     <div
       className={cn(
-        "group px-3 py-3 transition-colors",
+        "group relative px-3 py-3 transition-colors",
         isUser && "bg-primary/5 border-l-3 border-primary",
       )}
     >
+      {isUser && content && (
+        <button
+          type="button"
+          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+          onClick={() => {
+            navigator.clipboard.writeText(content);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          }}
+        >
+          {copied ? (
+            <IconCheck className="h-3 w-3 text-green-500" />
+          ) : (
+            <IconCopy className="h-3 w-3" />
+          )}
+        </button>
+      )}
       <div className="max-w-full mx-auto">
         {/* Content */}
         <div className="space-y-2">
@@ -1902,7 +1921,66 @@ function getToolCallStatusText(status: ToolCallType["status"]): string {
   }
 }
 
+/**
+ * Parse a bash tool call to detect `querypilot agent <capability>` invocations.
+ * Returns the capability name and parsed JSON params (if piped via echo), or null.
+ */
+function parseQueryPilotShellCall(input: Record<string, unknown>): {
+  capability: string;
+  params: Record<string, unknown> | null;
+} | null {
+  // Claude Code may use various keys for the shell command
+  const command =
+    typeof input.command === "string"
+      ? input.command
+      : typeof input.cmd === "string"
+        ? input.cmd
+        : typeof input.input === "string"
+          ? input.input
+          : typeof input.raw === "string"
+            ? input.raw
+            : null;
+  if (!command) {
+    // Fallback: scan all string values for querypilot invocation
+    const strValues = Object.values(input).filter(
+      (v): v is string => typeof v === "string",
+    );
+    const found = strValues.find((v) =>
+      /(?:querypilot|QUERYPILOT_CLI_PATH)\s+agent\s+[\w.]+/i.test(v),
+    );
+    if (!found) return null;
+    return parseQueryPilotShellCall({ command: found });
+  }
+
+  // Match: ... querypilot agent <capability> ... or $QUERYPILOT_CLI_PATH agent <capability>
+  const match = command.match(
+    /(?:querypilot|\$\{?QUERYPILOT_CLI_PATH\}?)\s+agent\s+([\w.]+)/i,
+  );
+  if (!match?.[1]) return null;
+
+  const capability: string = match[1];
+
+  // Try to extract JSON from piped echo: echo '{...}' | querypilot ...
+  let params: Record<string, unknown> | null = null;
+  const pipeIdx = command.indexOf("|");
+  if (pipeIdx > 0) {
+    const lhs = command.slice(0, pipeIdx).trim();
+    // Extract JSON from echo '...' or echo "..." or echo {...}
+    const jsonMatch = lhs.match(/echo\s+['"]*(\{[\s\S]*\})['"]*$/);
+    if (jsonMatch) {
+      try {
+        params = JSON.parse(jsonMatch[1]!) as Record<string, unknown>;
+      } catch {
+        // Not valid JSON — ignore
+      }
+    }
+  }
+
+  return { capability, params };
+}
+
 function InlineToolCallEvent({ call }: { call: ToolCallType }) {
+  const [expanded, setExpanded] = useState(false);
   const lowerName = call.name.toLowerCase();
   const isFilesystemTool =
     lowerName === "read" ||
@@ -1937,6 +2015,17 @@ function InlineToolCallEvent({ call }: { call: ToolCallType }) {
     return null;
   }
 
+  // Detect querypilot CLI calls wrapped in bash/terminal tool
+  const isBashLike =
+    lowerName === "bash" ||
+    lowerName === "terminal" ||
+    lowerName === "shell" ||
+    lowerName === "execute" ||
+    lowerName.includes("bash") ||
+    lowerName.includes("terminal") ||
+    lowerName.includes("shell");
+  const qpCall = isBashLike ? parseQueryPilotShellCall(call.input) : null;
+
   const statusText = getToolCallStatusText(call.status);
   const resultText =
     call.error ??
@@ -1945,6 +2034,75 @@ function InlineToolCallEvent({ call }: { call: ToolCallType }) {
         ? call.output
         : JSON.stringify(call.output, null, 2)
       : null);
+
+  // Render enriched view for QueryPilot CLI calls
+  if (qpCall) {
+    const paramEntries = qpCall.params
+      ? Object.entries(qpCall.params).filter(([k]) => k !== "version" && k !== "requestId")
+      : null;
+    const hasDetails = paramEntries && paramEntries.length > 0;
+
+    return (
+      <div className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
+        <div className="flex items-start gap-2">
+          {call.status === "running" ? (
+            <IconLoader2 className="mt-0.5 h-3 w-3 shrink-0 animate-spin text-primary" />
+          ) : call.status === "completed" ? (
+            <IconCheck className="mt-0.5 h-3 w-3 shrink-0 text-green-500" />
+          ) : call.status === "failed" ? (
+            <IconX className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />
+          ) : (
+            <IconClock className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="mb-0.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <IconWand className="h-2.5 w-2.5" />
+              <span>Agent Action</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-mono font-medium text-foreground/90">
+                {qpCall.capability}
+              </span>
+              {hasDetails && (
+                <button
+                  onClick={() => { setExpanded((v) => !v); }}
+                  className="ml-auto flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {expanded ? <IconChevronDown className="h-2.5 w-2.5" /> : <IconChevronRight className="h-2.5 w-2.5" />}
+                  {expanded ? "Hide" : "Params"}
+                </button>
+              )}
+            </div>
+            <div className="text-[10px] text-muted-foreground">{statusText}</div>
+            {hasDetails && expanded && (
+              <div className="mt-1 space-y-0.5">
+                {paramEntries.map(([key, value]) => (
+                  <div key={key} className="flex gap-1.5 text-[10px]">
+                    <span className="shrink-0 font-medium text-muted-foreground">{key}:</span>
+                    <span className="text-foreground/80 break-all">
+                      {typeof value === "string"
+                        ? value.length > 200
+                          ? value.slice(0, 200) + "…"
+                          : value
+                        : JSON.stringify(value)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {resultText && (call.status === "completed" || call.status === "failed") && (
+              <pre className="mt-1 max-h-36 overflow-auto rounded bg-muted/40 px-2 py-1 text-[10px] text-muted-foreground whitespace-pre-wrap">
+                {resultText.length > 1000
+                  ? `${resultText.slice(0, 1000)}\n… (truncated)`
+                  : resultText}
+              </pre>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
       <div className="flex items-start gap-2">

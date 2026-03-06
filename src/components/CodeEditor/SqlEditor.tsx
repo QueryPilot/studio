@@ -255,30 +255,23 @@ const baseTheme = EditorView.theme({
   },
   ".cm-current-statement-line": {
     opacity: "1",
-    backgroundColor: "hsl(var(--accent) / 0.7)",
+    backgroundColor: "color-mix(in oklch, var(--accent) 25%, transparent)",
   },
-  ".cm-current-statement-start": {
-    boxShadow: "inset 0 1px 0 hsl(var(--foreground) / 0.35)",
-  },
-  ".cm-current-statement-end": {
-    boxShadow: "inset 0 -1px 0 hsl(var(--foreground) / 0.35)",
-  },
+  ".cm-current-statement-start": {},
+  ".cm-current-statement-end": {},
   ".cm-selected-statement-line": {
     opacity: "1",
-    backgroundColor: "hsl(var(--accent) / 0.45)",
+    backgroundColor: "color-mix(in oklch, var(--accent) 15%, transparent)",
   },
-  ".cm-selected-statement-start": {
-    boxShadow: "inset 0 1px 0 hsl(var(--foreground) / 0.22)",
-  },
-  ".cm-selected-statement-end": {
-    boxShadow: "inset 0 -1px 0 hsl(var(--foreground) / 0.22)",
-  },
+  ".cm-selected-statement-start": {},
+  ".cm-selected-statement-end": {},
   ".cm-current-statement-line.cm-activeLine": {
-    backgroundColor: "hsl(var(--accent) / 0.95)",
+    backgroundColor: "color-mix(in oklch, var(--accent) 35%, transparent)",
   },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
     {
-      backgroundColor: "hsl(var(--accent) / 0.5) !important",
+      backgroundColor:
+        "color-mix(in oklch, var(--primary) 40%, transparent) !important",
     },
 });
 

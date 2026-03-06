@@ -110,7 +110,8 @@ fn extract_shell_command_candidate(tool_title: &str, raw_input: Option<&Value>) 
         }
     }
 
-    if tool_title.contains("querypilot") {
+    let title_lower = tool_title.to_ascii_lowercase();
+    if title_lower.contains("querypilot") {
         Some(tool_title.to_string())
     } else {
         None
@@ -141,33 +142,8 @@ fn is_querypilot_binary_token(token: &str) -> bool {
         || lowered.ends_with("\\querypilot.exe")
 }
 
-fn is_allowed_querypilot_agent_shell(tool_title: &str, raw_input: Option<&Value>) -> bool {
-    let Some(candidate) = extract_shell_command_candidate(tool_title, raw_input) else {
-        return false;
-    };
-
-    // Disallow obvious command chaining / injection forms.
-    if candidate.contains("&&")
-        || candidate.contains("||")
-        || candidate.contains(';')
-        || candidate.contains('|')
-        || candidate.contains("`")
-        || candidate.contains("$(")
-        || candidate.contains('\n')
-        || candidate.contains('\r')
-    {
-        return false;
-    }
-
-    let mut tokens = tokenize_shell_command(&candidate);
-    let Some(start_idx) = tokens
-        .iter()
-        .position(|token| is_querypilot_binary_token(token))
-    else {
-        return false;
-    };
-    tokens = tokens.split_off(start_idx);
-
+/// Validate that the querypilot-side tokens (`querypilot agent <cap> [flags]`) are allowed.
+fn is_allowed_querypilot_tokens(tokens: &[String]) -> bool {
     if tokens.len() < 3 {
         return false;
     }
@@ -204,6 +180,80 @@ fn is_allowed_querypilot_agent_shell(tool_title: &str, raw_input: Option<&Value>
     true
 }
 
+/// Check if `lhs` is a safe echo/printf command (just piping data, no injection).
+fn is_safe_echo_lhs(lhs: &str) -> bool {
+    let trimmed = lhs.trim();
+    // Must start with echo or printf
+    if !(trimmed.starts_with("echo ") || trimmed.starts_with("printf ")) {
+        return false;
+    }
+    // Reject nested command substitution or chaining inside the echo
+    if trimmed.contains("$(") || trimmed.contains('`') || trimmed.contains("&&") || trimmed.contains("||") || trimmed.contains(';') {
+        return false;
+    }
+    true
+}
+
+fn is_allowed_querypilot_agent_shell(tool_title: &str, raw_input: Option<&Value>) -> bool {
+    let Some(candidate) = extract_shell_command_candidate(tool_title, raw_input) else {
+        return false;
+    };
+
+    // Disallow command chaining / injection forms (except single pipe which we handle below).
+    if candidate.contains("&&")
+        || candidate.contains("||")
+        || candidate.contains(';')
+        || candidate.contains("`")
+        || candidate.contains("$(")
+        || candidate.contains('\n')
+        || candidate.contains('\r')
+    {
+        return false;
+    }
+
+    // Handle piped form: `echo '...' | querypilot agent <capability>`
+    // Only allow a single pipe where the LHS is a safe echo/printf.
+    if candidate.contains('|') {
+        let parts: Vec<&str> = candidate.splitn(2, '|').collect();
+        if parts.len() != 2 {
+            return false;
+        }
+        let lhs = parts[0];
+        let rhs = parts[1].trim();
+
+        if !is_safe_echo_lhs(lhs) {
+            return false;
+        }
+
+        // Reject additional pipes in the RHS
+        if rhs.contains('|') {
+            return false;
+        }
+
+        let rhs_tokens = tokenize_shell_command(rhs);
+        let Some(start_idx) = rhs_tokens
+            .iter()
+            .position(|token| is_querypilot_binary_token(token))
+        else {
+            return false;
+        };
+        let qp_tokens: Vec<String> = rhs_tokens[start_idx..].to_vec();
+        return is_allowed_querypilot_tokens(&qp_tokens);
+    }
+
+    // Non-piped form: `querypilot agent <capability> [flags]`
+    let mut tokens = tokenize_shell_command(&candidate);
+    let Some(start_idx) = tokens
+        .iter()
+        .position(|token| is_querypilot_binary_token(token))
+    else {
+        return false;
+    };
+    tokens = tokens.split_off(start_idx);
+
+    is_allowed_querypilot_tokens(&tokens)
+}
+
 #[async_trait::async_trait(?Send)]
 impl Client for QueryPilotClient {
     async fn request_permission(
@@ -220,7 +270,7 @@ impl Client for QueryPilotClient {
             tool_title,
         );
 
-        let is_allowed_shell = matches!(tool_kind, ToolKind::Execute)
+        let is_allowed_shell = matches!(tool_kind, ToolKind::Execute | ToolKind::Other)
             && is_allowed_querypilot_agent_shell(
                 tool_title,
                 args.tool_call.fields.raw_input.as_ref(),
