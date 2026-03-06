@@ -29,10 +29,11 @@ use super::discovery::AgentInfo;
 pub type NotificationSender = mpsc::UnboundedSender<SessionNotification>;
 pub type NotificationReceiver = mpsc::UnboundedReceiver<SessionNotification>;
 
-const ALLOWED_SHELL_CAPABILITIES: [&str; 3] = [
+const ALLOWED_SHELL_CAPABILITIES: [&str; 4] = [
     "workspace.listTabs",
     "workspace.getFocusedTab",
     "workspace.getTabContext",
+    "query.run",
 ];
 
 /// Commands that can be sent to the ACP worker thread
