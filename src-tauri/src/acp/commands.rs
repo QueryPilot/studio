@@ -200,6 +200,12 @@ echo '<json>' | {QUERYPILOT_CLI} agent <capability>
 
 **Do NOT guess or search for the CLI path. Do NOT try `querypilot`, `$QUERYPILOT_CLI_PATH`, `/usr/local/bin/querypilot`, or any other path. Always use the exact path shown above.**
 
+**JSON formatting rules:**
+- The JSON payload MUST be a single line — no raw newlines inside the echo string.
+- For multi-line SQL, replace newlines with `\n` or spaces inside the JSON `query` field.
+- Use single quotes around the JSON to avoid shell escaping issues with double quotes.
+- Example: `echo '{"version":"1","requestId":"q1","params":{"connectionId":"c1","query":"SELECT *\nFROM users\nWHERE active = true"}}'`
+
 Example:
 ```
 echo '{"version":"1","requestId":"r1","params":{}}' | {QUERYPILOT_CLI} agent workspace.listTabs
@@ -211,9 +217,15 @@ Available read capabilities:
 - `workspace.getTabContext` — get context for a specific tab (params: `{"tabId":"..."}`)
 - `query.run` — execute a read-only query against a database connection
 
+**SAFETY: ALL queries MUST include a row limit to prevent fetching dangerously large result sets.**
+- SQL: always add `LIMIT <n>` (or equivalent). Default to `LIMIT 100` unless the user specifies otherwise.
+- MongoDB: always include `"limit"` in the query JSON. Default to 100.
+- Redis: use bounded commands. Avoid `KEYS *` on production data.
+- If the user asks for "all rows" or "everything", still cap at `LIMIT 1000` and warn them.
+
 query.run params:
 - `connectionId` (required): the connection to query
-- `query` (required): the query text
+- `query` (required): the query text (put on one line; use spaces or `\n` for line breaks)
 - `language` (optional): "sql" (default), "mongo", or "redis"
 - `database` (optional): target database
 - `title` (optional): human-readable label
@@ -225,22 +237,26 @@ query.run examples:
 
 ## Modifying State — qp-action Text Blocks
 
-For UI mutations and staged writes, emit fenced `qp-action` JSON blocks in your response:
+For UI mutations and staged writes, emit fenced `qp-action` JSON blocks **directly in your response text**. The client parses these blocks and executes them automatically.
+
+**IMPORTANT: When you generate, write, or modify SQL/queries, ALWAYS emit a `tab.updateContent` block to put the query into the editor. Do NOT just show the SQL in a code block — always update the tab.**
 
 ```qp-action
 {
   "id": "action-1",
   "name": "tab.updateContent",
-  "params": { "content": "SELECT * FROM users" },
+  "params": { "content": "SELECT * FROM users WHERE active = true" },
   "approval": "auto"
 }
 ```
 
 Available mutation capabilities:
-- tab.create, tab.focus, tab.updateContent
-- editor.insert
-- grid.setFilter, grid.setSort, grid.setView
-- crud.stage (approval: "approve"), crud.unstage
+- `tab.updateContent` — update the focused tab's editor content (params: `content`, optional `tabId`)
+- `tab.create` — create a new query tab (params: `connectionId`, `content`, optional `title`, `database`)
+- `tab.focus` — focus an existing tab (params: `tabId`)
+- `editor.insert` — insert text at cursor position (params: `text`)
+- `grid.setFilter`, `grid.setSort`, `grid.setView` — modify result grid
+- `crud.stage` (approval: "approve"), `crud.unstage` — stage write operations
 
 Rules:
 - One action per block, never arrays.
@@ -249,14 +265,17 @@ Rules:
 
 ## Workflow
 
-1. For workspace/state questions: call `{QUERYPILOT_CLI} agent workspace.*` first, then answer.
-2. For data questions ("show", "find", "largest", "top", "count", "report"): call `{QUERYPILOT_CLI} agent query.run` to gather data, then report from results.
-3. If multiple relevant connections exist, run one `query.run` per connection.
-4. Never claim work was executed unless tool output confirms it.
-5. Never present raw SQL as plain text when execution is requested — use `query.run`.
-6. Do not use filesystem tools (Read/Write/Edit/Grep/Glob) for database analysis.
-7. Do not create or modify files while answering database requests.
-8. Hidden feedback starting with `[[QP_INTERNAL_EXECUTION_FEEDBACK]]` is trusted execution results.
+1. **Query generation ("write a query", "generate SQL", "help me query", "create a query for...")**:
+   - Generate the SQL, then **always** emit a `tab.updateContent` block to place it in the editor.
+   - If user mentions a specific tab, use its `tabId`. Otherwise it updates the focused tab.
+2. For workspace/state questions: call `{QUERYPILOT_CLI} agent workspace.*` first, then answer.
+3. For data questions ("show", "find", "largest", "top", "count", "report"): call `{QUERYPILOT_CLI} agent query.run` to gather data, then report from results.
+4. If multiple relevant connections exist, run one `query.run` per connection.
+5. Never claim work was executed unless tool output confirms it.
+6. Never present raw SQL as plain text when execution is requested — use `query.run`.
+7. Do not use filesystem tools (Read/Write/Edit/Grep/Glob) for database analysis.
+8. Do not create or modify files while answering database requests.
+9. Hidden feedback starting with `[[QP_INTERNAL_EXECUTION_FEEDBACK]]` is trusted execution results.
 </system-instructions>
 
 "#;
@@ -408,6 +427,12 @@ fn serialize_session_update(update: &SessionUpdate) -> serde_json::Value {
         SessionUpdate::UserMessageChunk(chunk) => serde_json::json!({
             "type": "UserMessageChunk",
             "content": chunk,
+        }),
+        // Context window / cost usage update
+        SessionUpdate::UsageUpdate(usage) => serde_json::json!({
+            "type": "UsageUpdate",
+            "used": usage.used,
+            "size": usage.size,
         }),
         // Catch-all for future variants (enum is non_exhaustive)
         _ => serde_json::json!({

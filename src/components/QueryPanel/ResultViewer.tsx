@@ -205,9 +205,8 @@ const ExportMenu = memo(function ExportMenu({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground h-7 rounded-md px-3">
+      <DropdownMenuTrigger render={<Button variant="outline" size="icon" />}>
         <IconDownload className="h-3.5 w-3.5" />
-        Export
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuGroup>

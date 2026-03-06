@@ -184,7 +184,8 @@ export const defaultCommands: Command[] = [
       };
       if (!sidebars.right) {
         workspaceStore.toggleSidebar("right");
-        setTimeout(emitAttach, 0);
+        // Allow time for the sidebar and AIPanel to mount before focusing
+        setTimeout(emitAttach, 150);
         return;
       }
       emitAttach();

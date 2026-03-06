@@ -270,11 +270,13 @@ impl Client for QueryPilotClient {
             tool_title,
         );
 
-        let is_allowed_shell = matches!(tool_kind, ToolKind::Execute | ToolKind::Other)
-            && is_allowed_querypilot_agent_shell(
-                tool_title,
-                args.tool_call.fields.raw_input.as_ref(),
-            );
+        let is_allowed_shell = matches!(
+            tool_kind,
+            ToolKind::Execute | ToolKind::Other | ToolKind::Read | ToolKind::Search
+        ) && is_allowed_querypilot_agent_shell(
+            tool_title,
+            args.tool_call.fields.raw_input.as_ref(),
+        );
 
         let should_allow = is_allowed_shell
             || matches!(tool_kind, ToolKind::Think | ToolKind::SwitchMode);
