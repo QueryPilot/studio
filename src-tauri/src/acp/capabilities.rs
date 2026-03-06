@@ -1,15 +1,25 @@
-//! Shared capability handler for workspace read operations.
+//! Shared capability handler for workspace and query operations.
 //!
-//! Dispatches `workspace.*` capabilities against the in-memory `AiContextStore`.
+//! Dispatches `workspace.*` and `query.*` capabilities.
 //! Used by both the Unix socket server (CLI/ACP agents) and Tauri IPC (BYOK frontend).
 
 use std::fmt;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
 use crate::ai_context::{ActiveContext, AiContextStore};
+use crate::core::safe_mode::{classify_sql, OperationKind};
 use crate::core::ConnectionManager;
+use crate::types::DbType;
+
+/// Maximum number of rows returned by `query.run`.
+const MAX_ROWS: usize = 200;
+/// Default query timeout in seconds.
+const DEFAULT_TIMEOUT_SECS: u64 = 30;
+/// Maximum allowed query timeout in seconds.
+const MAX_TIMEOUT_SECS: u64 = 300;
 
 /// Errors returned by capability handlers.
 #[derive(Debug)]
@@ -102,18 +112,18 @@ fn context_to_tab_context(ctx: &ActiveContext) -> Value {
 /// * `capability` - The capability name (e.g. `workspace.listTabs`)
 /// * `params` - JSON parameters for the capability
 /// * `context_store` - The shared AI context store
-/// * `_connection_manager` - The shared connection manager (unused for workspace reads,
-///   but needed for query capabilities in Task 2)
+/// * `connection_manager` - The shared connection manager (for query capabilities)
 pub async fn handle_capability(
     capability: &str,
     params: &Value,
     context_store: &Arc<AiContextStore>,
-    _connection_manager: &Arc<ConnectionManager>,
+    connection_manager: &Arc<ConnectionManager>,
 ) -> Result<Value, CapabilityError> {
     match capability {
         "workspace.listTabs" => handle_list_tabs(context_store).await,
         "workspace.getFocusedTab" => handle_get_focused_tab(context_store).await,
         "workspace.getTabContext" => handle_get_tab_context(params, context_store).await,
+        "query.run" => handle_query_run(params, connection_manager).await,
         _ => Err(CapabilityError::UnsupportedCapability(
             capability.to_string(),
         )),
@@ -155,6 +165,152 @@ async fn handle_get_tab_context(
         .ok_or_else(|| CapabilityError::NotFound(format!("Tab with id '{}'", tab_id)))?;
 
     Ok(context_to_tab_context(ctx))
+}
+
+// ============================================================================
+// query.run
+// ============================================================================
+
+/// Validate that a SQL string is read-only.
+///
+/// Returns `Ok(())` if every statement classifies as `OperationKind::Read`,
+/// or a `CapabilityError::ReadOnlyViolation` otherwise.
+pub fn validate_sql_read_only(sql: &str) -> Result<(), CapabilityError> {
+    let kind = classify_sql(sql);
+    if kind == OperationKind::Read {
+        Ok(())
+    } else {
+        Err(CapabilityError::ReadOnlyViolation(format!(
+            "Only read-only SQL is allowed via query.run. Got {:?} operation: {}",
+            kind,
+            sql.chars().take(120).collect::<String>()
+        )))
+    }
+}
+
+/// Determine which paradigm to use for query execution.
+enum QueryParadigm {
+    Sql,
+    Document,
+    KeyValue,
+}
+
+/// Parse the requested timeout, clamping to [1, MAX_TIMEOUT_SECS].
+fn parse_timeout(params: &Value) -> Duration {
+    let secs = params
+        .get("timeoutSecs")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(DEFAULT_TIMEOUT_SECS)
+        .clamp(1, MAX_TIMEOUT_SECS);
+    Duration::from_secs(secs)
+}
+
+async fn handle_query_run(
+    params: &Value,
+    connection_manager: &Arc<ConnectionManager>,
+) -> Result<Value, CapabilityError> {
+    // 1. Parse required params
+    let conn_id = params
+        .get("connectionId")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| CapabilityError::MissingParam("connectionId".to_string()))?;
+
+    let query = params
+        .get("query")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| CapabilityError::MissingParam("query".to_string()))?;
+
+    let language = params.get("language").and_then(|v| v.as_str());
+    let timeout = parse_timeout(params);
+
+    // 2. Borrow the adapter (validates connection exists)
+    let adapter = connection_manager
+        .borrow_adapter_with_retry(conn_id, 3)
+        .await
+        .map_err(|e| {
+            CapabilityError::ConnectionNotFound(format!("{}: {}", conn_id, e))
+        })?;
+
+    // 3. Determine paradigm
+    let paradigm = match language {
+        Some("mongo") => QueryParadigm::Document,
+        Some("redis") => QueryParadigm::KeyValue,
+        _ => match adapter.db_type() {
+            DbType::MongoDB => QueryParadigm::Document,
+            DbType::Redis => QueryParadigm::KeyValue,
+            _ => QueryParadigm::Sql,
+        },
+    };
+
+    // 4. Dispatch by paradigm
+    match paradigm {
+        QueryParadigm::Sql => execute_sql_query(conn_id, query, &adapter, timeout).await,
+        QueryParadigm::Document => Err(CapabilityError::QueryError(
+            "MongoDB query.run not yet implemented".to_string(),
+        )),
+        QueryParadigm::KeyValue => Err(CapabilityError::QueryError(
+            "Redis query.run not yet implemented".to_string(),
+        )),
+    }
+}
+
+async fn execute_sql_query(
+    conn_id: &str,
+    query: &str,
+    adapter: &crate::core::manager::UnifiedAdapter,
+    timeout: Duration,
+) -> Result<Value, CapabilityError> {
+    // Validate read-only
+    validate_sql_read_only(query)?;
+
+    // Get SQL capability
+    let sql_adapter = adapter.as_sql().ok_or_else(|| {
+        CapabilityError::QueryError(
+            "Connection does not support SQL queries".to_string(),
+        )
+    })?;
+
+    // Execute with timeout
+    let start = Instant::now();
+    let result = tokio::time::timeout(timeout, sql_adapter.execute_query(query))
+        .await
+        .map_err(|_| {
+            CapabilityError::Timeout(format!(
+                "Query exceeded {}s timeout",
+                timeout.as_secs()
+            ))
+        })?
+        .map_err(|e| CapabilityError::QueryError(e.to_string()))?;
+
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+
+    // Format response
+    let columns: Vec<Value> = result
+        .columns
+        .iter()
+        .map(|c| Value::String(c.name.clone()))
+        .collect();
+
+    let total_rows = result.rows.len();
+    let truncated = total_rows > MAX_ROWS;
+    let rows: Vec<Value> = result
+        .rows
+        .into_iter()
+        .take(MAX_ROWS)
+        .map(Value::Array)
+        .collect();
+    let row_count = rows.len();
+
+    Ok(json!({
+        "success": true,
+        "connectionId": conn_id,
+        "query": query,
+        "columns": columns,
+        "rows": rows,
+        "rowCount": row_count,
+        "truncated": truncated,
+        "executionTimeMs": elapsed_ms,
+    }))
 }
 
 #[cfg(test)]
@@ -279,5 +435,84 @@ mod tests {
 
         assert_eq!(err.error_code(), "NOT_FOUND");
         assert!(err.to_string().contains("No active tabs"));
+    }
+
+    // ---- query.run param validation ----
+
+    #[tokio::test]
+    async fn query_run_missing_connection_id() {
+        let (store, cm) = make_deps();
+
+        let err = handle_capability("query.run", &json!({}), &store, &cm)
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.error_code(), "MISSING_PARAM");
+        assert!(err.to_string().contains("connectionId"));
+    }
+
+    #[tokio::test]
+    async fn query_run_missing_query() {
+        let (store, cm) = make_deps();
+
+        let err = handle_capability(
+            "query.run",
+            &json!({"connectionId": "c1"}),
+            &store,
+            &cm,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.error_code(), "MISSING_PARAM");
+        assert!(err.to_string().contains("query"));
+    }
+
+    // ---- validate_sql_read_only ----
+
+    #[test]
+    fn query_run_rejects_write_sql() {
+        let write_queries = [
+            "DROP TABLE x",
+            "INSERT INTO t VALUES (1)",
+            "UPDATE t SET x = 1",
+            "DELETE FROM t WHERE id = 1",
+            "CREATE TABLE t (id INT)",
+            "ALTER TABLE t ADD COLUMN c INT",
+            "TRUNCATE TABLE t",
+        ];
+
+        for sql in &write_queries {
+            let result = validate_sql_read_only(sql);
+            assert!(
+                result.is_err(),
+                "Expected read-only violation for: {}",
+                sql
+            );
+            let err = result.unwrap_err();
+            assert_eq!(err.error_code(), "READ_ONLY_VIOLATION");
+        }
+    }
+
+    #[test]
+    fn query_run_allows_read_sql() {
+        let read_queries = [
+            "SELECT 1",
+            "EXPLAIN SELECT 1",
+            "SHOW TABLES",
+            "WITH cte AS (SELECT 1) SELECT * FROM cte",
+            "SELECT * FROM users WHERE id = 1",
+            "DESCRIBE users",
+        ];
+
+        for sql in &read_queries {
+            let result = validate_sql_read_only(sql);
+            assert!(
+                result.is_ok(),
+                "Expected read-only pass for: {}, got: {:?}",
+                sql,
+                result.unwrap_err()
+            );
+        }
     }
 }
