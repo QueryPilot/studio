@@ -531,6 +531,32 @@ export interface StageCommandResult {
 }
 
 /**
+ * Non-committable AI intent kinds staged in CrudStore.
+ */
+export type AiStagedIntentKind = "query.run";
+
+/**
+ * Stage-only query intent produced by AI `query.run` actions.
+ * These records are never passed to commit APIs.
+ */
+export interface AiQueryRunIntent {
+  readonly id: string;
+  readonly kind: AiStagedIntentKind;
+  readonly committable: false;
+  readonly connectionId: string;
+  readonly database?: string;
+  readonly schema?: string;
+  readonly title?: string;
+  readonly query: string;
+  readonly createdAt: string;
+  readonly source?: string;
+}
+
+export interface StageAiQueryIntentResult {
+  readonly intent: AiQueryRunIntent;
+}
+
+/**
  * Helper describing grouped staged commands keyed by table identifier.
  */
 export interface StagedCommandGroup {

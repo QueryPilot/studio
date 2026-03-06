@@ -1,13 +1,13 @@
 [package]
-name = "querypilot-mcp"
+name = "querypilot"
 version = "0.1.0"
 edition = "2021"
-description = "MCP server sidecar for Query Pilot - enables LLM agents to interact with databases"
+description = "Query Pilot agent CLI"
 authors = ["Query Pilot"]
 license = "MIT"
 
 [[bin]]
-name = "querypilot-mcp"
+name = "querypilot"
 path = "src/main.rs"
 
 [dependencies]

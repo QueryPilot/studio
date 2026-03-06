@@ -40,6 +40,10 @@ interface PreferencesState {
   /** Controls automatic update checks on startup. Default: true. */
   autoCheckForUpdates: boolean;
   setAutoCheckForUpdates: (enabled: boolean) => void;
+
+  /** Global AI approval bypass for approval-gated actions (`crud.stage`). */
+  skipApprovalGate: boolean;
+  setSkipApprovalGate: (enabled: boolean) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -75,6 +79,12 @@ export const usePreferencesStore = create<PreferencesState>()(
         set({ autoCheckForUpdates: enabled });
       },
 
+      // AI approval bypass (default off)
+      skipApprovalGate: false,
+      setSkipApprovalGate: (enabled) => {
+        set({ skipApprovalGate: enabled });
+      },
+
       // Dialog state (not persisted)
       isOpen: false,
       activeCategory: "general",
@@ -101,6 +111,7 @@ export const usePreferencesStore = create<PreferencesState>()(
         queryTimeoutSecs: state.queryTimeoutSecs,
         startupBehavior: state.startupBehavior,
         autoCheckForUpdates: state.autoCheckForUpdates,
+        skipApprovalGate: state.skipApprovalGate,
       }),
     },
   ),

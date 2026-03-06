@@ -16,6 +16,14 @@ export interface ActiveContext {
   rowCount: number | null;
   columnCount: number | null;
   updatedAt: number;
+  panelId?: string | null;
+  tabId?: string | null;
+  tabType?: string | null;
+  title?: string | null;
+  filter?: string | null;
+  sortColumn?: string | null;
+  sortDirection?: "asc" | "desc" | null;
+  viewType?: string | null;
 }
 
 export interface QueryHistoryEntry {

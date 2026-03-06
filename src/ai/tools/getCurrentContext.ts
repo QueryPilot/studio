@@ -11,26 +11,22 @@ export function createGetCurrentContextTool(
 ) {
   return tool({
     description:
-      "Get the current editor context: active connection, database, schema, and SQL in the editor.",
+      "Get the current focused tab/editor context including connection, database, schema, and editor SQL.",
     inputSchema: z.object({}),
     execute: () => {
       try {
         const ctx = getContext();
-
-        let output = "## Current Editor Context\n\n";
-        output += `**Connection:** ${ctx.connectionId ?? "none"}\n`;
-        output += `**Database:** ${ctx.database ?? "none"}\n`;
-        output += `**Schema:** ${ctx.schema ?? "none"}\n`;
-
-        if (ctx.editorContent) {
-          output += `\n**Current Query:**\n\`\`\`sql\n${ctx.editorContent}\n\`\`\``;
-        } else {
-          output += "\n**Current Query:** (editor is empty)";
-        }
-
-        return output;
+        return {
+          connectionId: ctx.connectionId,
+          database: ctx.database,
+          schema: ctx.schema,
+          editorContent: ctx.editorContent,
+        };
       } catch (error) {
-        return `Error retrieving editor context: ${error instanceof Error ? error.message : String(error)}`;
+        return {
+          error:
+            error instanceof Error ? error.message : String(error),
+        };
       }
     },
   });

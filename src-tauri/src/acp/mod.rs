@@ -6,5 +6,4 @@
 
 pub mod commands;
 pub mod discovery;
-pub mod llm_home;
 pub mod manager;

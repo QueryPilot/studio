@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::path::PathBuf;
 use tokio::sync::RwLock;
 
 /// Maximum number of history entries to keep
@@ -11,6 +12,9 @@ const MAX_HISTORY_ENTRIES: usize = 100;
 
 /// Maximum number of active contexts to track (one per connection/window)
 const MAX_ACTIVE_CONTEXTS: usize = 10;
+
+/// Snapshot file name consumed by the `querypilot agent` CLI.
+const SNAPSHOT_FILE_NAME: &str = "ai-context-store.json";
 
 /// A query execution record
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +45,21 @@ pub struct ActiveContext {
     pub row_count: Option<usize>,
     pub column_count: Option<usize>,
     pub updated_at: u64,
+    pub panel_id: Option<String>,
+    pub tab_id: Option<String>,
+    pub tab_type: Option<String>,
+    pub title: Option<String>,
+    pub filter: Option<String>,
+    pub sort_column: Option<String>,
+    pub sort_direction: Option<String>,
+    pub view_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedAiContextSnapshot {
+    history: Vec<QueryHistoryEntry>,
+    active_contexts: Vec<ActiveContext>,
 }
 
 /// Thread-safe AI context store
@@ -57,13 +76,62 @@ impl AiContextStore {
         }
     }
 
+    fn snapshot_path() -> PathBuf {
+        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        home.join(".querypilot").join(SNAPSHOT_FILE_NAME)
+    }
+
+    async fn persist_snapshot(&self) {
+        let history = {
+            let h = self.history.read().await;
+            h.iter().cloned().collect::<Vec<_>>()
+        };
+        let active_contexts = {
+            let c = self.active_contexts.read().await;
+            c.clone()
+        };
+
+        let payload = PersistedAiContextSnapshot {
+            history,
+            active_contexts,
+        };
+
+        let Ok(serialized) = serde_json::to_string(&payload) else {
+            tracing::warn!("[AIContext] Failed to serialize snapshot");
+            return;
+        };
+
+        let path = Self::snapshot_path();
+        if let Some(parent) = path.parent() {
+            if let Err(err) = tokio::fs::create_dir_all(parent).await {
+                tracing::warn!(
+                    "[AIContext] Failed to create snapshot directory {}: {}",
+                    parent.display(),
+                    err
+                );
+                return;
+            }
+        }
+
+        if let Err(err) = tokio::fs::write(&path, serialized).await {
+            tracing::warn!(
+                "[AIContext] Failed to persist snapshot {}: {}",
+                path.display(),
+                err
+            );
+        }
+    }
+
     /// Add a query execution to history
     pub async fn add_history_entry(&self, entry: QueryHistoryEntry) {
-        let mut history = self.history.write().await;
-        history.push_front(entry);
-        if history.len() > MAX_HISTORY_ENTRIES {
-            history.pop_back();
+        {
+            let mut history = self.history.write().await;
+            history.push_front(entry);
+            if history.len() > MAX_HISTORY_ENTRIES {
+                history.pop_back();
+            }
         }
+        self.persist_snapshot().await;
     }
 
     /// Get recent query history
@@ -83,32 +151,37 @@ impl AiContextStore {
 
     /// Update active editor context (upserts by connection_id)
     pub async fn set_active_context(&self, context: ActiveContext) {
-        let mut contexts = self.active_contexts.write().await;
+        {
+            let mut contexts = self.active_contexts.write().await;
 
-        // Upsert: if a context with the same connection_id exists, update it
-        if let Some(conn_id) = &context.connection_id {
-            if let Some(existing) = contexts
-                .iter_mut()
-                .find(|c| c.connection_id.as_ref() == Some(conn_id))
-            {
-                *existing = context;
-                return;
+            // Upsert: if a context with the same connection_id exists, update it
+            if let Some(conn_id) = &context.connection_id {
+                if let Some(existing) = contexts
+                    .iter_mut()
+                    .find(|c| c.connection_id.as_ref() == Some(conn_id))
+                {
+                    *existing = context;
+                    drop(contexts);
+                    self.persist_snapshot().await;
+                    return;
+                }
             }
-        }
 
-        // Push new context, evict oldest if at capacity
-        if contexts.len() >= MAX_ACTIVE_CONTEXTS {
-            // Remove the one with the oldest updated_at
-            if let Some(oldest_idx) = contexts
-                .iter()
-                .enumerate()
-                .min_by_key(|(_, c)| c.updated_at)
-                .map(|(i, _)| i)
-            {
-                contexts.remove(oldest_idx);
+            // Push new context, evict oldest if at capacity
+            if contexts.len() >= MAX_ACTIVE_CONTEXTS {
+                // Remove the one with the oldest updated_at
+                if let Some(oldest_idx) = contexts
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, c)| c.updated_at)
+                    .map(|(i, _)| i)
+                {
+                    contexts.remove(oldest_idx);
+                }
             }
+            contexts.push(context);
         }
-        contexts.push(context);
+        self.persist_snapshot().await;
     }
 
     /// Get most recent active context (backwards compatible)
@@ -131,8 +204,11 @@ impl AiContextStore {
 
     /// Clear all history
     pub async fn clear_history(&self) {
-        let mut history = self.history.write().await;
-        history.clear();
+        {
+            let mut history = self.history.write().await;
+            history.clear();
+        }
+        self.persist_snapshot().await;
     }
 }
 
@@ -257,6 +333,7 @@ mod tests {
                 row_count: Some(10),
                 column_count: Some(3),
                 updated_at: 12345,
+                ..Default::default()
             })
             .await;
 
@@ -283,6 +360,7 @@ mod tests {
                 row_count: None,
                 column_count: None,
                 updated_at: 100,
+                ..Default::default()
             })
             .await;
 
@@ -298,6 +376,7 @@ mod tests {
                 row_count: Some(5),
                 column_count: Some(2),
                 updated_at: 200,
+                ..Default::default()
             })
             .await;
 
@@ -327,6 +406,7 @@ mod tests {
                 row_count: None,
                 column_count: None,
                 updated_at: 100,
+                ..Default::default()
             })
             .await;
 
@@ -341,6 +421,7 @@ mod tests {
                 row_count: None,
                 column_count: None,
                 updated_at: 200,
+                ..Default::default()
             })
             .await;
 
@@ -372,6 +453,7 @@ mod tests {
                     row_count: None,
                     column_count: None,
                     updated_at: i as u64,
+                    ..Default::default()
                 })
                 .await;
         }

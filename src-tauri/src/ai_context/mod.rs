@@ -1,7 +1,7 @@
 //! AI Context Module
 //!
 //! Stores context for AI agents: query history, active editor state, etc.
-//! This data is synced from the frontend and exposed via the MCP bridge.
+//! This data is synced from the frontend and persisted for `querypilot agent` CLI reads.
 
 pub mod commands;
 pub mod store;

@@ -165,10 +165,12 @@ fi
 echo -e "${BLUE}Running tests...${NC}"
 echo ""
 
-# Build MCP sidecar first (required by externalBin)
-echo "Building MCP sidecar..."
-cargo build --release --package querypilot-mcp 2>&1 || { echo -e "${RED}Failed to build MCP sidecar${NC}"; exit 1; }
-echo -e "${GREEN}OK${NC} MCP sidecar"
+# Build querypilot CLI first (required by externalBin)
+echo "Building querypilot CLI..."
+cargo build --release --package querypilot 2>&1 || { echo -e "${RED}Failed to build querypilot CLI${NC}"; exit 1; }
+HOST_TRIPLE=$(rustc -vV | sed -n 's/^host: //p')
+install -m 755 target/release/querypilot "target/release/querypilot-${HOST_TRIPLE}"
+echo -e "${GREEN}OK${NC} querypilot CLI"
 
 # Rust tests
 echo "Running Rust tests..."

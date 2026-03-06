@@ -1,8 +1,7 @@
 /**
  * CommandCard Component Tests
  *
- * Tests for mutation and UI commands only.
- * Note: Read commands (SQL, MongoDB, Redis) have been removed - AI uses MCP tools.
+ * Tests for action card rendering, approval flow, and execution states.
  */
 
 /* eslint-disable @typescript-eslint/require-await */
@@ -61,11 +60,13 @@ function createParsedCommand(
   params: Record<string, unknown>,
   options?: Partial<ParsedCommand>
 ): ParsedCommand {
+  const approval =
+    name === "crud.stage" ? "approve" : "auto";
   return {
     id: options?.id ?? `cmd-${Date.now()}`,
     name,
     params,
-    raw: `<command name="${name}">${JSON.stringify(params)}</command>`,
+    raw: `\`\`\`qp-action\n${JSON.stringify({ id: options?.id ?? "cmd", name, params, approval }, null, 2)}\n\`\`\``,
     startIndex: 0,
     endIndex: 100,
     ...options,
@@ -103,8 +104,8 @@ describe("CommandCard", () => {
       expect(screen.getByRole("button", { name: /Run/i })).toBeInTheDocument();
     });
 
-    it("should render tab.update command card", async () => {
-      const command = createParsedCommand("tab.update", {
+    it("should render tab.updateContent command card", async () => {
+      const command = createParsedCommand("tab.updateContent", {
         content: "SELECT * FROM users",
         title: "User Query",
       });
@@ -113,7 +114,7 @@ describe("CommandCard", () => {
         render(<CommandCard command={command} />);
       });
 
-      // tab.update is auto-approve, so should execute automatically
+      // tab.updateContent is auto-approve, so should execute automatically
       expect(screen.getByText(/Update tab content/i)).toBeInTheDocument();
     });
 
@@ -193,7 +194,7 @@ describe("CommandCard", () => {
 
     it("should auto-approve auto-level commands", async () => {
       const onResult = vi.fn();
-      const command = createParsedCommand("tab.update", {
+      const command = createParsedCommand("tab.updateContent", {
         content: "SELECT 1",
         title: "Test",
       });
@@ -290,9 +291,9 @@ describe("CommandCard", () => {
   });
 
   describe("Tab Commands Execution", () => {
-    it("should execute tab.update command", async () => {
+    it("should execute tab.updateContent command", async () => {
       const onResult = vi.fn();
-      const command = createParsedCommand("tab.update", {
+      const command = createParsedCommand("tab.updateContent", {
         content: "SELECT * FROM new_query",
         title: "New Query",
       });
@@ -301,7 +302,7 @@ describe("CommandCard", () => {
         render(<CommandCard command={command} onResult={onResult} />);
       });
 
-      // tab.update is auto-approve level - wait for auto-execution
+      // tab.updateContent is auto-approve level - wait for auto-execution
       await waitFor(
         () => {
           expect(onResult).toHaveBeenCalled();
@@ -454,14 +455,19 @@ describe("End-to-End: Parse -> Render -> Execute", () => {
   it("should parse crud.stage commands from AI response and execute", async () => {
     const aiResponse = `I'll help you insert a new user.
 
-<command name="crud.stage">
+\`\`\`qp-action
 {
-  "connectionId": "conn-123",
-  "table": "users",
-  "operation": "insert",
-  "document": { "name": "Alice", "email": "alice@example.com" }
+  "id": "act-1",
+  "name": "crud.stage",
+  "params": {
+    "connectionId": "conn-123",
+    "table": "users",
+    "operation": "insert",
+    "document": { "name": "Alice", "email": "alice@example.com" }
+  },
+  "approval": "approve"
 }
-</command>
+\`\`\`
 
 This will stage the insert for review.`;
 
@@ -493,11 +499,15 @@ This will stage the insert for review.`;
   it("should handle multiple mutation commands in one response", async () => {
     const aiResponse = `Let me stage these changes:
 
-<command name="crud.stage">{"connectionId": "c1", "table": "users", "operation": "insert", "document": {"name": "A"}}</command>
+\`\`\`qp-action
+{"id":"a1","name":"crud.stage","params":{"connectionId":"c1","table":"users","operation":"insert","document":{"name":"A"}},"approval":"approve"}
+\`\`\`
 
 And also:
 
-<command name="crud.stage">{"connectionId": "c1", "table": "users", "operation": "insert", "document": {"name": "B"}}</command>`;
+\`\`\`qp-action
+{"id":"a2","name":"crud.stage","params":{"connectionId":"c1","table":"users","operation":"insert","document":{"name":"B"}},"approval":"approve"}
+\`\`\``;
 
     const commands = parseCommands(aiResponse);
     expect(commands).toHaveLength(2);

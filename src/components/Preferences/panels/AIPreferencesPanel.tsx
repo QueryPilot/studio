@@ -28,6 +28,7 @@ import {
 } from "@tabler/icons-react";
 import { useByokStore } from "@/stores/byokStore";
 import { useAcpStore } from "@/stores/acpStore";
+import { usePreferencesStore } from "@/stores/preferencesStore";
 import { AcpService } from "@/services/acpService";
 import { PROVIDER_CONFIGS } from "@/ai/providers";
 import type { ProviderId, ProviderModelInfo } from "@/ai/types";
@@ -118,10 +119,10 @@ export default function AIPreferencesPanel() {
   const isFetchingModels = useByokStore((s) => s.isFetchingModels);
   const fetchModelsError = useByokStore((s) => s.fetchModelsError);
   const apiKey = providerId ? (apiKeys[providerId] ?? "") : "";
-  const autoExecuteQueries = useByokStore((s) => s.autoExecuteQueries);
-  const setAutoExecuteQueries = useByokStore((s) => s.setAutoExecuteQueries);
   const includeSchemaContext = useByokStore((s) => s.includeSchemaContext);
   const setIncludeSchemaContext = useByokStore((s) => s.setIncludeSchemaContext);
+  const skipApprovalGate = usePreferencesStore((s) => s.skipApprovalGate);
+  const setSkipApprovalGate = usePreferencesStore((s) => s.setSkipApprovalGate);
 
   // --- ACP store ---
   const availableAgents = useAcpStore((s) => s.availableAgents);
@@ -705,13 +706,13 @@ export default function AIPreferencesPanel() {
               <IconBolt className="h-4 w-4" />
             </div>
             <div className="space-y-0.5">
-              <Label className="text-xs font-medium">Auto-execute Queries</Label>
+              <Label className="text-xs font-medium">Skip Approval Gate</Label>
               <p className="text-[11px] text-muted-foreground">
-                Allow AI to run SQL queries automatically
+                Auto-approve approval-gated `crud.stage` for ACP and BYOK. AI still cannot commit DB changes.
               </p>
             </div>
           </div>
-          <Switch checked={autoExecuteQueries} onCheckedChange={setAutoExecuteQueries} />
+          <Switch checked={skipApprovalGate} onCheckedChange={setSkipApprovalGate} />
         </div>
 
         <div className="flex items-center justify-between py-3 border rounded-xl px-4">

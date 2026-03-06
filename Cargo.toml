@@ -13,6 +13,6 @@ opt-level = 3
 lto = true
 codegen-units = 1
 
-# MCP sidecar specific release profile
-[profile.release.package.querypilot-mcp]
+# QueryPilot agent CLI specific release profile
+[profile.release.package.querypilot]
 strip = true

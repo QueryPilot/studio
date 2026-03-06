@@ -68,10 +68,14 @@ export interface AcpMessage {
   /** Images attached to user messages (base64 + mimeType) */
   images?: Array<{ data: string; mimeType: string }>;
   /**
-   * Ordered assistant output flow used to render true interleaving:
-   * text chunk -> tool call -> text chunk, etc.
+   * Ordered assistant output flow used to render true interleaving.
+   * Deprecated: use assistantBlocks.
    */
   assistantFlow?: AssistantFlowSegment[];
+  /**
+   * Block-based assistant stream model with full fidelity.
+   */
+  assistantBlocks?: AssistantBlockV2[];
 }
 
 export interface ToolCall {
@@ -80,17 +84,36 @@ export interface ToolCall {
   status: "pending" | "running" | "completed" | "failed";
   input: Record<string, unknown>;
   output?: unknown;
+  error?: string;
 }
 
-export type AssistantFlowSegment =
+export type AssistantBlockV2 =
   | {
       type: "text";
       text: string;
     }
   | {
-      type: "tool-call";
+      type: "toolStatus";
       call: ToolCall;
+    }
+  | {
+      type: "plan";
+      steps: PlanStep[];
+    }
+  | {
+      type: "action";
+      text: string;
+    }
+  | {
+      type: "resource";
+      block: Exclude<ContentBlock, { type: "text" }>;
+    }
+  | {
+      type: "error";
+      message: string;
     };
+
+export type AssistantFlowSegment = AssistantBlockV2;
 
 // ============ Session Update Events ============
 

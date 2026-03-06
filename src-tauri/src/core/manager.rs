@@ -1052,7 +1052,7 @@ impl ConnectionManager {
     }
 }
 
-/// Basic information about an active connection (for MCP bridge)
+/// Basic information about an active connection.
 #[derive(Debug, Clone)]
 pub struct ConnectionInfo {
     pub id: String,

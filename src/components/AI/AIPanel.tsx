@@ -76,15 +76,20 @@ import type { ToolCall as ToolCallType } from "@/types/acp";
 import { parseCommandsProgressive } from "@/utils/aiCommandParser";
 import { CommandList } from "./CommandCard";
 import { QueryBlock } from "./QueryBlock";
+import { buildFallbackQueryRunCommands } from "./sqlFallbackActions";
 import { useAiCommandPermissionStore } from "@/stores/aiCommandPermissionStore";
 import { useByokStore } from "@/stores/byokStore";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
-import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
-import { tableStreamingService } from "@/services/tableStreamingService";
+import { executeCommand } from "@/services/aiCommandExecutor";
 import { Kbd } from "../ui/kbd";
 import { eventBus, type AIGenerateSqlPayload } from "@/services/eventBus";
-import type { ParsedCommand } from "@/types/aiCommands";
-import type { AssistantFlowSegment, AcpMessage } from "@/types/acp";
+import type { ParsedCommand, QueryRunParams, QueryRunResult } from "@/types/aiCommands";
+import type {
+  AssistantFlowSegment,
+  AssistantBlockV2,
+  AcpMessage,
+  ContentBlock,
+} from "@/types/acp";
 import {
   type PreparedImage,
   resizeImage,
@@ -99,6 +104,10 @@ import {
   buildCorrectionPrompt,
   MAX_CORRECTION_ATTEMPTS,
 } from "@/utils/selfCorrection";
+import {
+  getFocusedTabContextSnapshot,
+  type FocusedTabContextSnapshot,
+} from "@/services/focusedTabContext";
 
 // ============================================================================
 // Types
@@ -108,6 +117,14 @@ interface AIPanelProps {
   connectionId?: string;
   onClose?: () => void;
   className?: string;
+}
+
+const INTERNAL_EXECUTION_FEEDBACK_PREFIX = "[[QP_INTERNAL_EXECUTION_FEEDBACK]]";
+
+function isInternalExecutionFeedback(content: string): boolean {
+  return content
+    .trimStart()
+    .startsWith(INTERNAL_EXECUTION_FEEDBACK_PREFIX);
 }
 
 // ============================================================================
@@ -130,7 +147,6 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     availableAgents,
     isLoadingAgents,
     isWarmingUp,
-    mcpAvailable,
     recentSessions,
     sendMessage,
     startSession,
@@ -172,6 +188,8 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
 
   const [inputValue, setInputValue] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [attachedContext, setAttachedContext] =
+    useState<FocusedTabContextSnapshot | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [pendingImages, setPendingImages] = useState<PreparedImage[]>([]);
 
@@ -355,6 +373,19 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     };
   }, [focusInput]);
 
+  useEffect(() => {
+    const handleOpenWithContext = () => {
+      const snapshot = getFocusedTabContextSnapshot();
+      setAttachedContext(snapshot);
+      focusInput();
+    };
+
+    eventBus.on("ai:open-with-context", handleOpenWithContext);
+    return () => {
+      eventBus.off("ai:open-with-context", handleOpenWithContext);
+    };
+  }, [focusInput]);
+
   // Focus input on mount and when streaming ends
   useEffect(() => {
     if (!effectiveIsStreaming) {
@@ -362,9 +393,129 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     }
   }, [effectiveIsStreaming, focusInput]);
 
+  const buildContextJsonWithAttachment = useCallback(
+    (context: AIContext): string => {
+      const serialized = serializeAIContext(context);
+      if (!attachedContext) {
+        return serialized;
+      }
+
+      try {
+        const parsed = JSON.parse(serialized) as Record<string, unknown>;
+        parsed.focusedTabAttachment = attachedContext;
+        return JSON.stringify(parsed, null, 2);
+      } catch {
+        return serialized;
+      }
+    },
+    [attachedContext],
+  );
+
+  const autoFeedbackDepthRef = useRef(0);
+  const sentAutoFeedbackSignaturesRef = useRef<Set<string>>(new Set());
+  const autoFeedbackInFlightRef = useRef(false);
+
+  const buildByokRuntimeContext = useCallback(() => {
+    const focusedConn = useWorkspaceBundleStore
+      .getState()
+      .getFocusedConnection();
+    const focusedSnapshot = getFocusedTabContextSnapshot();
+
+    const toolContext = {
+      connectionId:
+        focusedSnapshot?.connectionId ?? focusedConn?.id ?? "",
+      getEditorContext: () => ({
+        connectionId:
+          focusedSnapshot?.connectionId ?? focusedConn?.id ?? null,
+        database:
+          focusedSnapshot?.database ?? focusedConn?.profile.database ?? null,
+        schema: focusedSnapshot?.schema ?? null,
+        editorContent:
+          focusedSnapshot?.editor.selection ??
+          focusedSnapshot?.editor.fullText ??
+          null,
+      }),
+    };
+
+    const schemaJson = buildContextJsonWithAttachment(aiContext);
+    const schemaContext = {
+      databaseType: focusedConn?.profile.db_type,
+      schemaJson,
+    };
+
+    return { toolContext, schemaContext };
+  }, [aiContext, buildContextJsonWithAttachment]);
+
+  const handleAutoQueryBatchResult = useCallback(
+    async (batchResult: string) => {
+      if (!batchResult || !/\bquery\.run\b/.test(batchResult)) return;
+      if (isByok && !byokSession) return;
+      if (autoFeedbackInFlightRef.current) return;
+      if (autoFeedbackDepthRef.current >= 2) return;
+
+      const signature = hashString(batchResult);
+      if (sentAutoFeedbackSignaturesRef.current.has(signature)) return;
+      sentAutoFeedbackSignaturesRef.current.add(signature);
+
+      const internalPrompt = `${INTERNAL_EXECUTION_FEEDBACK_PREFIX}
+Use the execution results below to continue answering the user's latest request.
+- If evidence is sufficient, provide the final report now.
+- If more data is required, emit additional query.run actions only.
+- Do not output raw standalone SQL text.
+- Do not use filesystem/code-editing tools (Read/Write/Edit/Grep/Glob).
+
+${batchResult}`;
+
+      autoFeedbackInFlightRef.current = true;
+      autoFeedbackDepthRef.current += 1;
+
+      try {
+        if (isByok) {
+          if (!byokSession) return;
+          const { toolContext, schemaContext } = buildByokRuntimeContext();
+          await byokSendMessage(internalPrompt, toolContext, schemaContext);
+          return;
+        }
+
+        if (!activeSession && !isWarmingUp) {
+          await startSession(connectionId);
+        }
+
+        const contextJson = buildContextJsonWithAttachment(aiContext);
+        await sendMessage(internalPrompt, contextJson);
+      } catch (err) {
+        sentAutoFeedbackSignaturesRef.current.delete(signature);
+        autoFeedbackDepthRef.current = Math.max(
+          0,
+          autoFeedbackDepthRef.current - 1,
+        );
+        console.error("Failed to send auto execution feedback:", err);
+      } finally {
+        autoFeedbackInFlightRef.current = false;
+      }
+    },
+    [
+      isByok,
+      byokSession,
+      byokSendMessage,
+      buildByokRuntimeContext,
+      activeSession,
+      isWarmingUp,
+      startSession,
+      connectionId,
+      buildContextJsonWithAttachment,
+      aiContext,
+      sendMessage,
+    ],
+  );
+
   const handleSend = useCallback(async () => {
     const content = inputValue.trim();
     if (!content || effectiveIsStreaming) return;
+
+    autoFeedbackDepthRef.current = 0;
+    sentAutoFeedbackSignaturesRef.current.clear();
+    autoFeedbackInFlightRef.current = false;
 
     setError(null);
     setInputValue("");
@@ -388,25 +539,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
           setInputValue(content);
           return;
         }
-
-        const focusedConn = useWorkspaceBundleStore
-          .getState()
-          .getFocusedConnection();
-        const toolContext = {
-          connectionId: focusedConn?.id ?? "",
-          getEditorContext: () => ({
-            connectionId: focusedConn?.id ?? null,
-            database: focusedConn?.profile.database ?? null,
-            schema: null,
-            editorContent: null,
-          }),
-        };
-
-        const schemaJson = serializeAIContext(aiContext);
-        const schemaContext = {
-          databaseType: focusedConn?.profile.db_type,
-          schemaJson,
-        };
+        const { toolContext, schemaContext } = buildByokRuntimeContext();
 
         await byokSendMessage(content, toolContext, schemaContext);
         return;
@@ -428,7 +561,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         ...aiContext,
         mentions: enrichedMentions,
       };
-      const contextJson = serializeAIContext(contextWithMentions);
+      const contextJson = buildContextJsonWithAttachment(contextWithMentions);
 
       await sendMessage(
         content,
@@ -451,6 +584,8 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     isWarmingUp,
     connectionId,
     aiContext,
+    buildContextJsonWithAttachment,
+    buildByokRuntimeContext,
     sendMessage,
     startSession,
     focusInput,
@@ -531,6 +666,10 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
       newConversation();
       resetPermissions();
     }
+    autoFeedbackDepthRef.current = 0;
+    sentAutoFeedbackSignaturesRef.current.clear();
+    autoFeedbackInFlightRef.current = false;
+    setAttachedContext(null);
     focusInput();
     scrollToBottom("auto");
   }, [
@@ -538,6 +677,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     byokClearHistory,
     newConversation,
     resetPermissions,
+    setAttachedContext,
     focusInput,
     scrollToBottom,
   ]);
@@ -602,17 +742,6 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         />
       )}
 
-      {/* MCP Warning Banner */}
-      {!mcpAvailable && activeSession && (
-        <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-          <IconAlertTriangle className="h-4 w-4 shrink-0" />
-          <span>
-            Database tools unavailable. The MCP sidecar could not be found.
-            Try restarting the app or reinstalling.
-          </span>
-        </div>
-      )}
-
       {/* Messages Area */}
       <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0">
         <div className="flex flex-col min-h-full">
@@ -622,6 +751,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
               isStreaming={byokIsStreaming}
               streamingContent={byokStreamingContent}
               activeToolCalls={byokActiveToolCalls}
+              onCommandBatchResult={handleAutoQueryBatchResult}
             />
           ) : hasMessages ? (
             <MessageList
@@ -634,6 +764,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
               streamingPlan={streamingPlan}
               onQueryError={handleQueryError}
               correctingQuery={correctingQuery}
+              onCommandBatchResult={handleAutoQueryBatchResult}
             />
           ) : (
             <EmptyState
@@ -683,6 +814,10 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
         byokSession={byokSession !== null}
         aiContext={aiContext}
         openTabs={openTabs}
+        attachedContext={attachedContext}
+        onRemoveAttachedContext={() => {
+          setAttachedContext(null);
+        }}
         pendingImages={pendingImages}
         onAddImages={handleAddImages}
         onRemoveImage={handleRemoveImage}
@@ -899,6 +1034,7 @@ interface MessageListProps {
     thinking?: string;
     toolCalls?: ToolCallType[];
     assistantFlow?: AssistantFlowSegment[];
+    assistantBlocks?: AssistantBlockV2[];
     images?: AcpMessage["images"];
   }>;
   isStreaming: boolean;
@@ -909,6 +1045,7 @@ interface MessageListProps {
   streamingPlan: Array<{ id: string; description: string; status: string }>;
   onQueryError?: (query: string, errorMessage: string) => void;
   correctingQuery?: string | null;
+  onCommandBatchResult?: (batchResult: string) => void;
 }
 
 function MessageList({
@@ -921,23 +1058,55 @@ function MessageList({
   streamingPlan,
   onQueryError,
   correctingQuery,
+  onCommandBatchResult,
 }: MessageListProps) {
+  const visibleMessages = useMemo(
+    () =>
+      messages.filter(
+        (msg) =>
+          !(
+            msg.role === "user" &&
+            isInternalExecutionFeedback(msg.content)
+          ),
+      ),
+    [messages],
+  );
+
+  const latestAssistantMessageId = useMemo(() => {
+    for (let index = visibleMessages.length - 1; index >= 0; index -= 1) {
+      const candidate = visibleMessages[index];
+      if (candidate?.role === "assistant") {
+        return candidate.id;
+      }
+    }
+    return null;
+  }, [visibleMessages]);
+
   return (
     <div className="flex flex-col">
-      {messages.map((msg) => (
-        <Fragment key={msg.id}>
-          <MessageBubble
-            role={msg.role}
-            content={msg.content}
-            thinking={msg.thinking}
-            toolCalls={msg.toolCalls}
-            assistantFlow={msg.assistantFlow}
-            images={msg.images}
-            onQueryError={onQueryError}
-            correctingQuery={correctingQuery}
-          />
-        </Fragment>
-      ))}
+      {visibleMessages.map((msg) => {
+        const isLatestAssistantMessage =
+          msg.role === "assistant" && msg.id === latestAssistantMessageId;
+
+        return (
+          <Fragment key={msg.id}>
+            <MessageBubble
+              role={msg.role}
+              content={msg.content}
+              thinking={msg.thinking}
+              toolCalls={msg.toolCalls}
+              assistantFlow={msg.assistantFlow}
+              assistantBlocks={msg.assistantBlocks}
+              images={msg.images}
+              onQueryError={onQueryError}
+              correctingQuery={correctingQuery}
+              onCommandBatchResult={
+                isLatestAssistantMessage ? onCommandBatchResult : undefined
+              }
+            />
+          </Fragment>
+        );
+      })}
 
       {/* Streaming Message */}
       {isStreaming && (
@@ -948,6 +1117,7 @@ function MessageList({
             thinking={streamingThinking}
             toolCalls={activeToolCalls}
             assistantFlow={streamingFlow}
+            assistantBlocks={streamingFlow}
             planSteps={streamingPlan}
             isStreaming
             onQueryError={onQueryError}
@@ -969,17 +1139,22 @@ interface MessageBubbleProps {
   thinking?: string;
   toolCalls?: ToolCallType[];
   assistantFlow?: AssistantFlowSegment[];
+  assistantBlocks?: AssistantBlockV2[];
   planSteps?: Array<{ id: string; description: string; status: string }>;
   isStreaming?: boolean;
   images?: AcpMessage["images"];
   onQueryError?: (query: string, errorMessage: string) => void;
   correctingQuery?: string | null;
+  onCommandBatchResult?: (batchResult: string) => void;
 }
 
 type MessageContentSegment =
   | { kind: "text"; key: string; text: string }
   | { kind: "commands"; key: string; commands: ParsedCommand[] }
   | { kind: "tool-call"; key: string; call: ToolCallType }
+  | { kind: "resource"; key: string; block: Exclude<ContentBlock, { type: "text" }> }
+  | { kind: "plan"; key: string; steps: Array<{ id: string; description: string; status: string }> }
+  | { kind: "error"; key: string; message: string }
   | { kind: "incomplete-command"; key: string };
 
 function sanitizeTextSegment(text: string): string {
@@ -988,6 +1163,15 @@ function sanitizeTextSegment(text: string): string {
 
 function hasRenderableText(text: string): boolean {
   return text.trim().length > 0;
+}
+
+function hashString(value: string): string {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
 }
 
 function splitTextIntoSegments(
@@ -1065,6 +1249,57 @@ function splitTextIntoSegments(
   return segments;
 }
 
+function appendSqlFallbackSegments(options: {
+  segments: MessageContentSegment[];
+  text: string;
+  keyPrefix: string;
+  isStreaming: boolean;
+  connections: AIContext["connections"];
+  defaultConnectionId?: string | null;
+}): MessageContentSegment[] {
+  const {
+    segments,
+    text,
+    keyPrefix,
+    isStreaming,
+    connections,
+    defaultConnectionId,
+  } = options;
+
+  if (isStreaming) return segments;
+  if (!text.trim()) return segments;
+  if (segments.some((segment) => segment.kind === "commands")) {
+    return segments;
+  }
+
+  const commands = buildFallbackQueryRunCommands({
+    text,
+    connections,
+    defaultConnectionId,
+    commandIdPrefix: `${keyPrefix}-sql`,
+  });
+
+  if (commands.length === 0) {
+    return segments;
+  }
+
+  const textHash = hashString(text);
+
+  return [
+    ...segments,
+    {
+      kind: "text",
+      key: `${keyPrefix}-sql-fallback-note-${textHash}`,
+      text: "_Converted raw SQL into executable `query.run` actions and ran them automatically._",
+    },
+    {
+      kind: "commands",
+      key: `${keyPrefix}-sql-fallback-commands-${textHash}`,
+      commands,
+    },
+  ];
+}
+
 // SQL-like languages that should render as QueryBlock
 const QUERY_LANGUAGES = new Set([
   "sql",
@@ -1129,11 +1364,13 @@ function MessageBubble({
   thinking,
   toolCalls,
   assistantFlow,
+  assistantBlocks,
   planSteps,
   isStreaming,
   images,
   onQueryError,
   correctingQuery,
+  onCommandBatchResult,
 }: MessageBubbleProps) {
   const isUser = role === "user";
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
@@ -1179,28 +1416,64 @@ function MessageBubble({
       return splitTextIntoSegments(content, "user", false);
     }
 
-    if (assistantFlow && assistantFlow.length > 0) {
+    const orderedBlocks = assistantBlocks ?? assistantFlow;
+    if (orderedBlocks && orderedBlocks.length > 0) {
       const segments: MessageContentSegment[] = [];
-      assistantFlow.forEach((segment, index) => {
-        if (segment.type === "text") {
+      orderedBlocks.forEach((segment, index) => {
+        if (segment.type === "text" || segment.type === "action") {
+          const text = segment.type === "text" ? segment.text : segment.text;
           const textSegments = splitTextIntoSegments(
-            segment.text,
+            text,
             `flow-${index}`,
-            Boolean(isStreaming) && index === assistantFlow.length - 1,
+            Boolean(isStreaming) && index === orderedBlocks.length - 1,
           );
           segments.push(...textSegments);
           return;
         }
 
+        if (segment.type === "toolStatus") {
+          segments.push({
+            kind: "tool-call",
+            key: `flow-tool-${segment.call.id}-${index}`,
+            call: segment.call,
+          });
+          return;
+        }
+
+        if (segment.type === "resource") {
+          segments.push({
+            kind: "resource",
+            key: `flow-resource-${index}`,
+            block: segment.block,
+          });
+          return;
+        }
+
+        if (segment.type === "plan") {
+          segments.push({
+            kind: "plan",
+            key: `flow-plan-${index}`,
+            steps: segment.steps,
+          });
+          return;
+        }
+
         segments.push({
-          kind: "tool-call",
-          key: `flow-tool-${segment.call.id}-${index}`,
-          call: segment.call,
+          kind: "error",
+          key: `flow-error-${index}`,
+          message: segment.message,
         });
       });
 
       if (segments.length > 0) {
-        return segments;
+        return appendSqlFallbackSegments({
+          segments,
+          text: content,
+          keyPrefix: "flow",
+          isStreaming: Boolean(isStreaming),
+          connections: aiContext.connections,
+          defaultConnectionId: resolvedConnection?.id ?? null,
+        });
       }
     }
 
@@ -1229,62 +1502,55 @@ function MessageBubble({
         })),
       );
     }
-    return fallback;
-  }, [content, isUser, assistantFlow, isStreaming, toolCalls]);
+    return appendSqlFallbackSegments({
+      segments: fallback,
+      text: content,
+      keyPrefix: "assistant",
+      isStreaming: Boolean(isStreaming),
+      connections: aiContext.connections,
+      defaultConnectionId: resolvedConnection?.id ?? null,
+    });
+  }, [
+    content,
+    isUser,
+    assistantFlow,
+    assistantBlocks,
+    isStreaming,
+    toolCalls,
+    aiContext.connections,
+    resolvedConnection?.id,
+  ]);
 
   // Handle query execution from QueryBlock
   const handleQueryRun = useCallback(
     async (query: string, connectionId: string) => {
       try {
-        const store = useWorkspaceScreenStore.getState();
+        const command: ParsedCommand<QueryRunParams> = {
+          id: `query-block-${crypto.randomUUID()}`,
+          name: "query.run",
+          params: {
+            connectionId,
+            query,
+          },
+          approval: "auto",
+          raw: "query-block-run",
+          startIndex: 0,
+          endIndex: 0,
+          confidence: "high",
+        };
 
-        // Set active connection and ensure workspace is initialized
-        let activeConnectionId = store.activeConnectionId;
-        if (!activeConnectionId || activeConnectionId !== connectionId) {
-          store.setActiveConnection(connectionId);
-          activeConnectionId = connectionId;
-        }
-
-        if (!store.workspaces.has(activeConnectionId)) {
-          store.initWorkspace(activeConnectionId);
-        }
-
-        const panelId = store.getActivePanelId();
-        if (!panelId) {
+        const execution = await executeCommand(command);
+        if (!execution.success) {
+          if (onQueryError) {
+            onQueryError(query, execution.error);
+          }
           return;
         }
 
-        // Generate tab title from query
-        const cleanedQuery = query.trim();
-        const tabTitle =
-          cleanedQuery.slice(0, 30) + (cleanedQuery.length > 30 ? "..." : "");
-
-        // Create the tab with the query content
-        const tabId = store.addTab(panelId, {
-          type: "query",
-          connectionId,
-          title: tabTitle,
-          payload: { sql: cleanedQuery },
-        });
-
-        if (!tabId) {
-          return;
+        const queryResult = execution.data as QueryRunResult & { error?: string };
+        if (!queryResult.success && queryResult.error && onQueryError) {
+          onQueryError(query, queryResult.error);
         }
-
-        // Focus the panel and tab to make sure they're visible
-        store.setActivePanel(panelId);
-        store.setActiveTab(panelId, tabId);
-
-        // Execute the query using streaming service
-        const queryToExecute = cleanedQuery.replace(/;\s*$/, "");
-        await tableStreamingService.streamQuery(
-          connectionId,
-          tabId,
-          queryToExecute,
-          2500, // pageSize
-          () => {}, // Progress callback
-          () => {}, // Error callback (errors handled by streaming service)
-        );
       } catch (err) {
         // Trigger self-correction for read-only query failures
         if (onQueryError) {
@@ -1415,7 +1681,13 @@ function MessageBubble({
                       <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                         Commands
                       </div>
-                      <CommandList commands={segment.commands} />
+                      <CommandList
+                        commands={segment.commands}
+                        onBatchResult={
+                          isStreaming ? undefined : onCommandBatchResult
+                        }
+                        allowAutoExecute={!isStreaming}
+                      />
                     </div>
                   );
                 }
@@ -1426,6 +1698,30 @@ function MessageBubble({
                       key={segment.key}
                       call={segment.call}
                     />
+                  );
+                }
+
+                if (segment.kind === "resource") {
+                  return (
+                    <AssistantResourceBlock
+                      key={segment.key}
+                      block={segment.block}
+                    />
+                  );
+                }
+
+                if (segment.kind === "plan") {
+                  return <PlanBlock key={segment.key} steps={segment.steps} />;
+                }
+
+                if (segment.kind === "error") {
+                  return (
+                    <div
+                      key={segment.key}
+                      className="rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-2 text-[11px] text-destructive"
+                    >
+                      {segment.message}
+                    </div>
                   );
                 }
 
@@ -1535,6 +1831,62 @@ function PlanBlock({ steps }: PlanBlockProps) {
   );
 }
 
+function AssistantResourceBlock({
+  block,
+}: {
+  block: Exclude<ContentBlock, { type: "text" }>;
+}) {
+  if (block.type === "image") {
+    return (
+      <ImagePreviewPopover
+        src={`data:${block.mimeType};base64,${block.data}`}
+        alt="Assistant resource image"
+      >
+        <img
+          src={`data:${block.mimeType};base64,${block.data}`}
+          alt="Assistant resource image"
+          className="max-h-[180px] max-w-[320px] rounded border border-border/60 object-cover"
+        />
+      </ImagePreviewPopover>
+    );
+  }
+
+  if (block.type === "resourceLink") {
+    return (
+      <div className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2 text-[11px]">
+        <span className="text-muted-foreground">Resource:</span>{" "}
+        <a
+          href={block.uri}
+          target="_blank"
+          rel="noreferrer"
+          className="text-primary underline"
+        >
+          {block.title ?? block.uri}
+        </a>
+      </div>
+    );
+  }
+
+  if (block.type === "resource") {
+    return (
+      <div className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
+        <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+          Resource Payload
+        </div>
+        <pre className="max-h-48 overflow-auto text-[10px] text-muted-foreground whitespace-pre-wrap">
+          {JSON.stringify({ uri: block.uri, content: block.content }, null, 2)}
+        </pre>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
+      {`Audio resource (${block.mimeType})`}
+    </div>
+  );
+}
+
 function getToolCallStatusText(status: ToolCallType["status"]): string {
   switch (status) {
     case "pending":
@@ -1551,7 +1903,48 @@ function getToolCallStatusText(status: ToolCallType["status"]): string {
 }
 
 function InlineToolCallEvent({ call }: { call: ToolCallType }) {
+  const lowerName = call.name.toLowerCase();
+  const isFilesystemTool =
+    lowerName === "read" ||
+    lowerName === "write" ||
+    lowerName === "edit" ||
+    lowerName === "multiedit" ||
+    lowerName === "grep" ||
+    lowerName === "glob" ||
+    lowerName.includes("__read") ||
+    lowerName.includes("__write") ||
+    lowerName.includes("__edit") ||
+    lowerName.includes("__multiedit") ||
+    lowerName.includes("__grep") ||
+    lowerName.includes("__glob");
+
+  const detailText = (
+    call.error ??
+    (typeof call.output === "string"
+      ? call.output
+      : call.output !== undefined
+        ? JSON.stringify(call.output)
+        : "")
+  ).toLowerCase();
+  const deniedByPolicy =
+    call.status === "failed" &&
+    (detailText.includes("execution denied") ||
+      detailText.includes("permission") ||
+      detailText.includes("cancelled"));
+
+  // Avoid surfacing noisy blocked filesystem tool attempts in DB-assistant UX.
+  if (isFilesystemTool && deniedByPolicy) {
+    return null;
+  }
+
   const statusText = getToolCallStatusText(call.status);
+  const resultText =
+    call.error ??
+    (call.output !== undefined
+      ? typeof call.output === "string"
+        ? call.output
+        : JSON.stringify(call.output, null, 2)
+      : null);
   return (
     <div className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
       <div className="flex items-start gap-2">
@@ -1573,6 +1966,13 @@ function InlineToolCallEvent({ call }: { call: ToolCallType }) {
             {call.name}
           </div>
           <div className="text-[10px] text-muted-foreground">{statusText}</div>
+          {resultText && (call.status === "completed" || call.status === "failed") && (
+            <pre className="mt-1 max-h-36 overflow-auto rounded bg-muted/40 px-2 py-1 text-[10px] text-muted-foreground whitespace-pre-wrap">
+              {resultText.length > 1000
+                ? `${resultText.slice(0, 1000)}\n… (truncated)`
+                : resultText}
+            </pre>
+          )}
         </div>
       </div>
     </div>
@@ -1683,6 +2083,8 @@ interface InputAreaProps {
   byokSession: boolean;
   aiContext: AIContext;
   openTabs: Array<{ id: string; name: string; type: string; panelId: string }>;
+  attachedContext: FocusedTabContextSnapshot | null;
+  onRemoveAttachedContext: () => void;
   pendingImages: PreparedImage[];
   onAddImages: (files: File[]) => void;
   onRemoveImage: (id: string) => void;
@@ -1703,6 +2105,8 @@ const InputArea = ({
   byokSession,
   aiContext,
   openTabs,
+  attachedContext,
+  onRemoveAttachedContext,
   pendingImages,
   onAddImages,
   onRemoveImage,
@@ -2044,6 +2448,25 @@ const InputArea = ({
           </div>
         )}
 
+        {attachedContext && (
+          <div className="px-3 pt-2">
+            <div className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-muted/40 px-2 py-1 text-[10px] text-muted-foreground">
+              <IconFileText className="h-3 w-3" />
+              <span className="max-w-[240px] truncate">
+                Attached: {attachedContext.title ?? attachedContext.tabId}
+              </span>
+              <button
+                type="button"
+                onClick={onRemoveAttachedContext}
+                className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                title="Remove attached context"
+              >
+                <IconX className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* @ Mention Autocomplete Dropdown */}
         {showMentions && suggestions.length > 0 && (
           <div
@@ -2172,6 +2595,7 @@ interface ByokMessageListProps {
   isStreaming: boolean;
   streamingContent: string;
   activeToolCalls: Array<{ id: string; name: string; status: string }>;
+  onCommandBatchResult?: (batchResult: string) => void;
 }
 
 const byokProseClasses = cn(
@@ -2260,7 +2684,14 @@ function ByokMessageList({
   isStreaming,
   streamingContent,
   activeToolCalls,
+  onCommandBatchResult,
 }: ByokMessageListProps) {
+  const aiContext = useAIContextWithSchema();
+  const getFocusedConnection = useWorkspaceBundleStore(
+    (s) => s.getFocusedConnection,
+  );
+  const focusedConnection = getFocusedConnection();
+
   // Build a map of toolCallId → output from tool-role messages
   const toolResultMap = useMemo(() => {
     const map = new Map<string, unknown>();
@@ -2276,6 +2707,74 @@ function ByokMessageList({
     return map;
   }, [messages]);
 
+  const latestAssistantIndex = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const candidate = messages[index];
+      if (candidate?.role === "assistant") {
+        return index;
+      }
+    }
+    return -1;
+  }, [messages]);
+
+  const renderByokTextSegments = useCallback(
+    (
+      text: string,
+      keyPrefix: string,
+      streaming: boolean,
+      onBatchResult?: (batchResult: string) => void,
+    ) => {
+      const baseSegments = splitTextIntoSegments(text, keyPrefix, streaming);
+      const segments = appendSqlFallbackSegments({
+        segments: baseSegments,
+        text,
+        keyPrefix,
+        isStreaming: streaming,
+        connections: aiContext.connections,
+        defaultConnectionId: focusedConnection?.id ?? null,
+      });
+
+      return segments.map((segment) => {
+        if (segment.kind === "text") {
+          return (
+            <div key={segment.key} className={byokProseClasses}>
+              <Streamdown className="select-text">{segment.text}</Streamdown>
+            </div>
+          );
+        }
+
+        if (segment.kind === "commands") {
+          return (
+            <div
+              key={segment.key}
+              className="rounded-lg border border-border/60 bg-muted/20 p-2"
+            >
+              <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Actions
+              </div>
+              <CommandList
+                commands={segment.commands}
+                onBatchResult={streaming ? undefined : onBatchResult}
+                allowAutoExecute={!streaming}
+              />
+            </div>
+          );
+        }
+
+        return (
+          <div
+            key={segment.key}
+            className="flex items-center gap-2 py-1 text-xs text-muted-foreground"
+          >
+            <IconLoader2 className="h-3 w-3 animate-spin" />
+            <span>Action loading...</span>
+          </div>
+        );
+      });
+    },
+    [aiContext.connections, focusedConnection?.id],
+  );
+
   return (
     <div className="flex flex-col">
       {messages.map((msg, idx) => {
@@ -2290,14 +2789,15 @@ function ByokMessageList({
                   .filter((p) => p.type === "text")
                   .map((p) => p.text)
                   .join("");
+          if (isInternalExecutionFeedback(text)) {
+            return null;
+          }
           return (
             <div
               key={`user-${idx}`}
               className="group px-3 py-3 bg-primary/5 border-l-3 border-primary"
             >
-              <div className={byokProseClasses}>
-                <Streamdown className="select-text">{text}</Streamdown>
-              </div>
+              {renderByokTextSegments(text, `byok-user-${idx}`, false)}
             </div>
           );
         }
@@ -2311,17 +2811,19 @@ function ByokMessageList({
 
           const textParts = parts.filter((p) => p.type === "text");
           const toolCallParts = parts.filter((p) => p.type === "tool-call");
-          const hasText = textParts.some((p) => p.text && p.text.trim());
+          const text = textParts.map((p) => p.text).join("");
+          const batchResultHandler =
+            idx === latestAssistantIndex ? onCommandBatchResult : undefined;
 
           return (
             <div key={`assistant-${idx}`} className="group px-3 py-3">
-              {hasText && (
-                <div className={byokProseClasses}>
-                  <Streamdown className="select-text">
-                    {textParts.map((p) => p.text).join("")}
-                  </Streamdown>
-                </div>
-              )}
+              {text.trim().length > 0 &&
+                renderByokTextSegments(
+                  text,
+                  `byok-assistant-${idx}`,
+                  false,
+                  batchResultHandler,
+                )}
               {toolCallParts.length > 0 && (
                 <div className="space-y-1 mt-1">
                   {toolCallParts.map((tc) => (
@@ -2347,9 +2849,7 @@ function ByokMessageList({
                 .join("");
         return text ? (
           <div key={`${msg.role}-${idx}`} className="group px-3 py-3">
-            <div className={byokProseClasses}>
-              <Streamdown className="select-text">{text}</Streamdown>
-            </div>
+            {renderByokTextSegments(text, `byok-other-${idx}`, false)}
           </div>
         ) : null;
       })}
@@ -2388,9 +2888,7 @@ function ByokMessageList({
 
       {isStreaming && streamingContent && (
         <div className="group px-3 py-3">
-          <div className={byokProseClasses}>
-            <Streamdown className="select-text">{streamingContent}</Streamdown>
-          </div>
+          {renderByokTextSegments(streamingContent, "byok-streaming", true)}
         </div>
       )}
 

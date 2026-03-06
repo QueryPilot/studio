@@ -21,7 +21,6 @@ import { useConnectionWindowStore } from "./stores/connectionWindowStore";
 import { useWorkspaceBundleStore } from "./stores/workspaceBundleStore";
 import { useAcpStore } from "./stores/acpStore";
 import { useByokStore } from "./stores/byokStore";
-import { AcpService } from "./services/acpService";
 import { useAppStore } from "./stores/appStore";
 import { usePreferencesStore } from "./stores/preferencesStore";
 import { getSessionDatabase } from "./lib/db/sessionDb";
@@ -261,17 +260,8 @@ function App() {
             // when the user navigates back to home from a workspace window
             setVaultReady(true);
 
-            // Initialize LLM home directory and load ACP agents in background (non-blocking)
+            // Load ACP agents in background (non-blocking)
             void (async () => {
-              try {
-                await AcpService.initializeLlmHome();
-              } catch (error) {
-                logger.error(
-                  "LLM home initialization failed (continuing with agent load)",
-                  error,
-                );
-              }
-              // Always try to load agents, even if LLM home init failed
               try {
                 await loadAgents();
               } catch (error) {
