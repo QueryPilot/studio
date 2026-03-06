@@ -656,6 +656,22 @@ pub async fn acp_upgrade_package(
     }
 }
 
+/// Unified capability handler for BYOK tool calls and future direct IPC usage.
+///
+/// BYOK frontend tools call this instead of executing capabilities in JS.
+/// Same handler that the CLI socket server uses.
+#[tauri::command]
+pub async fn agent_capability(
+    capability: String,
+    params: serde_json::Value,
+    ai_context: tauri::State<'_, crate::ai_context::AiContextState>,
+    manager: tauri::State<'_, std::sync::Arc<crate::core::ConnectionManager>>,
+) -> Result<serde_json::Value, String> {
+    super::capabilities::handle_capability(&capability, &params, &ai_context.0, &manager)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::SYSTEM_INSTRUCTIONS;
