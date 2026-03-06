@@ -161,6 +161,7 @@ fn main() {
             acp::commands::acp_upgrade_package,
             acp::commands::acp_stop_agent,
             acp::commands::acp_get_querypilot_cli_path,
+            acp::commands::agent_capability,
             // AI Context commands (for syncing runtime context)
             ai_context::commands::sync_ai_context,
             ai_context::commands::track_query_execution,
