@@ -13,6 +13,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [2026.1.0-beta.11] - 2026-03-06
+
+### New Features
+- Connect local AI workflows through the new `querypilot` CLI agent, which now links to Query Pilot over a local socket for workspace-aware assistance.
+- Use a new multi-dialect Explain experience that parses and presents execution plans across PostgreSQL, MySQL, SQLite, and SQL Server in a consistent way.
+- See your active SQL statement more clearly with current-statement highlighting in the editor, making execution intent easier to verify.
+- Run AI-assisted, read-only SQL via `query.run` to quickly inspect data and get timed results without allowing write operations.
+
+### Improvements
+- AI tool calls are now shown with clearer, human-readable descriptions, so you can understand actions faster.
+- AI chat workflows are smoother with improved input focus retention, clearer mention badges, and faster copy-message actions.
+- Query export actions in the Query panel are easier to access and use.
+- Large result sets now stream more smoothly with adaptive update pacing, keeping the UI responsive during heavy output.
+- SQL editor performance is better on large scripts by limiting highlight work to visible regions and avoiding unnecessary dialect detection.
+- Query tab state updates now skip no-op writes, reducing background churn and improving overall responsiveness.
+- Connection grouping is more accurate when mixing real and auto-created workspaces.
+
+### Bug Fixes
+- Restored background query execution handling in the Query panel so background runs trigger correctly again.
+- Removed duplicate execute-event handling that could cause redundant statement parsing and extra execution overhead.
+
+### Breaking Changes
+- The CLI/sidecar binary name changed from `querypilot-mcp` to `querypilot`; update any scripts, aliases, or automation that referenced the old name.
+- Legacy MCP-sidecar integration paths were replaced by the new Query Pilot agent/socket flow; custom integrations using old internals may need updates.
+
+### Security
+- Hardened CLI command execution by validating parsed `querypilot` commands to reduce command-injection risk.
+- Added guardrails for AI-triggered query execution with read-only validation, execution time limits, and row caps to better protect live databases.
+
 ## [2026.1.0-beta.10] - 2026-03-05
 
 ### Improvements
