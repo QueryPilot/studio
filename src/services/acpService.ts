@@ -223,11 +223,35 @@ export const AcpService = {
             update.toolCall.tool_name ??
             update.toolCall.name ??
             "Unknown";
+
+          // Extract human-readable description from ACP content blocks
+          // Content structure: [{"type":"content","content":{"type":"text","text":"..."}}]
+          const rawInput = update.toolCall.rawInput;
+          const contentBlocks = update.toolCall.content as Array<Record<string, unknown>> | undefined;
+          let description: string | undefined;
+          if (contentBlocks?.length) {
+            for (const block of contentBlocks) {
+              if (block.type === "content") {
+                const inner = block.content as Record<string, unknown> | undefined;
+                if (inner?.type === "text" && typeof inner.text === "string") {
+                  description = inner.text;
+                  break;
+                }
+              }
+            }
+          }
+          // Fallback: use rawInput.description if available
+          if (!description && rawInput && typeof rawInput.description === "string") {
+            description = rawInput.description;
+          }
+
           callbacks?.onToolCall?.({
             id: update.toolCall.toolCallId ?? update.toolCall.id ?? update.toolCall.tool_call_id ?? crypto.randomUUID(),
             name: toolName,
             status: "pending",
-            input: update.toolCall.input ?? update.toolCall.arguments ?? {},
+            input: update.toolCall.input ?? update.toolCall.arguments ?? rawInput ?? {},
+            description,
+            kind: update.toolCall.kind as string | undefined,
           });
           break;
         }

@@ -85,6 +85,10 @@ export interface ToolCall {
   input: Record<string, unknown>;
   output?: unknown;
   error?: string;
+  /** Human-readable description from ACP content blocks */
+  description?: string;
+  /** ACP tool kind: execute, read, edit, think, search, fetch, other */
+  kind?: string;
 }
 
 export type AssistantBlockV2 =
@@ -137,6 +141,7 @@ export type SessionUpdate =
   | { type: "CurrentModeUpdate"; mode: ModeData }
   | { type: "AvailableCommandsUpdate"; commands: AvailableCommandsData }
   | { type: "UserMessageChunk"; content: ContentChunk }
+  | { type: "UsageUpdate"; used: number; size: number }
   | { type: "Complete" } // Custom: emitted when stream ends
   | { type: "Error"; message: string } // Custom: emitted on error
   | { type: "Unknown" };
@@ -183,6 +188,10 @@ export interface AcpToolCall {
   toolCallId?: string;
   title?: string;
   kind?: string;
+  // ACP protocol content blocks and raw I/O
+  content?: unknown[];
+  rawInput?: Record<string, unknown>;
+  rawOutput?: unknown;
   _meta?: {
     claudeCode?: {
       toolName?: string;

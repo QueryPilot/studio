@@ -72,9 +72,11 @@ import {
   IconCopy,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { writeClipboardText } from "@/lib/clipboard";
 import { Streamdown } from "streamdown";
 import type { ToolCall as ToolCallType } from "@/types/acp";
 import { parseCommandsProgressive } from "@/utils/aiCommandParser";
+import { parseMentions } from "@/utils/mentionParser";
 import { CommandList } from "./CommandCard";
 import { QueryBlock } from "./QueryBlock";
 import { buildFallbackQueryRunCommands } from "./sqlFallbackActions";
@@ -84,7 +86,11 @@ import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { executeCommand } from "@/services/aiCommandExecutor";
 import { Kbd } from "../ui/kbd";
 import { eventBus, type AIGenerateSqlPayload } from "@/services/eventBus";
-import type { ParsedCommand, QueryRunParams, QueryRunResult } from "@/types/aiCommands";
+import type {
+  ParsedCommand,
+  QueryRunParams,
+  QueryRunResult,
+} from "@/types/aiCommands";
 import type {
   AssistantFlowSegment,
   AssistantBlockV2,
@@ -123,9 +129,7 @@ interface AIPanelProps {
 const INTERNAL_EXECUTION_FEEDBACK_PREFIX = "[[QP_INTERNAL_EXECUTION_FEEDBACK]]";
 
 function isInternalExecutionFeedback(content: string): boolean {
-  return content
-    .trimStart()
-    .startsWith(INTERNAL_EXECUTION_FEEDBACK_PREFIX);
+  return content.trimStart().startsWith(INTERNAL_EXECUTION_FEEDBACK_PREFIX);
 }
 
 // ============================================================================
@@ -344,12 +348,18 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     scrollViewportToBottom,
   ]);
 
-  // Maintain focus after actions
+  // Maintain focus after actions (retries if ref not yet mounted)
   const focusInput = useCallback(() => {
-    // Small delay to ensure DOM updates are complete
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-    });
+    const tryFocus = (attempts: number) => {
+      requestAnimationFrame(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        } else if (attempts > 0) {
+          tryFocus(attempts - 1);
+        }
+      });
+    };
+    tryFocus(10);
   }, []);
 
   useEffect(() => {
@@ -423,11 +433,9 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     const focusedSnapshot = getFocusedTabContextSnapshot();
 
     const toolContext = {
-      connectionId:
-        focusedSnapshot?.connectionId ?? focusedConn?.id ?? "",
+      connectionId: focusedSnapshot?.connectionId ?? focusedConn?.id ?? "",
       getEditorContext: () => ({
-        connectionId:
-          focusedSnapshot?.connectionId ?? focusedConn?.id ?? null,
+        connectionId: focusedSnapshot?.connectionId ?? focusedConn?.id ?? null,
         database:
           focusedSnapshot?.database ?? focusedConn?.profile.database ?? null,
         schema: focusedSnapshot?.schema ?? null,
@@ -1065,10 +1073,7 @@ function MessageList({
     () =>
       messages.filter(
         (msg) =>
-          !(
-            msg.role === "user" &&
-            isInternalExecutionFeedback(msg.content)
-          ),
+          !(msg.role === "user" && isInternalExecutionFeedback(msg.content)),
       ),
     [messages],
   );
@@ -1153,8 +1158,16 @@ type MessageContentSegment =
   | { kind: "text"; key: string; text: string }
   | { kind: "commands"; key: string; commands: ParsedCommand[] }
   | { kind: "tool-call"; key: string; call: ToolCallType }
-  | { kind: "resource"; key: string; block: Exclude<ContentBlock, { type: "text" }> }
-  | { kind: "plan"; key: string; steps: Array<{ id: string; description: string; status: string }> }
+  | {
+      kind: "resource";
+      key: string;
+      block: Exclude<ContentBlock, { type: "text" }>;
+    }
+  | {
+      kind: "plan";
+      key: string;
+      steps: Array<{ id: string; description: string; status: string }>;
+    }
   | { kind: "error"; key: string; message: string }
   | { kind: "incomplete-command"; key: string };
 
@@ -1386,6 +1399,19 @@ function MessageBubble({
   );
   const focusedConnection = getFocusedConnection();
 
+  // Parse @ mentions from user messages for badge display
+  const mentionBadges = useMemo(() => {
+    if (!isUser || !content) return [];
+    const mentions = parseMentions(content);
+    // Deduplicate by raw text
+    const seen = new Set<string>();
+    return mentions.filter((m) => {
+      if (seen.has(m.raw)) return false;
+      seen.add(m.raw);
+      return true;
+    });
+  }, [isUser, content]);
+
   // Resolve connection from @ mentions in the message content
   // Falls back to focused connection if no mention is found
   const resolvedConnection = useMemo(() => {
@@ -1549,7 +1575,9 @@ function MessageBubble({
           return;
         }
 
-        const queryResult = execution.data as QueryRunResult & { error?: string };
+        const queryResult = execution.data as QueryRunResult & {
+          error?: string;
+        };
         if (!queryResult.success && queryResult.error && onQueryError) {
           onQueryError(query, queryResult.error);
         }
@@ -1613,9 +1641,11 @@ function MessageBubble({
           type="button"
           className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
           onClick={() => {
-            navigator.clipboard.writeText(content);
+            writeClipboardText(content);
             setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
+            setTimeout(() => {
+              setCopied(false);
+            }, 1500);
           }}
         >
           {copied ? (
@@ -1628,6 +1658,27 @@ function MessageBubble({
       <div className="max-w-full mx-auto">
         {/* Content */}
         <div className="space-y-2">
+          {/* Mention Badges */}
+          {isUser && mentionBadges.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {mentionBadges.map((mention) => (
+                <span
+                  key={mention.raw}
+                  className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-muted/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                >
+                  {mention.type === "tab" ? (
+                    <IconFileText className="h-2.5 w-2.5" />
+                  ) : (
+                    <IconTable className="h-2.5 w-2.5" />
+                  )}
+                  {mention.schema
+                    ? `${mention.schema}.${mention.name}`
+                    : mention.name}
+                </span>
+              ))}
+            </div>
+          )}
+
           {/* Image Thumbnails */}
           {isUser && images && images.length > 0 && (
             <div className="flex flex-wrap gap-2">
@@ -1946,15 +1997,18 @@ function parseQueryPilotShellCall(input: Record<string, unknown>): {
       (v): v is string => typeof v === "string",
     );
     const found = strValues.find((v) =>
-      /(?:querypilot|QUERYPILOT_CLI_PATH)\s+agent\s+[\w.]+/i.test(v),
+      /(?:[\w/\\.-]*querypilot|QUERYPILOT_CLI_PATH)\s+agent\s+[\w.]+/i.test(v),
     );
     if (!found) return null;
     return parseQueryPilotShellCall({ command: found });
   }
 
-  // Match: ... querypilot agent <capability> ... or $QUERYPILOT_CLI_PATH agent <capability>
+  // Match querypilot invocations:
+  // - querypilot agent <cap>
+  // - $QUERYPILOT_CLI_PATH agent <cap>
+  // - /absolute/path/to/querypilot agent <cap>
   const match = command.match(
-    /(?:querypilot|\$\{?QUERYPILOT_CLI_PATH\}?)\s+agent\s+([\w.]+)/i,
+    /(?:[\w/\\.-]*querypilot(?:\.exe)?|\$\{?QUERYPILOT_CLI_PATH\}?)\s+agent\s+([\w.]+)/i,
   );
   if (!match?.[1]) return null;
 
@@ -2024,7 +2078,13 @@ function InlineToolCallEvent({ call }: { call: ToolCallType }) {
     lowerName.includes("bash") ||
     lowerName.includes("terminal") ||
     lowerName.includes("shell");
-  const qpCall = isBashLike ? parseQueryPilotShellCall(call.input) : null;
+  // Try parsing input first, then fall back to parsing the tool name itself
+  // (Claude Code's second ToolCall event sets `name` to the full command string)
+  const qpCall =
+    (isBashLike ? parseQueryPilotShellCall(call.input) : null) ??
+    (lowerName.includes("querypilot")
+      ? parseQueryPilotShellCall({ command: call.name })
+      : null);
 
   const statusText = getToolCallStatusText(call.status);
   const resultText =
@@ -2037,52 +2097,116 @@ function InlineToolCallEvent({ call }: { call: ToolCallType }) {
 
   // Render enriched view for QueryPilot CLI calls
   if (qpCall) {
-    const paramEntries = qpCall.params
-      ? Object.entries(qpCall.params).filter(([k]) => k !== "version" && k !== "requestId")
+    const allParams = qpCall.params
+      ? Object.entries(qpCall.params).filter(
+          ([k]) => k !== "version" && k !== "requestId",
+        )
       : null;
-    const hasDetails = paramEntries && paramEntries.length > 0;
+    // Separate query from other params for special rendering
+    const queryParam = allParams?.find(([k]) => k === "query")?.[1];
+    const queryText = typeof queryParam === "string" ? queryParam : null;
+    const metaParams = allParams?.filter(([k]) => k !== "query" && k !== "params") ?? [];
+    // If params has a nested params object, extract its entries too
+    const nestedParams = qpCall.params?.params;
+    if (nestedParams && typeof nestedParams === "object" && !Array.isArray(nestedParams)) {
+      for (const [k, v] of Object.entries(nestedParams as Record<string, unknown>)) {
+        if (k !== "query" && k !== "version" && k !== "requestId") {
+          metaParams.push([k, v]);
+        }
+      }
+      // Extract query from nested params if not found at top level
+      if (!queryText && typeof (nestedParams as Record<string, unknown>).query === "string") {
+        // re-assign via let
+      }
+    }
+    const finalQuery = queryText ?? (
+      typeof (qpCall.params?.params as Record<string, unknown> | undefined)?.query === "string"
+        ? (qpCall.params!.params as Record<string, unknown>).query as string
+        : null
+    );
+    const hasDetails = !!finalQuery || metaParams.length > 0;
 
     return (
-      <div className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
+      <div className="select-text rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
         <div className="flex items-start gap-2">
-          {call.status === "running" ? (
-            <IconLoader2 className="mt-0.5 h-3 w-3 shrink-0 animate-spin text-primary" />
-          ) : call.status === "completed" ? (
-            <IconCheck className="mt-0.5 h-3 w-3 shrink-0 text-green-500" />
-          ) : call.status === "failed" ? (
-            <IconX className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />
-          ) : (
-            <IconClock className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
-          )}
           <div className="min-w-0 flex-1">
-            <div className="mb-0.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-              <IconWand className="h-2.5 w-2.5" />
-              <span>Agent Action</span>
-            </div>
+            {/* Header row */}
             <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-mono font-medium text-foreground/90">
+              {call.status === "running" ? (
+                <IconLoader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+              ) : call.status === "completed" ? (
+                <IconCheck className="h-3 w-3 shrink-0 text-green-500" />
+              ) : call.status === "failed" ? (
+                <IconX className="h-3 w-3 shrink-0 text-destructive" />
+              ) : (
+                <IconClock className="h-3 w-3 shrink-0 text-muted-foreground" />
+              )}
+              <span className="text-[11px] font-mono font-semibold text-foreground/90">
                 {qpCall.capability}
               </span>
+              {call.description && (
+                <span className="text-[10px] text-muted-foreground truncate">
+                  — {call.description}
+                </span>
+              )}
               {hasDetails && (
                 <button
                   onClick={() => { setExpanded((v) => !v); }}
-                  className="ml-auto flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                  className="ml-auto flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors shrink-0"
                 >
-                  {expanded ? <IconChevronDown className="h-2.5 w-2.5" /> : <IconChevronRight className="h-2.5 w-2.5" />}
-                  {expanded ? "Hide" : "Params"}
+                  {expanded ? (
+                    <IconChevronDown className="h-2.5 w-2.5" />
+                  ) : (
+                    <IconChevronRight className="h-2.5 w-2.5" />
+                  )}
+                  {expanded ? "Hide" : "Details"}
                 </button>
               )}
             </div>
-            <div className="text-[10px] text-muted-foreground">{statusText}</div>
-            {hasDetails && expanded && (
-              <div className="mt-1 space-y-0.5">
-                {paramEntries.map(([key, value]) => (
+
+            {/* Meta params as inline badges */}
+            {metaParams.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {metaParams.map(([key, value]) => (
+                  <span
+                    key={key}
+                    className="inline-flex items-center gap-1 rounded border border-border/50 bg-muted/40 px-1.5 py-0.5 text-[9px] text-muted-foreground"
+                  >
+                    <span className="font-medium">{key}:</span>
+                    <span className="max-w-[180px] truncate">
+                      {typeof value === "string" ? value : JSON.stringify(value)}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Query as code block */}
+            {hasDetails && expanded && finalQuery && (
+              <div className="group/code relative mt-1.5">
+                <button
+                  onClick={() => { writeClipboardText(finalQuery); }}
+                  className="absolute top-1 right-1 opacity-0 group-hover/code:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted-foreground/20 text-muted-foreground"
+                  title="Copy query"
+                >
+                  <IconCopy className="h-3 w-3" />
+                </button>
+                <pre className="max-h-48 overflow-auto rounded-md bg-[var(--code-bg,hsl(var(--muted)))] border border-border/40 px-2.5 py-2 text-[11px] leading-relaxed font-mono text-foreground/85 whitespace-pre-wrap break-all">
+                  {finalQuery}
+                </pre>
+              </div>
+            )}
+
+            {/* Non-query expanded params */}
+            {hasDetails && expanded && !finalQuery && metaParams.length > 0 && (
+              <div className="mt-1.5 space-y-0.5">
+                {metaParams.map(([key, value]) => (
                   <div key={key} className="flex gap-1.5 text-[10px]">
                     <span className="shrink-0 font-medium text-muted-foreground">{key}:</span>
                     <span className="text-foreground/80 break-all">
                       {typeof value === "string"
-                        ? value.length > 200
-                          ? value.slice(0, 200) + "…"
+                        ? value.length > 300
+                          ? value.slice(0, 300) + "…"
                           : value
                         : JSON.stringify(value)}
                     </span>
@@ -2090,13 +2214,16 @@ function InlineToolCallEvent({ call }: { call: ToolCallType }) {
                 ))}
               </div>
             )}
-            {resultText && (call.status === "completed" || call.status === "failed") && (
-              <pre className="mt-1 max-h-36 overflow-auto rounded bg-muted/40 px-2 py-1 text-[10px] text-muted-foreground whitespace-pre-wrap">
-                {resultText.length > 1000
-                  ? `${resultText.slice(0, 1000)}\n… (truncated)`
-                  : resultText}
-              </pre>
-            )}
+
+            {/* Result / Error output */}
+            {resultText &&
+              (call.status === "completed" || call.status === "failed") && (
+                <pre className="mt-1.5 max-h-36 overflow-auto rounded bg-muted/40 px-2 py-1 text-[10px] text-muted-foreground whitespace-pre-wrap select-text">
+                  {resultText.length > 1000
+                    ? `${resultText.slice(0, 1000)}\n… (truncated)`
+                    : resultText}
+                </pre>
+              )}
           </div>
         </div>
       </div>
@@ -2104,7 +2231,7 @@ function InlineToolCallEvent({ call }: { call: ToolCallType }) {
   }
 
   return (
-    <div className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
+    <div className="select-text rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
       <div className="flex items-start gap-2">
         {call.status === "running" ? (
           <IconLoader2 className="mt-0.5 h-3 w-3 shrink-0 animate-spin text-primary" />
@@ -2123,14 +2250,17 @@ function InlineToolCallEvent({ call }: { call: ToolCallType }) {
           <div className="truncate text-[11px] font-medium text-foreground/90">
             {call.name}
           </div>
-          <div className="text-[10px] text-muted-foreground">{statusText}</div>
-          {resultText && (call.status === "completed" || call.status === "failed") && (
-            <pre className="mt-1 max-h-36 overflow-auto rounded bg-muted/40 px-2 py-1 text-[10px] text-muted-foreground whitespace-pre-wrap">
-              {resultText.length > 1000
-                ? `${resultText.slice(0, 1000)}\n… (truncated)`
-                : resultText}
-            </pre>
-          )}
+          <div className="text-[10px] text-muted-foreground">
+            {call.description ? call.description : statusText}
+          </div>
+          {resultText &&
+            (call.status === "completed" || call.status === "failed") && (
+              <pre className="mt-1 max-h-36 overflow-auto rounded bg-muted/40 px-2 py-1 text-[10px] text-muted-foreground whitespace-pre-wrap">
+                {resultText.length > 1000
+                  ? `${resultText.slice(0, 1000)}\n… (truncated)`
+                  : resultText}
+              </pre>
+            )}
         </div>
       </div>
     </div>

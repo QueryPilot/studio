@@ -897,15 +897,23 @@ export const useAcpStore = create<AcpState>()(
           const hasNewInput =
             Object.keys(toolCall.input).length > 0 &&
             Object.keys(existing.input).length === 0;
-          if (!hasNewInput) return state;
+          // Claude Code sends a second ToolCall with the real title and input.
+          // Also update the name if it changed (first event has generic "Terminal").
+          const hasNewName =
+            toolCall.name !== existing.name && toolCall.name !== "Unknown";
+          const hasNewDescription =
+            !!toolCall.description && !existing.description;
+          if (!hasNewInput && !hasNewName && !hasNewDescription) return state;
 
           const merged: ToolCall = {
             id: existing.id,
-            name: existing.name,
+            name: hasNewName ? toolCall.name : existing.name,
             status: existing.status,
-            input: toolCall.input,
+            input: hasNewInput ? toolCall.input : existing.input,
             output: existing.output,
             error: existing.error,
+            description: toolCall.description ?? existing.description,
+            kind: toolCall.kind ?? existing.kind,
           };
           const nextCalls = [...state.activeToolCalls];
           nextCalls[existingIdx] = merged;

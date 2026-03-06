@@ -77,7 +77,7 @@ base64 = "0.21"
 sqlparser = { version = "0.52", features = ["serde"] }
 
 # ACP (Agent Client Protocol)
-agent-client-protocol = { version = "0.9", features = ["unstable_session_model"] }  # ACP protocol with model selection
+agent-client-protocol = { version = "0.9", features = ["unstable_session_model", "unstable_session_usage"] }  # ACP protocol with model selection + usage updates
 which = "7.0"                   # Agent binary detection in PATH
 piper = "0.2"                   # In-memory pipes with futures traits for ACP
 
