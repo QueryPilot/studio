@@ -9,8 +9,9 @@ import type { MentionReference } from "@/types/aiContext";
 
 // Regex patterns for mention parsing
 // Supports optional connection prefix: @ConnName/schema.table or @"Quoted Name"/schema.table
-// Groups: (1) quoted connName, (2) unquoted connName, (3) first ident, (4) second ident
-const OBJECT_MENTION_REGEX = /@(?:(?:"([^"]+)"|([a-zA-Z_]\w*))\/)?([a-zA-Z_]\w*)(?:\.([a-zA-Z_]\w*))?/g;
+// Optional [id:xxx] suffix for connection ID
+// Groups: (1) quoted connName, (2) unquoted connName, (3) first ident, (4) second ident, (5) connection ID
+const OBJECT_MENTION_REGEX = /@(?:(?:"([^"]+)"|([a-zA-Z_]\w*))\/)?([a-zA-Z_]\w*)(?:\.([a-zA-Z_]\w*))?(?:\[id:([^\]]+)\])?/g;
 // @tab:TabName (for tabs - allows spaces in name with quotes)
 const TAB_MENTION_REGEX = /@tab:(?:"([^"]+)"|([^\s]+))/g;
 
@@ -51,6 +52,7 @@ export function parseMentions(input: string): MentionReference[] {
     const unquotedConn = match[2];  // DevDB from @DevDB/...
     const firstIdent = match[3] ?? "";
     const secondIdent = match[4];
+    const connectionId = match[5];  // from [id:xxx] suffix
 
     const connectionName = quotedConn ?? unquotedConn ?? undefined;
 
@@ -63,6 +65,7 @@ export function parseMentions(input: string): MentionReference[] {
       type: "table", // Will be resolved to actual type later
       name,
       schema,
+      connectionId,
       connectionName,
       raw: match[0],
       start: match.index,
@@ -173,6 +176,14 @@ export function stripMentions(input: string): string {
     .replace(OBJECT_MENTION_REGEX, (_match, _quotedConn, _unquotedConn, first, second) => second ?? first ?? "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * Strip [id:xxx] suffixes from mention text for display purposes.
+ * The IDs are embedded for AI resolution but should not be shown to users.
+ */
+export function stripMentionIds(input: string): string {
+  return input.replace(/\[id:[^\]]+\]/g, "");
 }
 
 /**

@@ -317,26 +317,22 @@ class SchemaCache {
     this.metrics.misses++;
     const promise = (async () => {
       try {
-        // Try to get collections from backend
-        // Backend API: databaseService.listMongoCollections may not exist yet
-        // This will be implemented in Task 8
-        const rawCollections = await (databaseService as any).listMongoCollections?.(
+        // Fetch collections from backend
+        const rawCollections = await databaseService.listMongoCollections(
           connectionId,
           database,
         );
 
-        if (!rawCollections || !Array.isArray(rawCollections)) {
-          // Backend API not available yet - return empty array
-          logger.debug("schema-cache", "MongoDB collections API not available", { connectionId, database });
+        if (rawCollections.length === 0) {
           return [];
         }
 
         // Map raw collections to AI context format
-        const collections: AIMongoCollection[] = rawCollections.map((c: any) => ({
+        const collections: AIMongoCollection[] = rawCollections.map((c) => ({
           name: c.name,
-          documentCount: c.documentCount ?? c.document_count,
-          indexes: c.indexes || [],
-          sampleFields: c.sampleFields || c.sample_fields || [],
+          documentCount: c.docCount,
+          indexes: [],
+          sampleFields: [],
         }));
 
         this.set(key, collections, {
@@ -386,25 +382,21 @@ class SchemaCache {
     this.metrics.misses++;
     const promise = (async () => {
       try {
-        // Try to get key patterns from backend
-        // Backend API: databaseService.getRedisKeyPatterns may not exist yet
-        // This will be implemented in Task 8
-        const rawPatterns = await (databaseService as any).getRedisKeyPatterns?.(
+        // Fetch key patterns from backend
+        const rawPatterns = await databaseService.getRedisKeyPatterns(
           connectionId,
         );
 
-        if (!rawPatterns || !Array.isArray(rawPatterns)) {
-          // Backend API not available yet - return empty array
-          logger.debug("schema-cache", "Redis key patterns API not available", { connectionId });
+        if (rawPatterns.length === 0) {
           return [];
         }
 
         // Map raw patterns to AI context format
-        const patterns: AIRedisKeyPattern[] = rawPatterns.map((p: any) => ({
+        const patterns: AIRedisKeyPattern[] = rawPatterns.map((p) => ({
           pattern: p.pattern,
           count: p.count ?? 0,
-          types: p.types || [],
-          sampleKeys: p.sampleKeys || p.sample_keys,
+          types: (p.types || []) as AIRedisKeyPattern["types"],
+          sampleKeys: p.sampleKeys,
         }));
 
         this.set(key, patterns, {

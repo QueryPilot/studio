@@ -587,6 +587,43 @@ class DatabaseService {
   }
 
   /**
+   * List MongoDB collections for a connection
+   */
+  async listMongoCollections(
+    connectionId: string,
+    _database?: string,
+  ): Promise<{ name: string; docCount?: number; sizeBytes?: number }[]> {
+    try {
+      const result = await safeInvoke<{ name: string; docCount?: number; sizeBytes?: number }[]>(
+        "mongo_list_collections",
+        { connId: connectionId },
+      );
+      return result ?? [];
+    } catch (error) {
+      logger.error("Failed to list MongoDB collections:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Get Redis key patterns for a connection
+   */
+  async getRedisKeyPatterns(
+    connectionId: string,
+  ): Promise<{ pattern: string; count: number; types: string[]; sampleKeys: string[] }[]> {
+    try {
+      const result = await safeInvoke<{ pattern: string; count: number; types: string[]; sampleKeys: string[] }[]>(
+        "redis_key_patterns",
+        { connId: connectionId },
+      );
+      return result ?? [];
+    } catch (error) {
+      logger.error("Failed to get Redis key patterns:", error);
+      return [];
+    }
+  }
+
+  /**
    * List tables and views in a schema
    */
   async listTables(

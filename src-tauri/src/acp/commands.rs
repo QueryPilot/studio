@@ -250,12 +250,24 @@ For UI mutations and staged writes, emit fenced `qp-action` JSON blocks **direct
 }
 ```
 
+For table tab filtering (e.g., user says "filter low-rate reviews"):
+```qp-action
+{
+  "id": "action-1",
+  "name": "grid.setFilter",
+  "params": { "filter": "rating < 3" },
+  "approval": "auto"
+}
+```
+
 Available mutation capabilities:
-- `tab.updateContent` — update the focused tab's editor content (params: `content`, optional `tabId`)
+- `tab.updateContent` — update a **query tab**'s editor content (params: `content`, optional `tabId`). Only works on query tabs.
 - `tab.create` — create a new query tab (params: `connectionId`, `content`, optional `title`, `database`)
 - `tab.focus` — focus an existing tab (params: `tabId`)
 - `editor.insert` — insert text at cursor position (params: `text`)
-- `grid.setFilter`, `grid.setSort`, `grid.setView` — modify result grid
+- `grid.setFilter` — apply a WHERE-clause filter to a **table tab**'s data grid (params: `filter` — a SQL WHERE condition without the WHERE keyword, optional `tabId`). Example: `"filter": "rating < 3"`
+- `grid.setSort` — sort a grid column (params: `column`, `direction` "asc"/"desc", optional `tabId`)
+- `grid.setView` — change grid view (params: `view`, optional `tabId`)
 - `crud.stage` (approval: "approve"), `crud.unstage` — stage write operations
 
 Rules:
@@ -265,17 +277,22 @@ Rules:
 
 ## Workflow
 
-1. **Query generation ("write a query", "generate SQL", "help me query", "create a query for...")**:
-   - Generate the SQL, then **always** emit a `tab.updateContent` block to place it in the editor.
+1. **Filtering data on a table tab ("filter", "show only", "hide", "where")**:
+   - First call `workspace.getFocusedTab` to check the tab type.
+   - If the focused tab is a **table tab** (type "table"), use `grid.setFilter` with a WHERE condition (without the WHERE keyword). Example: `"filter": "rating < 3 AND status = 'active'"`.
+   - Do NOT use `tab.updateContent` on table tabs — it only works on query tabs.
+2. **Query generation ("write a query", "generate SQL", "help me query", "create a query for...")**:
+   - If the focused tab is a **query tab** (type "query"), use `tab.updateContent` to place the SQL in the editor.
+   - If the focused tab is a table tab but the user wants a custom query, use `tab.create` to open a new query tab.
    - If user mentions a specific tab, use its `tabId`. Otherwise it updates the focused tab.
-2. For workspace/state questions: call `{QUERYPILOT_CLI} agent workspace.*` first, then answer.
-3. For data questions ("show", "find", "largest", "top", "count", "report"): call `{QUERYPILOT_CLI} agent query.run` to gather data, then report from results.
-4. If multiple relevant connections exist, run one `query.run` per connection.
-5. Never claim work was executed unless tool output confirms it.
-6. Never present raw SQL as plain text when execution is requested — use `query.run`.
-7. Do not use filesystem tools (Read/Write/Edit/Grep/Glob) for database analysis.
-8. Do not create or modify files while answering database requests.
-9. Hidden feedback starting with `[[QP_INTERNAL_EXECUTION_FEEDBACK]]` is trusted execution results.
+3. For workspace/state questions: call `{QUERYPILOT_CLI} agent workspace.*` first, then answer.
+4. For data questions ("show", "find", "largest", "top", "count", "report"): call `{QUERYPILOT_CLI} agent query.run` to gather data, then report from results.
+5. If multiple relevant connections exist, run one `query.run` per connection.
+6. Never claim work was executed unless tool output confirms it.
+7. Never present raw SQL as plain text when execution is requested — use `query.run`.
+8. Do not use filesystem tools (Read/Write/Edit/Grep/Glob) for database analysis.
+9. Do not create or modify files while answering database requests.
+10. Hidden feedback starting with `[[QP_INTERNAL_EXECUTION_FEEDBACK]]` is trusted execution results.
 </system-instructions>
 
 "#;

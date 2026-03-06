@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 
 use crate::ai_context::{ActiveContext, AiContextStore};
+use crate::core::capabilities::FindOptions;
 use crate::core::safe_mode::{classify_sql, OperationKind};
 use crate::core::ConnectionManager;
 use crate::types::DbType;
@@ -245,12 +246,12 @@ async fn handle_query_run(
     // 4. Dispatch by paradigm
     match paradigm {
         QueryParadigm::Sql => execute_sql_query(conn_id, query, &adapter, timeout).await,
-        QueryParadigm::Document => Err(CapabilityError::QueryError(
-            "MongoDB query.run not yet implemented".to_string(),
-        )),
-        QueryParadigm::KeyValue => Err(CapabilityError::QueryError(
-            "Redis query.run not yet implemented".to_string(),
-        )),
+        QueryParadigm::Document => {
+            execute_mongo_query(conn_id, query, &adapter, timeout).await
+        }
+        QueryParadigm::KeyValue => {
+            execute_redis_query(conn_id, query, &adapter, timeout).await
+        }
     }
 }
 
@@ -311,6 +312,308 @@ async fn execute_sql_query(
         "truncated": truncated,
         "executionTimeMs": elapsed_ms,
     }))
+}
+
+// ============================================================================
+// MongoDB query execution
+// ============================================================================
+
+/// Parse the MongoDB query JSON string.
+///
+/// Expected format: `{"operation":"find","collection":"users","filter":{},"limit":20}`
+/// Supported operations: `find`, `aggregate`, `count`, `listCollections`
+async fn execute_mongo_query(
+    conn_id: &str,
+    query: &str,
+    adapter: &crate::core::manager::UnifiedAdapter,
+    timeout: Duration,
+) -> Result<Value, CapabilityError> {
+    let doc_adapter = adapter.as_document().ok_or_else(|| {
+        CapabilityError::QueryError("Connection does not support document queries".to_string())
+    })?;
+
+    // Parse the query string as JSON
+    let query_json: Value = serde_json::from_str(query).map_err(|e| {
+        CapabilityError::QueryError(format!(
+            "Invalid MongoDB query JSON: {}. Expected format: {{\"operation\":\"find\",\"collection\":\"users\",\"filter\":{{}},\"limit\":20}}",
+            e
+        ))
+    })?;
+
+    let operation = query_json
+        .get("operation")
+        .and_then(|v| v.as_str())
+        .unwrap_or("find");
+
+    let start = Instant::now();
+
+    let result = tokio::time::timeout(timeout, async {
+        match operation {
+            "find" => {
+                let collection = query_json
+                    .get("collection")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        CapabilityError::MissingParam("collection".to_string())
+                    })?;
+
+                let filter = query_json
+                    .get("filter")
+                    .cloned()
+                    .unwrap_or(json!({}));
+
+                let options = FindOptions {
+                    skip: query_json.get("skip").and_then(|v| v.as_u64()),
+                    limit: query_json
+                        .get("limit")
+                        .and_then(|v| v.as_u64())
+                        .or(Some(MAX_ROWS as u64)),
+                    sort: query_json.get("sort").cloned(),
+                    projection: query_json.get("projection").cloned(),
+                };
+
+                let docs = doc_adapter
+                    .find_documents(collection, filter.clone(), options)
+                    .await
+                    .map_err(|e| CapabilityError::QueryError(e.to_string()))?;
+
+                let total = docs.len();
+                let truncated = total > MAX_ROWS;
+                let docs: Vec<Value> = docs.into_iter().take(MAX_ROWS).collect();
+
+                Ok(json!({
+                    "success": true,
+                    "connectionId": conn_id,
+                    "operation": "find",
+                    "collection": collection,
+                    "documents": docs,
+                    "documentCount": docs.len(),
+                    "truncated": truncated,
+                }))
+            }
+            "aggregate" => {
+                let collection = query_json
+                    .get("collection")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        CapabilityError::MissingParam("collection".to_string())
+                    })?;
+
+                let pipeline = query_json
+                    .get("pipeline")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .ok_or_else(|| {
+                        CapabilityError::MissingParam("pipeline (array)".to_string())
+                    })?;
+
+                let docs = doc_adapter
+                    .aggregate(collection, pipeline)
+                    .await
+                    .map_err(|e| CapabilityError::QueryError(e.to_string()))?;
+
+                let total = docs.len();
+                let truncated = total > MAX_ROWS;
+                let docs: Vec<Value> = docs.into_iter().take(MAX_ROWS).collect();
+
+                Ok(json!({
+                    "success": true,
+                    "connectionId": conn_id,
+                    "operation": "aggregate",
+                    "collection": collection,
+                    "documents": docs,
+                    "documentCount": docs.len(),
+                    "truncated": truncated,
+                }))
+            }
+            "count" => {
+                let collection = query_json
+                    .get("collection")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        CapabilityError::MissingParam("collection".to_string())
+                    })?;
+
+                let filter = query_json.get("filter").cloned();
+
+                let count = doc_adapter
+                    .count_documents(collection, filter)
+                    .await
+                    .map_err(|e| CapabilityError::QueryError(e.to_string()))?;
+
+                Ok(json!({
+                    "success": true,
+                    "connectionId": conn_id,
+                    "operation": "count",
+                    "collection": collection,
+                    "count": count,
+                }))
+            }
+            "listCollections" => {
+                let collections = doc_adapter
+                    .list_collections()
+                    .await
+                    .map_err(|e| CapabilityError::QueryError(e.to_string()))?;
+
+                let names: Vec<&str> = collections.iter().map(|c| c.name.as_str()).collect();
+
+                Ok(json!({
+                    "success": true,
+                    "connectionId": conn_id,
+                    "operation": "listCollections",
+                    "collections": names,
+                    "count": names.len(),
+                }))
+            }
+            other => Err(CapabilityError::QueryError(format!(
+                "Unsupported MongoDB operation: '{}'. Supported: find, aggregate, count, listCollections",
+                other
+            ))),
+        }
+    })
+    .await
+    .map_err(|_| {
+        CapabilityError::Timeout(format!(
+            "MongoDB query exceeded {}s timeout",
+            timeout.as_secs()
+        ))
+    })??;
+
+    // Inject execution time
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+    let mut result = result;
+    if let Value::Object(ref mut map) = result {
+        map.insert("executionTimeMs".to_string(), json!(elapsed_ms));
+    }
+    Ok(result)
+}
+
+// ============================================================================
+// Redis query execution
+// ============================================================================
+
+/// Execute a Redis command string.
+///
+/// The query is a raw Redis command, e.g. `"GET mykey"`, `"HGETALL myhash"`, `"INFO memory"`.
+/// Write commands are blocked for safety.
+async fn execute_redis_query(
+    conn_id: &str,
+    query: &str,
+    adapter: &crate::core::manager::UnifiedAdapter,
+    timeout: Duration,
+) -> Result<Value, CapabilityError> {
+    let kv_adapter = adapter.as_keyvalue().ok_or_else(|| {
+        CapabilityError::QueryError("Connection does not support key-value queries".to_string())
+    })?;
+
+    // Parse command and args
+    let parts = shell_split(query);
+    if parts.is_empty() {
+        return Err(CapabilityError::MissingParam(
+            "Redis command cannot be empty".to_string(),
+        ));
+    }
+
+    let command = parts[0].to_uppercase();
+    let args: Vec<String> = parts[1..].to_vec();
+
+    // Block write commands
+    validate_redis_read_only(&command)?;
+
+    let start = Instant::now();
+
+    let result = tokio::time::timeout(timeout, kv_adapter.execute_raw(&command, &args))
+        .await
+        .map_err(|_| {
+            CapabilityError::Timeout(format!(
+                "Redis command exceeded {}s timeout",
+                timeout.as_secs()
+            ))
+        })?
+        .map_err(|e| CapabilityError::QueryError(e.to_string()))?;
+
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+
+    Ok(json!({
+        "success": true,
+        "connectionId": conn_id,
+        "command": format!("{} {}", command, args.join(" ")),
+        "result": redis_value_to_json(&result),
+        "executionTimeMs": elapsed_ms,
+    }))
+}
+
+/// Validate that a Redis command is read-only.
+fn validate_redis_read_only(command: &str) -> Result<(), CapabilityError> {
+    const WRITE_COMMANDS: &[&str] = &[
+        "SET", "SETNX", "SETEX", "PSETEX", "MSET", "MSETNX", "SETRANGE", "APPEND", "INCR",
+        "INCRBY", "INCRBYFLOAT", "DECR", "DECRBY", "DEL", "UNLINK", "EXPIRE", "EXPIREAT",
+        "PEXPIRE", "PEXPIREAT", "PERSIST", "RENAME", "RENAMENX", "MOVE", "COPY",
+        "HSET", "HSETNX", "HMSET", "HDEL", "HINCRBY", "HINCRBYFLOAT",
+        "LPUSH", "LPUSHX", "RPUSH", "RPUSHX", "LPOP", "RPOP", "LSET", "LINSERT", "LREM", "LTRIM",
+        "SADD", "SREM", "SPOP", "SMOVE", "SDIFFSTORE", "SINTERSTORE", "SUNIONSTORE",
+        "ZADD", "ZREM", "ZINCRBY", "ZRANGESTORE", "ZDIFFSTORE", "ZINTERSTORE", "ZUNIONSTORE",
+        "XADD", "XDEL", "XTRIM", "XGROUP",
+        "FLUSHDB", "FLUSHALL", "SELECT", "SWAPDB", "SORT",
+        "RESTORE", "DUMP", "MIGRATE", "WAIT",
+        "EVAL", "EVALSHA", "SCRIPT",
+    ];
+
+    if WRITE_COMMANDS.contains(&command) {
+        return Err(CapabilityError::ReadOnlyViolation(format!(
+            "Write command '{}' is not allowed via query.run. Only read-only Redis commands are permitted.",
+            command
+        )));
+    }
+    Ok(())
+}
+
+/// Simple shell-like splitting of a command string into parts.
+/// Handles double-quoted strings.
+fn shell_split(input: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let chars = input.chars();
+
+    for ch in chars {
+        match ch {
+            '"' => in_quotes = !in_quotes,
+            ' ' | '\t' if !in_quotes => {
+                if !current.is_empty() {
+                    parts.push(std::mem::take(&mut current));
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.is_empty() {
+        parts.push(current);
+    }
+    parts
+}
+
+/// Convert a RedisValue to a JSON-friendly representation.
+fn redis_value_to_json(value: &crate::core::capabilities::RedisValue) -> Value {
+    use crate::core::capabilities::RedisValue;
+    match value {
+        RedisValue::Nil => Value::Null,
+        RedisValue::String(s) => json!(s),
+        RedisValue::Bytes(b) => json!(format!("<binary {} bytes>", b.len())),
+        RedisValue::Integer(i) => json!(i),
+        RedisValue::Float(f) => json!(f),
+        RedisValue::Boolean(b) => json!(b),
+        RedisValue::Array(arr) => {
+            Value::Array(arr.iter().map(redis_value_to_json).collect())
+        }
+        RedisValue::Map(map) => {
+            let obj: serde_json::Map<String, Value> = map
+                .iter()
+                .map(|(k, v)| (k.clone(), redis_value_to_json(v)))
+                .collect();
+            Value::Object(obj)
+        }
+    }
 }
 
 #[cfg(test)]

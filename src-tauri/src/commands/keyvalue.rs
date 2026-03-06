@@ -189,6 +189,121 @@ pub async fn redis_info(
     redis.get_server_info_raw().await.map_err(|e| e.to_string())
 }
 
+/// Get key patterns for AI context — bounded scan that groups keys by prefix
+#[tauri::command]
+pub async fn redis_key_patterns(
+    conn_id: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<Vec<RedisKeyPatternInfo>, String> {
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
+    let redis = adapter
+        .as_redis()
+        .ok_or_else(|| "Not a Redis connection".to_string())?;
+
+    // Bounded scan: collect up to 200 keys to discover patterns
+    const MAX_KEYS: usize = 200;
+    const SCAN_COUNT: u32 = 100;
+    let mut all_keys = Vec::new();
+    let mut cursor = 0u64;
+
+    loop {
+        let result = redis.scan_keys("*", cursor, SCAN_COUNT).await.map_err(|e| e.to_string())?;
+        all_keys.extend(result.keys);
+        cursor = result.cursor;
+        if cursor == 0 || all_keys.len() >= MAX_KEYS {
+            break;
+        }
+    }
+    all_keys.truncate(MAX_KEYS);
+
+    // Group by prefix pattern (split on common delimiters : . /)
+    let mut pattern_map: std::collections::HashMap<String, PatternAccumulator> =
+        std::collections::HashMap::new();
+
+    for key_info in &all_keys {
+        let pattern = extract_key_pattern(&key_info.key);
+        let entry = pattern_map.entry(pattern).or_default();
+        entry.count += 1;
+        entry.types.insert(format!("{}", key_info.key_type));
+        if entry.sample_keys.len() < 3 {
+            entry.sample_keys.push(key_info.key.clone());
+        }
+    }
+
+    let total_keys = redis.dbsize().await.unwrap_or(all_keys.len() as u64);
+
+    let mut patterns: Vec<RedisKeyPatternInfo> = pattern_map
+        .into_iter()
+        .map(|(pattern, acc)| {
+            // Estimate real count based on sample ratio
+            let sample_ratio = if all_keys.is_empty() { 0.0 } else { acc.count as f64 / all_keys.len() as f64 };
+            let estimated_count = (sample_ratio * total_keys as f64).round() as u64;
+            RedisKeyPatternInfo {
+                pattern,
+                count: estimated_count.max(acc.count as u64),
+                types: acc.types.into_iter().collect(),
+                sample_keys: acc.sample_keys,
+            }
+        })
+        .collect();
+
+    patterns.sort_by(|a, b| b.count.cmp(&a.count));
+    Ok(patterns)
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisKeyPatternInfo {
+    pub pattern: String,
+    pub count: u64,
+    pub types: Vec<String>,
+    pub sample_keys: Vec<String>,
+}
+
+#[derive(Default)]
+struct PatternAccumulator {
+    count: usize,
+    types: std::collections::HashSet<String>,
+    sample_keys: Vec<String>,
+}
+
+/// Extract a pattern from a key by replacing the last segment after common delimiters.
+/// e.g. "user:123" → "user:*", "session:abc:data" → "session:*:data", "simple" → "*"
+fn extract_key_pattern(key: &str) -> String {
+    // Try common delimiters in order of preference
+    for delim in [':', '.', '/'] {
+        if key.contains(delim) {
+            let parts: Vec<&str> = key.split(delim).collect();
+            if parts.len() >= 2 {
+                // Replace parts that look like IDs (numeric, uuid-like, or long) with *
+                let pattern_parts: Vec<&str> = parts
+                    .iter()
+                    .map(|p| {
+                        if looks_like_id(p) { "*" } else { p }
+                    })
+                    .collect();
+                return pattern_parts.join(&delim.to_string());
+            }
+        }
+    }
+    // No delimiter — single key
+    if looks_like_id(key) { "*".to_string() } else { key.to_string() }
+}
+
+fn looks_like_id(s: &str) -> bool {
+    if s.is_empty() { return false; }
+    // Numeric
+    if s.chars().all(|c| c.is_ascii_digit()) { return true; }
+    // UUID-like (contains hyphens and hex chars, length > 8)
+    if s.len() > 8 && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-') { return true; }
+    // Long random-looking strings
+    if s.len() > 16 && s.chars().all(|c| c.is_ascii_alphanumeric()) { return true; }
+    false
+}
+
 /// Get key type
 #[tauri::command]
 pub async fn redis_type(
