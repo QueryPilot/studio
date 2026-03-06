@@ -112,7 +112,22 @@ pub async fn acp_create_session(
         cwd
     );
 
-    match manager.create_session(&instance_id, &cwd).await {
+    // Resolve relative paths to absolute (Codex requires absolute cwd)
+    let abs_cwd = std::path::Path::new(&cwd);
+    let abs_cwd = if abs_cwd.is_absolute() {
+        cwd.clone()
+    } else {
+        std::env::current_dir()
+            .map(|d| d.join(&cwd).to_string_lossy().to_string())
+            .unwrap_or_else(|_| {
+                dirs::home_dir()
+                    .map(|h| h.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "/tmp".to_string())
+            })
+    };
+    tracing::info!("Resolved cwd: {}", abs_cwd);
+
+    match manager.create_session(&instance_id, &abs_cwd).await {
         Ok(session_id) => {
             tracing::info!("Session created: {}", session_id);
             Ok(session_id)
@@ -168,19 +183,26 @@ pub async fn acp_get_session_id(
     Ok(session_id.to_string())
 }
 
-/// System instructions prepended to every prompt
-const SYSTEM_INSTRUCTIONS: &str = r#"<system-instructions>
+/// System instructions template. `{QUERYPILOT_CLI}` is replaced at runtime
+/// with the resolved absolute path to the CLI binary.
+const SYSTEM_INSTRUCTIONS_TEMPLATE: &str = r#"<system-instructions>
 You are Query Pilot's in-product database assistant.
 
 ## Reading Data — Shell Tool Calls
 
-Use the Query Pilot CLI for ALL read operations:
+Use the Query Pilot CLI for ALL read operations.
 
-Command: `${QUERYPILOT_CLI_PATH:-querypilot} agent <capability-id>`
+**IMPORTANT: The CLI binary path is `{QUERYPILOT_CLI}`. Always use this exact path.**
 
-Pipe a JSON request to stdin:
 ```
-echo '{"version":"1","requestId":"r1","params":{}}' | querypilot agent workspace.listTabs
+echo '<json>' | {QUERYPILOT_CLI} agent <capability>
+```
+
+**Do NOT guess or search for the CLI path. Do NOT try `querypilot`, `$QUERYPILOT_CLI_PATH`, `/usr/local/bin/querypilot`, or any other path. Always use the exact path shown above.**
+
+Example:
+```
+echo '{"version":"1","requestId":"r1","params":{}}' | {QUERYPILOT_CLI} agent workspace.listTabs
 ```
 
 Available read capabilities:
@@ -197,9 +219,9 @@ query.run params:
 - `title` (optional): human-readable label
 
 query.run examples:
-- SQL: `{"connectionId":"c1","query":"SELECT * FROM users LIMIT 20"}`
-- MongoDB: `{"connectionId":"c2","language":"mongo","query":"{\"operation\":\"find\",\"collection\":\"users\",\"filter\":{},\"limit\":20}"}`
-- Redis: `{"connectionId":"c3","language":"redis","query":"INFO memory"}`
+- SQL: `echo '{"version":"1","requestId":"q1","params":{"connectionId":"c1","query":"SELECT * FROM users LIMIT 20"}}' | {QUERYPILOT_CLI} agent query.run`
+- MongoDB: `echo '{"version":"1","requestId":"q1","params":{"connectionId":"c2","language":"mongo","query":"{\"operation\":\"find\",\"collection\":\"users\",\"filter\":{},\"limit\":20}"}}' | {QUERYPILOT_CLI} agent query.run`
+- Redis: `echo '{"version":"1","requestId":"q1","params":{"connectionId":"c3","language":"redis","query":"INFO memory"}}' | {QUERYPILOT_CLI} agent query.run`
 
 ## Modifying State — qp-action Text Blocks
 
@@ -227,8 +249,8 @@ Rules:
 
 ## Workflow
 
-1. For workspace/state questions: call `querypilot agent workspace.*` first, then answer.
-2. For data questions ("show", "find", "largest", "top", "count", "report"): call `querypilot agent query.run` to gather data, then report from results.
+1. For workspace/state questions: call `{QUERYPILOT_CLI} agent workspace.*` first, then answer.
+2. For data questions ("show", "find", "largest", "top", "count", "report"): call `{QUERYPILOT_CLI} agent query.run` to gather data, then report from results.
 3. If multiple relevant connections exist, run one `query.run` per connection.
 4. Never claim work was executed unless tool output confirms it.
 5. Never present raw SQL as plain text when execution is requested — use `query.run`.
@@ -238,6 +260,14 @@ Rules:
 </system-instructions>
 
 "#;
+
+/// Build system instructions with the resolved CLI path injected.
+fn build_system_instructions() -> String {
+    let cli_path = resolve_querypilot_cli_path()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "querypilot".to_string());
+    SYSTEM_INSTRUCTIONS_TEMPLATE.replace("{QUERYPILOT_CLI}", &cli_path)
+}
 
 /// Image data passed from the frontend
 #[derive(Debug, serde::Deserialize)]
@@ -265,9 +295,9 @@ pub async fn acp_send_prompt(
 
     let mut content = vec![];
 
-    // Always prepend system instructions first
+    // Always prepend system instructions with resolved CLI path
     content.push(ContentBlock::Text(TextContent::new(
-        SYSTEM_INSTRUCTIONS.to_string(),
+        build_system_instructions(),
     )));
 
     // Add structured database context if provided (must be JSON from frontend)
@@ -652,14 +682,14 @@ pub async fn agent_capability(
 
 #[cfg(test)]
 mod tests {
-    use super::SYSTEM_INSTRUCTIONS;
+    use super::SYSTEM_INSTRUCTIONS_TEMPLATE;
 
     #[test]
     fn system_instructions_contain_key_directives() {
-        assert!(SYSTEM_INSTRUCTIONS.contains("querypilot agent"));
-        assert!(SYSTEM_INSTRUCTIONS.contains("query.run"));
-        assert!(SYSTEM_INSTRUCTIONS.contains("qp-action"));
-        assert!(SYSTEM_INSTRUCTIONS.contains("crud.stage"));
-        assert!(SYSTEM_INSTRUCTIONS.contains("read-only"));
+        assert!(SYSTEM_INSTRUCTIONS_TEMPLATE.contains("{QUERYPILOT_CLI}"));
+        assert!(SYSTEM_INSTRUCTIONS_TEMPLATE.contains("query.run"));
+        assert!(SYSTEM_INSTRUCTIONS_TEMPLATE.contains("qp-action"));
+        assert!(SYSTEM_INSTRUCTIONS_TEMPLATE.contains("crud.stage"));
+        assert!(SYSTEM_INSTRUCTIONS_TEMPLATE.contains("read-only"));
     }
 }

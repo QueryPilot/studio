@@ -886,14 +886,42 @@ export const useAcpStore = create<AcpState>()(
 
     addToolCall: (toolCall) => {
       set((state) => {
-        // Prevent duplicate tool calls (same ID can be sent multiple times during streaming)
-        if (state.activeToolCalls.some((tc) => tc.id === toolCall.id)) {
-          return state; // Already have this tool call
+        // Claude Code sends multiple ToolCall events for the same ID —
+        // the first has empty input (pending), the second has actual params.
+        // Merge new input data when the existing call has none.
+        const existingIdx = state.activeToolCalls.findIndex(
+          (tc) => tc.id === toolCall.id,
+        );
+        const existing = existingIdx !== -1 ? state.activeToolCalls[existingIdx] : undefined;
+        if (existing) {
+          const hasNewInput =
+            Object.keys(toolCall.input).length > 0 &&
+            Object.keys(existing.input).length === 0;
+          if (!hasNewInput) return state;
+
+          const merged: ToolCall = {
+            id: existing.id,
+            name: existing.name,
+            status: existing.status,
+            input: toolCall.input,
+            output: existing.output,
+            error: existing.error,
+          };
+          const nextCalls = [...state.activeToolCalls];
+          nextCalls[existingIdx] = merged;
+          return {
+            activeToolCalls: nextCalls,
+            streamingFlow: state.streamingFlow.map((seg) =>
+              seg.type === "toolStatus" && seg.call.id === toolCall.id
+                ? { ...seg, call: merged }
+                : seg,
+            ),
+          };
         }
 
         const hasFlowEntry = state.streamingFlow.some(
           (segment) =>
-            segment.type === "toolStatus" && segment.call.id === toolCall.id
+            segment.type === "toolStatus" && segment.call.id === toolCall.id,
         );
         const nextFlow = hasFlowEntry
           ? state.streamingFlow

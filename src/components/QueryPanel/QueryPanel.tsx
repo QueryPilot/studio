@@ -561,13 +561,19 @@ export const QueryPanel = memo(function QueryPanel({
         setIsExecuting(true);
       }
       setIsStreaming(true);
-      setResult((prev) => {
-        if (prev && !prev.error && prev.rows.length > 0) return prev;
-        return null;
-      });
+      if (isSingleRun) {
+        setResult(null);
+      } else {
+        setResult((prev) => {
+          if (prev && !prev.error && prev.rows.length > 0) return prev;
+          return null;
+        });
+      }
 
       let errorMessage: string | undefined;
       const t0 = performance.now();
+      let rafId: number | undefined;
+      let pendingTimeout: number | undefined;
 
       try {
         const pageSize = 2500;
@@ -576,40 +582,31 @@ export const QueryPanel = memo(function QueryPanel({
         let currentColumnMeta: ColumnMeta[] = [];
         let rowCount = 0;
         const accumulatedRows: unknown[][] = [];
-        let rafId: number | undefined;
-        let pendingTimeout: number | undefined;
 
         const renderedCountRef = { current: 0 };
         const hasRenderedOnce = { current: false };
-        const getUpdateInterval = (rowCount: number): number => {
-          if (rowCount < 5000) return 32;
-          if (rowCount < 20000) return 100;
+        const getUpdateInterval = (count: number): number => {
+          if (count < 5000) return 32;
+          if (count < 20000) return 100;
           return 200;
         };
         let lastUpdateTime = 0;
 
-        const commitSnapshot = () => {
-          const latestTotal = accumulatedRows.length;
-          startTransition(() => {
-            setResult((prev) => {
-              if (!prev) {
-                return {
-                  columns: currentColumns,
-                  columnMeta: currentColumnMeta,
-                  rows: accumulatedRows,
-                  rowCount: latestTotal,
-                  executionTime: 0,
-                };
-              }
-              return {
-                ...prev,
-                columns: currentColumns,
-                columnMeta: currentColumnMeta,
-                rows: accumulatedRows,
-                rowCount: latestTotal,
-              };
+        const commitSnapshot = (sync = false) => {
+          const snapshot: QueryResult = {
+            columns: currentColumns,
+            columnMeta: currentColumnMeta,
+            rows: accumulatedRows,
+            rowCount: accumulatedRows.length,
+            executionTime: 0,
+          };
+          if (sync) {
+            setResult(snapshot);
+          } else {
+            startTransition(() => {
+              setResult(snapshot);
             });
-          });
+          }
         };
 
         const scheduleUpdate = () => {
@@ -620,7 +617,7 @@ export const QueryPanel = memo(function QueryPanel({
             hasRenderedOnce.current = true;
             renderedCountRef.current = total;
             lastUpdateTime = performance.now();
-            commitSnapshot();
+            commitSnapshot(true);
             return;
           }
 
@@ -686,16 +683,6 @@ export const QueryPanel = memo(function QueryPanel({
         );
 
         const final = await streamPromise;
-
-        if (pendingTimeout !== undefined) {
-          clearTimeout(pendingTimeout);
-          pendingTimeout = undefined;
-        }
-
-        if (rafId !== undefined) {
-          cancelAnimationFrame(rafId);
-          rafId = undefined;
-        }
 
         const executionTime = final.executionTimeMs ?? 0;
         const sqlUpper = sql.trim().toUpperCase();
@@ -949,6 +936,12 @@ export const QueryPanel = memo(function QueryPanel({
           errorMessage,
         };
       } finally {
+        if (pendingTimeout !== undefined) {
+          clearTimeout(pendingTimeout);
+        }
+        if (rafId !== undefined) {
+          cancelAnimationFrame(rafId);
+        }
         if (isSingleRun) {
           isExecutingRef.current = false;
           setIsExecuting(false);

@@ -5684,15 +5684,9 @@ dependencies = [
 name = "querypilot"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "dirs 5.0.1",
- "futures",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
