@@ -134,6 +134,7 @@ fn main() {
             commands::mongo_create_index,
             commands::mongo_drop_index,
             // Redis commands
+            commands::redis_key_patterns,
             commands::redis_get,
             commands::redis_set,
             commands::redis_delete,

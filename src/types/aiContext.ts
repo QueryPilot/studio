@@ -184,6 +184,20 @@ export interface TabMention {
 }
 
 // -----------------------------------------------------------------------------
+// Connection Mention
+// -----------------------------------------------------------------------------
+
+export interface ConnectionMention {
+  type: "connection";
+  connectionId: string;
+  connectionName: string;
+  dbType: string;
+  database: string;
+  paradigm: string;
+  schemas: string[];
+}
+
+// -----------------------------------------------------------------------------
 // Union Type
 // -----------------------------------------------------------------------------
 
@@ -191,7 +205,8 @@ export type AIMention =
   | TableMention
   | ViewMention
   | FunctionMention
-  | TabMention;
+  | TabMention
+  | ConnectionMention;
 
 // =============================================================================
 // Mention Reference (parsed from input)

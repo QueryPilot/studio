@@ -3,6 +3,9 @@ import { useWorkspaceScreenStore } from "../workspaceScreenStore";
 
 describe("workspaceScreenStore", () => {
   beforeEach(() => {
+    // Clear persisted sidebar state
+    localStorage.removeItem("qp:sidebar-state");
+
     // Reset store to initial state
     useWorkspaceScreenStore.setState({
       workspaces: new Map(),

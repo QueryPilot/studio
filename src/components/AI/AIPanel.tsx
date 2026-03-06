@@ -12,8 +12,6 @@ import {
   useMemo,
   useEffect,
   useRef,
-  type KeyboardEvent,
-  type ClipboardEvent as ReactClipboardEvent,
 } from "react";
 import { useAcpStore } from "@/stores/acpStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
@@ -24,7 +22,7 @@ import {
   enrichMentionsFromMessage,
   findConnectionFromMentions,
 } from "@/hooks/useAIContext";
-import { getMentionAtCursor, formatMention } from "@/utils/mentionParser";
+import { LexicalInput, type LexicalInputHandle } from "./mention";
 import type { AIContext } from "@/types/aiContext";
 import { AgentSelector } from "./AgentSelector";
 import { CompactModelPicker } from "./CompactModelPicker";
@@ -32,7 +30,6 @@ import { ModelSelector } from "./ModelSelector";
 import { ImagePreviewPopover } from "./ImagePreviewPopover";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -64,7 +61,6 @@ import {
   IconTrash,
   IconTable,
   IconEye,
-  IconCode,
   IconPlus,
   IconMessage,
   IconArrowDown,
@@ -76,7 +72,7 @@ import { writeClipboardText } from "@/lib/clipboard";
 import { Streamdown } from "streamdown";
 import type { ToolCall as ToolCallType } from "@/types/acp";
 import { parseCommandsProgressive } from "@/utils/aiCommandParser";
-import { parseMentions } from "@/utils/mentionParser";
+import { parseMentions, stripMentionIds } from "@/utils/mentionParser";
 import { CommandList } from "./CommandCard";
 import { QueryBlock } from "./QueryBlock";
 import { buildFallbackQueryRunCommands } from "./sqlFallbackActions";
@@ -195,7 +191,7 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [attachedContext, setAttachedContext] =
     useState<FocusedTabContextSnapshot | null>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<LexicalInputHandle>(null);
   const [pendingImages, setPendingImages] = useState<PreparedImage[]>([]);
 
   const handleAddImages = useCallback(
@@ -528,6 +524,7 @@ ${batchResult}`;
 
     setError(null);
     setInputValue("");
+    inputRef.current?.clear();
 
     // Capture and clear pending images
     const imagesToSend = pendingImages.map((img) => ({
@@ -546,6 +543,7 @@ ${batchResult}`;
         if (!byokSession) {
           setError("Configure and connect a provider first.");
           setInputValue(content);
+          inputRef.current?.setText(content);
           return;
         }
         const { toolContext, schemaContext } = buildByokRuntimeContext();
@@ -581,6 +579,7 @@ ${batchResult}`;
       console.error("Failed to send:", err);
       setError(err instanceof Error ? err.message : "Failed to send message");
       setInputValue(content); // Restore input on error
+      inputRef.current?.setText(content);
     }
   }, [
     inputValue,
@@ -644,16 +643,6 @@ ${batchResult}`;
       sendMessage,
       startSession,
     ],
-  );
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        void handleSend();
-      }
-    },
-    [handleSend],
   );
 
   const handleCancel = useCallback(() => {
@@ -781,6 +770,7 @@ ${batchResult}`;
               hasInstalledAgents={hasInstalledAgents}
               onExampleClick={(prompt) => {
                 setInputValue(prompt);
+                inputRef.current?.setText(prompt);
                 inputRef.current?.focus();
               }}
             />
@@ -812,8 +802,8 @@ ${batchResult}`;
         value={inputValue}
         onChange={setInputValue}
         onSubmit={handleSend}
-        onKeyDown={handleKeyDown}
         onCancel={handleCancel}
+        onNewConversation={handleNewConversation}
         onStartTyping={handleStartTyping}
         isStreaming={effectiveIsStreaming}
         isWarmingUp={isWarmingUp}
@@ -1441,7 +1431,7 @@ function MessageBubble({
   const messageSegments = useMemo<MessageContentSegment[]>(() => {
     if (isUser) {
       if (!content) return [];
-      return splitTextIntoSegments(content, "user", false);
+      return splitTextIntoSegments(stripMentionIds(content), "user", false);
     }
 
     const orderedBlocks = assistantBlocks ?? assistantFlow;
@@ -1641,7 +1631,7 @@ function MessageBubble({
           type="button"
           className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
           onClick={() => {
-            writeClipboardText(content);
+            void writeClipboardText(content);
             setCopied(true);
             setTimeout(() => {
               setCopied(false);
@@ -2185,7 +2175,7 @@ function InlineToolCallEvent({ call }: { call: ToolCallType }) {
             {hasDetails && expanded && finalQuery && (
               <div className="group/code relative mt-1.5">
                 <button
-                  onClick={() => { writeClipboardText(finalQuery); }}
+                  onClick={() => { void writeClipboardText(finalQuery); }}
                   className="absolute top-1 right-1 opacity-0 group-hover/code:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted-foreground/20 text-muted-foreground"
                   title="Copy query"
                 >
@@ -2343,25 +2333,15 @@ function EmptyState({
 }
 
 // ============================================================================
-// Input Area with @ Mention Autocomplete
+// Input Area with @ Mention Autocomplete (via Lexical)
 // ============================================================================
-
-interface MentionSuggestion {
-  type: "table" | "view" | "function" | "tab";
-  name: string;
-  schema?: string;
-  /** Breadcrumb like "connName › schema" or "connName › database" */
-  breadcrumb: string;
-  connectionId?: string;
-  connectionName?: string;
-}
 
 interface InputAreaProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
-  onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
   onCancel: () => void;
+  onNewConversation: () => void;
   onStartTyping: () => void;
   isStreaming: boolean;
   isWarmingUp: boolean;
@@ -2382,8 +2362,8 @@ const InputArea = ({
   value,
   onChange,
   onSubmit,
-  onKeyDown: parentOnKeyDown,
   onCancel,
+  onNewConversation,
   onStartTyping,
   isStreaming,
   isWarmingUp,
@@ -2398,21 +2378,18 @@ const InputArea = ({
   pendingImages,
   onAddImages,
   onRemoveImage,
-}: InputAreaProps & { ref?: React.Ref<HTMLTextAreaElement> }) => {
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const [showMentions, setShowMentions] = useState(false);
-  const [mentionFilter, setMentionFilter] = useState("");
-  const [mentionStart, setMentionStart] = useState(0);
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  ref,
+}: InputAreaProps & { ref?: React.Ref<LexicalInputHandle> }) => {
+  const localRef = useRef<LexicalInputHandle>(null);
+  const inputRef = (ref as React.RefObject<LexicalInputHandle | null>) ?? localRef;
   const [isFocused, setIsFocused] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounterRef = useRef(0);
-  const mentionListRef = useRef<HTMLDivElement>(null);
 
-  // Paste handler — extract images from clipboard
-  const handlePaste = useCallback(
-    (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
-      const files = extractImagesFromPaste(e.nativeEvent);
+  // Paste handler — extract images from native ClipboardEvent (used by LexicalInput PastePlugin)
+  const handleNativePaste = useCallback(
+    (e: ClipboardEvent) => {
+      const files = extractImagesFromPaste(e);
       if (files.length > 0) {
         e.preventDefault();
         onAddImages(files);
@@ -2455,102 +2432,6 @@ const InputArea = ({
     }
   }, []);
 
-  // Build suggestions from context - ALL connections in workspace
-  const suggestions = useMemo((): MentionSuggestion[] => {
-    const items: MentionSuggestion[] = [];
-    const filter = mentionFilter.toLowerCase();
-
-    // Check if filtering for tabs specifically
-    if (filter.startsWith("tab:")) {
-      const tabFilter = filter.slice(4);
-      openTabs.forEach((tab) => {
-        if (tab.name.toLowerCase().includes(tabFilter)) {
-          items.push({
-            type: "tab",
-            name: tab.name,
-            breadcrumb: tab.type,
-          });
-        }
-      });
-      return items;
-    }
-
-    // Add tables, views, functions from ALL connections
-    aiContext.connections.forEach((conn) => {
-      conn.schemas.forEach((schema) => {
-        // For DBs without schema support (MySQL, MariaDB, SQLite), show just connection name
-        // For PostgreSQL, SQL Server - show connName › schema
-        const hasSchemaSupport = ["PostgreSQL", "SQLServer"].includes(
-          conn.dbType,
-        );
-        const breadcrumb = hasSchemaSupport
-          ? `${conn.name} › ${schema.name}`
-          : conn.name;
-
-        schema.tables.forEach((table) => {
-          if (table.toLowerCase().includes(filter)) {
-            items.push({
-              type: "table",
-              name: table,
-              schema: schema.name,
-              breadcrumb,
-              connectionId: conn.id,
-              connectionName: conn.name,
-            });
-          }
-        });
-
-        schema.views.forEach((view) => {
-          if (view.toLowerCase().includes(filter)) {
-            items.push({
-              type: "view",
-              name: view,
-              schema: schema.name,
-              breadcrumb,
-              connectionId: conn.id,
-              connectionName: conn.name,
-            });
-          }
-        });
-
-        schema.functions.forEach((func) => {
-          if (func.toLowerCase().includes(filter)) {
-            items.push({
-              type: "function",
-              name: func,
-              schema: schema.name,
-              breadcrumb,
-              connectionId: conn.id,
-              connectionName: conn.name,
-            });
-          }
-        });
-      });
-    });
-
-    // Add tabs
-    openTabs.forEach((tab) => {
-      if (tab.name.toLowerCase().includes(filter)) {
-        items.push({
-          type: "tab",
-          name: tab.name,
-          breadcrumb: tab.type,
-        });
-      }
-    });
-
-    return items.slice(0, 12); // Limit suggestions
-  }, [aiContext, openTabs, mentionFilter]);
-
-  // Auto-resize textarea
-  useEffect(() => {
-    const textarea = inputRef.current;
-    if (textarea) {
-      textarea.style.height = "auto";
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
-    }
-  }, [value]);
-
   // Forward ref behavior
   useEffect(() => {
     if (!isStreaming) {
@@ -2558,99 +2439,13 @@ const InputArea = ({
     }
   }, [isStreaming]);
 
-  // Handle input change and detect @ mentions
+  // Handle input change from LexicalInput (plain text)
   const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const newValue = e.target.value;
-      const cursorPos = e.target.selectionStart;
-
-      // Trigger warmup when user starts typing (empty -> non-empty)
-      if (value.length === 0 && newValue.length > 0) {
-        onStartTyping();
-      }
-
+    (newValue: string) => {
       onChange(newValue);
-
-      // Check for @ mention at cursor
-      const mention = getMentionAtCursor(newValue, cursorPos);
-      if (mention) {
-        setShowMentions(true);
-        setMentionFilter(mention.prefix);
-        setMentionStart(mention.start);
-        setSelectedIndex(0); // Reset selection when filter changes
-      } else {
-        setShowMentions(false);
-        setMentionFilter("");
-      }
+      onStartTyping();
     },
-    [value, onChange, onStartTyping],
-  );
-
-  // Insert selected mention
-  // When workspace has 2+ connections, include connection name for disambiguation
-  const insertMention = useCallback(
-    (suggestion: MentionSuggestion) => {
-      const connName =
-        aiContext.connections.length > 1
-          ? suggestion.connectionName
-          : undefined;
-      const mention = formatMention(
-        suggestion.type,
-        suggestion.name,
-        suggestion.schema,
-        connName,
-      );
-      const before = value.slice(0, mentionStart);
-      const cursorPos = inputRef.current?.selectionStart ?? value.length;
-      const after = value.slice(cursorPos);
-
-      const newValue = before + mention + " " + after;
-      onChange(newValue);
-      setShowMentions(false);
-
-      // Focus and set cursor position after mention
-      requestAnimationFrame(() => {
-        const pos = mentionStart + mention.length + 1;
-        inputRef.current?.setSelectionRange(pos, pos);
-        inputRef.current?.focus();
-      });
-    },
-    [value, mentionStart, onChange, aiContext.connections.length],
-  );
-
-  // Handle keyboard navigation in mentions
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (showMentions && suggestions.length > 0) {
-        switch (e.key) {
-          case "ArrowDown":
-            e.preventDefault();
-            setSelectedIndex((i) => Math.min(i + 1, suggestions.length - 1));
-            return;
-          case "ArrowUp":
-            e.preventDefault();
-            setSelectedIndex((i) => Math.max(i - 1, 0));
-            return;
-          case "Enter":
-          case "Tab": {
-            e.preventDefault();
-            const selected = suggestions[selectedIndex];
-            if (selected) {
-              insertMention(selected);
-            }
-            return;
-          }
-          case "Escape":
-            e.preventDefault();
-            setShowMentions(false);
-            return;
-        }
-      }
-
-      // Pass to parent handler
-      parentOnKeyDown(e);
-    },
-    [showMentions, suggestions, selectedIndex, insertMention, parentOnKeyDown],
+    [onChange, onStartTyping],
   );
 
   const placeholder =
@@ -2661,19 +2456,6 @@ const InputArea = ({
         : isWarmingUp
           ? "Starting agent... you can type now"
           : "Ask anything... use @ to mention tables";
-
-  const getMentionIcon = (type: MentionSuggestion["type"]) => {
-    switch (type) {
-      case "table":
-        return <IconTable className="h-3.5 w-3.5 text-blue-500" />;
-      case "view":
-        return <IconEye className="h-3.5 w-3.5 text-purple-500" />;
-      case "function":
-        return <IconCode className="h-3.5 w-3.5 text-green-500" />;
-      case "tab":
-        return <IconFileText className="h-3.5 w-3.5 text-orange-500" />;
-    }
-  };
 
   return (
     <div
@@ -2755,67 +2537,33 @@ const InputArea = ({
           </div>
         )}
 
-        {/* @ Mention Autocomplete Dropdown */}
-        {showMentions && suggestions.length > 0 && (
-          <div
-            ref={mentionListRef}
-            className="absolute bottom-full left-0 mb-2 w-80 max-h-64 overflow-y-auto rounded-xl border-2 border-border bg-popover shadow-lg z-50"
-          >
-            <div className="p-1">
-              {suggestions.map((suggestion, index) => (
-                <button
-                  key={`${suggestion.type}-${suggestion.name}-${suggestion.breadcrumb}`}
-                  type="button"
-                  className={cn(
-                    "w-full flex items-center gap-2 px-3 py-2 text-left text-[12px] rounded-lg",
-                    "transition-colors",
-                    index === selectedIndex
-                      ? "bg-accent text-accent-foreground"
-                      : "hover:bg-accent/50",
-                  )}
-                  onClick={() => {
-                    insertMention(suggestion);
-                  }}
-                  onMouseEnter={() => {
-                    setSelectedIndex(index);
-                  }}
-                >
-                  {getMentionIcon(suggestion.type)}
-                  <span className="font-medium truncate">
-                    {suggestion.name}
-                  </span>
-                  <span className="flex-1" />
-                  <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">
-                    {suggestion.breadcrumb}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Textarea */}
-        <Textarea
-          ref={inputRef}
-          value={value}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
+        {/* Lexical rich-text input with inline @ mentions */}
+        <div
           onFocus={() => {
             setIsFocused(true);
           }}
           onBlur={() => {
             setIsFocused(false);
           }}
-          placeholder={placeholder}
-          disabled={disabled || isStreaming}
-          className={cn(
-            "min-h-[48px] max-h-[160px] w-full resize-none border-0 bg-transparent",
-            "px-4 pt-3 pb-2 text-[13px] placeholder:text-muted-foreground/50",
-            "focus-visible:ring-0 focus-visible:ring-offset-0",
-          )}
-          rows={1}
-        />
+        >
+          <LexicalInput
+            ref={inputRef}
+            value={value}
+            onChange={handleChange}
+            onSubmit={onSubmit}
+            onNewConversation={onNewConversation}
+            onPaste={handleNativePaste}
+            placeholder={placeholder}
+            disabled={disabled || isStreaming}
+            className={cn(
+              "border-0 bg-transparent",
+              "focus-visible:ring-0 focus-visible:ring-offset-0",
+            )}
+            aiContext={aiContext}
+            openTabs={openTabs}
+            focusedConnectionId={aiContext.focusedConnectionId ?? undefined}
+          />
+        </div>
 
         {/* Footer inside the input container */}
         <div className="flex items-center gap-1 p-1 px-1.5">
@@ -3085,7 +2833,7 @@ function ByokMessageList({
               key={`user-${idx}`}
               className="group px-3 py-3 bg-primary/5 border-l-3 border-primary"
             >
-              {renderByokTextSegments(text, `byok-user-${idx}`, false)}
+              {renderByokTextSegments(stripMentionIds(text), `byok-user-${idx}`, false)}
             </div>
           );
         }

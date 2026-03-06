@@ -6,6 +6,36 @@ import type {
   TabState,
 } from "@/types/workspaceScreen";
 
+// =============================================================================
+// Sidebar persistence
+// =============================================================================
+
+const SIDEBAR_STORAGE_KEY = "qp:sidebar-state";
+
+function loadPersistedSidebars(): { left: boolean; right: boolean } {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { left?: boolean; right?: boolean };
+      return {
+        left: parsed.left ?? true,
+        right: parsed.right ?? false,
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return { left: true, right: false };
+}
+
+function persistSidebars(sidebars: { left: boolean; right: boolean }) {
+  try {
+    localStorage.setItem(SIDEBAR_STORAGE_KEY, JSON.stringify(sidebars));
+  } catch {
+    // ignore
+  }
+}
+
 // Per-connection workspace state
 interface ConnectionWorkspace {
   panels: Map<string, PanelState>;
@@ -113,10 +143,7 @@ function createDefaultWorkspace(connectionId: string): ConnectionWorkspace {
     activePanelId: primaryPanelId,
     splitMode: "none",
     splitPosition: 0.5,
-    sidebars: {
-      left: true,
-      right: false,
-    },
+    sidebars: loadPersistedSidebars(),
   };
 }
 
@@ -553,17 +580,21 @@ export const useWorkspaceScreenStore = create<WorkspaceScreenStore>(
       const workspace = workspaces.get(activeConnectionId);
       if (!workspace) return;
 
+      const newSidebars = {
+        ...workspace.sidebars,
+        [side]: !workspace.sidebars[side],
+      };
+
       const updatedWorkspace: ConnectionWorkspace = {
         ...workspace,
-        sidebars: {
-          ...workspace.sidebars,
-          [side]: !workspace.sidebars[side],
-        },
+        sidebars: newSidebars,
       };
 
       const newWorkspaces = new Map(workspaces);
       newWorkspaces.set(activeConnectionId, updatedWorkspace);
       set({ workspaces: newWorkspaces });
+
+      persistSidebars(newSidebars);
     },
 
     // Window management

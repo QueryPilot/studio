@@ -228,6 +228,28 @@ export async function enrichMentionsFromMessage(
     // Skip tab mentions for now (they don't need column info)
     if (ref.type === "tab") continue;
 
+    // Connection-level mention: name only, no schema, no dot
+    if (!ref.schema && !ref.name.includes(".")) {
+      // Prefer connectionId (from [id:xxx] suffix) for deterministic resolution
+      const conn = ref.connectionId
+        ? context.connections.find((c) => c.id === ref.connectionId)
+        : context.connections.find(
+            (c) => c.name.toLowerCase() === ref.name.toLowerCase(),
+          );
+      if (conn) {
+        enrichedMentions.push({
+          type: "connection",
+          connectionId: conn.id,
+          connectionName: conn.name,
+          dbType: conn.dbType,
+          database: conn.database,
+          paradigm: conn.paradigm,
+          schemas: conn.schemas.map((s) => s.name),
+        });
+        continue;
+      }
+    }
+
     // Find which connection this table belongs to
     const matchingConn = findConnectionForMention(ref, context);
     if (!matchingConn) continue;
@@ -318,11 +340,11 @@ export function findConnectionForMention(
     return null;
   };
 
-  // When connectionName is specified, resolve deterministically against that connection
-  if (ref.connectionName) {
-    const matchingConn = context.connections.find(
-      (c) => c.name === ref.connectionName
-    );
+  // When connectionId or connectionName is specified, resolve deterministically
+  if (ref.connectionId || ref.connectionName) {
+    const matchingConn = ref.connectionId
+      ? context.connections.find((c) => c.id === ref.connectionId)
+      : context.connections.find((c) => c.name === ref.connectionName);
     if (matchingConn) {
       const schema = hasEntity(matchingConn);
       if (schema !== null) {
@@ -911,6 +933,16 @@ export function serializeAIContext(context: AIContext): string {
             name: m.name,
             tabType: m.tabType,
             sql: m.sql,
+          };
+        case "connection":
+          return {
+            type: "connection",
+            connectionId: m.connectionId,
+            connectionName: m.connectionName,
+            dbType: m.dbType,
+            database: m.database,
+            paradigm: m.paradigm,
+            schemas: m.schemas,
           };
       }
     }),

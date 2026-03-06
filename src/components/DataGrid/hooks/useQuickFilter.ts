@@ -105,6 +105,10 @@ export function useQuickFilter({
   // Track previous value to avoid unnecessary state updates
   const prevValueRef = useRef(value);
 
+  // Track the last filter value this hook wrote to the store, so we can
+  // distinguish external writes (e.g. from AI grid.setFilter command).
+  const lastPersistedByUsRef = useRef<string | undefined>(undefined);
+
   // Handle value change with mode detection and UX improvements
   const handleSetValue = useCallback((newValue: string) => {
     // Skip if value hasn't actually changed (prevents unnecessary re-renders)
@@ -233,6 +237,7 @@ export function useQuickFilter({
 
     // Persist to grid preferences store
     if (gridId) {
+      lastPersistedByUsRef.current = finalValue;
       useGridPreferencesStore.getState().setQuickFilter(gridId, {
         value: finalValue,
         mode: finalMode,
@@ -250,6 +255,7 @@ export function useQuickFilter({
 
     // Clear from grid preferences store
     if (gridId) {
+      lastPersistedByUsRef.current = undefined;
       useGridPreferencesStore.getState().setQuickFilter(gridId, undefined);
     }
   }, [gridId]);
@@ -328,6 +334,52 @@ export function useQuickFilter({
     }
     // Note: AI mode is not auto-applied since it requires user interaction
   }, [gridId, columns, initialFilter, hydrated, persistedFilter, value, mode]);
+
+  // React to external store changes (e.g. AI agent calling grid.setFilter)
+  // This runs after initial restore, only when the store was changed by something
+  // other than this hook's own submit/clear.
+  useEffect(() => {
+    if (!gridId || !hasRestoredPersistedFilterRef.current || columns.length === 0) return;
+
+    // No persisted filter — someone cleared it externally
+    if (!persistedFilter) {
+      if (lastPersistedByUsRef.current === undefined) return; // we did it
+      lastPersistedByUsRef.current = undefined;
+      setValue("");
+      prevValueRef.current = "";
+      setMode("search");
+      setActiveFilter(undefined);
+      setError(null);
+      return;
+    }
+
+    // Same value we wrote — skip
+    if (persistedFilter.value === lastPersistedByUsRef.current) return;
+
+    // External change detected — sync local state
+    lastPersistedByUsRef.current = persistedFilter.value;
+    setValue(persistedFilter.value);
+    prevValueRef.current = persistedFilter.value;
+    setMode(persistedFilter.mode);
+    setError(null);
+    setAiExplanation(null);
+
+    // Parse and apply
+    const sanitized = sanitizeInput(persistedFilter.value, persistedFilter.mode);
+    if (!sanitized) {
+      setActiveFilter(undefined);
+      return;
+    }
+    if (persistedFilter.mode === "search") {
+      const filter = parseSimpleSearch(sanitized, columns);
+      setActiveFilter(filter.root.conditions.length > 0 ? filter : undefined);
+    } else if (persistedFilter.mode === "where") {
+      const result = parseWhereClause(sanitized, columns);
+      if (result.success) {
+        setActiveFilter(result.filter);
+      }
+    }
+  }, [gridId, columns, persistedFilter]);
 
   return {
     value,
