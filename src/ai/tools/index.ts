@@ -1,6 +1,7 @@
 import { tool, type ToolSet } from "ai";
 import { z } from "zod/v4";
 import { nanoid } from "nanoid";
+import { invoke } from "@tauri-apps/api/core";
 import {
   COMMAND_META,
   type AiCommandName,
@@ -28,6 +29,13 @@ export interface ToolContext {
 
 const APPROVAL_REQUIRED_CAPABILITIES = new Set<AiCommandName>([
   "crud.stage",
+]);
+
+const READ_CAPABILITIES = new Set<AiCommandName>([
+  "workspace.listTabs",
+  "workspace.getFocusedTab",
+  "workspace.getTabContext",
+  "query.run",
 ]);
 
 const CAPABILITY_INPUT_SCHEMAS: Record<AiCommandName, z.ZodType> = {
@@ -134,6 +142,20 @@ function createCapabilityTool(name: AiCommandName) {
         input && typeof input === "object" && !Array.isArray(input)
           ? (input as Record<string, unknown>)
           : {};
+
+      if (READ_CAPABILITIES.has(name)) {
+        // Delegate to shared Rust handler via Tauri IPC
+        try {
+          return await invoke("agent_capability", {
+            capability: name,
+            params,
+          });
+        } catch (error) {
+          return { error: String(error), capability: name };
+        }
+      }
+
+      // Mutation capabilities still use frontend executor
       const result = await executeCommand(buildCapabilityCommand(name, params));
       if (!result.success) {
         return {
