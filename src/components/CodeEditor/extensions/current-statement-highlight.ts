@@ -8,6 +8,9 @@ import {
 } from "@codemirror/view";
 import { getAllStatements, type StatementBoundary } from "../core";
 
+/** Above this line count, dimming of non-highlighted statements is disabled for performance. */
+const DIMMING_LINE_THRESHOLD = 500;
+
 function isSameStatement(
   left: StatementBoundary | null,
   right: StatementBoundary | null,
@@ -152,7 +155,7 @@ function buildCurrentStatementDecorations(
   const dimmedMarker = Decoration.line({ class: "cm-dimmed-statement-line" });
   const builder = new RangeSetBuilder<Decoration>();
   const maxLine = view.state.doc.lines;
-  const shouldDimNonHighlighted = statements.length > 1 && maxLine <= 500;
+  const shouldDimNonHighlighted = statements.length > 1 && maxLine <= DIMMING_LINE_THRESHOLD;
   const highlightedStatementKeys = new Set(
     highlightedStatements.map(statementKey),
   );
