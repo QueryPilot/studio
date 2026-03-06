@@ -38,6 +38,15 @@ fn main() {
     let acp_manager = Arc::new(acp::manager::AcpManager::new());
     let acp_manager_for_cleanup = acp_manager.clone();
 
+    // Create agent socket server for CLI communication
+    let socket_server = Arc::new(acp::socket_server::AgentSocketServer::new());
+    let socket_server_for_cleanup = socket_server.clone();
+
+    // Clone dependencies for socket server (before they are moved into .manage())
+    let ai_context_for_socket = Arc::clone(&ai_context);
+    let manager_for_socket = Arc::clone(&manager);
+    let socket_server_for_setup = Arc::clone(&socket_server);
+
     // Create app state
     let app_state = AppState {
         ssh_test_rate_limiter: RateLimiter::new(5),
@@ -71,6 +80,14 @@ fn main() {
             let app_handle = app.handle().clone();
             app.on_menu_event(move |_app, event| {
                 query_pilot::menu::handle_menu_event(&app_handle, event);
+            });
+
+            // Start agent socket server for CLI communication
+            let socket_srv = socket_server_for_setup;
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = socket_srv.start(ai_context_for_socket, manager_for_socket).await {
+                    tracing::error!("Failed to start agent socket server: {}", e);
+                }
             });
 
             Ok(())
@@ -187,6 +204,10 @@ fn main() {
                 .try_state::<Arc<core::manager::ConnectionManager>>()
                 .map(|s| s.inner().clone());
             let acp_manager = acp_manager_for_cleanup.clone();
+
+            // Stop agent socket server
+            socket_server_for_cleanup.shutdown();
+            tracing::info!("Agent socket server stopped");
 
             tauri::async_runtime::block_on(async move {
                 // Overall 3 second timeout for all cleanup
