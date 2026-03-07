@@ -770,6 +770,20 @@ export const useAcpStore = create<AcpState>()(
       const tempMessageId = nanoid();
       const isFirstMessage = messages.filter((m) => m.role === "user").length === 0;
 
+      // Extract attached tab info from contextJson (if present)
+      let attachedTab: AcpMessage["attachedTab"];
+      if (contextJson) {
+        try {
+          const ctx = JSON.parse(contextJson);
+          if (ctx.focusedTabAttachment?.tabId) {
+            attachedTab = {
+              tabId: ctx.focusedTabAttachment.tabId,
+              title: ctx.focusedTabAttachment.title,
+            };
+          }
+        } catch { /* ignore parse errors */ }
+      }
+
       // Add user message IMMEDIATELY (optimistic UI)
       const userMessage: AcpMessage = {
         id: tempMessageId,
@@ -778,6 +792,7 @@ export const useAcpStore = create<AcpState>()(
         content,
         timestamp: Date.now(),
         images: images && images.length > 0 ? images : undefined,
+        attachedTab,
       };
 
       set((state) => ({
@@ -881,7 +896,7 @@ export const useAcpStore = create<AcpState>()(
           },
         });
       } catch (error) {
-        set({ isStreaming: false, isCancelling: false, streamingFlow: [], streamingPlan: [] });
+        set({ isStreaming: false, isCancelling: false, queuePaused: true, streamingFlow: [], streamingPlan: [] });
         console.error("ACP error:", error);
       }
     },
@@ -890,9 +905,15 @@ export const useAcpStore = create<AcpState>()(
       const { activeInstanceId } = get();
       if (activeInstanceId) {
         set({ isCancelling: true, queuePaused: true });
-        await AcpService.cancelSession(activeInstanceId);
-        // Do NOT set isStreaming: false here.
-        // The onComplete/onError callback will finalize.
+        try {
+          await AcpService.cancelSession(activeInstanceId);
+          // Do NOT set isStreaming: false here.
+          // The onComplete/onError callback will finalize.
+        } catch (err) {
+          // If cancelSession itself fails, reset state to avoid stuck UI
+          console.error("Failed to cancel session:", err);
+          get().finalizeMessage();
+        }
       }
     },
 

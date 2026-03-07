@@ -8,10 +8,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
-import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { eventBus } from "@/services/eventBus";
 import { databaseService } from "@/services/databaseService";
-import { windowManager } from "@/services/windowManager";
 import { commandService } from "@/services/commandService";
 import { menuActionCommandMap } from "@/data/menuActionCommandMap";
 import { v4 as uuidv4 } from "uuid";
@@ -124,17 +122,6 @@ export function useMenuEventListener() {
           // TODO: Implement import
           logger.warn("Import not implemented");
           break;
-        case "backup_restore": {
-          // Get profile ID from active connection (not runtime connection ID)
-          let profileId: string | undefined;
-          if (activeConnectionId) {
-            const bundleStore = useWorkspaceBundleStore.getState();
-            const connection = bundleStore.getConnectionById(activeConnectionId);
-            profileId = connection?.profile.id;
-          }
-          void windowManager.openBackupRestore(profileId);
-          break;
-        }
 
         // Help Menu
         case "open_docs":

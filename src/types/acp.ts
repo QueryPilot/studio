@@ -78,6 +78,8 @@ export interface AcpMessage {
   assistantBlocks?: AssistantBlockV2[];
   /** Whether this message was from a cancelled turn */
   cancelled?: boolean;
+  /** Lightweight reference to the tab attached when the message was sent */
+  attachedTab?: { tabId: string; title?: string };
 }
 
 /** A message waiting in the send queue */
