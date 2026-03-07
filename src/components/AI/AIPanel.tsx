@@ -1059,6 +1059,7 @@ interface MessageListProps {
     assistantFlow?: AssistantFlowSegment[];
     assistantBlocks?: AssistantBlockV2[];
     images?: AcpMessage["images"];
+    cancelled?: boolean;
   }>;
   isStreaming: boolean;
   streamingContent: string;
@@ -1118,6 +1119,7 @@ function MessageList({
               assistantFlow={msg.assistantFlow}
               assistantBlocks={msg.assistantBlocks}
               images={msg.images}
+              cancelled={msg.cancelled}
               onQueryError={onQueryError}
               correctingQuery={correctingQuery}
               onCommandBatchResult={
@@ -1163,6 +1165,7 @@ interface MessageBubbleProps {
   planSteps?: Array<{ id: string; description: string; status: string }>;
   isStreaming?: boolean;
   images?: AcpMessage["images"];
+  cancelled?: boolean;
   onQueryError?: (query: string, errorMessage: string) => void;
   correctingQuery?: string | null;
   onCommandBatchResult?: (batchResult: string) => void;
@@ -1396,6 +1399,7 @@ function MessageBubble({
   planSteps,
   isStreaming,
   images,
+  cancelled,
   onQueryError,
   correctingQuery,
   onCommandBatchResult,
@@ -1832,6 +1836,12 @@ function MessageBubble({
               </span>
             </div>
           ) : null}
+          {cancelled && (
+            <div className="flex items-center gap-1.5 pt-1 text-[11px] text-muted-foreground italic">
+              <IconPlayerStop className="h-3 w-3" />
+              <span>Response cancelled</span>
+            </div>
+          )}
         </div>
       </div>
     </div>
