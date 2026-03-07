@@ -176,6 +176,8 @@ interface AcpState {
   streamingContent: string;
   streamingThinking: string;
   streamingError: string | null;
+  // Cancellation state - true between cancel request and stream completion
+  isCancelling: boolean;
   streamingFlow: AssistantFlowSegment[];
 
   // Active tool calls during streaming
@@ -257,6 +259,7 @@ export const useAcpStore = create<AcpState>()(
     streamingContent: "",
     streamingThinking: "",
     streamingError: null,
+    isCancelling: false,
     streamingFlow: [],
     activeToolCalls: [],
     streamingPlan: [],
@@ -692,6 +695,7 @@ export const useAcpStore = create<AcpState>()(
         activeInstanceId: null,
         messages: [],
         isStreaming: false,
+        isCancelling: false,
         streamingContent: "",
         streamingThinking: "",
         streamingError: null,
@@ -838,6 +842,7 @@ export const useAcpStore = create<AcpState>()(
           onError: (error) => {
             set({
               isStreaming: false,
+              isCancelling: false,
               streamingError: error,
               streamingFlow: [],
               streamingPlan: [],
@@ -846,7 +851,7 @@ export const useAcpStore = create<AcpState>()(
           },
         });
       } catch (error) {
-        set({ isStreaming: false, streamingFlow: [], streamingPlan: [] });
+        set({ isStreaming: false, isCancelling: false, streamingFlow: [], streamingPlan: [] });
         console.error("ACP error:", error);
       }
     },
@@ -854,8 +859,10 @@ export const useAcpStore = create<AcpState>()(
     cancelGeneration: async () => {
       const { activeInstanceId } = get();
       if (activeInstanceId) {
+        set({ isCancelling: true });
         await AcpService.cancelSession(activeInstanceId);
-        set({ isStreaming: false, streamingFlow: [], streamingPlan: [] });
+        // Do NOT set isStreaming: false here.
+        // The onComplete/onError callback will finalize.
       }
     },
 
@@ -1044,38 +1051,73 @@ export const useAcpStore = create<AcpState>()(
         streamingThinking,
         activeToolCalls,
         streamingFlow,
+        isCancelling,
       } = get();
-      if (!activeSession) return;
+      if (!activeSession) {
+        // Even if no session, reset streaming state
+        set({
+          isStreaming: false,
+          isCancelling: false,
+          streamingContent: "",
+          streamingThinking: "",
+          streamingFlow: [],
+          activeToolCalls: [],
+          streamingPlan: [],
+        });
+        return;
+      }
 
-      const assistantMessage: AcpMessage = {
-        id: nanoid(),
-        sessionId: activeSession.id,
-        role: "assistant",
-        content: streamingContent,
-        thinking: streamingThinking || undefined,
-        toolCalls: activeToolCalls.length > 0 ? activeToolCalls : undefined,
-        assistantFlow: streamingFlow.length > 0 ? streamingFlow : undefined,
-        assistantBlocks: streamingFlow.length > 0 ? streamingFlow : undefined,
-        timestamp: Date.now(),
-      };
+      // Only create a message if there's actual content
+      const hasContent =
+        streamingContent.trim().length > 0 ||
+        activeToolCalls.length > 0 ||
+        streamingFlow.length > 0;
 
-      set((state) => ({
-        messages: [...state.messages, assistantMessage],
-        isStreaming: false,
-        streamingContent: "",
-        streamingThinking: "",
-        streamingFlow: [],
-        activeToolCalls: [],
-        streamingPlan: [],
-      }));
+      if (hasContent) {
+        const assistantMessage: AcpMessage = {
+          id: nanoid(),
+          sessionId: activeSession.id,
+          role: "assistant",
+          content: streamingContent,
+          thinking: streamingThinking || undefined,
+          toolCalls: activeToolCalls.length > 0 ? activeToolCalls : undefined,
+          assistantFlow: streamingFlow.length > 0 ? streamingFlow : undefined,
+          assistantBlocks: streamingFlow.length > 0 ? streamingFlow : undefined,
+          timestamp: Date.now(),
+          cancelled: isCancelling || undefined,
+        };
 
-      await db.saveMessage(assistantMessage);
+        set((state) => ({
+          messages: [...state.messages, assistantMessage],
+          isStreaming: false,
+          isCancelling: false,
+          streamingContent: "",
+          streamingThinking: "",
+          streamingFlow: [],
+          activeToolCalls: [],
+          streamingPlan: [],
+        }));
+
+        await db.saveMessage(assistantMessage);
+      } else {
+        // No content (e.g. cancelled before any output) — just reset
+        set({
+          isStreaming: false,
+          isCancelling: false,
+          streamingContent: "",
+          streamingThinking: "",
+          streamingFlow: [],
+          activeToolCalls: [],
+          streamingPlan: [],
+        });
+      }
+
       await db.saveSession({
         ...activeSession,
         updatedAt: Date.now(),
       });
 
-      // Refresh session list so this conversation appears in history
+      // Refresh session list
       void get().loadRecentSessions(activeSession.connectionId);
     },
 
