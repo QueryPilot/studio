@@ -18,6 +18,7 @@ import type {
   NpmPackageManager,
   AssistantFlowSegment,
   PlanStep,
+  QueuedMessage,
 } from "@/types/acp";
 import type { AiCommandName, ParsedCommand } from "@/types/aiCommands";
 import * as db from "@/lib/db/aiConversations";
@@ -200,6 +201,10 @@ interface AcpState {
   /** Prompt queued from outside the AI panel (e.g. "Fix with AI") — consumed on open */
   pendingPrompt: string | null;
 
+  // Message queue - messages waiting to be sent
+  messageQueue: QueuedMessage[];
+  queuePaused: boolean;
+
   // Actions
   loadAgents: () => Promise<void>;
   checkForUpdates: () => Promise<void>;
@@ -231,6 +236,11 @@ interface AcpState {
   togglePanel: () => void;
   /** Open AI panel with a pre-filled prompt (e.g. "Fix with AI" from query errors) */
   openWithPrompt: (prompt: string) => void;
+  enqueueMessage: (content: string, images?: Array<{ data: string; mimeType: string }>) => void;
+  dequeueMessage: (id: string) => void;
+  popQueueToInput: (id: string) => QueuedMessage | null;
+  resumeQueue: () => void;
+  clearQueue: () => void;
   setPreferredPackageManager: (pm: NpmPackageManager) => void;
   setAutoUpgradePackages: (auto: boolean) => void;
   skipPackageVersion: (packageName: string, version: string) => void;
@@ -270,6 +280,8 @@ export const useAcpStore = create<AcpState>()(
     isLoadingSessions: false,
     isPanelOpen: false,
     pendingPrompt: null,
+    messageQueue: [],
+    queuePaused: false,
 
     loadAgents: async () => {
       set({ isLoadingAgents: true });
@@ -429,6 +441,8 @@ export const useAcpStore = create<AcpState>()(
           currentMode: null,
           availableSessionCommands: [],
           isWarmingUp: false,
+          messageQueue: [],
+          queuePaused: false,
         });
 
         // Warmup the new agent in the background (if installed)
@@ -669,6 +683,8 @@ export const useAcpStore = create<AcpState>()(
         currentMode: null,
         availableSessionCommands: [],
         isWarmingUp: false,
+        messageQueue: [],
+        queuePaused: false,
       });
 
       // Warmup the agent in background so it's ready for the next message
@@ -705,6 +721,8 @@ export const useAcpStore = create<AcpState>()(
         currentMode: null,
         availableSessionCommands: [],
         isWarmingUp: false,
+        messageQueue: [],
+        queuePaused: false,
       });
 
       // Trigger warmup for the selected agent
@@ -735,6 +753,14 @@ export const useAcpStore = create<AcpState>()(
     },
 
     sendMessage: async (content, contextJson, images) => {
+      const { isStreaming } = get();
+
+      // If already streaming, queue the message instead
+      if (isStreaming) {
+        get().enqueueMessage(content, images);
+        return;
+      }
+
       const { messages } = get();
 
       // Generate a temporary message ID for optimistic UI
@@ -843,6 +869,7 @@ export const useAcpStore = create<AcpState>()(
             set({
               isStreaming: false,
               isCancelling: false,
+              queuePaused: true,
               streamingError: error,
               streamingFlow: [],
               streamingPlan: [],
@@ -859,7 +886,7 @@ export const useAcpStore = create<AcpState>()(
     cancelGeneration: async () => {
       const { activeInstanceId } = get();
       if (activeInstanceId) {
-        set({ isCancelling: true });
+        set({ isCancelling: true, queuePaused: true });
         await AcpService.cancelSession(activeInstanceId);
         // Do NOT set isStreaming: false here.
         // The onComplete/onError callback will finalize.
@@ -1119,6 +1146,19 @@ export const useAcpStore = create<AcpState>()(
 
       // Refresh session list
       void get().loadRecentSessions(activeSession.connectionId);
+
+      // Auto-drain message queue if not paused
+      const { messageQueue, queuePaused } = get();
+      const next = !queuePaused && messageQueue.length > 0 ? messageQueue[0] : undefined;
+      if (next) {
+        set((state) => ({
+          messageQueue: state.messageQueue.slice(1),
+        }));
+        // Use setTimeout to avoid recursive call stack
+        setTimeout(() => {
+          void get().sendMessage(next.content, undefined, next.images);
+        }, 0);
+      }
     },
 
     togglePanel: () => {
@@ -1127,6 +1167,48 @@ export const useAcpStore = create<AcpState>()(
 
     openWithPrompt: (prompt: string) => {
       set({ pendingPrompt: prompt, isPanelOpen: true });
+    },
+
+    enqueueMessage: (content, images) => {
+      set((state) => ({
+        messageQueue: [
+          ...state.messageQueue,
+          { id: nanoid(), content, images },
+        ],
+      }));
+    },
+
+    dequeueMessage: (id) => {
+      set((state) => ({
+        messageQueue: state.messageQueue.filter((m) => m.id !== id),
+      }));
+    },
+
+    popQueueToInput: (id) => {
+      const { messageQueue } = get();
+      const item = messageQueue.find((m) => m.id === id);
+      if (!item) return null;
+      set((state) => ({
+        messageQueue: state.messageQueue.filter((m) => m.id !== id),
+      }));
+      return item;
+    },
+
+    resumeQueue: () => {
+      set({ queuePaused: false });
+      // Drain next message if not streaming
+      const { isStreaming, messageQueue } = get();
+      const next = !isStreaming && messageQueue.length > 0 ? messageQueue[0] : undefined;
+      if (next) {
+        set((state) => ({
+          messageQueue: state.messageQueue.slice(1),
+        }));
+        void get().sendMessage(next.content, undefined, next.images);
+      }
+    },
+
+    clearQueue: () => {
+      set({ messageQueue: [], queuePaused: false });
     },
 
     setPreferredPackageManager: (pm: NpmPackageManager) => {
