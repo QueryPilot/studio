@@ -37,8 +37,8 @@ type SupportedDbType = keyof typeof DIALECTS;
 
 const SQL_TRUE_FALSE: Record<SupportedDbType, { true: string; false: string }> = {
   [DbType.PostgreSQL]: { true: "TRUE", false: "FALSE" },
-  [DbType.MySQL]: { true: "TRUE", false: "FALSE" },
-  [DbType.MariaDB]: { true: "TRUE", false: "FALSE" },
+  [DbType.MySQL]: { true: "1", false: "0" },
+  [DbType.MariaDB]: { true: "1", false: "0" },
   [DbType.SQLite]: { true: "1", false: "0" },
   [DbType.SQLServer]: { true: "1", false: "0" },
 };
@@ -518,7 +518,8 @@ export class SqlDiffGenerator {
       dbType,
     )}`;
     const whereClause = buildWhereClause(command.payload.primaryKeys, dbType);
-    const sql = `UPDATE ${tableName} SET ${setClause} WHERE ${whereClause};`;
+    const returning = dbType === DbType.PostgreSQL || dbType === DbType.SQLite ? " RETURNING *" : "";
+    const sql = `UPDATE ${tableName} SET ${setClause} WHERE ${whereClause}${returning};`;
     return this.createStatement(command, dbType, sql);
   }
 
@@ -536,7 +537,8 @@ export class SqlDiffGenerator {
       .map(([, value]) => formatJsonValue(value, dbType))
       .join(", ");
 
-    const sql = `INSERT INTO ${tableName} (${columns}) VALUES (${values});`;
+    const returning = dbType === DbType.PostgreSQL || dbType === DbType.SQLite ? " RETURNING *" : "";
+    const sql = `INSERT INTO ${tableName} (${columns}) VALUES (${values})${returning};`;
     return this.createStatement(command, dbType, sql);
   }
 

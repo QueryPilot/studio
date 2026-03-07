@@ -113,6 +113,7 @@ export interface CrudStoreState {
   previewMode: "split" | "unified" | "compact";
   isDirty: boolean;
   committingTableKeys: Set<string>; // Track which tables are currently committing
+  committedCommandIds: Map<string, Set<string>>; // tableKey → set of committed command IDs
   isCommittingAll: boolean; // Track global commit-all state (for Cmd+S)
 
   stageCommand: (command: CrudCommand) => StageCommandResult;
@@ -152,6 +153,7 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
     previewMode: "split",
     isDirty: false,
     committingTableKeys: new Set<string>(),
+    committedCommandIds: new Map<string, Set<string>>(),
     isCommittingAll: false,
 
     setIsCommittingAll: (value: boolean) => {
@@ -592,12 +594,16 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
           commandIndex.delete(command.id);
         });
 
+        const committedCommandIds = new Map(state.committedCommandIds);
+        committedCommandIds.delete(tableKey);
+
         // Reset history after discard - discarded changes should not be recoverable
         const snapshot = cloneStagedCommands(stagedCommands);
 
         return {
           stagedCommands,
           commandIndex,
+          committedCommandIds,
           history: [snapshot],
           historyIndex: 0,
           isDirty: stagedCommands.size > 0,
@@ -618,6 +624,7 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
           stagedCommands: new Map<string, CrudCommand[]>(),
           stagedAiQueryIntents: new Map<string, AiQueryRunIntent>(),
           commandIndex: new Map<string, string>(),
+          committedCommandIds: new Map<string, Set<string>>(),
           history: [emptyState],
           historyIndex: 0,
           isDirty: false,
@@ -696,6 +703,13 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
 
         // SUCCESS: Keep staged commands for optimistic display
         // They will be cleared after refetch completes via clearCommittedChanges()
+        // Snapshot the committed command IDs so clearCommittedChanges only removes these,
+        // not any new commands staged between now and the refetch callback.
+        const committedIds = new Set(commands.map((c) => c.id));
+        set((state) => ({
+          committedCommandIds: new Map(state.committedCommandIds).set(tableKey, committedIds),
+        }));
+
         return result;
       } catch (error) {
         // Unmark as committing on error
@@ -716,16 +730,37 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
     clearCommittedChanges: (tableKey) => {
       logger.info("[CrudStore] Clearing committed changes for:", tableKey);
       set((state) => {
+        const committedIds = state.committedCommandIds.get(tableKey);
         const stagedCommands = cloneStagedCommands(state.stagedCommands);
         const commandIndex = new Map(state.commandIndex);
         const committingTableKeys = new Set(state.committingTableKeys);
 
-        const commands = stagedCommands.get(tableKey) ?? [];
-        stagedCommands.delete(tableKey);
-        commands.forEach((command) => {
-          commandIndex.delete(command.id);
-        });
+        if (committedIds && committedIds.size > 0) {
+          // Selectively remove only the commands that were actually committed,
+          // preserving any new commands staged after commitChanges resolved.
+          const currentCommands = stagedCommands.get(tableKey) ?? [];
+          const remaining = currentCommands.filter((cmd) => !committedIds.has(cmd.id));
+
+          currentCommands
+            .filter((cmd) => committedIds.has(cmd.id))
+            .forEach((cmd) => commandIndex.delete(cmd.id));
+
+          if (remaining.length === 0) {
+            stagedCommands.delete(tableKey);
+          } else {
+            stagedCommands.set(tableKey, remaining);
+          }
+        } else {
+          // Fallback: no committed IDs tracked, clear everything (legacy behavior)
+          const commands = stagedCommands.get(tableKey) ?? [];
+          commands.forEach((cmd) => commandIndex.delete(cmd.id));
+          stagedCommands.delete(tableKey);
+        }
+
         committingTableKeys.delete(tableKey);
+
+        const newCommittedIds = new Map(state.committedCommandIds);
+        newCommittedIds.delete(tableKey);
 
         // Reset history after commit - committed changes should not be undoable
         // Create a fresh history with current state as the only entry
@@ -734,10 +769,11 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
         return {
           stagedCommands,
           commandIndex,
+          committingTableKeys,
+          committedCommandIds: newCommittedIds,
           history: [snapshot],
           historyIndex: 0,
           isDirty: stagedCommands.size > 0,
-          committingTableKeys,
         };
       });
     },

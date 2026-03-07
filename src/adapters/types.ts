@@ -169,6 +169,24 @@ export interface SelectOptions {
  */
 export interface InsertOptions {
   returning?: boolean;
+  /** Column type metadata for type-aware formatting (e.g., PostgreSQL casts) */
+  columnInfos?: ColumnInfo[];
+}
+
+/**
+ * Options for UPDATE operations
+ */
+export interface UpdateOptions {
+  /** Column type metadata for type-aware formatting (e.g., PostgreSQL casts) */
+  columnInfos?: ColumnInfo[];
+}
+
+/**
+ * Options for DELETE operations
+ */
+export interface DeleteOptions {
+  /** Column type metadata for type-aware formatting (e.g., PostgreSQL casts) */
+  columnInfos?: ColumnInfo[];
 }
 
 /**
@@ -225,14 +243,14 @@ export interface DatabaseAdapter {
    * @param data - Columns to update
    * @param where - WHERE clause conditions
    */
-  update(target: TableRef, data: RowData, where: WhereClause): QueryPayload;
+  update(target: TableRef, data: RowData, where: WhereClause, options?: UpdateOptions): QueryPayload;
 
   /**
    * Generate DELETE query
    * @param target - Table reference
    * @param where - WHERE clause conditions
    */
-  delete(target: TableRef, where: WhereClause): QueryPayload;
+  delete(target: TableRef, where: WhereClause, options?: DeleteOptions): QueryPayload;
 
   /**
    * Generate SELECT query
@@ -449,7 +467,8 @@ export interface DatabaseAdapter {
     target: TableRef,
     constraintName: string,
     cascade?: boolean,
-    ifExists?: boolean
+    ifExists?: boolean,
+    constraintType?: string
   ): QueryPayload;
 
   /**

@@ -149,6 +149,13 @@ export class MySQLAdapter extends SqlAdapter {
       changes.defaultValue !== undefined ||
       changes.comment !== undefined;
 
+    if (hasColumnDefChanges && !changes.dataType) {
+      statements.push(
+        `/* WARNING: MySQL MODIFY COLUMN requires the full column definition including data type. */\n` +
+        `/* Please set the data type for column ${colName} before committing. */`
+      );
+    }
+
     if (hasColumnDefChanges && changes.dataType !== undefined) {
       // We have dataType, so we can generate a complete MODIFY COLUMN statement
       const parts: string[] = [colName];
@@ -183,29 +190,6 @@ export class MySQLAdapter extends SqlAdapter {
       }
 
       statements.push(`ALTER TABLE ${table} MODIFY COLUMN ${parts.join(" ")}`);
-    } else if (changes.comment !== undefined) {
-      // Comment-only change without datatype - show helpful message
-      if (changes.comment !== null && changes.comment !== "") {
-        statements.push(
-          `-- To change column comment, use: ALTER TABLE ${table} MODIFY COLUMN ${colName} <current_type> COMMENT ${this.quoteString(
-            changes.comment,
-          )}`,
-        );
-      } else {
-        statements.push(
-          `-- To remove column comment, use: ALTER TABLE ${table} MODIFY COLUMN ${colName} <current_type>`,
-        );
-      }
-    } else if (
-      changes.nullable !== undefined ||
-      changes.defaultValue !== undefined
-    ) {
-      // Other changes without datatype - need full definition
-      statements.push(
-        `-- MySQL requires full column definition: ALTER TABLE ${table} MODIFY COLUMN ${colName} <current_type> ${
-          changes.nullable === false ? "NOT NULL" : "NULL"
-        }${changes.defaultValue !== undefined ? " DEFAULT ..." : ""}`,
-      );
     }
 
     // Handle check constraint changes (MySQL 8.0.16+)
@@ -964,6 +948,7 @@ GROUP BY Index_name, Non_unique, Table_name, Index_type`;
     constraintName: string,
     cascade?: boolean,
     _ifExists?: boolean,
+    constraintType?: string,
   ): string {
     if (cascade) {
       throw new Error(
@@ -972,11 +957,19 @@ GROUP BY Index_name, Non_unique, Table_name, Index_type`;
     }
 
     const tableName = this.formatTableRef(target);
-    // MySQL uses DROP CHECK, DROP PRIMARY KEY, DROP FOREIGN KEY depending on type
-    // For generic drop, we'll use DROP CHECK which works for CHECK constraints
-    return `ALTER TABLE ${tableName} DROP CHECK ${this.quoteIdentifier(
-      constraintName,
-    )}`;
+    const quoted = this.quoteIdentifier(constraintName);
+
+    switch (constraintType?.toUpperCase()) {
+      case "PRIMARY KEY":
+        return `ALTER TABLE ${tableName} DROP PRIMARY KEY`;
+      case "FOREIGN KEY":
+        return `ALTER TABLE ${tableName} DROP FOREIGN KEY ${quoted}`;
+      case "UNIQUE":
+        return `ALTER TABLE ${tableName} DROP INDEX ${quoted}`;
+      case "CHECK":
+      default:
+        return `ALTER TABLE ${tableName} DROP CHECK ${quoted}`;
+    }
   }
 
   renameConstraint(

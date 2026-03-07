@@ -111,7 +111,7 @@ impl From<tokio_postgres::Error> for AppError {
     fn from(err: tokio_postgres::Error) -> Self {
         if let Some(db_err) = err.as_db_error() {
             AppError::SqlSyntax(format!("{}: {}", db_err.code().code(), db_err.message()))
-        } else if err.to_string().contains("connection") {
+        } else if err.is_closed() {
             AppError::ConnectionClosed(err.to_string())
         } else {
             AppError::Driver(err.to_string())

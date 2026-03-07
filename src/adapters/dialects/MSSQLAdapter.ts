@@ -20,6 +20,8 @@ import type {
   RowData,
   WhereClause,
   InsertOptions,
+  UpdateOptions,
+  DeleteOptions,
 } from '../types';
 import {
   quoteIdentifier as sharedQuoteIdentifier,
@@ -142,7 +144,9 @@ export class MSSQLAdapter extends SqlAdapter {
 
     sql += ` ${columns} FROM ${table}`;
 
-    if (options?.where && Object.keys(options.where).length > 0) {
+    if (options?.rawWhere) {
+      sql += ` WHERE ${options.rawWhere}`;
+    } else if (options?.where && Object.keys(options.where).length > 0) {
       sql += ` WHERE ${this.buildWhereClause(options.where)}`;
     }
 
@@ -187,7 +191,7 @@ export class MSSQLAdapter extends SqlAdapter {
 
     const columnList = columns.map((c) => this.quoteIdentifier(c)).join(', ');
     const valueList = columns
-      .map((c) => this.formatValue(data[c], { name: c }))
+      .map((c) => this.formatValue(data[c], this.findColumnInfo(c, options?.columnInfos)))
       .join(', ');
 
     let sql = `INSERT INTO ${table} (${columnList})`;
@@ -205,17 +209,17 @@ export class MSSQLAdapter extends SqlAdapter {
    * Generate UPDATE with OUTPUT clause
    * OUTPUT clause goes between SET and WHERE in MSSQL
    */
-  update(target: TableRef, data: RowData, where: WhereClause): string {
+  update(target: TableRef, data: RowData, where: WhereClause, options?: UpdateOptions): string {
     const table = this.formatTableRef(target);
 
     const setClause = Object.entries(data)
       .map(
         ([col, val]) =>
-          `${this.quoteIdentifier(col)} = ${this.formatValue(val, { name: col })}`
+          `${this.quoteIdentifier(col)} = ${this.formatValue(val, this.findColumnInfo(col, options?.columnInfos))}`
       )
       .join(', ');
 
-    const whereClause = this.buildWhereClause(where);
+    const whereClause = this.buildWhereClause(where, options?.columnInfos);
 
     // MSSQL OUTPUT clause placement: UPDATE ... SET ... OUTPUT ... WHERE ...
     return `UPDATE ${table} SET ${setClause} OUTPUT INSERTED.* WHERE ${whereClause}`;
@@ -224,9 +228,9 @@ export class MSSQLAdapter extends SqlAdapter {
   /**
    * Generate DELETE with OUTPUT clause
    */
-  delete(target: TableRef, where: WhereClause): string {
+  delete(target: TableRef, where: WhereClause, options?: DeleteOptions): string {
     const table = this.formatTableRef(target);
-    const whereClause = this.buildWhereClause(where);
+    const whereClause = this.buildWhereClause(where, options?.columnInfos);
 
     // MSSQL OUTPUT clause placement: DELETE FROM ... OUTPUT ... WHERE ...
     return `DELETE FROM ${table} OUTPUT DELETED.* WHERE ${whereClause}`;

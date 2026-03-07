@@ -107,8 +107,15 @@ pub async fn switch_database(
         .as_sql()
         .ok_or_else(|| "switch_database is only supported for SQL databases".to_string())?;
 
+    let verify_sql = match profile.db_type {
+        DbType::PostgreSQL => "SELECT current_database()",
+        DbType::MySQL | DbType::MariaDB => "SELECT DATABASE()",
+        DbType::SQLServer => "SELECT DB_NAME()",
+        _ => "SELECT 1",
+    };
+
     let result = sql_adapter
-        .execute_query("SELECT current_database()")
+        .execute_query(verify_sql)
         .await
         .map_err(|e| e.to_string())?;
 

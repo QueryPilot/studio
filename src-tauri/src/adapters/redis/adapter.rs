@@ -9,6 +9,7 @@ use fred::interfaces::{
     SetsInterface, SortedSetsInterface, StreamsInterface,
 };
 use fred::prelude::{Builder, Config, Expiration, Server, ServerConfig};
+use fred::types::config::ClusterDiscoveryPolicy;
 use fred::types::SetOptions as FredSetOptions;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -70,9 +71,40 @@ impl RedisAdapter {
         };
 
         let server_config = match mode {
-            RedisMode::Standalone | RedisMode::Cluster => ServerConfig::Centralized {
+            RedisMode::Standalone => ServerConfig::Centralized {
                 server: Server::new(profile.host.clone(), profile.port),
             },
+            RedisMode::Cluster => {
+                let hosts: Vec<Server> = if let Some(nodes_str) = profile.options.get("nodes") {
+                    let mut parsed: Vec<Server> = nodes_str
+                        .split(',')
+                        .filter_map(|s| {
+                            let parts: Vec<&str> = s.trim().split(':').collect();
+                            if parts.len() == 2 {
+                                parts[1]
+                                    .parse::<u16>()
+                                    .ok()
+                                    .map(|port| Server::new(parts[0].to_string(), port))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    // Ensure the primary host is included
+                    let primary = Server::new(profile.host.clone(), profile.port);
+                    if !parsed.contains(&primary) {
+                        parsed.insert(0, primary);
+                    }
+                    parsed
+                } else {
+                    vec![Server::new(profile.host.clone(), profile.port)]
+                };
+
+                ServerConfig::Clustered {
+                    hosts,
+                    policy: ClusterDiscoveryPolicy::ConfigEndpoint,
+                }
+            }
             RedisMode::Sentinel => {
                 let master_name = profile
                     .options

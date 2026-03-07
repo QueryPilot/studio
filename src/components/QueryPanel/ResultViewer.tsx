@@ -11,6 +11,7 @@ import {
   IconDownload,
   IconCopy,
   IconCheck,
+  IconSparkles,
 } from "@tabler/icons-react";
 import { QueryResultGrid } from "@/components/DataGrid";
 import { DataGridSkeleton } from "@/components/DataGrid/components/DataGridSkeleton";
@@ -68,6 +69,8 @@ interface ResultViewerProps {
   gridId: string;
   isStreaming?: boolean;
   viewMode: ViewMode;
+  /** Callback to send the error + SQL to the AI panel for fixing */
+  onFixWithAI?: (error: string) => void;
   cursorSetupMs?: number;
   totalStreamingMs?: number;
   fetchCount?: number;
@@ -474,6 +477,7 @@ export const ResultViewer = memo(function ResultViewer({
   networkMs,
   conversionMs,
   ipcSendMs: _ipcSendMs,
+  onFixWithAI,
 }: ResultViewerProps) {
   // Determine paradigm from database type
   const paradigm: DatabaseParadigm = useMemo(() => {
@@ -577,9 +581,22 @@ export const ResultViewer = memo(function ResultViewer({
               <IconClipboard className="h-4 w-4 text-destructive/70" />
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            IconCheck your SQL syntax and connection status
-          </p>
+          <div className="flex items-center gap-2 mt-2">
+            {onFixWithAI && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs gap-1.5"
+                onClick={() => { onFixWithAI(result.error || ""); }}
+              >
+                <IconSparkles className="h-3.5 w-3.5" />
+                Fix with AI
+              </Button>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Check your SQL syntax and connection status
+            </p>
+          </div>
         </div>
       </div>
     );

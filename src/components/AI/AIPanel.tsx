@@ -81,7 +81,7 @@ import { useAiCommandPermissionStore } from "@/stores/aiCommandPermissionStore";
 import { useByokStore } from "@/stores/byokStore";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { executeCommand } from "@/services/aiCommandExecutor";
-import { Kbd } from "../ui/kbd";
+
 import { eventBus, type AIGenerateSqlPayload } from "@/services/eventBus";
 import type {
   ParsedCommand,
@@ -203,6 +203,20 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     useState<FocusedTabContextSnapshot | null>(null);
   const inputRef = useRef<LexicalInputHandle>(null);
   const [pendingImages, setPendingImages] = useState<PreparedImage[]>([]);
+
+  // Consume pending prompt from external triggers (e.g. "Fix with AI")
+  const pendingPrompt = useAcpStore((s) => s.pendingPrompt);
+  useEffect(() => {
+    if (pendingPrompt) {
+      setInputValue(pendingPrompt);
+      inputRef.current?.setText(pendingPrompt);
+      useAcpStore.setState({ pendingPrompt: null });
+      // Focus input after a tick so Lexical can settle
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+      });
+    }
+  }, [pendingPrompt]);
 
   const handleAddImages = useCallback(
     async (files: File[]) => {
@@ -2581,12 +2595,7 @@ const InputArea = ({
           {isByok ? <CompactModelPicker /> : <ModelSelector />}
           <div className="flex-1" />
 
-          {/* Keyboard hint */}
-          {!isStreaming && canSend && (
-            <span className="text-[10px] text-muted-foreground/50 mr-2 hidden sm:inline">
-              <Kbd className="font-mono">↵</Kbd> to send
-            </span>
-          )}
+          {/* Keyboard hint removed — button is self-explanatory */}
 
           {isStreaming ? (
             <Button
