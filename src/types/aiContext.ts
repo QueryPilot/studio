@@ -219,6 +219,8 @@ export interface MentionReference {
   connectionId?: string;
   /** Parsed from @ConnName/... format for deterministic connection resolution */
   connectionName?: string;
+  /** Unique tab identifier parsed from [id:xxx] suffix on tab mentions */
+  tabId?: string;
   /** Original text in input (e.g., "@users" or "@public.users") */
   raw: string;
   /** Start position in input string */

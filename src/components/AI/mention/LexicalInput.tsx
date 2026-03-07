@@ -51,7 +51,7 @@ interface LexicalInputProps {
   disabled?: boolean;
   className?: string;
   aiContext: AIContext;
-  openTabs: Array<{ id: string; name: string; type: string; panelId: string }>;
+  openTabs: Array<{ id: string; name: string; type: string; panelId: string; connectionId?: string; connectionName?: string }>;
   focusedConnectionId?: string;
 }
 

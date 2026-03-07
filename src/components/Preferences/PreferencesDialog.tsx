@@ -96,7 +96,7 @@ export function PreferencesDialog({
             <PreferencesSidebar />
           </div>
           <div className="flex-1 flex flex-col overflow-hidden p-2 pl-0 bg-transparent">
-            <div className="flex-1 overflow-y-auto p-6 max-h-screen bg-background rounded-xl">
+            <div className="flex-1 overflow-y-auto px-10 py-6 max-h-screen bg-background rounded-xl">
               {renderPanel()}
             </div>
           </div>

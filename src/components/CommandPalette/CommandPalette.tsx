@@ -276,7 +276,16 @@ export function CommandPalette(): React.ReactElement {
     return () => { cancelled = true; };
   }, [isOpen]);
 
-  const searchQuery = deferredQuery.trim();
+  const isCommandMode = deferredQuery.startsWith(">");
+  const searchQuery = isCommandMode
+    ? deferredQuery.slice(1).trim()
+    : deferredQuery.trim();
+
+  // Filter to commands-only when in command mode (query starts with ">")
+  const filteredItems = useMemo(() => {
+    if (!isCommandMode) return unifiedItems;
+    return unifiedItems.filter((item) => item.type === "command");
+  }, [isCommandMode, unifiedItems]);
 
   // Ranked search results
   const searchResults = useMemo(() => {
@@ -284,7 +293,7 @@ export function CommandPalette(): React.ReactElement {
     const normalizedQuery = normalizeSearchValue(searchQuery);
     const queryToMatch = normalizedQuery || searchQuery;
 
-    return matchSorter(unifiedItems, queryToMatch, {
+    return matchSorter(filteredItems, queryToMatch, {
       keys: [
         {
           key: (item) => buildSearchVariants(item.name),
@@ -301,7 +310,7 @@ export function CommandPalette(): React.ReactElement {
       ],
       threshold: rankings.MATCHES,
     });
-  }, [searchQuery, unifiedItems]);
+  }, [searchQuery, filteredItems]);
 
   const searchRankMap = useMemo(() => {
     if (!searchResults) return null;
@@ -318,7 +327,7 @@ export function CommandPalette(): React.ReactElement {
       : MAX_RECENT_ITEMS_EMPTY;
 
     if (!searchQuery) {
-      return getTopFrecencyItems(unifiedItems, limit);
+      return getTopFrecencyItems(filteredItems, limit);
     }
 
     if (!searchResults) {
@@ -328,10 +337,10 @@ export function CommandPalette(): React.ReactElement {
     // When searching, filter recent items by query match
     const matchedIds = new Set(searchResults.map((item) => item.id));
     return getTopFrecencyItems(
-      unifiedItems.filter((item) => matchedIds.has(item.id)),
+      filteredItems.filter((item) => matchedIds.has(item.id)),
       limit,
     );
-  }, [contentReady, unifiedItems, searchQuery, searchResults, getTopFrecencyItems]);
+  }, [contentReady, filteredItems, searchQuery, searchResults, getTopFrecencyItems]);
 
   const recentItemIds = useMemo(
     () => new Set(recentItems.map((item) => item.id)),
@@ -343,7 +352,7 @@ export function CommandPalette(): React.ReactElement {
     // Skip computation until content is ready (after first paint)
     if (!contentReady) return [];
 
-    let itemsToGroup = unifiedItems.filter(
+    let itemsToGroup = filteredItems.filter(
       (item) => !recentItemIds.has(item.id),
     );
 
@@ -398,7 +407,7 @@ export function CommandPalette(): React.ReactElement {
       const items = groups.get(group);
       return [group, items ?? []] as [ItemGroup, UnifiedItem[]];
     });
-  }, [contentReady, unifiedItems, searchQuery, searchResults, searchRankMap, recentItemIds, sortByFrecency]);
+  }, [contentReady, filteredItems, searchQuery, searchResults, searchRankMap, recentItemIds, sortByFrecency]);
 
   // Find the selected item for actions
   const selectedItem = useMemo(() => {
@@ -885,7 +894,10 @@ export function CommandPalette(): React.ReactElement {
   }
 
   const getInputPlaceholder = () => {
-    if (!nestedMode) return "Search tables, commands, and more...";
+    if (!nestedMode) {
+      if (isCommandMode) return "Type a command name...";
+      return "Search tables, commands, and more...";
+    }
     switch (nestedMode.type) {
       case "switch-database":
         return "Search databases...";
@@ -1001,7 +1013,7 @@ export function CommandPalette(): React.ReactElement {
         </>
       ) : (
         <>
-          <CommandList ref={listRef} className="h-[300px]">
+          <CommandList ref={listRef} className="h-[400px]">
             {!contentReady || isLoading ? (
               // Show loading immediately - this renders before content is ready
               <div className="flex items-center justify-center py-6 text-xs text-muted-foreground gap-2">

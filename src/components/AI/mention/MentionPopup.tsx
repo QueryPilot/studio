@@ -29,6 +29,8 @@ const TYPE_ICON: Record<MentionItem["mentionType"], React.ReactNode> = {
 // =============================================================================
 
 function itemKey(item: MentionItem): string {
+  // Use tabId for tabs (unique across panels), connectionId+schema+name for db objects
+  if (item.tabId) return `tab:${item.tabId}`;
   return `${item.mentionType}:${item.connectionId ?? ""}:${item.schema ?? ""}:${item.name}`;
 }
 

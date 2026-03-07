@@ -4,6 +4,7 @@ import { type Command } from "@/types/command";
 
 import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import { useDialogStore } from "@/stores/ui/dialogStore";
+import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
@@ -66,11 +67,29 @@ export const defaultCommands: Command[] = [
     when: "inQuickOpen",
   },
   {
+    id: "quickOpen.showCommands",
+    label: "Show All Commands",
+    category: "Navigation",
+    handler: () => {
+      const state = useCommandPaletteStore.getState();
+
+      if (state.isOpen) {
+        // If already open, just set the query to ">"
+        state.setQuery(">");
+        return;
+      }
+
+      commandPaletteStore.openPalette(">");
+      contextService.setValue("inQuickOpen", true);
+      contextService.setValue("inCommandPalette", true);
+    },
+  },
+  {
     id: "preferences.open",
     label: "Open Preferences",
     category: "Preferences",
     handler: () => {
-      dialogStore.openPreferences();
+      usePreferencesStore.getState().openPreferences();
     },
   },
   {
@@ -78,7 +97,7 @@ export const defaultCommands: Command[] = [
     label: "Close Preferences",
     category: "Preferences",
     handler: () => {
-      dialogStore.closePreferences();
+      usePreferencesStore.getState().closePreferences();
     },
   },
   {

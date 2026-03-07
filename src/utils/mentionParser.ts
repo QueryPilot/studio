@@ -13,7 +13,9 @@ import type { MentionReference } from "@/types/aiContext";
 // Groups: (1) quoted connName, (2) unquoted connName, (3) first ident, (4) second ident, (5) connection ID
 const OBJECT_MENTION_REGEX = /@(?:(?:"([^"]+)"|([a-zA-Z_]\w*))\/)?([a-zA-Z_]\w*)(?:\.([a-zA-Z_]\w*))?(?:\[id:([^\]]+)\])?/g;
 // @tab:TabName (for tabs - allows spaces in name with quotes)
-const TAB_MENTION_REGEX = /@tab:(?:"([^"]+)"|([^\s]+))/g;
+// Optional [id:xxx] suffix for tab disambiguation across panels
+// Groups: (1) quoted name, (2) unquoted name (without [id:...]), (3) tab ID
+const TAB_MENTION_REGEX = /@tab:(?:"([^"]+)"|([^\s\[]+))(?:\[id:([^\]]+)\])?/g;
 
 /**
  * Parse all @ mentions from input text.
@@ -28,9 +30,11 @@ export function parseMentions(input: string): MentionReference[] {
 
   while ((match = tabRegex.exec(input)) !== null) {
     const name = match[1] ?? match[2] ?? ""; // Quoted or unquoted name
+    const tabId = match[3]; // from [id:xxx] suffix
     mentions.push({
       type: "tab",
       name,
+      tabId,
       raw: match[0],
       start: match.index,
       end: match.index + match[0].length,

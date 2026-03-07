@@ -612,7 +612,7 @@ describe("acpStore", () => {
         activeToolCalls: [
           {
             id: "tool-1",
-            name: "mcp__querypilot__tab.updateContent",
+            name: "tab.updateContent",
             status: "pending",
             input: {
               tabId: "tab-1",
@@ -645,7 +645,7 @@ describe("acpStore", () => {
         activeToolCalls: [
           {
             id: "tool-2",
-            name: "mcp__querypilot__query.run",
+            name: "query.run",
             status: "pending",
             input: {
               connectionId: "conn-1",

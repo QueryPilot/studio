@@ -78,7 +78,7 @@ function findMentionTrigger(
 
 interface MentionPluginProps {
   aiContext: AIContext;
-  openTabs: Array<{ id: string; name: string; type: string; panelId: string }>;
+  openTabs: Array<{ id: string; name: string; type: string; panelId: string; connectionId?: string; connectionName?: string }>;
   focusedConnectionId?: string;
 }
 
@@ -182,6 +182,7 @@ export function MentionPlugin({
           connectionName: item.connectionName,
           database: item.database,
           schema: item.schema,
+          tabId: item.tabId,
         });
 
         const spaceNode = $createTextNode(" ");

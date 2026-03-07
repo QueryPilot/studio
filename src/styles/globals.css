@@ -1345,3 +1345,13 @@ p {
   font-size: 11px !important;
   padding: 1px 4px !important;
 }
+
+/* Streamdown table copy/export popover — smaller text and visible hover */
+[data-slot="ai-panel"] [data-streamdown] button.w-full.text-sm {
+  font-size: 12px !important;
+  padding: 4px 10px !important;
+}
+
+[data-slot="ai-panel"] [data-streamdown] button.w-full.text-sm:hover {
+  background-color: hsl(var(--muted)) !important;
+}

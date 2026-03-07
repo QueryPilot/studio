@@ -65,8 +65,8 @@ export default function GeneralPanel() {
   };
 
   return (
-    <div className="max-w-3xl space-y-6 max-h-[calc(100vh-32px)] overflow-y-scroll -mx-4 px-4">
-      <div className="sticky top-0 bg-background z-10 pb-2">
+    <div className="max-w-2xl space-y-6">
+      <div className="pb-2">
         <h2 className="text-base font-semibold">General Settings</h2>
         <p className="text-xs text-muted-foreground">
           Configure the application appearance and behavior

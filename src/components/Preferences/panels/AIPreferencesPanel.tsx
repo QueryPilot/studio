@@ -282,9 +282,9 @@ export default function AIPreferencesPanel() {
   );
 
   return (
-    <div className="max-w-2xl space-y-8 max-h-[calc(100vh-32px)] overflow-y-scroll -mx-4 px-4 pb-8">
+    <div className="max-w-2xl space-y-8 pb-8">
       {/* Header */}
-      <div className="sticky top-0 bg-background z-10 pb-3">
+      <div className="pb-3">
         <h2 className="text-base font-semibold tracking-tight">AI</h2>
         <p className="text-xs text-muted-foreground mt-0.5">
           Configure the AI assistant runtime, provider, and behavior
