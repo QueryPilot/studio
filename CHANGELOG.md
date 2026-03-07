@@ -13,6 +13,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [2026.1.0-beta.11] - 2026-03-07
+
+### New Features
+- Use inline `@` mentions in AI chat to reference connections, tables, views, functions, and open tabs directly. Query Pilot now resolves the right database context for you, which is especially helpful when similar names exist across multiple connections.
+- The AI assistant now automatically includes your focused tab as context, and you can attach images with preview before sending. That gives the assistant better context for query help, schema questions, and troubleshooting.
+- Keep typing while the AI is still responding. New prompts can be queued, reviewed, removed, and sent automatically after the current turn finishes.
+- Use `Fix with AI` directly from query errors to send a failed query to the assistant in one click. This makes it faster to recover from errors without rewriting the prompt yourself.
+
+### Improvements
+- AI mentions and tab references now show connection details more clearly, making it easier to distinguish similarly named objects across databases.
+- SQL data edits are more type-aware across PostgreSQL, MySQL, SQL Server, and SQLite. Inserts, updates, deletes, and some schema changes now generate more accurate SQL with fewer formatting mistakes.
+- Preferences pages use space more effectively and feel more consistent across AI, General, Keyboard Shortcuts, and Telemetry settings.
+
+### Bug Fixes
+- Canceling AI responses is more reliable, with fewer race conditions and a clear cancelled state when a response stops mid-stream.
+- Queued AI prompts now keep their full context when they resume, and the panel no longer blocks message entry while a response is streaming.
+- Send and stop controls behave more consistently during streaming, and the queue now warns before it reaches its limit to prevent confusing failures.
+
+### Security
+- Canceled AI sessions now reject late permission requests automatically, reducing the chance of approving an action from a session you already stopped.
+
 ## [2026.1.0-beta.11] - 2026-03-06
 
 ### New Features
