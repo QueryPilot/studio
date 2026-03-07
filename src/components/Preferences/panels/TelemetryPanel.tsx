@@ -62,7 +62,7 @@ export default function TelemetryPanel() {
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6">
       <div>
         <h2 className="text-base font-semibold">
           Telemetry & Error Reporting

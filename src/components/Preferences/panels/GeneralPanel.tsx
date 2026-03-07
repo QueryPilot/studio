@@ -65,7 +65,7 @@ export default function GeneralPanel() {
   };
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="space-y-6">
       <div className="pb-2">
         <h2 className="text-base font-semibold">General Settings</h2>
         <p className="text-xs text-muted-foreground">

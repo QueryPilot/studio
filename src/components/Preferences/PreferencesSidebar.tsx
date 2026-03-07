@@ -37,8 +37,11 @@ export function PreferencesSidebar() {
   const { activeCategory, setActiveCategory } = usePreferencesStore();
 
   return (
-    <div className="pt-10 w-48 bg-secondary flex flex-col overflow-hidden h-full">
-      <nav className="flex-1 p-3 space-y-1 overflow-y-scroll h-full border-none">
+    <div className="w-48 shrink-0 border-r bg-muted/30 flex flex-col">
+      <div className="px-4 pt-5 pb-3">
+        <h2 className="text-sm font-semibold">Settings</h2>
+      </div>
+      <nav className="flex-1 px-2 pb-3 space-y-0.5">
         {categories.map((category) => {
           const Icon = category.icon;
           return (
@@ -48,12 +51,11 @@ export function PreferencesSidebar() {
                 setActiveCategory(category.id);
               }}
               className={cn(
-                "w-full flex items-center gap-2.5 px-2.5 py-2 text-xs rounded-lg transition-all",
-                "border-l-2 border-l-transparent rounded-l-none hover:bg-primary/20 hover:text-primary hover:border-l-primary ",
+                "w-full flex items-center gap-2.5 px-2.5 py-1.5 text-xs rounded-md transition-colors",
                 {
-                  "bg-primary/20 text-primary font-medium border-l-primary":
+                  "bg-accent text-accent-foreground font-medium":
                     activeCategory === category.id,
-                  "text-muted-foreground hover:text-foreground":
+                  "text-muted-foreground hover:text-foreground hover:bg-accent/50":
                     activeCategory !== category.id,
                 },
               )}

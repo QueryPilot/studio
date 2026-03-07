@@ -195,7 +195,7 @@ function InAppShortcutsList({ query }: { query: string }) {
         </div>
       ) : null}
 
-      <div className="rounded-md border overflow-y-auto max-h-[calc(100vh-155px)]">
+      <div className="rounded-md border overflow-y-auto max-h-full">
         {grouped.map(({ category, items }, groupIndex) => (
           <section key={category}>
             {groupIndex > 0 && <div className="border-t" />}
@@ -336,9 +336,9 @@ export default function KeyboardShortcutsPanel() {
   const [query, setQuery] = useState("");
 
   return (
-    <div className="-mx-10 -my-6 flex flex-col h-[calc(100vh-16px)]">
+    <div className="-mx-8 -my-6 flex flex-col h-[calc(85vh-16px)] max-h-[664px]">
       {/* Fixed header — fills full width */}
-      <div className="shrink-0 px-10 pt-6 pb-3 space-y-3">
+      <div className="shrink-0 px-8 pt-6 pb-3 space-y-3">
         <div>
           <h2 className="text-base font-semibold">Keyboard Shortcuts</h2>
           <p className="text-xs text-muted-foreground">
@@ -359,7 +359,7 @@ export default function KeyboardShortcutsPanel() {
       </div>
 
       {/* Scrollable body */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-10 pb-6">
+      <div className="flex-1 min-h-0 overflow-y-auto px-8 pb-6">
         <InAppShortcutsList query={query} />
       </div>
     </div>
