@@ -25,5 +25,4 @@ export const menuActionCommandMap: Record<string, string> = {
 
   report_issue: "help.action.reportIssue",
   open_docs: "help.action.openDocs",
-  backup_restore: "database.action.backupRestore",
 };

@@ -31,7 +31,6 @@ import {
   IconExternalLink,
   IconLayout2,
   IconSitemap,
-  IconDatabaseExport,
   IconCopy,
   IconDatabase,
   IconLock,
@@ -120,7 +119,6 @@ import {
   isImmediateExecution,
   type SidebarSelectedTypes,
 } from "./sidebarContextMenuHelpers";
-import { windowManager } from "@/services/windowManager";
 import { toast } from "sonner";
 import { writeClipboardText } from "@/lib/clipboard";
 import { getAdapterForConnection } from "@/adapters";
@@ -916,17 +914,7 @@ export const ConnectionSection = forwardRef<
     updateConnectionState(connectionId, database, newSchema);
   };
 
-  // Handle backup/restore
-  const handleBackupRestore = async () => {
-    try {
-      // Use profile.id (stored profile UUID), not connectionId (runtime ID)
-      await windowManager.openBackupRestore(profile.id);
-    } catch (error) {
-      toast.error("Failed to open backup/restore", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    }
-  };
+
 
   // Handle open ERD
   const handleOpenErd = () => {
@@ -1889,11 +1877,6 @@ export const ConnectionSection = forwardRef<
               </ContextMenuItem>
             </>
           )}
-          <ContextMenuSeparator />
-          <ContextMenuItem onClick={() => void handleBackupRestore()}>
-            <IconDatabaseExport className="h-4 w-4 mr-2" />
-            Backup/Restore...
-          </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
             onClick={() => {

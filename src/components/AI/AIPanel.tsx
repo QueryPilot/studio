@@ -218,6 +218,11 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
       setInputValue(pendingPrompt);
       inputRef.current?.setText(pendingPrompt);
       useAcpStore.setState({ pendingPrompt: null });
+      // Auto-attach the focused tab so the agent gets full context
+      const snapshot = getFocusedTabContextSnapshot();
+      if (snapshot) {
+        setAttachedContext(snapshot);
+      }
       // Focus input after a tick so Lexical can settle
       requestAnimationFrame(() => {
         inputRef.current?.focus();
@@ -690,12 +695,28 @@ ${batchResult}`;
       if (item) {
         setInputValue(item.content);
         inputRef.current?.setText(item.content);
+        if (item.images && item.images.length > 0) {
+          setPendingImages(
+            item.images.map((img) => {
+              const binary = atob(img.data);
+              const bytes = new Uint8Array(binary.length);
+              for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+              const blob = new Blob([bytes], { type: img.mimeType });
+              return {
+                id: crypto.randomUUID(),
+                data: img.data,
+                mimeType: img.mimeType,
+                previewUrl: URL.createObjectURL(blob),
+              };
+            }),
+          );
+        }
         requestAnimationFrame(() => {
           inputRef.current?.focus();
         });
       }
     },
-    [popQueueToInput, setInputValue],
+    [popQueueToInput, setInputValue, setPendingImages],
   );
 
   // Permission store for command approval
@@ -751,7 +772,6 @@ ${batchResult}`;
     : messages.length > 0 || isStreaming;
   const canSend =
     (inputValue.trim().length > 0 || pendingImages.length > 0) &&
-    !effectiveIsStreaming &&
     (hasInstalledAgents || (isByok && byokSession !== null));
 
   return (
@@ -1088,6 +1108,7 @@ interface MessageListProps {
     assistantBlocks?: AssistantBlockV2[];
     images?: AcpMessage["images"];
     cancelled?: boolean;
+    attachedTab?: AcpMessage["attachedTab"];
   }>;
   isStreaming: boolean;
   streamingContent: string;
@@ -1148,6 +1169,7 @@ function MessageList({
               assistantBlocks={msg.assistantBlocks}
               images={msg.images}
               cancelled={msg.cancelled}
+              attachedTab={msg.attachedTab}
               onQueryError={onQueryError}
               correctingQuery={correctingQuery}
               onCommandBatchResult={
@@ -1194,6 +1216,7 @@ interface MessageBubbleProps {
   isStreaming?: boolean;
   images?: AcpMessage["images"];
   cancelled?: boolean;
+  attachedTab?: AcpMessage["attachedTab"];
   onQueryError?: (query: string, errorMessage: string) => void;
   correctingQuery?: string | null;
   onCommandBatchResult?: (batchResult: string) => void;
@@ -1428,6 +1451,7 @@ function MessageBubble({
   isStreaming,
   images,
   cancelled,
+  attachedTab,
   onQueryError,
   correctingQuery,
   onCommandBatchResult,
@@ -1722,6 +1746,16 @@ function MessageBubble({
                     : mention.name}
                 </span>
               ))}
+            </div>
+          )}
+
+          {/* Attached Tab Badge */}
+          {isUser && attachedTab && (
+            <div className="flex flex-wrap gap-1.5">
+              <span className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-muted/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <IconFileText className="h-2.5 w-2.5" />
+                {attachedTab.title ?? attachedTab.tabId}
+              </span>
             </div>
           )}
 

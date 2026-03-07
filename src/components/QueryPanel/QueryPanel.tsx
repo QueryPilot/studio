@@ -1307,26 +1307,10 @@ export const QueryPanel = memo(function QueryPanel({
 
   const handleFixWithAI = useCallback(
     (errorMessage: string) => {
-      // Get the SQL that caused the error
-      const failedStatement =
-        batchResults[activeBatchResultIndex]?.statement ??
-        batchResults[batchResults.length - 1]?.statement ??
-        editorRef.current?.getValue() ??
-        "";
-      const prompt = [
-        "Fix this SQL query error:",
-        "",
-        "**Error:**",
-        errorMessage,
-        "",
-        "**SQL:**",
-        "```sql",
-        failedStatement,
-        "```",
-      ].join("\n");
+      const prompt = `Fix this SQL query error:\n\n${errorMessage}`;
       useAcpStore.getState().openWithPrompt(prompt);
     },
-    [batchResults, activeBatchResultIndex],
+    [],
   );
 
   return (

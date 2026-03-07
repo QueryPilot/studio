@@ -160,22 +160,6 @@ export const defaultCommands: Command[] = [
     },
   },
   {
-    id: "database.action.backupRestore",
-    label: "Backup/Restore",
-    category: "Database",
-    handler: () => {
-      const workspaceStore = useWorkspaceScreenStore.getState();
-      const activeConnectionId = workspaceStore.activeConnectionId;
-      let profileId: string | undefined;
-      if (activeConnectionId) {
-        const bundleStore = useWorkspaceBundleStore.getState();
-        const connection = bundleStore.getConnectionById(activeConnectionId);
-        profileId = connection?.profile.id;
-      }
-      void windowManager.openBackupRestore(profileId);
-    },
-  },
-  {
     id: "workbench.action.toggleLeftSidebar",
     label: "Toggle Left Sidebar",
     category: "Workbench",

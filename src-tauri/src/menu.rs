@@ -349,18 +349,6 @@ fn build_database_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
 
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
 
-    // Backup/Restore
-    let backup_restore = MenuItem::with_id(
-        app,
-        "db_backup_restore",
-        "Backup/Restore...",
-        true,
-        None::<&str>,
-    )?;
-    submenu.append(&backup_restore)?;
-
-    submenu.append(&PredefinedMenuItem::separator(app)?)?;
-
     // Show ERD
     let erd = MenuItem::with_id(app, "db_erd", "Show ERD", true, Some("CmdOrCtrl+E"))?;
     submenu.append(&erd)?;
