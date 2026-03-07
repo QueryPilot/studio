@@ -12,6 +12,8 @@ export interface MentionItem {
   connectionId?: string;
   connectionName?: string;
   database?: string;
+  /** Unique tab identifier for disambiguating tabs across panels */
+  tabId?: string;
   displayLabel: string;
 }
 
@@ -154,16 +156,18 @@ function makeObjectItem(
   };
 }
 
-function makeTabItem(tab: {
-  id: string;
-  name: string;
-  type: string;
-  panelId: string;
-}): MentionItem {
+function makeTabItem(tab: OpenTab, multiConnection: boolean): MentionItem {
+  let displayLabel = tab.name;
+  if (multiConnection && tab.connectionName) {
+    displayLabel = `${tab.name} · ${tab.connectionName}`;
+  }
   return {
     mentionType: "tab",
     name: tab.name,
-    displayLabel: tab.name,
+    tabId: tab.id,
+    connectionId: tab.connectionId,
+    connectionName: tab.connectionName,
+    displayLabel,
   };
 }
 
@@ -176,6 +180,7 @@ function collectItemsFromConnection(
   const items: MentionItem[] = [];
   const lowerFilter = filter.toLowerCase();
 
+  // SQL paradigm: iterate schemas
   for (const schema of conn.schemas) {
     if (schemaFilter !== undefined && schema.name !== schemaFilter) continue;
 
@@ -202,6 +207,38 @@ function collectItemsFromConnection(
     }
   }
 
+  // MongoDB paradigm: list collections as tables
+  if (conn.collections && (!typeFilter || typeFilter === "table")) {
+    for (const coll of conn.collections) {
+      if (!lowerFilter || coll.name.toLowerCase().includes(lowerFilter)) {
+        items.push({
+          mentionType: "table",
+          name: coll.name,
+          connectionId: conn.id,
+          connectionName: conn.name,
+          database: conn.database,
+          displayLabel: coll.name,
+        });
+      }
+    }
+  }
+
+  // Redis paradigm: list key patterns as tables
+  if (conn.keyPatterns && (!typeFilter || typeFilter === "table")) {
+    for (const kp of conn.keyPatterns) {
+      if (!lowerFilter || kp.pattern.toLowerCase().includes(lowerFilter)) {
+        items.push({
+          mentionType: "table",
+          name: kp.pattern,
+          connectionId: conn.id,
+          connectionName: conn.name,
+          database: conn.database,
+          displayLabel: `${kp.pattern} (${kp.count})`,
+        });
+      }
+    }
+  }
+
   return items;
 }
 
@@ -215,6 +252,12 @@ function buildGroupSubtitle(conn: AIConnectionContext): string {
   if (hasSchemaSupport(conn.dbType) && conn.schemas.length > 1) {
     parts.push(`${conn.schemas.length} schemas`);
   }
+  if (conn.collections) {
+    parts.push(`${conn.collections.length} collections`);
+  }
+  if (conn.keyPatterns) {
+    parts.push(`${conn.keyPatterns.length} patterns`);
+  }
   return parts.join(" · ");
 }
 
@@ -227,6 +270,8 @@ export interface OpenTab {
   name: string;
   type: string;
   panelId: string;
+  connectionId?: string;
+  connectionName?: string;
 }
 
 export function buildSuggestionGroups(
@@ -236,6 +281,7 @@ export function buildSuggestionGroups(
   focusedConnectionId?: string,
 ): SuggestionGroup[] {
   const parsed = parseFilter(filter);
+  const multiConnection = aiContext.connections.length > 1;
 
   // --- Type-filtered (tab:, table:, view:, fn:) ---
   if (parsed.typeFilter) {
@@ -245,7 +291,7 @@ export function buildSuggestionGroups(
         t.name.toLowerCase().includes(tabFilter),
       );
       if (matchingTabs.length === 0) return [];
-      return [{ label: "Tabs", items: matchingTabs.map(makeTabItem) }];
+      return [{ label: "Tabs", items: matchingTabs.map((t) => makeTabItem(t, multiConnection)) }];
     }
 
     // table:, view:, fn: — filter across all connections
@@ -366,7 +412,7 @@ export function buildSuggestionGroups(
     if (openTabs.length > 0) {
       groups.push({
         label: "Tabs",
-        items: openTabs.map(makeTabItem),
+        items: openTabs.map((t) => makeTabItem(t, multiConnection)),
       });
     }
 
@@ -410,7 +456,7 @@ export function buildSuggestionGroups(
   if (matchingTabs.length > 0) {
     groups.push({
       label: "Tabs",
-      items: matchingTabs.map(makeTabItem),
+      items: matchingTabs.map((t) => makeTabItem(t, multiConnection)),
     });
   }
 

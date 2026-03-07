@@ -37,7 +37,7 @@ export function PreferencesSidebar() {
   const { activeCategory, setActiveCategory } = usePreferencesStore();
 
   return (
-    <div className="pt-10 w-64 bg-secondary flex flex-col overflow-hidden h-full">
+    <div className="pt-10 w-48 bg-secondary flex flex-col overflow-hidden h-full">
       <nav className="flex-1 p-3 space-y-1 overflow-y-scroll h-full border-none">
         {categories.map((category) => {
           const Icon = category.icon;

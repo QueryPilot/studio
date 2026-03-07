@@ -6,6 +6,8 @@ import {
   IconTable,
 } from "@tabler/icons-react";
 
+import { useConnectionStore } from "@/stores/connectionStoreNew";
+
 import type { MentionNodeData } from "./MentionNode";
 
 const ICON_SIZE = 12;
@@ -41,12 +43,20 @@ const TYPE_STYLES: Record<
   },
 };
 
+const DB_OBJECT_TYPES = new Set<MentionNodeData["mentionType"]>(["table", "view", "function"]);
+
 interface MentionChipProps {
   data: MentionNodeData;
 }
 
 export function MentionChip({ data }: MentionChipProps) {
   const style = TYPE_STYLES[data.mentionType];
+  const connectionCount = useConnectionStore((s) => s.connections.length);
+
+  const showConnectionSuffix =
+    connectionCount > 1 &&
+    DB_OBJECT_TYPES.has(data.mentionType) &&
+    data.connectionName;
 
   return (
     <span
@@ -54,6 +64,11 @@ export function MentionChip({ data }: MentionChipProps) {
     >
       {style.icon}
       <span className="max-w-[160px] truncate">{data.displayLabel}</span>
+      {showConnectionSuffix && (
+        <span className="opacity-50 ml-0.5 text-[10px]">
+          · {data.connectionName}
+        </span>
+      )}
     </span>
   );
 }

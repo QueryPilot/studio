@@ -15,6 +15,8 @@ export interface MentionNodeData {
   connectionName?: string;
   database?: string;
   schema?: string;
+  /** Unique tab identifier for disambiguating tabs across panels */
+  tabId?: string;
   name: string;
   displayLabel: string;
 }
@@ -80,7 +82,9 @@ export class MentionNode extends DecoratorNode<React.ReactNode> {
     }
 
     if (mentionType === "tab") {
-      return formatMention("tab", name);
+      const base = formatMention("tab", name);
+      const tabIdSuffix = this.__data.tabId ? `[id:${this.__data.tabId}]` : "";
+      return `${base}${tabIdSuffix}`;
     }
 
     // table | view | function — delegate to shared formatter, append [id:xxx]

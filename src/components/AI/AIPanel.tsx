@@ -14,6 +14,7 @@ import {
   useRef,
 } from "react";
 import { useAcpStore } from "@/stores/acpStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import type { PanelContent } from "@/types/workbench";
 import {
@@ -166,26 +167,35 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   const panelContents = useWorkbenchStore(
     (s): Map<string, PanelContent> => s.panelContents,
   );
+  const connections = useConnectionStore((s) => s.connections);
   const openTabs = useMemo(() => {
     const tabs: Array<{
       id: string;
       name: string;
       type: string;
       panelId: string;
+      connectionId?: string;
+      connectionName?: string;
     }> = [];
     panelContents.forEach((panel: PanelContent, panelId: string) => {
       panel.tabIds.forEach((tabId: string) => {
         const meta = panel.metadata?.[tabId];
+        const connId = meta?.connectionId;
+        const conn = connId
+          ? connections.find((c) => c.profile.id === connId)
+          : undefined;
         tabs.push({
           id: tabId,
           name: meta?.title ?? tabId,
           type: meta?.type ?? "unknown",
           panelId,
+          connectionId: connId,
+          connectionName: conn?.profile.name,
         });
       });
     });
     return tabs;
-  }, [panelContents]);
+  }, [panelContents, connections]);
 
   const [inputValue, setInputValue] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -2350,7 +2360,7 @@ interface InputAreaProps {
   isByok: boolean;
   byokSession: boolean;
   aiContext: AIContext;
-  openTabs: Array<{ id: string; name: string; type: string; panelId: string }>;
+  openTabs: Array<{ id: string; name: string; type: string; panelId: string; connectionId?: string; connectionName?: string }>;
   attachedContext: FocusedTabContextSnapshot | null;
   onRemoveAttachedContext: () => void;
   pendingImages: PreparedImage[];

@@ -49,11 +49,7 @@ const AI_TOOL_UI_MUTATION_CAPABILITIES = new Set<AiCommandName>([
 ]);
 
 function normalizeCapabilityName(toolName: string): AiCommandName | null {
-  const candidates = [
-    toolName,
-    toolName.replace(/^mcp__querypilot__/, ""),
-    toolName.split("__").pop() ?? "",
-  ];
+  const candidates = [toolName, toolName.split("__").pop() ?? ""];
 
   for (const candidate of candidates) {
     if (
@@ -89,8 +85,13 @@ function isErrorToolOutput(output: unknown): boolean {
  * Truncates and cleans up the message for display.
  */
 function generateSessionTitle(message: string): string {
-  // Remove @ mentions (e.g., @public.users)
-  let title = message.replace(/@[\w.]+/g, "").trim();
+  // Remove @ mentions including connection-scoped and [id:xxx] suffixed forms:
+  //   @table, @schema.table, @ConnName/schema.table[id:xxx],
+  //   @"Quoted Name"/schema.table[id:xxx], @tab:name[id:xxx]
+  let title = message
+    .replace(/@tab:(?:"[^"]+"|[^\s\[]+)(?:\[id:[^\]]+\])?/g, "")
+    .replace(/@(?:"[^"]*"|[\w.]+)(?:\/[\w.]*)?(?:\[id:[^\]]+\])?/g, "")
+    .trim();
 
   // Remove excess whitespace
   title = title.replace(/\s+/g, " ");

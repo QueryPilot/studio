@@ -62,12 +62,12 @@ export default function TelemetryPanel() {
   };
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 max-w-2xl">
       <div>
-        <h2 className="text-2xl font-semibold mb-2">
+        <h2 className="text-base font-semibold">
           Telemetry & Error Reporting
         </h2>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground mt-1">
           Help us improve Query Pilot by sharing anonymous error reports and
           performance data.
         </p>

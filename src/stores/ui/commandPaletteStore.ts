@@ -17,7 +17,7 @@ interface CommandPaletteState {
   // Undo/redo history
   queryHistory: string[];
   historyIndex: number;
-  openPalette: () => void;
+  openPalette: (initialQuery?: string) => void;
   closePalette: () => void;
   setQuery: (query: string) => void;
   setNestedMode: (mode: NestedMode | null) => void;
@@ -33,8 +33,9 @@ export const useCommandPaletteStore = create<CommandPaletteState>((set, get) => 
   queryHistory: [""],
   historyIndex: 0,
 
-  openPalette: () => {
-    set({ isOpen: true, query: "", nestedMode: null, queryHistory: [""], historyIndex: 0 });
+  openPalette: (initialQuery?: string) => {
+    const q = initialQuery ?? "";
+    set({ isOpen: true, query: q, nestedMode: null, queryHistory: [q], historyIndex: 0 });
   },
 
   closePalette: () => {
