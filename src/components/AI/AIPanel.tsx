@@ -93,6 +93,7 @@ import type {
   AssistantBlockV2,
   AcpMessage,
   ContentBlock,
+  QueuedMessage,
 } from "@/types/acp";
 import {
   type PreparedImage,
@@ -159,6 +160,12 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     loadRecentSessions,
     deleteSession,
   } = useAcpStore();
+
+  const messageQueue = useAcpStore((s) => s.messageQueue);
+  const queuePaused = useAcpStore((s) => s.queuePaused);
+  const dequeueMessage = useAcpStore((s) => s.dequeueMessage);
+  const popQueueToInput = useAcpStore((s) => s.popQueueToInput);
+  const resumeQueue = useAcpStore((s) => s.resumeQueue);
 
   // Get AI context with schema data for current workspace
   const aiContext = useAIContextWithSchema();
@@ -678,6 +685,20 @@ ${batchResult}`;
     focusInput();
   }, [isByok, byokCancelGeneration, cancelGeneration, focusInput]);
 
+  const handlePopQueueToInput = useCallback(
+    (id: string) => {
+      const item = popQueueToInput(id);
+      if (item) {
+        setInputValue(item.content);
+        inputRef.current?.setText(item.content);
+        requestAnimationFrame(() => {
+          inputRef.current?.focus();
+        });
+      }
+    },
+    [popQueueToInput, setInputValue],
+  );
+
   // Permission store for command approval
   const resetPermissions = useAiCommandPermissionStore((s) => s.reset);
 
@@ -819,6 +840,14 @@ ${batchResult}`;
           </Button>
         </div>
       )}
+
+      <MessageQueue
+        queue={messageQueue}
+        paused={queuePaused}
+        onRemove={dequeueMessage}
+        onPopToInput={handlePopQueueToInput}
+        onResume={resumeQueue}
+      />
 
       {/* Input Area */}
       <InputArea
@@ -2367,6 +2396,76 @@ function EmptyState({
 }
 
 // ============================================================================
+// Message Queue
+// ============================================================================
+
+interface MessageQueueProps {
+  queue: QueuedMessage[];
+  paused: boolean;
+  onRemove: (id: string) => void;
+  onPopToInput: (id: string) => void;
+  onResume: () => void;
+}
+
+function MessageQueue({
+  queue,
+  paused,
+  onRemove,
+  onPopToInput,
+  onResume,
+}: MessageQueueProps) {
+  if (queue.length === 0) return null;
+
+  return (
+    <div className="border-t px-3 py-2 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground font-medium">
+          Queued ({queue.length})
+        </span>
+        {paused && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-amber-500 font-medium">Paused</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onResume}
+              className="h-5 px-1.5 text-[11px]"
+            >
+              Resume
+            </Button>
+          </div>
+        )}
+      </div>
+      {queue.map((item) => (
+        <div
+          key={item.id}
+          className="group flex items-start gap-2 rounded-md border bg-muted/50 px-2.5 py-1.5 cursor-pointer hover:bg-muted/80 transition-colors"
+          onClick={() => onPopToInput(item.id)}
+          title="Click to edit"
+        >
+          <span className="flex-1 truncate text-xs">
+            {item.content.length > 120
+              ? item.content.slice(0, 120) + "\u2026"
+              : item.content}
+          </span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove(item.id);
+            }}
+            className="shrink-0 text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
+            aria-label="Remove from queue"
+          >
+            <IconX className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================================
 // Input Area with @ Mention Autocomplete (via Lexical)
 // ============================================================================
 
@@ -2588,7 +2687,7 @@ const InputArea = ({
             onNewConversation={onNewConversation}
             onPaste={handleNativePaste}
             placeholder={placeholder}
-            disabled={disabled || isStreaming}
+            disabled={disabled}
             className={cn(
               "border-0 bg-transparent",
               "focus-visible:ring-0 focus-visible:ring-offset-0",
