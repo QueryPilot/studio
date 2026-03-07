@@ -23,6 +23,8 @@ import type {
   ColumnInfo,
   TableRef,
   InsertOptions,
+  UpdateOptions,
+  DeleteOptions,
   RowData,
   WhereClause,
   ObjectDefinitionType,
@@ -146,7 +148,7 @@ export class SQLiteAdapter extends SqlAdapter {
 
     const columnList = columns.map((c) => this.quoteIdentifier(c)).join(", ");
     const valueList = columns
-      .map((c) => this.formatValue(data[c], { name: c }))
+      .map((c) => this.formatValue(data[c], this.findColumnInfo(c, options?.columnInfos)))
       .join(", ");
 
     let sql = `INSERT INTO ${table} (${columnList}) VALUES (${valueList})`;
@@ -161,17 +163,17 @@ export class SQLiteAdapter extends SqlAdapter {
   /**
    * Generate UPDATE statement with conditional RETURNING
    */
-  update(target: TableRef, data: RowData, where: WhereClause): string {
+  update(target: TableRef, data: RowData, where: WhereClause, options?: UpdateOptions): string {
     const table = this.formatTableRef(target);
 
     const setClause = Object.entries(data)
       .map(
         ([col, val]) =>
-          `${this.quoteIdentifier(col)} = ${this.formatValue(val, { name: col })}`,
+          `${this.quoteIdentifier(col)} = ${this.formatValue(val, this.findColumnInfo(col, options?.columnInfos))}`,
       )
       .join(", ");
 
-    const whereClause = this.buildWhereClause(where);
+    const whereClause = this.buildWhereClause(where, options?.columnInfos);
 
     let sql = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
 
@@ -186,9 +188,9 @@ export class SQLiteAdapter extends SqlAdapter {
   /**
    * Generate DELETE statement with conditional RETURNING
    */
-  delete(target: TableRef, where: WhereClause): string {
+  delete(target: TableRef, where: WhereClause, options?: DeleteOptions): string {
     const table = this.formatTableRef(target);
-    const whereClause = this.buildWhereClause(where);
+    const whereClause = this.buildWhereClause(where, options?.columnInfos);
 
     let sql = `DELETE FROM ${table} WHERE ${whereClause}`;
 

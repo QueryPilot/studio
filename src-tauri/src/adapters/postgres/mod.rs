@@ -2,7 +2,6 @@ pub mod adapter;
 pub mod backup;
 pub mod direct_msgpack;
 pub mod parser;
-pub mod pool;
 pub mod simple_converter;
 pub mod types;
 // NOTE: introspection module removed - frontend now uses IntrospectionService

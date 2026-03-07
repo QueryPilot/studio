@@ -58,6 +58,7 @@ import {
   type BatchStatementResult,
 } from "./query-batch-orchestrator";
 import { resolveDialectFromDbType } from "./query-dialect";
+import { useAcpStore } from "@/stores/acpStore";
 
 interface QueryPanelProps {
   panelId: string;
@@ -1304,6 +1305,30 @@ export const QueryPanel = memo(function QueryPanel({
   const runButtonLabel =
     selectedStatementCount >= 2 ? "Run Selections" : "Run";
 
+  const handleFixWithAI = useCallback(
+    (errorMessage: string) => {
+      // Get the SQL that caused the error
+      const failedStatement =
+        batchResults[activeBatchResultIndex]?.statement ??
+        batchResults[batchResults.length - 1]?.statement ??
+        editorRef.current?.getValue() ??
+        "";
+      const prompt = [
+        "Fix this SQL query error:",
+        "",
+        "**Error:**",
+        errorMessage,
+        "",
+        "**SQL:**",
+        "```sql",
+        failedStatement,
+        "```",
+      ].join("\n");
+      useAcpStore.getState().openWithPrompt(prompt);
+    },
+    [batchResults, activeBatchResultIndex],
+  );
+
   return (
     <div
       ref={panelContainerRef}
@@ -1522,6 +1547,7 @@ export const QueryPanel = memo(function QueryPanel({
                           networkMs={displayedResult?.networkMs}
                           conversionMs={displayedResult?.conversionMs}
                           ipcSendMs={displayedResult?.ipcSendMs}
+                          onFixWithAI={handleFixWithAI}
                         />
                       </div>
                     </div>

@@ -293,16 +293,19 @@ impl SqlQueryable for SqliteAdapter {
                 .prepare(&sql)
                 .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
 
-            // Get column metadata
+            // Extract column info BEFORE query() consumes the borrow
             let column_count = stmt.column_count();
-            let column_names: Vec<String> =
-                stmt.column_names().iter().map(|s| s.to_string()).collect();
-            let columns: Vec<CapabilityColumnMeta> = (0..column_count)
-                .map(|i| {
-                    let name = column_names.get(i).cloned().unwrap_or_default();
+            let columns: Vec<CapabilityColumnMeta> = stmt
+                .columns()
+                .iter()
+                .map(|col| {
+                    let data_type = col
+                        .decl_type()
+                        .map(|t| t.to_uppercase())
+                        .unwrap_or_else(|| "TEXT".to_string());
                     CapabilityColumnMeta {
-                        name,
-                        data_type: "TEXT".to_string(),
+                        name: col.name().to_string(),
+                        data_type,
                     }
                 })
                 .collect();

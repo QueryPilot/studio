@@ -265,7 +265,10 @@ export function commandToSql(
       if (Object.keys(values).length === 0) {
         return null;
       }
-      const result = adapter.insert(target, values as RowData);
+      const columnInfos = payload.columnTypes
+        ? Object.entries(payload.columnTypes).map(([name, dbType]) => ({ name, dbType }))
+        : undefined;
+      const result = adapter.insert(target, values as RowData, { columnInfos });
       return typeof result === "string" ? result : null;
     }
 
@@ -276,7 +279,10 @@ export function commandToSql(
       }
       const data: RowData = { [payload.column]: payload.newValue };
       const where: WhereClause = payload.primaryKeys as WhereClause;
-      const result = adapter.update(target, data, where);
+      const columnInfos = payload.columnType
+        ? [{ name: payload.column, dbType: payload.columnType }]
+        : undefined;
+      const result = adapter.update(target, data, where, { columnInfos });
       return typeof result === "string" ? result : null;
     }
 
@@ -579,11 +585,18 @@ export function commandToSql(
     case "constraint.drop": {
       const payload = command.payload as ConstraintDropPayload;
       if (!payload.constraintName) return null;
+      const constraintTypeMap: Record<string, string> = {
+        "constraint.dropPrimaryKey": "PRIMARY KEY",
+        "constraint.dropUnique": "UNIQUE",
+        "constraint.dropCheck": "CHECK",
+      };
+      const constraintType = constraintTypeMap[command.type];
       const result = adapter.dropConstraint(
         target,
         payload.constraintName,
         payload.cascade,
         payload.ifExists,
+        constraintType,
       );
       return typeof result === "string" ? result : null;
     }

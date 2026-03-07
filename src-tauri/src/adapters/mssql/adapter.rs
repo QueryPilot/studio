@@ -692,9 +692,23 @@ impl SqlQueryable for MssqlAdapter {
 
         match query_result {
             Ok(result) => result,
-            Err(_) => Err(AppError::Unsupported(
-                "SQL_VARIANT columns or CLR UDTs are not supported by the MSSQL driver. Cast them to NVARCHAR/VARBINARY or exclude them from the query.".into(),
-            )),
+            Err(panic_info) => {
+                let msg = if let Some(s) = panic_info.downcast_ref::<String>() {
+                    s.clone()
+                } else if let Some(s) = panic_info.downcast_ref::<&str>() {
+                    s.to_string()
+                } else {
+                    "Unknown panic in query execution".to_string()
+                };
+                tracing::warn!(
+                    "MSSQL query panic caught (likely unsupported column type): {}",
+                    msg
+                );
+                Err(AppError::Unsupported(format!(
+                    "Query contains unsupported SQL Server column type: {}. Try selecting specific columns to exclude unsupported types.",
+                    msg
+                )))
+            }
         }
     }
 

@@ -36,8 +36,9 @@
 //! - [`query` command](../../../commands.rs) - Tauri command using this converter
 //! - [Query Execution Architecture](../../../../../docs/query-execution-architecture.md)
 
+use postgres_protocol::types as proto;
 use postgres_types::Type;
-use serde_json::Value as JsonValue;
+use serde_json::{json, Value as JsonValue};
 use tokio_postgres::types::FromSql;
 use tokio_postgres::Row;
 use uuid::Uuid;
@@ -221,6 +222,11 @@ impl SimpleConverter {
             // Arrays - convert to JSON array of strings
             _ if pg_type.name().starts_with('_') => Self::convert_array_fallback(row, idx),
 
+            // Range types - parse binary wire format using postgres_protocol
+            _ if matches!(pg_type.kind(), postgres_types::Kind::Range(_)) => {
+                Self::convert_range_value(row, idx, pg_type)
+            }
+
             // Enum types - read as raw bytes and decode as UTF-8
             // PostgreSQL enum values are stored as text internally
             _ if matches!(pg_type.kind(), postgres_types::Kind::Enum(_)) => {
@@ -256,11 +262,11 @@ impl SimpleConverter {
         }
     }
 
-    /// Fallback for array types - try to get as Vec<String>
+    /// Fallback for array types - try common array element types
     fn convert_array_fallback(row: &Row, idx: usize) -> JsonValue {
-        // Try to get as array of strings
-        if let Ok(Some(arr)) = row.try_get::<_, Option<Vec<String>>>(idx) {
-            return JsonValue::Array(arr.into_iter().map(JsonValue::String).collect());
+        // Try to get as array of bools
+        if let Ok(Some(arr)) = row.try_get::<_, Option<Vec<bool>>>(idx) {
+            return JsonValue::Array(arr.into_iter().map(JsonValue::Bool).collect());
         }
 
         // Try to get as array of i32
@@ -270,6 +276,28 @@ impl SimpleConverter {
                     .map(|v| JsonValue::Number(v.into()))
                     .collect(),
             );
+        }
+
+        // Try to get as array of i64
+        if let Ok(Some(arr)) = row.try_get::<_, Option<Vec<i64>>>(idx) {
+            return JsonValue::Array(arr.into_iter().map(|v| json!(v)).collect());
+        }
+
+        // Try to get as array of f64
+        if let Ok(Some(arr)) = row.try_get::<_, Option<Vec<f64>>>(idx) {
+            return JsonValue::Array(
+                arr.into_iter()
+                    .map(|v| {
+                        serde_json::Number::from_f64(v)
+                            .map_or(JsonValue::Null, JsonValue::Number)
+                    })
+                    .collect(),
+            );
+        }
+
+        // Try to get as array of strings
+        if let Ok(Some(arr)) = row.try_get::<_, Option<Vec<String>>>(idx) {
+            return JsonValue::Array(arr.into_iter().map(JsonValue::String).collect());
         }
 
         // Fallback
@@ -283,6 +311,137 @@ impl SimpleConverter {
             .flatten()
             .and_then(|raw| std::str::from_utf8(&raw.0).ok().map(|s| s.to_string()))
             .map_or(JsonValue::Null, JsonValue::String)
+    }
+
+    /// Convert PostgreSQL range value to JSON string.
+    ///
+    /// Range types use a complex binary wire format that cannot be decoded with
+    /// simple `from_utf8`. We use `postgres_protocol::types::range_from_sql` to
+    /// properly parse the binary data, then format each bound value based on the
+    /// inner element type.
+    fn convert_range_value(row: &Row, idx: usize, pg_type: &Type) -> JsonValue {
+        let raw = match row.try_get::<_, Option<RawBytes>>(idx) {
+            Ok(Some(r)) => r,
+            Ok(None) => return JsonValue::Null,
+            Err(_) => return JsonValue::String(format!("<{}>", pg_type.name())),
+        };
+
+        let inner_type = match pg_type.kind() {
+            postgres_types::Kind::Range(inner) => inner,
+            _ => return JsonValue::String(format!("<{}>", pg_type.name())),
+        };
+
+        match proto::range_from_sql(&raw.0) {
+            Ok(proto::Range::Empty) => JsonValue::String("empty".to_string()),
+            Ok(proto::Range::Nonempty(lower, upper)) => {
+                let (lower_str, lower_inclusive) =
+                    Self::format_range_bound(inner_type, lower);
+                let (upper_str, upper_inclusive) =
+                    Self::format_range_bound(inner_type, upper);
+                let open = if lower_inclusive { '[' } else { '(' };
+                let close = if upper_inclusive { ']' } else { ')' };
+                JsonValue::String(format!("{}{},{}{}", open, lower_str, upper_str, close))
+            }
+            Err(_) => JsonValue::String(format!("<{}>", pg_type.name())),
+        }
+    }
+
+    /// Format a single range bound (lower or upper) into its string representation.
+    ///
+    /// Returns `(formatted_value, is_inclusive)`.
+    fn format_range_bound(
+        element_type: &Type,
+        bound: proto::RangeBound<Option<&[u8]>>,
+    ) -> (String, bool) {
+        match bound {
+            proto::RangeBound::Unbounded => (String::new(), false),
+            proto::RangeBound::Inclusive(None) => (String::new(), true),
+            proto::RangeBound::Exclusive(None) => (String::new(), false),
+            proto::RangeBound::Inclusive(Some(bytes)) => {
+                (Self::format_range_element(element_type, bytes), true)
+            }
+            proto::RangeBound::Exclusive(Some(bytes)) => {
+                (Self::format_range_element(element_type, bytes), false)
+            }
+        }
+    }
+
+    /// Format the raw bytes of a range element value based on its PostgreSQL type.
+    fn format_range_element(element_type: &Type, raw: &[u8]) -> String {
+        match *element_type {
+            Type::INT4 => {
+                if raw.len() == 4 {
+                    i32::from_be_bytes(raw.try_into().unwrap()).to_string()
+                } else {
+                    String::from_utf8_lossy(raw).to_string()
+                }
+            }
+            Type::INT8 => {
+                if raw.len() == 8 {
+                    i64::from_be_bytes(raw.try_into().unwrap()).to_string()
+                } else {
+                    String::from_utf8_lossy(raw).to_string()
+                }
+            }
+            Type::NUMERIC => {
+                // Use rust_decimal to decode numeric binary format
+                use postgres_types::FromSql;
+                match rust_decimal::Decimal::from_sql(&Type::NUMERIC, raw) {
+                    Ok(d) => d.to_string(),
+                    Err(_) => String::from_utf8_lossy(raw).to_string(),
+                }
+            }
+            Type::DATE => {
+                // PostgreSQL DATE binary: i32 days since 2000-01-01
+                if raw.len() == 4 {
+                    let days = i32::from_be_bytes(raw.try_into().unwrap());
+                    let pg_epoch = chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap();
+                    match pg_epoch.checked_add_signed(chrono::Duration::days(days as i64)) {
+                        Some(d) => d.to_string(),
+                        None => format!("{} days", days),
+                    }
+                } else {
+                    String::from_utf8_lossy(raw).to_string()
+                }
+            }
+            Type::TIMESTAMP => {
+                // PostgreSQL TIMESTAMP binary: i64 microseconds since 2000-01-01
+                if raw.len() == 8 {
+                    let us = i64::from_be_bytes(raw.try_into().unwrap());
+                    let pg_epoch = chrono::NaiveDate::from_ymd_opt(2000, 1, 1)
+                        .unwrap()
+                        .and_hms_opt(0, 0, 0)
+                        .unwrap();
+                    match pg_epoch.checked_add_signed(chrono::Duration::microseconds(us)) {
+                        Some(dt) => dt.to_string(),
+                        None => format!("{} us", us),
+                    }
+                } else {
+                    String::from_utf8_lossy(raw).to_string()
+                }
+            }
+            Type::TIMESTAMPTZ => {
+                // PostgreSQL TIMESTAMPTZ binary: i64 microseconds since 2000-01-01 UTC
+                if raw.len() == 8 {
+                    let us = i64::from_be_bytes(raw.try_into().unwrap());
+                    let pg_epoch = chrono::NaiveDate::from_ymd_opt(2000, 1, 1)
+                        .unwrap()
+                        .and_hms_opt(0, 0, 0)
+                        .unwrap()
+                        .and_utc();
+                    match pg_epoch.checked_add_signed(chrono::Duration::microseconds(us)) {
+                        Some(dt) => dt.to_rfc3339(),
+                        None => format!("{} us", us),
+                    }
+                } else {
+                    String::from_utf8_lossy(raw).to_string()
+                }
+            }
+            _ => {
+                // Fallback: try UTF-8, then lossy conversion
+                String::from_utf8_lossy(raw).to_string()
+            }
+        }
     }
 
     /// Format raw binary bytes into a string based on PostgreSQL type.
@@ -311,11 +470,7 @@ impl SimpleConverter {
             // TSQUERY: try UTF-8 fallback (complex binary format)
             "tsquery" => std::str::from_utf8(raw).ok().map(|s| s.to_string()),
 
-            // Range types: try generic range parser
-            "int4range" | "int8range" | "numrange" | "daterange" | "tsrange" | "tstzrange" => {
-                // Range binary format is complex; try UTF-8 fallback
-                std::str::from_utf8(raw).ok().map(|s| s.to_string())
-            }
+            // Range types are handled upstream in cell_to_json via convert_range_value
 
             // POINT: x(f64) + y(f64) = 16 bytes
             "point" => Self::format_point(raw),

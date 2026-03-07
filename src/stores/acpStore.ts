@@ -195,6 +195,8 @@ interface AcpState {
 
   // UI state
   isPanelOpen: boolean;
+  /** Prompt queued from outside the AI panel (e.g. "Fix with AI") — consumed on open */
+  pendingPrompt: string | null;
 
   // Actions
   loadAgents: () => Promise<void>;
@@ -225,6 +227,8 @@ interface AcpState {
   setAvailableCommands: (commands: string[]) => void;
   finalizeMessage: () => void;
   togglePanel: () => void;
+  /** Open AI panel with a pre-filled prompt (e.g. "Fix with AI" from query errors) */
+  openWithPrompt: (prompt: string) => void;
   setPreferredPackageManager: (pm: NpmPackageManager) => void;
   setAutoUpgradePackages: (auto: boolean) => void;
   skipPackageVersion: (packageName: string, version: string) => void;
@@ -262,6 +266,7 @@ export const useAcpStore = create<AcpState>()(
     recentSessions: [],
     isLoadingSessions: false,
     isPanelOpen: false,
+    pendingPrompt: null,
 
     loadAgents: async () => {
       set({ isLoadingAgents: true });
@@ -1076,6 +1081,10 @@ export const useAcpStore = create<AcpState>()(
 
     togglePanel: () => {
       set((state) => ({ isPanelOpen: !state.isPanelOpen }));
+    },
+
+    openWithPrompt: (prompt: string) => {
+      set({ pendingPrompt: prompt, isPanelOpen: true });
     },
 
     setPreferredPackageManager: (pm: NpmPackageManager) => {

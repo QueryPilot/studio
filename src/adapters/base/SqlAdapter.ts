@@ -20,6 +20,8 @@ import type {
   WhereClause,
   SelectOptions,
   InsertOptions,
+  UpdateOptions,
+  DeleteOptions,
   QueryPayload,
   QueryResult,
   ColumnInfo,
@@ -100,6 +102,17 @@ export abstract class SqlAdapter implements DatabaseAdapter {
   }
 
   /**
+   * Look up column info by name from an optional array, falling back to name-only.
+   */
+  protected findColumnInfo(name: string, infos?: ColumnInfo[]): ColumnInfo {
+    if (infos) {
+      const found = infos.find((c) => c.name === name);
+      if (found) return found;
+    }
+    return { name };
+  }
+
+  /**
    * Generate INSERT statement
    */
   insert(target: TableRef, data: RowData, options?: InsertOptions): string {
@@ -107,7 +120,7 @@ export abstract class SqlAdapter implements DatabaseAdapter {
     const columns = Object.keys(data);
     const columnList = columns.map((c) => this.quoteIdentifier(c)).join(", ");
     const valueList = columns
-      .map((c) => this.formatValue(data[c], { name: c }))
+      .map((c) => this.formatValue(data[c], this.findColumnInfo(c, options?.columnInfos)))
       .join(", ");
 
     let sql = `INSERT INTO ${table} (${columnList}) VALUES (${valueList})`;
@@ -122,19 +135,17 @@ export abstract class SqlAdapter implements DatabaseAdapter {
   /**
    * Generate UPDATE statement
    */
-  update(target: TableRef, data: RowData, where: WhereClause): string {
+  update(target: TableRef, data: RowData, where: WhereClause, options?: UpdateOptions): string {
     const table = this.formatTableRef(target);
 
     const setClause = Object.entries(data)
       .map(
         ([col, val]) =>
-          `${this.quoteIdentifier(col)} = ${this.formatValue(val, {
-            name: col,
-          })}`,
+          `${this.quoteIdentifier(col)} = ${this.formatValue(val, this.findColumnInfo(col, options?.columnInfos))}`,
       )
       .join(", ");
 
-    const whereClause = this.buildWhereClause(where);
+    const whereClause = this.buildWhereClause(where, options?.columnInfos);
 
     let sql = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
 
@@ -148,9 +159,9 @@ export abstract class SqlAdapter implements DatabaseAdapter {
   /**
    * Generate DELETE statement
    */
-  delete(target: TableRef, where: WhereClause): string {
+  delete(target: TableRef, where: WhereClause, options?: DeleteOptions): string {
     const table = this.formatTableRef(target);
-    const whereClause = this.buildWhereClause(where);
+    const whereClause = this.buildWhereClause(where, options?.columnInfos);
 
     return `DELETE FROM ${table} WHERE ${whereClause}`;
   }
@@ -349,14 +360,12 @@ export abstract class SqlAdapter implements DatabaseAdapter {
   /**
    * Build WHERE clause from conditions
    */
-  protected buildWhereClause(where: WhereClause): string {
+  protected buildWhereClause(where: WhereClause, columnInfos?: ColumnInfo[]): string {
     const conditions = Object.entries(where).map(([col, val]) => {
       if (val === null) {
         return `${this.quoteIdentifier(col)} IS NULL`;
       }
-      return `${this.quoteIdentifier(col)} = ${this.formatValue(val, {
-        name: col,
-      })}`;
+      return `${this.quoteIdentifier(col)} = ${this.formatValue(val, this.findColumnInfo(col, columnInfos))}`;
     });
 
     return conditions.join(" AND ");
@@ -791,7 +800,8 @@ export abstract class SqlAdapter implements DatabaseAdapter {
     target: TableRef,
     constraintName: string,
     cascade?: boolean,
-    ifExists?: boolean
+    ifExists?: boolean,
+    constraintType?: string
   ): string;
 
   abstract renameConstraint(
