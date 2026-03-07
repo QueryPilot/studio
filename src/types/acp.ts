@@ -84,6 +84,7 @@ export interface AcpMessage {
 export interface QueuedMessage {
   id: string;
   content: string;
+  contextJson?: string;
   images?: Array<{ data: string; mimeType: string }>;
 }
 

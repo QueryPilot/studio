@@ -38,6 +38,9 @@ const STORAGE_KEY = "acp-model-preferences";
 // Maximum title length
 const MAX_TITLE_LENGTH = 50;
 
+// Maximum queued messages
+const MAX_QUEUE_SIZE = 10;
+
 const AI_TOOL_UI_MUTATION_CAPABILITIES = new Set<AiCommandName>([
   "tab.create",
   "tab.focus",
@@ -236,7 +239,7 @@ interface AcpState {
   togglePanel: () => void;
   /** Open AI panel with a pre-filled prompt (e.g. "Fix with AI" from query errors) */
   openWithPrompt: (prompt: string) => void;
-  enqueueMessage: (content: string, images?: Array<{ data: string; mimeType: string }>) => void;
+  enqueueMessage: (content: string, contextJson?: string, images?: Array<{ data: string; mimeType: string }>) => void;
   dequeueMessage: (id: string) => void;
   popQueueToInput: (id: string) => QueuedMessage | null;
   resumeQueue: () => void;
@@ -757,7 +760,7 @@ export const useAcpStore = create<AcpState>()(
 
       // If already streaming, queue the message instead
       if (isStreaming) {
-        get().enqueueMessage(content, images);
+        get().enqueueMessage(content, contextJson, images);
         return;
       }
 
@@ -1156,7 +1159,7 @@ export const useAcpStore = create<AcpState>()(
         }));
         // Use setTimeout to avoid recursive call stack
         setTimeout(() => {
-          void get().sendMessage(next.content, undefined, next.images);
+          void get().sendMessage(next.content, next.contextJson, next.images);
         }, 0);
       }
     },
@@ -1169,11 +1172,18 @@ export const useAcpStore = create<AcpState>()(
       set({ pendingPrompt: prompt, isPanelOpen: true });
     },
 
-    enqueueMessage: (content, images) => {
+    enqueueMessage: (content, contextJson, images) => {
+      const { messageQueue } = get();
+      if (messageQueue.length >= MAX_QUEUE_SIZE) {
+        toast.warning("Message queue is full", {
+          description: `Maximum ${MAX_QUEUE_SIZE} messages can be queued.`,
+        });
+        return;
+      }
       set((state) => ({
         messageQueue: [
           ...state.messageQueue,
-          { id: nanoid(), content, images },
+          { id: nanoid(), content, contextJson, images },
         ],
       }));
     },
@@ -1203,7 +1213,9 @@ export const useAcpStore = create<AcpState>()(
         set((state) => ({
           messageQueue: state.messageQueue.slice(1),
         }));
-        void get().sendMessage(next.content, undefined, next.images);
+        setTimeout(() => {
+          void get().sendMessage(next.content, next.contextJson, next.images);
+        }, 0);
       }
     },
 
