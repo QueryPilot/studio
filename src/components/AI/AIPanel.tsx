@@ -547,7 +547,7 @@ ${batchResult}`;
 
   const handleSend = useCallback(async () => {
     const content = inputValue.trim();
-    if (!content || effectiveIsStreaming) return;
+    if (!content) return;
 
     autoFeedbackDepthRef.current = 0;
     sentAutoFeedbackSignaturesRef.current.clear();
@@ -614,7 +614,6 @@ ${batchResult}`;
     }
   }, [
     inputValue,
-    effectiveIsStreaming,
     isByok,
     byokSession,
     byokSendMessage,
@@ -2706,7 +2705,7 @@ const InputArea = ({
 
           {/* Keyboard hint removed — button is self-explanatory */}
 
-          {isStreaming ? (
+          {isStreaming && (
             <Button
               variant="ghost"
               size="sm"
@@ -2716,22 +2715,21 @@ const InputArea = ({
               <IconPlayerStop className="h-3.5 w-3.5" />
               Stop
             </Button>
-          ) : (
-            <Button
-              variant={canSend ? "default" : "ghost"}
-              size="icon"
-              disabled={!canSend}
-              onClick={onSubmit}
-              className={cn(
-                "h-6 w-6 rounded-md transition-all",
-                canSend
-                  ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
-                  : "text-muted-foreground",
-              )}
-            >
-              <IconSend className="h-4 w-4" />
-            </Button>
           )}
+          <Button
+            variant={canSend ? "default" : "ghost"}
+            size="icon"
+            disabled={!canSend}
+            onClick={onSubmit}
+            className={cn(
+              "h-6 w-6 rounded-md transition-all",
+              canSend
+                ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+                : "text-muted-foreground",
+            )}
+          >
+            <IconSend className="h-4 w-4" />
+          </Button>
         </div>
       </div>
     </div>
