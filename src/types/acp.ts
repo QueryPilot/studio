@@ -76,6 +76,15 @@ export interface AcpMessage {
    * Block-based assistant stream model with full fidelity.
    */
   assistantBlocks?: AssistantBlockV2[];
+  /** Whether this message was from a cancelled turn */
+  cancelled?: boolean;
+}
+
+/** A message waiting in the send queue */
+export interface QueuedMessage {
+  id: string;
+  content: string;
+  images?: Array<{ data: string; mimeType: string }>;
 }
 
 export interface ToolCall {
