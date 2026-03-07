@@ -228,11 +228,16 @@ query.run params:
 - `query` (required): the query text (put on one line; use spaces or `\n` for line breaks)
 - `language` (optional): "sql" (default), "mongo", or "redis"
 - `database` (optional): target database
+- `schema` (optional): target schema (e.g. "public", "dbo")
 - `title` (optional): human-readable label
+- `timeoutSecs` (optional): query timeout in seconds (default 30, max 300)
 
 query.run examples:
 - SQL: `echo '{"version":"1","requestId":"q1","params":{"connectionId":"c1","query":"SELECT * FROM users LIMIT 20"}}' | {QUERYPILOT_CLI} agent query.run`
-- MongoDB: `echo '{"version":"1","requestId":"q1","params":{"connectionId":"c2","language":"mongo","query":"{\"operation\":\"find\",\"collection\":\"users\",\"filter\":{},\"limit\":20}"}}' | {QUERYPILOT_CLI} agent query.run`
+- MongoDB find: `echo '{"version":"1","requestId":"q1","params":{"connectionId":"c2","language":"mongo","query":"{\"operation\":\"find\",\"collection\":\"users\",\"filter\":{},\"limit\":20}"}}' | {QUERYPILOT_CLI} agent query.run`
+- MongoDB aggregate: `echo '{"version":"1","requestId":"q1","params":{"connectionId":"c2","language":"mongo","query":"{\"operation\":\"aggregate\",\"collection\":\"orders\",\"pipeline\":[{\"$group\":{\"_id\":\"$status\",\"count\":{\"$sum\":1}}}]}"}}' | {QUERYPILOT_CLI} agent query.run`
+- MongoDB count: `echo '{"version":"1","requestId":"q1","params":{"connectionId":"c2","language":"mongo","query":"{\"operation\":\"count\",\"collection\":\"users\",\"filter\":{\"active\":true}}"}}' | {QUERYPILOT_CLI} agent query.run`
+- MongoDB listCollections: `echo '{"version":"1","requestId":"q1","params":{"connectionId":"c2","language":"mongo","query":"{\"operation\":\"listCollections\"}"}}' | {QUERYPILOT_CLI} agent query.run`
 - Redis: `echo '{"version":"1","requestId":"q1","params":{"connectionId":"c3","language":"redis","query":"INFO memory"}}' | {QUERYPILOT_CLI} agent query.run`
 
 ## Modifying State — qp-action Text Blocks

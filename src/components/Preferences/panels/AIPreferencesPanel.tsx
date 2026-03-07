@@ -282,7 +282,7 @@ export default function AIPreferencesPanel() {
   );
 
   return (
-    <div className="max-w-2xl space-y-8 pb-8">
+    <div className="space-y-8 pb-8">
       {/* Header */}
       <div className="pb-3">
         <h2 className="text-base font-semibold tracking-tight">AI</h2>
