@@ -9,6 +9,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
@@ -81,11 +83,15 @@ enum AcpCommand {
 /// Client implementation that forwards notifications via a channel
 struct QueryPilotClient {
     notification_tx: NotificationSender,
+    is_cancelled: Arc<AtomicBool>,
 }
 
 impl QueryPilotClient {
-    fn new(notification_tx: NotificationSender) -> Self {
-        Self { notification_tx }
+    fn new(notification_tx: NotificationSender, is_cancelled: Arc<AtomicBool>) -> Self {
+        Self {
+            notification_tx,
+            is_cancelled,
+        }
     }
 }
 
@@ -260,6 +266,14 @@ impl Client for QueryPilotClient {
         &self,
         args: RequestPermissionRequest,
     ) -> agent_client_protocol::Result<RequestPermissionResponse> {
+        // If session has been cancelled, reject all permission requests
+        if self.is_cancelled.load(Ordering::Relaxed) {
+            tracing::info!("Permission request rejected: session cancelled");
+            return Ok(RequestPermissionResponse::new(
+                RequestPermissionOutcome::Cancelled,
+            ));
+        }
+
         // Check the tool kind to decide whether to allow or deny
         let tool_kind = args.tool_call.fields.kind.unwrap_or(ToolKind::Other);
         let tool_title = args.tool_call.fields.title.as_deref().unwrap_or("unknown");
@@ -342,6 +356,8 @@ struct AgentProcess {
     notification_rx: Option<NotificationReceiver>,
     /// The binary name of this agent (e.g., "gemini", "claude-code-acp")
     binary_name: String,
+    /// Set to true when cancel is requested, checked by permission handler
+    is_cancelled: Arc<AtomicBool>,
 }
 
 /// Worker that runs ACP operations on a LocalSet
@@ -403,9 +419,11 @@ impl AcpWorker {
         // Create notification channel
         let (notification_tx, notification_rx) = mpsc::unbounded_channel();
 
+        let is_cancelled = Arc::new(AtomicBool::new(false));
+
         // Create ACP connection over the piper pipes
         let (connection, io_task) = ClientSideConnection::new(
-            QueryPilotClient::new(notification_tx),
+            QueryPilotClient::new(notification_tx, is_cancelled.clone()),
             to_agent_tx,   // outgoing bytes (to agent)
             from_agent_rx, // incoming bytes (from agent)
             |fut| {
@@ -498,6 +516,7 @@ impl AcpWorker {
                 session_id: None,
                 notification_rx: Some(notification_rx),
                 binary_name: agent_info.id.clone(),
+                is_cancelled,
             },
         );
 
@@ -510,6 +529,7 @@ impl AcpWorker {
         cwd: &str,
     ) -> Result<String, String> {
         let process = self.agents.get_mut(agent_id).ok_or("Agent not found")?;
+        process.is_cancelled.store(false, Ordering::Relaxed);
         let request = NewSessionRequest::new(PathBuf::from(cwd));
 
         let response = process
@@ -587,6 +607,8 @@ impl AcpWorker {
     async fn cancel(&self, agent_id: &str) -> Result<(), String> {
         let process = self.agents.get(agent_id).ok_or("Agent not found")?;
         let session_id = process.session_id.clone().ok_or("Session not created")?;
+
+        process.is_cancelled.store(true, Ordering::Relaxed);
 
         process
             .connection
