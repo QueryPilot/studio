@@ -11,6 +11,11 @@ import { MongoDBAdapter } from "@/adapters/mongodb";
 import { MongoQueryToolbar } from "./MongoQueryToolbar";
 import { logger } from "@/lib/logger";
 import { eventBus } from "@/services/eventBus";
+import {
+  normalizeMongoResult,
+  type MongoExecutionResult,
+  type MongoOperationKind,
+} from "./mongo-result-state";
 
 interface MongoQueryPanelProps {
   panelId: string;
@@ -37,7 +42,7 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
 }: MongoQueryPanelProps) {
   const [query, setQuery] = useState(initialQuery);
   const [isExecuting, setIsExecuting] = useState(false);
-  const [result, setResult] = useState<string>("");
+  const [result, setResult] = useState<MongoExecutionResult | null>(null);
   const [executionTime, setExecutionTime] = useState<number | null>(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
 
@@ -49,16 +54,20 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
     if (!query.trim()) return;
 
     setIsExecuting(true);
-    setResult("");
+    setResult(null);
     setExecutionTime(null);
     const startTime = performance.now();
 
     try {
       let parsedQuery;
+      let operation: MongoOperationKind = "unknown";
+      let collection: string | undefined;
       try {
         parsedQuery = JSON.parse(query);
       } catch (e) {
-        throw new Error("Invalid JSON: " + (e as Error).message);
+        throw new Error("Invalid JSON: " + (e as Error).message, {
+          cause: e,
+        });
       }
 
       const adapter = new MongoDBAdapter(connectionId);
@@ -66,7 +75,9 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
       let queryResult;
 
       if (parsedQuery.find) {
-        const collection = parsedQuery.find;
+        operation = "find";
+        const findCollection = parsedQuery.find as string;
+        collection = findCollection;
         const filter = parsedQuery.filter || {};
         const options = {
           limit: parsedQuery.limit,
@@ -75,63 +86,86 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
           projection: parsedQuery.projection,
         };
         
-        logger.info("[MongoQueryPanel] Executing find", { collection, filter, options });
-        queryResult = await adapter.findDocuments(collection, filter, options);
+        logger.info("[MongoQueryPanel] Executing find", { collection: findCollection, filter, options });
+        queryResult = await adapter.findDocuments(findCollection, filter, options);
         
       } else if (parsedQuery.aggregate) {
-        const collection = parsedQuery.aggregate;
+        operation = "aggregate";
+        const aggregateCollection = parsedQuery.aggregate as string;
+        collection = aggregateCollection;
         const pipeline = parsedQuery.pipeline || [];
         
         if (!Array.isArray(pipeline)) {
           throw new Error("Pipeline must be an array");
         }
 
-        logger.info("[MongoQueryPanel] Executing aggregate", { collection, pipelineLength: pipeline.length });
-        queryResult = await adapter.aggregate(collection, pipeline);
+        logger.info("[MongoQueryPanel] Executing aggregate", { collection: aggregateCollection, pipelineLength: pipeline.length });
+        queryResult = await adapter.aggregate(aggregateCollection, pipeline);
 
       } else if (parsedQuery.command) {
+        operation = "command";
         logger.info("[MongoQueryPanel] Executing command", parsedQuery.command);
         queryResult = await adapter.runCommand(parsedQuery.command);
 
       } else if (parsedQuery.insert) {
-        const collection = parsedQuery.insert;
+        operation = "insert";
+        const insertCollection = parsedQuery.insert as string;
+        collection = insertCollection;
         const docs = parsedQuery.documents || parsedQuery.document;
         
         if (Array.isArray(docs)) {
-             queryResult = await adapter.insertDocuments(collection, docs);
+             queryResult = await adapter.insertDocuments(insertCollection, docs);
         } else {
-             queryResult = await adapter.insertDocument(collection, docs);
+             queryResult = await adapter.insertDocument(insertCollection, docs);
         }
       } else if (parsedQuery.update) {
-        const collection = parsedQuery.update;
+        operation = "update";
+        const updateCollection = parsedQuery.update as string;
+        collection = updateCollection;
         const filter = parsedQuery.filter || {};
         const update = parsedQuery.updateDoc || parsedQuery.update;
         
-        queryResult = await adapter.updateDocument(collection, filter, update);
+        queryResult = await adapter.updateDocument(updateCollection, filter, update);
       } else if (parsedQuery.delete) {
-        const collection = parsedQuery.delete;
+        operation = "delete";
+        const deleteCollection = parsedQuery.delete as string;
+        collection = deleteCollection;
         const filter = parsedQuery.filter || {};
         
-        queryResult = await adapter.deleteDocument(collection, filter);
+        queryResult = await adapter.deleteDocument(deleteCollection, filter);
       } else if (parsedQuery.count) {
-          const collection = parsedQuery.count;
+          operation = "count";
+          const countCollection = parsedQuery.count as string;
+          collection = countCollection;
           const filter = parsedQuery.filter;
-          queryResult = await adapter.countDocuments(collection, filter);
+          queryResult = await adapter.countDocuments(countCollection, filter);
       } else {
+        operation = "command";
         logger.info("[MongoQueryPanel] Unknown format, attempting as runCommand", parsedQuery);
         queryResult = await adapter.runCommand(parsedQuery);
       }
 
       const endTime = performance.now();
       setExecutionTime(endTime - startTime);
-      setResult(JSON.stringify(queryResult, null, 2));
+      setResult(
+        normalizeMongoResult({
+          operation,
+          result: queryResult,
+          collection,
+        }),
+      );
       toast.success("Query executed successfully");
 
     } catch (err) {
       logger.error("[MongoQueryPanel] Execution failed", err);
       const msg = err instanceof Error ? err.message : String(err);
       toast.error("Execution failed", { description: msg });
-      setResult(JSON.stringify({ error: msg }, null, 2));
+      setResult(
+        normalizeMongoResult({
+          operation: "command",
+          error: err,
+        }),
+      );
     } finally {
       setIsExecuting(false);
     }
@@ -148,7 +182,7 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
   }, [query]);
 
   const handleClearResults = useCallback(() => {
-    setResult("");
+    setResult(null);
     setExecutionTime(null);
   }, []);
 
@@ -161,7 +195,7 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
 
     const handleExecuteEvent = () => {
       if (!hasFocus()) return;
-      handleExecute();
+      void handleExecute();
     };
 
     const handleFormatEvent = () => {
@@ -211,7 +245,7 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
               onFormat={handleFormat}
               onClear={handleClearResults}
               hasQuery={!!query.trim()}
-              hasResults={!!result}
+              hasResults={result !== null}
             />
           </div>
         </ResizablePanel>
@@ -230,7 +264,7 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
             <div className="flex-1 min-h-0 relative">
                {result ? (
                  <CodeEditor
-                   value={result}
+                   value={result.formattedText}
                    language="json"
                    readOnly={true}
                    lineNumbers={true}
