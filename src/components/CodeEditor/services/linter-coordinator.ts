@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { logger } from "@/lib/logger";
-import { getRustSchemaSyncStatus } from "@/hooks/useRustSchemaSync";
+import {
+  getRustSchemaSyncStatus,
+  syncSchemaToRust,
+} from "@/hooks/useRustSchemaSync";
 import type { EditorDiagnosticsStatus, SqlDialect } from "../types";
 
 interface LintRequest {
@@ -48,7 +51,6 @@ class LinterCoordinator {
   requestLint(request: LintRequest, callback: LintCallback): () => void {
     const cacheKey = this.getCacheKey(request);
 
-    // Check cache first
     const cached = this.cache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
       queueMicrotask(() => {
@@ -57,7 +59,6 @@ class LinterCoordinator {
       return () => {};
     }
 
-    // Deduplicate: if another editor already requested the same SQL, add callback
     const existing = this.pendingRequests.get(cacheKey);
     if (existing) {
       existing.callbacks.push(callback);
@@ -68,12 +69,10 @@ class LinterCoordinator {
       });
     }
 
-    // Schedule flush
     if (this.rafId === null) {
       this.rafId = requestAnimationFrame(() => this.flush());
     }
 
-    // Return cancel function
     return () => {
       const entry = this.pendingRequests.get(cacheKey);
       if (entry) {
@@ -85,25 +84,50 @@ class LinterCoordinator {
     };
   }
 
+  private getSyncSchema(request: LintRequest): string | null {
+    const trimmedSchema = request.schema?.trim();
+    if (trimmedSchema) {
+      return trimmedSchema;
+    }
+
+    switch (request.dialect) {
+      case "sqlite":
+        return "main";
+      case "mssql":
+        return "dbo";
+      case "postgresql":
+      case "plsql":
+        return "public";
+      case "mysql":
+      default:
+        return null;
+    }
+  }
+
   private async flush() {
     this.rafId = null;
     const requests = new Map(this.pendingRequests);
     this.pendingRequests.clear();
 
-    // Process all pending requests in parallel — IPC calls are independent
     await Promise.allSettled(
       Array.from(requests.entries()).map(
         async ([cacheKey, { request, callbacks }]) => {
           if (callbacks.length === 0) return;
 
           try {
-            const status =
-              request.connectionId
-                ? getRustSchemaSyncStatus(
-                    request.connectionId,
-                    request.schema?.trim() || "public",
-                  )
-                : "ready";
+            let status: EditorDiagnosticsStatus = "ready";
+
+            if (request.connectionId) {
+              const schemaName = this.getSyncSchema(request);
+              if (schemaName) {
+                if (!request.schema?.trim()) {
+                  await syncSchemaToRust(request.connectionId, schemaName);
+                }
+                status = getRustSchemaSyncStatus(request.connectionId, schemaName);
+              } else {
+                status = "unavailable";
+              }
+            }
 
             const response = await invoke<{
               valid: boolean;
@@ -128,22 +152,18 @@ class LinterCoordinator {
               status,
             };
 
-            // Cache result
             this.cache.set(cacheKey, { result, timestamp: Date.now() });
 
-            // Evict old cache entries
             if (this.cache.size > 20) {
               const oldest = this.cache.keys().next().value;
               if (oldest) this.cache.delete(oldest);
             }
 
-            // Notify all callbacks
             for (const cb of callbacks) {
               cb(result);
             }
           } catch (error) {
             logger.error("[LinterCoordinator] IPC failed:", error);
-            // Resolve all callbacks with empty diagnostics so promises don't hang
             const emptyResult: LintResult = {
               diagnostics: [],
               status: "unavailable",
