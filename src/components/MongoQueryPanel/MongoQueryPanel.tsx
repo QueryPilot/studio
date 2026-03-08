@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, useMemo, memo } from "react";
+import { useState, useCallback, useEffect, useRef, memo } from "react";
 import { toast } from "sonner";
 import {
   ResizablePanelGroup,
@@ -15,11 +15,11 @@ import {
 import { logger } from "@/lib/logger";
 import { eventBus } from "@/services/eventBus";
 import {
-  formatMongoExecutionResult,
   normalizeMongoResult,
   type MongoExecutionResult,
   type MongoOperationKind,
 } from "./mongo-result-state";
+import { MongoResultViewer } from "./MongoResultViewer";
 
 interface MongoQueryPanelProps {
   panelId: string;
@@ -37,8 +37,8 @@ const DEFAULT_QUERY = `{
 }`;
 
 export const MongoQueryPanel = memo(function MongoQueryPanel({
-  panelId: _panelId,
-  tabId: _tabId,
+  panelId,
+  tabId,
   connectionId,
   database,
   className,
@@ -51,10 +51,6 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
   const [showResults, setShowResults] = useState(false);
   const [viewMode, setViewMode] = useState<MongoResultViewMode>("json");
   const editorContainerRef = useRef<HTMLDivElement>(null);
-  const formattedResult = useMemo(
-    () => (result ? formatMongoExecutionResult(result) : ""),
-    [result],
-  );
 
   const handleFocusPanel = useCallback(() => {
     // Focus panel when interacting
@@ -289,29 +285,16 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
 
             {/* Bottom: Results */}
             <ResizablePanel defaultSize="60" minSize="20">
-              <div className="h-full flex flex-col bg-muted/10">
-                {executionTime !== null && (
-                  <div className="px-3 py-1 text-xs text-muted-foreground border-b bg-muted/20 flex justify-between">
-                    <span>Results</span>
-                    <span>{executionTime.toFixed(2)}ms</span>
-                  </div>
-                )}
-                <div className="flex-1 min-h-0 relative">
-                  {result ? (
-                    <CodeEditor
-                      value={formattedResult}
-                      language="json"
-                      readOnly={true}
-                      lineNumbers={true}
-                      className="h-full"
-                    />
-                  ) : (
-                    <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
-                      Run a query to see results
-                    </div>
-                  )}
-                </div>
-              </div>
+              <MongoResultViewer
+                result={result}
+                viewMode={viewMode}
+                connectionId={connectionId}
+                database={database}
+                gridId={`${tabId}:${panelId}:mongo-results`}
+                executionTime={executionTime}
+                onClearResults={handleClearResults}
+                className="h-full bg-muted/10"
+              />
             </ResizablePanel>
           </>
         )}

@@ -47,6 +47,7 @@ import {
   generateColumnsFromDocuments,
   type DocumentCellValue,
 } from "../utils/documentCellFactory";
+import { type GridCellValueType } from "@/types/cellValue";
 
 // ============================================================================
 // Types
@@ -135,6 +136,30 @@ function buildResultModeNullTypeHints(
   }
 
   return hints;
+}
+
+function mapResultModeValueType(
+  valueType: DocumentCellValue["type"],
+): GridCellValueType {
+  switch (valueType) {
+    case "number":
+      return "Integer";
+    case "boolean":
+      return "Boolean";
+    case "date":
+      return "DateTime";
+    case "null":
+      return "Null";
+    case "object":
+    case "array":
+      return "Json";
+    case "binary":
+      return "Binary";
+    case "string":
+    case "objectId":
+    default:
+      return "Text";
+  }
 }
 
 // ============================================================================
@@ -648,12 +673,29 @@ const DocumentResultDataGrid = memo(function DocumentResultDataGrid({
   const { showInspector, setShowInspector, inspectorTab, setInspectorTab } =
     useDocumentGridInspectorState(gridId);
   const columns = useMemo<GridColumnV2[]>(
-    () => generateColumnsFromDocuments(documents),
+    () =>
+      documents.length > 0
+        ? generateColumnsFromDocuments(documents)
+        : [{ id: "_id", field: "_id", title: "_id", name: "_id", width: 220 }],
     [documents],
   );
   const rows = useMemo<GridRowModel[]>(
-    () => documents as GridRowModel[],
-    [documents],
+    () =>
+      documents.map((document) => {
+        const row: GridRowModel = {};
+        for (const column of columns) {
+          const value = document[column.field];
+          const valueType = detectDocumentValueType(value);
+          row[column.field] = {
+            value,
+            db_type: valueType,
+            value_type: mapResultModeValueType(valueType),
+            is_truncated: false,
+          };
+        }
+        return row;
+      }),
+    [columns, documents],
   );
   const nullTypeHints = useMemo(
     () => buildResultModeNullTypeHints(documents),
@@ -663,7 +705,7 @@ const DocumentResultDataGrid = memo(function DocumentResultDataGrid({
   const getCellContent = useCallback(
     ([columnIndex, rowIndex]: Item) => {
       const column = columns[columnIndex];
-      const row = rows[rowIndex] as Record<string, unknown> | undefined;
+      const row = rows[rowIndex];
 
       if (!column) {
         return buildDocumentCell({
@@ -680,7 +722,7 @@ const DocumentResultDataGrid = memo(function DocumentResultDataGrid({
       }
 
       return buildDocumentCell({
-        value: row?.[column.field] ?? null,
+        value: row?.[column.field]?.value ?? null,
         column,
         nullTypeHint: nullTypeHints[column.field],
         readOnly: true,
