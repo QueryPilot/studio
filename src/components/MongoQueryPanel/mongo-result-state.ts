@@ -16,11 +16,10 @@ export type MongoExecutionResultKind =
   | "error";
 
 export interface MongoExecutionResult {
+  operation: MongoOperationKind;
   kind: MongoExecutionResultKind;
   raw: unknown;
-  formattedText: string;
   supportsDataView: boolean;
-  documents?: Record<string, unknown>[];
   collection?: string;
   errorMessage?: string;
 }
@@ -40,6 +39,39 @@ function normalizeErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isDocumentRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getDocumentArray(value: unknown): Record<string, unknown>[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const documents = value.filter(isDocumentRecord);
+  return documents.length === value.length ? documents : null;
+}
+
+export function extractMongoResultDocuments(
+  result: MongoExecutionResult,
+): Record<string, unknown>[] | null {
+  const directDocuments = getDocumentArray(result.raw);
+  if (directDocuments) {
+    return directDocuments;
+  }
+
+  if (!isDocumentRecord(result.raw)) {
+    return null;
+  }
+
+  const cursor = result.raw.cursor;
+  if (!isDocumentRecord(cursor)) {
+    return null;
+  }
+
+  return getDocumentArray(cursor.firstBatch);
+}
+
 export function normalizeMongoResult({
   operation,
   result,
@@ -51,63 +83,42 @@ export function normalizeMongoResult({
     const raw = { error: errorMessage };
 
     return {
+      operation,
       kind: "error",
       raw,
-      formattedText: stringifyMongoResult(raw),
       supportsDataView: false,
       collection,
       errorMessage,
     };
   }
 
-  if (
-    (operation === "find" || operation === "aggregate") &&
-    Array.isArray(result)
-  ) {
-    const documents = result.filter(
-      (item): item is Record<string, unknown> =>
-        typeof item === "object" && item !== null && !Array.isArray(item),
-    );
+  const kind: MongoExecutionResultKind =
+    operation === "find" || operation === "aggregate"
+      ? "documents"
+      : operation === "count"
+        ? "scalar"
+        : operation === "insert" ||
+            operation === "update" ||
+            operation === "delete"
+          ? "mutation"
+          : "command";
 
-    return {
-      kind: "documents",
-      raw: result,
-      formattedText: stringifyMongoResult(result),
-      supportsDataView: true,
-      documents,
-      collection,
-    };
-  }
-
-  if (operation === "count" && typeof result === "number") {
-    return {
-      kind: "scalar",
-      raw: result,
-      formattedText: stringifyMongoResult(result),
-      supportsDataView: false,
-      collection,
-    };
-  }
-
-  if (
-    operation === "insert" ||
-    operation === "update" ||
-    operation === "delete"
-  ) {
-    return {
-      kind: "mutation",
-      raw: result,
-      formattedText: stringifyMongoResult(result),
-      supportsDataView: false,
-      collection,
-    };
-  }
-
-  return {
-    kind: "command",
+  const normalizedResult: MongoExecutionResult = {
+    operation,
+    kind,
     raw: result,
-    formattedText: stringifyMongoResult(result),
     supportsDataView: false,
     collection,
   };
+
+  normalizedResult.supportsDataView =
+    extractMongoResultDocuments(normalizedResult) !== null;
+
+  return normalizedResult;
+}
+
+export function formatMongoExecutionResult(
+  result: MongoExecutionResult,
+): string {
+  return stringifyMongoResult(result.raw);
 }

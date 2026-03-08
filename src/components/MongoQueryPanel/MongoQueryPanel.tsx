@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, memo } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo, memo } from "react";
 import { toast } from "sonner";
 import {
   ResizablePanelGroup,
@@ -12,6 +12,7 @@ import { MongoQueryToolbar } from "./MongoQueryToolbar";
 import { logger } from "@/lib/logger";
 import { eventBus } from "@/services/eventBus";
 import {
+  formatMongoExecutionResult,
   normalizeMongoResult,
   type MongoExecutionResult,
   type MongoOperationKind,
@@ -45,6 +46,10 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
   const [result, setResult] = useState<MongoExecutionResult | null>(null);
   const [executionTime, setExecutionTime] = useState<number | null>(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
+  const formattedResult = useMemo(
+    () => (result ? formatMongoExecutionResult(result) : ""),
+    [result],
+  );
 
   const handleFocusPanel = useCallback(() => {
     // Focus panel when interacting
@@ -57,11 +62,11 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
     setResult(null);
     setExecutionTime(null);
     const startTime = performance.now();
+    let operation: MongoOperationKind = "unknown";
+    let collection: string | undefined;
 
     try {
       let parsedQuery;
-      let operation: MongoOperationKind = "unknown";
-      let collection: string | undefined;
       try {
         parsedQuery = JSON.parse(query);
       } catch (e) {
@@ -162,8 +167,9 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
       toast.error("Execution failed", { description: msg });
       setResult(
         normalizeMongoResult({
-          operation: "command",
+          operation,
           error: err,
+          collection,
         }),
       );
     } finally {
@@ -264,7 +270,7 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
             <div className="flex-1 min-h-0 relative">
                {result ? (
                  <CodeEditor
-                   value={result.formattedText}
+                   value={formattedResult}
                    language="json"
                    readOnly={true}
                    lineNumbers={true}
