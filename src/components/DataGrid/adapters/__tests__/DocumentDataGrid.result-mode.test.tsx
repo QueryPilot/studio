@@ -116,7 +116,22 @@ describe("DocumentDataGrid result mode", () => {
     expect(baseProps.enableStagedChanges).toBe(false);
     expect(baseProps.enableFillOperations).toBe(false);
     expect(baseProps.commandFactory).toBeUndefined();
-    expect(baseProps.rows).toEqual([{ _id: "1", name: "Ada" }]);
+    expect(baseProps.rows).toEqual([
+      {
+        _id: {
+          value: "1",
+          db_type: "string",
+          value_type: "Text",
+          is_truncated: false,
+        },
+        name: {
+          value: "Ada",
+          db_type: "string",
+          value_type: "Text",
+          is_truncated: false,
+        },
+      },
+    ]);
     expect(baseProps.columns.map((column: { field: string }) => column.field)).toEqual([
       "_id",
       "name",
@@ -139,5 +154,23 @@ describe("DocumentDataGrid result mode", () => {
 
     expect(nameCell.readonly).toBe(true);
     expect(nameCell.copyData).toBe("Ada");
+  });
+
+  it("keeps an empty result grid shape when there are no documents", () => {
+    renderWithProviders(
+      <DocumentDataGrid
+        mode="result"
+        gridId="result-grid-empty"
+        connectionId="conn-1"
+        database="app"
+        documents={[]}
+      />,
+    );
+
+    const baseProps = mocks.baseDataGrid.mock.lastCall?.[0];
+    expect(baseProps.rows).toEqual([]);
+    expect(baseProps.columns.map((column: { field: string }) => column.field)).toEqual([
+      "_id",
+    ]);
   });
 });
