@@ -8,7 +8,10 @@ import {
 import { cn } from "@/lib/utils";
 import { CodeEditor } from "@/components/CodeEditor";
 import { MongoDBAdapter } from "@/adapters/mongodb";
-import { MongoQueryToolbar } from "./MongoQueryToolbar";
+import {
+  MongoQueryToolbar,
+  type MongoResultViewMode,
+} from "./MongoQueryToolbar";
 import { logger } from "@/lib/logger";
 import { eventBus } from "@/services/eventBus";
 import {
@@ -45,6 +48,8 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
   const [isExecuting, setIsExecuting] = useState(false);
   const [result, setResult] = useState<MongoExecutionResult | null>(null);
   const [executionTime, setExecutionTime] = useState<number | null>(null);
+  const [showResults, setShowResults] = useState(false);
+  const [viewMode, setViewMode] = useState<MongoResultViewMode>("json");
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const formattedResult = useMemo(
     () => (result ? formatMongoExecutionResult(result) : ""),
@@ -152,26 +157,28 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
 
       const endTime = performance.now();
       setExecutionTime(endTime - startTime);
-      setResult(
-        normalizeMongoResult({
-          operation,
-          result: queryResult,
-          collection,
-        }),
-      );
+      const normalizedResult = normalizeMongoResult({
+        operation,
+        result: queryResult,
+        collection,
+      });
+      setResult(normalizedResult);
+      setViewMode(normalizedResult.supportsDataView ? "data" : "json");
+      setShowResults(true);
       toast.success("Query executed successfully");
 
     } catch (err) {
       logger.error("[MongoQueryPanel] Execution failed", err);
       const msg = err instanceof Error ? err.message : String(err);
       toast.error("Execution failed", { description: msg });
-      setResult(
-        normalizeMongoResult({
-          operation,
-          error: err,
-          collection,
-        }),
-      );
+      const normalizedResult = normalizeMongoResult({
+        operation,
+        error: err,
+        collection,
+      });
+      setResult(normalizedResult);
+      setViewMode(normalizedResult.supportsDataView ? "data" : "json");
+      setShowResults(true);
     } finally {
       setIsExecuting(false);
     }
@@ -190,6 +197,12 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
   const handleClearResults = useCallback(() => {
     setResult(null);
     setExecutionTime(null);
+    setShowResults(false);
+    setViewMode("json");
+  }, []);
+
+  const toggleResults = useCallback(() => {
+    setShowResults((current) => !current);
   }, []);
 
   // Subscribe to global keyboard shortcuts via event bus
@@ -231,10 +244,20 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
       onMouseDown={handleFocusPanel}
       onFocus={handleFocusPanel}
     >
-      <ResizablePanelGroup orientation="vertical" className="h-full rounded-xl overflow-hidden">
+      <ResizablePanelGroup
+        orientation="vertical"
+        className="h-full rounded-xl overflow-hidden"
+      >
         {/* Top: Editor */}
-        <ResizablePanel defaultSize="40" minSize="20" className="flex flex-col">
-          <div ref={editorContainerRef} className="flex-1 min-h-0 relative flex flex-col">
+        <ResizablePanel
+          defaultSize={showResults ? "40" : "100"}
+          minSize="20"
+          className="flex flex-col"
+        >
+          <div
+            ref={editorContainerRef}
+            className="flex-1 min-h-0 relative flex flex-col"
+          >
             <CodeEditor
               value={query}
               onChange={setQuery}
@@ -249,41 +272,49 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
               onExecute={handleExecute}
               onCancel={() => {}} // Mongo adapter doesn't seem to support cancel yet
               onFormat={handleFormat}
-              onClear={handleClearResults}
               hasQuery={!!query.trim()}
-              hasResults={result !== null}
+              showResults={showResults}
+              viewMode={viewMode}
+              onToggleResults={toggleResults}
+              onViewModeChange={setViewMode}
             />
           </div>
         </ResizablePanel>
 
-        <ResizableHandle className="bg-secondary hover:bg-primary/50 transition-colors h-1" />
-
-        {/* Bottom: Results */}
-        <ResizablePanel defaultSize="60" minSize="20">
-          <div className="h-full flex flex-col bg-muted/10">
-            {executionTime !== null && (
-              <div className="px-3 py-1 text-xs text-muted-foreground border-b bg-muted/20 flex justify-between">
-                <span>Results</span>
-                <span>{executionTime.toFixed(2)}ms</span>
-              </div>
-            )}
-            <div className="flex-1 min-h-0 relative">
-               {result ? (
-                 <CodeEditor
-                   value={formattedResult}
-                   language="json"
-                   readOnly={true}
-                   lineNumbers={true}
-                   className="h-full"
-                 />
-               ) : (
-                 <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
-                   Run a query to see results
-                 </div>
-               )}
+        {showResults && (
+          <>
+            <div className="px-1">
+              <ResizableHandle className="bg-secondary !h-1 rounded-xl" />
             </div>
-          </div>
-        </ResizablePanel>
+
+            {/* Bottom: Results */}
+            <ResizablePanel defaultSize="60" minSize="20">
+              <div className="h-full flex flex-col bg-muted/10">
+                {executionTime !== null && (
+                  <div className="px-3 py-1 text-xs text-muted-foreground border-b bg-muted/20 flex justify-between">
+                    <span>Results</span>
+                    <span>{executionTime.toFixed(2)}ms</span>
+                  </div>
+                )}
+                <div className="flex-1 min-h-0 relative">
+                  {result ? (
+                    <CodeEditor
+                      value={formattedResult}
+                      language="json"
+                      readOnly={true}
+                      lineNumbers={true}
+                      className="h-full"
+                    />
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+                      Run a query to see results
+                    </div>
+                  )}
+                </div>
+              </div>
+            </ResizablePanel>
+          </>
+        )}
       </ResizablePanelGroup>
     </div>
   );
