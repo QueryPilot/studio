@@ -22,7 +22,7 @@ import {
 import { BaseDataGrid } from "../base/BaseDataGrid";
 import { BreadcrumbNav } from "../components/BreadcrumbNav";
 import { useDocumentData } from "../hooks/useDocumentData";
-import type { GridActivationEvent } from "../types";
+import type { GridActivationEvent, GridColumnV2, GridRowModel, Item } from "../types";
 import { cn } from "@/lib/utils";
 import { logger } from "@/lib/logger";
 import {
@@ -41,22 +41,24 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { openCollectionDesigner } from "@/utils/workbench/openers";
+import {
+  buildDocumentCell,
+  detectDocumentValueType,
+  generateColumnsFromDocuments,
+  type DocumentCellValue,
+} from "../utils/documentCellFactory";
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export interface DocumentDataGridProps {
+interface DocumentDataGridBaseProps {
   /** Unique grid ID for state management */
   gridId: string;
   /** Connection ID */
   connectionId: string;
   /** Database name */
   database: string;
-  /** Collection name */
-  collection: string;
-  /** Page size for pagination */
-  pageSize?: number;
   /** CSS class name */
   className?: string;
   /** Whether this grid's panel is focused (for auto-focus) */
@@ -64,6 +66,26 @@ export interface DocumentDataGridProps {
   /** Override grid ID used for sort preferences (for per-tab sort isolation) */
   sortGridId?: string;
 }
+
+export interface DocumentCollectionDataGridProps
+  extends DocumentDataGridBaseProps {
+  mode?: "collection";
+  /** Collection name */
+  collection: string;
+  /** Page size for pagination */
+  pageSize?: number;
+}
+
+export interface DocumentResultDataGridProps extends DocumentDataGridBaseProps {
+  mode: "result";
+  documents: Record<string, unknown>[];
+  /** Source collection when known */
+  collection?: string;
+}
+
+export type DocumentDataGridProps =
+  | DocumentCollectionDataGridProps
+  | DocumentResultDataGridProps;
 
 interface DocumentGridView {
   id: string;
@@ -74,11 +96,52 @@ interface DocumentGridView {
   filterMode: FilterMode;
 }
 
+function useDocumentGridInspectorState(gridId: string) {
+  const persistedInspector = useGridPreferencesStore(
+    (s) => s.preferences[gridId]?.inspector,
+  );
+  const [showInspector, setShowInspector] = useState(
+    () => persistedInspector?.open ?? false,
+  );
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>(
+    () => (persistedInspector?.tab as InspectorTab | undefined) ?? "tree",
+  );
+  const setInspectorPref = useGridPreferencesStore((s) => s.setInspector);
+
+  useEffect(() => {
+    setInspectorPref(gridId, { open: showInspector, tab: inspectorTab });
+  }, [gridId, inspectorTab, setInspectorPref, showInspector]);
+
+  return {
+    showInspector,
+    setShowInspector,
+    inspectorTab,
+    setInspectorTab,
+  };
+}
+
+function buildResultModeNullTypeHints(
+  documents: Record<string, unknown>[],
+): Record<string, DocumentCellValue["type"]> {
+  const hints: Record<string, DocumentCellValue["type"]> = {};
+
+  for (const document of documents) {
+    for (const [key, value] of Object.entries(document)) {
+      if (key in hints || value === null || value === undefined) {
+        continue;
+      }
+      hints[key] = detectDocumentValueType(value);
+    }
+  }
+
+  return hints;
+}
+
 // ============================================================================
 // Component
 // ============================================================================
 
-export const DocumentDataGrid = memo(function DocumentDataGrid({
+const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   gridId,
   connectionId,
   database,
@@ -87,7 +150,7 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   className,
   focused,
   sortGridId,
-}: DocumentDataGridProps) {
+}: DocumentCollectionDataGridProps) {
   const preferenceGridId = sortGridId ?? gridId;
   const quickFilterRef = useRef<QuickFilterRef>(null);
   const lastDrilledCellRef = useRef<string | null>(null);
@@ -99,12 +162,8 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   const [filterError, setFilterError] = useState<string | null>(null);
   const [flattenMode, setFlattenMode] = useState(false);
   const [flattenDepth, setFlattenDepth] = useState(3);
-  const persistedInspector = useGridPreferencesStore(
-    (s) => s.preferences[gridId]?.inspector,
-  );
-  const [showInspector, setShowInspector] = useState(
-    () => persistedInspector?.open ?? false,
-  );
+  const { showInspector, setShowInspector, inspectorTab, setInspectorTab } =
+    useDocumentGridInspectorState(gridId);
   const [objectIdJump, setObjectIdJump] = useState("");
   const [planHint, setPlanHint] = useState<string | null>(null);
   const [savedViews, setSavedViews] = useState<DocumentGridView[]>(() => {
@@ -157,15 +216,6 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
   useEffect(() => {
     window.localStorage.setItem(savedViewStorageKey, JSON.stringify(savedViews));
   }, [savedViews, savedViewStorageKey]);
-
-  // Inspector tab state with persistence
-  const [inspectorTab, setInspectorTab] = useState<InspectorTab>(
-    () => (persistedInspector?.tab as InspectorTab) ?? "tree",
-  );
-  const setInspectorPref = useGridPreferencesStore((s) => s.setInspector);
-  useEffect(() => {
-    setInspectorPref(gridId, { open: showInspector, tab: inspectorTab });
-  }, [gridId, showInspector, inspectorTab, setInspectorPref]);
 
   // Handle filter submission
   const handleFilterSubmit = useCallback(() => {
@@ -583,6 +633,107 @@ export const DocumentDataGrid = memo(function DocumentDataGrid({
       className={cn("document-datagrid", className)}
     />
   );
+});
+
+const DocumentResultDataGrid = memo(function DocumentResultDataGrid({
+  gridId,
+  connectionId,
+  database,
+  documents,
+  collection,
+  className,
+  focused,
+  sortGridId,
+}: DocumentResultDataGridProps) {
+  const { showInspector, setShowInspector, inspectorTab, setInspectorTab } =
+    useDocumentGridInspectorState(gridId);
+  const columns = useMemo<GridColumnV2[]>(
+    () => generateColumnsFromDocuments(documents),
+    [documents],
+  );
+  const rows = useMemo<GridRowModel[]>(
+    () => documents as GridRowModel[],
+    [documents],
+  );
+  const nullTypeHints = useMemo(
+    () => buildResultModeNullTypeHints(documents),
+    [documents],
+  );
+
+  const getCellContent = useCallback(
+    ([columnIndex, rowIndex]: Item) => {
+      const column = columns[columnIndex];
+      const row = rows[rowIndex] as Record<string, unknown> | undefined;
+
+      if (!column) {
+        return buildDocumentCell({
+          value: null,
+          column: {
+            id: "__missing__",
+            field: "__missing__",
+            title: "",
+            name: "",
+          },
+          readOnly: true,
+          canDrillDown: false,
+        });
+      }
+
+      return buildDocumentCell({
+        value: row?.[column.field] ?? null,
+        column,
+        nullTypeHint: nullTypeHints[column.field],
+        readOnly: true,
+        canDrillDown: false,
+      });
+    },
+    [columns, nullTypeHints, rows],
+  );
+
+  return (
+    <BaseDataGrid
+      gridId={gridId}
+      sortGridId={sortGridId}
+      rows={rows}
+      columns={columns}
+      getCellContent={getCellContent}
+      isLoading={false}
+      isLoadingMore={false}
+      error={null}
+      hasMore={false}
+      estimatedTotal={rows.length}
+      isEstimatedCount={false}
+      inspectorOpen={showInspector}
+      onInspectorOpenChange={setShowInspector}
+      inspectorDefaultTab={inspectorTab}
+      onInspectorTabChange={setInspectorTab}
+      connectionId={connectionId}
+      database={database}
+      tableName={collection}
+      paradigm="document"
+      enableFiltering={false}
+      enableSorting={true}
+      enableExport={true}
+      enableRowPinning={true}
+      enableColumnManagement={true}
+      enableClipboard={true}
+      enableFillOperations={false}
+      enableStagedChanges={false}
+      readOnly={true}
+      focused={focused}
+      className={cn("document-datagrid", className)}
+    />
+  );
+});
+
+export const DocumentDataGrid = memo(function DocumentDataGrid(
+  props: DocumentDataGridProps,
+) {
+  if (props.mode === "result") {
+    return <DocumentResultDataGrid {...props} />;
+  }
+
+  return <DocumentCollectionDataGrid {...props} />;
 });
 
 export default DocumentDataGrid;
