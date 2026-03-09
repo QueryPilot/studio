@@ -36,6 +36,7 @@ function CommandDialog({
   children,
   className,
   showCloseButton = false,
+  value,
   onKeyDown,
   onValueChange,
   ...props
@@ -44,6 +45,7 @@ function CommandDialog({
   description?: string;
   className?: string;
   showCloseButton?: boolean;
+  value?: string;
   children: React.ReactNode;
   onKeyDown?: React.KeyboardEventHandler;
   onValueChange?: (value: string) => void;
@@ -63,6 +65,7 @@ function CommandDialog({
       >
         <Command
           className="**:[[cmdk-group-heading]]:text-muted-foreground **:data-[slot=command-input-wrapper]:border-b **:data-[slot=command-input-wrapper]:pb-1 **:[[cmdk-group-heading]]:px-2 **:[[cmdk-group-heading]]:font-medium [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 **:[[cmdk-input]]:h-12 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5"
+          value={value}
           onKeyDown={onKeyDown}
           onValueChange={onValueChange}
           shouldFilter={false}

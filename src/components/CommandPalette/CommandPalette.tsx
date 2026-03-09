@@ -496,6 +496,13 @@ export function CommandPalette(): React.ReactElement {
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    contextService.setValue("inCommandPaletteActions", isOpen && actionsOpen);
+    return () => {
+      contextService.setValue("inCommandPaletteActions", false);
+    };
+  }, [isOpen, actionsOpen]);
+
   // Reset selection and scroll when results or query change
   useEffect(() => {
     if (!isOpen) return;
@@ -928,6 +935,7 @@ export function CommandPalette(): React.ReactElement {
     <CommandDialog
       open={isOpen}
       onOpenChange={handleOpenChange}
+      value={selectedValue}
       onKeyDown={handleKeyDown}
       onValueChange={setSelectedValue}
       className="min-w-[560px]!"
