@@ -137,13 +137,22 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
 
     updateWorkspace: async (id, updates) => {
       await vaultStorage.updateWorkspace(id, updates);
-      set((state) => ({
-        savedWorkspaces: state.savedWorkspaces.map((ws) =>
-          ws.id === id
-            ? { ...ws, ...updates, updatedAt: new Date().toISOString() }
-            : ws,
-        ),
-      }));
+      set((state) => {
+        const updatedConfig = { ...updates, updatedAt: new Date().toISOString() };
+        return {
+          savedWorkspaces: state.savedWorkspaces.map((ws) =>
+            ws.id === id ? { ...ws, ...updatedConfig } : ws,
+          ),
+          // Also sync to activeWorkspace if it matches
+          activeWorkspace:
+            state.activeWorkspace?.config.id === id
+              ? {
+                  ...state.activeWorkspace,
+                  config: { ...state.activeWorkspace.config, ...updatedConfig },
+                }
+              : state.activeWorkspace,
+        };
+      });
     },
 
     deleteWorkspace: async (id) => {
