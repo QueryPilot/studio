@@ -1,6 +1,21 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MongoResultViewer } from "../MongoResultViewer";
+
+const mocks = vi.hoisted(() => ({
+  formatMongoExecutionResult: vi.fn(),
+}));
+
+vi.mock("../mongo-result-state", async () => {
+  const actual = await vi.importActual("../mongo-result-state");
+
+  return {
+    ...(actual as Record<string, unknown>),
+    formatMongoExecutionResult: (...args: unknown[]) =>
+      mocks.formatMongoExecutionResult(...args),
+  };
+});
+
 import { normalizeMongoResult } from "../mongo-result-state";
 
 vi.mock("@/components/DataGrid", () => ({
@@ -16,6 +31,13 @@ vi.mock("@/components/CodeEditor", () => ({
 }));
 
 describe("MongoResultViewer", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.formatMongoExecutionResult.mockImplementation((result) =>
+      JSON.stringify(result.raw, null, 2),
+    );
+  });
+
   it("renders DocumentDataGrid in result mode for document results", () => {
     const result = normalizeMongoResult({
       operation: "find",
@@ -93,5 +115,39 @@ describe("MongoResultViewer", () => {
       screen.getByText("Data view is unavailable for this result."),
     ).toBeInTheDocument();
     expect(screen.getByTestId("code-editor")).toHaveTextContent("42");
+  });
+
+  it("memoizes JSON formatting across rerenders of the same result", () => {
+    const result = normalizeMongoResult({
+      operation: "count",
+      collection: "users",
+      result: 42,
+    });
+
+    const { rerender } = render(
+      <MongoResultViewer
+        result={result}
+        viewMode="json"
+        connectionId="conn-1"
+        database="app"
+        gridId="mongo-results-grid"
+        executionTime={null}
+        onClearResults={vi.fn()}
+      />,
+    );
+
+    rerender(
+      <MongoResultViewer
+        result={result}
+        viewMode="json"
+        connectionId="conn-1"
+        database="app"
+        gridId="mongo-results-grid"
+        executionTime={99}
+        onClearResults={vi.fn()}
+      />,
+    );
+
+    expect(mocks.formatMongoExecutionResult).toHaveBeenCalledTimes(1);
   });
 });
