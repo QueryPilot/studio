@@ -167,4 +167,40 @@ describe("MongoQueryPanel", () => {
       screen.queryByText("Clear Results"),
     ).not.toBeInTheDocument();
   });
+
+  it("shows a disabled running state instead of a fake stop action while executing", async () => {
+    let resolveFind:
+      | ((value: Array<{ _id: string; name: string }>) => void)
+      | undefined;
+
+    mocks.findDocuments.mockImplementation(
+      () =>
+        new Promise<Array<{ _id: string; name: string }>>((resolve) => {
+          resolveFind = resolve;
+        }),
+    );
+
+    render(
+      <MongoQueryPanel
+        panelId="panel-1"
+        tabId="tab-1"
+        connectionId="conn-1"
+        database="app"
+        initialQuery={`{"find":"users","filter":{}}`}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Running" })).toBeDisabled();
+    });
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+
+    resolveFind?.([{ _id: "1", name: "Ada" }]);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("document-data-grid")).toBeInTheDocument();
+    });
+  });
 });

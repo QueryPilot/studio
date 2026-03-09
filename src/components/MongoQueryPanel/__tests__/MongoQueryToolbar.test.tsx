@@ -7,6 +7,7 @@ describe("MongoQueryToolbar", () => {
     render(
       <MongoQueryToolbar
         isExecuting={false}
+        canCancel={false}
         onExecute={vi.fn()}
         onCancel={vi.fn()}
         onFormat={vi.fn()}
@@ -30,6 +31,7 @@ describe("MongoQueryToolbar", () => {
     render(
       <MongoQueryToolbar
         isExecuting={false}
+        canCancel={false}
         onExecute={vi.fn()}
         onCancel={vi.fn()}
         onFormat={vi.fn()}
@@ -55,6 +57,7 @@ describe("MongoQueryToolbar", () => {
     render(
       <MongoQueryToolbar
         isExecuting={false}
+        canCancel={false}
         onExecute={onExecute}
         onCancel={vi.fn()}
         onFormat={onFormat}
@@ -74,12 +77,13 @@ describe("MongoQueryToolbar", () => {
     expect(onFormat).toHaveBeenCalledTimes(1);
   });
 
-  it("shows stop while executing and disables formatting", () => {
+  it("shows stop while executing when cancellation is supported", () => {
     const onCancel = vi.fn();
 
     render(
       <MongoQueryToolbar
         isExecuting={true}
+        canCancel={true}
         onExecute={vi.fn()}
         onCancel={onCancel}
         onFormat={vi.fn()}
@@ -95,5 +99,26 @@ describe("MongoQueryToolbar", () => {
 
     expect(screen.getByRole("button", { name: "Format" })).toBeDisabled();
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a disabled running state while executing when cancellation is unavailable", () => {
+    render(
+      <MongoQueryToolbar
+        isExecuting={true}
+        canCancel={false}
+        onExecute={vi.fn()}
+        onCancel={vi.fn()}
+        onFormat={vi.fn()}
+        hasQuery={true}
+        showResults={true}
+        viewMode="json"
+        onToggleResults={vi.fn()}
+        onViewModeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Running" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Format" })).toBeDisabled();
   });
 });

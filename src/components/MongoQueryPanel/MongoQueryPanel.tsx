@@ -265,6 +265,7 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
             />
             <MongoQueryToolbar
               isExecuting={isExecuting}
+              canCancel={false}
               onExecute={handleExecute}
               onCancel={() => {}} // Mongo adapter doesn't seem to support cancel yet
               onFormat={handleFormat}

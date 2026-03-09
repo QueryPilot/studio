@@ -1,4 +1,4 @@
-import { memo, type ComponentProps } from "react";
+import { memo, useMemo, type ComponentProps } from "react";
 import { IconTrash } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { CodeEditor } from "@/components/CodeEditor";
@@ -56,9 +56,15 @@ export const MongoResultViewer = memo(function MongoResultViewer({
   onClearResults,
   className,
 }: MongoResultViewerProps) {
-  const documents = result ? extractMongoResultDocuments(result) : null;
+  const documents = useMemo(
+    () => (result ? extractMongoResultDocuments(result) : null),
+    [result],
+  );
   const canRenderData = viewMode === "data" && result?.supportsDataView && documents;
-  const formattedResult = result ? formatMongoExecutionResult(result) : "";
+  const formattedResult = useMemo(
+    () => (result ? formatMongoExecutionResult(result) : ""),
+    [result],
+  );
 
   return (
     <div className={cn("flex h-full flex-col", className)}>

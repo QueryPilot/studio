@@ -19,6 +19,7 @@ export type MongoResultViewMode = "data" | "json";
 
 interface MongoQueryToolbarProps {
   isExecuting: boolean;
+  canCancel: boolean;
   onExecute: () => void;
   onCancel: () => void;
   onFormat: () => void;
@@ -31,6 +32,7 @@ interface MongoQueryToolbarProps {
 
 export const MongoQueryToolbar = memo(function MongoQueryToolbar({
   isExecuting,
+  canCancel,
   onExecute,
   onCancel,
   onFormat,
@@ -115,16 +117,29 @@ export const MongoQueryToolbar = memo(function MongoQueryToolbar({
           </DropdownMenu>
 
           {isExecuting ? (
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={onCancel}
-              className="!h-6 text-xs gap-1 !px-2.5"
-              title="Cancel execution"
-            >
-              <IconPlayerStop className="h-3.5 w-3.5" />
-              <span>Stop</span>
-            </Button>
+            canCancel ? (
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={onCancel}
+                className="!h-6 text-xs gap-1 !px-2.5"
+                title="Cancel execution"
+              >
+                <IconPlayerStop className="h-3.5 w-3.5" />
+                <span>Stop</span>
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={true}
+                className="!h-6 text-xs gap-1 !px-2.5"
+                title="Query is running"
+              >
+                <IconPlayerPlay className="h-3.5 w-3.5" />
+                <span>Running</span>
+              </Button>
+            )
           ) : (
             <Button
               size="sm"
