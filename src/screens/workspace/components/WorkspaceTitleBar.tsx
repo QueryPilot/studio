@@ -875,8 +875,8 @@ export function WorkspaceTitleBar({
 
       {/* Center Section - Absolute positioning for true center, shrinks when space is limited */}
       <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-1.5 text-xs max-w-[50%] min-w-0 select-none">
-        {/* Workspace Name (if named or multi-connection workspace) */}
-        {!isAutoCreated || workspaceConnectionCount > 1 ? (
+        {/* Workspace Name (multi-connection workspace) */}
+        {workspaceConnectionCount > 1 ? (
           <>
             <span
               className="font-medium text-xs truncate"
@@ -888,7 +888,7 @@ export function WorkspaceTitleBar({
               className="text-muted-foreground whitespace-nowrap text-[10px]"
               data-tauri-drag-region
             >
-              {workspaceConnectionCount} connections
+              {workspaceConnectionCount} {workspaceConnectionCount === 1 ? "connection" : "connections"}
             </span>
           </>
         ) : (
