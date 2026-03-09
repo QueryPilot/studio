@@ -4,6 +4,7 @@ import { CommandService } from "@/services/commandService";
 import { ContextService } from "@/services/contextService";
 import { KeyboardHandler } from "@/services/keyboardHandler";
 import { KeybindingService } from "@/services/keybindingService";
+import { defaultKeybindings } from "@/data/defaultKeybindings";
 
 describe("KeyboardHandler", () => {
   let contextService: ContextService;
@@ -90,5 +91,51 @@ describe("KeyboardHandler", () => {
     await Promise.resolve();
 
     expect(chord).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not close quick open on Escape while command actions popover is visible", async () => {
+    const closeQuickOpen = vi.fn();
+
+    commandService.register({
+      id: "quickOpen.close",
+      label: "Close Quick Open",
+      handler: closeQuickOpen,
+    });
+
+    const quickOpenCloseBinding = defaultKeybindings.find(
+      (binding) => binding.command === "quickOpen.close" && binding.key === "escape",
+    );
+
+    if (!quickOpenCloseBinding) {
+      throw new Error("Missing default escape binding for quickOpen.close");
+    }
+
+    keybindingService.register(quickOpenCloseBinding);
+    contextService.setValue("inQuickOpen", true);
+    contextService.setValue("inCommandPaletteActions", true);
+
+    window.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Escape",
+      code: "Escape",
+      bubbles: true,
+      cancelable: true,
+    }));
+
+    await Promise.resolve();
+
+    expect(closeQuickOpen).not.toHaveBeenCalled();
+
+    contextService.setValue("inCommandPaletteActions", false);
+
+    window.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Escape",
+      code: "Escape",
+      bubbles: true,
+      cancelable: true,
+    }));
+
+    await Promise.resolve();
+
+    expect(closeQuickOpen).toHaveBeenCalledTimes(1);
   });
 });

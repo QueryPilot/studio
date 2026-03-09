@@ -35,6 +35,12 @@ export const contextKeyDefinitions: ContextKeyDefinition[] = [
     owner: 'commandPalette',
   },
   {
+    key: 'inCommandPaletteActions',
+    defaultValue: false,
+    description: 'Command palette actions popover is visible',
+    owner: 'commandPalette',
+  },
+  {
     key: 'hasMultipleEditors',
     defaultValue: false,
     description: 'Multiple editor tabs are open',

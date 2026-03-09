@@ -12,7 +12,7 @@ export const defaultKeybindings: Keybinding[] = [
   {
     command: 'quickOpen.close',
     key: 'escape',
-    when: 'inQuickOpen',
+    when: 'inQuickOpen && !inCommandPaletteActions',
   },
   {
     command: 'preferences.open',
