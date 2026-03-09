@@ -83,7 +83,7 @@ export async function streamEntityPage(
   const effectiveTabId = tabId ?? `table-view:${schema}.${entityName}`;
   const decodeWorker = getStreamDecodeWorker();
   // Keep a simple promise chain to preserve batch order when mapping on the worker
-  let mappingQueue = Promise.resolve<void>(undefined);
+  let mappingQueue: Promise<void> = Promise.resolve();
 
   const basePageSize = limit ?? pageSize;
   const effectivePageSize = Math.max(1, basePageSize);
@@ -268,11 +268,12 @@ export async function streamEntityPage(
           }
 
           // Offload normalization to the worker and preserve ordering via the queue
+          const columns = resolvedColumns;
           mappingQueue = mappingQueue
             .then(async () => {
               const mappedRows = await decodeWorker.mapRowsNormalized(
                 rawRows,
-                resolvedColumns!,
+                columns,
               );
 
               rows.push(...mappedRows);
@@ -297,7 +298,7 @@ export async function streamEntityPage(
                 onAllBatchesMapped = null;
               }
             })
-            .catch((error) => {
+            .catch((error: unknown) => {
               logger.error(
                 "stream-service",
                 "Failed to map rows in worker",
@@ -306,7 +307,7 @@ export async function streamEntityPage(
             });
         },
         onSuccess: (result) => {
-          mappingQueue
+          void mappingQueue
             .catch(() => {
               // ignore mapping errors here, they'll have been logged
             })
@@ -458,8 +459,12 @@ class TableStreamingService {
     onProgress?: (progress: StreamingProgress) => void,
     _onError?: (error: StreamingError) => void,
     timeoutSecs?: number,
+    options?: {
+      collectRows?: boolean;
+    },
   ): Promise<StreamingTableResult> {
     this.cancel(); // Abort any previous query
+    const collectRows = options?.collectRows ?? true;
 
     const controller = new AbortController();
     this.abortController = controller;
@@ -472,8 +477,9 @@ class TableStreamingService {
         this.columns = undefined;
 
         // Reject the promise when cancelled via abort
-        const onAbort = () =>
+        const onAbort = () => {
           reject(new DOMException("Query cancelled", "AbortError"));
+        };
         controller.signal.addEventListener("abort", onAbort, { once: true });
 
         void queryStreamClient.streamWithCallbacks(
@@ -501,7 +507,9 @@ class TableStreamingService {
             onBatch: (batch, totalSoFar) => {
               if (gen !== this.generation) return; // stale — ignore
               // BigInt→string normalization now happens in the Web Worker (streamDecode.worker.ts)
-              this.accumulatedRows.push(...batch.rows);
+              if (collectRows) {
+                this.accumulatedRows.push(...batch.rows);
+              }
               if (onProgress) {
                 onProgress({
                   rowsFetched: totalSoFar,
@@ -521,7 +529,7 @@ class TableStreamingService {
                 columns: mapBackendColumnsToColumnMeta(
                   streamResult.columns,
                 ),
-                rows: this.accumulatedRows,
+                rows: collectRows ? this.accumulatedRows : [],
                 isComplete: true,
                 totalRows: streamResult.totalRows,
                 executionTimeMs: streamResult.executionTimeMs,

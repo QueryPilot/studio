@@ -10,12 +10,37 @@ import { clearMocks } from '@tauri-apps/api/mocks';
 import { randomFillSync } from 'crypto';
 import 'fake-indexeddb/auto';
 
+type RandomValuesBuffer = Parameters<Crypto['getRandomValues']>[0];
+
+const createEmptyDomRectList = (): DOMRectList =>
+  ({
+    length: 0,
+    item: () => null,
+    [Symbol.iterator]: (): ArrayIterator<DOMRect> => [][Symbol.iterator](),
+  }) as unknown as DOMRectList;
+
+const createZeroDomRect = (): DOMRect =>
+  ({
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    toJSON: () => ({}),
+  }) as DOMRect;
+
 // Setup crypto for Tauri IPC (required for mockIPC to work)
 beforeAll(() => {
   let uuidCounter = 0;
   Object.defineProperty(window, 'crypto', {
     value: {
-      getRandomValues: (buffer: any) => randomFillSync(buffer),
+      getRandomValues: <T extends RandomValuesBuffer>(buffer: T): T => {
+        randomFillSync(buffer as unknown as NodeJS.ArrayBufferView);
+        return buffer;
+      },
       randomUUID: () => {
         uuidCounter++;
         return `test-uuid-${uuidCounter}`;
@@ -52,23 +77,29 @@ Object.defineProperty(window, 'matchMedia', {
 });
 
 // Mock IntersectionObserver (required for virtualized lists)
-global.IntersectionObserver = class IntersectionObserver {
-  constructor() {}
+class MockIntersectionObserver implements IntersectionObserver {
+  readonly root = null;
+  readonly rootMargin = '';
+  readonly thresholds = [];
+
   disconnect() {}
   observe() {}
   takeRecords() {
     return [];
   }
   unobserve() {}
-} as any;
+}
+global.IntersectionObserver =
+  MockIntersectionObserver as unknown as typeof IntersectionObserver;
 
 // Mock ResizeObserver (required for responsive components)
-global.ResizeObserver = class ResizeObserver {
-  constructor() {}
+class MockResizeObserver implements ResizeObserver {
   disconnect() {}
   observe() {}
   unobserve() {}
-} as any;
+}
+global.ResizeObserver =
+  MockResizeObserver as unknown as typeof ResizeObserver;
 
 // Mock Clipboard API (required for copy/paste functionality)
 Object.defineProperty(navigator, 'clipboard', {
@@ -81,6 +112,15 @@ Object.defineProperty(navigator, 'clipboard', {
 });
 
 // Mock Path2D (required for canvas rendering in DataGrid)
-global.Path2D = class Path2D {
-  constructor(_path?: string | Path2D) {}
-} as any;
+const MockPath2D = function MockPath2D() {};
+global.Path2D = MockPath2D as unknown as typeof Path2D;
+
+Object.defineProperty(Range.prototype, 'getClientRects', {
+  configurable: true,
+  value: () => createEmptyDomRectList(),
+});
+
+Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+  configurable: true,
+  value: () => createZeroDomRect(),
+});

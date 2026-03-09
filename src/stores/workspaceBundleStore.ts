@@ -10,6 +10,7 @@ import { logger } from "@/lib/logger";
 import { databaseService } from "@/services/databaseService";
 import { vaultStorage } from "@/services/vaultStorage";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { refreshConnectionData } from "@/lib/refreshConnectionData";
 import type {
   WorkspaceConfig,
   OpenConnection,
@@ -66,6 +67,7 @@ interface WorkspaceBundleStore {
     schema: string,
   ) => void;
   reconnectConnection: (connectionId: string) => Promise<void>;
+  reconnectDisconnectedConnections: () => Promise<void>;
 
   // ===== Actions - Persistence =====
 
@@ -250,7 +252,13 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       }
 
       for (const connectionId of validConnectionIds) {
-        const stored = connectionStore.getConnection(connectionId)!;
+        const stored = connectionStore.getConnection(connectionId);
+        if (!stored) {
+          logger.warn(
+            `[WorkspaceBundleStore] Connection missing while opening workspace: ${connectionId}`,
+          );
+          continue;
+        }
 
         const profile = stored.profile;
         const state = config.connectionStates[connectionId] || {
@@ -522,7 +530,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         
         // Fetch and store the database version for feature detection
         // This is important for SQLite to detect RENAME COLUMN, DROP COLUMN support
-        await databaseService.testConnection(connectionId).catch((err) => {
+        await databaseService.testConnection(connectionId).catch((err: unknown) => {
           logger.warn(
             `[WorkspaceBundleStore] Failed to fetch version for ${connectionId}:`,
             err,
@@ -735,13 +743,17 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       });
 
       try {
-        await databaseService.connectById(connectionId);
+        await databaseService.connectById(connectionId, conn.database || undefined);
         set((s) => {
           if (!s.activeWorkspace) return s;
           const newConnections = new Map(s.activeWorkspace.connections);
           const c = newConnections.get(connectionId);
           if (c) {
-            newConnections.set(connectionId, { ...c, status: "connected" });
+            newConnections.set(connectionId, {
+              ...c,
+              status: "connected",
+              error: undefined,
+            });
           }
           return {
             activeWorkspace: {
@@ -749,6 +761,12 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
               connections: newConnections,
             },
           };
+        });
+
+        refreshConnectionData({
+          ...conn,
+          status: "connected",
+          error: undefined,
         });
       } catch (error) {
         set((s) => {
@@ -770,7 +788,30 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
             },
           };
         });
+
+        throw error instanceof Error ? error : new Error("Connection failed");
       }
+    },
+
+    reconnectDisconnectedConnections: async () => {
+      const { activeWorkspace } = get();
+      if (!activeWorkspace) return;
+
+      const reconnectableIds = Array.from(activeWorkspace.connections.values())
+        .filter(
+          (connection) =>
+            connection.status === "error" ||
+            connection.status === "disconnected",
+        )
+        .map((connection) => connection.id);
+
+      if (reconnectableIds.length === 0) return;
+
+      await Promise.allSettled(
+        reconnectableIds.map((connectionId) =>
+          get().reconnectConnection(connectionId),
+        ),
+      );
     },
 
     // ===== Actions - Persistence =====

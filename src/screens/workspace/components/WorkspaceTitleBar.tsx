@@ -594,25 +594,8 @@ export function WorkspaceTitleBar({
   const handleReconnect = async () => {
     setIsReconnecting(true);
     try {
-      try {
-        if (databaseService.isConnectionActive(connectionId)) {
-          await databaseService.disconnect(connectionId);
-        }
-      } catch (error) {
-        logger.error("Failed to disconnect:", error);
-        toast.error("Failed to disconnect", {
-          description:
-            error instanceof Error
-              ? error.message
-              : "Failed to disconnect from the database.",
-        });
-      }
-      // Get the currently selected database from store to maintain it on reconnect
-      const selectedDatabase = useWorkspaceSelectionStore.getState().database;
-      await databaseService.connectById(
-        connectionId,
-        selectedDatabase || undefined,
-      );
+      await useWorkspaceBundleStore.getState().reconnectConnection(connectionId);
+
       // Emit event to refresh sidebar data
       await safeEmit("database-reconnected", { connectionId });
       toast.success("Reconnection Successful", {

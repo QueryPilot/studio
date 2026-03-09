@@ -34,7 +34,7 @@ vi.mock("@/lib/logger", () => ({
 vi.mock("../tableDataTransform", () => ({
   mapBackendColumnsToColumnMeta: (cols: unknown[]) =>
     cols.map((c: unknown) => ({
-      name: (c as { name?: string })?.name ?? "col",
+      name: (c as { name?: string }).name ?? "col",
       db_type: "text",
     })),
   normalizeBackendValue: (v: unknown) => v,
@@ -207,7 +207,9 @@ describe("TableStreamingService cancellation", () => {
   });
 
   it("cancel() before any streamQuery is safe", () => {
-    expect(() => tableStreamingService.cancel()).not.toThrow();
+    expect(() => {
+      tableStreamingService.cancel();
+    }).not.toThrow();
   });
 
   it("isStreamingActive() reflects correct state", async () => {
@@ -303,5 +305,28 @@ describe("TableStreamingService cancellation", () => {
     expect(result.isComplete).toBe(true);
     expect(result.rows).toHaveLength(50);
     expect(result.totalRows).toBe(100);
+  });
+
+  it("can skip retaining rows when the caller owns the streaming buffer", async () => {
+    const callbacks = captureCallbacks();
+
+    const promise = tableStreamingService.streamQuery(
+      "conn-1",
+      "tab-1",
+      "SELECT 1",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { collectRows: false },
+    );
+
+    callbacks.onStarted?.([{ name: "id" }], 2);
+    callbacks.onBatch?.({ rows: [[1], [2]], rowOffset: 0 }, 2);
+    callbacks.onSuccess?.(STREAM_RESULT);
+
+    const result = await promise;
+    expect(result.rows).toEqual([]);
+    expect(result.totalRows).toBe(2);
   });
 });

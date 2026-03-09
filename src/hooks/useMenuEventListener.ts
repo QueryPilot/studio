@@ -9,6 +9,7 @@ import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { eventBus } from "@/services/eventBus";
+import { queryActionDispatcher } from "@/services/queryActionDispatcher";
 import { databaseService } from "@/services/databaseService";
 import { commandService } from "@/services/commandService";
 import { menuActionCommandMap } from "@/data/menuActionCommandMap";
@@ -107,13 +108,13 @@ export function useMenuEventListener() {
           }
           break;
         case "execute":
-          eventBus.emit("query-editor:execute", {});
+          await queryActionDispatcher.dispatch("execute");
           break;
         case "execute_all":
-          eventBus.emit("query-editor:execute-all", {});
+          await queryActionDispatcher.dispatch("executeAll");
           break;
         case "execute_selection":
-          eventBus.emit("query-editor:execute-selection", { selection: true });
+          await queryActionDispatcher.dispatch("executeSelection");
           break;
         case "export":
           eventBus.emit("data-grid:export-csv", {});

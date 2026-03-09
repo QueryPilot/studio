@@ -700,7 +700,8 @@ ${batchResult}`;
             item.images.map((img) => {
               const binary = atob(img.data);
               const bytes = new Uint8Array(binary.length);
-              for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+              for (let i = 0; i < binary.length; i++)
+                bytes[i] = binary.charCodeAt(i);
               const blob = new Blob([bytes], { type: img.mimeType });
               return {
                 id: crypto.randomUUID(),
@@ -2191,25 +2192,36 @@ function InlineToolCallEvent({ call }: { call: ToolCallType }) {
     // Separate query from other params for special rendering
     const queryParam = allParams?.find(([k]) => k === "query")?.[1];
     const queryText = typeof queryParam === "string" ? queryParam : null;
-    const metaParams = allParams?.filter(([k]) => k !== "query" && k !== "params") ?? [];
+    const metaParams =
+      allParams?.filter(([k]) => k !== "query" && k !== "params") ?? [];
     // If params has a nested params object, extract its entries too
     const nestedParams = qpCall.params?.params;
-    if (nestedParams && typeof nestedParams === "object" && !Array.isArray(nestedParams)) {
-      for (const [k, v] of Object.entries(nestedParams as Record<string, unknown>)) {
+    if (
+      nestedParams &&
+      typeof nestedParams === "object" &&
+      !Array.isArray(nestedParams)
+    ) {
+      for (const [k, v] of Object.entries(
+        nestedParams as Record<string, unknown>,
+      )) {
         if (k !== "query" && k !== "version" && k !== "requestId") {
           metaParams.push([k, v]);
         }
       }
       // Extract query from nested params if not found at top level
-      if (!queryText && typeof (nestedParams as Record<string, unknown>).query === "string") {
+      if (
+        !queryText &&
+        typeof (nestedParams as Record<string, unknown>).query === "string"
+      ) {
         // re-assign via let
       }
     }
-    const finalQuery = queryText ?? (
-      typeof (qpCall.params?.params as Record<string, unknown> | undefined)?.query === "string"
-        ? (qpCall.params!.params as Record<string, unknown>).query as string
-        : null
-    );
+    const finalQuery =
+      queryText ??
+      (typeof (qpCall.params?.params as Record<string, unknown> | undefined)
+        ?.query === "string"
+        ? ((qpCall.params!.params as Record<string, unknown>).query as string)
+        : null);
     const hasDetails = !!finalQuery || metaParams.length > 0;
 
     return (
@@ -2237,7 +2249,9 @@ function InlineToolCallEvent({ call }: { call: ToolCallType }) {
               )}
               {hasDetails && (
                 <button
-                  onClick={() => { setExpanded((v) => !v); }}
+                  onClick={() => {
+                    setExpanded((v) => !v);
+                  }}
                   className="ml-auto flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors shrink-0"
                 >
                   {expanded ? (
@@ -2260,7 +2274,9 @@ function InlineToolCallEvent({ call }: { call: ToolCallType }) {
                   >
                     <span className="font-medium">{key}:</span>
                     <span className="max-w-[180px] truncate">
-                      {typeof value === "string" ? value : JSON.stringify(value)}
+                      {typeof value === "string"
+                        ? value
+                        : JSON.stringify(value)}
                     </span>
                   </span>
                 ))}
@@ -2271,7 +2287,9 @@ function InlineToolCallEvent({ call }: { call: ToolCallType }) {
             {hasDetails && expanded && finalQuery && (
               <div className="group/code relative mt-1.5">
                 <button
-                  onClick={() => { void writeClipboardText(finalQuery); }}
+                  onClick={() => {
+                    void writeClipboardText(finalQuery);
+                  }}
                   className="absolute top-1 right-1 opacity-0 group-hover/code:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted-foreground/20 text-muted-foreground"
                   title="Copy query"
                 >
@@ -2288,7 +2306,9 @@ function InlineToolCallEvent({ call }: { call: ToolCallType }) {
               <div className="mt-1.5 space-y-0.5">
                 {metaParams.map(([key, value]) => (
                   <div key={key} className="flex gap-1.5 text-[10px]">
-                    <span className="shrink-0 font-medium text-muted-foreground">{key}:</span>
+                    <span className="shrink-0 font-medium text-muted-foreground">
+                      {key}:
+                    </span>
                     <span className="text-foreground/80 break-all">
                       {typeof value === "string"
                         ? value.length > 300
@@ -2457,7 +2477,9 @@ function MessageQueue({
         </span>
         {paused && (
           <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-amber-500 font-medium">Paused</span>
+            <span className="text-[11px] text-amber-500 font-medium">
+              Paused
+            </span>
             <Button
               variant="ghost"
               size="sm"
@@ -2473,7 +2495,9 @@ function MessageQueue({
         <div
           key={item.id}
           className="group flex items-start gap-2 rounded-md border bg-muted/50 px-2.5 py-1.5 cursor-pointer hover:bg-muted/80 transition-colors"
-          onClick={() => onPopToInput(item.id)}
+          onClick={() => {
+            onPopToInput(item.id);
+          }}
           title="Click to edit"
         >
           <span className="flex-1 truncate text-xs">
@@ -2516,7 +2540,14 @@ interface InputAreaProps {
   isByok: boolean;
   byokSession: boolean;
   aiContext: AIContext;
-  openTabs: Array<{ id: string; name: string; type: string; panelId: string; connectionId?: string; connectionName?: string }>;
+  openTabs: Array<{
+    id: string;
+    name: string;
+    type: string;
+    panelId: string;
+    connectionId?: string;
+    connectionName?: string;
+  }>;
   attachedContext: FocusedTabContextSnapshot | null;
   onRemoveAttachedContext: () => void;
   pendingImages: PreparedImage[];
@@ -2547,7 +2578,8 @@ const InputArea = ({
   ref,
 }: InputAreaProps & { ref?: React.Ref<LexicalInputHandle> }) => {
   const localRef = useRef<LexicalInputHandle>(null);
-  const inputRef = (ref as React.RefObject<LexicalInputHandle | null>) ?? localRef;
+  const inputRef =
+    (ref as React.RefObject<LexicalInputHandle | null>) ?? localRef;
   const [isFocused, setIsFocused] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounterRef = useRef(0);
@@ -2993,7 +3025,11 @@ function ByokMessageList({
               key={`user-${idx}`}
               className="group px-3 py-3 bg-primary/5 border-l-3 border-primary"
             >
-              {renderByokTextSegments(stripMentionIds(text), `byok-user-${idx}`, false)}
+              {renderByokTextSegments(
+                stripMentionIds(text),
+                `byok-user-${idx}`,
+                false,
+              )}
             </div>
           );
         }

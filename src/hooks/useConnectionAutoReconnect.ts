@@ -1,6 +1,7 @@
 import { logger } from "@/lib/logger";
 import { useEffect, useRef } from "react";
 import { databaseService } from "@/services/databaseService";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { isTauri, safeEmit } from "@/utils/tauri";
 import { toast } from "sonner";
 
@@ -68,7 +69,16 @@ export function useConnectionAutoReconnect(connectionId?: string) {
       );
 
       try {
-        await databaseService.connectById(targetId);
+        const workspaceStore = useWorkspaceBundleStore.getState();
+        const isActiveWorkspaceConnection =
+          workspaceStore.activeWorkspace?.connections.has(targetId) ?? false;
+
+        if (isActiveWorkspaceConnection) {
+          await workspaceStore.reconnectConnection(targetId);
+        } else {
+          await databaseService.connectById(targetId);
+        }
+
         await safeEmit("database-reconnected", { connectionId: targetId });
         
         logger.info(`[AutoReconnect] Successfully reconnected on attempt ${attemptNumber}`);

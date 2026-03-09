@@ -12,7 +12,7 @@
  */
 
 import type { Extension } from "@codemirror/state";
-import type { SqlDialect } from "../../types";
+import type { EditorDiagnosticsStatus, SqlDialect } from "../../types";
 import { createUnifiedLinter } from "./unified-linter";
 
 /**
@@ -23,6 +23,8 @@ export interface DialectLinterConfig {
   connectionId?: string;
   /** Schema name for schema-aware validation */
   schema?: string;
+  /** Reports lint lifecycle status for editor UI */
+  onDiagnosticsStatusChange?: (status: EditorDiagnosticsStatus) => void;
 }
 
 /**
@@ -45,6 +47,7 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
         dialect: "postgresql",
         connectionId: config?.connectionId,
         schema: config?.schema,
+        onDiagnosticsStatusChange: config?.onDiagnosticsStatusChange,
       }),
     description: "Rust backend linter (1s debounce)",
   },
@@ -54,6 +57,7 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
         dialect: "mysql",
         connectionId: config?.connectionId,
         schema: config?.schema,
+        onDiagnosticsStatusChange: config?.onDiagnosticsStatusChange,
       }),
     description: "Rust backend linter (1s debounce)",
   },
@@ -63,6 +67,7 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
         dialect: "sqlite",
         connectionId: config?.connectionId,
         schema: config?.schema,
+        onDiagnosticsStatusChange: config?.onDiagnosticsStatusChange,
       }),
     description: "Rust backend linter (1s debounce)",
   },
@@ -72,6 +77,7 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
         dialect: "mssql",
         connectionId: config?.connectionId,
         schema: config?.schema,
+        onDiagnosticsStatusChange: config?.onDiagnosticsStatusChange,
       }),
     description: "Rust backend linter (1s debounce)",
   },
@@ -81,6 +87,7 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
         dialect: "plsql",
         connectionId: config?.connectionId,
         schema: config?.schema,
+        onDiagnosticsStatusChange: config?.onDiagnosticsStatusChange,
       }),
     description: "Rust backend linter (1s debounce)",
   },
@@ -120,5 +127,5 @@ export function usesWorkerLinter(_dialect: SqlDialect): boolean {
  * Get description of which linter is used for a dialect.
  */
 export function getLinterDescription(dialect: SqlDialect): string {
-  return LINTER_STRATEGIES[dialect]?.description ?? "Unknown";
+  return LINTER_STRATEGIES[dialect].description;
 }

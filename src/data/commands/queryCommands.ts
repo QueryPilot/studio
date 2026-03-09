@@ -1,5 +1,6 @@
 import { type Command } from "@/types/command";
 import { eventBus } from "@/services/eventBus";
+import { queryActionDispatcher } from "@/services/queryActionDispatcher";
 
 export const queryCommands: Command[] = [
   {
@@ -8,7 +9,7 @@ export const queryCommands: Command[] = [
     category: "Query",
     when: "editorTextFocus && queryEditor",
     handler: () => {
-      eventBus.emit("query-editor:execute", {});
+      void queryActionDispatcher.dispatch("execute");
     },
   },
   {
@@ -17,7 +18,7 @@ export const queryCommands: Command[] = [
     category: "Query",
     when: "editorTextFocus && queryEditor && hasSelection",
     handler: () => {
-      eventBus.emit("query-editor:execute-selection", { mode: "text" });
+      void queryActionDispatcher.dispatch("executeSelection");
     },
   },
   {
@@ -26,7 +27,7 @@ export const queryCommands: Command[] = [
     category: "Query",
     when: "editorTextFocus && queryEditor",
     handler: () => {
-      eventBus.emit("query-editor:execute-all", {});
+      void queryActionDispatcher.dispatch("executeAll");
     },
   },
   {
@@ -43,7 +44,7 @@ export const queryCommands: Command[] = [
     label: "Cancel Running Query",
     category: "Query",
     handler: () => {
-      eventBus.emit("query-editor:cancel", {});
+      void queryActionDispatcher.dispatch("cancel");
     },
   },
   {
@@ -52,7 +53,7 @@ export const queryCommands: Command[] = [
     category: "Query",
     when: "editorTextFocus && queryEditor",
     handler: () => {
-      eventBus.emit("query-editor:save", {});
+      void queryActionDispatcher.dispatch("save");
     },
   },
   {
@@ -70,7 +71,7 @@ export const queryCommands: Command[] = [
     category: "Query",
     when: "editorTextFocus && queryEditor",
     handler: () => {
-      eventBus.emit("query-editor:format", {});
+      void queryActionDispatcher.dispatch("format");
     },
   },
   {
@@ -79,7 +80,7 @@ export const queryCommands: Command[] = [
     category: "Query",
     when: "queryEditor",
     handler: () => {
-      eventBus.emit("query-panel:toggle-results", {});
+      void queryActionDispatcher.dispatch("toggleResults");
     },
   },
 ];

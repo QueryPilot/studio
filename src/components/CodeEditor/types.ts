@@ -2,6 +2,12 @@
 export type CodeEditorLanguage = "sql" | "json" | "text" | "dbml" | "redis";
 export type SqlDialect = "postgresql" | "plsql" | "mysql" | "sqlite" | "mssql";
 export type EditorTheme = "light" | "dark" | "auto";
+export type EditorDiagnosticsStatus =
+  | "idle"
+  | "validating"
+  | "ready"
+  | "stale_schema"
+  | "unavailable";
 
 export interface CodeEditorProps {
   value: string;

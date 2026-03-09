@@ -31,7 +31,12 @@ class RelationshipService {
    */
   private parseForeignKeyDefinition(
     definition: string,
-  ): { sourceColumn: string; targetColumn: string } | null {
+  ): {
+    sourceColumn: string;
+    targetColumn: string;
+    sourceColumns: string[];
+    targetColumns: string[];
+  } | null {
     // Remove extra whitespace and newlines
     const cleaned = definition.replace(/\s+/g, " ").trim();
 
@@ -45,11 +50,49 @@ class RelationshipService {
       return null;
     }
 
-    // Extract and clean column names (remove quotes and backticks)
-    const sourceColumn = match[1]?.replace(/["`]/g, "").trim() ?? "";
-    const targetColumn = match[3]?.replace(/["`]/g, "").trim() ?? "";
+    const sourceColumns = this.parseIdentifierList(match[1] ?? "");
+    const targetColumns = this.parseIdentifierList(match[3] ?? "");
 
-    return { sourceColumn, targetColumn };
+    if (sourceColumns.length === 0 || targetColumns.length === 0) {
+      return null;
+    }
+
+    return {
+      sourceColumn: sourceColumns[0] ?? "",
+      targetColumn: targetColumns[0] ?? "",
+      sourceColumns,
+      targetColumns,
+    };
+  }
+
+  private parseIdentifierList(rawColumns: string): string[] {
+    return rawColumns
+      .split(",")
+      .map((column) => column.replace(/["`[\]]/g, "").trim())
+      .filter(Boolean);
+  }
+
+  private buildJoinCondition(
+    leftQualifier: string,
+    leftColumns: string[] | undefined,
+    leftFallbackColumn: string,
+    rightQualifier: string,
+    rightColumns: string[] | undefined,
+    rightFallbackColumn: string,
+  ): string {
+    const sourceColumns =
+      leftColumns && leftColumns.length > 0 ? leftColumns : [leftFallbackColumn];
+    const targetColumns =
+      rightColumns && rightColumns.length > 0
+        ? rightColumns
+        : [rightFallbackColumn];
+    const pairCount = Math.min(sourceColumns.length, targetColumns.length);
+
+    return Array.from({ length: pairCount }, (_, index) => {
+      const leftColumn = sourceColumns[index];
+      const rightColumn = targetColumns[index];
+      return `${leftQualifier}.${leftColumn} = ${rightQualifier}.${rightColumn}`;
+    }).join(" AND ");
   }
 
   /**
@@ -130,9 +173,11 @@ class RelationshipService {
           sourceTable: table,
           sourceSchema: schema,
           sourceColumn: parsed.sourceColumn || "",
+          sourceColumns: parsed.sourceColumns,
           targetTable: targetTable,
           targetSchema: schema, // Assume same schema for now
           targetColumn: parsed.targetColumn || "",
+          targetColumns: parsed.targetColumns,
           constraintName: constraint.name,
           onDelete: actions.onDelete,
           onUpdate: actions.onUpdate,
@@ -178,7 +223,14 @@ class RelationshipService {
         suggestions.push({
           table: rel.targetTable,
           schema: rel.targetSchema,
-          onCondition: `${tableIdentifier}.${rel.sourceColumn} = ${rel.targetTable}.${rel.targetColumn}`,
+          onCondition: this.buildJoinCondition(
+            tableIdentifier,
+            rel.sourceColumns,
+            rel.sourceColumn,
+            rel.targetTable,
+            rel.targetColumns,
+            rel.targetColumn,
+          ),
           relationshipType: "many-to-one",
           score: 100,
           description: `${tableIdentifier} references ${rel.targetTable}`,
@@ -196,7 +248,14 @@ class RelationshipService {
         suggestions.push({
           table: rel.sourceTable,
           schema: rel.sourceSchema,
-          onCondition: `${rel.sourceTable}.${rel.sourceColumn} = ${tableIdentifier}.${rel.targetColumn}`,
+          onCondition: this.buildJoinCondition(
+            rel.sourceTable,
+            rel.sourceColumns,
+            rel.sourceColumn,
+            tableIdentifier,
+            rel.targetColumns,
+            rel.targetColumn,
+          ),
           relationshipType: "one-to-many",
           score: 95,
           description: `${rel.sourceTable} references ${tableIdentifier}`,
@@ -225,7 +284,14 @@ class RelationshipService {
     const outgoing = relationshipGraph.relationships.get(sourceTable) || [];
     const forwardRel = outgoing.find((r) => r.targetTable === targetTable);
     if (forwardRel) {
-      return `${sourceIdentifier}.${forwardRel.sourceColumn} = ${targetTable}.${forwardRel.targetColumn}`;
+      return this.buildJoinCondition(
+        sourceIdentifier,
+        forwardRel.sourceColumns,
+        forwardRel.sourceColumn,
+        targetTable,
+        forwardRel.targetColumns,
+        forwardRel.targetColumn,
+      );
     }
 
     // Check reverse relationship
@@ -233,7 +299,14 @@ class RelationshipService {
       relationshipGraph.reverseRelationships.get(sourceTable) || [];
     const reverseRel = incoming.find((r) => r.sourceTable === targetTable);
     if (reverseRel) {
-      return `${targetTable}.${reverseRel.sourceColumn} = ${sourceIdentifier}.${reverseRel.targetColumn}`;
+      return this.buildJoinCondition(
+        targetTable,
+        reverseRel.sourceColumns,
+        reverseRel.sourceColumn,
+        sourceIdentifier,
+        reverseRel.targetColumns,
+        reverseRel.targetColumn,
+      );
     }
 
     return null;

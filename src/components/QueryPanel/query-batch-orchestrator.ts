@@ -33,6 +33,7 @@ export interface OrchestrateRunAllExecutionResult {
   successCount: number;
   errorCount: number;
   skippedCount: number;
+  cancelled: boolean;
   transactionOutcome: "none" | "begin_failed" | "committed" | "rolled_back";
 }
 
@@ -58,6 +59,7 @@ export async function orchestrateRunAllExecution({
   };
 
   let batchFailed = false;
+  let wasCancelled = false;
   let transactionStarted = false;
   let skipReason = "Skipped after earlier statement failure";
   let transactionOutcome: OrchestrateRunAllExecutionResult["transactionOutcome"] =
@@ -79,6 +81,7 @@ export async function orchestrateRunAllExecution({
 
   for (const [index, statement] of runPlan.statements.entries()) {
     if (isCancelRequested?.()) {
+      wasCancelled = true;
       appendResult({
         statementIndex: index + 1,
         statement,
@@ -116,6 +119,7 @@ export async function orchestrateRunAllExecution({
     }
 
     if (statementResult.cancelled) {
+      wasCancelled = true;
       appendResult({
         statementIndex: index + 1,
         statement,
@@ -173,6 +177,7 @@ export async function orchestrateRunAllExecution({
     successCount,
     errorCount,
     skippedCount,
+    cancelled: wasCancelled,
     transactionOutcome,
   };
 }

@@ -16,32 +16,49 @@ interface TableDataGridData {
   columnMeta?: unknown[];
 }
 
+function renderCellValue(cell: unknown): string {
+  if (cell === null) return "NULL";
+  if (
+    typeof cell === "string" ||
+    typeof cell === "number" ||
+    typeof cell === "boolean" ||
+    typeof cell === "bigint"
+  ) {
+    return String(cell);
+  }
+  return JSON.stringify(cell);
+}
+
 // Mock the TableDataGrid component since it has complex dependencies
 vi.mock("@/components/DataGrid", () => ({
-  TableDataGrid: ({ data }: { data?: TableDataGridData }) => (
-    <div data-testid="mock-data-grid">
-      <div data-testid="columns">{JSON.stringify(data?.columns ?? [])}</div>
-      <div data-testid="rows">{JSON.stringify(data?.rows ?? [])}</div>
-      {/* Render first row values for easy testing */}
-      {data?.rows?.[0]?.map((cell, i) => (
-        <div key={i} data-testid={`cell-${i}`}>
-          {cell === null ? "NULL" : String(cell)}
-        </div>
-      ))}
-    </div>
-  ),
-  QueryResultGrid: ({ data }: { data?: TableDataGridData }) => (
-    <div data-testid="query-result-grid">
-      <div data-testid="columns">{JSON.stringify(data?.columns ?? [])}</div>
-      <div data-testid="rows">{JSON.stringify(data?.rows ?? [])}</div>
-      {/* Render first row values for easy testing */}
-      {data?.rows?.[0]?.map((cell, i) => (
-        <div key={i} data-testid={`cell-${i}`}>
-          {cell === null ? "NULL" : String(cell)}
-        </div>
-      ))}
-    </div>
-  ),
+  TableDataGrid: ({ data }: { data?: TableDataGridData }) => {
+    const firstRow = data ? data.rows[0] ?? [] : [];
+    return (
+      <div data-testid="mock-data-grid">
+        <div data-testid="columns">{JSON.stringify(data?.columns ?? [])}</div>
+        <div data-testid="rows">{JSON.stringify(data?.rows ?? [])}</div>
+        {firstRow.map((cell, i) => (
+          <div key={i} data-testid={`cell-${i}`}>
+            {renderCellValue(cell)}
+          </div>
+        ))}
+      </div>
+    );
+  },
+  QueryResultGrid: ({ data }: { data?: TableDataGridData }) => {
+    const firstRow = data ? data.rows[0] ?? [] : [];
+    return (
+      <div data-testid="query-result-grid">
+        <div data-testid="columns">{JSON.stringify(data?.columns ?? [])}</div>
+        <div data-testid="rows">{JSON.stringify(data?.rows ?? [])}</div>
+        {firstRow.map((cell, i) => (
+          <div key={i} data-testid={`cell-${i}`}>
+            {renderCellValue(cell)}
+          </div>
+        ))}
+      </div>
+    );
+  },
 }));
 
 // Mock next-themes
@@ -291,6 +308,50 @@ describe("ResultViewer - NULL handling", () => {
     const jsonContent = codeEditor.textContent || "";
 
     expect(jsonContent).toContain("null");
+  });
+});
+
+describe("ResultViewer - execution status", () => {
+  it("renders a durable cancelled state instead of the empty placeholder", () => {
+    render(
+      <ResultViewer
+        result={null}
+        viewMode="table"
+        gridId="test-grid"
+        executionStatus="cancelled"
+      />,
+    );
+
+    expect(screen.getByText("Query cancelled")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Execute a query to see results here"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows a refresh affordance when results are stale after a mutation", () => {
+    const onRefreshResults = vi.fn();
+
+    render(
+      <ResultViewer
+        result={{
+          columns: ["id"],
+          rows: [[1]],
+          rowCount: 1,
+        }}
+        viewMode="table"
+        gridId="test-grid"
+        executionStatus="success"
+        refreshNotice="Data changed. Refresh results to reload the last SELECT."
+        onRefreshResults={onRefreshResults}
+      />,
+    );
+
+    expect(
+      screen.getByText("Data changed. Refresh results to reload the last SELECT."),
+    ).toBeInTheDocument();
+
+    screen.getByRole("button", { name: "Refresh results" }).click();
+    expect(onRefreshResults).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -26,13 +26,14 @@ import { isSqlKeyword } from "./constants";
 function createLazyMetadataProvider(
   connectionId: string,
   defaultSchema: string,
+  dialect: SqlDialect,
 ): MetadataProvider {
   let providerPromise: Promise<MetadataProvider> | null = null;
 
   const getProvider = async (): Promise<MetadataProvider> => {
     if (!providerPromise) {
       providerPromise = import("./metadataProvider").then((mod) =>
-        mod.createSqlMetadataProvider(connectionId, defaultSchema),
+        mod.createSqlMetadataProvider(connectionId, defaultSchema, dialect),
       );
     }
     return providerPromise;
@@ -563,7 +564,8 @@ export function createOptimizedCompletionSource(config: CompletionConfig) {
   const defaultSchema = schema || "public";
   const cacheNamespace = buildCacheNamespace(connectionId, defaultSchema, dialect);
   const provider =
-    providerOverride ?? createLazyMetadataProvider(connectionId, defaultSchema);
+    providerOverride ??
+    createLazyMetadataProvider(connectionId, defaultSchema, dialect);
 
   let rustSourcePromise:
     | Promise<((context: CompletionContext) => Promise<CompletionResult | null>) | null>

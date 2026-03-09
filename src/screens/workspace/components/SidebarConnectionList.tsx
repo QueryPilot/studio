@@ -22,6 +22,7 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { eventBus } from "@/services/eventBus";
+import { refreshConnectionData } from "@/lib/refreshConnectionData";
 import { QueryHistoryPanel } from "@/components/QueryHistory";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { useShallow } from "zustand/react/shallow";
@@ -132,15 +133,28 @@ export function SidebarConnectionList({
   const handleRefreshAll = useCallback(async () => {
     setIsRefreshingAll(true);
     try {
-      // Show feedback - individual components will refresh via their own hooks
-      toast.info("Refreshing all connections...");
+      connections
+        .filter((connection) => connection.status === "connected")
+        .forEach((connection) => {
+          refreshConnectionData(connection);
+        });
 
-      // Small delay to show loading state
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await useWorkspaceBundleStore
+        .getState()
+        .reconnectDisconnectedConnections();
+
+      toast.success("Refreshed", {
+        description: "Sidebar data reloaded and disconnected connections retried.",
+      });
+    } catch (error) {
+      toast.error("Refresh failed", {
+        description:
+          error instanceof Error ? error.message : "Failed to refresh sidebar data.",
+      });
     } finally {
       setIsRefreshingAll(false);
     }
-  }, []);
+  }, [connections]);
 
   // Handle add connection
   const handleAddConnection = useCallback(() => {
@@ -240,6 +254,7 @@ export function SidebarConnectionList({
                     variant="ghost"
                     size="sm"
                     className="h-6 w-6 p-0"
+                    aria-label="Add Connection"
                     onClick={handleAddConnection}
                   >
                     <IconPlus className="h-3.5 w-3.5" />
@@ -255,6 +270,7 @@ export function SidebarConnectionList({
                     variant="ghost"
                     size="sm"
                     className="h-6 w-6 p-0"
+                    aria-label="Refresh All"
                     onClick={handleRefreshAll}
                     disabled={isRefreshingAll}
                   >

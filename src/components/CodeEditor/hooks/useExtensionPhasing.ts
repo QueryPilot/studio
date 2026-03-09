@@ -11,7 +11,7 @@
  * `compartments.phase2.of([])` as placeholders in the initial extensions.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type EditorView } from "@codemirror/view";
 import { Compartment, type Extension } from "@codemirror/state";
 
@@ -24,37 +24,65 @@ export function useExtensionPhasing(
   viewRef: React.RefObject<EditorView | null>,
   phase1Extensions: Extension[],
   phase2Extensions: Extension[],
+  viewReadyVersion = 0,
 ) {
-  const compartmentRef = useRef({
+  const [compartments] = useState(() => ({
     phase1: new Compartment(),
     phase2: new Compartment(),
+  }));
+  const phaseStateRef = useRef({
+    phase1Loaded: false,
+    phase2Loaded: false,
   });
 
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
 
-    // Phase 1: After first render (next rAF)
-    const rafId = requestAnimationFrame(() => {
+    const applyPhase1 = () => {
       if (!viewRef.current) return;
       viewRef.current.dispatch({
-        effects: compartmentRef.current.phase1.reconfigure(phase1Extensions),
+        effects: compartments.phase1.reconfigure(phase1Extensions),
       });
+      phaseStateRef.current.phase1Loaded = true;
+    };
+
+    const applyPhase2 = () => {
+      if (!viewRef.current) return;
+      viewRef.current.dispatch({
+        effects: compartments.phase2.reconfigure(phase2Extensions),
+      });
+      phaseStateRef.current.phase2Loaded = true;
+    };
+
+    if (phaseStateRef.current.phase1Loaded) {
+      applyPhase1();
+      if (phaseStateRef.current.phase2Loaded) {
+        applyPhase2();
+        return;
+      }
+    }
+
+    if (phaseStateRef.current.phase2Loaded) {
+      applyPhase2();
+      return;
+    }
+
+    // Phase 1: After first render (next rAF)
+    const rafId = requestAnimationFrame(() => {
+      applyPhase1();
     });
 
     // Phase 2: Eventually (after 2s idle)
     const timeoutId = setTimeout(() => {
-      if (!viewRef.current) return;
-      viewRef.current.dispatch({
-        effects: compartmentRef.current.phase2.reconfigure(phase2Extensions),
-      });
+      applyPhase2();
     }, 2000);
 
     return () => {
       cancelAnimationFrame(rafId);
       clearTimeout(timeoutId);
     };
-  }, []); // Only on mount — extensions are phased once
+  }, [viewRef, phase1Extensions, phase2Extensions, compartments, viewReadyVersion]);
 
-  return compartmentRef.current;
+  return compartments;
 }
