@@ -115,7 +115,7 @@ import { useSqlEditorEffects } from "./hooks/useSqlEditorEffects";
 import { useSqlEditorCompartments } from "./hooks/useSqlEditorCompartments";
 import { useExtensionPhasing } from "./hooks/useExtensionPhasing";
 
-import type { SqlDialect } from "./types";
+import type { EditorDiagnosticsStatus, SqlDialect } from "./types";
 
 export interface SqlEditorRef {
   view: EditorView | null;
@@ -174,8 +174,12 @@ export interface SqlEditorProps {
   className?: string;
   /** Height */
   height?: string;
-  /** Extra bottom padding in pixels for scrolling past end */
-  extraBottomPadding?: number;
+  /** Custom confirmation handler for destructive query execution */
+  confirmDestructiveQuery?: (request: {
+    query: string;
+    type: string;
+    message: string;
+  }) => boolean | Promise<boolean>;
 }
 
 // SQL dialect mapping
@@ -296,7 +300,7 @@ export const SqlEditor = memo(
       placeholder = "Enter your SQL query...",
       className = "",
       height = "100%",
-      extraBottomPadding: _extraBottomPadding = 100,
+      confirmDestructiveQuery,
     },
     ref,
   ) {
@@ -320,6 +324,9 @@ export const SqlEditor = memo(
       start: number;
       end: number;
     } | null>(null);
+    const [diagnosticsStatus, setDiagnosticsStatus] =
+      useState<EditorDiagnosticsStatus>("idle");
+    const [viewReadyVersion, setViewReadyVersion] = useState(0);
 
     // --- Setup hook: compartments, dialect detection, initial doc ---
     const {
@@ -353,6 +360,7 @@ export const SqlEditor = memo(
       onChangeDelay,
       onExecute,
       onGotoDefinition,
+      confirmDestructiveQuery,
       onDialectDetected,
       detectDialect,
       viewRef,
@@ -460,7 +468,11 @@ export const SqlEditor = memo(
 
     // Dialect extensions
     const dialectExtensions = useMemo(() => {
-      const provider = createSqlMetadataProvider(connectionId, defaultSchema);
+      const provider = createSqlMetadataProvider(
+        connectionId,
+        defaultSchema,
+        effectiveDialect,
+      );
       return [
         sqlLang,
         autocompletion({
@@ -493,6 +505,7 @@ export const SqlEditor = memo(
       placeholder,
       connectionId,
       schema: defaultSchema,
+      onDiagnosticsStatusChange: setDiagnosticsStatus,
     });
 
     // --- Extension phasing: split non-critical extensions into phases ---
@@ -525,14 +538,14 @@ export const SqlEditor = memo(
               .recentHistory.map((h) => h.query),
         }),
       ],
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      [],
+      [effectiveDialect],
     );
 
     const phasingCompartments = useExtensionPhasing(
       viewRef,
       phase1Extensions,
       phase2Extensions,
+      viewReadyVersion,
     );
 
     // === Editor sleep/wake for unfocused performance ===
@@ -575,30 +588,11 @@ export const SqlEditor = memo(
       }
       const view = viewRef.current;
       if (!view) return;
+      if (sleepingRef.current) return;
       view.dispatch({
-        effects: phasingCompartments.phase2.reconfigure([
-          createSnippetExtension(),
-          createParameterHintsExtension(),
-          createFormatterExtension(effectiveDialect),
-          createGotoDefinitionExtension(),
-          createRefactoringExtension({
-            dialect: effectiveDialect,
-            onExtractCte: (selectionSpan) => {
-              setExtractCteSelection(selectionSpan);
-              setExtractCteDialogOpen(true);
-            },
-          }),
-          createFormatOnPasteExtension(effectiveDialect),
-          createQueryHistoryNavExtension({
-            getHistory: () =>
-              useQueryHistoryStore
-                .getState()
-                .recentHistory.map((h) => h.query),
-          }),
-        ]),
+        effects: phasingCompartments.phase2.reconfigure(phase2Extensions),
       });
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [effectiveDialect]);
+    }, [effectiveDialect, phase2Extensions, phasingCompartments.phase2]);
 
     // Imperative handle
     useImperativeHandle(
@@ -778,13 +772,14 @@ export const SqlEditor = memo(
           ),
 
           compartments.theme.of(getThemeExtensions(actualTheme)),
-          compartments.dialect.of([
-            ...createDialectLinter(effectiveDialect, {
-              connectionId,
-              schema: defaultSchema,
-            }),
-            ...dialectExtensions,
-          ]),
+              compartments.dialect.of([
+                ...createDialectLinter(effectiveDialect, {
+                  connectionId,
+                  schema: defaultSchema,
+                  onDiagnosticsStatusChange: setDiagnosticsStatus,
+                }),
+                ...dialectExtensions,
+              ]),
           compartments.completion.of(completionExtension),
           compartments.readOnly.of(EditorView.editable.of(!readOnly)),
           compartments.placeholder.of(
@@ -805,6 +800,7 @@ export const SqlEditor = memo(
       });
 
       viewRef.current = view;
+      setViewReadyVersion((current) => current + 1);
       docValueRef.current = view.state.doc.toString();
       emitSelectionChange(view);
 
@@ -861,6 +857,7 @@ export const SqlEditor = memo(
                 ...createDialectLinter(ext.effectiveDialect, {
                   connectionId: ext.connectionId,
                   schema: ext.defaultSchema,
+                  onDiagnosticsStatusChange: setDiagnosticsStatus,
                 }),
                 ...ext.dialectExtensions,
               ]),
@@ -993,11 +990,25 @@ export const SqlEditor = memo(
             });
           }}
         >
-          <div
-            ref={containerRef}
-            className={`sql-editor h-full ${className}`}
-            style={{ height }}
-          />
+          <div className="relative h-full">
+            <div
+              ref={containerRef}
+              className={`sql-editor h-full ${className}`}
+              style={{ height }}
+            />
+            {!readOnly && (
+              <div
+                aria-label="Editor diagnostics status"
+                className="pointer-events-none absolute bottom-2 right-2 rounded-md border border-border/60 bg-background/90 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur"
+              >
+                {diagnosticsStatus === "validating" && "Validating SQL"}
+                {diagnosticsStatus === "ready" && "Schema ready"}
+                {diagnosticsStatus === "stale_schema" && "Schema stale"}
+                {diagnosticsStatus === "unavailable" && "Schema unavailable"}
+                {diagnosticsStatus === "idle" && "Lint idle"}
+              </div>
+            )}
+          </div>
         </EditorContextMenu>
         <ExtractCteDialog
           open={extractCteDialogOpen}

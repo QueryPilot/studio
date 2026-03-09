@@ -423,7 +423,7 @@ describe("acpStore", () => {
   });
 
   describe("cancelGeneration", () => {
-    it("should cancel active session and stop streaming", async () => {
+    it("should cancel active session and set cancelling state", async () => {
       useAcpStore.setState({
         activeInstanceId: "instance-123",
         isStreaming: true,
@@ -434,7 +434,8 @@ describe("acpStore", () => {
       await useAcpStore.getState().cancelGeneration();
 
       expect(AcpService.cancelSession).toHaveBeenCalledWith("instance-123");
-      expect(useAcpStore.getState().isStreaming).toBe(false);
+      // isStreaming is NOT set to false here — onComplete/onError callback finalizes it
+      expect(useAcpStore.getState().isCancelling).toBe(true);
     });
 
     it("should do nothing if no active instance", async () => {

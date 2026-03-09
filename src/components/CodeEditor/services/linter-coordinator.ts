@@ -1,10 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { logger } from "@/lib/logger";
-import { syncSchemaToRust } from "@/hooks/useRustSchemaSync";
+import { getRustSchemaSyncStatus } from "@/hooks/useRustSchemaSync";
+import type { EditorDiagnosticsStatus, SqlDialect } from "../types";
 
 interface LintRequest {
   sql: string;
-  dialect: string;
+  dialect: SqlDialect;
   connectionId?: string;
   schema?: string;
 }
@@ -19,6 +20,7 @@ interface LintDiagnostic {
 
 interface LintResult {
   diagnostics: LintDiagnostic[];
+  status: EditorDiagnosticsStatus;
 }
 
 type LintCallback = (result: LintResult) => void;
@@ -95,10 +97,13 @@ class LinterCoordinator {
           if (callbacks.length === 0) return;
 
           try {
-            if (request.connectionId) {
-              const schemaName = request.schema?.trim() || "public";
-              await syncSchemaToRust(request.connectionId, schemaName);
-            }
+            const status =
+              request.connectionId
+                ? getRustSchemaSyncStatus(
+                    request.connectionId,
+                    request.schema?.trim() || "public",
+                  )
+                : "ready";
 
             const response = await invoke<{
               valid: boolean;
@@ -120,6 +125,7 @@ class LinterCoordinator {
 
             const result: LintResult = {
               diagnostics: [...response.errors, ...response.warnings],
+              status,
             };
 
             // Cache result
@@ -138,7 +144,10 @@ class LinterCoordinator {
           } catch (error) {
             logger.error("[LinterCoordinator] IPC failed:", error);
             // Resolve all callbacks with empty diagnostics so promises don't hang
-            const emptyResult: LintResult = { diagnostics: [] };
+            const emptyResult: LintResult = {
+              diagnostics: [],
+              status: "unavailable",
+            };
             for (const cb of callbacks) {
               cb(emptyResult);
             }

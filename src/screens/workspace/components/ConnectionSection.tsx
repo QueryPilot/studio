@@ -323,12 +323,14 @@ export const ConnectionSection = forwardRef<
   // Store actions
   const {
     reconnectConnection,
+    reconnectDisconnectedConnections,
     removeConnectionFromWorkspace,
     setFocusedConnection,
     updateConnectionState,
   } = useWorkspaceBundleStore(
     useShallow((s) => ({
       reconnectConnection: s.reconnectConnection,
+      reconnectDisconnectedConnections: s.reconnectDisconnectedConnections,
       removeConnectionFromWorkspace: s.removeConnectionFromWorkspace,
       setFocusedConnection: s.setFocusedConnection,
       updateConnectionState: s.updateConnectionState,
@@ -1899,7 +1901,7 @@ export const ConnectionSection = forwardRef<
             variant="ghost"
             size="sm"
             className="h-5 px-2 text-xs ml-auto"
-            onClick={() => void reconnectConnection(connectionId)}
+            onClick={() => void reconnectDisconnectedConnections()}
           >
             Retry
           </Button>

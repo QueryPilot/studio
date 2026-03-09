@@ -15,7 +15,7 @@ import type { Extension } from "@codemirror/state";
 import { getThemeExtensions } from "../themes";
 import { createDialectLinter } from "../languages/sql/linter-strategy";
 import type { EditorCompartments } from "./useSqlEditorSetup";
-import type { SqlDialect } from "../types";
+import type { EditorDiagnosticsStatus, SqlDialect } from "../types";
 
 interface UseSqlEditorCompartmentsOptions {
   viewRef: React.RefObject<EditorView | null>;
@@ -28,6 +28,7 @@ interface UseSqlEditorCompartmentsOptions {
   placeholder: string;
   connectionId: string;
   schema?: string;
+  onDiagnosticsStatusChange?: (status: EditorDiagnosticsStatus) => void;
 }
 
 export function useSqlEditorCompartments({
@@ -41,6 +42,7 @@ export function useSqlEditorCompartments({
   placeholder,
   connectionId,
   schema,
+  onDiagnosticsStatusChange,
 }: UseSqlEditorCompartmentsOptions) {
   // Track pending reconfigurations for unfocused editors (keyed by compartment name)
   // Using a Map ensures only the latest reconfiguration per compartment is applied on focus
@@ -103,7 +105,11 @@ export function useSqlEditorCompartments({
     dispatchOrDefer("dialect", () => {
       viewRef.current?.dispatch({
         effects: compartments.dialect.reconfigure([
-          ...createDialectLinter(effectiveDialect, { connectionId, schema }),
+          ...createDialectLinter(effectiveDialect, {
+            connectionId,
+            schema,
+            onDiagnosticsStatusChange,
+          }),
           ...dialectExtensions,
         ]),
       });
@@ -114,6 +120,7 @@ export function useSqlEditorCompartments({
     compartments,
     connectionId,
     schema,
+    onDiagnosticsStatusChange,
     viewRef,
     dispatchOrDefer,
   ]);

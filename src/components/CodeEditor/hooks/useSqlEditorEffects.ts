@@ -28,6 +28,11 @@ interface UseSqlEditorEffectsOptions {
     schema?: string;
     table?: string;
   }) => void;
+  confirmDestructiveQuery?: (request: {
+    query: string;
+    type: string;
+    message: string;
+  }) => boolean | Promise<boolean>;
   onDialectDetected?: (dialect: SqlDialect) => void;
   detectDialect: ((value: string) => void) & { cancel: () => void };
   viewRef: React.RefObject<EditorView | null>;
@@ -38,6 +43,7 @@ export function useSqlEditorEffects({
   onChangeDelay,
   onExecute,
   onGotoDefinition,
+  confirmDestructiveQuery,
   onDialectDetected,
   detectDialect,
   viewRef,
@@ -46,6 +52,7 @@ export function useSqlEditorEffects({
   const onChangeRef = useRef(onChange);
   const onExecuteRef = useRef(onExecute);
   const onGotoDefinitionRef = useRef(onGotoDefinition);
+  const confirmDestructiveQueryRef = useRef(confirmDestructiveQuery);
   const onDialectDetectedRef = useRef(onDialectDetected);
   const lastEmittedValueRef = useRef<string | null>(null);
 
@@ -54,8 +61,9 @@ export function useSqlEditorEffects({
     onChangeRef.current = onChange;
     onExecuteRef.current = onExecute;
     onGotoDefinitionRef.current = onGotoDefinition;
+    confirmDestructiveQueryRef.current = confirmDestructiveQuery;
     onDialectDetectedRef.current = onDialectDetected;
-  }, [onChange, onExecute, onGotoDefinition, onDialectDetected]);
+  }, [onChange, onExecute, onGotoDefinition, confirmDestructiveQuery, onDialectDetected]);
 
   // Create debounced onChange
   const handleChange = useCallback((value: string) => {
@@ -84,7 +92,7 @@ export function useSqlEditorEffects({
   }, [detectDialect, debouncedOnChange]);
 
   // Execute query with safety check
-  const executeQuery = useCallback((query: string) => {
+  const executeQuery = useCallback(async (query: string) => {
     if (!onExecuteRef.current) return;
 
     const check = isDestructiveQuery(query);
@@ -93,10 +101,18 @@ export function useSqlEditorEffects({
         check.type === "TRUNCATE"
           ? `⚠️ Warning: You are running a TRUNCATE command. This will delete ALL rows in the table. Proceed?`
           : check.type === "DROP"
-            ? `⚠️ Warning: You are running a DROP command. This will permanently delete the database object. Proceed?`
+          ? `⚠️ Warning: You are running a DROP command. This will permanently delete the database object. Proceed?`
             : `⚠️ Warning: You are running a ${check.type} without a WHERE clause. This will affect ALL rows. Proceed?`;
 
-      if (!window.confirm(message)) {
+      const confirmed = confirmDestructiveQueryRef.current
+        ? await confirmDestructiveQueryRef.current({
+            query,
+            type: check.type,
+            message,
+          })
+        : window.confirm(message);
+
+      if (!confirmed) {
         return;
       }
     }
@@ -122,7 +138,7 @@ export function useSqlEditorEffects({
                 .sliceString(selection.from, selection.to)
                 .trim();
               if (selectedText) {
-                executeQuery(selectedText);
+                void executeQuery(selectedText);
                 return true;
               }
             }
@@ -133,7 +149,7 @@ export function useSqlEditorEffects({
               selection.head,
             );
             if (statementAtCursor) {
-              executeQuery(statementAtCursor.text);
+              void executeQuery(statementAtCursor.text);
               return true;
             }
 

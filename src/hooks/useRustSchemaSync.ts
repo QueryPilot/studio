@@ -17,6 +17,7 @@ import {
 } from "@/services/sqlEngineService";
 import { logger } from "@/lib/logger";
 import { isTauri } from "@/utils/tauri";
+import type { EditorDiagnosticsStatus } from "@/components/CodeEditor/types";
 
 interface UseRustSchemaSyncOptions {
   connectionId: string;
@@ -33,6 +34,23 @@ const SYNC_DEBOUNCE_MS = 5000; // Don't re-sync within 5 seconds
  */
 export function isRustSchemaSyncAvailable(): boolean {
   return isTauri();
+}
+
+export function getRustSchemaSyncStatus(
+  connectionId: string,
+  schema: string,
+): Extract<EditorDiagnosticsStatus, "ready" | "stale_schema" | "unavailable"> {
+  if (!isRustSchemaSyncAvailable()) {
+    return "unavailable";
+  }
+
+  const syncKey = `${connectionId}:${schema}`;
+  const lastSync = syncedSchemas.get(syncKey);
+  if (!lastSync) {
+    return "stale_schema";
+  }
+
+  return "ready";
 }
 
 /**
@@ -198,7 +216,7 @@ export function useRustSchemaSync(options: UseRustSchemaSyncOptions): void {
 
     syncInProgress.current = true;
 
-    syncSchemaToRust(connectionId, schema).finally(() => {
+    void syncSchemaToRust(connectionId, schema).finally(() => {
       syncInProgress.current = false;
     });
   }, [connectionId, schema, enabled]);

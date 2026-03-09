@@ -1,5 +1,15 @@
+import { quoteIdentifier } from "@/adapters/formatting";
 import { schemaCache } from "@/services/schemaCache";
-import type { MetadataProvider, EntityMeta, FieldMeta, EntityDetails, JoinConditionSuggestion, FunctionMeta } from "../../types";
+import type { ForeignKeyRelationship } from "@/types/relationships";
+import type {
+  MetadataProvider,
+  EntityMeta,
+  FieldMeta,
+  EntityDetails,
+  JoinConditionSuggestion,
+  FunctionMeta,
+  SqlDialect,
+} from "../../types";
 
 /**
  * SQL implementation of MetadataProvider.
@@ -8,10 +18,66 @@ import type { MetadataProvider, EntityMeta, FieldMeta, EntityDetails, JoinCondit
 export class SqlMetadataProvider implements MetadataProvider {
   private connectionId: string;
   private defaultSchema: string;
+  private dialect: SqlDialect;
 
-  constructor(connectionId: string, defaultSchema: string = "public") {
+  constructor(
+    connectionId: string,
+    defaultSchema: string = "public",
+    dialect: SqlDialect = "postgresql"
+  ) {
     this.connectionId = connectionId;
     this.defaultSchema = defaultSchema;
+    this.dialect = dialect;
+  }
+
+  private isSameTable(
+    scopeTable: { name: string; schema?: string },
+    targetTable: { name: string; schema?: string },
+    targetSchema: string
+  ): boolean {
+    const scopeSchema = (scopeTable.schema || targetSchema).toLowerCase();
+    const candidateSchema = (targetTable.schema || targetSchema).toLowerCase();
+
+    return (
+      scopeSchema === candidateSchema &&
+      scopeTable.name.toLowerCase() === targetTable.name.toLowerCase()
+    );
+  }
+
+  private formatQualifier(name: string, isAlias: boolean): string {
+    return isAlias ? name : quoteIdentifier(name, this.dialect);
+  }
+
+  private formatColumnRef(
+    tableRef: { name: string; alias?: string },
+    column: string
+  ): string {
+    const qualifier = tableRef.alias || tableRef.name;
+    return `${this.formatQualifier(qualifier, Boolean(tableRef.alias))}.${quoteIdentifier(column, this.dialect)}`;
+  }
+
+  private buildJoinCondition(
+    leftTable: { name: string; alias?: string },
+    leftFallbackColumn: string,
+    rightTable: { name: string; alias?: string },
+    rightFallbackColumn: string,
+    relationship?: Pick<ForeignKeyRelationship, "sourceColumns" | "targetColumns">
+  ): string {
+    const leftColumns =
+      relationship?.sourceColumns && relationship.sourceColumns.length > 0
+        ? relationship.sourceColumns
+        : [leftFallbackColumn];
+    const rightColumns =
+      relationship?.targetColumns && relationship.targetColumns.length > 0
+        ? relationship.targetColumns
+        : [rightFallbackColumn];
+    const pairCount = Math.min(leftColumns.length, rightColumns.length);
+
+    return Array.from({ length: pairCount }, (_, index) => {
+      const leftColumn = leftColumns[index] ?? leftFallbackColumn;
+      const rightColumn = rightColumns[index] ?? rightFallbackColumn;
+      return `${this.formatColumnRef(leftTable, leftColumn)} = ${this.formatColumnRef(rightTable, rightColumn)}`;
+    }).join(" AND ");
   }
 
   async listEntities(schema?: string): Promise<EntityMeta[]> {
@@ -114,18 +180,21 @@ export class SqlMetadataProvider implements MetadataProvider {
       );
 
       const targetTableName = targetTable.name;
-      const targetIdentifier = targetTable.alias || targetTable.name;
-
       // Check each table in scope for FK relationships with the target
       for (const scopeTable of tablesInScope) {
         const scopeTableName = scopeTable.name;
-        const scopeIdentifier = scopeTable.alias || scopeTable.name;
 
         // Check forward relationships: scopeTable -> targetTable
         const outgoing = graph.relationships.get(scopeTableName) || [];
         for (const rel of outgoing) {
           if (rel.targetTable.toLowerCase() === targetTableName.toLowerCase()) {
-            const condition = `${scopeIdentifier}.${rel.sourceColumn} = ${targetIdentifier}.${rel.targetColumn}`;
+            const condition = this.buildJoinCondition(
+              scopeTable,
+              rel.sourceColumn,
+              targetTable,
+              rel.targetColumn,
+              rel
+            );
             if (!seenConditions.has(condition.toLowerCase())) {
               seenConditions.add(condition.toLowerCase());
               suggestions.push({
@@ -142,7 +211,13 @@ export class SqlMetadataProvider implements MetadataProvider {
         const incoming = graph.reverseRelationships.get(scopeTableName) || [];
         for (const rel of incoming) {
           if (rel.sourceTable.toLowerCase() === targetTableName.toLowerCase()) {
-            const condition = `${targetIdentifier}.${rel.sourceColumn} = ${scopeIdentifier}.${rel.targetColumn}`;
+            const condition = this.buildJoinCondition(
+              targetTable,
+              rel.sourceColumn,
+              scopeTable,
+              rel.targetColumn,
+              rel
+            );
             if (!seenConditions.has(condition.toLowerCase())) {
               seenConditions.add(condition.toLowerCase());
               suggestions.push({
@@ -159,7 +234,13 @@ export class SqlMetadataProvider implements MetadataProvider {
         const targetOutgoing = graph.relationships.get(targetTableName) || [];
         for (const rel of targetOutgoing) {
           if (rel.targetTable.toLowerCase() === scopeTableName.toLowerCase()) {
-            const condition = `${targetIdentifier}.${rel.sourceColumn} = ${scopeIdentifier}.${rel.targetColumn}`;
+            const condition = this.buildJoinCondition(
+              targetTable,
+              rel.sourceColumn,
+              scopeTable,
+              rel.targetColumn,
+              rel
+            );
             if (!seenConditions.has(condition.toLowerCase())) {
               seenConditions.add(condition.toLowerCase());
               suggestions.push({
@@ -213,8 +294,6 @@ export class SqlMetadataProvider implements MetadataProvider {
     suggestions: JoinConditionSuggestion[],
     seenConditions: Set<string>
   ): Promise<void> {
-    const targetIdentifier = targetTable.alias || targetTable.name;
-
     // Get target table columns
     const targetColumns = await schemaCache.getTableColumns(
       this.connectionId,
@@ -227,7 +306,9 @@ export class SqlMetadataProvider implements MetadataProvider {
     const targetPkColumns = targetColumns.filter(c => c.is_pk).map(c => c.name);
 
     for (const scopeTable of tablesInScope) {
-      const scopeIdentifier = scopeTable.alias || scopeTable.name;
+      if (this.isSameTable(scopeTable, targetTable, targetSchema)) {
+        continue;
+      }
 
       // Get scope table columns
       const scopeColumns = await schemaCache.getTableColumns(
@@ -245,7 +326,7 @@ export class SqlMetadataProvider implements MetadataProvider {
       
       for (const col of scopeColumns) {
         if (col.name.toLowerCase() === expectedFkName && targetColumnNames.has(targetIdColumn.toLowerCase())) {
-          const condition = `${scopeIdentifier}.${col.name} = ${targetIdentifier}.${targetIdColumn}`;
+          const condition = `${this.formatColumnRef(scopeTable, col.name)} = ${this.formatColumnRef(targetTable, targetIdColumn)}`;
           if (!seenConditions.has(condition.toLowerCase())) {
             seenConditions.add(condition.toLowerCase());
             suggestions.push({
@@ -264,7 +345,7 @@ export class SqlMetadataProvider implements MetadataProvider {
       
       for (const col of targetColumns) {
         if (col.name.toLowerCase() === expectedReverseFkName) {
-          const condition = `${targetIdentifier}.${col.name} = ${scopeIdentifier}.${scopeIdColumn}`;
+          const condition = `${this.formatColumnRef(targetTable, col.name)} = ${this.formatColumnRef(scopeTable, scopeIdColumn)}`;
           if (!seenConditions.has(condition.toLowerCase())) {
             seenConditions.add(condition.toLowerCase());
             suggestions.push({
@@ -284,7 +365,7 @@ export class SqlMetadataProvider implements MetadataProvider {
           const commonNonJoinColumns = new Set(["id", "created_at", "updated_at", "deleted_at", "name", "description", "status"]);
           if (commonNonJoinColumns.has(scopeCol.name.toLowerCase())) continue;
 
-          const condition = `${scopeIdentifier}.${scopeCol.name} = ${targetIdentifier}.${scopeCol.name}`;
+          const condition = `${this.formatColumnRef(scopeTable, scopeCol.name)} = ${this.formatColumnRef(targetTable, scopeCol.name)}`;
           if (!seenConditions.has(condition.toLowerCase())) {
             seenConditions.add(condition.toLowerCase());
             suggestions.push({
@@ -343,14 +424,15 @@ const providerCache = new Map<string, MetadataProvider>();
  */
 export function createSqlMetadataProvider(
   connectionId: string,
-  defaultSchema?: string
+  defaultSchema?: string,
+  dialect: SqlDialect = "postgresql"
 ): MetadataProvider {
   const schema = defaultSchema || "public";
-  const cacheKey = `${connectionId}:${schema}`;
+  const cacheKey = `${connectionId}:${schema}:${dialect}`;
   
   let provider = providerCache.get(cacheKey);
   if (!provider) {
-    provider = new SqlMetadataProvider(connectionId, schema);
+    provider = new SqlMetadataProvider(connectionId, schema, dialect);
     providerCache.set(cacheKey, provider);
   }
   

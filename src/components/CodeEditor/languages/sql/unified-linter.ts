@@ -1,7 +1,7 @@
 import { linter, type Diagnostic } from "@codemirror/lint";
 import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
-import type { SqlDialect } from "../../types";
+import type { EditorDiagnosticsStatus, SqlDialect } from "../../types";
 import { linterCoordinator } from "../../services/linter-coordinator";
 import { buildSqlQuickFixes } from "./quick-fixes";
 
@@ -10,6 +10,7 @@ interface UnifiedLinterConfig {
   connectionId?: string;
   schema?: string;
   delay?: number;
+  onDiagnosticsStatusChange?: (status: EditorDiagnosticsStatus) => void;
 }
 
 function mapSeverity(severity: string): "error" | "warning" | "info" {
@@ -38,6 +39,8 @@ export function createUnifiedLinter(config: UnifiedLinterConfig): Extension {
       const sql = view.state.doc.toString();
       if (!sql.trim()) return Promise.resolve([]);
       if (sql === lastSql) return Promise.resolve(lastDiagnostics);
+
+      config.onDiagnosticsStatusChange?.("validating");
 
       // Cancel any pending request from this editor and settle its promise
       cancelPending?.();
@@ -75,12 +78,14 @@ export function createUnifiedLinter(config: UnifiedLinterConfig): Extension {
 
             lastSql = sql;
             lastDiagnostics = mappedDiagnostics;
+            config.onDiagnosticsStatusChange?.(result.status);
             resolve(mappedDiagnostics);
           },
         );
         // Wrap cancel to also settle the promise (prevents dangling promises)
         cancelPending = () => {
           coordinatorCancel();
+          config.onDiagnosticsStatusChange?.("idle");
           resolve(lastDiagnostics);
         };
       });

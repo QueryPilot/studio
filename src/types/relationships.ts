@@ -9,6 +9,8 @@ export interface ForeignKeyRelationship {
   sourceSchema: string;
   /** Column name in source table */
   sourceColumn: string;
+  /** Ordered columns for composite foreign keys */
+  sourceColumns?: string[];
 
   /** Referenced/target table */
   targetTable: string;
@@ -16,6 +18,8 @@ export interface ForeignKeyRelationship {
   targetSchema: string;
   /** Referenced column (usually PK) */
   targetColumn: string;
+  /** Ordered referenced columns for composite foreign keys */
+  targetColumns?: string[];
 
   /** Constraint name */
   constraintName: string;

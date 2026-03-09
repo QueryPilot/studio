@@ -3,7 +3,7 @@ import { queryCommands } from "@/data/commands/queryCommands";
 import { defaultCommands } from "@/data/defaultCommands";
 import { defaultKeybindings } from "@/data/defaultKeybindings";
 import { menuActionCommandMap } from "@/data/menuActionCommandMap";
-import { eventBus } from "@/services/eventBus";
+import { queryActionDispatcher } from "@/services/queryActionDispatcher";
 import { type CommandExecutionContext } from "@/types/command";
 
 const commandContext: CommandExecutionContext = {
@@ -17,30 +17,28 @@ describe("query execution wiring", () => {
     vi.restoreAllMocks();
   });
 
-  it("routes query.executeSelection to execute-selection event", () => {
-    const emitSpy = vi.spyOn(eventBus, "emit");
+  it("routes query.executeSelection to focused query panel dispatch", () => {
+    const dispatchSpy = vi.spyOn(queryActionDispatcher, "dispatch");
     const command = queryCommands.find((item) => item.id === "query.executeSelection");
 
     expect(command).toBeDefined();
     void command?.handler(undefined, commandContext);
 
-    expect(emitSpy).toHaveBeenCalledWith("query-editor:execute-selection", {
-      mode: "text",
-    });
+    expect(dispatchSpy).toHaveBeenCalledWith("executeSelection");
   });
 
-  it("routes query.executeAll to execute-all event", () => {
-    const emitSpy = vi.spyOn(eventBus, "emit");
+  it("routes query.executeAll to focused query panel dispatch", () => {
+    const dispatchSpy = vi.spyOn(queryActionDispatcher, "dispatch");
     const command = queryCommands.find((item) => item.id === "query.executeAll");
 
     expect(command).toBeDefined();
     void command?.handler(undefined, commandContext);
 
-    expect(emitSpy).toHaveBeenCalledWith("query-editor:execute-all", {});
+    expect(dispatchSpy).toHaveBeenCalledWith("executeAll");
   });
 
-  it("exposes editor.action.executeAll and emits execute-all event", () => {
-    const emitSpy = vi.spyOn(eventBus, "emit");
+  it("exposes editor.action.executeAll and dispatches to the focused query panel", () => {
+    const dispatchSpy = vi.spyOn(queryActionDispatcher, "dispatch");
     const command = defaultCommands.find(
       (item) => item.id === "editor.action.executeAll",
     );
@@ -48,7 +46,7 @@ describe("query execution wiring", () => {
     expect(command).toBeDefined();
     void command?.handler(undefined, commandContext);
 
-    expect(emitSpy).toHaveBeenCalledWith("query-editor:execute-all", {});
+    expect(dispatchSpy).toHaveBeenCalledWith("executeAll");
   });
 
   it("binds cmd+shift+enter to editor.action.executeAll", () => {

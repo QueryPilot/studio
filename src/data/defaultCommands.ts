@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import React from "react";
 import { ConfirmationToast } from "@/components/ConfirmationToast";
 import { eventBus } from "@/services/eventBus";
+import { queryActionDispatcher } from "@/services/queryActionDispatcher";
 import { useQueryHistoryStore } from "@/stores/queryHistoryStore";
 import { windowManager } from "@/services/windowManager";
 import {
@@ -1085,7 +1086,7 @@ export const defaultCommands: Command[] = [
     category: "Editor",
     when: "editorTextFocus && queryEditor",
     handler: () => {
-      eventBus.emit("query-editor:format", {});
+      void queryActionDispatcher.dispatch("format");
     },
   },
   {
@@ -1094,7 +1095,7 @@ export const defaultCommands: Command[] = [
     category: "Editor",
     when: "editorTextFocus && queryEditor",
     handler: () => {
-      eventBus.emit("query-editor:execute", {});
+      void queryActionDispatcher.dispatch("execute");
     },
   },
   {
@@ -1103,7 +1104,7 @@ export const defaultCommands: Command[] = [
     category: "Editor",
     when: "editorTextFocus && queryEditor",
     handler: () => {
-      eventBus.emit("query-editor:execute-all", {});
+      void queryActionDispatcher.dispatch("executeAll");
     },
   },
   {
@@ -1112,7 +1113,7 @@ export const defaultCommands: Command[] = [
     category: "Editor",
     when: "editorTextFocus && queryEditor",
     handler: () => {
-      eventBus.emit("query-editor:execute-background", {});
+      void queryActionDispatcher.dispatch("execute");
     },
   },
   // Query History Commands

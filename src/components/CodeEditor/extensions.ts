@@ -290,7 +290,11 @@ export const getLanguageExtension = (
       // Add context-aware completion and hover if connection info is available
       if (connectionId && database) {
         const defaultSchema = schema || fallbackSchemaForDialect(dialect);
-        const provider = createSqlMetadataProvider(connectionId, defaultSchema);
+        const provider = createSqlMetadataProvider(
+          connectionId,
+          defaultSchema,
+          dialect || "postgresql",
+        );
 
         extensions.push(
           dialectLang.language.data.of({

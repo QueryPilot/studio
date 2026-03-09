@@ -1,6 +1,6 @@
 import { logger } from "@/lib/logger";
 import type { ViewMode } from "@/types/viewMode";
-import { ChartViewer } from "./ChartViewer";
+
 import { memo, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +19,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { CodeEditor } from "@/components/CodeEditor";
 import { type ColumnMeta } from "@/types/database";
-import type { CellValue as BackendCellValue } from "@/services/backend";
+import type { RawCellValue } from "@/services/backend";
 import { normalizeBackendValue } from "@/services/tableDataTransform";
 import { exportToCSV, type ExportOptions } from "@/utils/csvExport";
 import {
@@ -34,6 +34,7 @@ import {
 import { copyMarkdownToClipboard } from "@/utils/markdownExport";
 import { ExplainViewer } from "./ExplainViewer";
 import { DbType, getParadigm, type DatabaseParadigm } from "@/types/connection";
+import type { QueryExecutionStatus } from "./queryExecutionState";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -69,8 +70,11 @@ interface ResultViewerProps {
   gridId: string;
   isStreaming?: boolean;
   viewMode: ViewMode;
+  executionStatus?: QueryExecutionStatus;
   /** Callback to send the error + SQL to the AI panel for fixing */
   onFixWithAI?: (error: string) => void;
+  onRefreshResults?: () => void;
+  refreshNotice?: string;
   cursorSetupMs?: number;
   totalStreamingMs?: number;
   fetchCount?: number;
@@ -471,6 +475,7 @@ export const ResultViewer = memo(function ResultViewer({
   gridId,
   isStreaming = false,
   viewMode,
+  executionStatus = "idle",
   cursorSetupMs,
   totalStreamingMs,
   fetchCount,
@@ -478,6 +483,8 @@ export const ResultViewer = memo(function ResultViewer({
   conversionMs,
   ipcSendMs: _ipcSendMs,
   onFixWithAI,
+  onRefreshResults,
+  refreshNotice,
 }: ResultViewerProps) {
   // Determine paradigm from database type
   const paradigm: DatabaseParadigm = useMemo(() => {
@@ -502,7 +509,7 @@ export const ResultViewer = memo(function ResultViewer({
     const objects = result.rows.map((row) => {
       const obj: Record<string, unknown> = {};
       result.columns.forEach((col, i) => {
-        const rawValue = row[i] as BackendCellValue | undefined;
+        const rawValue = row[i] as RawCellValue | undefined;
         obj[col] = normalizeBackendValue(rawValue);
       });
       return obj;
@@ -521,6 +528,30 @@ export const ResultViewer = memo(function ResultViewer({
     return (
       <div className={cn("h-full", className)}>
         <DataGridSkeleton />
+      </div>
+    );
+  }
+
+  if (!result && executionStatus === "cancelled") {
+    return (
+      <div
+        className={cn(
+          "flex items-center justify-center bg-muted/10 h-full",
+          className,
+        )}
+      >
+        <div className="flex max-w-md flex-col items-center space-y-3 p-6 text-center">
+          <IconAlertCircle className="h-8 w-8 text-muted-foreground" />
+          <p className="text-sm font-medium text-foreground">Query cancelled</p>
+          <p className="text-xs text-muted-foreground">
+            Execution stopped before a result set was completed.
+          </p>
+          {onRefreshResults && (
+            <Button size="sm" variant="outline" onClick={onRefreshResults}>
+              Refresh results
+            </Button>
+          )}
+        </div>
       </div>
     );
   }
@@ -673,6 +704,44 @@ export const ResultViewer = memo(function ResultViewer({
 
   return (
     <div className={cn("overflow-hidden h-full flex flex-col", className)}>
+      {(executionStatus === "streaming" || executionStatus === "cancelled") && (
+        <div className="px-2 py-1.5 border-b border-border/60 bg-muted/20 flex items-center justify-between gap-3">
+          <span className="text-xs text-muted-foreground">
+            {executionStatus === "streaming"
+              ? "Streaming results..."
+              : "Query cancelled. Showing partial results."}
+          </span>
+          {executionStatus === "cancelled" && onRefreshResults && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={onRefreshResults}
+            >
+              Refresh results
+            </Button>
+          )}
+        </div>
+      )}
+
+      {refreshNotice && executionStatus !== "streaming" && (
+        <div className="px-2 py-1.5 border-b border-amber-500/20 bg-amber-500/10 flex items-center justify-between gap-3">
+          <span className="text-xs text-amber-800 dark:text-amber-300">
+            {refreshNotice}
+          </span>
+          {onRefreshResults && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={onRefreshResults}
+            >
+              Refresh results
+            </Button>
+          )}
+        </div>
+      )}
+
       {/* Banner for RETURNING clause queries */}
       {hasReturningData && (
         <div className="px-2 py-1.5 bg-green-500/10 border-b border-green-500/20 flex items-center gap-2">
@@ -737,13 +806,6 @@ export const ResultViewer = memo(function ResultViewer({
         </div>
       )}
 
-      {viewMode === "chart" && (
-        <div className="h-full">
-          <ChartViewer
-            result={{ columns: result.columns, rows: result.rows }}
-          />
-        </div>
-      )}
     </div>
   );
 });
