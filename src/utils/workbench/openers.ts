@@ -3,6 +3,7 @@ import useWorkbenchStore from '@/stores/workbenchStore';
 import { usePanelFocusStore } from '@/stores/panelFocusStore';
 import { nanoid } from 'nanoid';
 import { DbType } from '@/types/connection';
+import { buildMongoCollectionMetadataQuery } from '@/screens/workspace/components/sidebarContextMenuHelpers';
 
 type TableViewType = 'data' | 'structure' | 'indexes' | 'triggers' | 'definition' | 'partitions';
 
@@ -202,6 +203,17 @@ interface OpenCollectionDesignerParams {
   database: string | null;
 }
 
+interface OpenMongoCollectionParams {
+  connectionId: string;
+  database: string;
+  collectionName: string;
+}
+
+interface OpenRedisDatabaseParams {
+  connectionId: string;
+  dbIndex: number;
+}
+
 export function openQueryWithTemplate({
   connectionId,
   database,
@@ -305,6 +317,134 @@ export function openCollectionDesigner({
     title: "New Collection",
     connectionId,
     database: database ?? undefined,
+  });
+  focusPanel(targetPanelId);
+}
+
+export function openMongoCollectionObject({
+  connectionId,
+  database,
+  collectionName,
+}: OpenMongoCollectionParams): void {
+  const { addTab, panelContents, focusPanel } =
+    useWorkbenchStore.getState();
+
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
+  if (!targetPanelId && panelContents.size > 0) {
+    const firstPanelId = Array.from(panelContents.keys())[0];
+    if (firstPanelId) {
+      targetPanelId = firstPanelId;
+      focusPanel(firstPanelId);
+    }
+  }
+
+  if (!targetPanelId) return;
+
+  const objectKey = `mongo-${connectionId}-${database}-${collectionName}`;
+  const tabId = `${objectKey}:::${nanoid(6)}`;
+
+  addTab(targetPanelId, tabId, {
+    type: "mongo-collection",
+    title: collectionName,
+    connectionId,
+    database,
+    table: collectionName,
+    objectKey,
+  });
+  focusPanel(targetPanelId);
+}
+
+export function openMongoCollectionMetadata({
+  connectionId,
+  database,
+  collectionName,
+}: OpenMongoCollectionParams): void {
+  const { addTab, panelContents, focusPanel } =
+    useWorkbenchStore.getState();
+
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
+  if (!targetPanelId && panelContents.size > 0) {
+    const firstPanelId = Array.from(panelContents.keys())[0];
+    if (firstPanelId) {
+      targetPanelId = firstPanelId;
+      focusPanel(firstPanelId);
+    }
+  }
+
+  if (!targetPanelId) return;
+
+  const objectKey = `mongo-meta-${connectionId}-${database}-${collectionName}`;
+  const tabId = `${objectKey}:::${nanoid(6)}`;
+
+  addTab(targetPanelId, tabId, {
+    type: "mongo-query",
+    title: `${collectionName} metadata`,
+    connectionId,
+    database,
+    objectKey,
+    initialQuery: buildMongoCollectionMetadataQuery(collectionName),
+  });
+  focusPanel(targetPanelId);
+}
+
+export function openRedisDatabaseObject({
+  connectionId,
+  dbIndex,
+}: OpenRedisDatabaseParams): void {
+  const { addTab, panelContents, focusPanel } =
+    useWorkbenchStore.getState();
+
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
+  if (!targetPanelId && panelContents.size > 0) {
+    const firstPanelId = Array.from(panelContents.keys())[0];
+    if (firstPanelId) {
+      targetPanelId = firstPanelId;
+      focusPanel(firstPanelId);
+    }
+  }
+
+  if (!targetPanelId) return;
+
+  const objectKey = `redis-${connectionId}-db${dbIndex}`;
+  const tabId = `${objectKey}:::${nanoid(6)}`;
+
+  addTab(targetPanelId, tabId, {
+    type: "redis-key",
+    title: `db${dbIndex}`,
+    connectionId,
+    database: String(dbIndex),
+    objectKey,
+  });
+  focusPanel(targetPanelId);
+}
+
+export function openRedisCliTab({
+  connectionId,
+  dbIndex,
+}: OpenRedisDatabaseParams): void {
+  const { addTab, panelContents, focusPanel } =
+    useWorkbenchStore.getState();
+
+  let targetPanelId = usePanelFocusStore.getState().focusedPanelId;
+  if (!targetPanelId && panelContents.size > 0) {
+    const firstPanelId = Array.from(panelContents.keys())[0];
+    if (firstPanelId) {
+      targetPanelId = firstPanelId;
+      focusPanel(firstPanelId);
+    }
+  }
+
+  if (!targetPanelId) return;
+
+  const objectKey = `redis-cli-${connectionId}-db${dbIndex}`;
+  const tabId = `${objectKey}:::${nanoid(6)}`;
+
+  addTab(targetPanelId, tabId, {
+    type: "redis-cli",
+    title: `Redis CLI - db${dbIndex}`,
+    connectionId,
+    database: String(dbIndex),
+    objectKey,
   });
   focusPanel(targetPanelId);
 }

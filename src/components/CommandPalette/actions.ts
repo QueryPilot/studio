@@ -31,20 +31,20 @@ export const ACTION_IDS = {
   // Table/View actions
   OPEN_DATA: "open-data",
   OPEN_STRUCTURE: "open-structure",
+  OPEN_METADATA: "open-metadata",
   OPEN_INDEXES: "open-indexes",
   OPEN_TRIGGERS: "open-triggers",
-  OPEN_DESIGNER: "open-designer",
+  OPEN_REDIS_CLI: "open-redis-cli",
   OPEN_DEFINITION: "open-definition",
   REFRESH_MATERIALIZED_VIEW: "refresh-materialized-view",
   COPY_NAME: "copy-name",
   COPY_QUALIFIED_NAME: "copy-qualified-name",
-  ADD_TO_FAVORITES: "add-to-favorites",
+  COPY_REDIS_SELECT_COMMAND: "copy-redis-select-command",
 
   // Function actions
   COPY_CALL_SIGNATURE: "copy-call-signature",
 
   // Schema actions
-  MARK_AS_DEFAULT: "mark-as-default",
   CREATE_SCHEMA: "create-schema",
 
   // Database actions
@@ -52,7 +52,6 @@ export const ACTION_IDS = {
 
   // Command actions
   EXECUTE: "execute",
-  COPY_COMMAND_ID: "copy-command-id",
 } as const;
 
 // Database types that support schema creation
