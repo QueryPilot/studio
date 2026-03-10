@@ -336,7 +336,7 @@ export default function KeyboardShortcutsPanel() {
   const [query, setQuery] = useState("");
 
   return (
-    <div className="-mx-8 -my-6 flex flex-col h-[calc(85vh-16px)] max-h-[664px]">
+    <div className="flex flex-col h-full">
       {/* Fixed header — fills full width */}
       <div className="shrink-0 px-8 pt-6 pb-3 space-y-3">
         <div>

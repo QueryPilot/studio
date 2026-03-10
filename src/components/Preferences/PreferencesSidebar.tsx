@@ -37,7 +37,7 @@ export function PreferencesSidebar() {
   const { activeCategory, setActiveCategory } = usePreferencesStore();
 
   return (
-    <div className="w-48 shrink-0 border-r bg-muted/30 flex flex-col">
+    <div className="w-56 shrink-0 border-r bg-muted/30 flex flex-col">
       <div className="px-4 pt-5 pb-3">
         <h2 className="text-sm font-semibold">Settings</h2>
       </div>
