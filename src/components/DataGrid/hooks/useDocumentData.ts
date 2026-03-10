@@ -637,11 +637,11 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
       // Key-value mode cells
       if (isNestedSingleObject && column.field === '__kv_key') {
-        const keyValue = row.__kv_key?.value ?? '';
+        const keyValue = (row.__kv_key?.value as string | undefined) ?? '';
         return {
           kind: GridCellKind.Text,
-          data: String(keyValue),
-          displayData: String(keyValue),
+          data: keyValue,
+          displayData: keyValue,
           allowOverlay: true,
           readonly: true,
         };
@@ -715,8 +715,8 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
       // Key-value mode: use the key column as the path segment
       if (isNestedSingleObject && column.field === '__kv_value') {
-        const keyValue = rowData.__kv_key?.value;
-        if (keyValue === undefined || keyValue === null) return;
+        const keyValue = rowData.__kv_key?.value as string | undefined;
+        if (keyValue === undefined) return;
 
         const rawValue = rowData.__kv_value?.value;
         const valueType = detectDocumentValueType(rawValue);
@@ -724,7 +724,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
         setCurrentPath((prev) => [
           ...prev,
-          { key: String(keyValue), label: String(keyValue), type: segmentType },
+          { key: keyValue, label: keyValue, type: segmentType },
         ]);
         return;
       }

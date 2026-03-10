@@ -60,17 +60,19 @@ export function useGridSearchWorker(
     };
   }, []);
 
-  // Dispatch search
+  // Dispatch search (or clear result for empty term)
   useEffect(() => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
     }
 
     const trimmed = searchTerm.trim();
 
-    // No search term - return all rows
+    // No search term - clear pending and reset result
     if (!trimmed) {
-      setWorkerResult(null);
+      requestIdRef.current += 1;
+      setWorkerResult(null); // eslint-disable-line react-hooks/set-state-in-effect
       return;
     }
 
@@ -88,7 +90,7 @@ export function useGridSearchWorker(
           }
         }
       }
-      setWorkerResult(indices);
+      setWorkerResult(indices); // eslint-disable-line react-hooks/set-state-in-effect
       return;
     }
 

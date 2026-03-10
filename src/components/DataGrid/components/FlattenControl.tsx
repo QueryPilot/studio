@@ -53,7 +53,7 @@ export const FlattenControl = memo(function FlattenControl({
               variant="outline"
               className="h-6 w-6 text-[11px]"
               disabled={depth <= 1}
-              onClick={() => onDepthChange(Math.max(1, depth - 1))}
+              onClick={() => { onDepthChange(Math.max(1, depth - 1)); }}
             >
               -
             </Button>
@@ -65,7 +65,7 @@ export const FlattenControl = memo(function FlattenControl({
               variant="outline"
               className="h-6 w-6 text-[11px]"
               disabled={depth >= 6}
-              onClick={() => onDepthChange(Math.min(6, depth + 1))}
+              onClick={() => { onDepthChange(Math.min(6, depth + 1)); }}
             >
               +
             </Button>
