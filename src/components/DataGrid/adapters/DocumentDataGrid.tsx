@@ -13,9 +13,6 @@
 import { memo, useCallback, useMemo, useState, useRef, useEffect } from "react";
 import {
   IconBrackets,
-  IconSparkles,
-  IconChevronRight,
-  IconPlus,
   IconLayoutSidebarRightCollapse,
   IconLayoutSidebarRightExpand,
 } from "@tabler/icons-react";
@@ -37,10 +34,6 @@ import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
 import { useGridPreferencesStore } from "../stores/gridPreferencesStore";
 import type { InspectorTab } from "../components/inspector";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { toast } from "sonner";
-import { openCollectionDesigner } from "@/utils/workbench/openers";
 import {
   buildDocumentCell,
   detectDocumentValueType,
@@ -87,15 +80,6 @@ export interface DocumentResultDataGridProps extends DocumentDataGridBaseProps {
 export type DocumentDataGridProps =
   | DocumentCollectionDataGridProps
   | DocumentResultDataGridProps;
-
-interface DocumentGridView {
-  id: string;
-  name: string;
-  flattenMode: boolean;
-  flattenDepth: number;
-  filterValue: string;
-  filterMode: FilterMode;
-}
 
 function useDocumentGridInspectorState(gridId: string) {
   const persistedInspector = useGridPreferencesStore(
@@ -186,27 +170,9 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   >(undefined);
   const [filterError, setFilterError] = useState<string | null>(null);
   const [flattenMode, setFlattenMode] = useState(false);
-  const [flattenDepth, setFlattenDepth] = useState(3);
+  const [flattenDepth] = useState(3);
   const { showInspector, setShowInspector, inspectorTab, setInspectorTab } =
     useDocumentGridInspectorState(gridId);
-  const [objectIdJump, setObjectIdJump] = useState("");
-  const [planHint, setPlanHint] = useState<string | null>(null);
-  const [savedViews, setSavedViews] = useState<DocumentGridView[]>(() => {
-    if (typeof window === "undefined") {
-      return [];
-    }
-    try {
-      const raw = window.localStorage.getItem(`querypilot.document-grid.views.${gridId}`);
-      if (!raw) {
-        return [];
-      }
-      const parsed = JSON.parse(raw) as DocumentGridView[];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
-
   // Get document data with filter
   const data = useDocumentData({
     gridId: preferenceGridId,
@@ -235,12 +201,6 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     generateAIFilter: undefined,
     gridId: preferenceGridId,
   });
-
-  const savedViewStorageKey = `querypilot.document-grid.views.${gridId}`;
-
-  useEffect(() => {
-    window.localStorage.setItem(savedViewStorageKey, JSON.stringify(savedViews));
-  }, [savedViews, savedViewStorageKey]);
 
   // Handle filter submission
   const handleFilterSubmit = useCallback(() => {
@@ -280,81 +240,6 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     },
     [quickFilter],
   );
-
-  const handleSaveView = useCallback(() => {
-    const name = window.prompt("View name");
-    if (!name || !name.trim()) return;
-
-    const view: DocumentGridView = {
-      id: `${Date.now()}`,
-      name: name.trim(),
-      flattenMode,
-      flattenDepth,
-      filterValue: quickFilter.value,
-      filterMode: quickFilter.mode,
-    };
-
-    setSavedViews((prev) => [view, ...prev.filter((v) => v.name !== view.name)].slice(0, 20));
-    toast.success("View saved");
-  }, [flattenDepth, flattenMode, quickFilter.mode, quickFilter.value]);
-
-  const handleApplyView = useCallback(
-    (viewId: string) => {
-      const view = savedViews.find((item) => item.id === viewId);
-      if (!view) return;
-      setFlattenMode(view.flattenMode);
-      setFlattenDepth(view.flattenDepth);
-      quickFilter.setMode(view.filterMode);
-      quickFilter.setValue(view.filterValue);
-      setFilterError(null);
-      const result = parseDocumentFilter(view.filterValue);
-      if (result.success) {
-        setDocumentFilter(result.filter);
-      }
-    },
-    [quickFilter, savedViews],
-  );
-
-  const handleJumpToObjectId = useCallback(() => {
-    const trimmed = objectIdJump.trim();
-    if (!trimmed) return;
-    const filterText = `?{ _id: "${trimmed}" }`;
-    quickFilter.setMode("where");
-    quickFilter.setValue(filterText);
-    setDocumentFilter({
-      mode: "query",
-      mongoQuery: { _id: trimmed },
-      description: `_id = ${trimmed}`,
-    });
-    setFilterError(null);
-    toast.success("Navigated to ObjectId filter");
-  }, [objectIdJump, quickFilter]);
-
-  const handleAnalyzeQuery = useCallback(async () => {
-    try {
-      const adapter = new MongoDBAdapter(connectionId);
-      const filter = documentFilter?.mode === "query" ? documentFilter.mongoQuery ?? {} : {};
-      const explain = await adapter.runCommand({
-        explain: {
-          find: collection,
-          filter,
-          sort: undefined,
-        },
-      });
-
-      const explainText = JSON.stringify(explain);
-      if (explainText.includes("COLLSCAN")) {
-        setPlanHint("Collection scan detected. Add index for current filter/sort fields.");
-      } else if (explainText.includes("IXSCAN")) {
-        setPlanHint("Index scan detected. Query path is index-backed.");
-      } else {
-        setPlanHint("Query analyzed. Inspect explain details for scan stage.");
-      }
-    } catch (error) {
-      setPlanHint("Explain analysis failed.");
-      logger.error("document-grid", "Explain analysis failed", error);
-    }
-  }, [collection, connectionId, documentFilter]);
 
   // Handle cell activation for drill-down
   const handleCellActivated = useCallback(
@@ -408,20 +293,6 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
-          variant="outline"
-          className="h-7 text-[11px]"
-          onClick={() => {
-            openCollectionDesigner({
-              connectionId,
-              database,
-            });
-          }}
-        >
-          <IconPlus className="h-3.5 w-3.5 mr-1" />
-          New Collection
-        </Button>
-        <Button
-          size="sm"
           variant={flattenMode ? "default" : "outline"}
           className="h-7 text-[11px]"
           onClick={() => {
@@ -431,109 +302,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
           <IconBrackets className="h-3.5 w-3.5 mr-1" />
           {flattenMode ? "Flattened" : "Nested"}
         </Button>
-        <div className="flex items-center gap-1">
-          <span className="text-[11px] text-muted-foreground">Depth</span>
-          <Input
-            type="number"
-            min={1}
-            max={6}
-            value={flattenDepth}
-            onChange={(event) => {
-              const value = Number.parseInt(event.target.value, 10);
-              if (!Number.isNaN(value)) {
-                setFlattenDepth(Math.min(6, Math.max(1, value)));
-              }
-            }}
-            className="h-7 w-16 text-[11px]"
-          />
-        </div>
-
-        <div className="flex items-center gap-1">
-          <select
-            className="h-7 rounded border bg-background px-2 text-[11px]"
-            value=""
-            onChange={(event) => {
-              handleApplyView(event.target.value);
-            }}
-          >
-            <option value="">Open view…</option>
-            {savedViews.map((view) => (
-              <option key={view.id} value={view.id}>
-                {view.name}
-              </option>
-            ))}
-          </select>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-[11px]"
-            onClick={handleSaveView}
-          >
-            Save View
-          </Button>
-        </div>
-
-        <div className="flex items-center gap-1">
-          <Input
-            value={objectIdJump}
-            onChange={(event) => {
-              setObjectIdJump(event.target.value);
-            }}
-            placeholder="ObjectId"
-            className="h-7 w-44 text-[11px]"
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-[11px]"
-            onClick={handleJumpToObjectId}
-          >
-            <IconChevronRight className="h-3.5 w-3.5 mr-1" />
-            Jump
-          </Button>
-        </div>
-
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 text-[11px]"
-          onClick={() => void handleAnalyzeQuery()}
-        >
-          <IconBrackets className="h-3.5 w-3.5 mr-1" />
-          Explain
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 text-[11px]"
-          onClick={() => {
-            quickFilter.setMode("search");
-            toast.message("AI helper", {
-              description:
-                "Describe your desired filter in the AI panel, then paste the generated Mongo query here.",
-            });
-          }}
-        >
-          <IconSparkles className="h-3.5 w-3.5 mr-1" />
-          AI Filter
-        </Button>
       </div>
-
-      {planHint && (
-        <div className="text-[11px] px-2 py-1 rounded border bg-muted/40 text-muted-foreground">
-          {planHint}
-        </div>
-      )}
-
-      {data.schemaSample && data.schemaSample.fields.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {data.schemaSample.fields.slice(0, 8).map((field) => (
-            <Badge key={field.path} variant="outline" className="text-[10px] font-mono">
-              {field.path} ({field.occurrences})
-            </Badge>
-          ))}
-        </div>
-      )}
       {/* Show filter at root level only */}
       {data.currentPath.length === 0 && filterColumns.length > 0 ? (
         <div className="flex items-center gap-2">
