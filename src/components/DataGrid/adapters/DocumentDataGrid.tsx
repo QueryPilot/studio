@@ -14,6 +14,8 @@ import { memo, useCallback, useMemo, useState, useRef, useEffect } from "react";
 import {
   IconLayoutSidebarRightCollapse,
   IconLayoutSidebarRightExpand,
+  IconSearch,
+  IconX,
 } from "@tabler/icons-react";
 import { BaseDataGrid } from "../base/BaseDataGrid";
 import { BreadcrumbNav } from "../components/BreadcrumbNav";
@@ -26,6 +28,7 @@ import {
   type DocumentFilter,
   parseDocumentFilter,
 } from "@/utils/documentFilterParser";
+import { useGridSearchWorker } from "../hooks/useGridSearchWorker";
 import { useQuickFilter } from "../hooks/useQuickFilter";
 import type { FilterColumnInfo } from "@/utils/filterParser";
 import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
@@ -173,6 +176,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   const [flattenDepth, setFlattenDepth] = useState(3);
   const { showInspector, setShowInspector, inspectorTab, setInspectorTab } =
     useDocumentGridInspectorState(gridId);
+  const [nestedSearch, setNestedSearch] = useState({ term: "", pathKey: "" });
   // Get document data with filter
   const data = useDocumentData({
     gridId: preferenceGridId,
@@ -185,6 +189,29 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     flattenMode,
     flattenDepth,
   });
+
+  // Derive a stable key from the current path to auto-reset search when path changes
+  const pathKey = useMemo(
+    () => data.currentPath.map((p) => p.key).join("/"),
+    [data.currentPath],
+  );
+
+  // If path changed, the stored search term is stale — treat as empty
+  const nestedSearchTerm =
+    nestedSearch.pathKey === pathKey ? nestedSearch.term : "";
+
+  const setNestedSearchTerm = useCallback(
+    (term: string) => {
+      setNestedSearch({ term, pathKey });
+    },
+    [pathKey],
+  );
+
+  const filteredRows = useGridSearchWorker(
+    data.rows,
+    data.columns,
+    data.currentPath.length > 0 ? nestedSearchTerm : "",
+  );
 
   // Build filter columns from data columns
   const filterColumns = useMemo<FilterColumnInfo[]>(() => {
@@ -319,6 +346,31 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
         </div>
       )}
 
+      {/* Nested search - client-side only */}
+      {data.currentPath.length > 0 && (
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1 min-w-0">
+            <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              type="text"
+              value={nestedSearchTerm}
+              onChange={(e) => { setNestedSearchTerm(e.target.value); }}
+              placeholder="Search nested values..."
+              className="h-7 w-full rounded border bg-background pl-7 pr-7 text-[11px] focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            {nestedSearchTerm && (
+              <button
+                type="button"
+                onClick={() => { setNestedSearchTerm(""); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <IconX className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Row 2 (or Row 1 at root): QuickFilter + controls */}
       {data.currentPath.length === 0 && filterColumns.length > 0 ? (
         <div className="flex items-center gap-2">
@@ -415,7 +467,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     <BaseDataGrid
       gridId={gridId}
       sortGridId={sortGridId}
-      rows={data.rows}
+      rows={data.currentPath.length > 0 ? filteredRows : data.rows}
       columns={data.columns}
       getCellContent={data.getCellContent}
       isLoading={isLoading}
