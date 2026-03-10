@@ -93,7 +93,7 @@ describe("DocumentDataGrid result mode", () => {
     );
 
     expect(mocks.useDocumentData).toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "New Collection" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /nested/i })).toBeInTheDocument();
   });
 
   it("renders supplied result documents without calling useDocumentData", () => {
