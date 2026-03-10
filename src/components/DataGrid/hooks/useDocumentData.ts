@@ -497,8 +497,22 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     );
   }, [currentPath.length, documents, flattenMode, flattenDepth]);
 
+  const isNestedSingleObject = useMemo(() => {
+    if (currentPath.length === 0) return false;
+    const lastSegment = currentPath[currentPath.length - 1];
+    return lastSegment?.type === 'object';
+  }, [currentPath]);
+
   // Generate columns based on current level
   const columns = useMemo<GridColumnV2[]>(() => {
+    // Key-value mode for single nested objects
+    if (isNestedSingleObject && displayDocuments.length === 1) {
+      return [
+        { id: '__kv_key', field: '__kv_key', title: 'Key', name: 'Key', width: 200 },
+        { id: '__kv_value', field: '__kv_value', title: 'Value', name: 'Value', width: 400 },
+      ];
+    }
+
     if (currentPath.length > 0) {
       const lastSegment = currentPath[currentPath.length - 1];
       if (lastSegment && lastSegment.type === 'array') {
@@ -514,7 +528,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     }
 
     return generateColumnsFromDocuments(displayDocuments as Record<string, unknown>[]);
-  }, [displayDocuments, currentPath]);
+  }, [displayDocuments, currentPath, isNestedSingleObject]);
 
   // Map document value type to GridCellValueType
   const mapToGridCellValueType = (docType: ReturnType<typeof detectDocumentValueType>): GridCellValueType => {
@@ -550,6 +564,28 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       ) as typeof documents;
     }
 
+    // Key-value mode: transform single object entries to rows
+    if (isNestedSingleObject && filteredDocs.length === 1) {
+      const obj = filteredDocs[0] as Record<string, unknown>;
+      return Object.entries(obj).map(([key, value]) => {
+        const valueType = detectDocumentValueType(value);
+        return {
+          __kv_key: {
+            value: key,
+            db_type: 'string',
+            value_type: 'Text' as GridCellValueType,
+            is_truncated: false,
+          },
+          __kv_value: {
+            value,
+            db_type: valueType,
+            value_type: mapToGridCellValueType(valueType),
+            is_truncated: false,
+          },
+        } as GridRowModel;
+      });
+    }
+
     return filteredDocs.map((doc) => {
       const row: GridRowModel = {};
       for (const col of columns) {
@@ -565,7 +601,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       }
       return row;
     });
-  }, [displayDocuments, columns, filter]);
+  }, [displayDocuments, columns, filter, isNestedSingleObject]);
 
   const nullTypeHintsByField = useMemo(() => {
     const hints = new Map<string, ReturnType<typeof detectDocumentValueType>>();
@@ -599,6 +635,28 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         };
       }
 
+      // Key-value mode cells
+      if (isNestedSingleObject && column.field === '__kv_key') {
+        const keyValue = row.__kv_key?.value ?? '';
+        return {
+          kind: GridCellKind.Text,
+          data: String(keyValue),
+          displayData: String(keyValue),
+          allowOverlay: true,
+          readonly: true,
+        };
+      }
+
+      if (isNestedSingleObject && column.field === '__kv_value') {
+        const rawValue = row.__kv_value?.value;
+        return buildDocumentCell({
+          value: rawValue,
+          column,
+          readOnly: true,
+          canDrillDown: true,
+        });
+      }
+
       const cellValue = row[column.field];
       const rawValue = cellValue?.value;
 
@@ -610,7 +668,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         canDrillDown: true,
       });
     },
-    [columns, rows, nullTypeHintsByField]
+    [columns, rows, nullTypeHintsByField, isNestedSingleObject]
   );
 
   const getRawValueFromRow = useCallback(
@@ -633,11 +691,18 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         return false;
       }
 
+      // In KV mode, check the __kv_value column
+      if (isNestedSingleObject && column.field === '__kv_value') {
+        const rawValue = row.__kv_value?.value;
+        const valueType = detectDocumentValueType(rawValue);
+        return valueType === 'object' || valueType === 'array';
+      }
+
       const rawValue = getRawValueFromRow(row, column);
       const valueType = detectDocumentValueType(rawValue);
       return valueType === 'object' || valueType === 'array';
     },
-    [getRawValueFromRow]
+    [getRawValueFromRow, isNestedSingleObject]
   );
 
   // Step into a nested object/array
@@ -645,6 +710,22 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     (event: GridActivationEvent): void => {
       const { row: rowData, column } = event;
       if (!rowData || !canStepInto(event)) {
+        return;
+      }
+
+      // Key-value mode: use the key column as the path segment
+      if (isNestedSingleObject && column.field === '__kv_value') {
+        const keyValue = rowData.__kv_key?.value;
+        if (keyValue === undefined || keyValue === null) return;
+
+        const rawValue = rowData.__kv_value?.value;
+        const valueType = detectDocumentValueType(rawValue);
+        const segmentType: PathSegment['type'] = valueType === 'array' ? 'array' : 'object';
+
+        setCurrentPath((prev) => [
+          ...prev,
+          { key: String(keyValue), label: String(keyValue), type: segmentType },
+        ]);
         return;
       }
 
@@ -704,7 +785,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         return nextPath;
       });
     },
-    [canStepInto, currentPath, getRawValueFromRow]
+    [canStepInto, currentPath, getRawValueFromRow, isNestedSingleObject]
   );
 
   // Step out one level
@@ -1103,6 +1184,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     refetch,
     executionTime,
     currentPath,
+    isNestedSingleObject,
     canStepInto,
     stepInto,
     stepOut,
