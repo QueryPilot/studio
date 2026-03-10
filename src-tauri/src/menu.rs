@@ -129,12 +129,6 @@ fn build_file_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
 
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
 
-    // Recent Connections (placeholder for dynamic submenu)
-    let recent = Submenu::new(app, "Recent Connections", true)?;
-    submenu.append(&recent)?;
-
-    submenu.append(&PredefinedMenuItem::separator(app)?)?;
-
     // Close Tab
     let close_tab = MenuItem::with_id(
         app,
@@ -198,16 +192,6 @@ fn build_edit_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
     // Replace
     let replace = MenuItem::with_id(app, "edit_replace", "Replace", true, Some("CmdOrCtrl+R"))?;
     submenu.append(&replace)?;
-
-    // Find in Files
-    let find_in_files = MenuItem::with_id(
-        app,
-        "edit_find_in_files",
-        "Find in Files",
-        true,
-        Some("CmdOrCtrl+Shift+F"),
-    )?;
-    submenu.append(&find_in_files)?;
 
     Ok(submenu)
 }
@@ -295,14 +279,8 @@ fn build_database_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
     )?;
     submenu.append(&disconnect)?;
 
-    // Refresh Schema
-    let refresh = MenuItem::with_id(
-        app,
-        "db_refresh",
-        "Refresh Schema",
-        true,
-        Some("CmdOrCtrl+R"),
-    )?;
+    // Refresh Schema (no shortcut — Cmd+R is used by Edit > Replace)
+    let refresh = MenuItem::with_id(app, "db_refresh", "Refresh Schema", true, None::<&str>)?;
     submenu.append(&refresh)?;
 
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
@@ -342,10 +320,6 @@ fn build_database_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
     // Export Data
     let export = MenuItem::with_id(app, "db_export", "Export Data...", true, None::<&str>)?;
     submenu.append(&export)?;
-
-    // Import Data
-    let import = MenuItem::with_id(app, "db_import", "Import Data...", true, None::<&str>)?;
-    submenu.append(&import)?;
 
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
 
@@ -553,12 +527,6 @@ pub fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
                 tracing::error!("Failed to emit replace event: {}", e);
             }
         }
-        "edit_find_in_files" => {
-            if let Err(e) = app.emit("menu_action", "find_in_files") {
-                tracing::error!("Failed to emit find_in_files event: {}", e);
-            }
-        }
-
         // View Menu
         "view_toggle_sidebar" => {
             if let Err(e) = app.emit("menu_action", "toggle_sidebar") {
@@ -609,9 +577,7 @@ pub fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         | "db_execute_all"
         | "db_execute_selection"
         | "db_export"
-        | "db_import"
-        | "db_erd"
-        | "db_backup_restore" => {
+        | "db_erd" => {
             let action = id.replace("db_", "");
             if let Err(e) = app.emit("menu_action", action) {
                 tracing::error!("Failed to emit database event: {}", e);
