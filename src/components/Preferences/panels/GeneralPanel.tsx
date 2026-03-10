@@ -65,15 +65,17 @@ export default function GeneralPanel() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="pb-2">
+    <div className="flex flex-col h-full">
+      {/* Sticky header */}
+      <div className="shrink-0 px-8 pt-6 pb-3 sticky top-0 bg-background z-10">
         <h2 className="text-base font-semibold">General Settings</h2>
         <p className="text-xs text-muted-foreground">
           Configure the application appearance and behavior
         </p>
       </div>
 
-      <div className="space-y-6">
+      {/* Scrollable body */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-8 pb-8 pt-6 space-y-6">
         <div className="space-y-3">
           <Label className="text-base">Theme</Label>
           <RadioGroup
@@ -221,7 +223,9 @@ export default function GeneralPanel() {
                   }
                 >
                   <IconRotate className="h-4 w-4 mr-2" />
-                  {pendingUpdate.downloaded ? "Restart to Apply" : "View Update"}
+                  {pendingUpdate.downloaded
+                    ? "Restart to Apply"
+                    : "View Update"}
                 </Button>
               ) : null}
               <Button

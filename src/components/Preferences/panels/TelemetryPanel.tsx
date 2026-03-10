@@ -62,181 +62,185 @@ export default function TelemetryPanel() {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-base font-semibold">
-          Telemetry & Error Reporting
-        </h2>
+    <div className="flex flex-col h-full">
+      {/* Sticky header */}
+      <div className="shrink-0 px-8 pt-6 pb-3 sticky top-0 bg-background z-10">
+        <h2 className="text-base font-semibold">Telemetry & Error Reporting</h2>
         <p className="text-xs text-muted-foreground mt-1">
           Help us improve Query Pilot by sharing anonymous error reports and
           performance data.
         </p>
       </div>
 
-      <Alert>
-        <IconInfoCircle className="h-4 w-4" />
-        <AlertDescription>
-          <strong>Your privacy matters:</strong> All data is anonymized and we
-          never collect queries, credentials, personal information, or user
-          messages. Only error stack traces and performance metrics are sent.
-        </AlertDescription>
-      </Alert>
-
-      {needsRestart && (
-        <Alert
-          variant="default"
-          className="border-yellow-500/50 bg-yellow-50/50 dark:bg-yellow-950/20"
-        >
-          <IconAlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
+      {/* Scrollable body */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-8 pb-8 pt-6 space-y-6">
+        <Alert>
+          <IconInfoCircle className="h-4 w-4" />
           <AlertDescription>
-            <strong>Restart required:</strong> Please restart Query Pilot for
-            error tracking to take effect. You can continue using the app, but
-            error tracking won't be active until you restart.
+            <strong>Your privacy matters:</strong> All data is anonymized and we
+            never collect queries, credentials, personal information, or user
+            messages. Only error stack traces and performance metrics are sent.
           </AlertDescription>
         </Alert>
-      )}
 
-      <div className="space-y-6">
-        {/* Crash Reporting */}
-        <div className="flex items-start justify-between gap-6 py-4 border-b">
-          <div className="flex-1 space-y-1">
-            <Label
-              htmlFor="sentry-enabled"
-              className="text-xs font-medium cursor-pointer"
-            >
-              Enable error tracking
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              Automatically send error reports when the app crashes. Helps us
-              identify and fix bugs faster.
-              {!telemetry.sentryEnabled && (
-                <>
-                  <br />
-                  <strong className="text-yellow-600 dark:text-yellow-400">
-                    Currently disabled:
-                  </strong>{" "}
-                  No error data is being collected or sent.
-                </>
-              )}
-              {telemetry.sentryEnabled && (
-                <>
-                  <br />
-                  <strong className="text-green-600 dark:text-green-400">
-                    Active:
-                  </strong>{" "}
-                  Errors are being tracked. Disabling takes effect immediately.
-                </>
-              )}
-            </p>
-          </div>
-          <Switch
-            id="sentry-enabled"
-            checked={telemetry.sentryEnabled}
-            onCheckedChange={handleCrashReportingToggle}
-          />
-        </div>
+        {needsRestart && (
+          <Alert
+            variant="default"
+            className="border-yellow-500/50 bg-yellow-50/50 dark:bg-yellow-950/20"
+          >
+            <IconAlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
+            <AlertDescription>
+              <strong>Restart required:</strong> Please restart Query Pilot for
+              error tracking to take effect. You can continue using the app, but
+              error tracking won't be active until you restart.
+            </AlertDescription>
+          </Alert>
+        )}
 
-        {/* Performance Monitoring */}
-        <div className="flex items-start justify-between gap-6 py-4 border-b">
-          <div className="flex-1 space-y-1">
-            <Label
-              htmlFor="performance-monitoring"
-              className="text-xs font-medium cursor-pointer"
-            >
-              Performance monitoring
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              Track performance metrics to help us optimize app speed and
-              responsiveness. Only 10% of operations are sampled.
-            </p>
+        <div className="space-y-0">
+          {/* Crash Reporting */}
+          <div className="flex items-start justify-between gap-6 py-4 border-b">
+            <div className="flex-1 space-y-1">
+              <Label
+                htmlFor="sentry-enabled"
+                className="text-xs font-medium cursor-pointer"
+              >
+                Enable error tracking
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Automatically send error reports when the app crashes. Helps us
+                identify and fix bugs faster.
+                {!telemetry.sentryEnabled && (
+                  <>
+                    <br />
+                    <strong className="text-yellow-600 dark:text-yellow-400">
+                      Currently disabled:
+                    </strong>{" "}
+                    No error data is being collected or sent.
+                  </>
+                )}
+                {telemetry.sentryEnabled && (
+                  <>
+                    <br />
+                    <strong className="text-green-600 dark:text-green-400">
+                      Active:
+                    </strong>{" "}
+                    Errors are being tracked. Disabling takes effect
+                    immediately.
+                  </>
+                )}
+              </p>
+            </div>
+            <Switch
+              id="sentry-enabled"
+              checked={telemetry.sentryEnabled}
+              onCheckedChange={handleCrashReportingToggle}
+            />
           </div>
-          <Switch
-            id="performance-monitoring"
-            checked={telemetry.performanceMonitoring}
-            onCheckedChange={(checked) => {
-              setTelemetry({ performanceMonitoring: checked });
-            }}
-            disabled={!telemetry.sentryEnabled}
-          />
-        </div>
 
-        {/* Session Replay */}
-        <div className="flex items-start justify-between gap-6 py-4 border-b">
-          <div className="flex-1 space-y-1">
-            <Label
-              htmlFor="session-replay"
-              className="text-xs font-medium cursor-pointer"
-            >
-              Session replay on errors
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              Record anonymized session replays when errors occur. All text and
-              media are masked for privacy. Only 50% of errors are recorded.
-            </p>
+          {/* Performance Monitoring */}
+          <div className="flex items-start justify-between gap-6 py-4 border-b">
+            <div className="flex-1 space-y-1">
+              <Label
+                htmlFor="performance-monitoring"
+                className="text-xs font-medium cursor-pointer"
+              >
+                Performance monitoring
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Track performance metrics to help us optimize app speed and
+                responsiveness. Only 10% of operations are sampled.
+              </p>
+            </div>
+            <Switch
+              id="performance-monitoring"
+              checked={telemetry.performanceMonitoring}
+              onCheckedChange={(checked) => {
+                setTelemetry({ performanceMonitoring: checked });
+              }}
+              disabled={!telemetry.sentryEnabled}
+            />
           </div>
-          <Switch
-            id="session-replay"
-            checked={telemetry.sessionReplay}
-            onCheckedChange={(checked) => {
-              setTelemetry({ sessionReplay: checked });
-            }}
-            disabled={!telemetry.sentryEnabled}
-          />
-        </div>
-      </div>
 
-      {/* What We Collect */}
-      <div className="space-y-3 pt-4">
-        <h3 className="text-xs font-semibold">What data is collected?</h3>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <h4 className="text-xs font-medium text-green-600 dark:text-green-400 mb-2">
-              ✓ Data we collect
-            </h4>
-            <ul className="text-xs text-muted-foreground space-y-1">
-              <li>• Error stack traces</li>
-              <li>• App version & OS info</li>
-              <li>• Operation types (anonymized)</li>
-              <li>• Performance metrics</li>
-              <li>• IconDatabase adapter types</li>
-            </ul>
-          </div>
-          <div>
-            <h4 className="text-xs font-medium text-red-600 dark:text-red-400 mb-2">
-              ✗ Data we never collect
-            </h4>
-            <ul className="text-xs text-muted-foreground space-y-1">
-              <li>• SQL queries or content</li>
-              <li>• API keys or credentials</li>
-              <li>• IconDatabase connection strings</li>
-              <li>• AI chat messages or responses</li>
-              <li>• Personal user information</li>
-            </ul>
+          {/* Session Replay */}
+          <div className="flex items-start justify-between gap-6 py-4 border-b">
+            <div className="flex-1 space-y-1">
+              <Label
+                htmlFor="session-replay"
+                className="text-xs font-medium cursor-pointer"
+              >
+                Session replay on errors
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Record anonymized session replays when errors occur. All text
+                and media are masked for privacy. Only 50% of errors are
+                recorded.
+              </p>
+            </div>
+            <Switch
+              id="session-replay"
+              checked={telemetry.sessionReplay}
+              onCheckedChange={(checked) => {
+                setTelemetry({ sessionReplay: checked });
+              }}
+              disabled={!telemetry.sentryEnabled}
+            />
           </div>
         </div>
-      </div>
 
-      {/* Links */}
-      <div className="flex items-center gap-4 pt-4 text-xs">
-        <a
-          href="https://query-pilot.com/privacy"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary hover:underline flex items-center gap-1"
-        >
-          Privacy Policy
-          <IconExternalLink className="h-3 w-3" />
-        </a>
-        <span className="text-muted-foreground">•</span>
-        <a
-          href="https://sentry.io/privacy/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary hover:underline flex items-center gap-1"
-        >
-          Sentry Privacy
-          <IconExternalLink className="h-3 w-3" />
-        </a>
+        {/* What We Collect */}
+        <div className="space-y-3 pt-4">
+          <h3 className="text-xs font-semibold">What data is collected?</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <h4 className="text-xs font-medium text-green-600 dark:text-green-400 mb-2">
+                ✓ Data we collect
+              </h4>
+              <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                <li>Error stack traces</li>
+                <li>App version & OS info</li>
+                <li>Operation types (anonymized)</li>
+                <li>Performance metrics</li>
+                <li>Database adapter types</li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-xs font-medium text-red-600 dark:text-red-400 mb-2">
+                ✗ Data we never collect
+              </h4>
+              <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                <li>SQL queries or content</li>
+                <li>API keys or credentials</li>
+                <li>Database connection strings</li>
+                <li>AI chat messages or responses</li>
+                <li>Personal user information</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        {/* Links */}
+        <div className="flex items-center gap-4 pt-4 text-xs">
+          <a
+            href="https://query-pilot.com/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline flex items-center gap-1"
+          >
+            Privacy Policy
+            <IconExternalLink className="h-3 w-3" />
+          </a>
+          <span className="text-muted-foreground">•</span>
+          <a
+            href="https://sentry.io/privacy/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline flex items-center gap-1"
+          >
+            Sentry Privacy
+            <IconExternalLink className="h-3 w-3" />
+          </a>
+        </div>
       </div>
     </div>
   );
