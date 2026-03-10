@@ -73,6 +73,9 @@ export interface DocumentDataHookResult extends BaseDataHookResult {
   navigateToPath: (pathIndex: number) => void;
   getCurrentDocumentId: () => JsonValue | null;
 
+  /** True when drilled into a single object (not array) — renders as key-value */
+  isNestedSingleObject: boolean;
+
   // Total count
   totalCount?: number;
   schemaSample?: DocumentSchemaSample;
