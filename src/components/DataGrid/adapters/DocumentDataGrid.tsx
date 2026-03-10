@@ -12,12 +12,12 @@
 
 import { memo, useCallback, useMemo, useState, useRef, useEffect } from "react";
 import {
-  IconBrackets,
   IconLayoutSidebarRightCollapse,
   IconLayoutSidebarRightExpand,
 } from "@tabler/icons-react";
 import { BaseDataGrid } from "../base/BaseDataGrid";
 import { BreadcrumbNav } from "../components/BreadcrumbNav";
+import { FlattenControl } from "../components/FlattenControl";
 import { useDocumentData } from "../hooks/useDocumentData";
 import type { GridActivationEvent, GridColumnV2, GridRowModel, Item } from "../types";
 import { cn } from "@/lib/utils";
@@ -170,7 +170,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   >(undefined);
   const [filterError, setFilterError] = useState<string | null>(null);
   const [flattenMode, setFlattenMode] = useState(false);
-  const [flattenDepth] = useState(3);
+  const [flattenDepth, setFlattenDepth] = useState(3);
   const { showInspector, setShowInspector, inspectorTab, setInspectorTab } =
     useDocumentGridInspectorState(gridId);
   // Get document data with filter
@@ -277,33 +277,49 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     lastDrilledCellRef.current = null;
   }, [data.currentPath]);
 
-  // Breadcrumb navigation toolbar with optional filter
   const topToolbar = (
     <div className="flex flex-col gap-1.5 mb-1.5 p-1">
-      <BreadcrumbNav
-        path={data.currentPath}
-        collectionName={collection}
-        documentId={data.getCurrentDocumentId()}
-        onNavigate={data.navigateToPath}
-        onNavigateToRoot={() => {
-          data.navigateToPath(-1);
-        }}
-        onStepOut={data.stepOut}
-      />
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          size="sm"
-          variant={flattenMode ? "default" : "outline"}
-          className="h-7 text-[11px]"
-          onClick={() => {
-            setFlattenMode((prev) => !prev);
-          }}
-        >
-          <IconBrackets className="h-3.5 w-3.5 mr-1" />
-          {flattenMode ? "Flattened" : "Nested"}
-        </Button>
-      </div>
-      {/* Show filter at root level only */}
+      {/* Row 1: BreadcrumbNav (only when drilled in) */}
+      {data.currentPath.length > 0 && (
+        <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <BreadcrumbNav
+              path={data.currentPath}
+              collectionName={collection}
+              documentId={data.getCurrentDocumentId()}
+              onNavigate={data.navigateToPath}
+              onNavigateToRoot={() => {
+                    data.navigateToPath(-1);
+                  }}
+              onStepOut={data.stepOut}
+            />
+          </div>
+          <FlattenControl
+            enabled={flattenMode}
+            depth={flattenDepth}
+            onToggle={() => {
+              setFlattenMode((prev) => !prev);
+            }}
+            onDepthChange={setFlattenDepth}
+          />
+          <Button
+            size="icon"
+            variant="outline"
+            className="h-7 w-7 shrink-0"
+            onClick={() => {
+              setShowInspector((prev) => !prev);
+            }}
+          >
+            {showInspector ? (
+              <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
+            ) : (
+              <IconLayoutSidebarRightExpand className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
+      )}
+
+      {/* Row 2 (or Row 1 at root): QuickFilter + controls */}
       {data.currentPath.length === 0 && filterColumns.length > 0 ? (
         <div className="flex items-center gap-2">
           <div className="flex-1 min-w-0">
@@ -323,6 +339,14 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
               clientSideFiltering={false}
             />
           </div>
+          <FlattenControl
+            enabled={flattenMode}
+            depth={flattenDepth}
+            onToggle={() => {
+              setFlattenMode((prev) => !prev);
+            }}
+            onDepthChange={setFlattenDepth}
+          />
           <Button
             size="icon"
             variant="outline"
@@ -338,8 +362,16 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
             )}
           </Button>
         </div>
-      ) : (
-        <div className="flex justify-end">
+      ) : data.currentPath.length === 0 ? (
+        <div className="flex justify-end gap-2">
+          <FlattenControl
+            enabled={flattenMode}
+            depth={flattenDepth}
+            onToggle={() => {
+              setFlattenMode((prev) => !prev);
+            }}
+            onDepthChange={setFlattenDepth}
+          />
           <Button
             size="icon"
             variant="outline"
@@ -355,7 +387,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
             )}
           </Button>
         </div>
-      )}
+      ) : null}
     </div>
   );
 
