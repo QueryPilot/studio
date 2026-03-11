@@ -21,7 +21,12 @@ import { BaseDataGrid } from "../base/BaseDataGrid";
 import { BreadcrumbNav } from "../components/BreadcrumbNav";
 import { FlattenControl } from "../components/FlattenControl";
 import { useDocumentData } from "../hooks/useDocumentData";
-import type { GridActivationEvent, GridColumnV2, GridRowModel, Item } from "../types";
+import type {
+  GridActivationEvent,
+  GridColumnV2,
+  GridRowModel,
+  Item,
+} from "../types";
 import { cn } from "@/lib/utils";
 import { logger } from "@/lib/logger";
 import {
@@ -64,8 +69,7 @@ interface DocumentDataGridBaseProps {
   sortGridId?: string;
 }
 
-export interface DocumentCollectionDataGridProps
-  extends DocumentDataGridBaseProps {
+export interface DocumentCollectionDataGridProps extends DocumentDataGridBaseProps {
   mode?: "collection";
   /** Collection name */
   collection: string;
@@ -124,7 +128,6 @@ function buildResultModeNullTypeHints(
 
   return hints;
 }
-
 
 // ============================================================================
 // Component
@@ -255,9 +258,13 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
         }
         lastDrilledCellRef.current = cellKey;
         data.stepInto(event);
-        logger.info("document-grid", `Drilled into cell [${event.rowIndex}, ${event.columnIndex}]`, {
-          path: data.currentPath,
-        });
+        logger.info(
+          "document-grid",
+          `Drilled into cell [${event.rowIndex}, ${event.columnIndex}]`,
+          {
+            path: data.currentPath,
+          },
+        );
         return true;
       }
       return false;
@@ -266,12 +273,9 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   );
 
   // Single-click on cells — no drill-down (double-click only via onCellActivated)
-  const handleCellClicked = useCallback(
-    (_event: GridActivationEvent) => {
-      // Intentionally empty — drill-down is handled by handleCellActivated (double-click)
-    },
-    [],
-  );
+  const handleCellClicked = useCallback((_event: GridActivationEvent) => {
+    // Intentionally empty — drill-down is handled by handleCellActivated (double-click)
+  }, []);
 
   useEffect(() => {
     lastDrilledCellRef.current = null;
@@ -281,7 +285,9 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     <FlattenControl
       enabled={flattenMode}
       depth={flattenDepth}
-      onToggle={() => { setFlattenMode((prev) => !prev); }}
+      onToggle={() => {
+        setFlattenMode((prev) => !prev);
+      }}
       onDepthChange={setFlattenDepth}
     />
   );
@@ -291,7 +297,9 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
       size="icon"
       variant="outline"
       className="h-7 w-7 shrink-0"
-      onClick={() => { setShowInspector((prev) => !prev); }}
+      onClick={() => {
+        setShowInspector((prev) => !prev);
+      }}
     >
       {showInspector ? (
         <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
@@ -312,7 +320,9 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
               collectionName={collection}
               documentId={data.getCurrentDocumentId()}
               onNavigate={data.navigateToPath}
-              onNavigateToRoot={() => { data.navigateToPath(-1); }}
+              onNavigateToRoot={() => {
+                data.navigateToPath(-1);
+              }}
               onStepOut={data.stepOut}
             />
           </div>
@@ -328,14 +338,18 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
           <input
             type="text"
             value={nestedSearchTerm}
-            onChange={(e) => { setNestedSearchTerm(e.target.value); }}
+            onChange={(e) => {
+              setNestedSearchTerm(e.target.value);
+            }}
             placeholder="Search nested values..."
             className="h-7 w-full rounded border bg-background pl-7 pr-7 text-[11px] focus:outline-none focus:ring-1 focus:ring-ring"
           />
           {nestedSearchTerm && (
             <button
               type="button"
-              onClick={() => { setNestedSearchTerm(""); }}
+              onClick={() => {
+                setNestedSearchTerm("");
+              }}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             >
               <IconX className="h-3 w-3" />
@@ -376,8 +390,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     </div>
   );
 
-  // Determine read-only state (nested paths are read-only)
-  const readOnly = data.currentPath.length > 0;
+  const readOnly = false;
 
   // Loading and error states
   const isLoading = data.isLoading && data.rows.length === 0;

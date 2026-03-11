@@ -45,7 +45,7 @@ interface UseStagedChangesIndicatorOptions {
  *
  * Returns a map of row indexes to changed column fields for efficient lookups
  * during grid rendering.
- * 
+ *
  * Performance optimizations:
  * - Caches PK map separately to avoid full rebuilds
  * - Early exit when no staged commands
@@ -74,7 +74,8 @@ export function useStagedChangesIndicator(
   });
 
   // Scope to this table's commands only.
-  const commands = useCrudStore((s) => s.stagedCommands.get(tableKey)) ?? EMPTY_COMMANDS;
+  const commands =
+    useCrudStore((s) => s.stagedCommands.get(tableKey)) ?? EMPTY_COMMANDS;
 
   // Memoize PK column list to avoid recomputation
   // For document paradigm (MongoDB), _id is always the PK
@@ -106,12 +107,16 @@ export function useStagedChangesIndicator(
     // Fallback: If no PK columns found, check for common paradigm-specific keys
     if (pks.length === 0 && columns.length > 0) {
       // MongoDB: _id is always the primary key
-      const idColumn = columns.find((col) => col.field === '_id' || col.name === '_id');
+      const idColumn = columns.find(
+        (col) => col.field === "_id" || col.name === "_id",
+      );
       if (idColumn) {
         pks = [idColumn];
       }
       // Redis: key is always the primary key
-      const keyColumn = columns.find((col) => col.field === 'key' || col.name === 'key');
+      const keyColumn = columns.find(
+        (col) => col.field === "key" || col.name === "key",
+      );
       if (keyColumn && pks.length === 0) {
         pks = [keyColumn];
       }
@@ -128,7 +133,7 @@ export function useStagedChangesIndicator(
     () => commands.some((cmd) => cmd.type === "data.insert"),
     [commands],
   );
-  const pkMapRows = (!hasInserts && baseRows) ? baseRows : rows;
+  const pkMapRows = !hasInserts && baseRows ? baseRows : rows;
   const pkToRowIndex = useMemo(() => {
     if (pkMapRows.length === 0 || pkColumns.length === 0) {
       return new Map<string, number>();
@@ -143,6 +148,19 @@ export function useStagedChangesIndicator(
     });
     return map;
   }, [pkMapRows, pkColumns]);
+
+  // Names used to look up keys in command's primaryKeys record.
+  // When rowIdentityColumns is provided, use those directly — they match the keys
+  // used in command payloads (e.g. "__kv_key" for document KV mode, or "email"
+  // for SQL composite keys). When falling back to auto-detected PK columns,
+  // use col.name since SQL commands key primaryKeys by column name.
+  const pkColNames = useMemo(
+    () =>
+      rowIdentityColumns && rowIdentityColumns.length > 0
+        ? rowIdentityColumns
+        : pkColumns.map((col) => col.name || col.field),
+    [rowIdentityColumns, pkColumns],
+  );
 
   const result = useMemo(() => {
     // Early exit when no commands — still expose the PK map so consumers
@@ -168,7 +186,7 @@ export function useStagedChangesIndicator(
           };
           if (!payload.column || !payload.primaryKeys) break;
 
-          const pkKey = createPrimaryKeyStringFromRecord(payload.primaryKeys);
+          const pkKey = createPrimaryKeyStringFromRecord(payload.primaryKeys, pkColNames);
           const rowIndex = pkToRowIndex.get(pkKey);
           if (rowIndex !== undefined) {
             let rowChangeSet = newResult.rowChanges.get(rowIndex);
@@ -176,7 +194,10 @@ export function useStagedChangesIndicator(
               rowChangeSet = new Set();
               newResult.rowChanges.set(rowIndex, rowChangeSet);
             }
-            rowChangeSet.add(payload.column);
+            // Use gridColumn from metadata if available (for KV mode where
+            // payload.column is the full nested path but the grid column is __kv_value)
+            const displayCol = command.metadata.gridColumn ?? payload.column;
+            rowChangeSet.add(displayCol);
           }
           break;
         }
@@ -192,7 +213,7 @@ export function useStagedChangesIndicator(
           };
           if (!payload.primaryKeys) break;
 
-          const pkKey = createPrimaryKeyStringFromRecord(payload.primaryKeys);
+          const pkKey = createPrimaryKeyStringFromRecord(payload.primaryKeys, pkColNames);
           const rowIndex = pkToRowIndex.get(pkKey);
           if (rowIndex !== undefined) {
             newResult.deletedRows.add(rowIndex);
@@ -215,7 +236,7 @@ export function useStagedChangesIndicator(
     }
 
     return newResult;
-  }, [commands, pkToRowIndex, rows, hasInserts]);
+  }, [commands, pkToRowIndex, pkColNames, rows, hasInserts]);
 
   return result;
 }
@@ -235,22 +256,18 @@ function createPrimaryKeyStringFast(
 
   // Sort columns by name to match createPrimaryKeyStringFromRecord's alphabetical sorting
   const sortedPkColumns = [...pkColumns].sort((a, b) =>
-    (a.name ?? a.field).localeCompare(b.name ?? b.field),
+    (a.name || a.field).localeCompare(b.name || b.field),
   );
 
   // Build composite PK string from all PK columns
   // IMPORTANT: Must match createPrimaryKeyStringFromRecord's serialization format
   const pkValues = sortedPkColumns.map((col) => {
     const cellValue = row[col.field];
-    if (
-      cellValue &&
-      typeof cellValue === "object" &&
-      "value" in cellValue
-    ) {
+    if (cellValue && typeof cellValue === "object" && "value" in cellValue) {
       const value = cellValue.value;
       if (value === null || value === undefined) return "null";
       // Use JSON.stringify for objects (e.g., MongoDB ObjectId) to match createPrimaryKeyStringFromRecord
-      if (typeof value === 'object') return JSON.stringify(value);
+      if (typeof value === "object") return JSON.stringify(value);
       return String(value);
     }
     return "null";
@@ -260,18 +277,32 @@ function createPrimaryKeyStringFast(
 }
 
 /**
- * Create a stable string key from a primary keys record
+ * Create a stable string key from a primary keys record.
+ * When pkColumnNames is provided, only those keys are used (allows commands
+ * with extra metadata keys like __kv_key alongside _id to match correctly).
  */
-function createPrimaryKeyStringFromRecord(
+export function createPrimaryKeyStringFromRecord(
   primaryKeys: Record<string, unknown>,
+  pkColumnNames?: string[],
 ): string {
-  return Object.entries(primaryKeys)
-    .sort(([a], [b]) => a.localeCompare(b))
+  const entries =
+    pkColumnNames && pkColumnNames.length > 0
+      ? [...pkColumnNames]
+          .sort((a, b) => a.localeCompare(b))
+          .map((name) => [name, primaryKeys[name]] as const)
+      : Object.entries(primaryKeys).sort(([a], [b]) => a.localeCompare(b));
+
+  return entries
     .map(([_key, value]) => {
       if (value === null || value === undefined) return "null";
-      if (typeof value === 'object') return JSON.stringify(value);
-      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
-      return '[Unknown]';
+      if (typeof value === "object") return JSON.stringify(value);
+      if (
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+      )
+        return String(value);
+      return "[Unknown]";
     })
     .join("|");
 }

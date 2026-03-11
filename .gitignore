@@ -102,6 +102,7 @@ bulk_seed_venv/
 
 # Implementation plans (keep unfinished plans and strategic roadmap)
 docs/plans/*
+docs/superpowers/*
 !docs/plans/2026-02-23-strategic-roadmap-design.md
 !docs/plans/2026-02-24-ai-preferences-panel-design.md
 !docs/plans/2026-02-24-ai-preferences-panel-implementation.md

@@ -8,11 +8,11 @@
  * - CRUD command creation for the staging pipeline
  */
 
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import type { GridCell, Item } from '@glideapps/glide-data-grid';
-import { GridCellKind } from '@glideapps/glide-data-grid';
-import { nanoid } from 'nanoid';
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { GridCell, Item } from "@glideapps/glide-data-grid";
+import { GridCellKind } from "@glideapps/glide-data-grid";
+import { nanoid } from "nanoid";
 import type {
   GridColumnV2,
   GridRowModel,
@@ -21,12 +21,18 @@ import type {
   SortColumn,
   GridActivationEvent,
   GridCellContentContext,
-} from '../types';
-import type { DocumentDataHookResult, PathSegment } from '../sources/types';
-import type { CrudCommand, DataUpdatePayload, DataInsertPayload, DataDeletePayload, JsonValue } from '@/types/crud';
-import type { GridCellValueType } from '@/types/cellValue';
-import { MongoDBAdapter } from '@/adapters/mongodb/MongoDBAdapter';
-import type { CursorToken } from '@/adapters/types/mongodb';
+} from "../types";
+import type { DocumentDataHookResult, PathSegment } from "../sources/types";
+import type {
+  CrudCommand,
+  DataUpdatePayload,
+  DataInsertPayload,
+  DataDeletePayload,
+  JsonValue,
+} from "@/types/crud";
+import type { GridCellValueType } from "@/types/cellValue";
+import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
+import type { CursorToken } from "@/adapters/types/mongodb";
 import {
   buildDocumentCell,
   generateColumnsFromDocuments,
@@ -34,14 +40,14 @@ import {
   generateColumnsForTableMode,
   detectDocumentValueType,
   mapDocumentValueTypeToGrid,
-} from '../utils/documentCellFactory';
-import { useNestedArrayLayout } from './useNestedArrayLayout';
+} from "../utils/documentCellFactory";
+import { useNestedArrayLayout } from "./useNestedArrayLayout";
 import {
   type DocumentFilter,
   applyDocumentColumnSearch,
-} from '@/utils/documentFilterParser';
-import { logger } from '@/lib/logger';
-import { useGridPreferencesStore } from '../stores/gridPreferencesStore';
+} from "@/utils/documentFilterParser";
+import { logger } from "@/lib/logger";
+import { useGridPreferencesStore } from "../stores/gridPreferencesStore";
 
 // ============================================================================
 // Constants
@@ -51,8 +57,8 @@ import { useGridPreferencesStore } from '../stores/gridPreferencesStore';
 const EMPTY_SORT_COLUMNS: SortColumn[] = [];
 
 // Column field names for key-value (single object) display mode
-const KV_KEY_FIELD = '__kv_key';
-const KV_VALUE_FIELD = '__kv_value';
+export const KV_KEY_FIELD = "__kv_key";
+export const KV_VALUE_FIELD = "__kv_value";
 
 // ============================================================================
 // Types
@@ -85,7 +91,7 @@ function flattenDocumentRecord(
   prefix: string,
   depth: number,
   maxDepth: number,
-  out: Record<string, unknown>
+  out: Record<string, unknown>,
 ): void {
   if (depth >= maxDepth || value === null || value === undefined) {
     if (prefix) {
@@ -101,7 +107,7 @@ function flattenDocumentRecord(
     return;
   }
 
-  if (typeof value !== 'object') {
+  if (typeof value !== "object") {
     if (prefix) {
       out[prefix] = value;
     }
@@ -122,17 +128,20 @@ function flattenDocumentRecord(
   }
 }
 
-function flattenDocumentForGrid(doc: Record<string, unknown>, maxDepth: number): Record<string, unknown> {
+function flattenDocumentForGrid(
+  doc: Record<string, unknown>,
+  maxDepth: number,
+): Record<string, unknown> {
   const out: Record<string, unknown> = {};
 
   // Always preserve _id at the top level so edit/delete commands can
   // reliably resolve the document primary key even in flattened mode.
-  if (Object.prototype.hasOwnProperty.call(doc, '_id')) {
+  if (Object.prototype.hasOwnProperty.call(doc, "_id")) {
     out._id = doc._id;
   }
 
   for (const [key, value] of Object.entries(doc)) {
-    if (key === '_id') {
+    if (key === "_id") {
       continue;
     }
     flattenDocumentRecord(value, key, 1, maxDepth, out);
@@ -142,7 +151,7 @@ function flattenDocumentForGrid(doc: Record<string, unknown>, maxDepth: number):
 }
 
 function projectionPathFromSamplePath(path: string): string | null {
-  if (!path || path.includes('[]')) {
+  if (!path || path.includes("[]")) {
     return null;
   }
   return path;
@@ -150,7 +159,7 @@ function projectionPathFromSamplePath(path: string): string | null {
 
 function splitDocumentFieldPath(field: string): string[] {
   return field
-    .split('.')
+    .split(".")
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
 }
@@ -159,7 +168,9 @@ function splitDocumentFieldPath(field: string): string[] {
 // Hook Implementation
 // ============================================================================
 
-export function useDocumentData(params: UseDocumentDataParams): DocumentDataHookResult {
+export function useDocumentData(
+  params: UseDocumentDataParams,
+): DocumentDataHookResult {
   const {
     gridId,
     connectionId,
@@ -174,25 +185,25 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
   // Get sort state from grid preferences
   const sortColumns = useGridPreferencesStore(
-    (state) => state.preferences[gridId]?.sortColumns ?? EMPTY_SORT_COLUMNS
+    (state) => state.preferences[gridId]?.sortColumns ?? EMPTY_SORT_COLUMNS,
   );
 
   // Convert sort columns to MongoDB sort format: { field: 1 | -1 }
   const mongoSort = useMemo(() => {
     if (sortColumns.length === 0) return undefined;
-    
+
     const sort: Record<string, 1 | -1> = {};
     for (const { columnId, direction } of sortColumns) {
       // MongoDB uses field name (like "name", "age") not column IDs
       // Column ID format is typically the field name for document grids
-      sort[columnId] = direction === 'asc' ? 1 : -1;
+      sort[columnId] = direction === "asc" ? 1 : -1;
     }
     return sort;
   }, [sortColumns]);
 
   // Compute the MongoDB query for server-side filtering
   const serverQuery = useMemo(() => {
-    if (!filter || filter.mode !== 'query' || !filter.mongoQuery) {
+    if (!filter || filter.mode !== "query" || !filter.mongoQuery) {
       return {};
     }
     return filter.mongoQuery;
@@ -202,19 +213,25 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
   // Navigation state
   const [currentPath, setCurrentPath] = useState<PathSegment[]>([]);
-  const [currentDocumentId, setCurrentDocumentId] = useState<DocumentId | null>(null);
+  const [currentDocumentId, setCurrentDocumentId] = useState<DocumentId | null>(
+    null,
+  );
   const [rootDocuments, setRootDocuments] = useState<DocumentWithId[]>([]);
   const [nextCursor, setNextCursor] = useState<CursorToken | null>(null);
   const [rootHasMore, setRootHasMore] = useState(true);
   const [rootError, setRootError] = useState<Error | null>(null);
   const [isRootLoading, setIsRootLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [executionTime, setExecutionTime] = useState<number | undefined>(undefined);
+  const [executionTime, setExecutionTime] = useState<number | undefined>(
+    undefined,
+  );
   const rootRequestVersionRef = useRef(0);
   const nextCursorRef = useRef<CursorToken | null>(null);
   const rootHasMoreRef = useRef(true);
   const isLoadingMoreRef = useRef(false);
-  const schemaProjectionRef = useRef<Record<string, 0 | 1> | undefined>(undefined);
+  const schemaProjectionRef = useRef<Record<string, 0 | 1> | undefined>(
+    undefined,
+  );
   const projectionSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -286,7 +303,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         }
         const normalized = err instanceof Error ? err : new Error(String(err));
         setRootError(normalized);
-        logger.error('document-data', 'Failed to fetch root page', normalized);
+        logger.error("document-data", "Failed to fetch root page", normalized);
       } finally {
         if (requestVersion === rootRequestVersionRef.current) {
           const endTime = performance.now();
@@ -305,13 +322,20 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       mongoSort,
       pageSize,
       serverQuery,
-    ]
+    ],
   );
 
   // Fetch drilled-in (nested) data
   const nestedQueryKey = useMemo(
-    () => ['document-nested-data', connectionId, database, collection, currentPath, currentDocumentId],
-    [connectionId, database, collection, currentPath, currentDocumentId]
+    () => [
+      "document-nested-data",
+      connectionId,
+      database,
+      collection,
+      currentPath,
+      currentDocumentId,
+    ],
+    [connectionId, database, collection, currentPath, currentDocumentId],
   );
 
   const {
@@ -330,7 +354,11 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
           return [];
         }
 
-        const docs = await adapter.findDocuments(collection, { _id: docId }, { limit: 1 });
+        const docs = await adapter.findDocuments(
+          collection,
+          { _id: docId },
+          { limit: 1 },
+        );
         if (docs.length === 0) {
           return [];
         }
@@ -342,17 +370,22 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
           }
           if (Array.isArray(current)) {
             current = current[segment.key as number];
-          } else if (typeof current === 'object') {
-            current = (current as Record<string, unknown>)[segment.key as string];
+          } else if (typeof current === "object") {
+            current = (current as Record<string, unknown>)[
+              segment.key as string
+            ];
           } else {
             return [];
           }
         }
 
         if (Array.isArray(current)) {
-          return current.map((item, index) => ({ __index: index, __value: item }));
+          return current.map((item, index) => ({
+            __index: index,
+            __value: item,
+          }));
         }
-        if (typeof current === 'object' && current !== null) {
+        if (typeof current === "object" && current !== null) {
           return [current as DocumentWithId];
         }
         return [];
@@ -361,14 +394,15 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         setExecutionTime(Math.round(endTime - startTime));
       }
     },
-    enabled: enabled && !!connectionId && !!collection && currentPath.length > 0,
+    enabled:
+      enabled && !!connectionId && !!collection && currentPath.length > 0,
     staleTime: 30000,
   });
 
   // Query key for total count (includes filter for accurate counts)
   const countQueryKey = useMemo(
-    () => ['document-count', connectionId, database, collection, serverQuery],
-    [connectionId, database, collection, serverQuery]
+    () => ["document-count", connectionId, database, collection, serverQuery],
+    [connectionId, database, collection, serverQuery],
   );
 
   // Fetch total document count (only at root level, respects server-side filter)
@@ -384,12 +418,20 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         return undefined;
       }
     },
-    enabled: enabled && !!connectionId && !!collection && currentPath.length === 0,
+    enabled:
+      enabled && !!connectionId && !!collection && currentPath.length === 0,
     staleTime: 60000, // 1 minute (counts change less frequently)
   });
 
   const { data: schemaSample } = useQuery({
-    queryKey: ['document-schema-sample', connectionId, database, collection, serverQuery, flattenDepth],
+    queryKey: [
+      "document-schema-sample",
+      connectionId,
+      database,
+      collection,
+      serverQuery,
+      flattenDepth,
+    ],
     queryFn: async () => {
       const adapter = getAdapter();
       return adapter.sampleCollectionSchema(collection, serverQuery, {
@@ -397,7 +439,12 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         maxDepth: flattenDepth,
       });
     },
-    enabled: enabled && !!connectionId && !!collection && currentPath.length === 0 && flattenMode,
+    enabled:
+      enabled &&
+      !!connectionId &&
+      !!collection &&
+      currentPath.length === 0 &&
+      flattenMode,
     staleTime: 120000,
   });
 
@@ -421,7 +468,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       // Check if any already-kept path starts with this path + "."
       let isParentOfKept = false;
       for (const existing of kept) {
-        if (existing.startsWith(path + '.')) {
+        if (existing.startsWith(path + ".")) {
           isParentOfKept = true;
           break;
         }
@@ -439,8 +486,8 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     return projection;
   }, [flattenMode, schemaSample]);
   const flattenProjectionSignature = useMemo(
-    () => (flattenProjection ? JSON.stringify(flattenProjection) : '__none__'),
-    [flattenProjection]
+    () => (flattenProjection ? JSON.stringify(flattenProjection) : "__none__"),
+    [flattenProjection],
   );
 
   useEffect(() => {
@@ -512,29 +559,29 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
   // Transform documents to rows
   const documents = useMemo(
-    () => (currentPath.length > 0 ? nestedDocuments ?? [] : rootDocuments),
-    [currentPath.length, nestedDocuments, rootDocuments]
+    () => (currentPath.length > 0 ? (nestedDocuments ?? []) : rootDocuments),
+    [currentPath.length, nestedDocuments, rootDocuments],
   );
   const displayDocuments = useMemo(() => {
     if (currentPath.length > 0 || !flattenMode) {
       return documents;
     }
     return (documents as Record<string, unknown>[]).map((doc) =>
-      flattenDocumentForGrid(doc, flattenDepth)
+      flattenDocumentForGrid(doc, flattenDepth),
     );
   }, [currentPath.length, documents, flattenMode, flattenDepth]);
 
   const isNestedSingleObject = useMemo(() => {
     if (currentPath.length === 0) return false;
     const lastSegment = currentPath[currentPath.length - 1];
-    return lastSegment?.type === 'object';
+    return lastSegment?.type === "object";
   }, [currentPath]);
 
   // Determine array display layout (table vs typed-value)
   const isArrayLevel = useMemo(() => {
     if (currentPath.length === 0) return false;
     const lastSegment = currentPath[currentPath.length - 1];
-    return lastSegment?.type === 'array';
+    return lastSegment?.type === "array";
   }, [currentPath]);
 
   // Extract raw array items for schema analysis
@@ -551,13 +598,25 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     // Key-value mode for single nested objects
     if (isNestedSingleObject && displayDocuments.length === 1) {
       return [
-        { id: KV_KEY_FIELD, field: KV_KEY_FIELD, title: 'Key', name: 'Key', width: 200 },
-        { id: KV_VALUE_FIELD, field: KV_VALUE_FIELD, title: 'Value', name: 'Value', width: 400 },
+        {
+          id: KV_KEY_FIELD,
+          field: KV_KEY_FIELD,
+          title: "Key",
+          name: "Key",
+          width: 200,
+        },
+        {
+          id: KV_VALUE_FIELD,
+          field: KV_VALUE_FIELD,
+          title: "Value",
+          name: "Value",
+          width: 400,
+        },
       ];
     }
 
     if (isArrayLevel) {
-      if (arrayLayout.mode === 'table') {
+      if (arrayLayout.mode === "table") {
         return generateColumnsForTableMode(arrayLayout.columns);
       }
       return generateColumnsForTypedValueMode();
@@ -566,21 +625,23 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     if (displayDocuments.length === 0) {
       // Default columns when no documents
       return [
-        { id: '_id', field: '_id', title: '_id', name: '_id', width: 220 },
+        { id: "_id", field: "_id", title: "_id", name: "_id", width: 220 },
       ];
     }
 
-    return generateColumnsFromDocuments(displayDocuments as Record<string, unknown>[]);
+    return generateColumnsFromDocuments(
+      displayDocuments as Record<string, unknown>[],
+    );
   }, [displayDocuments, isNestedSingleObject, isArrayLevel, arrayLayout]);
 
   // Transform documents to GridRowModel (with optional client-side search filtering)
   const rows = useMemo<GridRowModel[]>(() => {
     // Apply client-side search filter if in search mode
     let filteredDocs = displayDocuments;
-    if (filter?.mode === 'search' && filter.searchText) {
+    if (filter?.mode === "search" && filter.searchText) {
       filteredDocs = applyDocumentColumnSearch(
         displayDocuments as Record<string, unknown>[],
-        filter.searchText
+        filter.searchText,
       ) as typeof documents;
     }
 
@@ -592,8 +653,8 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         return {
           [KV_KEY_FIELD]: {
             value: key,
-            db_type: 'string',
-            value_type: 'Text' as GridCellValueType,
+            db_type: "string",
+            value_type: "Text" as GridCellValueType,
             is_truncated: false,
           },
           [KV_VALUE_FIELD]: {
@@ -607,19 +668,24 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     }
 
     // Array table mode: each object item becomes a row with field columns
-    if (isArrayLevel && arrayLayout.mode === 'table' && filteredDocs.length > 0) {
+    if (
+      isArrayLevel &&
+      arrayLayout.mode === "table" &&
+      filteredDocs.length > 0
+    ) {
       return filteredDocs.map((doc) => {
         const d = doc as Record<string, unknown>;
         const item = d.__value;
-        const obj = (typeof item === 'object' && item !== null && !Array.isArray(item))
-          ? item as Record<string, unknown>
-          : {};
+        const obj =
+          typeof item === "object" && item !== null && !Array.isArray(item)
+            ? (item as Record<string, unknown>)
+            : {};
         const row: GridRowModel = {};
         // Preserve original array index for correct drill-down after filtering
         row.__index = {
           value: d.__index,
-          db_type: 'number',
-          value_type: 'Integer' as GridCellValueType,
+          db_type: "number",
+          value_type: "Integer" as GridCellValueType,
           is_truncated: false,
         };
         for (const col of columns) {
@@ -637,7 +703,11 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     }
 
     // Array typed-value mode: Index | Type | Value
-    if (isArrayLevel && arrayLayout.mode === 'typed-value' && filteredDocs.length > 0) {
+    if (
+      isArrayLevel &&
+      arrayLayout.mode === "typed-value" &&
+      filteredDocs.length > 0
+    ) {
       return filteredDocs.map((doc) => {
         const d = doc as Record<string, unknown>;
         const rawValue = d.__value;
@@ -645,14 +715,14 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         return {
           __index: {
             value: d.__index,
-            db_type: 'number',
-            value_type: 'Integer' as GridCellValueType,
+            db_type: "number",
+            value_type: "Integer" as GridCellValueType,
             is_truncated: false,
           },
           __type: {
             value: valueType,
-            db_type: 'string',
-            value_type: 'Text' as GridCellValueType,
+            db_type: "string",
+            value_type: "Text" as GridCellValueType,
             is_truncated: false,
           },
           __value: {
@@ -680,7 +750,14 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       }
       return row;
     });
-  }, [displayDocuments, columns, filter, isNestedSingleObject, isArrayLevel, arrayLayout]);
+  }, [
+    displayDocuments,
+    columns,
+    filter,
+    isNestedSingleObject,
+    isArrayLevel,
+    arrayLayout,
+  ]);
 
   const nullTypeHintsByField = useMemo(() => {
     const hints = new Map<string, ReturnType<typeof detectDocumentValueType>>();
@@ -707,8 +784,8 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       if (!column || !row) {
         return {
           kind: GridCellKind.Text,
-          data: '',
-          displayData: '',
+          data: "",
+          displayData: "",
           allowOverlay: false,
           readonly: true,
         };
@@ -716,7 +793,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
       // Key-value mode cells
       if (isNestedSingleObject && column.field === KV_KEY_FIELD) {
-        const keyValue = (row[KV_KEY_FIELD]?.value as string | undefined) ?? '';
+        const keyValue = (row[KV_KEY_FIELD]?.value as string | undefined) ?? "";
         return {
           kind: GridCellKind.Text,
           data: keyValue,
@@ -731,7 +808,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         return buildDocumentCell({
           value: rawValue,
           column,
-          readOnly: true,
+          readOnly: false,
           canDrillDown: true,
         });
       }
@@ -747,19 +824,19 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         canDrillDown: true,
       });
     },
-    [columns, rows, nullTypeHintsByField, isNestedSingleObject]
+    [columns, rows, nullTypeHintsByField, isNestedSingleObject],
   );
 
   const getRawValueFromRow = useCallback(
     (rowData: GridRowModel | undefined, column: GridColumnV2): unknown => {
       if (!rowData) return undefined;
       const cellValue = rowData[column.field];
-      if (cellValue && typeof cellValue === 'object' && 'value' in cellValue) {
+      if (cellValue && typeof cellValue === "object" && "value" in cellValue) {
         return (cellValue as { value?: unknown }).value;
       }
       return cellValue;
     },
-    []
+    [],
   );
 
   // Check if a cell can be drilled into
@@ -774,24 +851,25 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       if (isNestedSingleObject && column.field === KV_VALUE_FIELD) {
         const rawValue = row[KV_VALUE_FIELD]?.value;
         const valueType = detectDocumentValueType(rawValue);
-        return valueType === 'object' || valueType === 'array';
+        return valueType === "object" || valueType === "array";
       }
 
       // Table mode: check raw value in the cell
-      if (isArrayLevel && arrayLayout.mode === 'table') {
+      if (isArrayLevel && arrayLayout.mode === "table") {
         const cellValue = row[column.field];
-        const rawValue = cellValue && typeof cellValue === 'object' && 'value' in cellValue
-          ? (cellValue as { value?: unknown }).value
-          : cellValue;
+        const rawValue =
+          cellValue && typeof cellValue === "object" && "value" in cellValue
+            ? (cellValue as { value?: unknown }).value
+            : cellValue;
         const cellValueType = detectDocumentValueType(rawValue);
-        return cellValueType === 'object' || cellValueType === 'array';
+        return cellValueType === "object" || cellValueType === "array";
       }
 
       const rawValue = getRawValueFromRow(row, column);
       const valueType = detectDocumentValueType(rawValue);
-      return valueType === 'object' || valueType === 'array';
+      return valueType === "object" || valueType === "array";
     },
-    [getRawValueFromRow, isNestedSingleObject, isArrayLevel, arrayLayout]
+    [getRawValueFromRow, isNestedSingleObject, isArrayLevel, arrayLayout],
   );
 
   // Step into a nested object/array
@@ -809,7 +887,8 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
         const rawValue = rowData[KV_VALUE_FIELD]?.value;
         const valueType = detectDocumentValueType(rawValue);
-        const segmentType: PathSegment['type'] = valueType === 'array' ? 'array' : 'object';
+        const segmentType: PathSegment["type"] =
+          valueType === "array" ? "array" : "object";
 
         setCurrentPath((prev) => [
           ...prev,
@@ -819,16 +898,20 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       }
 
       // Table mode: drill into a cell's nested object/array value
-      if (isArrayLevel && arrayLayout.mode === 'table') {
+      if (isArrayLevel && arrayLayout.mode === "table") {
         // Use stored __index (original array position), not visual row index
-        const arrayIndex = ((rowData.__index as { value?: unknown } | undefined)?.value as number | undefined) ?? event.rowIndex;
+        const arrayIndex =
+          ((rowData.__index as { value?: unknown } | undefined)?.value as
+            | number
+            | undefined) ?? event.rowIndex;
         const rawFieldValue = getRawValueFromRow(rowData, column);
         const fieldValueType = detectDocumentValueType(rawFieldValue);
-        const fieldType: PathSegment['type'] = fieldValueType === 'array' ? 'array' : 'object';
+        const fieldType: PathSegment["type"] =
+          fieldValueType === "array" ? "array" : "object";
 
         setCurrentPath((prev) => [
           ...prev,
-          { key: arrayIndex, label: `[${arrayIndex}]`, type: 'object' },
+          { key: arrayIndex, label: `[${arrayIndex}]`, type: "array" },
           { key: column.field, label: column.field, type: fieldType },
         ]);
         return;
@@ -841,7 +924,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       if (currentPath.length === 0) {
         const idCell = rowData._id;
         const idValue =
-          idCell && typeof idCell === 'object' && 'value' in idCell
+          idCell && typeof idCell === "object" && "value" in idCell
             ? (idCell as { value?: unknown }).value
             : idCell;
         if (idValue !== undefined && idValue !== null) {
@@ -852,10 +935,11 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       const arrayIndex = isArrayLevel
         ? (rowData.__index as { value?: unknown } | undefined)?.value
         : undefined;
-      const terminalType: PathSegment['type'] = valueType === 'array' ? 'array' : 'object';
+      const terminalType: PathSegment["type"] =
+        valueType === "array" ? "array" : "object";
 
       const nextSegments: PathSegment[] = [];
-      if (isArrayLevel && typeof arrayIndex === 'number') {
+      if (isArrayLevel && typeof arrayIndex === "number") {
         nextSegments.push({
           key: arrayIndex,
           label: `[${arrayIndex}]`,
@@ -873,8 +957,11 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
           const isTerminal = i === pathParts.length - 1;
           nextSegments.push({
             key: part,
-            label: isTerminal && pathParts.length === 1 ? (column.title || column.field) : part,
-            type: isTerminal ? terminalType : 'object',
+            label:
+              isTerminal && pathParts.length === 1
+                ? column.title || column.field
+                : part,
+            type: isTerminal ? terminalType : "object",
           });
         }
       }
@@ -885,11 +972,20 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
       setCurrentPath((prev) => {
         const nextPath = [...prev, ...nextSegments];
-        logger.info('document-data', `Stepped into ${column.field}`, { path: nextPath });
+        logger.info("document-data", `Stepped into ${column.field}`, {
+          path: nextPath,
+        });
         return nextPath;
       });
     },
-    [canStepInto, currentPath, getRawValueFromRow, isNestedSingleObject, arrayLayout, isArrayLevel]
+    [
+      canStepInto,
+      currentPath,
+      getRawValueFromRow,
+      isNestedSingleObject,
+      arrayLayout,
+      isArrayLevel,
+    ],
   );
 
   // Step out one level
@@ -905,7 +1001,9 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       setCurrentDocumentId(null);
     }
 
-    logger.info('document-data', 'Stepped out', { newPath: currentPath.slice(0, -1) });
+    logger.info("document-data", "Stepped out", {
+      newPath: currentPath.slice(0, -1),
+    });
   }, [currentPath]);
 
   // Navigate to a specific path index (breadcrumb click)
@@ -924,9 +1022,9 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
       setCurrentPath((prev) => prev.slice(0, pathIndex + 1));
 
-      logger.info('document-data', `Navigated to path index ${pathIndex}`);
+      logger.info("document-data", `Navigated to path index ${pathIndex}`);
     },
-    [currentPath]
+    [currentPath],
   );
 
   // Get current document ID
@@ -944,92 +1042,101 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     await fetchRootPage(false);
   }, [currentPath.length, fetchRootPage]);
 
-  const refetchRootDocumentsPreservingWindow = useCallback(async (): Promise<void> => {
-    if (currentPath.length > 0 || !enabled || !connectionId || !collection) {
-      return;
-    }
+  const refetchRootDocumentsPreservingWindow =
+    useCallback(async (): Promise<void> => {
+      if (currentPath.length > 0 || !enabled || !connectionId || !collection) {
+        return;
+      }
 
-    // Preserve the currently loaded viewport depth so save/refetch doesn't collapse
-    // back to a single page and reset the user's scroll position.
-    const targetCount = Math.max(rootDocuments.length, pageSize);
-    if (targetCount <= 0) {
-      await fetchRootPage(true);
-      return;
-    }
+      // Preserve the currently loaded viewport depth so save/refetch doesn't collapse
+      // back to a single page and reset the user's scroll position.
+      const targetCount = Math.max(rootDocuments.length, pageSize);
+      if (targetCount <= 0) {
+        await fetchRootPage(true);
+        return;
+      }
 
-    const adapter = getAdapter();
-    const requestVersion = ++rootRequestVersionRef.current;
-    setRootError(null);
-    setIsLoadingMore(false);
-    if (rootDocuments.length === 0) {
-      setIsRootLoading(true);
-    }
+      const adapter = getAdapter();
+      const requestVersion = ++rootRequestVersionRef.current;
+      setRootError(null);
+      setIsLoadingMore(false);
+      if (rootDocuments.length === 0) {
+        setIsRootLoading(true);
+      }
 
-    const startTime = performance.now();
-    let cursor: CursorToken | null = null;
-    let hasMore = true;
-    const refreshedDocuments: DocumentWithId[] = [];
+      const startTime = performance.now();
+      let cursor: CursorToken | null = null;
+      let hasMore = true;
+      const refreshedDocuments: DocumentWithId[] = [];
 
-    try {
-      while (hasMore && refreshedDocuments.length < targetCount) {
-        const remaining = targetCount - refreshedDocuments.length;
-        const page = await adapter.findDocumentsPage(collection, serverQuery, {
-          limit: Math.max(1, Math.min(pageSize, remaining)),
-          sort: mongoSort,
-          projection: schemaProjectionRef.current,
-          cursor,
-        });
+      try {
+        while (hasMore && refreshedDocuments.length < targetCount) {
+          const remaining = targetCount - refreshedDocuments.length;
+          const page = await adapter.findDocumentsPage(
+            collection,
+            serverQuery,
+            {
+              limit: Math.max(1, Math.min(pageSize, remaining)),
+              sort: mongoSort,
+              projection: schemaProjectionRef.current,
+              cursor,
+            },
+          );
+
+          if (requestVersion !== rootRequestVersionRef.current) {
+            return;
+          }
+
+          const pageDocuments = page.documents as DocumentWithId[];
+          if (pageDocuments.length === 0) {
+            hasMore = false;
+            cursor = null;
+            break;
+          }
+
+          refreshedDocuments.push(...pageDocuments);
+          cursor = page.nextCursor ?? null;
+          hasMore = page.hasMore;
+        }
 
         if (requestVersion !== rootRequestVersionRef.current) {
           return;
         }
 
-        const pageDocuments = page.documents as DocumentWithId[];
-        if (pageDocuments.length === 0) {
-          hasMore = false;
-          cursor = null;
-          break;
+        setRootDocuments(refreshedDocuments);
+        setNextCursor(cursor);
+        setRootHasMore(hasMore);
+      } catch (err) {
+        if (requestVersion !== rootRequestVersionRef.current) {
+          return;
         }
-
-        refreshedDocuments.push(...pageDocuments);
-        cursor = page.nextCursor ?? null;
-        hasMore = page.hasMore;
+        const normalized = err instanceof Error ? err : new Error(String(err));
+        setRootError(normalized);
+        logger.error(
+          "document-data",
+          "Failed to refetch root documents",
+          normalized,
+        );
+      } finally {
+        if (requestVersion === rootRequestVersionRef.current) {
+          const endTime = performance.now();
+          setExecutionTime(Math.round(endTime - startTime));
+          setIsRootLoading(false);
+          setIsLoadingMore(false);
+        }
       }
-
-      if (requestVersion !== rootRequestVersionRef.current) {
-        return;
-      }
-
-      setRootDocuments(refreshedDocuments);
-      setNextCursor(cursor);
-      setRootHasMore(hasMore);
-    } catch (err) {
-      if (requestVersion !== rootRequestVersionRef.current) {
-        return;
-      }
-      const normalized = err instanceof Error ? err : new Error(String(err));
-      setRootError(normalized);
-      logger.error('document-data', 'Failed to refetch root documents', normalized);
-    } finally {
-      if (requestVersion === rootRequestVersionRef.current) {
-        const endTime = performance.now();
-        setExecutionTime(Math.round(endTime - startTime));
-        setIsRootLoading(false);
-        setIsLoadingMore(false);
-      }
-    }
-  }, [
-    collection,
-    connectionId,
-    currentPath.length,
-    enabled,
-    fetchRootPage,
-    getAdapter,
-    mongoSort,
-    pageSize,
-    rootDocuments.length,
-    serverQuery,
-  ]);
+    }, [
+      collection,
+      connectionId,
+      currentPath.length,
+      enabled,
+      fetchRootPage,
+      getAdapter,
+      mongoSort,
+      pageSize,
+      rootDocuments.length,
+      serverQuery,
+    ]);
 
   const refetch = useCallback(async (): Promise<void> => {
     if (currentPath.length === 0) {
@@ -1037,9 +1144,15 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       return;
     }
     await refetchNestedQuery();
-  }, [currentPath.length, refetchNestedQuery, refetchRootDocumentsPreservingWindow]);
+  }, [
+    currentPath.length,
+    refetchNestedQuery,
+    refetchRootDocumentsPreservingWindow,
+  ]);
 
-  const isLoading = (currentPath.length === 0 ? isRootLoading : isNestedLoading) || arrayLayout.isAnalyzing;
+  const isLoading =
+    (currentPath.length === 0 ? isRootLoading : isNestedLoading) ||
+    arrayLayout.isAnalyzing;
   const activeError = currentPath.length === 0 ? rootError : nestedError;
   const error = activeError instanceof Error ? activeError : null;
 
@@ -1053,17 +1166,21 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       }
 
       // Check if this row is from an INSERT command (by checking for tempId metadata)
-      const tempIdCell = rowData["__insert_temp_id__"] as { value?: string | number } | undefined;
-      const insertTempId = tempIdCell?.value != null ? String(tempIdCell.value) : undefined;
+      const tempIdCell = rowData["__insert_temp_id__"] as
+        | { value?: string | number }
+        | undefined;
+      const insertTempId =
+        tempIdCell?.value != null ? String(tempIdCell.value) : undefined;
 
       // Get document ID for the update filter (not needed for inserted rows)
       let docId: DocumentId | undefined;
       if (!insertTempId) {
         if (currentPath.length === 0) {
           const idCell = rowData._id;
-          const id = idCell && typeof idCell === 'object' && 'value' in idCell
-            ? (idCell as { value?: unknown }).value
-            : idCell;
+          const id =
+            idCell && typeof idCell === "object" && "value" in idCell
+              ? (idCell as { value?: unknown }).value
+              : idCell;
           if (id !== undefined && id !== null) {
             docId = id as DocumentId;
           }
@@ -1072,50 +1189,79 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         }
 
         if (!docId) {
-          logger.warn('document-data', 'Cannot create edit command: no document ID');
+          logger.warn(
+            "document-data",
+            "Cannot create edit command: no document ID",
+          );
           return null;
         }
       }
 
       // Build the field path for nested updates
-      const isArrayLevel = currentPath.length > 0 && currentPath[currentPath.length - 1]?.type === 'array';
-      const arrayIndex = isArrayLevel
+      const isArrayLevelEdit =
+        currentPath.length > 0 &&
+        currentPath[currentPath.length - 1]?.type === "array";
+      const arrayIndex = isArrayLevelEdit
         ? (rowData.__index as { value?: unknown } | undefined)?.value
         : undefined;
-      const fieldPath = currentPath.length > 0
-        ? [
-            ...currentPath.map((s) => s.key),
-            ...(isArrayLevel && typeof arrayIndex === 'number' ? [arrayIndex, column.field] : [column.field]),
-          ].join('.')
-        : column.field;
+
+      // In KV mode (nested single object), resolve the actual key from the row
+      const kvKeyValue =
+        isNestedSingleObject && column.field === KV_VALUE_FIELD
+          ? (rowData[KV_KEY_FIELD] as { value?: unknown } | undefined)?.value
+          : undefined;
+      const resolvedField =
+        typeof kvKeyValue === "string" ? kvKeyValue : column.field;
+
+      const fieldPath =
+        currentPath.length > 0
+          ? [
+              ...currentPath.map((s) => s.key),
+              ...(isArrayLevelEdit && typeof arrayIndex === "number"
+                ? [arrayIndex, resolvedField]
+                : [resolvedField]),
+            ].join(".")
+          : resolvedField;
 
       // Extract the actual value from the cell (convert to JsonValue)
       const cellValue = rowData[column.field];
-      const extractedOldValue = cellValue && typeof cellValue === 'object' && 'value' in cellValue
-        ? cellValue.value
-        : cellValue;
-      const oldValueJson: JsonValue = extractedOldValue === undefined ? null :
-        (extractedOldValue as JsonValue);
+      const extractedOldValue =
+        cellValue && typeof cellValue === "object" && "value" in cellValue
+          ? cellValue.value
+          : cellValue;
+      const oldValueJson: JsonValue =
+        extractedOldValue === undefined
+          ? null
+          : (extractedOldValue as JsonValue);
 
       // Extract new value from GridCell
       let newValueJson: JsonValue = null;
-      if ('data' in newValue) {
+      if ("data" in newValue) {
         const data = newValue.data;
-        if (typeof data === 'object' && data !== null && 'value' in data) {
+        if (typeof data === "object" && data !== null && "value" in data) {
           newValueJson = (data as { value: unknown }).value as JsonValue;
         } else if (
-          typeof data === 'string' ||
-          typeof data === 'number' ||
-          typeof data === 'boolean' ||
+          typeof data === "string" ||
+          typeof data === "number" ||
+          typeof data === "boolean" ||
           data === null
         ) {
           newValueJson = data;
         }
       }
 
+      const primaryKeys: Record<string, JsonValue> = insertTempId
+        ? {}
+        : { _id: docId as JsonValue };
+      // In KV mode, add __kv_key so useStagedChangesIndicator can uniquely
+      // identify each row (all KV rows share the same _id).
+      if (isNestedSingleObject && !insertTempId) {
+        primaryKeys[KV_KEY_FIELD] = resolvedField as JsonValue;
+      }
+
       const payload: DataUpdatePayload = {
         column: fieldPath,
-        primaryKeys: insertTempId ? {} : { _id: docId as JsonValue },
+        primaryKeys,
         oldValue: oldValueJson,
         newValue: newValueJson,
         ...(insertTempId ? { tempId: insertTempId } : {}),
@@ -1123,7 +1269,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
       return {
         id: nanoid(),
-        type: 'data.update',
+        type: "data.update",
         target: {
           connectionId,
           database,
@@ -1133,11 +1279,21 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         metadata: {
           timestamp: new Date().toISOString(),
           description: `Update ${fieldPath}`,
+          // Grid column field for staged change display (may differ from
+          // fieldPath when in KV mode, e.g. "__kv_value" vs "address.city")
+          gridColumn: column.field,
         },
-        state: 'staged',
+        state: "staged",
       };
     },
-    [currentPath, currentDocumentId, connectionId, database, collection]
+    [
+      currentPath,
+      currentDocumentId,
+      connectionId,
+      database,
+      collection,
+      isNestedSingleObject,
+    ],
   );
 
   const createInsertCommand = useCallback(
@@ -1154,7 +1310,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
       return {
         id: nanoid(),
-        type: 'data.insert',
+        type: "data.insert",
         target: {
           connectionId,
           database,
@@ -1163,12 +1319,12 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         payload,
         metadata: {
           timestamp: new Date().toISOString(),
-          description: 'Insert document',
+          description: "Insert document",
         },
-        state: 'staged',
+        state: "staged",
       };
     },
-    [connectionId, database, collection]
+    [connectionId, database, collection],
   );
 
   const createDeleteCommand = useCallback(
@@ -1183,7 +1339,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
 
       return {
         id: nanoid(),
-        type: 'data.delete',
+        type: "data.delete",
         target: {
           connectionId,
           database,
@@ -1192,12 +1348,12 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         payload,
         metadata: {
           timestamp: new Date().toISOString(),
-          description: 'Delete document',
+          description: "Delete document",
         },
-        state: 'staged',
+        state: "staged",
       };
     },
-    [connectionId, database, collection]
+    [connectionId, database, collection],
   );
 
   // Build column maps for CrudCommandFactory
@@ -1224,28 +1380,26 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       const idValue = row._id?.value;
       if (idValue !== undefined && idValue !== null) {
         const idText =
-          typeof idValue === 'string' || typeof idValue === 'number'
+          typeof idValue === "string" || typeof idValue === "number"
             ? String(idValue)
             : JSON.stringify(idValue);
         return `${collection}:${idText}`;
       }
       return `${collection}:row-${index}`;
     },
-    [collection]
+    [collection],
   );
 
   // CrudCommandFactory for BaseDataGrid integration
-  // Only available at root level (not when drilled into nested objects)
+  // Available at all depths — edit commands build correct nested field paths.
+  // Insert/delete are only meaningful at root level.
   const commandFactory = useMemo<CrudCommandFactory | undefined>(() => {
-    // Disable CRUD when drilled into nested paths (can't insert/delete nested items directly)
-    if (currentPath.length > 0) return undefined;
-
     return {
       connectionId,
       database,
       schema: undefined, // MongoDB doesn't use schemas
       table: collection,
-      primaryKeyColumns: ['_id'],
+      primaryKeyColumns: isNestedSingleObject ? [KV_KEY_FIELD] : ["_id"],
       columnNameToFieldMap,
       columnByFieldMap,
       getRowKey,
@@ -1263,10 +1417,10 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       },
     };
   }, [
-    currentPath.length,
     connectionId,
     database,
     collection,
+    isNestedSingleObject,
     columnNameToFieldMap,
     columnByFieldMap,
     getRowKey,
@@ -1276,7 +1430,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
   ]);
 
   return {
-    paradigm: 'document',
+    paradigm: "document",
     rows,
     columns,
     getCellContent,

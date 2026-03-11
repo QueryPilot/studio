@@ -69,6 +69,8 @@ export interface CrudCommandMetadata {
   readonly tags?: string[];
   /** Optional: Row key to insert new rows after (for INSERT commands). */
   readonly insertAfterRowKey?: string;
+  /** Grid column field for staged change display (may differ from payload.column in KV mode). */
+  readonly gridColumn?: string;
 }
 
 /**

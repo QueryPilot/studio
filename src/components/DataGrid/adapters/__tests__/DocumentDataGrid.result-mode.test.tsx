@@ -9,9 +9,13 @@ const mocks = vi.hoisted(() => ({
   baseDataGrid: vi.fn(),
 }));
 
-vi.mock("../../hooks/useDocumentData", () => ({
-  useDocumentData: (...args: unknown[]) => mocks.useDocumentData(...args),
-}));
+vi.mock("../../hooks/useDocumentData", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    useDocumentData: (...args: unknown[]) => mocks.useDocumentData(...args),
+  };
+});
 
 vi.mock("../../base/BaseDataGrid", () => ({
   BaseDataGrid: (props: {

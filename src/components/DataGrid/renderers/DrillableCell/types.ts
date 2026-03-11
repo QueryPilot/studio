@@ -1,13 +1,13 @@
-import type { CustomCell } from '@glideapps/glide-data-grid';
-import { GridCellKind } from '@glideapps/glide-data-grid';
+import type { CustomCell } from "@glideapps/glide-data-grid";
+import { GridCellKind } from "@glideapps/glide-data-grid";
 
-export const DRILLABLE_CELL_KIND = 'drillable-cell' as const;
+export const DRILLABLE_CELL_KIND = "drillable-cell" as const;
 
 export interface DrillableCellData {
   /** Custom cell type identifier */
   kind: typeof DRILLABLE_CELL_KIND;
   /** Whether this is an object or array */
-  type: 'object' | 'array';
+  type: "object" | "array";
   /** Preview text like "{3 fields}" or "[5 items]" */
   preview: string;
   /** Number of items/fields */
@@ -26,13 +26,11 @@ export interface DrillableCell extends CustomCell {
   copyData: string;
 }
 
-function formatInlineValuePreview(value: unknown): string {
+function formatInlineValuePreview(value: unknown, maxLen = 20): string {
   if (value === null || value === undefined) return "null";
-  if (Array.isArray(value)) return "[]";
-  if (typeof value === "object") return "{}";
   if (typeof value === "string") {
-    if (value.length <= 12) return `"${value}"`;
-    return `"${value.slice(0, 9)}…"`;
+    if (value.length <= maxLen) return `"${value}"`;
+    return `"${value.slice(0, maxLen - 3)}…"`;
   }
   if (
     typeof value === "number" ||
@@ -41,10 +39,30 @@ function formatInlineValuePreview(value: unknown): string {
   ) {
     return String(value);
   }
-  if (typeof value === "symbol") {
-    return value.description ? `:${value.description}` : ":symbol";
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "[]";
+    return `[${value.length}]`;
+  }
+  if (typeof value === "object") {
+    return formatObjectPreview(value as Record<string, unknown>);
   }
   return "[value]";
+}
+
+function formatObjectPreview(obj: Record<string, unknown>): string {
+  const keys = Object.keys(obj);
+  if (keys.length === 0) return "{}";
+  // Show up to 2 key:value pairs with compact values
+  const parts: string[] = [];
+  const maxParts = 2;
+  for (let i = 0; i < Math.min(keys.length, maxParts); i++) {
+    const k = keys[i]!;
+    const v = formatInlineValuePreview(obj[k], 12);
+    parts.push(`${k}: ${v}`);
+  }
+  const remaining = keys.length - parts.length;
+  if (remaining > 0) parts.push(`+${remaining}`);
+  return `{${parts.join(", ")}}`;
 }
 
 /**
@@ -52,16 +70,11 @@ function formatInlineValuePreview(value: unknown): string {
  */
 export function createDrillableObjectCell(
   value: Record<string, unknown>,
-  canDrillDown = true
+  canDrillDown = true,
 ): DrillableCell {
   const keys = Object.keys(value);
   const itemCount = keys.length;
-  let preview = "{}";
-  if (itemCount > 0) {
-    const visibleKeys = keys.slice(0, 2);
-    const remaining = itemCount - visibleKeys.length;
-    preview = `{${visibleKeys.join(", ")}${remaining > 0 ? `, +${remaining}` : ""}}`;
-  }
+  const preview = formatObjectPreview(value);
 
   return {
     kind: GridCellKind.Custom,
@@ -70,7 +83,7 @@ export function createDrillableObjectCell(
     copyData: JSON.stringify(value),
     data: {
       kind: DRILLABLE_CELL_KIND,
-      type: 'object',
+      type: "object",
       preview,
       itemCount,
       canDrillDown,
@@ -84,14 +97,18 @@ export function createDrillableObjectCell(
  */
 export function createDrillableArrayCell(
   value: unknown[],
-  canDrillDown = true
+  canDrillDown = true,
 ): DrillableCell {
   const itemCount = value.length;
-  const sample = value[0];
-  const preview =
-    itemCount === 0
-      ? "[]"
-      : `[${itemCount}] ${formatInlineValuePreview(sample)}`;
+  let preview: string;
+  if (itemCount === 0) {
+    preview = "[]";
+  } else {
+    // Show compact preview of first item
+    const first = value[0];
+    const firstPreview = formatInlineValuePreview(first, 30);
+    preview = `[${itemCount}] ${firstPreview}`;
+  }
 
   return {
     kind: GridCellKind.Custom,
@@ -100,7 +117,7 @@ export function createDrillableArrayCell(
     copyData: JSON.stringify(value),
     data: {
       kind: DRILLABLE_CELL_KIND,
-      type: 'array',
+      type: "array",
       preview,
       itemCount,
       canDrillDown,
@@ -115,6 +132,6 @@ export function createDrillableArrayCell(
 export function isDrillableCell(cell: CustomCell): cell is DrillableCell {
   const data = cell.data as Record<string, unknown> | null;
   return Boolean(
-    data && typeof data === 'object' && data.kind === DRILLABLE_CELL_KIND
+    data && typeof data === "object" && data.kind === DRILLABLE_CELL_KIND,
   );
 }
