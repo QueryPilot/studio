@@ -10,10 +10,18 @@ import type {
   DocumentOperationExecutor as DocumentOperationExecutorInterface,
 } from './types';
 
-import { KV_KEY_FIELD, KV_VALUE_FIELD } from '@/components/DataGrid/hooks/useDocumentData';
+import {
+  ARRAY_INDEX_FIELD,
+  KV_KEY_FIELD,
+  KV_VALUE_FIELD,
+} from '@/components/DataGrid/hooks/useDocumentData';
 
 /** Synthetic grid-only keys that must not reach MongoDB filters. */
-const SYNTHETIC_KEYS: ReadonlySet<string> = new Set([KV_KEY_FIELD, KV_VALUE_FIELD]);
+const SYNTHETIC_KEYS: ReadonlySet<string> = new Set([
+  KV_KEY_FIELD,
+  KV_VALUE_FIELD,
+  ARRAY_INDEX_FIELD,
+]);
 
 /** Remove synthetic grid keys (e.g. __kv_key) from primaryKeys before using as MongoDB filter. */
 function stripSyntheticKeys(keys: Record<string, unknown>): Record<string, unknown> {

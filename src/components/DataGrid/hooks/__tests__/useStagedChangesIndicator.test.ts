@@ -158,4 +158,112 @@ describe("useStagedChangesIndicator", () => {
     expect(result.current.deletedRows.has(0)).toBe(true);
     expect(result.current.rowChanges.get(0)?.has("amount")).toBe(true);
   });
+
+  it("maps updates when identity column exists on rows but is not a visible column", () => {
+    const tableKey = "mongo-conn:test-db::orders";
+    mockCrudState.stagedCommands.set(tableKey, [
+      {
+        id: "update-nested-1",
+        type: "data.update",
+        target: {
+          connectionId: "mongo-conn",
+          database: "test-db",
+          table: "orders",
+        },
+        payload: {
+          column: "items.2.productSku",
+          oldValue: "AUDIO-001",
+          newValue: "AUDIO-0012323",
+          primaryKeys: {
+            _id: "order-1",
+            __index: 2,
+          },
+        },
+        metadata: {
+          timestamp: new Date().toISOString(),
+          description: "Update nested array item",
+          gridColumn: "productSku",
+        },
+        state: "staged",
+      },
+    ] satisfies CrudCommand[]);
+
+    const nestedColumns: GridColumnV2[] = [
+      {
+        id: "productSku",
+        field: "productSku",
+        name: "productSku",
+        title: "productSku",
+        type: "text",
+        width: 140,
+        meta: {
+          name: "productSku",
+          db_type: "text",
+          nullable: true,
+          default: null,
+          is_pk: false,
+          is_fk: false,
+          ordinal: 0,
+        },
+      },
+    ];
+
+    const nestedRows: GridRowModel[] = [
+      {
+        __index: {
+          value: 0,
+          db_type: "number",
+          value_type: "Integer",
+          is_truncated: false,
+        },
+        productSku: {
+          value: "PHONE-001",
+          db_type: "text",
+          value_type: "Text",
+          is_truncated: false,
+        },
+      },
+      {
+        __index: {
+          value: 1,
+          db_type: "number",
+          value_type: "Integer",
+          is_truncated: false,
+        },
+        productSku: {
+          value: "LAPTOP-001",
+          db_type: "text",
+          value_type: "Text",
+          is_truncated: false,
+        },
+      },
+      {
+        __index: {
+          value: 2,
+          db_type: "number",
+          value_type: "Integer",
+          is_truncated: false,
+        },
+        productSku: {
+          value: "AUDIO-001",
+          db_type: "text",
+          value_type: "Text",
+          is_truncated: false,
+        },
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useStagedChangesIndicator({
+        connectionId: "mongo-conn",
+        database: "test-db",
+        table: "orders",
+        rowIdentityColumns: ["__index"],
+        rows: nestedRows,
+        columns: nestedColumns,
+      }),
+    );
+
+    expect(result.current.rowChanges.get(2)?.has("productSku")).toBe(true);
+  });
 });

@@ -59,6 +59,8 @@ const EMPTY_SORT_COLUMNS: SortColumn[] = [];
 // Column field names for key-value (single object) display mode
 export const KV_KEY_FIELD = "__kv_key";
 export const KV_VALUE_FIELD = "__kv_value";
+// Synthetic row identity for array-level views (table + typed-value).
+export const ARRAY_INDEX_FIELD = "__index";
 
 // ============================================================================
 // Types
@@ -1253,6 +1255,9 @@ export function useDocumentData(
       const primaryKeys: Record<string, JsonValue> = insertTempId
         ? {}
         : { _id: docId as JsonValue };
+      if (isArrayLevelEdit && typeof arrayIndex === "number" && !insertTempId) {
+        primaryKeys[ARRAY_INDEX_FIELD] = arrayIndex;
+      }
       // In KV mode, add __kv_key so useStagedChangesIndicator can uniquely
       // identify each row (all KV rows share the same _id).
       if (isNestedSingleObject && !insertTempId) {
@@ -1390,6 +1395,16 @@ export function useDocumentData(
     [collection],
   );
 
+  const commandPrimaryKeyColumns = useMemo<string[]>(() => {
+    if (isNestedSingleObject) {
+      return [KV_KEY_FIELD];
+    }
+    if (isArrayLevel) {
+      return [ARRAY_INDEX_FIELD];
+    }
+    return ["_id"];
+  }, [isNestedSingleObject, isArrayLevel]);
+
   // CrudCommandFactory for BaseDataGrid integration
   // Available at all depths — edit commands build correct nested field paths.
   // Insert/delete are only meaningful at root level.
@@ -1399,7 +1414,7 @@ export function useDocumentData(
       database,
       schema: undefined, // MongoDB doesn't use schemas
       table: collection,
-      primaryKeyColumns: isNestedSingleObject ? [KV_KEY_FIELD] : ["_id"],
+      primaryKeyColumns: commandPrimaryKeyColumns,
       columnNameToFieldMap,
       columnByFieldMap,
       getRowKey,
@@ -1420,7 +1435,7 @@ export function useDocumentData(
     connectionId,
     database,
     collection,
-    isNestedSingleObject,
+    commandPrimaryKeyColumns,
     columnNameToFieldMap,
     columnByFieldMap,
     getRowKey,
