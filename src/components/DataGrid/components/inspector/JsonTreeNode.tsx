@@ -1,6 +1,11 @@
 import { memo, useState, useCallback, useRef, useEffect } from "react";
-import { IconPencil } from "@tabler/icons-react";
+import { IconPencil, IconArrowBackUp } from "@tabler/icons-react";
 import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { toSearchableText } from "./utils";
 
@@ -48,6 +53,10 @@ export interface JsonTreeNodeProps {
   pendingEditPaths?: Set<string>;
   /** Called to undo a pending edit at the given path. */
   onUndoEdit?: (path: string) => void;
+  /** Data type string for tooltip (only meaningful at this node). */
+  dataType?: string;
+  /** Map from field name → data type, passed to depth-1 children for tooltip display. */
+  dataTypeMap?: Map<string, string>;
 }
 
 // ============================================================================
@@ -156,7 +165,9 @@ export const JsonTreeNode = memo(function JsonTreeNode({
   onEditPrimitive,
   onEditSubtree,
   pendingEditPaths,
-  onUndoEdit: _onUndoEdit,
+  onUndoEdit,
+  dataType,
+  dataTypeMap,
 }: JsonTreeNodeProps) {
   const [collapsed, setCollapsed] = useState(depth >= DEFAULT_EXPAND_DEPTH);
   const [editing, setEditing] = useState(false);
@@ -196,9 +207,22 @@ export const JsonTreeNode = memo(function JsonTreeNode({
 
         {fieldKey !== undefined && (
           <>
-            <span className={cn("font-mono text-xs", TYPE_COLORS.key)}>
-              &quot;{fieldKey}&quot;
-            </span>
+            {dataType ? (
+              <Tooltip>
+                <TooltipTrigger>
+                  <span className={cn("font-mono text-xs", TYPE_COLORS.key)}>
+                    &quot;{fieldKey}&quot;
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs font-mono">
+                  {dataType}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <span className={cn("font-mono text-xs", TYPE_COLORS.key)}>
+                &quot;{fieldKey}&quot;
+              </span>
+            )}
             <span
               className={cn(
                 "font-mono text-xs mx-0.5",
@@ -245,6 +269,26 @@ export const JsonTreeNode = memo(function JsonTreeNode({
 
         {onEditPrimitive && !editing && (
           <IconPencil className="h-3 w-3 ml-1 shrink-0 text-muted-foreground/0 group-hover/line:text-muted-foreground/50 transition-colors" />
+        )}
+
+        {hasPendingEdit && onUndoEdit && (
+          <Tooltip>
+            <TooltipTrigger>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center h-4 w-4 ml-0.5 rounded-sm hover:bg-amber-200/60 dark:hover:bg-amber-800/40 transition-colors cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUndoEdit(path);
+                }}
+              >
+                <IconArrowBackUp className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">
+              Revert edit
+            </TooltipContent>
+          </Tooltip>
         )}
       </div>
     );
@@ -319,9 +363,22 @@ export const JsonTreeNode = memo(function JsonTreeNode({
 
         {fieldKey !== undefined && (
           <>
-            <span className={cn("font-mono text-xs", TYPE_COLORS.key)}>
-              &quot;{fieldKey}&quot;
-            </span>
+            {dataType ? (
+              <Tooltip>
+                <TooltipTrigger>
+                  <span className={cn("font-mono text-xs", TYPE_COLORS.key)}>
+                    &quot;{fieldKey}&quot;
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs font-mono">
+                  {dataType}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <span className={cn("font-mono text-xs", TYPE_COLORS.key)}>
+                &quot;{fieldKey}&quot;
+              </span>
+            )}
             <span
               className={cn(
                 "font-mono text-xs mx-0.5",
@@ -369,6 +426,26 @@ export const JsonTreeNode = memo(function JsonTreeNode({
             }}
           />
         )}
+
+        {hasPendingEdit && onUndoEdit && (
+          <Tooltip>
+            <TooltipTrigger>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center h-4 w-4 ml-0.5 rounded-sm hover:bg-amber-200/60 dark:hover:bg-amber-800/40 transition-colors cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUndoEdit(path);
+                }}
+              >
+                <IconArrowBackUp className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">
+              Revert edit
+            </TooltipContent>
+          </Tooltip>
+        )}
       </div>
 
       {/* Children (when expanded) */}
@@ -388,7 +465,8 @@ export const JsonTreeNode = memo(function JsonTreeNode({
                 onEditPrimitive={onEditPrimitive}
                 onEditSubtree={onEditSubtree}
                 pendingEditPaths={pendingEditPaths}
-                onUndoEdit={_onUndoEdit}
+                onUndoEdit={onUndoEdit}
+                dataType={dataTypeMap?.get(key)}
               />
             );
           })}
