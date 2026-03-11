@@ -435,3 +435,83 @@ export function generateColumnsForArrayItems(): GridColumnV2[] {
     },
   ];
 }
+
+/**
+ * Generate columns for typed-value mode (Index | Type | Value)
+ * Used when array items are mixed types or primitives.
+ */
+export function generateColumnsForTypedValueMode(): GridColumnV2[] {
+  return [
+    {
+      id: '__index',
+      field: '__index',
+      title: 'Index',
+      name: 'Index',
+      width: 80,
+      meta: {
+        name: '__index',
+        db_type: 'integer',
+        nullable: false,
+        default: null,
+        is_pk: true,
+        is_fk: false,
+        ordinal: 0,
+      },
+    },
+    {
+      id: '__type',
+      field: '__type',
+      title: 'Type',
+      name: 'Type',
+      width: 100,
+      meta: {
+        name: '__type',
+        db_type: 'text',
+        nullable: false,
+        default: null,
+        is_pk: false,
+        is_fk: false,
+        ordinal: 1,
+      },
+    },
+    {
+      id: '__value',
+      field: '__value',
+      title: 'Value',
+      name: 'Value',
+      width: 400,
+      meta: {
+        name: '__value',
+        db_type: 'any',
+        nullable: true,
+        default: null,
+        is_pk: false,
+        is_fk: false,
+        ordinal: 2,
+      },
+    },
+  ];
+}
+
+/**
+ * Generate columns for table mode (one column per object field).
+ * Used when array items are homogeneous objects.
+ */
+export function generateColumnsForTableMode(fieldNames: string[]): GridColumnV2[] {
+  return fieldNames.map((field, index) => ({
+    id: field,
+    field,
+    title: field,
+    name: field,
+    width: Math.max(120, Math.min(300, field.length * 10 + 40)),
+    meta: {
+      name: field,
+      db_type: 'any',
+      nullable: true,
+      default: null,
+      is_pk: false,
+      is_fk: false,
+      ordinal: index,
+    },
+  }));
+}
