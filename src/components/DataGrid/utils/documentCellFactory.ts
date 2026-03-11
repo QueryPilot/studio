@@ -397,46 +397,6 @@ export function generateColumnsFromDocuments(
 }
 
 /**
- * Generate columns for array items (when drilled into an array)
- */
-export function generateColumnsForArrayItems(): GridColumnV2[] {
-  return [
-    {
-      id: '__index',
-      field: '__index',
-      title: 'Index',
-      name: 'Index',
-      width: 80,
-      meta: {
-        name: '__index',
-        db_type: 'integer',
-        nullable: false,
-        default: null,
-        is_pk: true,
-        is_fk: false,
-        ordinal: 0,
-      },
-    },
-    {
-      id: '__value',
-      field: '__value',
-      title: 'Value',
-      name: 'Value',
-      width: 400,
-      meta: {
-        name: '__value',
-        db_type: 'any',
-        nullable: true,
-        default: null,
-        is_pk: false,
-        is_fk: false,
-        ordinal: 1,
-      },
-    },
-  ];
-}
-
-/**
  * Generate columns for typed-value mode (Index | Type | Value)
  * Used when array items are mixed types or primitives.
  */
