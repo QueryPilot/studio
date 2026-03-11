@@ -32,6 +32,7 @@ import {
   generateColumnsFromDocuments,
   generateColumnsForArrayItems,
   detectDocumentValueType,
+  mapDocumentValueTypeToGrid,
 } from '../utils/documentCellFactory';
 import {
   type DocumentFilter,
@@ -46,6 +47,10 @@ import { useGridPreferencesStore } from '../stores/gridPreferencesStore';
 
 // Stable empty array to prevent infinite re-renders when sortColumns is undefined
 const EMPTY_SORT_COLUMNS: SortColumn[] = [];
+
+// Column field names for key-value (single object) display mode
+const KV_KEY_FIELD = '__kv_key';
+const KV_VALUE_FIELD = '__kv_value';
 
 // ============================================================================
 // Types
@@ -508,8 +513,8 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     // Key-value mode for single nested objects
     if (isNestedSingleObject && displayDocuments.length === 1) {
       return [
-        { id: '__kv_key', field: '__kv_key', title: 'Key', name: 'Key', width: 200 },
-        { id: '__kv_value', field: '__kv_value', title: 'Value', name: 'Value', width: 400 },
+        { id: KV_KEY_FIELD, field: KV_KEY_FIELD, title: 'Key', name: 'Key', width: 200 },
+        { id: KV_VALUE_FIELD, field: KV_VALUE_FIELD, title: 'Value', name: 'Value', width: 400 },
       ];
     }
 
@@ -530,29 +535,6 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     return generateColumnsFromDocuments(displayDocuments as Record<string, unknown>[]);
   }, [displayDocuments, currentPath, isNestedSingleObject]);
 
-  // Map document value type to GridCellValueType
-  const mapToGridCellValueType = (docType: ReturnType<typeof detectDocumentValueType>): GridCellValueType => {
-    switch (docType) {
-      case 'number':
-        return 'Integer';
-      case 'boolean':
-        return 'Boolean';
-      case 'date':
-        return 'DateTime';
-      case 'null':
-        return 'Null';
-      case 'object':
-      case 'array':
-        return 'Json';
-      case 'binary':
-        return 'Binary';
-      case 'string':
-      case 'objectId':
-      default:
-        return 'Text';
-    }
-  };
-
   // Transform documents to GridRowModel (with optional client-side search filtering)
   const rows = useMemo<GridRowModel[]>(() => {
     // Apply client-side search filter if in search mode
@@ -570,16 +552,16 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       return Object.entries(obj).map(([key, value]) => {
         const valueType = detectDocumentValueType(value);
         return {
-          __kv_key: {
+          [KV_KEY_FIELD]: {
             value: key,
             db_type: 'string',
             value_type: 'Text' as GridCellValueType,
             is_truncated: false,
           },
-          __kv_value: {
+          [KV_VALUE_FIELD]: {
             value,
             db_type: valueType,
-            value_type: mapToGridCellValueType(valueType),
+            value_type: mapDocumentValueTypeToGrid(valueType),
             is_truncated: false,
           },
         } as GridRowModel;
@@ -595,7 +577,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         row[col.field] = {
           value,
           db_type: valueType,
-          value_type: mapToGridCellValueType(valueType),
+          value_type: mapDocumentValueTypeToGrid(valueType),
           is_truncated: false,
         };
       }
@@ -636,8 +618,8 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       }
 
       // Key-value mode cells
-      if (isNestedSingleObject && column.field === '__kv_key') {
-        const keyValue = (row.__kv_key?.value as string | undefined) ?? '';
+      if (isNestedSingleObject && column.field === KV_KEY_FIELD) {
+        const keyValue = (row[KV_KEY_FIELD]?.value as string | undefined) ?? '';
         return {
           kind: GridCellKind.Text,
           data: keyValue,
@@ -647,8 +629,8 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         };
       }
 
-      if (isNestedSingleObject && column.field === '__kv_value') {
-        const rawValue = row.__kv_value?.value;
+      if (isNestedSingleObject && column.field === KV_VALUE_FIELD) {
+        const rawValue = row[KV_VALUE_FIELD]?.value;
         return buildDocumentCell({
           value: rawValue,
           column,
@@ -692,8 +674,8 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       }
 
       // In KV mode, check the __kv_value column
-      if (isNestedSingleObject && column.field === '__kv_value') {
-        const rawValue = row.__kv_value?.value;
+      if (isNestedSingleObject && column.field === KV_VALUE_FIELD) {
+        const rawValue = row[KV_VALUE_FIELD]?.value;
         const valueType = detectDocumentValueType(rawValue);
         return valueType === 'object' || valueType === 'array';
       }
@@ -714,11 +696,11 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       }
 
       // Key-value mode: use the key column as the path segment
-      if (isNestedSingleObject && column.field === '__kv_value') {
-        const keyValue = rowData.__kv_key?.value as string | undefined;
+      if (isNestedSingleObject && column.field === KV_VALUE_FIELD) {
+        const keyValue = rowData[KV_KEY_FIELD]?.value as string | undefined;
         if (keyValue === undefined) return;
 
-        const rawValue = rowData.__kv_value?.value;
+        const rawValue = rowData[KV_VALUE_FIELD]?.value;
         const valueType = detectDocumentValueType(rawValue);
         const segmentType: PathSegment['type'] = valueType === 'array' ? 'array' : 'object';
 

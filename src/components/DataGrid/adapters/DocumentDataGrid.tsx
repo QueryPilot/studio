@@ -41,9 +41,9 @@ import {
   buildDocumentCell,
   detectDocumentValueType,
   generateColumnsFromDocuments,
+  mapDocumentValueTypeToGrid,
   type DocumentCellValue,
 } from "../utils/documentCellFactory";
-import { type GridCellValueType } from "@/types/cellValue";
 
 // ============================================================================
 // Types
@@ -125,29 +125,6 @@ function buildResultModeNullTypeHints(
   return hints;
 }
 
-function mapResultModeValueType(
-  valueType: DocumentCellValue["type"],
-): GridCellValueType {
-  switch (valueType) {
-    case "number":
-      return "Integer";
-    case "boolean":
-      return "Boolean";
-    case "date":
-      return "DateTime";
-    case "null":
-      return "Null";
-    case "object":
-    case "array":
-      return "Json";
-    case "binary":
-      return "Binary";
-    case "string":
-    case "objectId":
-    default:
-      return "Text";
-  }
-}
 
 // ============================================================================
 // Component
@@ -304,6 +281,30 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     lastDrilledCellRef.current = null;
   }, [data.currentPath]);
 
+  const flattenControl = (
+    <FlattenControl
+      enabled={flattenMode}
+      depth={flattenDepth}
+      onToggle={() => { setFlattenMode((prev) => !prev); }}
+      onDepthChange={setFlattenDepth}
+    />
+  );
+
+  const inspectorToggle = (
+    <Button
+      size="icon"
+      variant="outline"
+      className="h-7 w-7 shrink-0"
+      onClick={() => { setShowInspector((prev) => !prev); }}
+    >
+      {showInspector ? (
+        <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
+      ) : (
+        <IconLayoutSidebarRightExpand className="h-3.5 w-3.5" />
+      )}
+    </Button>
+  );
+
   const topToolbar = (
     <div className="flex flex-col gap-1.5 mb-1.5 p-1">
       {/* Row 1: BreadcrumbNav (only when drilled in) */}
@@ -315,59 +316,35 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
               collectionName={collection}
               documentId={data.getCurrentDocumentId()}
               onNavigate={data.navigateToPath}
-              onNavigateToRoot={() => {
-                    data.navigateToPath(-1);
-                  }}
+              onNavigateToRoot={() => { data.navigateToPath(-1); }}
               onStepOut={data.stepOut}
             />
           </div>
-          <FlattenControl
-            enabled={flattenMode}
-            depth={flattenDepth}
-            onToggle={() => {
-              setFlattenMode((prev) => !prev);
-            }}
-            onDepthChange={setFlattenDepth}
-          />
-          <Button
-            size="icon"
-            variant="outline"
-            className="h-7 w-7 shrink-0"
-            onClick={() => {
-              setShowInspector((prev) => !prev);
-            }}
-          >
-            {showInspector ? (
-              <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
-            ) : (
-              <IconLayoutSidebarRightExpand className="h-3.5 w-3.5" />
-            )}
-          </Button>
+          {flattenControl}
+          {inspectorToggle}
         </div>
       )}
 
       {/* Nested search - client-side only */}
       {data.currentPath.length > 0 && (
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1 min-w-0">
-            <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              type="text"
-              value={nestedSearchTerm}
-              onChange={(e) => { setNestedSearchTerm(e.target.value); }}
-              placeholder="Search nested values..."
-              className="h-7 w-full rounded border bg-background pl-7 pr-7 text-[11px] focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-            {nestedSearchTerm && (
-              <button
-                type="button"
-                onClick={() => { setNestedSearchTerm(""); }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                <IconX className="h-3 w-3" />
-              </button>
-            )}
-          </div>
+        <div className="relative flex-1 min-w-0">
+          <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <input
+            type="text"
+            value={nestedSearchTerm}
+            onChange={(e) => { setNestedSearchTerm(e.target.value); }}
+            placeholder="Search nested values..."
+            className="h-7 w-full rounded border bg-background pl-7 pr-7 text-[11px] focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          {nestedSearchTerm && (
+            <button
+              type="button"
+              onClick={() => { setNestedSearchTerm(""); }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <IconX className="h-3 w-3" />
+            </button>
+          )}
         </div>
       )}
 
@@ -391,53 +368,13 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
               clientSideFiltering={false}
             />
           </div>
-          <FlattenControl
-            enabled={flattenMode}
-            depth={flattenDepth}
-            onToggle={() => {
-              setFlattenMode((prev) => !prev);
-            }}
-            onDepthChange={setFlattenDepth}
-          />
-          <Button
-            size="icon"
-            variant="outline"
-            className="h-7 w-7 shrink-0"
-            onClick={() => {
-              setShowInspector((prev) => !prev);
-            }}
-          >
-            {showInspector ? (
-              <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
-            ) : (
-              <IconLayoutSidebarRightExpand className="h-3.5 w-3.5" />
-            )}
-          </Button>
+          {flattenControl}
+          {inspectorToggle}
         </div>
       ) : data.currentPath.length === 0 ? (
         <div className="flex justify-end gap-2">
-          <FlattenControl
-            enabled={flattenMode}
-            depth={flattenDepth}
-            onToggle={() => {
-              setFlattenMode((prev) => !prev);
-            }}
-            onDepthChange={setFlattenDepth}
-          />
-          <Button
-            size="icon"
-            variant="outline"
-            className="h-7 w-7"
-            onClick={() => {
-              setShowInspector((prev) => !prev);
-            }}
-          >
-            {showInspector ? (
-              <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
-            ) : (
-              <IconLayoutSidebarRightExpand className="h-3.5 w-3.5" />
-            )}
-          </Button>
+          {flattenControl}
+          {inspectorToggle}
         </div>
       ) : null}
     </div>
@@ -542,7 +479,7 @@ const DocumentResultDataGrid = memo(function DocumentResultDataGrid({
           row[column.field] = {
             value,
             db_type: valueType,
-            value_type: mapResultModeValueType(valueType),
+            value_type: mapDocumentValueTypeToGrid(valueType),
             is_truncated: false,
           };
         }

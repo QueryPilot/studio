@@ -7,6 +7,7 @@
 
 import { GridCellKind, type GridCell } from '@glideapps/glide-data-grid';
 import type { GridColumnV2 } from '../types';
+import type { GridCellValueType } from '@/types/cellValue';
 import {
   createDrillableObjectCell,
   createDrillableArrayCell,
@@ -85,6 +86,33 @@ export function detectDocumentValueType(value: unknown): DocumentCellValue['type
   }
 
   return 'string'; // Fallback
+}
+
+/**
+ * Map a document value type to a GridCellValueType for the DataGrid cell model.
+ */
+export function mapDocumentValueTypeToGrid(
+  valueType: DocumentCellValue['type'],
+): GridCellValueType {
+  switch (valueType) {
+    case 'number':
+      return 'Integer';
+    case 'boolean':
+      return 'Boolean';
+    case 'date':
+      return 'DateTime';
+    case 'null':
+      return 'Null';
+    case 'object':
+    case 'array':
+      return 'Json';
+    case 'binary':
+      return 'Binary';
+    case 'string':
+    case 'objectId':
+    default:
+      return 'Text';
+  }
 }
 
 // ============================================================================
