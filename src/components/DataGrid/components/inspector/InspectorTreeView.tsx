@@ -23,7 +23,6 @@ import {
 } from "./utils";
 import type { InspectorDocument, MergedFieldValue } from "./types";
 import { JsonTreeNode } from "./JsonTreeNode";
-import { JsonSubtreeEditor } from "./JsonSubtreeEditor";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -250,26 +249,22 @@ export const InspectorTreeView = memo(function InspectorTreeView({
         {isSingleDoc ? (
           // ---- Single document: full JSON tree ----
           <div className="py-1">
-            {subtreeEdit ? (
-              <JsonSubtreeEditor
-                initialValue={subtreeEdit.value}
-                onSave={handleSubtreeSave}
-                onCancel={handleSubtreeCancel}
-              />
-            ) : (
-              <JsonTreeNode
-                value={documents[0]}
-                depth={0}
-                path=""
-                normalizedSearch={normalizedSearch}
-                isLast={true}
-                onEditPrimitive={onCellEdit ? handleEditPrimitive : undefined}
-                onEditSubtree={onCellEdit ? handleEditSubtree : undefined}
-                pendingEditPaths={pendingEditLabels}
-                onUndoEdit={onUndoCellEdit}
-                dataTypeMap={dataTypeMap}
-              />
-            )}
+            <JsonTreeNode
+              value={documents[0]}
+              depth={0}
+              path=""
+              normalizedSearch={normalizedSearch}
+              isLast={true}
+              onEditPrimitive={onCellEdit ? handleEditPrimitive : undefined}
+              onEditSubtree={onCellEdit ? handleEditSubtree : undefined}
+              pendingEditPaths={pendingEditLabels}
+              onUndoEdit={onUndoCellEdit}
+              dataTypeMap={dataTypeMap}
+              subtreeEditPath={subtreeEdit?.path}
+              subtreeEditValue={subtreeEdit?.value}
+              onSubtreeSave={handleSubtreeSave}
+              onSubtreeCancel={handleSubtreeCancel}
+            />
           </div>
         ) : (
           // ---- Multiple documents: merged field rows ----

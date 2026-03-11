@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { toSearchableText, rawValueForEdit, parseLiteralValue } from "./utils";
+import { JsonSubtreeEditor } from "./JsonSubtreeEditor";
 
 // ============================================================================
 // Constants
@@ -57,6 +58,14 @@ export interface JsonTreeNodeProps {
   dataType?: string;
   /** Map from field name → data type, passed to depth-1 children for tooltip display. */
   dataTypeMap?: Map<string, string>;
+  /** Path of the subtree currently being edited (shows inline CodeEditor). */
+  subtreeEditPath?: string;
+  /** Value snapshot for the subtree being edited. */
+  subtreeEditValue?: unknown;
+  /** Save handler for inline subtree editor. */
+  onSubtreeSave?: (value: unknown) => void;
+  /** Cancel handler for inline subtree editor. */
+  onSubtreeCancel?: () => void;
 }
 
 // ============================================================================
@@ -213,6 +222,10 @@ export const JsonTreeNode = memo(function JsonTreeNode({
   onUndoEdit,
   dataType,
   dataTypeMap,
+  subtreeEditPath,
+  subtreeEditValue,
+  onSubtreeSave,
+  onSubtreeCancel,
 }: JsonTreeNodeProps) {
   const [collapsed, setCollapsed] = useState(depth >= DEFAULT_EXPAND_DEPTH);
   const [editing, setEditing] = useState(false);
@@ -351,6 +364,9 @@ export const JsonTreeNode = memo(function JsonTreeNode({
   const childEditPrimitive = depth === 0 ? onEditPrimitive : undefined;
   const childEditSubtree = depth === 0 ? onEditSubtree : undefined;
 
+  // Is this node the one being edited via inline CodeEditor?
+  const isSubtreeEditing = subtreeEditPath === path && onSubtreeSave && onSubtreeCancel;
+
   return (
     <>
       {/* Opening line: key: { / key: [ */}
@@ -424,8 +440,19 @@ export const JsonTreeNode = memo(function JsonTreeNode({
         )}
       </div>
 
-      {/* Children (when expanded) */}
-      {!isCollapsed && (
+      {/* Inline subtree editor replaces children when active */}
+      {isSubtreeEditing && (
+        <div style={{ paddingLeft: `${indent + INDENT_PX}px` }}>
+          <JsonSubtreeEditor
+            initialValue={subtreeEditValue}
+            onSave={onSubtreeSave}
+            onCancel={onSubtreeCancel}
+          />
+        </div>
+      )}
+
+      {/* Children (when expanded and not editing this subtree) */}
+      {!isCollapsed && !isSubtreeEditing && (
         <>
           {entries.map(([key, childValue], index) => {
             const childPath = path ? `${path}.${key}` : key;
@@ -443,6 +470,10 @@ export const JsonTreeNode = memo(function JsonTreeNode({
                 pendingEditPaths={pendingEditPaths}
                 onUndoEdit={onUndoEdit}
                 dataType={dataTypeMap?.get(key)}
+                subtreeEditPath={subtreeEditPath}
+                subtreeEditValue={subtreeEditValue}
+                onSubtreeSave={onSubtreeSave}
+                onSubtreeCancel={onSubtreeCancel}
               />
             );
           })}
