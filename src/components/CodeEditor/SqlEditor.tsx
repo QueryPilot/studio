@@ -51,6 +51,7 @@ import {
   searchKeymap,
   highlightSelectionMatches,
   search,
+  selectNextOccurrence,
 } from "@codemirror/search";
 import {
   autocompletion,
@@ -749,6 +750,9 @@ export const SqlEditor = memo(
           search({ top: true }),
 
           Prec.high(keymap.of(historyKeymap)),
+          Prec.high(keymap.of([
+            { key: "Mod-d", run: selectNextOccurrence, preventDefault: true },
+          ])),
           keymap.of([
             ...closeBracketsKeymap,
             ...completionKeymap,

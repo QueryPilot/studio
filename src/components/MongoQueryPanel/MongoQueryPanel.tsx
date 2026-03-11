@@ -243,9 +243,11 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
       <ResizablePanelGroup
         orientation="vertical"
         className="h-full rounded-xl overflow-hidden"
+        autoSaveId="mongo-query-panel"
       >
         {/* Top: Editor */}
         <ResizablePanel
+          id="mongo-editor"
           defaultSize={showResults ? "40" : "100"}
           minSize="20"
           className="flex flex-col"
@@ -285,7 +287,7 @@ export const MongoQueryPanel = memo(function MongoQueryPanel({
             </div>
 
             {/* Bottom: Results */}
-            <ResizablePanel defaultSize="60" minSize="20">
+            <ResizablePanel id="mongo-results" defaultSize="60" minSize="20">
               <MongoResultViewer
                 result={result}
                 viewMode={viewMode}

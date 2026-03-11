@@ -970,10 +970,11 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         </div>
       ) : null}
 
-      <ResizablePanelGroup orientation="horizontal" className="flex-1">
+      <ResizablePanelGroup orientation="horizontal" className="flex-1" autoSaveId="erd-panel-split">
         {/* Code Editor Panel - LEFT side */}
         {isCodeVisible && (
           <ResizablePanel
+            id="erd-code"
             defaultSize="40"
             minSize="20"
             maxSize="70"
@@ -997,6 +998,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
 
         {/* Visual Diagram Panel - RIGHT side or full width */}
         <ResizablePanel
+          id="erd-diagram"
           defaultSize={isCodeVisible ? "60" : "100"}
           minSize="30"
           className="relative"

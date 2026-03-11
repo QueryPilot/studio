@@ -1,13 +1,33 @@
 "use client";
 
 import * as ResizablePrimitive from "react-resizable-panels";
+import { useCallback } from "react";
 
 import { cn } from "@/lib/utils";
 
 function ResizablePanelGroup({
   className,
+  autoSaveId,
+  defaultLayout,
+  onLayoutChanged,
   ...props
-}: ResizablePrimitive.GroupProps) {
+}: ResizablePrimitive.GroupProps & {
+  autoSaveId?: string;
+}) {
+  const persisted = ResizablePrimitive.useDefaultLayout({
+    id: autoSaveId ?? "__noop__",
+  });
+
+  const handleLayoutChanged = useCallback(
+    (layout: ResizablePrimitive.Layout) => {
+      if (autoSaveId) {
+        persisted.onLayoutChanged(layout);
+      }
+      onLayoutChanged?.(layout);
+    },
+    [autoSaveId, persisted, onLayoutChanged],
+  );
+
   return (
     <ResizablePrimitive.Group
       data-slot="resizable-panel-group"
@@ -15,6 +35,10 @@ function ResizablePanelGroup({
         "flex h-full w-full aria-[orientation=vertical]:flex-col",
         className,
       )}
+      defaultLayout={
+        autoSaveId ? (persisted.defaultLayout ?? defaultLayout) : defaultLayout
+      }
+      onLayoutChanged={handleLayoutChanged}
       {...props}
     />
   );

@@ -482,6 +482,7 @@ export function WorkspaceScreen() {
         <ResizablePanelGroup
           orientation="horizontal"
           className="flex-1 p-1.5 pt-0 bg-secondary"
+          autoSaveId="workspace-sidebars"
         >
           {/* Left Sidebar - Database Explorer */}
           {sidebars.left && (

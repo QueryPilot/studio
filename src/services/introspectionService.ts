@@ -340,6 +340,7 @@ export const IntrospectionService = {
       is_trigger: getBool(row[7]),
       source: getString(row[8]) || undefined,
       routine_type: (getString(row[9]) as "FUNCTION" | "PROCEDURE") || undefined,
+      is_extension: row[10] != null ? getBool(row[10]) : undefined,
     }));
   },
 

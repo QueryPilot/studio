@@ -60,6 +60,7 @@ export interface FunctionMeta {
   return_type: string;
   arguments: string[];
   routine_type?: "FUNCTION" | "PROCEDURE";
+  is_extension?: boolean;
 }
 
 export interface TriggerMeta {
@@ -704,6 +705,7 @@ class DatabaseService {
         return_type: f.return_type,
         arguments: f.arguments.split(",").map((a) => a.trim()),
         routine_type: f.routine_type || undefined,
+        is_extension: f.is_extension,
       }));
     } catch (error) {
       logger.error("Failed to list functions:", error);

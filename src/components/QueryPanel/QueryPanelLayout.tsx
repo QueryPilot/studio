@@ -126,20 +126,24 @@ export function QueryPanelLayout({
         <ResizablePanelGroup
           orientation="horizontal"
           className="h-full rounded-xl overflow-hidden"
+          autoSaveId="query-panel-outer"
         >
           <ResizablePanel
+            id="qp-editor-wrapper"
             defaultSize="100"
             minSize="30"
             className="rounded-xl overflow-hidden"
           >
-            <ResizablePanelGroup orientation="vertical" className="h-full">
+            <ResizablePanelGroup orientation="vertical" className="h-full" autoSaveId="query-panel-editor-results">
               <ResizablePanel
+                id="qp-editor"
                 defaultSize="50"
                 minSize="20"
                 className="border-none"
               >
-                <ResizablePanelGroup orientation="horizontal" className="h-full">
+                <ResizablePanelGroup orientation="horizontal" className="h-full" autoSaveId="query-panel-editor-outline">
                   <ResizablePanel
+                    id="qp-sql-editor"
                     defaultSize="75"
                     minSize="30"
                     className="flex flex-col relative"
@@ -205,6 +209,7 @@ export function QueryPanelLayout({
                     <>
                       <ResizableHandle className="bg-border !w-0.5 hover:bg-primary/50 transition-colors" />
                       <ResizablePanel
+                        id="qp-outline"
                         defaultSize="25"
                         minSize="15"
                         maxSize="50"
@@ -260,7 +265,7 @@ export function QueryPanelLayout({
                     <ResizableHandle className="bg-secondary !h-1 rounded-xl" />
                   </div>
 
-                  <ResizablePanel defaultSize="50" minSize="20">
+                  <ResizablePanel id="qp-results" defaultSize="50" minSize="20">
                     <div className="flex flex-col h-full">
                       {batchResults.length > 0 && (
                         <div className="shrink-0 border-b border-border bg-muted/20 px-2 py-1">
