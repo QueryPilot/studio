@@ -48,6 +48,9 @@ export function useNestedArrayLayout(
           setWorkerLayout({ mode, columns, isAnalyzing: false });
         }
       };
+      workerRef.current.onerror = () => {
+        setWorkerLayout({ mode: 'typed-value', columns: [], isAnalyzing: false });
+      };
     }
     return workerRef.current;
   }, []);

@@ -589,11 +589,19 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     // Array table mode: each object item becomes a row with field columns
     if (isArrayLevel && arrayLayout.mode === 'table' && filteredDocs.length > 0) {
       return filteredDocs.map((doc) => {
-        const item = (doc as Record<string, unknown>).__value;
+        const d = doc as Record<string, unknown>;
+        const item = d.__value;
         const obj = (typeof item === 'object' && item !== null && !Array.isArray(item))
           ? item as Record<string, unknown>
           : {};
         const row: GridRowModel = {};
+        // Preserve original array index for correct drill-down after filtering
+        row.__index = {
+          value: d.__index,
+          db_type: 'number',
+          value_type: 'Integer' as GridCellValueType,
+          is_truncated: false,
+        };
         for (const col of columns) {
           const value = obj[col.field];
           const valueType = detectDocumentValueType(value);
@@ -791,18 +799,16 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       }
 
       // Table mode: drill into a cell's nested object/array value
-      const isArrayLevelNav = currentPath.length > 0 && currentPath[currentPath.length - 1]?.type === 'array';
-      if (isArrayLevelNav && arrayLayout.mode === 'table') {
-        // In table mode, each row IS an object — drill into a nested field
-        // Push the array index segment, then the field segment
-        const rowIndex = event.rowIndex;
+      if (isArrayLevel && arrayLayout.mode === 'table') {
+        // Use stored __index (original array position), not visual row index
+        const arrayIndex = ((rowData.__index as { value?: unknown } | undefined)?.value as number | undefined) ?? event.rowIndex;
         const rawFieldValue = getRawValueFromRow(rowData, column);
         const fieldValueType = detectDocumentValueType(rawFieldValue);
         const fieldType: PathSegment['type'] = fieldValueType === 'array' ? 'array' : 'object';
 
         setCurrentPath((prev) => [
           ...prev,
-          { key: rowIndex, label: `[${rowIndex}]`, type: 'object' },
+          { key: arrayIndex, label: `[${arrayIndex}]`, type: 'object' },
           { key: column.field, label: column.field, type: fieldType },
         ]);
         return;
@@ -823,13 +829,13 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         }
       }
 
-      const arrayIndex = isArrayLevelNav
+      const arrayIndex = isArrayLevel
         ? (rowData.__index as { value?: unknown } | undefined)?.value
         : undefined;
       const terminalType: PathSegment['type'] = valueType === 'array' ? 'array' : 'object';
 
       const nextSegments: PathSegment[] = [];
-      if (isArrayLevelNav && typeof arrayIndex === 'number') {
+      if (isArrayLevel && typeof arrayIndex === 'number') {
         nextSegments.push({
           key: arrayIndex,
           label: `[${arrayIndex}]`,
@@ -863,7 +869,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         return nextPath;
       });
     },
-    [canStepInto, currentPath, getRawValueFromRow, isNestedSingleObject, arrayLayout]
+    [canStepInto, currentPath, getRawValueFromRow, isNestedSingleObject, arrayLayout, isArrayLevel]
   );
 
   // Step out one level
@@ -1013,7 +1019,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     await refetchNestedQuery();
   }, [currentPath.length, refetchNestedQuery, refetchRootDocumentsPreservingWindow]);
 
-  const isLoading = currentPath.length === 0 ? isRootLoading : isNestedLoading;
+  const isLoading = (currentPath.length === 0 ? isRootLoading : isNestedLoading) || arrayLayout.isAnalyzing;
   const activeError = currentPath.length === 0 ? rootError : nestedError;
   const error = activeError instanceof Error ? activeError : null;
 
