@@ -354,8 +354,8 @@ export const ConnectionSection = forwardRef<
   }, [redisDatabases, redisMaxDbs]);
 
   // Filter preferences
-  const savedVisibleDbs = useRedisDbFilterStore((s) =>
-    s.getVisibleDbs(connectionId)
+  const savedVisibleDbs = useRedisDbFilterStore(
+    (s) => s.filters[connectionId] ?? null
   );
   const setVisibleDbs = useRedisDbFilterStore((s) => s.setVisibleDbs);
 
