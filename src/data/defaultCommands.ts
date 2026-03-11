@@ -290,6 +290,115 @@ export const defaultCommands: Command[] = [
     },
   },
   {
+    id: "workbench.action.closeCurrentTab",
+    label: "Close Current Tab",
+    category: "Workbench",
+    when: "activeEditor",
+    handler: () => {
+      const store = useWorkbenchStore.getState();
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
+      if (!panelId) return;
+      const panel = store.panelContents.get(panelId);
+      if (!panel) return;
+      const activeTabId = panel.activeTabId || panel.tabIds[0];
+      if (!activeTabId) return;
+      // Last tab in the only panel — close the window
+      if (store.panelContents.size === 1 && panel.tabIds.length <= 1) {
+        void windowManager.closeCurrentWindow();
+        return;
+      }
+      store.removeTab(panelId, activeTabId);
+    },
+  },
+  {
+    id: "workbench.action.closeOtherTabs",
+    label: "Close Other Tabs in Current Panel",
+    category: "Workbench",
+    when: "activeEditor",
+    handler: () => {
+      const store = useWorkbenchStore.getState();
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
+      if (!panelId) return;
+      const panel = store.panelContents.get(panelId);
+      if (!panel) return;
+      const activeTabId = panel.activeTabId || panel.tabIds[0];
+      if (!activeTabId) return;
+      for (const tabId of [...panel.tabIds]) {
+        if (tabId !== activeTabId) {
+          store.removeTab(panelId, tabId);
+        }
+      }
+    },
+  },
+  {
+    id: "workbench.action.closeOtherTabsAll",
+    label: "Close All Other Tabs",
+    category: "Workbench",
+    when: "activeEditor",
+    handler: () => {
+      const store = useWorkbenchStore.getState();
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
+      if (!panelId) return;
+      const panel = store.panelContents.get(panelId);
+      if (!panel) return;
+      const activeTabId = panel.activeTabId || panel.tabIds[0];
+      if (!activeTabId) return;
+      // Close all tabs in other panels
+      for (const [otherPanelId, otherPanel] of store.panelContents.entries()) {
+        if (otherPanelId === panelId) continue;
+        for (const tabId of [...otherPanel.tabIds]) {
+          store.removeTab(otherPanelId, tabId);
+        }
+      }
+      // Close other tabs in the current panel
+      for (const tabId of [...panel.tabIds]) {
+        if (tabId !== activeTabId) {
+          store.removeTab(panelId, tabId);
+        }
+      }
+    },
+  },
+  {
+    id: "workbench.action.closePanel",
+    label: "Close This Panel",
+    category: "Workbench",
+    when: "activeEditor && hasMultipleEditors",
+    handler: () => {
+      const store = useWorkbenchStore.getState();
+      const panelId = usePanelFocusStore.getState().focusedPanelId;
+      if (!panelId) return;
+      const tabStateStore = useTabStateStore.getState();
+      const panel = store.panelContents.get(panelId);
+      if (panel) {
+        for (const tabId of panel.tabIds) {
+          tabStateStore.clearQueryState(tabId);
+        }
+      }
+      store.closePanelAction(panelId);
+    },
+  },
+  {
+    id: "workbench.action.mergeAllPanels",
+    label: "Bring All Tabs to Single Panel",
+    category: "Workbench",
+    when: "activeEditor && hasMultipleEditors",
+    handler: () => {
+      const store = useWorkbenchStore.getState();
+      const focusedPanelId = usePanelFocusStore.getState().focusedPanelId;
+      const panelIds = Array.from(store.panelContents.keys());
+      const targetPanelId = focusedPanelId ?? panelIds[0];
+      if (!targetPanelId) return;
+      for (const panelId of panelIds) {
+        if (panelId === targetPanelId) continue;
+        const panel = store.panelContents.get(panelId);
+        if (!panel) continue;
+        for (const tabId of [...panel.tabIds]) {
+          store.moveTab(tabId, panelId, targetPanelId);
+        }
+      }
+    },
+  },
+  {
     id: "workbench.action.refreshAll",
     label: "Refresh All",
     category: "Workbench",
