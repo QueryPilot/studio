@@ -357,12 +357,13 @@ export const JsonTreeNode = memo(function JsonTreeNode({
     setCollapsed((prev) => !prev);
   };
 
-  // Edit callbacks are only passed to direct children of the root (depth 0→1).
-  // Deeper nodes are read-only because onCellEdit expects a top-level field
-  // key and a complete replacement value — editing a nested primitive would
-  // overwrite the parent object.
+  // Primitive editing is only for top-level fields (depth 0→1) because
+  // onCellEdit expects a top-level field key. Editing a nested primitive
+  // like "address.city" would overwrite the entire "address" object.
+  // Subtree (object/array) editing is allowed at ALL depths — the save
+  // handler in InspectorTreeView reconstructs the top-level value with
+  // the nested edit applied.
   const childEditPrimitive = depth === 0 ? onEditPrimitive : undefined;
-  const childEditSubtree = depth === 0 ? onEditSubtree : undefined;
 
   // Is this node the one being edited via inline CodeEditor?
   const isSubtreeEditing = subtreeEditPath === path && onSubtreeSave && onSubtreeCancel;
@@ -442,13 +443,11 @@ export const JsonTreeNode = memo(function JsonTreeNode({
 
       {/* Inline subtree editor replaces children when active */}
       {isSubtreeEditing && (
-        <div style={{ paddingLeft: `${indent + INDENT_PX}px` }}>
-          <JsonSubtreeEditor
-            initialValue={subtreeEditValue}
-            onSave={onSubtreeSave}
-            onCancel={onSubtreeCancel}
-          />
-        </div>
+        <JsonSubtreeEditor
+          initialValue={subtreeEditValue}
+          onSave={onSubtreeSave}
+          onCancel={onSubtreeCancel}
+        />
       )}
 
       {/* Children (when expanded and not editing this subtree) */}
@@ -466,7 +465,7 @@ export const JsonTreeNode = memo(function JsonTreeNode({
                 normalizedSearch={normalizedSearch}
                 isLast={index === entries.length - 1}
                 onEditPrimitive={childEditPrimitive}
-                onEditSubtree={childEditSubtree}
+                onEditSubtree={onEditSubtree}
                 pendingEditPaths={pendingEditPaths}
                 onUndoEdit={onUndoEdit}
                 dataType={dataTypeMap?.get(key)}
