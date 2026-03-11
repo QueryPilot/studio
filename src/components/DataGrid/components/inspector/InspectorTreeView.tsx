@@ -19,6 +19,7 @@ import {
   mergeFieldValues,
   formatValueForDisplay,
   rawValueForEdit,
+  parseLiteralValue,
 } from "./utils";
 import type { InspectorDocument, MergedFieldValue } from "./types";
 import { JsonTreeNode } from "./JsonTreeNode";
@@ -201,17 +202,11 @@ export const InspectorTreeView = memo(function InspectorTreeView({
     });
   }, [allKeys, documents, normalizedSearch]);
 
-  // Edit handlers — only top-level fields are editable.
-  // Nested primitives (path contains ".") can't be edited safely because
-  // onCellEdit expects a top-level field key and a complete replacement value.
-  // Editing "address.city" would call onCellEdit("address", "New York"),
-  // replacing the entire address object with a string.
+  // Edit callbacks receive a top-level field path from JsonTreeNode
+  // (nested editing is gated at the JsonTreeNode layer).
   const handleEditPrimitive = useCallback(
     (path: string, value: unknown) => {
-      if (!onCellEdit) return;
-      // Only allow editing top-level fields (no dots in path)
-      if (path.includes(".")) return;
-      onCellEdit(path, value);
+      onCellEdit?.(path, value);
     },
     [onCellEdit],
   );
@@ -225,11 +220,8 @@ export const InspectorTreeView = memo(function InspectorTreeView({
 
   const handleSubtreeSave = useCallback(
     (newValue: unknown) => {
-      if (subtreeEdit && onCellEdit) {
-        // Only allow editing top-level fields
-        if (!subtreeEdit.path.includes(".")) {
-          onCellEdit(subtreeEdit.path, newValue);
-        }
+      if (subtreeEdit) {
+        onCellEdit?.(subtreeEdit.path, newValue);
       }
       setSubtreeEdit(null);
     },
@@ -242,13 +234,7 @@ export const InspectorTreeView = memo(function InspectorTreeView({
 
   // For multi-doc badge click — commit the clicked badge value for all selected rows
   const handleBadgeStartEdit = useCallback((field: string, rawValue: string) => {
-    if (!onCellEdit) return;
-    let parsed: unknown = rawValue;
-    if (rawValue === "null") parsed = null;
-    else if (rawValue === "undefined") parsed = undefined;
-    else if (rawValue === "true") parsed = true;
-    else if (rawValue === "false") parsed = false;
-    onCellEdit(field, parsed);
+    onCellEdit?.(field, parseLiteralValue(rawValue));
   }, [onCellEdit]);
 
   return (
