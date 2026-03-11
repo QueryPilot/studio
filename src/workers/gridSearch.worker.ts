@@ -7,7 +7,7 @@ export interface GridSearchRequest {
   id: number;
   /** Stringified cell values per row: rows[rowIdx][colIdx] = string */
   rowValues: string[][];
-  /** Search term (lowercased by caller) */
+  /** Search term (lowercased internally by the worker) */
   searchTerm: string;
 }
 
