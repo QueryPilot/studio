@@ -210,14 +210,8 @@ impl RedisAdapter {
         Ok(())
     }
 
-    /// Select a different database (0-15)
+    /// Select a different database
     pub async fn select_db(&self, db: u8) -> Result<(), AppError> {
-        if db > 15 {
-            return Err(AppError::InvalidInput(
-                "Redis database index must be 0-15".to_string(),
-            ));
-        }
-
         let client = self.client.read().await;
         match client.as_ref() {
             Some(c) => {
@@ -1384,13 +1378,6 @@ mod tests {
         let adapter = RedisAdapter::new();
         let result = adapter.select_db(2).await;
         assert!(result.is_err(), "select_db should fail when not connected");
-    }
-
-    #[tokio::test]
-    async fn test_select_db_validates_range() {
-        let adapter = RedisAdapter::new();
-        let result = adapter.select_db(16).await;
-        assert!(result.is_err(), "select_db should reject db index > 15");
     }
 
     #[tokio::test]
