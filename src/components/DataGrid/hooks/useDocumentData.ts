@@ -406,13 +406,33 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       return undefined;
     }
 
-    const projection: Record<string, 0 | 1> = { _id: 1 };
     const candidatePaths = schemaSample.fields
       .map((field) => projectionPathFromSamplePath(field.path))
       .filter((path): path is string => Boolean(path))
       .slice(0, 120);
 
-    for (const path of candidatePaths) {
+    // Sort so children come before parents (longer paths first).
+    // Then skip any path that is a prefix of an already-included path,
+    // because MongoDB rejects projections with both "a" and "a.b".
+    const sorted = [...candidatePaths].sort((a, b) => b.length - a.length);
+    const kept = new Set<string>();
+
+    for (const path of sorted) {
+      // Check if any already-kept path starts with this path + "."
+      let isParentOfKept = false;
+      for (const existing of kept) {
+        if (existing.startsWith(path + '.')) {
+          isParentOfKept = true;
+          break;
+        }
+      }
+      if (!isParentOfKept) {
+        kept.add(path);
+      }
+    }
+
+    const projection: Record<string, 0 | 1> = { _id: 1 };
+    for (const path of kept) {
       projection[path] = 1;
     }
 
