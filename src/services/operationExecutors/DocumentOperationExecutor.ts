@@ -10,6 +10,22 @@ import type {
   DocumentOperationExecutor as DocumentOperationExecutorInterface,
 } from './types';
 
+import { KV_KEY_FIELD, KV_VALUE_FIELD } from '@/components/DataGrid/hooks/useDocumentData';
+
+/** Synthetic grid-only keys that must not reach MongoDB filters. */
+const SYNTHETIC_KEYS: ReadonlySet<string> = new Set([KV_KEY_FIELD, KV_VALUE_FIELD]);
+
+/** Remove synthetic grid keys (e.g. __kv_key) from primaryKeys before using as MongoDB filter. */
+function stripSyntheticKeys(keys: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(keys)) {
+    if (!SYNTHETIC_KEYS.has(k)) {
+      result[k] = v;
+    }
+  }
+  return result;
+}
+
 type MongoOperation = {
   type: 'insert' | 'update' | 'delete';
   collection: string;
@@ -151,7 +167,7 @@ export class DocumentOperationExecutor implements DocumentOperationExecutorInter
           newValue?: unknown;
         };
 
-        const filter = payload.primaryKeys ?? {};
+        const filter = stripSyntheticKeys(payload.primaryKeys ?? {});
         const update = payload.column
           ? { $set: { [payload.column]: payload.newValue } }
           : {};
@@ -169,7 +185,7 @@ export class DocumentOperationExecutor implements DocumentOperationExecutorInter
         return {
           type: 'delete',
           collection,
-          filter: payload.primaryKeys ?? {},
+          filter: stripSyntheticKeys(payload.primaryKeys ?? {}),
         };
       }
 

@@ -2,8 +2,8 @@ import { memo, useCallback, useMemo } from "react";
 import {
   IconChevronRight,
   IconHome,
+  IconBraces,
   IconBrackets,
-  IconList,
   IconArrowUp,
   IconCopy,
   IconFileDescription,
@@ -51,9 +51,9 @@ const SegmentIcon = memo(function SegmentIcon({
 }) {
   switch (type) {
     case "array":
-      return <IconList className="h-3 w-3" />;
-    case "object":
       return <IconBrackets className="h-3 w-3" />;
+    case "object":
+      return <IconBraces className="h-3 w-3" />;
     default:
       return null;
   }
@@ -171,7 +171,10 @@ export const BreadcrumbNav = memo(function BreadcrumbNav({
       {breadcrumbItems.map((item, itemIndex) => {
         if (item.kind === "ellipsis") {
           return (
-            <div key={`ellipsis-${itemIndex}`} className="flex items-center gap-1">
+            <div
+              key={`ellipsis-${itemIndex}`}
+              className="flex items-center gap-1"
+            >
               <IconChevronRight className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
               <span className="px-1 text-muted-foreground/70">…</span>
             </div>
@@ -179,31 +182,32 @@ export const BreadcrumbNav = memo(function BreadcrumbNav({
         }
         const { segment, originalIndex } = item;
         return (
-        <div
-          key={`${String(segment.key)}-${originalIndex}-${itemIndex}`}
-          className="flex items-center gap-1"
-        >
-          <IconChevronRight className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-          <button
-            type="button"
-            onClick={() => {
-              handleSegmentClick(originalIndex);
-            }}
-            className={cn(
-              "flex items-center gap-1.5 px-2 py-1 rounded-md",
-              "hover:bg-accent transition-colors",
-              "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1",
-              originalIndex === path.length - 1
-                ? "text-foreground font-medium bg-accent/50"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-            title={segment.label}
+          <div
+            key={`${String(segment.key)}-${originalIndex}-${itemIndex}`}
+            className="flex items-center gap-1"
           >
-            <SegmentIcon type={segment.type} />
-            <span className="truncate max-w-[100px]">{segment.label}</span>
-          </button>
-        </div>
-      )})}
+            <IconChevronRight className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+            <button
+              type="button"
+              onClick={() => {
+                handleSegmentClick(originalIndex);
+              }}
+              className={cn(
+                "flex items-center gap-1.5 px-2 py-1 rounded-md",
+                "hover:bg-accent transition-colors",
+                "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1",
+                originalIndex === path.length - 1
+                  ? "text-foreground font-medium bg-accent/50"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              title={segment.label}
+            >
+              <SegmentIcon type={segment.type} />
+              <span className="truncate max-w-[100px]">{segment.label}</span>
+            </button>
+          </div>
+        );
+      })}
 
       {path.length > 0 && (
         <div className="ml-auto flex items-center gap-1 shrink-0">

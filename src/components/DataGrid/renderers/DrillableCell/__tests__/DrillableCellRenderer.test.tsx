@@ -172,7 +172,7 @@ describe('DrillableCell types', () => {
       expect(cell.kind).toBe(GridCellKind.Custom);
       expect(cell.data.kind).toBe(DRILLABLE_CELL_KIND);
       expect(cell.data.type).toBe('object');
-      expect(cell.data.preview).toBe('{name, age, +1}');
+      expect(cell.data.preview).toBe('{name: "John", age: 30, +1}');
       expect(cell.data.itemCount).toBe(3);
       expect(cell.data.canDrillDown).toBe(true);
       expect(cell.readonly).toBe(true);
@@ -183,7 +183,7 @@ describe('DrillableCell types', () => {
       const value = { name: 'John' };
       const cell = createDrillableObjectCell(value);
 
-      expect(cell.data.preview).toBe('{name}');
+      expect(cell.data.preview).toBe('{name: "John"}');
       expect(cell.data.itemCount).toBe(1);
     });
 
