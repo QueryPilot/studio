@@ -223,6 +223,7 @@ export interface Function {
   is_window: boolean;
   is_trigger: boolean;
   source?: string;
+  is_extension?: boolean;
 }
 
 export interface Index {

@@ -377,7 +377,13 @@ SELECT DISTINCT ON (n.nspname, p.proname, pg_get_function_identity_arguments(p.o
     p.prokind = 'w' as is_window,
     p.proisstrict as is_trigger,
     pg_get_functiondef(p.oid) as source,
-    CASE WHEN p.prokind = 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END as routine_type
+    CASE WHEN p.prokind = 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END as routine_type,
+    EXISTS (
+        SELECT 1 FROM pg_depend d
+        JOIN pg_extension e ON e.oid = d.refobjid
+        WHERE d.objid = p.oid
+          AND d.deptype = 'e'
+    ) as is_extension
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 JOIN pg_language l ON l.oid = p.prolang

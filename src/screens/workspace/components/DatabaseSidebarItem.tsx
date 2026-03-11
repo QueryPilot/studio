@@ -28,6 +28,8 @@ interface SidebarSectionProps {
   stickyClass?: string;
   onAdd?: () => void;
   addTooltip?: string;
+  /** Extra content to render in the header (e.g. filter dropdowns) */
+  headerExtra?: ReactNode;
   /** Context menu handlers */
   onExpandAll?: () => void;
   onCollapseAll?: () => void;
@@ -44,6 +46,7 @@ export function SidebarSection({
   stickyClass = "sticky top-0 bg-background z-20",
   onAdd,
   addTooltip,
+  headerExtra,
   onExpandAll,
   onCollapseAll,
   onSelectAll,
@@ -67,6 +70,14 @@ export function SidebarSection({
           {count}
         </span>
       </button>
+      {headerExtra && (
+        <div
+          className="shrink-0"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {headerExtra}
+        </div>
+      )}
       {onAdd && (
         <button
           className="p-1 mr-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
@@ -99,7 +110,7 @@ export function SidebarSection({
       <div className={cn(stickyClass, "group/section")}>
         {hasContextMenu ? (
           <ContextMenu>
-            <ContextMenuTrigger render={headerContent} />
+            <ContextMenuTrigger>{headerContent}</ContextMenuTrigger>
             <ContextMenuContent>
               {onExpandAll && (
                 <ContextMenuItem onClick={onExpandAll}>

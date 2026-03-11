@@ -58,26 +58,18 @@ export interface UnifiedItem {
 
 type TableEntityType = "table" | "view" | "materializedView";
 
-// System function prefixes to filter out (same as useSchemaData)
-const SYSTEM_FUNCTION_PREFIXES = [
-  "pg_", "pgp_", "pgsodium_", "hstore_", "json_", "jsonb_", "array_",
-  "enum_", "range_", "ts_", "txid_", "uuid_", "xml_", "inet_", "cidr_",
-  "macaddr_", "bit_", "varbit_", "bytea_", "lo_", "large_object_", "obj_",
-  "oid", "regclass", "regconfig", "regdictionary", "regnamespace",
-  "regoper", "regoperator", "regproc", "regprocedure", "regrole", "regtype",
-];
-
 const filterUserFunctions = (functions: FunctionMeta[]): FunctionMeta[] => {
   const userFunctions = functions.filter((func) => {
+    // Skip extension functions (flagged by pg_depend + pg_extension query)
+    if (func.is_extension) {
+      return false;
+    }
+
     if (func.schema === "pg_catalog" || func.schema === "information_schema") {
       return false;
     }
 
     const funcNameLower = func.name.toLowerCase();
-    if (SYSTEM_FUNCTION_PREFIXES.some((prefix) => funcNameLower.startsWith(prefix))) {
-      return false;
-    }
-
     if (funcNameLower.includes("$$") || funcNameLower.startsWith("@") || funcNameLower.startsWith("~")) {
       return false;
     }

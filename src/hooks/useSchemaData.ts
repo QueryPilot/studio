@@ -12,35 +12,32 @@ import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { useEffect } from "react";
 
-interface SchemaData {
+interface SchemaDataResult {
   tables: TableMeta[];
   views: TableMeta[];
   functions: FunctionMeta[];
-  isLoading: boolean;
-  error: string | null;
-  refresh: () => Promise<QueryObserverResult<SchemaData>>;
+  allFunctions: FunctionMeta[];
 }
 
-// System function prefixes to filter out
-const SYSTEM_FUNCTION_PREFIXES = [
-  "pg_", "pgp_", "pgsodium_", "hstore_", "json_", "jsonb_", "array_",
-  "enum_", "range_", "ts_", "txid_", "uuid_", "xml_", "inet_", "cidr_",
-  "macaddr_", "bit_", "varbit_", "bytea_", "lo_", "large_object_", "obj_",
-  "oid", "regclass", "regconfig", "regdictionary", "regnamespace",
-  "regoper", "regoperator", "regproc", "regprocedure", "regrole", "regtype",
-];
+interface SchemaData extends SchemaDataResult {
+  isLoading: boolean;
+  error: string | null;
+  refresh: () => Promise<QueryObserverResult<SchemaDataResult>>;
+}
 
 const filterUserFunctions = (functions: FunctionMeta[]): FunctionMeta[] => {
   const userFunctions = functions.filter((func) => {
+    // Skip extension functions (flagged by pg_depend + pg_extension query)
+    if (func.is_extension) {
+      return false;
+    }
+
     // Skip functions in system schemas
     if (func.schema === "pg_catalog" || func.schema === "information_schema") {
       return false;
     }
 
     const funcNameLower = func.name.toLowerCase();
-    if (SYSTEM_FUNCTION_PREFIXES.some((prefix) => funcNameLower.startsWith(prefix))) {
-      return false;
-    }
 
     // Skip aggregate functions and operators
     if (funcNameLower.includes("$$") || funcNameLower.startsWith("@") || funcNameLower.startsWith("~")) {
@@ -50,9 +47,12 @@ const filterUserFunctions = (functions: FunctionMeta[]): FunctionMeta[] => {
     return true;
   });
 
-  // Deduplicate functions based on schema and name only (ignore overloads)
+  return deduplicateFunctions(userFunctions);
+};
+
+const deduplicateFunctions = (functions: FunctionMeta[]): FunctionMeta[] => {
   const seen = new Set<string>();
-  return userFunctions.filter((func) => {
+  return functions.filter((func) => {
     const key = `${func.schema}.${func.name}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -64,7 +64,7 @@ const loadSchemaData = async (
   connectionId: string,
   database?: string,
   schema?: string,
-): Promise<SchemaData> => {
+): Promise<SchemaDataResult> => {
   if (!connectionId || !database || !schema) {
     logger.warn(`[useSchemaData] Missing required params - connectionId: ${connectionId}, database: ${database}, schema: ${schema}`);
     throw new Error("Connection ID, database, and schema are required");
@@ -89,13 +89,15 @@ const loadSchemaData = async (
     const tableList = tables.filter((t) => t.kind === "Table");
     const viewList = tables.filter((t) => t.kind === "View" || t.kind === "MaterializedView");
 
-    logger.info(`[useSchemaData] Loaded ${tableList.length} tables, ${viewList.length} views, ${functions.length} functions`);
+    const allFunctions = deduplicateFunctions(functions);
+    logger.info(`[useSchemaData] Loaded ${tableList.length} tables, ${viewList.length} views, ${allFunctions.length} functions`);
 
     return {
       tables: tableList,
       views: viewList,
       functions: filterUserFunctions(functions),
-    } as SchemaData;
+      allFunctions,
+    };
   } catch (err: unknown) {
     logger.error("Failed to load schema data:", err);
     throw new Error("Failed to load schema data");
@@ -184,6 +186,7 @@ export function useSchemaData(overrideConnectionId?: string): SchemaData {
     tables: data?.tables || [],
     views: data?.views || [],
     functions: data?.functions || [],
+    allFunctions: data?.allFunctions || [],
     isLoading,
     error: error
       ? error instanceof Error

@@ -42,6 +42,7 @@ import { nanoid } from "nanoid";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
 import { buildConnectionUri } from "@/utils/connectionParser";
 import { useSchemaData } from "@/hooks/useSchemaData";
+import { FunctionFilterDropdown } from "./FunctionFilterDropdown";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import {
   isMySQLCompatible,
@@ -254,14 +255,20 @@ export const ConnectionSection = forwardRef<
   const restartIdentityOptionId = useId();
   const cascadeOptionId = useId();
 
+  // Function filter mode: "user" (default) shows only user-created, "all" shows everything
+  const [functionFilterMode, setFunctionFilterMode] = useState<"user" | "all">("user");
+
   // Get schema data for SQL databases
   const {
     tables,
     views,
-    functions,
+    functions: userFunctions,
+    allFunctions,
     isLoading: isLoadingData,
     error: schemaError,
   } = useSchemaData(isSqlDb ? connectionId : undefined);
+
+  const functions = functionFilterMode === "all" ? allFunctions : userFunctions;
 
   // Get collections for MongoDB
   const {
@@ -2360,7 +2367,7 @@ export const ConnectionSection = forwardRef<
               )}
 
               {/* Functions Section */}
-              {nonStarredCounts.functions > 0 && (
+              {allFunctions.length > 0 && (
                 <SidebarSection
                   title="Functions"
                   count={nonStarredCounts.functions}
@@ -2371,6 +2378,12 @@ export const ConnectionSection = forwardRef<
                   stickyClass=""
                   onAdd={handleCreateFunction}
                   addTooltip="Create new function"
+                  headerExtra={
+                    <FunctionFilterDropdown
+                      value={functionFilterMode}
+                      onChange={setFunctionFilterMode}
+                    />
+                  }
                   onSelectAll={handleSelectAllFunctions}
                   onCopyAllNames={handleCopyAllFunctionNames}
                 >
@@ -2434,7 +2447,7 @@ export const ConnectionSection = forwardRef<
               {!isLoadingData &&
                 tables.length === 0 &&
                 views.length === 0 &&
-                functions.length === 0 && (
+                allFunctions.length === 0 && (
                   <div className="text-center py-4 pl-2 pr-1">
                     <p className="text-xs text-muted-foreground mb-3">
                       {schema ? "No objects found" : "Select a schema"}

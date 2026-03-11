@@ -8,6 +8,7 @@ import { sql, PostgreSQL, MySQL, SQLite, MSSQL } from "@codemirror/lang-sql";
 import { keymap } from "@codemirror/view";
 import { Prec } from "@codemirror/state";
 import { history, historyKeymap } from "@codemirror/commands";
+import { selectNextOccurrence } from "@codemirror/search";
 import { getThemeExtensions } from "@/components/CodeEditor/themes";
 import { useTheme } from "@/components/theme-provider";
 import { useCommitOnUnmount } from "@/components/DataGrid/renderers/hooks/useCommitOnUnmount";
@@ -324,6 +325,7 @@ export const ConditionCellEditor: React.FC<ConditionCellEditorProps> = ({
       sqlExtension,
       history(),
       Prec.highest(keymap.of(historyKeymap)),
+      keymap.of([{ key: "Mod-d", run: selectNextOccurrence }]),
       EditorView.lineWrapping,
       EditorView.theme({
         "&": {

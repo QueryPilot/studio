@@ -3626,12 +3626,13 @@ export const BaseDataGrid = memo(function BaseDataGrid(
           />
         </div>
       ) : enableInspector ? (
-        <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0">
-          <ResizablePanel defaultSize={inspectorDefaultOpen ? "72" : "100"} minSize="40">
+        <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0" autoSaveId="datagrid-inspector">
+          <ResizablePanel id="grid-main" defaultSize={inspectorDefaultOpen ? "72" : "100"} minSize="40">
             {gridContainer}
           </ResizablePanel>
           <ResizableHandle withHandle className={cn(!showInspector && "sr-only")} />
           <ResizablePanel
+            id="grid-inspector"
             panelRef={inspectorPanelRef}
             defaultSize={inspectorDefaultOpen ? "28" : "0"}
             minSize="20"

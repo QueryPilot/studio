@@ -36,6 +36,7 @@ import {
   searchKeymap,
   highlightSelectionMatches,
   search,
+  selectNextOccurrence,
 } from "@codemirror/search";
 import type { SqlDialect, CodeEditorLanguage } from "./types";
 import { acceptCompletion, autocompletion } from "@codemirror/autocomplete";
@@ -449,7 +450,7 @@ const createReadOnlyKeymap = (): Extension => {
     "Backspace",
     "Delete",
     "Enter",
-    "Mod-d", // Delete line
+    // Note: Mod-d is selectNextOccurrence, not blocked in read-only mode
     "Shift-Mod-k", // Delete line
     "Mod-Backspace",
     "Mod-Delete",
@@ -513,6 +514,11 @@ export const getEditorExtensions = (
 
     // Keymaps for search, folding, and history (always enabled)
     keymap.of([...searchKeymap, ...foldKeymap, ...historyKeymap]),
+
+    // Cmd/Ctrl+D at high precedence to ensure it's never shadowed
+    Prec.high(keymap.of([
+      { key: "Mod-d", run: selectNextOccurrence, preventDefault: true },
+    ])),
   ];
 
   // Add read-only keymap with highest precedence to block editing commands

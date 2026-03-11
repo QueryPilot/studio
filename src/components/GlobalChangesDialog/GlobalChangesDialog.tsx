@@ -132,7 +132,9 @@ function isSchemaChangingCommand(command: CrudCommand): boolean {
 function filterIncompleteCommands(commands: CrudCommand[]): CrudCommand[] {
   return commands.filter((cmd) => {
     if (cmd.type === "index.create") {
-      const def = (cmd.payload as { definition?: { name?: string; columns?: string[] } }).definition;
+      const def = (
+        cmd.payload as { definition?: { name?: string; columns?: string[] } }
+      ).definition;
       if (!def?.name || !def.columns?.length) return false;
     }
     return true;
@@ -1356,7 +1358,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                           "w-full text-left px-2.5 py-2 rounded-lg text-sm mb-1 transition-all duration-150",
                           selectedTableKey === null &&
                             selectedConnectionId === null
-                            ? "bg-background text-foreground shadow-sm ring-1 ring-border/40"
+                            ? "bg-background text-foreground ring-1 ring-border/40"
                             : "text-muted-foreground hover:text-foreground hover:bg-background/50",
                         )}
                         onClick={() => {
@@ -1396,7 +1398,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                                   className={cn(
                                     "w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-sm transition-all duration-150 cursor-pointer group",
                                     isConnectionSelected
-                                      ? "bg-background text-foreground shadow-sm ring-1 ring-border/40"
+                                      ? "bg-background text-foreground ring-1 ring-border/40"
                                       : "text-muted-foreground hover:text-foreground hover:bg-background/50",
                                   )}
                                   onClick={() => {
@@ -1469,7 +1471,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                                                   "w-full text-left px-2 py-1.5 rounded-md text-sm mb-px transition-all duration-150",
                                                   selectedTableKey ===
                                                     ts.tableKey
-                                                    ? "bg-background text-foreground shadow-sm ring-1 ring-border/40"
+                                                    ? "bg-background text-foreground ring-1 ring-border/40"
                                                     : "text-muted-foreground hover:text-foreground hover:bg-background/50",
                                                 )}
                                                 onClick={() => {
@@ -1538,7 +1540,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                                     className={cn(
                                       "w-full text-left px-2.5 py-2 rounded-lg text-sm mb-0.5 transition-all duration-150",
                                       selectedTableKey === ts.tableKey
-                                        ? "bg-background text-foreground shadow-sm ring-1 ring-border/40"
+                                        ? "bg-background text-foreground ring-1 ring-border/40"
                                         : "text-muted-foreground hover:text-foreground hover:bg-background/50",
                                     )}
                                     onClick={() => {

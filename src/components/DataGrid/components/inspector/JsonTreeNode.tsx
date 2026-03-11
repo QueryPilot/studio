@@ -72,6 +72,9 @@ export interface JsonTreeNodeProps {
 // Inline Primitive Editor
 // ============================================================================
 
+/** Threshold above which the editor switches from single-line input to textarea. */
+const MULTILINE_CHAR_THRESHOLD = 40;
+
 function InlinePrimitiveEditor({
   initialValue,
   onCommit,
@@ -83,12 +86,78 @@ function InlinePrimitiveEditor({
 }) {
   const [value, setValue] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const committedRef = useRef(false);
 
+  const isMultiline =
+    initialValue.length > MULTILINE_CHAR_THRESHOLD || initialValue.includes("\n");
+
   useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, []);
+    const el = isMultiline ? textareaRef.current : inputRef.current;
+    el?.focus();
+    el?.select();
+  }, [isMultiline]);
+
+  if (isMultiline) {
+    return (
+      <div className="flex-1 min-w-0">
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+          }}
+          onBlur={() => {
+            if (!committedRef.current) {
+              committedRef.current = true;
+              onCancel();
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              committedRef.current = true;
+              onCommit((e.target as HTMLTextAreaElement).value);
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              committedRef.current = true;
+              onCancel();
+            }
+          }}
+          spellCheck={false}
+          rows={Math.min(Math.max(value.split("\n").length, 2), 8)}
+          className="w-full text-xs font-mono px-1.5 py-1 rounded-md border border-input bg-background resize-y min-h-[40px] max-h-[200px] outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        />
+        <div className="flex items-center justify-end gap-1 mt-0.5">
+          <span className="text-[10px] text-muted-foreground/60 mr-auto">
+            {navigator.userAgent.includes("Mac") ? "⌘" : "Ctrl"}+Enter to save
+          </span>
+          <button
+            type="button"
+            className="text-[10px] text-muted-foreground hover:text-foreground px-1 rounded cursor-pointer"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              committedRef.current = true;
+              onCancel();
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="text-[10px] text-primary hover:text-primary/80 font-medium px-1 rounded cursor-pointer"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              committedRef.current = true;
+              onCommit(value);
+            }}
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <Input
@@ -114,7 +183,7 @@ function InlinePrimitiveEditor({
           onCancel();
         }
       }}
-      className="h-5 text-xs font-mono px-1 py-0 inline-flex w-auto min-w-[60px] max-w-[200px]"
+      className="h-5 text-xs font-mono px-1 py-0 inline-flex w-auto min-w-[60px] max-w-[400px] flex-1"
     />
   );
 }
@@ -252,10 +321,14 @@ export const JsonTreeNode = memo(function JsonTreeNode({
 
     const { display, colorClass } = renderPrimitiveValue(value);
 
+    const rawEdit = rawValueForEdit(value);
+    const isLongValue =
+      rawEdit.length > MULTILINE_CHAR_THRESHOLD || rawEdit.includes("\n");
+
     return (
       <div
         className={cn(
-          "group/line flex items-center min-h-[24px] hover:bg-muted/40 rounded-sm px-1 -mx-1",
+          "group/line flex flex-wrap items-center min-h-[24px] hover:bg-muted/40 rounded-sm px-1 -mx-1",
           hasPendingEdit && "bg-amber-50/60 dark:bg-amber-950/20",
         )}
         style={{ paddingLeft: `${indent}px` }}
@@ -268,16 +341,37 @@ export const JsonTreeNode = memo(function JsonTreeNode({
         )}
 
         {editing ? (
-          <InlinePrimitiveEditor
-            initialValue={rawValueForEdit(value)}
-            onCommit={(raw) => {
-              setEditing(false);
-              onEditPrimitive?.(path, parseLiteralValue(raw));
-            }}
-            onCancel={() => {
-              setEditing(false);
-            }}
-          />
+          isLongValue ? (
+            // Multiline editor takes its own row via basis-full
+            <>
+              <span className={cn("font-mono text-xs italic", TYPE_COLORS.null)}>
+                editing...
+              </span>
+              <div className="basis-full pl-4 pt-0.5 pb-1">
+                <InlinePrimitiveEditor
+                  initialValue={rawEdit}
+                  onCommit={(raw) => {
+                    setEditing(false);
+                    onEditPrimitive?.(path, parseLiteralValue(raw));
+                  }}
+                  onCancel={() => {
+                    setEditing(false);
+                  }}
+                />
+              </div>
+            </>
+          ) : (
+            <InlinePrimitiveEditor
+              initialValue={rawEdit}
+              onCommit={(raw) => {
+                setEditing(false);
+                onEditPrimitive?.(path, parseLiteralValue(raw));
+              }}
+              onCancel={() => {
+                setEditing(false);
+              }}
+            />
+          )
         ) : (
           <span
             className={cn(
@@ -296,9 +390,11 @@ export const JsonTreeNode = memo(function JsonTreeNode({
           </span>
         )}
 
-        <span className={cn("font-mono text-xs", TYPE_COLORS.punctuation)}>
-          {comma}
-        </span>
+        {!editing && (
+          <span className={cn("font-mono text-xs", TYPE_COLORS.punctuation)}>
+            {comma}
+          </span>
+        )}
 
         {onEditPrimitive && !editing && (
           <IconPencil className="h-3 w-3 ml-1 shrink-0 text-muted-foreground/0 group-hover/line:text-muted-foreground/50 transition-colors" />
@@ -357,13 +453,9 @@ export const JsonTreeNode = memo(function JsonTreeNode({
     setCollapsed((prev) => !prev);
   };
 
-  // Primitive editing is only for top-level fields (depth 0→1) because
-  // onCellEdit expects a top-level field key. Editing a nested primitive
-  // like "address.city" would overwrite the entire "address" object.
-  // Subtree (object/array) editing is allowed at ALL depths — the save
-  // handler in InspectorTreeView reconstructs the top-level value with
-  // the nested edit applied.
-  const childEditPrimitive = depth === 0 ? onEditPrimitive : undefined;
+  // Both primitive and subtree editing are allowed at all depths.
+  // The save handlers in InspectorTreeView reconstruct the top-level
+  // value with the nested edit applied when the path contains dots.
 
   // Is this node the one being edited via inline CodeEditor?
   const isSubtreeEditing = subtreeEditPath === path && onSubtreeSave && onSubtreeCancel;
@@ -464,7 +556,7 @@ export const JsonTreeNode = memo(function JsonTreeNode({
                 path={childPath}
                 normalizedSearch={normalizedSearch}
                 isLast={index === entries.length - 1}
-                onEditPrimitive={childEditPrimitive}
+                onEditPrimitive={onEditPrimitive}
                 onEditSubtree={onEditSubtree}
                 pendingEditPaths={pendingEditPaths}
                 onUndoEdit={onUndoEdit}

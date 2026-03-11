@@ -265,16 +265,12 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     [data],
   );
 
-  // Handle single-click drill-down for nested object/array cells
+  // Single-click on cells — no drill-down (double-click only via onCellActivated)
   const handleCellClicked = useCallback(
-    (event: GridActivationEvent) => {
-      if (data.canStepInto(event)) {
-        const cellKey = `${event.rowIndex}:${event.columnIndex}`;
-        lastDrilledCellRef.current = cellKey;
-        data.stepInto(event);
-      }
+    (_event: GridActivationEvent) => {
+      // Intentionally empty — drill-down is handled by handleCellActivated (double-click)
     },
-    [data],
+    [],
   );
 
   useEffect(() => {
